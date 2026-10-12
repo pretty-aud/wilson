@@ -287,6 +287,55 @@
   /* the two date cells: a date, or empty */
   .ui-input.rb-team-date[data-empty="true"] { color: var(--color-ink-3); }
 
+  /* ── FX3: the Team gallery (TeamGallery.jsx) — the Assets gallery's chrome
+     (rabbitFiles.css `.rb-asset-gallery` / `.rb-asset-card-*`): the kit's
+     Card, a 12px gap, the 144px picture well on the paper, the body, and the
+     foot with the row's controls. On the paper, so the raised cards read
+     inside the raised roster card. A person's picture is cropped from its top
+     third, where a face is; the initials are a name, so the sans (the
+     roster's own avatar chip says why), in the third ink as the Assets
+     initials are. */
+  .rb-team-gallery {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    padding: 16px;
+    background-color: var(--color-paper);
+  }
+  /* The picture's square corners stay inside the Card's 3px radius (the
+     focus ring is an outline, drawn outside the box, so it is not clipped). */
+  .rb-team-card { overflow: hidden; }
+  .rb-team-card-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 144px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-team-card-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
+  .rb-team-card-initials {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    color: var(--color-ink-3);
+  }
+  .rb-team-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; }
+  .rb-team-card-name,
+  .rb-team-card-role { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-team-card-name { font-weight: 600; color: var(--color-ink); }
+  .rb-team-card-role { color: var(--color-ink-2); }
+  .rb-team-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: var(--control-sm);
+    padding: 4px 4px 4px 8px;
+    border-top: 1px solid var(--color-rule);
+  }
+
   /* The two bare inputs inside a bordered wrapper (Team's search, the cloud
      roster's add-member field, Q21): the wrapper draws the field, so it
      draws the keyboard focus too. R2 finding 2: the inputs carried
