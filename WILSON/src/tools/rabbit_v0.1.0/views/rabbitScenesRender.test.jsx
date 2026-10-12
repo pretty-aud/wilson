@@ -907,6 +907,43 @@ const wordsOf = (el) => el.textContent.replace(/\s+/g, ' ').trim()
 const after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
 describe('surface 6c', () => {
+  /* FX3 (Audrey, 2026-10-11: "right below the title of the item you had a
+     color banner/bar that was the color of the status ... lets add the back
+     in"): the kit's StatusBanner, one component for every item popup — one
+     test per popup kind. */
+  for (const [kind, name, key] of [['scene', 'Lighthouse, dawn', 'scenes'], ['shot', 'The door', 'shots']]) {
+    it(`FX3: the ${kind} popup's status banner sits directly under the title, across the popup, in the row's tone, and follows the status live (a change, then an undo)`, () => {
+      const { ctx, rerender } = page()
+      if (kind === 'shot') toShots()
+      // The row's own status dot, taken before the popup repeats the name.
+      const rowDot = rowOf(name).querySelector('.ui-status-dot')
+      const dialog = kind === 'scene' ? openScenePopup(name) : openShotPopup(name)
+      const band = dialog.querySelector(':scope > .ui-dialog-band')
+      expect(band.previousElementSibling.classList.contains('ui-dialog-head')).toBe(true)
+      expect(band.nextElementSibling.classList.contains('ui-dialog-body')).toBe(true)
+      const read = () => {
+        const b = band.querySelector(':scope > .ui-status-banner')
+        return [b.dataset.status, b.dataset.tone, b.textContent, rowDot.dataset.tone]
+      }
+      expect(read()).toEqual(['final', 'success', STATUS.final.label, 'success'])
+      // The status changes (the popup's own field, the row, another user):
+      // the store's rows change, and the banner recolours with the row.
+      const relist = (rows) => {
+        const scenes = key === 'scenes' ? rows : SCENES()
+        const shots = key === 'shots' ? rows : SHOTS()
+        return { ...ctx, ...listContext({ project: ctx.project, scenes, shots, shotLists: [LIST_1], shotListItems: itemsFor(LIST_1.id, backfillItems(scenes, shots)) }) }
+      }
+      const base = key === 'scenes' ? SCENES() : SHOTS()
+      rabbit.current = relist(base.map((r) => (r.name === name ? { ...r, status: 'blocked' } : r)))
+      rerender(<ScenesView pageActive />)
+      expect(read()).toEqual(['blocked', 'danger', STATUS.blocked.label, 'danger'])
+      // Undo writes the old status back: the banner follows it.
+      rabbit.current = ctx
+      rerender(<ScenesView pageActive />)
+      expect(read()).toEqual(['final', 'success', STATUS.final.label, 'success'])
+    })
+  }
+
   it('each popup is the kit Dialog in <body>, 896px, named by its scene or shot: the glyph, name and code its title, its status the kit StatusBadge, Delete the kit danger at the footer\'s left; Escape, the backdrop and Close close it', () => {
     const { container, ctx } = page()
     // The codes the page names them by (entityNaming, as before).
@@ -925,9 +962,10 @@ describe('surface 6c', () => {
       expect(title.querySelector('.rb-scene-detail-name').textContent).toBe(name)
       expect(title.querySelector('.ui-badge.rb-scene-detail-code').textContent).toBe(code)
       expect(within(title).queryByRole('button')).toBeNull()
-      // The status, where the status-coloured rule under the header said it (R3-11).
-      const badge = dialog.querySelector('.ui-dialog-subtitle .ui-status')
+      // The status: the kit's StatusBanner under the title (FX3; a badge in it from R3-11).
+      const badge = dialog.querySelector('.ui-dialog-band > .ui-status-banner')
       expect([badge.getAttribute('data-status'), badge.textContent]).toEqual(['final', STATUS.final.label])
+      expect(dialog.querySelector('.ui-dialog-subtitle')).toBeNull()
       // Every control named — the kit's ✕ too (the old one had no name).
       expect(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' })).toBeTruthy()
       for (const b of within(dialog).getAllByRole('button')) {

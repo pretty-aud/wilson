@@ -323,6 +323,32 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     return screen.getByRole('dialog', { name })
   }
 
+  /* FX3 (Audrey, 2026-10-11: "right below the title of the item you had a
+     color banner/bar that was the color of the status ... lets add the back
+     in"): the kit's StatusBanner, one component for every item popup. */
+  it('FX3: the status banner sits directly under the title, across the popup, in the row\'s tone, and follows the status live (a change, then an undo)', () => {
+    const { ctx, rerender } = page()
+    const rowDot = screen.getByRole('combobox', { name: 'Status for Mara' }).closest('td').querySelector('.ui-status-dot')
+    const dialog = openDetail('Mara')
+    const band = dialog.querySelector(':scope > .ui-dialog-band')
+    expect(band.previousElementSibling.classList.contains('ui-dialog-head')).toBe(true)
+    expect(band.nextElementSibling.classList.contains('ui-dialog-body')).toBe(true)
+    expect(dialog.querySelector('.ui-dialog-subtitle')).toBeNull()
+    const read = () => {
+      const b = band.querySelector(':scope > .ui-status-banner')
+      return [b.dataset.status, b.dataset.tone, b.textContent, rowDot.dataset.tone]
+    }
+    expect(read()).toEqual(['approved', 'success', 'Approved', 'success'])
+    // The status changes: the banner recolours with the row.
+    rabbit.current = { ...ctx, assets: ctx.assets.map((a) => (a.id === 'a1' ? { ...a, status: 'blocked' } : a)) }
+    rerender(<ProjectAssetsView />)
+    expect(read()).toEqual(['blocked', 'danger', 'Blocked', 'danger'])
+    // Undo writes the old status back: the banner follows it.
+    rabbit.current = ctx
+    rerender(<ProjectAssetsView />)
+    expect(read()).toEqual(['approved', 'success', 'Approved', 'success'])
+  })
+
   it('New asset opens the kit Dialog in <body> at the form width, titled in sentence case; Cancel creates nothing', () => {
     const { ctx } = page({ addAsset: vi.fn() })
     fireEvent.click(screen.getByRole('button', { name: 'New asset' }))
@@ -430,9 +456,9 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     expect(dialog.style.width).toBe('1152px')
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     // The title is the editable name (R4-09), with the status as the kit's
-    // badge where the status-coloured rule under the header said it.
+    // StatusBanner across the popup under it (FX3).
     expect(within(dialog.querySelector('.ui-dialog-title')).getByRole('button', { name: 'Mara' })).toBeTruthy()
-    expect(dialog.querySelector('.ui-dialog-subtitle .ui-status').textContent).toBe('Approved')
+    expect(dialog.querySelector('.ui-dialog-band > .ui-status-banner').textContent).toBe('Approved')
     const done = within(dialog).getByRole('button', { name: 'Done' })
     expect(done.className).toContain('ui-btn')
     expect(done.getAttribute('data-variant')).toBe('primary')

@@ -16,7 +16,8 @@
 // before a reviewed batch is discarded), and `error` rendered INSIDE the
 // footer (a failed confirm used to report into the page's notice bar, under
 // the backdrop, so the button looked dead). No chrome beyond header / body /
-// footer; no motion beyond the 200ms fade in index.css.
+// footer (and, since FX3, the optional `band` between header and body: an
+// item's status under its title); no motion beyond the 200ms fade in index.css.
 //
 // F3 adds FOCUS MANAGEMENT and nothing else with it (C2 KR-5): initial focus,
 // a Tab trap on the topmost dialog, and focus returned to whatever had it
@@ -42,6 +43,11 @@ export function Dialog({
   onClose,
   width = 'form',
   subtitle = null,
+  // A band across the dialog's full width between the title row and the
+  // body (FX3, kit request FX3-KR-1): an item's StatusBanner, directly under
+  // its title. It is not in the scrolling body, so it stays under the title
+  // while the fields scroll. Nothing else draws there.
+  band = null,
   busy = false,
   error = null,
   onBeforeClose = null,
@@ -257,7 +263,7 @@ export function Dialog({
         data-width={typeof width === 'string' ? width : rest['data-width']}
         data-surface="dark"
       >
-        <div className="ui-dialog-head">
+        <div className="ui-dialog-head" data-band={band ? 'true' : undefined}>
           <div>
             <div className="ui-dialog-title">{title}</div>
             {subtitle && <div className="ui-dialog-subtitle">{subtitle}</div>}
@@ -274,6 +280,7 @@ export function Dialog({
             <X aria-hidden="true" />
           </button>
         </div>
+        {band && <div className="ui-dialog-band">{band}</div>}
         <div className="ui-dialog-body">{children}</div>
         {(footer || error) && (
           <div className="ui-dialog-foot">

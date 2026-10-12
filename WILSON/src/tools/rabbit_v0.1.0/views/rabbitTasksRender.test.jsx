@@ -98,6 +98,41 @@ function popup({ withFiles = false } = {}) {
 }
 
 describe('TaskDetailPopup, rendered', () => {
+  /* FX3 (Audrey, 2026-10-11: "right below the title of the item you had a
+     color banner/bar that was the color of the status ... lets add the back
+     in"): the kit's StatusBanner, one component for every item popup. */
+  it('FX3: the status banner sits directly under the title, across the popup, in the status field\'s tone, and follows the status live (the popup\'s own change, then an undo)', () => {
+    const updateTask = vi.fn()
+    const task = { id: 't1', title: 'Lock the script', status: 'final', priority: 'high', asset_id: null }
+    const ctxOf = (t) => ({
+      tasks: [t], assets: [], phases: [], project: { id: 'p1' }, scenes: [], shots: [], levels: [], experiences: [],
+      teamAssignments: [], managedFiles: [], updateTask, deleteTask: vi.fn(),
+      myProjectRole: 'manager', projectIsStaffed: false, activeProjectId: 'p1',
+    })
+    const { rerender } = render(<TaskDetailPopup taskId="t1" ctx={ctxOf(task)} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Lock the script' })
+    const band = dialog.querySelector(':scope > .ui-dialog-band')
+    expect(band.previousElementSibling.classList.contains('ui-dialog-head')).toBe(true)
+    expect(band.nextElementSibling.classList.contains('ui-dialog-body')).toBe(true)
+    expect(dialog.querySelector('.ui-dialog-subtitle')).toBeNull()
+    const select = within(dialog).getByRole('combobox', { name: 'Status' })
+    const read = () => {
+      const b = band.querySelector(':scope > .ui-status-banner')
+      const fieldDot = select.parentElement.querySelector('.ui-status-dot')
+      return [b.dataset.status, b.dataset.tone, b.textContent, fieldDot.dataset.tone]
+    }
+    expect(read()).toEqual(['final', 'success', 'Final', 'success'])
+    // The popup's own Status field: the write goes out, the store answers
+    // with the task, and the banner recolours.
+    fireEvent.change(select, { target: { value: 'blocked' } })
+    expect(updateTask).toHaveBeenCalledWith('t1', expect.objectContaining({ status: 'blocked' }))
+    rerender(<TaskDetailPopup taskId="t1" ctx={ctxOf({ ...task, status: 'blocked' })} onClose={() => {}} />)
+    expect(read()).toEqual(['blocked', 'danger', 'Blocked', 'danger'])
+    // Undo writes the old status back: the banner follows it.
+    rerender(<TaskDetailPopup taskId="t1" ctx={ctxOf(task)} onClose={() => {}} />)
+    expect(read()).toEqual(['final', 'success', 'Final', 'success'])
+  })
+
   it('W2: Escape in an open editor reverts it and the popup stays; the next Escape closes it', () => {
     const { updateTask, onClose } = popup()
     fireEvent.click(screen.getByRole('button', { name: 'Old words' }))

@@ -28,6 +28,29 @@ describe('Dialog', () => {
     expect(DIALOG_WIDTHS).toEqual({ confirm: 400, form: 560, reading: 720, workbench: 960 })
   })
 
+  /* FX3-KR-1: the band slot — an item's StatusBanner directly under its title,
+     across the dialog, outside the scrolling body. */
+  it('draws `band` between the title row and the body, edge to edge and out of the scroll; nothing there without one', () => {
+    const { rerender } = render(<Dialog title="Mara" onClose={() => {}} band={<div data-testid="band">FINAL</div>}>body</Dialog>)
+    const d = screen.getByRole('dialog', { name: 'Mara' })
+    const slot = screen.getByTestId('band').parentElement
+    expect(slot.className).toBe('ui-dialog-band')
+    expect(slot.parentElement).toBe(d)
+    expect(slot.previousElementSibling.className).toBe('ui-dialog-head')
+    expect(slot.nextElementSibling.className).toBe('ui-dialog-body')
+    expect(d.querySelector('.ui-dialog-body').contains(slot)).toBe(false)
+    const kit = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(kit).toMatch(/\.ui-dialog-band \{ flex-shrink: 0; \}/)
+    // With a band the title row drops its grey rule and its foot: the band's
+    // coloured line is the one line under the title (Audrey, 2026-10-11).
+    expect(d.querySelector('.ui-dialog-head').dataset.band).toBe('true')
+    expect(kit).toMatch(/\.ui-dialog-head\[data-band="true"\] \{ border-bottom: 0; padding-bottom: 0; \}/)
+    rerender(<Dialog title="Mara" onClose={() => {}}>body</Dialog>)
+    expect(d.querySelector('.ui-dialog-band')).toBeNull()
+    expect(d.querySelector('.ui-dialog-head').hasAttribute('data-band')).toBe(false)
+    expect([...d.children].map((c) => c.className)).toEqual(['ui-dialog-head', 'ui-dialog-body'])
+  })
+
   it('shows the error INSIDE the footer', () => {
     render(<Dialog title="Save" onClose={() => {}} error="Network is down">body</Dialog>)
     const alert = screen.getByRole('alert')

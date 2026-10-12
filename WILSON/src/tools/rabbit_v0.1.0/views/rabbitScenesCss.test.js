@@ -250,7 +250,9 @@ describe('a staged function is read out of the guards, and only a staged one', (
     expect(jsCode(whole)).not.toMatch(/\bfmt\(/)
     for (const name of ['SceneDetailPopup', 'ShotDetailPopup']) {
       const body = jsCode(functionText(whole, name))
-      expect(body, name).toMatch(/subtitle=\{<StatusBadge status=\{status\} \/>\}/)
+      // FX3: the kit's StatusBanner under the title (a subtitle badge before).
+      expect(body, name).toMatch(/band=\{<StatusBanner status=\{status\} \/>\}/)
+      expect(body, name).not.toMatch(/subtitle=/)
       expect(body, name).toMatch(/<StatusDot status=\{status\}/)
       expect(body, name).toMatch(/\{STATUS_OPTIONS\.map\(/)
     }

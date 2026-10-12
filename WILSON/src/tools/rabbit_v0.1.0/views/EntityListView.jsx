@@ -61,7 +61,7 @@ import {
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
-  Card, HoverActions, EmptyState, StatusDot, StatusBadge, CellSelect, statusMeta,
+  Card, HoverActions, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
 } from '../../../ui'
 import './rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -818,8 +818,8 @@ function EntityCard({ entity, item, onOpenDetail, onRequestDelete }) {
 // that popup re-made in this lane's classes. The header keeps the entity's
 // glyph and name: the name is the H2 title, read-only, and the "<Noun> name"
 // field below is still where it is edited (C1: the two stay two). The status
-// is the kit's StatusBadge, where the 3px status-coloured rule under the
-// header said it (R4-05). The kit brings the named ✕ (the old one had no
+// is the kit's StatusBanner across the popup under the title (FX3; a
+// StatusBadge from R4-05 until then). The kit brings the named ✕ (the old one had no
 // name), Escape (Q17) and the backdrop, which closed it before and still
 // does. The body keeps its two columns — RelationsPanel's sidebar, then the
 // properties — and every section, field and button in its old order: each
@@ -915,7 +915,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
               <span className="rb-ent-detail-name">{name}</span>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onClose={onClose}
           footer={(
