@@ -124,7 +124,81 @@ function certificatePhrase(c, now) {
   return { text: `certificate: renews itself (leaf until ${day(c.leafUntil)}; root until ${day(c.rootUntil)})`, tone: 'plain' };
 }
 
-function updatePhrase(u, platform) {
+// ── GW4: the outside door's certificate (design §3) ──────────────────────────
+// Said only when it is not the gateway's own leaf: the company's own PEM, or
+// the free certificate (Let's Encrypt). The warnings come from 30 days before
+// the end (amber, with the count of days and, for the free one, the reason its
+// renewal failed), red from 7 and once expired, as the inside door's own
+// certificate is warned. A free certificate that renews normally warns
+// nothing: it renews at 30 days out by itself.
+const DAY_MS = 86_400_000;
+const daysLeft = (until, now) => Math.ceil((until - now) / DAY_MS);
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+export function outsideCertificatePhrase(oc, now) {
+  if (!oc) return null;
+  if (oc.kind === 'own') {
+    if (!oc.until) return { text: 'outside certificate: your company’s own', tone: 'plain' };
+    if (oc.until <= now) return { text: `outside certificate: your company’s own expired on ${day(oc.until)}`, tone: 'red' };
+    return { text: `outside certificate: your company’s own (until ${day(oc.until)})`, tone: 'plain' };
+  }
+  if (oc.kind !== 'acme') return null;
+  switch (oc.state) {
+    case 'valid': return { text: `outside certificate: Let’s Encrypt for ${oc.name}, renews itself (until ${day(oc.notAfter)})`, tone: 'plain' };
+    case 'renewing': return { text: `outside certificate: Let’s Encrypt for ${oc.name}, renewing now (until ${day(oc.notAfter)})`, tone: 'plain' };
+    case 'issuing': return { text: `outside certificate: getting your free certificate for ${oc.name} (about a minute)`, tone: 'plain' };
+    case 'expired': return { text: `outside certificate: Let’s Encrypt for ${oc.name} expired on ${day(oc.notAfter)}`, tone: 'red' };
+    default: return oc.doorOpen
+      ? { text: `outside certificate: none yet for ${oc.name}`, tone: 'amber' }
+      : { text: `outside certificate: none yet for ${oc.name} (it is asked for when the switch is on)`, tone: 'plain' };
+  }
+}
+
+export function outsideCertificateWarning(oc, now) {
+  if (!oc) return null;
+  if (oc.kind === 'own') {
+    if (!oc.until) return null;
+    if (oc.until <= now) return { text: `the outside door’s certificate (your company’s own) expired on ${day(oc.until)}: browsers outside the office refuse it; put the new files in the gateway’s folder`, tone: 'red' };
+    const d = daysLeft(oc.until, now);
+    if (d <= 30) return { text: `the outside door’s certificate (your company’s own) expires in ${plural(d, 'day')}, on ${day(oc.until)}: put the new files in the gateway’s folder`, tone: d <= 7 ? 'red' : 'amber' };
+    return null;
+  }
+  if (oc.kind !== 'acme') return null;
+  const why = oc.failing?.reason ? ` (${oc.failing.reason})` : '';
+  if (oc.state === 'expired') return { text: `the outside door’s free certificate expired on ${day(oc.notAfter)}${why}: browsers outside the office refuse it until it renews`, tone: 'red' };
+  if ((oc.state === 'missing' || oc.state === 'failing') && oc.failing && oc.doorOpen) {
+    return { text: `the outside door has no free certificate yet${why}: browsers outside the office cannot use the gateway until it has one`, tone: 'amber' };
+  }
+  if ((oc.state === 'valid' || oc.state === 'renewing') && oc.failing && oc.notAfter) {
+    const d = daysLeft(oc.notAfter, now);
+    if (d <= 30) return { text: `the outside door’s free certificate could not be renewed${why}; it expires in ${plural(d, 'day')}, on ${day(oc.notAfter)}`, tone: d <= 7 ? 'red' : 'amber' };
+  }
+  return null;
+}
+
+/** A channel that cannot be read is said after two days of trying (a day's outage is GitHub's, not news). */
+export const CHANNEL_QUIET_MS = 48 * 3600_000;
+
+/**
+ * The release channel's trouble, in place of "up to date" (review round 2,
+ * findings 2 and 4): a version list refused or not taken says so at once; a
+ * channel that cannot be read, after CHANNEL_QUIET_MS without a good check.
+ */
+export function channelPhrase(channel, now) {
+  const f = channel?.failure;
+  if (!f) return null;
+  if (f.kind === 'refused') return { text: `updates: the latest release’s version list was refused: ${f.words}${f.version ? ` (it names ${f.version})` : ''}`, tone: 'amber' };
+  if (f.kind === 'lower') return { text: `updates: the latest release was not taken: ${f.words}; a newer release will reach this gateway`, tone: 'amber' };
+  const since = channel.lastOkAt ?? f.since;
+  if (f.kind === 'unreadable' && Number.isFinite(since) && now - since >= CHANNEL_QUIET_MS) return { text: `updates: not checked since ${day(since)}: ${f.words}`, tone: 'amber' };
+  return null;
+}
+
+function updatePhrase(u, platform, now) {
+  if (u && (!u.state || u.state === 'up_to_date')) {
+    const ch = channelPhrase(u.channel, now);
+    if (ch) return ch;
+  }
   if (!u || u.state === 'up_to_date') return { text: 'up to date', tone: 'plain' };
   if (u.state === 'available') return { text: platform === 'container' ? `${u.version} is available: pull the image` : `${u.version} is available`, tone: 'amber' };
   if (u.state === 'updating') return { text: `updating to ${u.version}`, tone: 'plain' };
@@ -149,7 +223,9 @@ export function composeHealthLine(state) {
   sep(); push(outsidePhrase({ ...(state.outside || {}), now }));
   for (const loc of state.locations || []) { sep(); for (const s of locationSegments(loc, now)) push(s); }
   sep(); push(certificatePhrase(state.certificate, now));
-  sep(); push(updatePhrase(state.update, state.platform));
+  const outsideCert = outsideCertificatePhrase(state.outsideCertificate, now);
+  if (outsideCert) { sep(); push(outsideCert); }
+  sep(); push(updatePhrase(state.update, state.platform, now));
 
   // The lines under it: the red and amber facts the admin must act on.
   const warnings = [];
@@ -159,6 +235,10 @@ export function composeHealthLine(state) {
   if (state.inside?.refusedPublic > 0) warnings.push({ text: `the office door is being reached from public addresses (${state.inside.refusedPublic} since the last sync): remove the router’s forward to port ${state.inside.port || 8443}`, tone: 'red' });
   if (state.inside?.relay) warnings.push({ text: `${state.inside.relay.viewers} people reached the office door through one address today, ${state.inside.relay.address}: a relay or proxy may be pointed at it`, tone: 'amber' });
   if (state.inside?.sentence) warnings.push({ text: state.inside.sentence, tone: 'amber' });
+  // Before the root's twelve-month notice: the sync report's expires_warning is
+  // the FIRST certificate warning, and the outside door's is the nearer one.
+  const outsideWarning = outsideCertificateWarning(state.outsideCertificate, now);
+  if (outsideWarning) warnings.push(outsideWarning);
   if (state.certificate?.rootExpiryNotice) warnings.push({ text: `the gateway’s root certificate expires on ${day(state.certificate.rootUntil)}; a new one will need installing on each office computer`, tone: 'amber' });
   if (state.certificate?.rootReplaced) warnings.push({ text: `the office network address changed to ${state.certificate.rootReplaced}, outside what the installed certificate covers: install the new certificate on each office computer (Settings, Storage)`, tone: 'red' });
   if (state.secrets && state.secrets.dpapi === false) warnings.push({ text: `secrets are protected by the folder’s permissions only (Windows data protection is unavailable: ${state.secrets.reason || 'unknown'})`, tone: 'amber' });

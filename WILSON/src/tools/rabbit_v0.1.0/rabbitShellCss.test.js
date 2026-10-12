@@ -47,6 +47,8 @@ const OWNED = [
   'Rabbit.jsx', 'components/ViewTabs.jsx', 'components/ProjectContextBar.jsx',
   'views/IntakeWizardView.jsx', 'views/intake/IntakePrepare.jsx', 'views/intake/IntakeProgress.jsx',
   'views/intake/IntakeReview.jsx', 'views/ProjectSummaryView.jsx', 'views/TeamView.jsx',
+  // FX3: the Team tab's gallery, styled in this sheet's Team section.
+  'views/TeamGallery.jsx',
 ]
 const jsx = OWNED.map((f) => jsCode(read(f))).join('\n')
 

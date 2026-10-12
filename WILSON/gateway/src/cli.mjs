@@ -129,6 +129,8 @@ async function run() {
   setTimeout(() => gw.updates.check('start').catch(() => {}), 60_000).unref();
   const daily = setTimeout(function again() { gw.updates.check('daily').catch(() => {}); setTimeout(again, 24 * 3600_000).unref(); }, randomMinuteMs());
   daily.unref();
+  // A swap the updater refused at its own check is read back while it is in flight (GW4).
+  setInterval(() => { gw.updates.refreshFailure().catch(() => {}); }, 15_000).unref();
   if (isWindows && asService) {
     setInterval(async () => {
       try { const r = await askUpdater({ type: 'smb_dialects' }); if (r?.ok) gw.smbDialects = r.dialects; } catch { /* the updater is not there */ }

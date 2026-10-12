@@ -907,6 +907,43 @@ const wordsOf = (el) => el.textContent.replace(/\s+/g, ' ').trim()
 const after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
 describe('surface 6c', () => {
+  /* FX3 (Audrey, 2026-10-11: "right below the title of the item you had a
+     color banner/bar that was the color of the status ... lets add the back
+     in"): the kit's StatusBanner, one component for every item popup — one
+     test per popup kind. */
+  for (const [kind, name, key] of [['scene', 'Lighthouse, dawn', 'scenes'], ['shot', 'The door', 'shots']]) {
+    it(`FX3: the ${kind} popup's status banner sits directly under the title, across the popup, in the row's tone, and follows the status live (a change, then an undo)`, () => {
+      const { ctx, rerender } = page()
+      if (kind === 'shot') toShots()
+      // The row's own status dot, taken before the popup repeats the name.
+      const rowDot = rowOf(name).querySelector('.ui-status-dot')
+      const dialog = kind === 'scene' ? openScenePopup(name) : openShotPopup(name)
+      const band = dialog.querySelector(':scope > .ui-dialog-band')
+      expect(band.previousElementSibling.classList.contains('ui-dialog-head')).toBe(true)
+      expect(band.nextElementSibling.classList.contains('ui-dialog-body')).toBe(true)
+      const read = () => {
+        const b = band.querySelector(':scope > .ui-status-banner')
+        return [b.dataset.status, b.dataset.tone, b.textContent, rowDot.dataset.tone]
+      }
+      expect(read()).toEqual(['final', 'success', STATUS.final.label, 'success'])
+      // The status changes (the popup's own field, the row, another user):
+      // the store's rows change, and the banner recolours with the row.
+      const relist = (rows) => {
+        const scenes = key === 'scenes' ? rows : SCENES()
+        const shots = key === 'shots' ? rows : SHOTS()
+        return { ...ctx, ...listContext({ project: ctx.project, scenes, shots, shotLists: [LIST_1], shotListItems: itemsFor(LIST_1.id, backfillItems(scenes, shots)) }) }
+      }
+      const base = key === 'scenes' ? SCENES() : SHOTS()
+      rabbit.current = relist(base.map((r) => (r.name === name ? { ...r, status: 'blocked' } : r)))
+      rerender(<ScenesView pageActive />)
+      expect(read()).toEqual(['blocked', 'danger', STATUS.blocked.label, 'danger'])
+      // Undo writes the old status back: the banner follows it.
+      rabbit.current = ctx
+      rerender(<ScenesView pageActive />)
+      expect(read()).toEqual(['final', 'success', STATUS.final.label, 'success'])
+    })
+  }
+
   it('each popup is the kit Dialog in <body>, 896px, named by its scene or shot: the glyph, name and code its title, its status the kit StatusBadge, Delete the kit danger at the footer\'s left; Escape, the backdrop and Close close it', () => {
     const { container, ctx } = page()
     // The codes the page names them by (entityNaming, as before).
@@ -925,9 +962,10 @@ describe('surface 6c', () => {
       expect(title.querySelector('.rb-scene-detail-name').textContent).toBe(name)
       expect(title.querySelector('.ui-badge.rb-scene-detail-code').textContent).toBe(code)
       expect(within(title).queryByRole('button')).toBeNull()
-      // The status, where the status-coloured rule under the header said it (R3-11).
-      const badge = dialog.querySelector('.ui-dialog-subtitle .ui-status')
+      // The status: the kit's StatusBanner under the title (FX3; a badge in it from R3-11).
+      const badge = dialog.querySelector('.ui-dialog-band > .ui-status-banner')
       expect([badge.getAttribute('data-status'), badge.textContent]).toEqual(['final', STATUS.final.label])
+      expect(dialog.querySelector('.ui-dialog-subtitle')).toBeNull()
       // Every control named — the kit's ✕ too (the old one had no name).
       expect(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' })).toBeTruthy()
       for (const b of within(dialog).getAllByRole('button')) {
@@ -1740,7 +1778,7 @@ describe('S3b step 3: the list bar', () => {
     expect(b.querySelector('.ui-status').getAttribute('data-status')).toBe('active')
     expect(b.querySelector('.rb-scene-lists-note').textContent).toBe('Never saved')
     // Set active is hidden on the active list; no button on the bar is filled.
-    expect(barControls()).toEqual(['New shot list', 'Shot lists…', 'Save', 'Save as…', 'More shot list actions'])
+    expect(barControls()).toEqual(['New shot list', 'Shot lists…', 'Save', 'Save edit as…', 'More shot list actions'])
     expect([...b.querySelectorAll('.ui-btn')].map((x) => x.getAttribute('data-variant'))).toEqual(['secondary', 'secondary', 'ghost', 'ghost'])
   })
 
@@ -1749,7 +1787,7 @@ describe('S3b step 3: the list bar', () => {
     page(TWO_LISTS())
     expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
     expect(bar().querySelector('.ui-status')).toBeNull()
-    expect(barControls()).toEqual(['Show the active list', 'New shot list', 'Shot lists…', 'Save', 'Save as…', 'Set active', 'More shot list actions'])
+    expect(barControls()).toEqual(['Show the active list', 'New shot list', 'Shot lists…', 'Save', 'Save edit as…', 'Set active', 'More shot list actions'])
     fireEvent.click(within(bar()).getByRole('button', { name: 'Active: Shoot · v1' }))
     expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
     expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
@@ -1826,7 +1864,7 @@ describe('S3b step 3: the list bar', () => {
       remember('list-b', 'u-1')
       page({ ...TWO_LISTS(), ...seat(role) })
       expect(greyed('New shot list'), role).toBeNull()
-      expect(greyed('Save as…'), role).toBeNull()
+      expect(greyed('Save edit as…'), role).toBeNull()
       expect(greyed('Set active').getAttribute('title'), role).toBe('Only a project manager or a workspace admin can make a shot list active or archive one.')
       expect(barMenu().find(([w]) => w === 'Archive'), role).toEqual(['Archive', true])
       cleanup()
@@ -1878,9 +1916,9 @@ describe('S3b step 3: the list bar', () => {
     expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
     expect(bar().querySelector('.ui-status').textContent).toBe('Withdrawn')
     expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
-    // Read-only: no Save, no Set active; Save as… may start a new list from
+    // Read-only: no Save, no Set active; Save edit as… may start a new list from
     // it, and the More menu restores it. The mark's line is still there.
-    expect(barControls()).toEqual(['Open', 'Restore', 'New shot list', 'Shot lists…', 'Save as…', 'More shot list actions'])
+    expect(barControls()).toEqual(['Open', 'Restore', 'New shot list', 'Shot lists…', 'Save edit as…', 'More shot list actions'])
     fireEvent.click(within(line).getByRole('button', { name: 'Restore' }))
     await waitFor(() => expect(ctx.restoreWithdrawn).toHaveBeenCalledTimes(1))
     // R.A.B.B.I.T. leaves the screen; then the tab unmounts.
@@ -2140,7 +2178,7 @@ describe('S3b step 4: the picker', () => {
   })
 })
 
-/* ── post-overhaul S3b, step 5: New shot list, Save as…, Edit details ───────
+/* ── post-overhaul S3b, step 5: New shot list, Save edit as…, Edit details ───────
    One kit Dialog at the form width: Title, "Same title, next version" (D14),
    Summary, and — for a new list — Start from (linked, not copied, D1 + D3). */
 const formDialog = (name) => screen.getByRole('dialog', { name })
@@ -2148,7 +2186,7 @@ const titleField = (dialog) => within(dialog).getByRole('textbox', { name: 'Titl
 const takes = (dialog) => dialog.querySelector('.rb-scene-listform-takes')
 const create = (dialog, verb) => within(dialog).getByRole('button', { name: verb })
 
-describe('S3b step 5: New shot list, Save as…, Edit details', () => {
+describe('S3b step 5: New shot list, Save edit as…, Edit details', () => {
   it('New shot list: the kit Dialog at the form width, its title the list on screen\'s, selected; off the toggle, a taken "Title · v1" is refused before anything is sent', async () => {
     const { ctx } = page(TWO_LISTS())
     fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
@@ -2204,9 +2242,9 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     await waitFor(() => expect(ctx.addShotList).toHaveBeenLastCalledWith({ title: 'Scratch', version: 1, summary: null }))
   })
 
-  it('Save as…: the same dialog, fixed to the list on screen with the toggle on — a new version of it, linked', async () => {
+  it('Save edit as…: the same dialog, fixed to the list on screen with the toggle on — a new version of it, linked', async () => {
     const { ctx } = page(TWO_LISTS())
-    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as…' }))
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save edit as…' }))
     const dialog = formDialog('Save as a new version')
     expect(dialog.querySelector('.ui-dialog-subtitle').textContent).toBe('A new list from “Shoot · v1”: the same scenes and shots, linked — not copied.')
     expect(within(dialog).getByRole('switch', { name: 'Same title, next version' }).getAttribute('aria-checked')).toBe('true')

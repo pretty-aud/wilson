@@ -1,0 +1,378 @@
+# =============================================================================
+# .github/workflows/gateway-release.yml — the WILSON file gateway's release (GW4).
+#
+# A REAL release: push the tag gateway-vX.Y.Z (walkthrough 63). A DRY RUN: push
+# gateway-vX.Y.Z-dryrun, or run this workflow by hand (Actions, Gateway release,
+# Run workflow, dry_run left ticked). Run by hand ON a tag gateway-vX.Y.Z with
+# dry_run unticked, it repeats that tag's real release (never one published).
+#
+#   plan          what this run is: real or dry, the version, the release's tag;
+#                 for a real run, that the tag is not released and its version
+#                 is above every published gateway release (asked before the
+#                 tests, the build and the approval; again before the key is
+#                 read, before the publish, and after it)
+#   tests         the gateway's own suite on Windows and Ubuntu (Node 22's npm
+#                 installs, Node 24 runs the tests)
+#   windows       the service host from source; Authenticode (D14: skipped while
+#                 no certificate secret is set); the MSI (WiX 5.0.2); the update
+#                 artefact wilson-gateway-<v>-windows-x64.tar.gz, made by
+#                 `tar --format=ustar -czf` from exactly what the MSI installs as
+#                 current\ (node.exe from the zip pinned by hash, app\), and read
+#                 back with the gateway's own tar reader
+#   container     ghcr.io/pretty-aud/wilson-gateway for amd64 and arm64 from the
+#                 base pinned by digest; a real release pushes it under the tag
+#                 <v> (no moving `stable` tag: a push comes before the approval)
+#                 and takes its digest; a dry run pushes nothing
+#   sign, sign_dry_run
+#                 stable.json written from the build's facts and signed: a real
+#                 release with the secret GATEWAY_RELEASE_SIGNING_KEY (in the
+#                 environment gateway-release; never printed), a dry run with a
+#                 throwaway pair made in the job, whose PUBLIC half it prints
+#   release       a DRAFT with every asset, made with this workflow's own token,
+#                 read back through the API and held to the manifest (sizes,
+#                 SHA-256, the signature); a real release is then published as
+#                 the latest; a dry run stays a draft pre-release named
+#                 gateway-dry-run-<run id>, for Audrey to see and delete
+#
+# Every action is GitHub's own, pinned to a commit (the same commits the
+# repository's other workflows run as @v4). Every step reports in annotations,
+# which the public API serves (a job's log needs an admin).
+# =============================================================================
+
+name: Gateway release
+
+on:
+  push:
+    tags:
+      - 'gateway-v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'A dry run: a throwaway key, a DRAFT pre-release, nothing pushed. Untick only when running ON a gateway-vX.Y.Z tag, to repeat its release.'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      dry_run: ${{ steps.plan.outputs.dry_run }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      release_name: ${{ steps.plan.outputs.release_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: What this run is
+        id: plan
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: node WILSON/gateway/pipeline/cli.mjs plan
+      - name: Not released yet, and above every published gateway release (a real run)
+        if: steps.plan.outputs.dry_run == 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: node WILSON/gateway/pipeline/cli.mjs check-release
+
+  tests:
+    name: Gateway tests (${{ matrix.os }})
+    needs: plan
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # The lockfile is kept with npm 10 (POST_OVERHAUL_PLAN §4.7): install on
+      # Node 22's npm, test on Node 24 (GW2's trap 3).
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: WILSON/package-lock.json
+      - name: Install dependencies (vitest)
+        shell: bash
+        run: |
+          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm.log"; s=${PIPESTATUS[0]}
+          if [ "$s" -ne 0 ]; then tail -25 "$RUNNER_TEMP/npm.log" | sed 's/^/::error::npm ci: /'; exit "$s"; fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: The gateway's tests (Node 24)
+        shell: bash
+        run: |
+          node --version
+          openssl version
+          npx vitest run gateway
+
+  windows:
+    name: Windows (the MSI and the update artefact)
+    needs: [plan, tests]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      AUTHENTICODE_SET: ${{ secrets.GATEWAY_AUTHENTICODE_PFX != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '8.0.x'
+      - name: Stamp the version
+        shell: bash
+        run: node WILSON/gateway/pipeline/cli.mjs stamp "$VERSION"
+      - name: The service host, from source (csc.exe)
+        shell: pwsh
+        run: '& WILSON/gateway/windows/host/build.ps1 -Out (Join-Path $env:RUNNER_TEMP "host")'
+      - name: Authenticode, the host (D14, skipped while no certificate secret is set)
+        if: env.AUTHENTICODE_SET == 'true'
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.GATEWAY_AUTHENTICODE_PFX }}
+          PFX_PASSWORD: ${{ secrets.GATEWAY_AUTHENTICODE_PASSWORD }}
+        run: '& WILSON/gateway/windows/sign.ps1 -Files (Join-Path $env:RUNNER_TEMP "host\WilsonGatewayHost.exe")'
+      - name: Unsigned (D14)
+        if: env.AUTHENTICODE_SET != 'true'
+        shell: bash
+        run: echo "::notice title=Unsigned (D14)::No Authenticode certificate is set (GATEWAY_AUTHENTICODE_PFX), so the host and the MSI are not signed and Windows SmartScreen warns, as the install story says."
+      - name: The MSI (WiX 5.0.2)
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gw'
+          $logFile = Join-Path $env:RUNNER_TEMP 'msi.log'
+          try {
+            & WILSON/gateway/windows/wix/build.ps1 -Out $out -HostExe (Join-Path $env:RUNNER_TEMP 'host\WilsonGatewayHost.exe') *>&1 | Tee-Object -FilePath $logFile
+          } catch {
+            if (Test-Path $logFile) { Get-Content $logFile -Tail 25 | ForEach-Object { "::error::msi: $_" } }
+            "::error::msi: $($_.Exception.Message)"
+            exit 1
+          }
+      - name: Authenticode, the MSI (D14, skipped while no certificate secret is set)
+        if: env.AUTHENTICODE_SET == 'true'
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.GATEWAY_AUTHENTICODE_PFX }}
+          PFX_PASSWORD: ${{ secrets.GATEWAY_AUTHENTICODE_PASSWORD }}
+        run: '& WILSON/gateway/windows/sign.ps1 -Files (Join-Path $env:RUNNER_TEMP "gw\WILSON Gateway Setup.msi")'
+      - name: The update artefact (tar --format=ustar -czf, laid out as current\)
+        shell: bash
+        run: |
+          set -euo pipefail
+          T=$(cygpath -u "$RUNNER_TEMP")
+          STAGE="$T/gw/stage/current"
+          mkdir -p "$T/release"
+          ART="wilson-gateway-$VERSION-windows-x64.tar.gz"
+          tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$(git log -1 --format=%ct)" -czf "$T/release/$ART" -C "$STAGE" node.exe app
+          node WILSON/gateway/pipeline/cli.mjs check-artefact "$RUNNER_TEMP/release/$ART" "$VERSION" "$RUNNER_TEMP/gw/stage/current/node.exe"
+          cp "$T/gw/WILSON Gateway Setup.msi" "$T/release/WILSON-Gateway-Setup-$VERSION.msi"
+          ls -la "$T/release"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gateway-windows
+          path: ${{ runner.temp }}/release/
+          retention-days: 7
+          if-no-files-found: error
+
+  container:
+    name: Container (amd64 and arm64)
+    needs: [plan, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      DRY_RUN: ${{ needs.plan.outputs.dry_run }}
+      IMAGE: ghcr.io/pretty-aud/wilson-gateway
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: Stamp the version
+        run: node WILSON/gateway/pipeline/cli.mjs stamp "$VERSION"
+      - name: The base is pinned by digest
+        run: |
+          grep -Eq '^FROM gcr\.io/distroless/nodejs24-debian12:nonroot@sha256:[0-9a-f]{64}$' WILSON/gateway/container/Dockerfile || { echo '::error::the Dockerfile base is not pinned by digest'; exit 1; }
+      - name: A builder for two architectures (the Dockerfile has no RUN step, so no emulation)
+        run: docker buildx create --name gw --driver docker-container --use && docker buildx inspect --bootstrap >/dev/null
+      - name: Sign in to GitHub's registry (a real release only)
+        if: env.DRY_RUN == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+      - name: Build (a real release pushes it, tagged with its version; a dry run keeps the image in a file)
+        run: |
+          set -euo pipefail
+          args=(--platform linux/amd64,linux/arm64 --provenance=false --sbom=false
+            --label "org.opencontainers.image.version=$VERSION"
+            --label "org.opencontainers.image.revision=$GITHUB_SHA"
+            --metadata-file "$RUNNER_TEMP/meta.json"
+            -f WILSON/gateway/container/Dockerfile)
+          if [ "$DRY_RUN" = false ]; then args+=(--tag "$IMAGE:$VERSION" --push)
+          else args+=(--output "type=oci,dest=$RUNNER_TEMP/image.oci.tar"); fi
+          docker buildx build "${args[@]}" WILSON/gateway
+          if [ -f "$RUNNER_TEMP/image.oci.tar" ]; then tar -xOf "$RUNNER_TEMP/image.oci.tar" index.json > "$RUNNER_TEMP/index.json"; fi
+      - name: The image's digest
+        id: digest
+        run: node WILSON/gateway/pipeline/cli.mjs container-digest "$RUNNER_TEMP/meta.json" "$RUNNER_TEMP/index.json"
+      - name: The registry holds that digest (a real release only)
+        if: env.DRY_RUN == 'false'
+        run: docker buildx imagetools inspect "$IMAGE@${{ steps.digest.outputs.digest }}"
+      - name: The image says its version (amd64)
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 --load -t wilson-gateway:release-check -f WILSON/gateway/container/Dockerfile WILSON/gateway
+          said=$(docker run --rm wilson-gateway:release-check version)
+          echo "$said"
+          case "$said" in "wilson-gateway $VERSION "*) ;; *) echo "::error::the image says: $said"; exit 1 ;; esac
+
+  sign_dry_run:
+    name: Sign (a dry run, a throwaway key)
+    if: needs.plan.outputs.dry_run == 'true'
+    needs: [plan, windows, container]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      public_key: ${{ steps.sign.outputs.public_key }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      DIGEST: ${{ needs.container.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-windows
+          path: ${{ runner.temp }}/release
+      - name: stable.json, from the build's facts
+        run: node WILSON/gateway/pipeline/cli.mjs manifest --version "$VERSION" --tag "$TAG" --artefact "$RUNNER_TEMP/release/wilson-gateway-$VERSION-windows-x64.tar.gz" --digest "$DIGEST" --out "$RUNNER_TEMP/release/stable.json"
+      - name: Signed with a throwaway pair made here (its public half is printed)
+        id: sign
+        run: node WILSON/gateway/pipeline/cli.mjs sign --manifest "$RUNNER_TEMP/release/stable.json" --out "$RUNNER_TEMP/release/stable.json.sig" --dry-run
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gateway-signed
+          path: |
+            ${{ runner.temp }}/release/stable.json
+            ${{ runner.temp }}/release/stable.json.sig
+          retention-days: 1 # a signed list from a run that fails later is not left for a week
+          if-no-files-found: error
+
+  sign:
+    name: Sign (the release key)
+    if: needs.plan.outputs.dry_run == 'false'
+    needs: [plan, windows, container]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The signing key's own environment: give it required reviewers and the tag
+    # rule gateway-v* in Settings, Environments (the hardening guide), and no
+    # run reads the key without Audrey's click.
+    environment: gateway-release
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      DIGEST: ${{ needs.container.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-windows
+          path: ${{ runner.temp }}/release
+      - name: stable.json, from the build's facts
+        run: node WILSON/gateway/pipeline/cli.mjs manifest --version "$VERSION" --tag "$TAG" --artefact "$RUNNER_TEMP/release/wilson-gateway-$VERSION-windows-x64.tar.gz" --digest "$DIGEST" --out "$RUNNER_TEMP/release/stable.json"
+      - name: Still not released, and still above every published gateway release (before the key is read)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node WILSON/gateway/pipeline/cli.mjs check-release
+      - name: Signed with the release key (the secret is never printed)
+        env:
+          GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.GATEWAY_RELEASE_SIGNING_KEY }}
+        run: node WILSON/gateway/pipeline/cli.mjs sign --manifest "$RUNNER_TEMP/release/stable.json" --out "$RUNNER_TEMP/release/stable.json.sig"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gateway-signed
+          path: |
+            ${{ runner.temp }}/release/stable.json
+            ${{ runner.temp }}/release/stable.json.sig
+          retention-days: 1 # a signed list from a run that fails later is not left for a week
+          if-no-files-found: error
+
+  release:
+    name: Release (a draft, read back, then published if real)
+    needs: [plan, windows, container, sign, sign_dry_run]
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success' && needs.windows.result == 'success'
+      && needs.container.result == 'success'
+      && (needs.sign.result == 'success' || needs.sign_dry_run.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-windows
+          path: ${{ runner.temp }}/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-signed
+          path: ${{ runner.temp }}/release
+      - name: A draft with every asset, read back through the API, published only if real
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ needs.plan.outputs.dry_run }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_NAME: ${{ needs.plan.outputs.release_name }}
+          PUBLIC_KEY: ${{ needs.sign_dry_run.outputs.public_key }}
+        run: node WILSON/gateway/pipeline/cli.mjs github-release --dir "$RUNNER_TEMP/release"

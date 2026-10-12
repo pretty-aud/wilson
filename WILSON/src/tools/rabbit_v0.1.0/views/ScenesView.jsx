@@ -38,7 +38,7 @@ import { v4 as uuidv4 } from 'uuid'
 // kit Dialog in <body>.
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
-  StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+  StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
   SectionTitle,
 } from '../../../ui'
 import './rabbitScenes.css'
@@ -3181,8 +3181,8 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 // window. The header keeps the scene's glyph, its name and its code: the name
 // is the H2 title, read-only — the "Scene name" field below is still where it
 // is edited (C1: the two stay two) — and names the Dialog. The status is the
-// kit's StatusBadge, where the 3px status-coloured rule under the header said
-// it (R3-11). The kit brings the named ✕ (the old one had no name), Escape
+// kit's StatusBanner across the popup under the title (FX3; it was a
+// StatusBadge from R3-11 until then). The kit brings the named ✕ (the old one had no name), Escape
 // (Q17) and the backdrop, which closed it before and still does. The body
 // keeps its two columns — RelationsPanel's sidebar, then the properties — and
 // every section, field and button in its old order.
@@ -3341,7 +3341,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
               <Badge className="rb-scene-detail-code">{sceneCode}</Badge>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onBeforeClose={requestClose}
           onClose={onClose}
@@ -3839,7 +3839,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
               <Badge className="rb-scene-detail-code">{shotCode}</Badge>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onBeforeClose={requestClose}
           onClose={onClose}
