@@ -1267,3 +1267,52 @@ describe('S3c step 7: what would take the draft off screen asks first', () => {
     expect(log.leave).toEqual([])
   })
 })
+
+// Post-overhaul FX1 (Audrey, 2026-10-11): an edit's cut draws a shot's frame
+// count with the shot table's number field — its own chevrons, five figures
+// and an ellipsis while unfocused — and the cut's write is the one it was:
+// the shot's own field, live in every list (D3), and nothing at all for a
+// seat that cannot write.
+describe('FX1: the cut\'s frame count is the number field', () => {
+  const BIG = () => SHOTS().map((s) => (s.id === 'sh3' ? { ...s, frame_count: 123456 } : s))
+  const shownBy = (el) => {
+    const wrap = el.closest('.rb-scene-number')
+    return wrap.getAttribute('data-capped') === 'true' ? wrap.querySelector(':scope > .rb-scene-number-cap').textContent : el.value
+  }
+  it('a six-digit count reads five figures and an ellipsis at rest and the whole figure focused; its chevrons write the shot, as typing does', () => {
+    const { ctx } = page({ shots: BIG() })
+    pickEdit('edit-1')
+    const el = screen.getByRole('spinbutton', { name: 'Frames for The climb (cut 1)' })
+    expect([shownBy(el), el.value, el.title]).toEqual(['12345…', '123456', '123456'])
+    // The tables' sizing (R1-06): 76px, right-aligned, as the shot table's.
+    expect(el.closest('.rb-scene-number').classList.contains('rb-scene-frames')).toBe(true)
+    act(() => el.focus())
+    expect(shownBy(el)).toBe('123456')
+    act(() => el.blur())
+    fireEvent.click(screen.getByRole('button', { name: 'Increase Frames for The climb (cut 1)' }))
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh3', { frame_count: 123457 })
+    // The door plays twice in this cut: each row's field is the one shot's.
+    fireEvent.click(screen.getByRole('button', { name: 'Decrease Frames for The door (cut 3)' }))
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { frame_count: 239 })
+    // No edit question: a shot's own fields are not the cut's order (D3, D13).
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('R2-02: a zero in the cut steps no lower and writes nothing (the cut\'s min); it steps up', () => {
+    const { ctx } = page({ shots: SHOTS().map((s) => (s.id === 'sh2' ? { ...s, frame_count: 0 } : s)) })
+    pickEdit('edit-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Decrease Frames for The cold lamp (cut 5)' }))
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Increase Frames for The cold lamp (cut 5)' }))
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh2', { frame_count: 1 })
+  })
+  it('a reviewer\'s cut has disabled fields with no chevrons, the six-digit count still capped; a change that reaches one (jsdom fires it) writes nothing', () => {
+    perms.current = { role: 'user', ready: true, can: () => false, userId: 'u-1' }
+    const { ctx } = page({ shots: BIG(), adapterMode: 'supabase', myProjectRole: 'reviewer', projectIsStaffed: true })
+    pickEdit('edit-1')
+    const el = screen.getByRole('spinbutton', { name: 'Frames for The climb (cut 1)' })
+    expect([el.disabled, shownBy(el)]).toEqual([true, '12345…'])
+    expect(screen.queryByRole('button', { name: 'Increase Frames for The climb (cut 1)' })).toBeNull()
+    fireEvent.change(el, { target: { value: '12' } })
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+  })
+})

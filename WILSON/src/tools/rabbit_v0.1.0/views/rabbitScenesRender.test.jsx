@@ -3538,3 +3538,115 @@ describe('the Scenes tab\'s takes on the cloud: the Bins gate (BC2, B6)', () => 
     expect(within(dialog.querySelector('.rb-scene-detail-takes')).queryByRole('button', { name: /Add takes/ })).toBeNull()
   })
 })
+
+// Post-overhaul FX1 (Audrey, 2026-10-11: "the chevrons are covering up the
+// numbers … after 5 digits, add ellipsis"): every number field of the shot
+// rows and the popups is NumberField — its own chevrons, five figures and an
+// ellipsis while unfocused, the whole figure focused and in its title — and
+// every write is the one it was (scenes/NumberField.test.jsx has the field
+// on its own; scenesEdits.test.jsx has an edit's cut).
+describe('FX1: the number fields of the shot rows and the popups', () => {
+  const BIG = () => SHOTS().map((s) => (s.id === 'sh1' ? { ...s, frame_count: 123456 } : s))
+  const capOf = (el) => el.closest('.rb-scene-number').querySelector(':scope > .rb-scene-number-cap')
+  /** What a field shows: the cap's words while capped, else its own value. */
+  const shownBy = (el) => (el.closest('.rb-scene-number').getAttribute('data-capped') === 'true' ? capOf(el).textContent : el.value)
+  const step = (root, dir, name) => fireEvent.click(within(root).getByRole('button', { name: `${dir} ${name}` }))
+
+  it('the nest and the shot table: a six-digit frame count reads five figures and an ellipsis at rest, the whole figure focused and in the title; its chevrons write what the field did', () => {
+    const { ctx } = page({ shots: BIG() })
+    openScene('Lighthouse, dawn')
+    let el = within(rowOf('The door')).getByRole('spinbutton', { name: 'Frames for The door' })
+    expect([shownBy(el), el.value, el.title]).toEqual(['12345…', '123456', '123456'])
+    act(() => el.focus())
+    expect(shownBy(el)).toBe('123456')
+    act(() => el.blur())
+    expect(shownBy(el)).toBe('12345…')
+    // A field of five figures or fewer is drawn whole, with no title.
+    const lamp = within(rowOf('The cold lamp')).getByRole('spinbutton', { name: 'Frames for The cold lamp' })
+    expect([shownBy(lamp), lamp.getAttribute('title')]).toEqual(['0', null])
+    step(rowOf('The door'), 'Increase', 'Frames for The door')
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { frame_count: 123457 })
+    toShots()
+    el = within(rowOf('The door')).getByRole('spinbutton', { name: 'Frames for The door' })
+    expect([shownBy(el), el.title]).toEqual(['12345…', '123456'])
+    step(rowOf('The door'), 'Decrease', 'Frames for The door')
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { frame_count: 123455 })
+    // Typing is the caller's, as before: seven figures reach the write whole.
+    fireEvent.change(el, { target: { value: '1234567' } })
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { frame_count: 1234567 })
+    // A zero at min steps no lower and writes nothing.
+    const calls = ctx.updateShot.mock.calls.length
+    step(rowOf('The cold lamp'), 'Decrease', 'Frames for The cold lamp')
+    expect(ctx.updateShot.mock.calls.length).toBe(calls)
+  })
+
+  it('the popups: the shot\'s Frame count and Shot number and the scene\'s Scene number are the same field, their writes the popups\' own', () => {
+    const { ctx } = page({ shots: BIG() })
+    let dialog = openShotPopup()
+    const frames = within(dialog).getByRole('spinbutton', { name: 'Frame count' })
+    expect([shownBy(frames), frames.title]).toEqual(['12345…', '123456'])
+    act(() => frames.focus())
+    expect(shownBy(frames)).toBe('123456')
+    act(() => frames.blur())
+    step(dialog, 'Increase', 'Frame count')
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { frame_count: 123457 })
+    step(dialog, 'Decrease', 'Shot number')
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh1', { shot_number: 9 })
+    escape()
+    // Back to the scene table (the shot popup was opened from Shots).
+    fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    dialog = openScenePopup()
+    expect(shownBy(within(dialog).getByRole('spinbutton', { name: 'Scene number' }))).toBe('1')
+    step(dialog, 'Increase', 'Scene number')
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { scene_number: 2 })
+  })
+
+  it('a scene number at zero steps no lower: the popup refuses the -1 the chevron offers and writes nothing, as it did the browser\'s', () => {
+    const { ctx } = page({ scenes: SCENES().map((s) => (s.id === 'sc1' ? { ...s, scene_number: 0 } : s)) })
+    const dialog = openScenePopup()
+    step(dialog, 'Decrease', 'Scene number')
+    expect(ctx.updateScene).not.toHaveBeenCalled()
+    expect(within(dialog).getByRole('spinbutton', { name: 'Scene number' }).value).toBe('0')
+  })
+
+  it('R2-02: a zero steps no lower and writes nothing in the nest and in the shot popup\'s Frame count, as in the shot table (each call site\'s min)', () => {
+    const { ctx } = page()
+    openScene('Lighthouse, dawn')
+    step(rowOf('The cold lamp'), 'Decrease', 'Frames for The cold lamp')
+    const dialog = openShotPopup('The cold lamp')
+    step(dialog, 'Decrease', 'Frame count')
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+    // CONTROL: the same field steps up from its zero.
+    step(dialog, 'Increase', 'Frame count')
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh2', { frame_count: 1 })
+  })
+
+  it('R1-06: the tables\' fields wear the tables\' sizing (rb-scene-frames: 76px, right-aligned) and the popups\' fields do not', () => {
+    page({ shots: BIG() })
+    const variantOf = (el) => el.closest('.rb-scene-number').classList.contains('rb-scene-frames')
+    openScene('Lighthouse, dawn')
+    expect(['The door', 'The cold lamp'].map((n) => variantOf(within(rowOf(n)).getByRole('spinbutton', { name: `Frames for ${n}` })))).toEqual([true, true])
+    toShots()
+    expect(['The door', 'The cold lamp'].map((n) => variantOf(within(rowOf(n)).getByRole('spinbutton', { name: `Frames for ${n}` })))).toEqual([true, true])
+    let dialog = openShotPopup()
+    expect(['Shot number', 'Frame count'].map((name) => variantOf(within(dialog).getByRole('spinbutton', { name })))).toEqual([false, false])
+    escape()
+    fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    dialog = openScenePopup()
+    expect(variantOf(within(dialog).getByRole('spinbutton', { name: 'Scene number' }))).toBe(false)
+  })
+
+  it('a reviewer\'s fields are disabled with no chevrons, and a six-digit figure still reads five figures and an ellipsis', () => {
+    const { ctx } = page({ shots: BIG(), ...seat('reviewer') })
+    openScene('Lighthouse, dawn')
+    const el = within(rowOf('The door')).getByRole('spinbutton', { name: 'Frames for The door' })
+    expect([el.disabled, shownBy(el)]).toEqual([true, '12345…'])
+    expect(within(rowOf('The door')).queryByRole('button', { name: 'Increase Frames for The door' })).toBeNull()
+    const dialog = openShotPopup()
+    for (const name of ['Shot number', 'Frame count']) {
+      expect(within(dialog).getByRole('spinbutton', { name }).disabled, name).toBe(true)
+      expect(within(dialog).queryByRole('button', { name: `Increase ${name}` }), name).toBeNull()
+    }
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+  })
+})
