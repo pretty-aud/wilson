@@ -82,6 +82,7 @@ holder.projectId = PROJECT_ID
 const { RabbitProvider, useRabbit } = await import('../state/RabbitProvider')
 const { default: TimelineView, loadRabbitSettings } = await import('./TimelineView.jsx')
 const { default: UndoToast } = await import('../components/UndoToast')
+const { default: ProjectContextBar } = await import('../components/ProjectContextBar')
 const { versionOptionLabel, LOCKED_WHY } = await import('./budget/BidVersions')
 const { versionDate } = await import('./budget/VersionQuestions')
 const { versionView } = await import('./timelineVersionView')
@@ -102,11 +103,13 @@ const STEP_RUNNING = 'A bid version step is still running: the Timeline takes ch
 let ctx = null
 let fx = null
 
-function Harness({ canSeeMoney, pageActive, showTimeline }) {
+function Harness({ canSeeMoney, pageActive, showTimeline, withTitle = false }) {
   ctx = useRabbit()
   if (!ctx?.project) return null
   return (
     <>
+      {/* FX7: the project title bar above the Timeline, as Rabbit.jsx stacks them. */}
+      {withTitle && <ProjectContextBar />}
       {showTimeline && <TimelineView settings={SETTINGS} patchSettings={() => {}} holidays={HOLIDAYS} pageActive={pageActive} canSeeMoney={canSeeMoney} />}
       <UndoToast />
     </>
@@ -210,6 +213,66 @@ describe('FX3: the bar is the Timeline\'s first row, every S5d control and state
     // The rates the bar's words and saves use are read past the money gate (F10).
     expect(holder.cardCalls).toBeGreaterThan(0)
     expect(holder.overrideCalls).toBeGreaterThan(0)
+  })
+})
+
+/* FX7 (Audrey, 2026-10-12, her screenshot of the two rows: "bid ver and
+   project should be same sizing and color. if anything project should stand
+   out more. lets remove the folder icon before the word project"). The two
+   rows as Rabbit.jsx stacks them, the title bar over the Timeline: PROJECT
+   and "Bid ver." are one class — the kit's label, so one size, weight, case
+   and ink — each first on its row with nothing before it, each followed by
+   its value; the bar's every control and state as S5d left them. The column
+   both labels sit in (one width, one gap) is rabbitTimelineCss.test.js's. */
+describe('FX7: PROJECT and "Bid ver." are one label in one column, the project\'s name a step above the version\'s value', () => {
+  const rows = () => {
+    const title = document.querySelector('.ui-toolbar.rb-ctx')
+    const left = title.querySelector(':scope > .ui-toolbar-slot:first-child')
+    return { title, left, project: left.firstElementChild, version: bar().firstElementChild }
+  }
+  const labelsIn = (mode) => {
+    const { title, left, project, version } = rows()
+    // The title bar comes first, the bar right under it.
+    expect(!!(title.compareDocumentPosition(bar()) & Node.DOCUMENT_POSITION_FOLLOWING), mode).toBe(true)
+    expect([project, version].map(l => [l.tagName.toLowerCase(), l.getAttribute('class'), l.textContent]), mode)
+      .toEqual([['span', 'ui-field-label', 'Project'], ['span', 'ui-field-label', 'Bid ver.']])
+    // No icon before PROJECT, nor anywhere on its side of the row.
+    expect(left.querySelector('svg'), mode).toBeNull()
+    // Each label's value right after it: the project's name at the Title
+    // step (600), the dropdown (the kit input, 400).
+    expect(project.nextElementSibling.getAttribute('class'), mode).toBe('rb-ctx-title text-h3')
+    expect(project.nextElementSibling.textContent, mode).toBe('Salt Hours')
+    expect(version.nextElementSibling, mode).toBe(combo())
+    expect([...combo().classList], mode).toEqual(expect.arrayContaining(['ui-input', 'rb-tl-ver-select']))
+  }
+  it('in every mode of the bar — locked, bidding, viewing, a version open and changed — with every verb S5d gave each', async () => {
+    await mount({ withTitle: true })
+    labelsIn('locked')
+    expect([bar().dataset.mode, combo().disabled, words(), verbs()]).toEqual(['locked', true, LOCKED_WHY, ['Save as new version…']])
+    await reset()
+    labelsIn('bidding')
+    expect([bar().dataset.mode, combo().disabled, words(), verbs()]).toEqual(['current', false, 'No version is open.', ['Save as new version…']])
+    await choose(BV1)
+    labelsIn('viewing')
+    expect([bar().dataset.mode, verbs()]).toEqual(['viewing', ['Edit this version', 'Current']])
+    expect(words()).toMatch(/^Viewing bid version: /)
+    await press(verb('Current'))
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    labelsIn('open')
+    expect([bar().dataset.mode, verbs()]).toEqual(['current', ['Save', 'Save as new version…']])
+    expect(words()).toMatch(new RegExp(`^Open: ${V1.replace(/[()]/g, '\\$&')} · Saved `))
+    const t3 = ctx.tasks.find(t => t.id === TASK_ID(3))
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: Number(t3.bid_days) + 1 }))
+    labelsIn('changed')
+    expect(words()).toBe(`Open: ${V1} · Unsaved changes`)
+    expect(verb('Save').getAttribute('data-attention')).toBe('true')
+    expect(bar().querySelector('.ui-btn-attention')?.textContent).toBe('Unsaved')
+  })
+  it('CONTROL: the title bar is not drawn without the flag, so the checks above read the rows FX7 stacks', async () => {
+    await mount()
+    expect(document.querySelector('.ui-toolbar.rb-ctx')).toBeNull()
+    expect(bar().firstElementChild.getAttribute('class')).toBe('ui-field-label')
   })
 })
 

@@ -1238,3 +1238,84 @@ describe('S5d: the bid version bar takes the kit\'s own idioms', () => {
     expect(banner.filter((r) => /nowrap|text-overflow/.test(r))).toEqual([])
   })
 })
+
+/* ── Post-overhaul FX7: PROJECT and "Bid ver." in one column ─────────────── */
+// Audrey, 2026-10-12, her screenshot of the two rows: "bid ver and project
+// should be same sizing and color. if anything project should stand out
+// more. lets remove the folder icon before the word project". Both labels
+// wear the kit's `ui-field-label` (timelineVersions.test.jsx renders the two
+// rows; ProjectContextBar.test.jsx the title bar alone). Here, the CSS that
+// makes them one: the kit's one rule decides their size, weight, tracking,
+// case and ink, no lane rule touches those; both rows start on the gutter;
+// both labels take the same width and keep the same 8px to their value, so
+// the project's name and the dropdown start at one x (MEASURED in Chromium,
+// scripts/fx7-shots.mjs: both at 88 at 1440 and 1280, in every mode).
+describe('FX7: PROJECT and "Bid ver." in one column, in the kit label\'s one size and ink', () => {
+  const shell = read('../rabbitShell.css')
+  /** Every rule, in a sheet, whose target is the kit label. */
+  const labelRules = (css) => rulesOf(css).flatMap(({ sel, body }) => selectorsOf(sel)
+    .filter((s) => /\.ui-field-label(?![\w-])/.test(lastCompound(s))).map((s) => ({ sel: s.trim(), body })))
+  const minWidth = (body) => Number((body.match(/(?:^|;)\s*min-width:\s*(\d+(?:\.\d+)?)px\s*(?:;|$)/) || [])[1] ?? NaN)
+  /** The column as the two sheets write it: each lane's label rules, their widths, every property they set. */
+  const column = (shellCss, tlCss) => {
+    const title = labelRules(shellCss)
+    const bar = labelRules(tlCss)
+    return {
+      selectors: [title.map((r) => r.sel), bar.map((r) => r.sel)],
+      widths: [title, bar].map((rs) => (rs.length === 1 ? minWidth(rs[0].body) : NaN)),
+      props: [...title, ...bar].flatMap((r) => propsOf(r.body)),
+    }
+  }
+  const decls = (css, selector) => rulesOf(css).filter(({ sel }) => selectorsOf(sel).map((s) => s.trim()).includes(selector)).map(({ body }) => body).join('\n')
+  // The wider label, MEASURED (Geist, the Label step at 600, 0.06em): PROJECT
+  // 55.4px, BID VER. 50.5px.
+  const WIDEST = 55.4
+  it('one width: the title bar\'s label and the bar\'s take the same min-width, on the 4px grid, wide enough for PROJECT', () => {
+    const c = column(shell, sheet)
+    expect(c.selectors).toEqual([['.rb-ctx .ui-field-label'], ['.rb-tl-ver-bar > .ui-field-label']])
+    expect(c.widths[0]).toBe(c.widths[1])
+    expect(c.widths[0]).toBeGreaterThanOrEqual(WIDEST)
+    expect(c.widths[0] % 4).toBe(0)
+  })
+  it('only the width: no lane rule sets the label\'s size, weight, tracking, case or ink — the kit\'s one rule does, for both', () => {
+    expect(column(shell, sheet).props).toEqual(['min-width', 'min-width'])
+    const kit = decls(indexCss, '.ui-field-label')
+    for (const p of [/font-size: var\(--text-label\);/, /font-weight: 600;/, /letter-spacing: 0\.06em;/, /text-transform: uppercase;/, /color: var\(--color-ink-2\);/, /flex-shrink: 0;/]) expect(kit).toMatch(p)
+  })
+  it('one left edge and one gap: both rows start on the gutter, and each keeps 8px between its label and its value', () => {
+    expect(decls(indexCss, '.ui-toolbar')).toMatch(/padding: 0 var\(--spacing-gutter\);/)
+    expect(decls(indexCss, '.ui-toolbar-slot')).toMatch(/gap: 8px;/)
+    expect(decls(sheet, '.rb-tl-ver-bar')).toMatch(/padding: 4px var\(--spacing-gutter\);/)
+    expect(decls(sheet, '.rb-tl-ver-bar')).toMatch(/gap: 8px;/)
+  })
+  it('the project\'s name a step above the version\'s value: the Title step at 600 against the kit input\'s Dense at 400, and nothing lifts the dropdown', () => {
+    expect(read('../components/ProjectContextBar.jsx')).toContain('<span className="rb-ctx-title text-h3">')
+    expect(indexCss).toMatch(/--text-h3: 14px;/)
+    expect(indexCss).toMatch(/--text-h3--font-weight: 600;/)
+    expect(indexCss).toMatch(/--text-dense: 13px;/)
+    const input = [decls(indexCss, '.ui-input'), decls(indexCss, '.ui-input[data-size="sm"]')].join('\n')
+    expect(input).toMatch(/font-size: var\(--text-dense\);/)
+    expect(input).not.toMatch(/font-weight/)
+    expect(rulesOf(sheet).filter(({ sel, body }) => /rb-tl-ver-select/.test(sel) && /font-(weight|size)/.test(body)).map(({ sel }) => sel)).toEqual([])
+  })
+  it('the title bar\'s sheet keeps no rule for the folder icon or the third-ink eyebrow', () => {
+    expect(cssCode(shell)).not.toMatch(/\.rb-ctx-(icon|eyebrow)(?![\w-])/)
+  })
+  it('CONTROL: a width changed on one side, a colour or a size on a label rule, a second label rule and the old eyebrow back are each caught', () => {
+    const RULE = '.rb-tl-ver-bar > .ui-field-label { min-width: 56px; }'
+    const TITLE = '.rb-ctx .ui-field-label { min-width: 56px; }'
+    expect(sheet).toContain(RULE)
+    expect(shell).toContain(TITLE)
+    const narrower = column(shell, sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 52px; }'))
+    expect(narrower.widths[0]).not.toBe(narrower.widths[1])
+    const tooNarrow = column(shell.replace(TITLE, '.rb-ctx .ui-field-label { min-width: 52px; }'), sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 52px; }'))
+    expect(tooNarrow.widths[0]).toBe(tooNarrow.widths[1])
+    expect(tooNarrow.widths[0]).toBeLessThan(WIDEST)
+    expect(column(shell, sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 56px; color: var(--color-ink-3); }')).props).not.toEqual(['min-width', 'min-width'])
+    expect(column(shell.replace(TITLE, '.rb-ctx .ui-field-label { min-width: 56px; font-size: var(--text-caption); }'), sheet).props).not.toEqual(['min-width', 'min-width'])
+    const second = column(shell, `${sheet}\n.rb-tl-ver-state .ui-field-label { min-width: 40px; }`)
+    expect(second.selectors[1]).toHaveLength(2)
+    expect(Number.isNaN(second.widths[1])).toBe(true)
+    expect(cssCode('.rb-ctx-eyebrow { color: var(--color-ink-3); }')).toMatch(/\.rb-ctx-(icon|eyebrow)(?![\w-])/)
+  })
+})

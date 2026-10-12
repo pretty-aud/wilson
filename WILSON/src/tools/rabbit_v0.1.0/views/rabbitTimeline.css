@@ -754,6 +754,14 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent); }
+  /* FX7 (Audrey, 2026-10-12: "bid ver and project should be same sizing and
+     color"): "Bid ver." and the project title bar's PROJECT above it are the
+     one kit label (`ui-field-label`) in one column, so the dropdown starts at
+     the x the project's name starts at. The width is the title bar's
+     (rabbitShell.css, `.rb-ctx .ui-field-label`, which says how it was
+     measured): change both or neither. Only the width is set here; the
+     size, weight, case and ink stay the kit's. */
+  .rb-tl-ver-bar > .ui-field-label { min-width: 56px; }
   /* Where room runs out (review round 2, R2-06): the dropdown gives way
      first — a native select is as wide as its widest option, so it sat at its
      320px cap in every state, and the cap narrows with the window: 320px from

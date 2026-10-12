@@ -5,7 +5,7 @@
 // Slim strip below the view tabs that always shows which project
 // is currently loaded. Includes:
 //
-//   • Project icon + title + status pill
+//   • The PROJECT label + title + status pill
 //   • A "switch project" dropdown listing every project in the
 //     workspace, with the active one marked
 //   • Two named slots, `presenceSlot` and `adapterSlot` (below)
@@ -38,9 +38,19 @@
 // the word at the Label step) — the three greens and the filled orange pill
 // it replaces were four of the review's five disagreeing status maps (R07).
 // The switcher is a floating surface, so it alone carries the one shadow.
+//
+// ── The label (FX7) ──────────────────────────────────────────────────────────
+// Audrey, 2026-10-12: "bid ver and project should be same sizing and color.
+// if anything project should stand out more. lets remove the folder icon
+// before the word project". PROJECT is the kit's label (`ui-field-label`: the
+// Label step at 600, uppercase, the second ink), the class the Timeline's
+// "Bid ver." under it wears, with nothing before it on the gutter; both
+// labels sit in one 56px column (rabbitShell.css, rabbitTimeline.css), so the
+// project's name and the bid version's dropdown start at the same x. The name
+// stays the Title step at 600, a step above the dropdown's 400.
 
 import { useState, useRef, useEffect } from 'react'
-import { Folder, ChevronDown, Check } from 'lucide-react'
+import { ChevronDown, Check } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { confirmLeave } from '../state/leaveGuard'
 import { Toolbar } from '../../../ui/Toolbar'
@@ -131,8 +141,7 @@ export default function ProjectContextBar({ presenceSlot = null, adapterSlot = n
 
   return (
     <Toolbar className="rb-ctx" right={right}>
-      <Folder className="rb-ctx-icon" aria-hidden="true" />
-      <span className="text-label uppercase rb-ctx-eyebrow">Project</span>
+      <span className="ui-field-label">Project</span>
       {/* Two elements, not one with a data attribute: `text-h3` carries its
           600 weight from the utilities layer, which no component rule can
           outrank (R1 finding 7), so the empty state takes the Body step. */}

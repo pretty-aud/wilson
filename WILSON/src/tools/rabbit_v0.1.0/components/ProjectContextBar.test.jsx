@@ -57,6 +57,48 @@ describe('ProjectContextBar: the two named slots', () => {
   })
 })
 
+// Post-overhaul FX7 (Audrey, 2026-10-12: "bid ver and project should be same
+// sizing and color. if anything project should stand out more. lets remove
+// the folder icon before the word project"). The two labels' one class and
+// one column, measured against the Timeline's bar, are timelineVersions.test
+// .jsx's and rabbitTimelineCss.test.js's; this is the title bar's own half.
+describe('FX7: PROJECT is the kit\'s label, first on the gutter, with no icon before it', () => {
+  const leftOf = (container) => container.querySelector('.ui-toolbar.rb-ctx > .ui-toolbar-slot:first-child')
+  const shape = (left) => [...left.children].map((n) => [n.tagName.toLowerCase(), n.getAttribute('class'), n.textContent])
+  it('the left slot is PROJECT (the kit\'s label, nothing else on it), the name at the Title step, the status — and no icon anywhere in it', () => {
+    const { container } = render(<ProjectContextBar />)
+    const left = leftOf(container)
+    expect(shape(left)).toEqual([
+      ['span', 'ui-field-label', 'Project'],
+      ['span', 'rb-ctx-title text-h3', 'Salt Hours'],
+      ['span', 'ui-status', 'Active'],
+    ])
+    expect(left.querySelector('svg')).toBeNull()
+  })
+  it('with no project the label still comes first, with nothing before it', () => {
+    const was = { project: ctx.project, id: ctx.activeProjectId }
+    ctx.project = null
+    ctx.activeProjectId = null
+    try {
+      const { container } = render(<ProjectContextBar />)
+      expect(shape(leftOf(container))).toEqual([
+        ['span', 'ui-field-label', 'Project'],
+        ['span', 'rb-ctx-title text-body', 'No project selected'],
+      ])
+      expect(leftOf(container).querySelector('svg')).toBeNull()
+    } finally {
+      ctx.project = was.project
+      ctx.activeProjectId = was.id
+    }
+  })
+  it('the source keeps no folder icon and no eyebrow of its own', () => {
+    const src = readFileSync(resolve(here, 'ProjectContextBar.jsx'), 'utf8')
+    expect(src).not.toMatch(/\bFolder\b/)
+    expect(src).not.toMatch(/rb-ctx-(icon|eyebrow)/)
+    expect(src).toContain('<span className="ui-field-label">Project</span>')
+  })
+})
+
 describe('Rabbit.jsx docks the dot and the pill instead of floating them', () => {
   it('passes both to the context bar', () => {
     expect(rabbitSrc).toMatch(/<ProjectContextBar adapterSlot=\{adapterDot\} presenceSlot=\{presence\} \/>/)

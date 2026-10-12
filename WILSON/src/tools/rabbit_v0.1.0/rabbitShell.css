@@ -136,8 +136,18 @@
 
   /* ═══ ProjectContextBar: the kit's Toolbar ═══════════════════════════════ */
   .rb-ctx { background-color: var(--color-paper); }
-  .rb-ctx-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
-  .rb-ctx-eyebrow { color: var(--color-ink-3); }
+  /* FX7 (Audrey, 2026-10-12: "bid ver and project should be same sizing and
+     color ... lets remove the folder icon before the word project"): PROJECT
+     is the kit's label, as the Timeline's "Bid ver." under it is, on the
+     gutter with nothing before it; the folder icon and the third-ink
+     eyebrow are gone. The two labels share one column, so the project's name
+     and the bid version's dropdown start at the same x (the gutter, the
+     column, the 8px gap both rows keep). MEASURED in Chromium (Geist, the
+     Label step at 600, its 0.06em tracking): PROJECT 55.4px, BID VER. 50.5px;
+     the column is the wider on the 4px grid. The same width is the version
+     bar's (rabbitTimeline.css, `.rb-tl-ver-bar > .ui-field-label`): change
+     both or neither. Size, weight, case and ink stay the kit's. */
+  .rb-ctx .ui-field-label { min-width: 56px; }
   .rb-ctx-title { min-width: 0; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rb-ctx-title[data-empty="true"] { color: var(--color-ink-3); }
   .rb-ctx-chevron { width: var(--icon-sm); height: var(--icon-sm); }
