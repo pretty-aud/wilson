@@ -2763,16 +2763,25 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         <span className="rb-scene-group-count">
                           ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
                         </span>
+                      </button>
+                      {/* FX8 (review round 1, R1-06): the scene's Open right
+                          after the band's words, shown on pointing and on
+                          focus as a row's buttons are; it sat at the band's
+                          far end. The rest of the band still opens and closes
+                          it on a click (the toggle is the keyboard's way). */}
+                      {g.scene && (
+                        <HoverActions className="rb-scene-band-acts">
+                          <IconButton size="sm" Icon={FileText} title={`Open ${g.label}`}
+                            onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
+                        </HoverActions>
+                      )}
+                      <span className="rb-scene-band-rest" onClick={() => toggleGroup(g.key)}>
                         {groupFrames > 0 && (
                           <span className="rb-scene-group-frames">
                             {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
                           </span>
                         )}
-                      </button>
-                      {g.scene && (
-                        <IconButton size="sm" Icon={FileText} title={`Open ${g.label}`}
-                          onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
-                      )}
+                      </span>
                     </span>
                   </Td>
                 </Row>

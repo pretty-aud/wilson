@@ -53,4 +53,17 @@ describe('HoverActions', () => {
     expect(rule).not.toContain('display: none')
     expect(rule).not.toContain('visibility: hidden')
   })
+
+  // FX8-KR-2 (FX8 review round 1, R1-09): a screen that cannot hover (a
+  // phone, a tablet) never revealed them, and they could still be tapped
+  // unseen; there they show at rest. A desktop pointer is untouched.
+  it('shows the controls at rest where nothing can hover', () => {
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    const at = code.indexOf('@media (hover: none)')
+    expect(at).toBeGreaterThan(-1)
+    const block = code.slice(at, code.indexOf('}', code.indexOf('}', at) + 1) + 1)
+    expect(block).toMatch(/\.ui-hover-actions \{ opacity: 1; \}/)
+    // Only there: the resting rule still hides them for a mouse.
+    expect(code).toMatch(/\.ui-hover-actions \{[^}]*opacity: 0;/)
+  })
 })

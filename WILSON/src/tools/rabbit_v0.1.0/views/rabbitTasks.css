@@ -172,7 +172,10 @@
      share what is left, a third each, so the title never runs on across the
      window ("the cell/section for the title is sooo wide") and its buttons,
      right after its words, never sit far from them. `100cqw` is the
-     scroller's content box, the table's own 100%. */
+     scroller's content box WITHOUT its scrollbar taken off (Chromium's
+     container units ignore it, FX8 review round 1, R1-02), so while the
+     list scrolls the title, which takes the rest, is its maximum less the
+     scrollbar. */
   .rb-task-table-wrap {
     --rb-task-col-check: 36px;
     --rb-task-col-status: 148px;
@@ -183,9 +186,12 @@
     --rb-task-phase-min: 124px;
     --rb-task-assignee-min: 124px;
     /* A title's words and its three 28px buttons (open, history, delete):
-       never less than the 200px the title had plus the 72px actions column
-       the buttons left, never more than 360px. */
-    --rb-task-title-min: 272px;
+       never less than 262px — the 158px the words had at 1280, the 4px and
+       the 88px of buttons, and their cell's 12px — never more than 360px.
+       262 so the table (1244px) fits a 1280 window with the list's
+       scrollbar (1246px of scroller; FX8 review round 1, R1-02: at 272 it
+       scrolled sideways there, as it did at 1254 before). */
+    --rb-task-title-min: 262px;
     --rb-task-title-max: 360px;
     --rb-task-fixed: calc(var(--rb-task-col-check) + var(--rb-task-col-status) + var(--rb-task-col-priority)
       + var(--rb-task-asset-min) + var(--rb-task-phase-min) + var(--rb-task-assignee-min)
@@ -204,9 +210,10 @@
      the toolbar's first button starts on; it is the query container the
      columns measure (`100cqw`). */
   .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
-  /* 982px of fixed columns + a 272px title: below this the table scrolls
+  /* 982px of fixed columns + a 262px title: below this the table scrolls
      sideways instead of wrapping a date mid-token (V1-06). It fits a 1280
-     window (1256px of scroller); only Electron's 1024px floor scrolls. */
+     window (1256px of scroller, 1246 while the list's scrollbar shows);
+     only Electron's 1024px floor scrolls. */
   .rb-task-table { min-width: calc(var(--rb-task-fixed) + var(--rb-task-title-min)); }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
@@ -395,6 +402,12 @@
   .rb-task-cell-text[data-empty="true"] { color: var(--color-ink-3); }
   .rb-task-cell-text[data-static="true"] { cursor: default; }
   .ui-input.rb-task-cell-input[data-size="sm"] { padding: 0 6px; }
+  /* The title cell's controls (the words and the row's buttons, FX8) sit
+     2px from the dense row's top and 1px from its bottom, inside a cell
+     that clips: the kit's ring, 3px outside, lost 1px above and 2px below.
+     Drawn inside instead, as the kit's drawer head draws its own (FX8 review
+     round 1, R1-08). */
+  .rb-task-table-wrap .ui-table.rb-task-table .ui-row-title :focus-visible { outline-offset: -2px; }
   .rb-task-none { color: var(--color-ink-3); }
   .rb-task-cell > .rb-task-none { padding: 0 6px; }
 

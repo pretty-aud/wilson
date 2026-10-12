@@ -160,6 +160,16 @@ describe('S3c step 3: seeing an edit', () => {
     expect(container.querySelector('.rb-scene-cut-row[data-missing="true"] .rb-scene-cut-name').textContent).toBe('Missing shot: The lost pan')
     // The list's own tables are not on screen.
     expect(container.querySelector('.rb-scene-table-scenes')).toBeNull()
+    // FX8: a row's buttons right after its name, in the kit's RowTitle, in
+    // the name cell (its 4px/3px keep the row 44px — review round 1, R1-03);
+    // a band's menu right after its words, its runtime last (R1-06).
+    const row = container.querySelector('.rb-scene-cut-row')
+    const cell = row.querySelector('.rb-scene-cut-name').closest('td')
+    expect(cell.classList.contains('rb-scene-name-cell')).toBe(true)
+    expect([...cell.querySelectorAll('.ui-row-title-acts button')].map(b => b.title)).toEqual(['Open The climb', 'Edit actions for The climb (cut 1)'])
+    const head = container.querySelector('.rb-scene-table-cut .rb-scene-group-row .rb-scene-group-head')
+    expect([...head.children].filter(c => !c.classList.contains('rb-scene-grip')).map(c => c.className))
+      .toEqual(['rb-scene-cut-band-name', 'ui-hover-actions rb-scene-band-acts', 'rb-scene-group-frames'])
   })
   it('D20: the tiles total the cut in order — repeats counted, the missing shot not — and the runtime says it is the edit\'s', () => {
     const { container } = page()

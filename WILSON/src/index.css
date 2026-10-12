@@ -2138,6 +2138,13 @@ select option {
   :where(tr, li, .ui-hover-host):hover .ui-hover-actions,
   :where(tr, li, .ui-hover-host):focus-within .ui-hover-actions,
   .ui-hover-actions:focus-within { opacity: 1; }
+  /* A screen with no pointer that hovers (a phone, a tablet) never shows
+     them, and they were still there to be tapped unseen: shown at rest
+     there (FX8-KR-2; FX8 review round 1, R1-09). A desktop's mouse is
+     untouched. */
+  @media (hover: none) {
+    .ui-hover-actions { opacity: 1; }
+  }
 
   /* ── RowTitle (FX8-KR-1) ────────────────────────────────────────────────
      A row's words, then its HoverActions 4px after them, in every table
@@ -2148,6 +2155,10 @@ select option {
      grows the row (the old actions cells' 36.8px). */
   .ui-row-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .ui-row-title-words { display: block; flex: 0 1 auto; min-width: 0; }
+  /* Words that open a rename are a target: never under the kit's small
+     control however short the name (one letter was 21px; FX8 review round
+     1, R1-05). */
+  .ui-row-title-words > button { min-width: var(--control-sm); }
   .ui-row-title-words:has(input) { flex: 1 1 auto; }
   .ui-row-title-acts { flex: none; }
 

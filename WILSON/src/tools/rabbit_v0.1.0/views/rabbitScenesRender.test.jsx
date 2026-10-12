@@ -259,7 +259,18 @@ describe('surface 6a', () => {
     const toggle = within(band).getByRole('button', { name: /^Lighthouse, dawn/ })
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(toggle.querySelector('button')).toBeNull()
-    expect(within(band).getByRole('button', { name: 'Open Lighthouse, dawn' }).querySelector('svg').classList.contains('lucide-file-text')).toBe(true)
+    const open = within(band).getByRole('button', { name: 'Open Lighthouse, dawn' })
+    expect(open.querySelector('svg').classList.contains('lucide-file-text')).toBe(true)
+    // FX8 review round 1 (R1-06): the Open right after the band's words, in
+    // the kit's HoverActions as a row's buttons are, then the band's rest
+    // (its runtime) — which still opens and closes the scene on a click.
+    const head = band.querySelector('.rb-scene-group-head')
+    expect([...head.children].filter((c) => !c.classList.contains('rb-scene-grip')).map((c) => c.className))
+      .toEqual(['rb-scene-group-toggle', 'ui-hover-actions rb-scene-band-acts', 'rb-scene-band-rest'])
+    expect(open.closest('.ui-hover-actions').previousElementSibling).toBe(toggle)
+    expect(toggle.textContent).not.toMatch(/frames/)
+    fireEvent.click(head.querySelector('.rb-scene-band-rest'))
+    expect(within(shotTable().querySelector('tr.rb-scene-group-row')).getByRole('button', { name: /^Lighthouse, dawn/ }).getAttribute('aria-expanded')).toBe('false')
   })
 
   it('a row\'s status is the kit StatusDot beside a kit CellSelect, its tone from the one STATUS map (R3-11)', () => {

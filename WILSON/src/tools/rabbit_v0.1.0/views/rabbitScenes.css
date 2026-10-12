@@ -397,8 +397,9 @@
   }
   /* The scroller is the query container its full-width rows measure: a
      group's band and its Add shot span the scroller's width, not the
-     table's, so a scene's runtime and Scene details sit at the window's right
-     edge as they did (the old band was as wide as the container). */
+     table's, so a scene's runtime sits at the window's right edge as it did
+     (the old band was as wide as the container); its Open sits right after
+     its words since FX8. */
   .rb-scene-table-wrap > .ui-table-scroll { container-type: inline-size; }
   .rb-scene-table-wrap[data-thumb="md"] { --rb-scene-thumb-h: 54px; }
   .rb-scene-table-wrap[data-thumb="lg"] { --rb-scene-thumb-h: 72px; }
@@ -407,7 +408,7 @@
   .rb-scene-table-wrap > .ui-table-scroll { padding: 0 var(--spacing-gutter); }
   /* Tab and Shift+Tab scroll the next control to the scroller's edge, and
      the kit Table's head is sticky INSIDE this scroller: Shift+Tab up a
-     scrolled table left Add shot, a group band's toggle and Scene details
+     scrolled table left Add shot, a group band's toggle and its Open
      UNDER the head at 1280x700 (review round two, R2-03; WCAG 2.4.11), and a
      stop Tabbed to at the bottom edge lost up to 3px of its ring. The top keeps
      the head's height clear — the kit's `--table-head`, which its sticky
@@ -923,7 +924,8 @@
   /* ═══ The shot table's groups (surface 6a) ════════════════════════════════
      A group's band: one row across the table on the raised paper (a #292524
      band with a 3px accent in the scene's status colour, the name orange,
-     before). The toggle is the band; Scene details sits beside it. A scene's
+     before). The toggle is the band's words; the scene's Open sits beside
+     them (FX8), and the rest of the band opens and closes it too. A scene's
      status is the kit's StatusDot. */
   .rb-scene-group-row > .ui-td { background-color: var(--color-paper-raised); }
   .rb-scene-group-row:hover > .ui-td { background-color: var(--color-hover); }
@@ -966,6 +968,25 @@
     color: var(--color-ink-3);
   }
   .rb-scene-group-frames { margin-left: auto; padding-right: 8px; }
+  /* FX8 (review round 1, R1-06): a band's button sits right after its
+     words, so its words take what they need and no more — the shot table's
+     toggle and an edit's band name — and the rest of the band (its runtime)
+     comes after the button. The shot table's rest still opens and closes
+     the scene on a click, as the toggle across the whole band did. */
+  .rb-scene-group-head > .rb-scene-group-toggle,
+  .rb-scene-group-head > .rb-scene-cut-band-name { flex: 0 1 auto; }
+  /* 6px after the words, then the kit's 4px: the 10px a row's words leave. */
+  .rb-scene-group-head > .rb-scene-group-toggle:has(+ .rb-scene-band-acts),
+  .rb-scene-group-head > .rb-scene-cut-band-name:has(+ .rb-scene-band-acts) { padding-right: 6px; }
+  .rb-scene-group-head > .ui-hover-actions.rb-scene-band-acts { flex: none; }
+  .rb-scene-band-rest {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    align-self: stretch;
+    min-width: 0;
+    cursor: pointer;
+  }
   .rb-scene-group-row:hover .rb-scene-group-count,
   .rb-scene-group-row:hover .rb-scene-group-frames,
   .rb-scene-band:hover .rb-scene-group-count { color: var(--color-ink-2); }
@@ -1086,9 +1107,9 @@
 
   /* A shot group's head: the shot table's band in the gallery's shape. Its
      glyph, name and counts wear the band's classes (the glyph and the name
-     were orange, the counts #57534e); Scene details is the named kit
-     IconButton (a bare 20px button before); then a hairline to the edge (it
-     was #292524, 1.1:1). */
+     were orange, the counts #57534e); the scene's Open (the page icon, FX8)
+     is the named kit IconButton (a bare 20px button before); then a
+     hairline to the edge (it was #292524, 1.1:1). */
   .rb-scene-gallery-group { display: flex; flex-direction: column; gap: 12px; }
   .rb-scene-gallery-head {
     display: flex;

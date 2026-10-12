@@ -205,11 +205,17 @@ function widthAt(sheet, wrapSel, W, extra = null) {
   }
 }
 /** The auto title column in a fixed-layout table: what the table's width
-    (the container, or the table's own minimum if that is wider) leaves. */
-const layout = (px, others, minWidth, W) => {
+    (the container, or the table's own minimum if that is wider) leaves.
+    `sb` is a vertical scrollbar's width: it comes off the table's room but
+    NOT off `100cqw`, which Chromium measures without it (review round 1,
+    R1-02, measured: 1270px of scroller at 1280 with the app's 10px
+    scrollbar while `100cqw` read 1256 less nothing). */
+const SB = 10
+const layout = (px, others, minWidth, W, sb = 0) => {
   const sum = others.reduce((n, o) => n + px(o), 0)
-  const tableW = Math.max(W, px(minWidth))
-  return { title: tableW - sum, tableW, sideways: tableW > W }
+  const room = W - sb
+  const tableW = Math.max(room, px(minWidth))
+  return { title: tableW - sum, tableW, sideways: tableW > room }
 }
 const close = (a, b) => expect(Math.abs(a - b)).toBeLessThan(0.01)
 
@@ -230,22 +236,33 @@ describe('FX8: the title columns — the title takes what the others leave up to
     expect(tasks).toMatch(/\.rb-task-table-wrap > \.ui-table-scroll \{ padding: 0 12px; container-type: inline-size; \}/)
   })
 
-  it('Tasks: 274px at 1280, its 360px maximum at 1440 and 1920 with Asset, Phase and Assignee taking the rest, 272px and the old sideways scroll at 1024', () => {
-    const at = (W) => { const px = widthAt(tasks, '.rb-task-table-wrap', W); return { px, ...layout(px, TASK_COLS, TASK_MIN, W) } }
+  it('Tasks: 274px at 1280 (264 while the list scrolls, and still no sideways scroll), its 360px maximum at 1440 and 1920 (350 while the list scrolls) with Asset, Phase and Assignee taking the rest, 262px and the old sideways scroll at 1024', () => {
+    const at = (W, sb = 0) => { const px = widthAt(tasks, '.rb-task-table-wrap', W); return { px, ...layout(px, TASK_COLS, TASK_MIN, W, sb) } }
     const w1280 = at(1256)
     close(w1280.title, 274); expect(w1280.sideways).toBe(false)
     close(w1280.px('var(--rb-task-col-asset)'), 150)
+    // R1-02: the app shows a 10px scrollbar on a list that scrolls; the
+    // table (1244px at its narrowest) still fits the 1246px left.
+    const s1280 = at(1256, SB)
+    close(s1280.title, 264); expect(s1280.sideways).toBe(false)
     const w1440 = at(1416)
     close(w1440.title, 360); expect(w1440.sideways).toBe(false)
     close(w1440.px('var(--rb-task-col-asset)'), 150 + (1416 - 1342) / 3)
     close(w1440.px('var(--rb-task-col-phase)'), 124 + (1416 - 1342) / 3)
+    close(at(1416, SB).title, 350)
     const w1920 = at(1896)
     close(w1920.title, 360)
     close(w1920.px('var(--rb-task-col-assignee)'), 124 + (1896 - 1342) / 3)
-    const w1024 = at(1000)
-    close(w1024.title, 272); expect(w1024.sideways).toBe(true)
-    // The table's minimum is the 1254px it was (982 + the 72px actions column + a 200px title).
-    close(w1024.tableW, 1254)
+    const w1024 = at(1000, SB)
+    close(w1024.title, 262); expect(w1024.sideways).toBe(true)
+    // The table's minimum: 982 + a 262px title, 10px under the 1254 it was
+    // (982 + the 72px actions column + a 200px title), which scrolled
+    // sideways at 1280 while the list's scrollbar showed.
+    close(w1024.tableW, 1244)
+  })
+  it('CONTROL: the title\'s old 272px minimum scrolls sideways at 1280 while the list scrolls', () => {
+    const px = widthAt(tasks.replace(/--rb-task-title-min: 262px;/, '--rb-task-title-min: 272px;'), '.rb-task-table-wrap', 1256)
+    expect(layout(px, TASK_COLS, TASK_MIN, 1256, SB).sideways).toBe(true)
   })
   it('CONTROL: the arithmetic reads the sheet — without the spare share the title runs on past its maximum', () => {
     const px = widthAt(tasks.replace(/--rb-task-spare: [^;]+;/, '--rb-task-spare: 0px;'), '.rb-task-table-wrap', 1896)
@@ -259,11 +276,14 @@ describe('FX8: the title columns — the title takes what the others leave up to
     const src = read('ProjectAssetsView.jsx')
     expect(src).toContain("width: 'var(--rb-asset-col-desc)'")
     expect(src).not.toMatch(/key: '_actions'/)
-    const at = (W, history = true) => {
+    const at = (W, history = true, sb = 0) => {
       const px = widthAt(files, '.rb-asset-table-wrap', W, history ? '.rb-asset-table-wrap[data-history="true"]' : null)
-      return { px, ...layout(px, ASSET_COLS, ASSET_MIN, W) }
+      return { px, ...layout(px, ASSET_COLS, ASSET_MIN, W, sb) }
     }
     close(at(1256).title, 292); expect(at(1256).sideways).toBe(false)
+    // While the list scrolls (R1-02): 10px less, and still no sideways scroll.
+    close(at(1256, true, SB).title, 282); expect(at(1256, true, SB).sideways).toBe(false)
+    close(at(1416, true, SB).title, 350)
     close(at(1416).title, 360); close(at(1416).px('var(--rb-asset-col-desc)'), 180 + 1416 - 964 - 360)
     close(at(1896).title, 360)
     // Before: 964 + the actions column (72 with the history, 44 without) + a 200px name.
@@ -282,5 +302,46 @@ describe('FX8: the title columns — the title takes what the others leave up to
     expect(at(1000).sideways).toBe(false)
     // Before: two 160px text columns and a 72px actions column beside the 324px of the others.
     close(widthAt(files, '.rb-ent-table-wrap', 1000)(ENT_MIN), 36 + 152 + 72 + 64 + 72 + 160 * 2)
+    // While the list scrolls (R1-02): the name 10px under its maximum.
+    close(layout(widthAt(files, '.rb-ent-table-wrap', 1416), ENT_COLS, ENT_MIN, 1416, SB).title, 350)
+  })
+})
+
+/* ── 4. the words fill their box (review round 1, R1-01) ─────────────────────
+   A <button> sizes to its words, not to its box: the Assets name's button
+   lost the flex parent that sized it and a long name ran under the row's
+   buttons with no "…" (measured: 452px of button in a 250px box). Each
+   lane's words element must take the kit's words box; the browser's check
+   is scripts/fx8-shots.mjs's long-name pass. */
+const WORDS = [
+  // [sheet, the rule that sizes the words in a row's title, the width it must set]
+  ['rabbitTasks.css', '.rb-task-cell-text', 'width: 100%;'],
+  ['rabbitFiles.css', '.ui-row-title .rb-asset-cell-text', 'width: 100%;'],
+  ['rabbitFiles.css', '.ui-row-title .rb-ent-cell-text', 'width: calc(100% + 6px);'],
+]
+const fills = (sheet, text = read(sheet)) => WORDS.filter(([f]) => f === sheet).map(([, sel, decl]) => {
+  const r = rulesOf(text).find(({ sel: s }) => s === sel)
+  return r && r.body.includes(decl) ? null : `${sel} { ${decl} }`
+}).filter(Boolean)
+
+describe('FX8 review round 1: every row title\'s words fill the kit\'s words box', () => {
+  it('Tasks\', Assets\' and Levels\' words buttons take the box (the spans are blocks and take it anyway)', () => {
+    expect(fills('rabbitTasks.css')).toEqual([])
+    expect(fills('rabbitFiles.css')).toEqual([])
+    // The scenes' words and an edit's are block spans.
+    const scenes = read('rabbitScenes.css')
+    expect(rulesOf(scenes).find(({ sel }) => sel === '.rb-scene-inline').body).toMatch(/display: block;/)
+    expect(rulesOf(scenes).find(({ sel }) => sel === '.rb-scene-cut-name').body).toMatch(/display: block;/)
+  })
+  it('CONTROL: the sheet before the correction is caught', () => {
+    const now = read('rabbitFiles.css')
+    const before = now.replace('  .ui-row-title .rb-asset-cell-text { width: 100%; }', '')
+    expect(before).not.toBe(now)
+    expect(fills('rabbitFiles.css', before)).toEqual(['.ui-row-title .rb-asset-cell-text { width: 100%; }'])
+  })
+  it('a words button is never under the kit\'s 28px however short the name (R1-05); the Tasks title cell draws its rings inside the dense row (R1-08)', () => {
+    const kit = cssCode(readFileSync(join(here, '../../../index.css'), 'utf8'))
+    expect(kit).toMatch(/\.ui-row-title-words > button \{ min-width: var\(--control-sm\); \}/)
+    expect(read('rabbitTasks.css')).toMatch(/\.rb-task-table-wrap \.ui-table\.rb-task-table \.ui-row-title :focus-visible \{ outline-offset: -2px; \}/)
   })
 })

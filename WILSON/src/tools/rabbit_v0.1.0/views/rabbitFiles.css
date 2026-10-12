@@ -568,9 +568,11 @@
      maximum; past the maximum Description takes what is left (FX8: "the
      cell/section for the title is sooo wide"), so a row's buttons, right
      after its words, never sit far from them. `100cqw` is the scroller's
-     content box, the table's own 100%. The name's minimum is the 200px it
-     had plus the actions column its buttons left: 72px with the edit
-     history, 44px without. */
+     content box without its scrollbar taken off (Chromium's container
+     units ignore it, FX8 review round 1, R1-02): while the list scrolls the
+     name, which takes the rest, is its maximum less the scrollbar. The
+     name's minimum is the 200px it had plus the actions column its buttons
+     left: 72px with the edit history, 44px without. */
   .rb-asset-table-wrap {
     --rb-asset-check: 36px;
     --rb-asset-thumb: var(--row);
@@ -747,6 +749,11 @@
      under the header's label. The words and the buttons after them are the
      kit's RowTitle (FX8). */
   .ui-row-title.rb-asset-name { margin-left: -6px; }
+  /* A button sizes to its words, not to its box: in the row's title it
+     takes the words box (its old flex parent gave it `flex: 1 1 auto`), so
+     a long name is cut with its "…" before the buttons and never runs
+     under them (FX8 review round 1, R1-01). */
+  .ui-row-title .rb-asset-cell-text { width: 100%; }
   .rb-asset-cell-text {
     display: block;
     flex: 1 1 auto;
@@ -1819,9 +1826,11 @@
   /* The name takes the width the others leave, between its minimum and its
      maximum; past the maximum Description takes what is left (FX8: Name and
      Description had split the width, 510px each at 1440, a row's buttons at
-     its far end). `100cqw` is the scroller's content box, the table's own
-     100%. The name's minimum is the 160px it had plus the actions column its
-     buttons left (72px). */
+     its far end). `100cqw` is the scroller's content box without its
+     scrollbar taken off (Chromium's container units ignore it, FX8 review
+     round 1, R1-02): while the list scrolls the name, which takes the rest,
+     is its maximum less the scrollbar. The name's minimum is the 160px it
+     had plus the actions column its buttons left (72px). */
   .rb-ent-table-wrap {
     --rb-ent-check: 36px;
     --rb-ent-status: 152px;

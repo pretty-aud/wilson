@@ -29,7 +29,7 @@
 
 import { Fragment, useMemo } from 'react'
 import { Film, FileText, Clapperboard, GripVertical } from 'lucide-react'
-import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState, RowTitle } from '../../../../ui'
+import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState, RowTitle, HoverActions } from '../../../../ui'
 import MenuButton from './MenuButton'
 import NumberField from './NumberField'
 import { framesToTimecode } from './timecode'
@@ -65,7 +65,7 @@ export function Grip({ drag, kind, id, name }) {
  * search         the toolbar's search: rows whose name matches; a band with none is left out
  * menuFor(row)   the row's ⋯ items (none: no ⋯)
  * bandMenuFor(band)   the band's ⋯ items
- * onOpenShot(id) View details
+ * onOpenShot(id) a row's Open (the page icon)
  * drag           step 6: useCutDrag's handlers, or null (nothing can be dragged here)
  * empty          what an empty cut says, and offers ({ body, action })
  */
@@ -135,13 +135,18 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                       <Film className="rb-scene-group-icon" aria-hidden="true" />
                       <span className="rb-scene-group-label">{band.label}</span>
                       <span className="rb-scene-group-count">({band.rows.length} shot{band.rows.length !== 1 ? 's' : ''})</span>
-                      {bandFrames > 0 && (
-                        <span className="rb-scene-group-frames">{framesToTimecode(bandFrames, fps)} · {bandFrames.toLocaleString()} frames</span>
-                      )}
                     </span>
-                    {/* The band's menu at its end, as the shot table's band
-                        keeps its Open (FX8: the actions column is gone). */}
-                    {bandItems.length > 0 && <MenuButton title={`Edit actions for the ${band.label} block`} items={bandItems} minWidth={220} />}
+                    {/* The band's menu right after its words, shown on
+                        pointing and on focus, as a row's buttons are (FX8,
+                        review round 1, R1-06); its runtime at the end. */}
+                    {bandItems.length > 0 && (
+                      <HoverActions className="rb-scene-band-acts">
+                        <MenuButton title={`Edit actions for the ${band.label} block`} items={bandItems} minWidth={220} />
+                      </HoverActions>
+                    )}
+                    {bandFrames > 0 && (
+                      <span className="rb-scene-group-frames">{framesToTimecode(bandFrames, fps)} · {bandFrames.toLocaleString()} frames</span>
+                    )}
                   </span>
                 </Td>
               </Row>
@@ -177,8 +182,10 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                     {/* The shot's name, and the row's buttons right after it in
                         the one order — Open (the page icon), then the edit's
                         menu — on hover and on focus (FX8, the kit's
-                        RowTitle; they were always shown, at the row's end). */}
-                    <Td>
+                        RowTitle; they were always shown, at the row's end).
+                        The name cell's 4px/3px, so the row stays 44px (FX8
+                        review round 1, R1-03: the kit's 8px made it 45). */}
+                    <Td className="rb-scene-name-cell">
                       <RowTitle actions={(shot || items.length > 0) ? <>
                         {shot && <IconButton size="sm" Icon={FileText} title={`Open ${r.name}`} onClick={() => onOpenShot?.(shot.id)} />}
                         {items.length > 0 && <MenuButton title={`Edit actions for ${r.name} (cut ${r.index + 1})`} items={items} minWidth={220} />}

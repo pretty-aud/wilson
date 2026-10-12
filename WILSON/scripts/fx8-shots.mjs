@@ -3,7 +3,7 @@
  * The tables' row buttons, measured and photographed before and after —
  * post-overhaul FX8 (2026-10-12).
  *
- *   node scripts/fx8-shots.mjs <port> --out <dir> --phase before|after [--size 1440x900] [--part tasks|assets|scenes|nest|shots|cut|levels|experiences|all] [--no-shots]
+ *   node scripts/fx8-shots.mjs <port> --out <dir> --phase before|after [--size 1440x900] [--part tasks|assets|scenes|nest|shots|cut|levels|experiences|all] [--no-shots] [--scrollbars] [--long]
  *
  * Walks every R.A.B.B.I.T. table whose rows carry buttons that open an item's
  * window, on the dev fixtures' Salt Hours (levels and experiences on
@@ -47,9 +47,14 @@ const PORT = args.find((a, i) => !a.startsWith('-') && !VALUED.includes(args[i -
 const OUT = flag('--out');
 const PHASE = flag('--phase');
 const SHOTS = !args.includes('--no-shots');
+// Playwright's Chromium hides scrollbars by default; the desktop app shows
+// them, and a scrolling list's scrollbar takes its width off the table (FX8
+// review round 1, R1-02). `--scrollbars` measures as the app draws.
+const SCROLLBARS = args.includes('--scrollbars');
+const LONG = args.includes('--long');
 const ALL = ['tasks', 'assets', 'scenes', 'nest', 'shots', 'cut', 'levels', 'experiences'];
 if (!OUT || !['before', 'after'].includes(PHASE)) {
-  console.error(`usage: fx8-shots.mjs <port> --out <dir> --phase before|after [--size WxH] [--part ${ALL.join('|')}|all] [--no-shots]`);
+  console.error(`usage: fx8-shots.mjs <port> --out <dir> --phase before|after [--size WxH] [--part ${ALL.join('|')}|all] [--no-shots] [--scrollbars] [--long]`);
   process.exit(1);
 }
 const [W, H] = (flag('--size') || '1440x900').split('x').map(Number);
@@ -135,7 +140,7 @@ function measureInPage({ table, rows, title, nameCell }) {
   return out;
 }
 
-const browser = await chromium.launch();
+const browser = await chromium.launch(SCROLLBARS ? { ignoreDefaultArgs: ['--hide-scrollbars'] } : {});
 const results = {};
 try {
   for (const PART of PARTS) {
@@ -261,6 +266,48 @@ try {
     }
     console.log(`  opacity rest ${JSON.stringify(results[PART].opacity.rest[0])} hover ${JSON.stringify(results[PART].opacity.hover[0])} focus ${JSON.stringify(results[PART].opacity.focus[0])}`);
     console.log(`  keyboard: from "${focusInfo.before}" Tab → "${focused.name}" (focus-visible ${focused.focusVisible})`);
+    console.log(`  row heights: ${rest.rows.map((r) => r.row.h).join(', ')}`);
+
+    // `--long` (FX8 review round 1, R1-01): the first row renamed, through
+    // its own field, to a title far wider than the column; its words must be
+    // cut with "…" inside the words box and the buttons stay after the box.
+    // The after phase only (the before tables had no words box), and not the
+    // cut (an edit's names are the shots', not edited there).
+    if (LONG && PHASE === 'after' && PART !== 'cut') {
+      const TITLE = 'Lock the shooting script with the final notes from the table read';
+      await park();
+      const words = firstRow.locator('.ui-row-title-words').first();
+      await (await must(words.locator(':scope > *').first(), `the first ${PART} row's words`)).click();
+      const field = words.locator('input');
+      await must(field, `the first ${PART} row's rename field`);
+      await field.fill(TITLE);
+      await field.press('Enter');
+      await sleep(300);
+      await park();
+      await sleep(200);
+      const long = await page.evaluate(({ rows }) => {
+        const tr = document.querySelector(rows);
+        const box = tr.querySelector('.ui-row-title-words');
+        const el = box.querySelector(':scope > *');
+        // The element that holds the words and cuts them (the scenes'
+        // wrapper span holds the inline that does).
+        const text = el.matches('.rb-scene-name') ? el.firstElementChild : el;
+        const btn = tr.querySelector('.ui-row-title-acts button');
+        const r = (e) => e.getBoundingClientRect();
+        return {
+          text: text.textContent.trim().slice(0, 24) + '…',
+          cut: text.scrollWidth > text.clientWidth + 0.5,
+          wordsEnd: Math.round(r(box).right * 10) / 10,
+          textEnd: Math.round(r(text).right * 10) / 10,
+          firstButton: Math.round(r(btn).left * 10) / 10,
+          inside: r(text).right <= r(box).right + 0.5,
+          after: r(btn).left >= r(box).right - 0.5,
+        };
+      }, spec);
+      results[PART].long = long;
+      console.log(`  long title: ${JSON.stringify(long)}`);
+      await shot('long');
+    }
     await page.close();
   }
 } finally {

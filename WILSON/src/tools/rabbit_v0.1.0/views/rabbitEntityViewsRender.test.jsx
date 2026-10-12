@@ -118,7 +118,7 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(screen.queryByRole('button', { name: `New ${p.noun === 'level' ? 'experience' : 'level'}` })).toBeNull()
     for (const name of p.names) expect(within(row(name)).getByRole('button', { name: `Delete ${name}` })).toBeTruthy()
     for (const name of p.others) expect(screen.queryByText(name)).toBeNull()
-    // A row's cells: checkbox, name, status, assets, tasks, description, actions.
+    // A row's cells: checkbox, name (its buttons after its words, FX8), status, assets, tasks, description.
     p.names.forEach((name, i) => {
       const cells = row(name).children
       expect([cells[3].textContent, cells[4].textContent]).toEqual(p.counts[i])

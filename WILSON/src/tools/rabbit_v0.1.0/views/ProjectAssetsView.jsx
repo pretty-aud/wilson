@@ -939,9 +939,7 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
               <span className="sr-only">Thumbnail</span>
             </Th>
             {columns.map(c => (
-              <Th key={c.key} width={c.width} numeric={c.numeric}>
-                {c.unseen ? <span className="sr-only">{c.label}</span> : c.label}
-              </Th>
+              <Th key={c.key} width={c.width} numeric={c.numeric}>{c.label}</Th>
             ))}
           </Row>
         )}

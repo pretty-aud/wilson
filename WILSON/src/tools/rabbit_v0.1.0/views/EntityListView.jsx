@@ -540,10 +540,11 @@ export default function EntityListView({ entity }) {
 // The kit's Table: a real <table> with a fixed layout and 36px rows, so the
 // header and the cells share one grid (R4-01, R4-42). Its columns are the
 // ones it always had, in the same order: the checkbox, Name (the row's
-// anchor), Status, the two counts (numeric cells, R4-17), Description and
-// the actions. The fixed widths are rabbitFiles.css's custom properties,
-// read by the header cells; Name and Description share what is left, as
-// their two flex-[2] columns did.
+// anchor, its buttons right after its words since FX8 — the actions column
+// is gone), Status, the two counts (numeric cells, R4-17) and Description.
+// The fixed widths are rabbitFiles.css's custom properties, read by the
+// header cells; Name takes what is left up to its maximum (360px) and
+// Description the rest (FX8; the two had shared it).
 function EntityTable({ entity, items, assetCountById, taskCountById, ctx, onOpenDetail, onRequestDelete }) {
   const [selected, setSelected] = useState(new Set())
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
@@ -854,7 +855,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
-  // What opened this popup — the row's "View details" — captured in render,
+  // What opened this popup — the row's Open — captured in render,
   // as the kit Dialog captures it (an effect would read the popup's own
   // focus). The delete question asked from here is handed it (below).
   const openerRef = useRef(null)
@@ -1184,7 +1185,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 // review round two). The kit Dialog hands it to what had it when the
 // question opened — the popup's own Delete, gone with the popup — so every
 // close from that path dropped focus to <body>. `returnTo` is what opened
-// the popup, the row's "View details": taken while it is in the page and
+// the popup, the row's Open: taken while it is in the page and
 // focus has fallen to <body> (StrictMode's rehearsal of an unmount leaves it
 // on Cancel, so that does nothing). A delete takes the row, and its button,
 // with it — as a row's own delete question does.
