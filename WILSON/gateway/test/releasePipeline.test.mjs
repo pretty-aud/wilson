@@ -379,7 +379,7 @@ describe('the workflow (gateway-release.yml), as written', () => {
       expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
       expect(fs.readFileSync(path.join(dir, 'stage', 'host', 'WilsonGatewayHost.exe'), 'utf8')).toBe('the prebuilt, perhaps signed, host');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-  });
+  }, 60_000); // PowerShell's start on a CI runner alone can pass vitest's 5 s
   it('the pipeline\'s scripts are not shipped: not in the image, not in the MSI', () => {
     expect(read(GW, '.dockerignore').split('\n').map((s) => s.trim())).toContain('pipeline');
     const build = read(GW, 'windows', 'wix', 'build.ps1');
