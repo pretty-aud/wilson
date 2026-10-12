@@ -1541,6 +1541,26 @@ non-zero wherever receipts predate 0076.
    literal defect this entry marks fixed. New desktop uploads are gated
    correctly; only the existing ones are stranded.
 
+### The gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM
+**MEASURED (FX3, 2026-10-11/12, on the gateway as it was at `2c31d5db`, before GW4 merged).** In three of four full `npx vitest run`s
+on Windows (the dev server and Playwright running beside them), one to
+three gateway tests failed, and each passed alone every time
+(`gateway/test/platform.test.mjs` 63/63 and `runtime.test.mjs` with it;
+`doorsOutside.test.mjs` with `platform` 82/82): `platform.test.mjs`'s
+"Windows, for real: the owners read by PowerShell … check-state refuses this
+folder" (7.6 s, 11.0 s), `runtime.test.mjs`'s "an outside viewing: journal
+start and end, posted as one row" (5.0 s) and `doorsOutside.test.mjs`'s
+"/v1/health is { ok: true }" (9.9 s) and its GW3 nonce proof (6.9 s). The
+runtime run also reported an **unhandled rejection**: `EPERM: operation not
+permitted, rename '…\.journal.rewrite' -> '…\journal'` from
+`gateway/src/journal/journal.mjs` (the rewrite's `fsp.rename`). The time-outs
+are the suite's (a PowerShell spawn and a loopback server under load); the
+EPERM is **INFERRED** to be able to happen on a real Windows gateway too (a
+rename over a file another process holds open, an antivirus scan say), where
+nothing catches it. Settle it: retry the rename on EPERM / EBUSY as Node's
+own `fs` guidance for Windows does, and give the three tests the time-outs a
+loaded Windows runner needs.
+
 ---
 
 ## Session log
@@ -1549,6 +1569,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul FX3 (2026-10-12; `po/fx3-banner-version-bar-team-gallery` into `feat/post-overhaul-edit-versioning`) — the status banner back under every item's title, the Timeline's bid version bar under the project title ("Bid ver."), "Save edit as…" on the Scenes tab, the Team tab's Table / Gallery with signed profile pictures (walkthrough 66); two review rounds | **one entry under Broken features:** *the gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM* (MEASURED in this session's full runs; not the session's code). Everything FX3 leaves undone otherwise is a named limit or a question in its hand-off (`docs/sessions/handoffs/po-fx3-2026-10-12.md`), none of it broken | nothing. Comment markers: 4 → 4. |
 | Post-overhaul GW4 (2026-10-11; `po/gw4-gateway-release` into `feat/post-overhaul-edit-versioning`) — the file gateway's release and install stories: the release signing key (its public half in slot 1, its private half in one Desktop file for Audrey) and the channel on GitHub Releases, the release workflow and its one dry run (a draft left for Audrey), the outside door's free certificate (ACME TLS-ALPN-01) proven against Pebble in CI, the two install stories as Help pages, the hardening guide, walkthrough 63; two review rounds, both security attacks on the release path | **nothing.** Every finding of the two rounds (six in round 1, eleven in round 2; five Medium in all) was fixed in the session or is written down in the hand-off (`docs/sessions/handoffs/po-gw4-2026-10-11.md`): its "Deferred" (Authenticode in an approved environment, a second release key, an administrator's check of an MSI), its "For GW5" (two other workflows' token, the pushed image run) and its "Known limits"; what is Audrey's (the key's secret and its environment, three repository settings, the draft, the first tag, the rehearsal) is in its "Waiting on Audrey" | **nothing.** Comment markers: 4 → 4. |
 | Post-overhaul GW3 (2026-10-11; `po/gw3-gateway-web` into `feat/post-overhaul-edit-versioning`) — the file gateway in the web app: the two halves reconciled first (the workspace id in both answers, the reach PROOF on both halves proven by the design's `proof_vector`, a new or next root landing at sync, a viewing's fraction as the gateway's coverage; migration 0095 and suite 98 on wilson-dev), then the Bins tab in a browser playing through a gateway (the adapter, `canStream`, the hand-over, the overlay through the outside door, one clip's viewings, the words and Help, walkthrough 62), measured against GW2's real executable with the fake cloud on loopback; two review rounds | **nothing.** Every finding of the two rounds (sixteen in round 1, eighteen in round 2, two Medium each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-gw3-2026-10-11.md`). The office door is not played from the gateway's own computer (by design), the install stories are GW4's, the attack on the player GW5's | **one entry removed from Broken features:** *the cloud's reach check and GW2's gateway disagree* — closed by item 0.2: the gateway's outside `/v1/health` answers `nonce_proof` (never `nonce_echo`), the cloud reads only the proof, and both halves prove the same `proof_vector` in one `npx vitest run`. GW2's pin on this log is loosened to "GW2's row is in the log" so this row sits on top. Comment markers: 4 → 4. |
 | Post-overhaul GW2 (2026-10-10; `po/gw2-gateway-service` into `feat/post-overhaul-edit-versioning`) — the file gateway program (`WILSON/gateway/`: the two doors, the tickets, the share rules, the cloud client against a fake cloud, the Windows service and its MSI, the container, CI); two review rounds, both security attacks on the program | **nothing.** Every finding of the two rounds was fixed in the session or is a named limit in the hand-off's "Known limits". Where GW1's functions and the gateway differ (first: neither of GW1's answers carries the workspace id, so the gateway would refuse every ticket) is GW3's planned work, listed in the hand-off's "For GW3": neither half is merged with the other, and nothing a person uses calls either yet | nothing. Comment markers: 4 → 4. |

@@ -1245,6 +1245,23 @@ select option {
     background-color: color-mix(in srgb, var(--status-color, var(--color-ink-3)) 14%, transparent);
   }
   .ui-status[data-surface="light"] { color: var(--color-ink-light); background-color: var(--color-well-light); }
+  /* StatusBanner (FX3-KR-2): the badge above at a popup's full width, under
+     its title. Its dot, word and Label step are `.ui-status`'s own; the band
+     drops the badge's tint (Audrey, 2026-10-11: "remove the green bar the text
+     is in ... leave just the color dot and the color line below the title")
+     and adds its geometry and one hairline of the tone across its foot (the
+     colour she remembered as the rule under the title, at 1px: no 2px edge).
+     The gutter puts its dot on the title's left edge. */
+  .ui-status-banner {
+    display: flex;
+    width: 100%;
+    height: 28px;
+    padding: 0 var(--spacing-gutter);
+    border-radius: 0;
+    background-color: transparent;
+    border-bottom: 1px solid var(--status-color, var(--color-ink-3));
+  }
+  .ui-status-banner[data-surface="light"] { background-color: transparent; border-bottom-color: var(--color-rule-light); }
 
   /* ── Kbd: Label step mono, hairline, 3px, min-width 18px, centred ──── */
   .ui-kbd {
@@ -1366,6 +1383,12 @@ select option {
   }
   .ui-dialog-title { font-size: var(--text-h2); line-height: 1.3; font-weight: 600; color: var(--color-ink); }
   .ui-dialog-subtitle { margin-top: 2px; font-size: var(--text-dense); line-height: 1.45; color: var(--color-ink-2); }
+  /* The band slot (FX3-KR-1): edge to edge under the title row, outside the
+     scrolling body, so the status stays under the title. With a band the
+     title row gives up its grey rule and its foot: the band's own coloured
+     line is the one line under the title, and its dot sits close under it. */
+  .ui-dialog-band { flex-shrink: 0; }
+  .ui-dialog-head[data-band="true"] { border-bottom: 0; padding-bottom: 0; }
   /* scroll-padding (A4-KR-9): Tab scrolls the next control until it touches
      the body's edge, and the ring drawn outside it (3px) fell past the edge —
      0px of its bottom showed on Share's "Choose someone…" at 1280x700 (A4

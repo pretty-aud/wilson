@@ -32,7 +32,7 @@ import { canOnProject, projectActionDeniedReason } from '../../../permissions/pr
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
 import { useRemovalAsk } from './RemovalQuestion'
-import { Dialog, Button, Field, EmptyState, StatusBadge, StatusDot, statusMeta, Switch } from '../../../ui'
+import { Dialog, Button, Field, EmptyState, StatusBanner, StatusDot, statusMeta, Switch } from '../../../ui'
 // Post-overhaul S3c, step 1: which shot list holds a linked scene or shot,
 // and the pickers' active-list default.
 import LinkHome from '../views/scenes/LinkHome'
@@ -209,9 +209,10 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
         // stop being the same typographic object (review R17, as the critic
         // reframed it: both stay).
         title={task.title || 'Untitled task'}
-        // The status, where the 3px status-coloured rule under the header used
-        // to say it (one border weight, and never colour alone).
-        subtitle={<StatusBadge status={task.status || 'waiting_to_start'} />}
+        // The status banner across the popup under the title (FX3: the
+        // coloured bar Audrey missed, with its word; one component for every
+        // item popup). It reads the live task, so a change or an undo recolours it.
+        band={<StatusBanner status={task.status || 'waiting_to_start'} />}
         // Wider when the files column is shown.
         width={hasLeftColumn ? 'workbench' : 'reading'}
         // The backdrop closed it before, and still does. Escape now closes it

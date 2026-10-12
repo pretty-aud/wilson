@@ -200,13 +200,13 @@ describe('S3c step 3: seeing an edit', () => {
   })
   it('while an edit is on screen the bar offers its verbs, never the list\'s Save beside them; List order brings the list\'s back', () => {
     page()
-    expect(screen.getByRole('button', { name: 'Save as…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save edit as…' })).toBeTruthy()
     pickEdit('edit-1')
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Save as…' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save edit as…' })).toBeNull()
     expect(document.querySelector('.rb-scene-lists').textContent).toContain('Saved')
     pickEdit('')
-    expect(screen.getByRole('button', { name: 'Save as…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save edit as…' })).toBeTruthy()
   })
   it('Archive this edit (a manager\'s): asked, written, and the list goes back to List order', async () => {
     const { ctx } = page()
@@ -725,7 +725,7 @@ describe('S3c step 5: Save edit, the pulse, Discard', () => {
     expect(within(lists()).getByRole('button', { name: 'Discard changes' })).toBeTruthy()
     // Never the list's Save beside it.
     expect(within(lists()).queryByRole('button', { name: 'Save' })).toBeNull()
-    expect(within(lists()).queryByRole('button', { name: 'Save as…' })).toBeNull()
+    expect(within(lists()).queryByRole('button', { name: 'Save edit as…' })).toBeNull()
   })
 
   it('Save edit: the chain\'s title at its next version, a summary — written, then the new edit on screen; the next change asks again', async () => {

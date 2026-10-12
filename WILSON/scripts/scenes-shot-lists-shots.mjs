@@ -7,7 +7,7 @@
  * Walks walkthrough 51's states in order on the dev fixtures' Salt Hours:
  * the tab with its one list, a second list made empty, Add from another
  * list…, a row's shot-list menu and the Remove question, the Delete
- * question, Save, Save as…, Set active, Withdraw and Restore, the picker
+ * question, Save, Save edit as…, Set active, Withdraw and Restore, the picker
  * and its Archived view, "Not in any list" and its Add to list menu, the
  * scene popup's draft question (D21), and an archived list on screen, whose
  * New scene and New shot are greyed (review round 1). Each file is
@@ -111,12 +111,12 @@ try {
   await shot('delete-question');
   await click(button('Cancel', dialog('Delete scene?')), 'Cancel');
 
-  // Save, Save as…, Set active.
+  // Save, Save edit as…, Set active.
   await click(button('Save', bar()), 'Save');
   await park();
   await shot('saved');
-  await click(button('Save as…', bar()), 'Save as…');
-  await must(dialog('Save as a new version'), 'Save as…');
+  await click(button('Save edit as…', bar()), 'Save edit as…');
+  await must(dialog('Save as a new version'), 'Save edit as…');
   await shot('save-as');
   await click(button('Cancel', dialog('Save as a new version')), 'Cancel');
   await click(button('Set active', bar()), 'Set active');

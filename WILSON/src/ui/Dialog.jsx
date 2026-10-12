@@ -16,7 +16,8 @@
 // before a reviewed batch is discarded), and `error` rendered INSIDE the
 // footer (a failed confirm used to report into the page's notice bar, under
 // the backdrop, so the button looked dead). No chrome beyond header / body /
-// footer; no motion beyond the 200ms fade in index.css.
+// footer (and, since FX3, the optional `band` between header and body: an
+// item's status under its title); no motion beyond the 200ms fade in index.css.
 //
 // F3 adds FOCUS MANAGEMENT and nothing else with it (C2 KR-5): initial focus,
 // a Tab trap on the topmost dialog, and focus returned to whatever had it
@@ -29,7 +30,7 @@
 // trades a working keyboard path for a broken one.
 // =============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
 import { pushModal, isTopModal, focusableWithin } from './overlay'
 
@@ -42,6 +43,11 @@ export function Dialog({
   onClose,
   width = 'form',
   subtitle = null,
+  // A band across the dialog's full width between the title row and the
+  // body (FX3, kit request FX3-KR-1): an item's StatusBanner, directly under
+  // its title. It is not in the scrolling body, so it stays under the title
+  // while the fields scroll. Nothing else draws there.
+  band = null,
   busy = false,
   error = null,
   onBeforeClose = null,
@@ -72,6 +78,7 @@ export function Dialog({
   const tryCloseRef = useRef(tryClose); tryCloseRef.current = tryClose
 
   const surfaceRef = useRef(null)
+  const bandId = useId()
 
   // 🚨 CAPTURED IN RENDER, NOT IN THE EFFECT. React applies a child's
   // `autoFocus` during the COMMIT, which is before any effect runs — so an
@@ -251,13 +258,18 @@ export function Dialog({
            it was overwritten with undefined here, because this prop comes
            after the spread (A4-KR-1). */
         aria-label={typeof title === 'string' ? title : rest['aria-label']}
+        /* The band describes the dialog (FX3 review round 1, R1-13): opened,
+           it is read with the title ("Mara, dialog, Approved"), where it
+           would otherwise come after the Close button. A caller's own
+           description stays, after it. */
+        aria-describedby={[band ? bandId : null, rest['aria-describedby']].filter(Boolean).join(' ') || undefined}
         aria-busy={busy || undefined}
         className={`ui-dialog ${className}`.trim()}
         style={{ ...rest.style, width: px }}
         data-width={typeof width === 'string' ? width : rest['data-width']}
         data-surface="dark"
       >
-        <div className="ui-dialog-head">
+        <div className="ui-dialog-head" data-band={band ? 'true' : undefined}>
           <div>
             <div className="ui-dialog-title">{title}</div>
             {subtitle && <div className="ui-dialog-subtitle">{subtitle}</div>}
@@ -274,6 +286,7 @@ export function Dialog({
             <X aria-hidden="true" />
           </button>
         </div>
+        {band && <div className="ui-dialog-band" id={bandId}>{band}</div>}
         <div className="ui-dialog-body">{children}</div>
         {(footer || error) && (
           <div className="ui-dialog-foot">

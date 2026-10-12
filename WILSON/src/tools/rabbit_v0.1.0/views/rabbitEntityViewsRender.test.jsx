@@ -576,6 +576,41 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
   }
   const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
 
+  /* FX3 (Audrey, 2026-10-11: "right below the title of the item you had a
+     color banner/bar that was the color of the status ... lets add the back
+     in"): the kit's StatusBanner, one component for every item popup. */
+  it('FX3: the status banner sits directly under the title, across the popup, in the row\'s tone, and follows the status live (a change, then an undo)', () => {
+    const { ctx, rerender } = mount(p.View)
+    const theRow = row(p.names[0])  // before the popup repeats the name
+    const dialog = openPopup()
+    const band = dialog.querySelector(':scope > .ui-dialog-band')
+    // Under the title row, above the details: between the head and the body.
+    expect(band.previousElementSibling.classList.contains('ui-dialog-head')).toBe(true)
+    expect(band.nextElementSibling.classList.contains('ui-dialog-body')).toBe(true)
+    const read = () => {
+      const b = dialog.querySelector('.ui-dialog-band > .ui-status-banner')
+      const rowDot = theRow.querySelector('.ui-status-dot')
+      return [b.dataset.status, b.dataset.tone, b.textContent, rowDot.dataset.tone]
+    }
+    const was = ctx[p.nouns][0].status
+    const m = statusMeta(was)
+    expect(read()).toEqual([was, m.tone, m.label, m.tone])
+    // The status changes (the popup's own field, the row, another user): it
+    // recolours with the row.
+    const next = m.tone === 'danger' ? 'final' : 'blocked'
+    const n = statusMeta(next)
+    rabbit.current = { ...ctx, [p.nouns]: ctx[p.nouns].map((x, i) => (i === 0 ? { ...x, status: next } : x)) }
+    rerender(<p.View />)
+    expect(read()).toEqual([next, n.tone, n.label, n.tone])
+    // Undo writes the old status back: the banner follows it.
+    rabbit.current = ctx
+    rerender(<p.View />)
+    expect(read()).toEqual([was, m.tone, m.label, m.tone])
+    // CONTROL: the two statuses really differ in tone, so the middle step
+    // proves a recolour.
+    expect(n.tone).not.toBe(m.tone)
+  })
+
   it('is the kit Dialog in <body>, 896px and named by its row: the glyph and name its H2 title, its status the kit StatusBadge, every control named, Delete the kit danger at the footer\'s left; Escape, the backdrop and Close close it', () => {
     const { container, ctx } = mount(p.View)
     const dialog = openPopup()
@@ -592,9 +627,10 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     const main = dialog.querySelector('.rb-ent-detail-main')
     expect(within(main).getByText(`${p.Noun} name`)).toBeTruthy()
     expect(within(main).getByRole('button', { name: p.names[0] })).toBeTruthy()
-    // The status, where the status-coloured rule under the header said it.
+    // The status: the kit's StatusBanner under the title (FX3), not a badge in it.
     const { status } = ctx[p.nouns][0]
-    expect(dialog.querySelector('.ui-dialog-subtitle .ui-status').textContent).toBe(statusMeta(status).label)
+    expect(dialog.querySelector('.ui-dialog-band > .ui-status-banner').textContent).toBe(statusMeta(status).label)
+    expect(dialog.querySelector('.ui-dialog-subtitle')).toBeNull()
     // The kit's ✕ is named (the old one was not); so is every other control.
     expect(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' })).toBeTruthy()
     for (const b of within(dialog).getAllByRole('button')) {

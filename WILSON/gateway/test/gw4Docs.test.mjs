@@ -141,11 +141,15 @@ describe('the GW4 hand-off (docs/sessions/handoffs/po-gw4-2026-10-11.md), held t
     expect(wt63).toContain('**gateway-dry-run-38189270049**');
     expect(handoff).toContain('`x3oa92MEtCDdCAd4XFj+M/LA9sF8jYQ3dz6zB7xcuLo=`');
   });
-  it('OUTSTANDING\'s session log has GW4\'s row on top, and the comment markers stay four', () => {
+  // Post-overhaul FX3 (2026-10-12) loosened "on top" to "in the log, right
+  // above GW3's": the log takes new rows at the top, so a later session's row
+  // sits above this one (as GW3 loosened GW2's pin).
+  it('OUTSTANDING\'s session log has GW4\'s row, right above GW3\'s, and the comment markers stay four', () => {
     const log = outstanding.slice(outstanding.indexOf('## Session log'));
     const rows = log.split('\n').filter((l) => l.startsWith('| Post-overhaul') || l.startsWith('| Track') || l.startsWith('| UI'));
-    expect(rows[0]).toMatch(/^\| Post-overhaul GW4 \(2026-10-11; `po\/gw4-gateway-release` into `feat\/post-overhaul-edit-versioning`\)/);
-    expect(rows[1]).toMatch(/^\| Post-overhaul GW3 /);
+    const i = rows.findIndex((l) => /^\| Post-overhaul GW4 \(2026-10-11; `po\/gw4-gateway-release` into `feat\/post-overhaul-edit-versioning`\)/.test(l));
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(rows[i + 1]).toMatch(/^\| Post-overhaul GW3 /);
     expect((outstanding.match(/<!--/g) || []).length).toBe(4);
   });
 });

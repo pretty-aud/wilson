@@ -1005,6 +1005,25 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // ── render ───────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+      {/* ── The bid version bar: the Timeline's FIRST row (FX3) ──────────────
+          Audrey, 2026-10-11: "move that to right under the project title ...
+          first you see the project you are in then below is what version you
+          are working off of." The project title is Rabbit.jsx's
+          ProjectContextBar, the chrome above every tab, which the Timeline
+          does not own; so the bar is the first thing the Timeline draws,
+          directly under it, its label in the title bar's label column
+          (rabbitTimeline.css). Every control, state and sentence is S5d's,
+          past the money gate only (F10). It was the zoom toolbar's second row. */}
+      {canSeeMoney && (
+        <TimelineVersionBar
+          ctx={ctx}
+          roleRates={roleRates}
+          ratesPending={ratesPending}
+          viewedId={viewing ? viewedId : null}
+          onView={chooseView}
+          onAsk={setAsk}
+        />
+      )}
       {/* ── Read-only notice (Session 29) ───────────────────────────────────
           Greying a control explains that control. It cannot explain a GESTURE:
           "drag empty space to draw a task", "drag a bar to move it", "drag the
@@ -1014,7 +1033,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
           started this investigation, so the reason is stated once, here, where
           it covers every gesture on the pane at once. Post-overhaul S5d: it
           says the PROJECT's gate; a viewed bid version says its own read-only
-          in the version bar, under the toolbar. */}
+          in the version bar (since FX3 the row above this one). */}
       {!projectCanWrite && projectWriteReason && (
         <div
           className="flex items-center gap-2 px-3 py-1.5 text-dense"
@@ -1132,18 +1151,6 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         onGroupByChange={handleGroupByChange}
         project={project}
         shotListLabel={activeListLabel}
-        // Post-overhaul S5d: the bid version bar, the toolbar's second row —
-        // past the money gate only (F10); for everyone else nothing of it.
-        versionBar={canSeeMoney ? (
-          <TimelineVersionBar
-            ctx={ctx}
-            roleRates={roleRates}
-            ratesPending={ratesPending}
-            viewedId={viewing ? viewedId : null}
-            onView={chooseView}
-            onAsk={setAsk}
-          />
-        ) : null}
       />
       {canSeeMoney && (
         <VersionQuestions
@@ -5586,16 +5593,11 @@ function DetailZoomToolbar({
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
   shotListLabel = '',
-  // Post-overhaul S5d: the bid version bar (TimelineVersions.jsx), rendered as
-  // this toolbar's SECOND row, past the money gate only (null otherwise).
-  // MEASURED in Chromium on the dev fixtures: this first row has 18px left at
-  // 1280x700 with six Group-by tabs and the "Shot list:" label (S3c's 1100px
-  // of other controls, timelineShotLists.test.jsx), 116px grouped by phase
-  // with four — and the smallest version control that says a version is
-  // unsaved and saves it is about 290px. So the version control is a row of
-  // its own and this row keeps every control S3c measured, unchanged (re-
-  // measured after: the same widths to the pixel).
-  versionBar = null,
+  // Post-overhaul S5d put the bid version bar here as this toolbar's SECOND
+  // row, because this row has 18px left at 1280x700 with six Group-by tabs
+  // and the "Shot list:" label and the bar needs about 290px. FX3 (Audrey,
+  // 2026-10-11) moved it to the Timeline's first row, under the project
+  // title; this row keeps every control S3c measured, and nothing under it.
 }) {
   // UI overhaul B3b: the kit Toolbar (44px, the 24px gutter, one 28px
   // control height), and ONE segmented idiom for the three selectors
@@ -5706,7 +5708,6 @@ function DetailZoomToolbar({
         onChange={(o) => onSortOrderChange?.(o)}
       />
     </Toolbar>
-    {versionBar}
     </>
   )
 }

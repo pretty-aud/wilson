@@ -33,7 +33,7 @@ describe('the "Scenes & shot lists" help page (S3b)', () => {
   const CONTROLS = [
     ['New shot list', './views/scenes/ShotListBar.jsx', /New shot list\n?\s*</],
     ['Shot lists…', './views/scenes/ShotListBar.jsx', /Shot lists…/],
-    ['Save as…', './views/scenes/ShotListBar.jsx', /Save as…/],
+    ['Save edit as…', './views/scenes/ShotListBar.jsx', /Save edit as…/],
     ['Set active', './views/scenes/ShotListBar.jsx', /Set active/],
     // The menu's LIVE items (each verb also has a greyed twin with the same
     // words, which alone would not prove the live one kept them).
