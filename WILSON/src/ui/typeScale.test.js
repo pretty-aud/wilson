@@ -3195,6 +3195,18 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // lane A. `.lesson-content` left this list with A3 (2026-09-24): it has
     // no 2px border now, so one appearing there is a defect again.
     ['src/index.css', '.companion-chat-md'],
+    /* FX6, 2026-10-12 — the status banner's line under an item popup's
+       title, 3px. Not an indicator: a bar, judged by Audrey in her own
+       words, her answer to walkthrough 66's question 2:
+         "for the window/card that opens for assets/tasks/scenes/etc the
+          status color line below the status title. lets make the line
+          thicker it feels to thin"
+       and, the day before, what she asked to bring back: "a color
+       banner/bar that was the color of the status". 3px of the three
+       weights rendered on every tone (2, 3, 4; walkthrough 68). EXACT:
+       the light-surface rule sets the line's colour only, so a width there
+       (or on any other selector that names the banner) is a defect. */
+    ['src/index.css', '.ui-status-banner', 'exact'],
   ];
   /* The selector of the rule that holds the declaration at `offset`: it sits
      immediately before the block's opening brace. 🚨 The block is found by
