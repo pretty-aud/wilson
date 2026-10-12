@@ -1,12 +1,17 @@
-# Builds "WILSON Gateway Setup.msi" (unsigned until D14; GW4 signs it).
-#   powershell -NoProfile -File gateway\windows\wix\build.ps1 -Out <folder> [-NodeZip <path>]
-# Steps: the service host from source (csc.exe); node.exe from the official zip,
-# whose SHA-256 must equal gateway\windows\node.json's pin; the app's own files
-# (package.json, src\, updater\; no tests); WiX 5.0.2 as a dotnet LOCAL tool.
+# Builds "WILSON Gateway Setup.msi". D14 (her ruling of 2026-10-11): unsigned for
+# now; the release workflow's Authenticode steps sign the host and the MSI once a
+# certificate secret is set (GW4).
+#   powershell -NoProfile -File gateway\windows\wix\build.ps1 -Out <folder> [-NodeZip <path>] [-HostExe <path>]
+# Steps: the service host from source (csc.exe), or the one -HostExe names (the
+# release workflow builds it first, so it can be signed before it is packed);
+# node.exe from the official zip, whose SHA-256 must equal
+# gateway\windows\node.json's pin; the app's own files (package.json, src\,
+# updater\; no tests); WiX 5.0.2 as a dotnet LOCAL tool.
 # It installs nothing on the computer that builds it.
 param(
   [Parameter(Mandatory = $true)][string]$Out,
-  [string]$NodeZip = ''
+  [string]$NodeZip = '',
+  [string]$HostExe = ''
 )
 $ErrorActionPreference = 'Stop'
 $gateway = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -17,8 +22,14 @@ $stage = Join-Path $Out 'stage'
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-# 1. The host.
-& (Join-Path $gateway 'windows\host\build.ps1') -Out (Join-Path $stage 'host') | Out-Null
+# 1. The host: built here, or the prebuilt (perhaps signed) one the caller names.
+if ($HostExe) {
+  if (-not (Test-Path $HostExe)) { throw "the host exe $HostExe does not exist" }
+  New-Item -ItemType Directory -Force -Path (Join-Path $stage 'host') | Out-Null
+  Copy-Item $HostExe (Join-Path $stage 'host\WilsonGatewayHost.exe')
+} else {
+  & (Join-Path $gateway 'windows\host\build.ps1') -Out (Join-Path $stage 'host') | Out-Null
+}
 
 # 2. node.exe, by the pinned hash.
 if (-not $NodeZip) {

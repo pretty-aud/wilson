@@ -203,75 +203,13 @@ describe('reach per location (reach.mjs)', () => {
   });
 });
 
+// GW4 (2026-10-11): the update client's fetching moved to GitHub Releases (releaseFetch.mjs follows
+// GitHub's redirects), so its tests run against a release server on loopback in release.test.mjs:
+// the chain, the compiled-in key, a newer manifest taken, a stale one refused, a tampered or
+// oversized artefact refused, a redirect off GitHub's hosts refused. What stays here reads no network.
 describe('the update client (platform/updates.mjs)', () => {
   const release = crypto.generateKeyPairSync('ed25519');
-  const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
-  function channel({ artefact, version = '9.0.0', size, hash, platformKey = 'windows-x64' } = {}) {
-    const art = artefact ?? Buffer.from('the release archive');
-    const manifest = Buffer.from(JSON.stringify({ version, published_at: '2026-10-10T08:00:00Z', minimum_version: null, hard_minimum_version: null, artefacts: { 'windows-x64': { url: 'https://releases.example/wilson-gateway-9.0.0.tar.gz', sha256: hash ?? sha(art), size: size ?? art.length }, container: { image: 'x', digest: 'sha256:' + 'a'.repeat(64) } } }));
-    const sig = crypto.sign(null, manifest, release.privateKey).toString('base64');
-    const fetchImpl = async (url) => {
-      if (url.endsWith('stable.json')) return new Response(manifest);
-      if (url.endsWith('stable.json.sig')) return new Response(sig);
-      if (url.endsWith('.tar.gz')) return new Response(art);
-      return new Response('', { status: 404 });
-    };
-    void platformKey;
-    return { fetchImpl, manifest, sig, art };
-  }
   const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-updates-'));
-  it('no release key compiled in: updates are off and nothing is fetched', async () => {
-    let fetched = 0;
-    const u = new Updates({ platform: 'windows', stateDir: tmp(), version: '0.1.0', fetchImpl: async () => { fetched++; return new Response(''); } });
-    expect(u.state()).toEqual({ state: 'disabled' });
-    await u.check('test');
-    expect(fetched).toBe(0);
-  });
-  it('container: a newer signed version is "available" (pull the image)', async () => {
-    const { fetchImpl } = channel();
-    const u = new Updates({ platform: 'container', stateDir: tmp(), version: '0.1.0', fetchImpl, keys: [release.publicKey] });
-    expect(await u.check('test')).toEqual({ state: 'available', version: '9.0.0' });
-  });
-  it('Windows: downloaded into the gateway\'s own folder, size and hash checked, then ONE message to the updater', async () => {
-    const dir = tmp();
-    const { fetchImpl, art } = channel();
-    const asked = [];
-    const u = new Updates({ platform: 'windows', stateDir: dir, version: '0.1.0', fetchImpl, keys: [release.publicKey], askUpdater: async (m) => { asked.push(m); return { ok: true, accepted: true }; } });
-    expect(await u.check('test')).toEqual({ state: 'updating', version: '9.0.0' });
-    expect(fs.readFileSync(path.join(dir, 'updates', 'wilson-gateway-9.0.0.tar.gz')).equals(art)).toBe(true);
-    expect(asked).toHaveLength(1);
-    expect(asked[0]).toMatchObject({ type: 'swap', artefact: 'wilson-gateway-9.0.0.tar.gz' });
-    expect(fs.readdirSync(path.join(dir, 'updates'))).toEqual(['wilson-gateway-9.0.0.tar.gz']); // no .part left
-  });
-  it('a download that is not the named artefact (hash, or larger than the manifest says) is refused, deleted, and the updater is not asked', async () => {
-    for (const bad of [{ hash: 'b'.repeat(64) }, { size: 3 }]) {
-      const dir = tmp();
-      const { fetchImpl } = channel(bad);
-      const asked = [];
-      const u = new Updates({ platform: 'windows', stateDir: dir, version: '0.1.0', fetchImpl, keys: [release.publicKey], askUpdater: async (m) => { asked.push(m); return { ok: true }; } });
-      const s = await u.check('test');
-      expect(s.state, JSON.stringify(bad)).toBe('failed');
-      expect(asked).toEqual([]);
-      expect(fs.existsSync(path.join(dir, 'updates')) ? fs.readdirSync(path.join(dir, 'updates')) : []).toEqual([]);
-    }
-  });
-  it('a download that runs on past the manifest\'s size is cut at that size, not read to its end (a hostile mirror\'s endless body)', async () => {
-    const dir = tmp();
-    const { fetchImpl: base } = channel({ size: 4 * 1024 * 1024 });
-    let pulled = 0;
-    const endless = () => new ReadableStream({ pull(c) { pulled += 65536; c.enqueue(new Uint8Array(65536)); } });
-    const fetchImpl = async (url) => (url.endsWith('.tar.gz') ? new Response(endless()) : base(url));
-    const u = new Updates({ platform: 'windows', stateDir: dir, version: '0.1.0', fetchImpl, keys: [release.publicKey], askUpdater: async () => ({ ok: true }) });
-    const s = await u.check('test');
-    expect(s).toMatchObject({ state: 'failed', reason: 'larger than the manifest says' });
-    expect(pulled).toBeLessThan(6 * 1024 * 1024);
-  }, 15_000);
-  it('not newer: up to date; a manifest signed by another key: refused and the state kept', async () => {
-    const { fetchImpl } = channel({ version: '0.1.0' });
-    expect(await new Updates({ platform: 'container', stateDir: tmp(), version: '0.1.0', fetchImpl, keys: [release.publicKey] }).check('t')).toEqual({ state: 'up_to_date' });
-    const other = crypto.generateKeyPairSync('ed25519');
-    expect(await new Updates({ platform: 'container', stateDir: tmp(), version: '0.1.0', fetchImpl: channel().fetchImpl, keys: [other.publicKey] }).check('t')).toEqual({ state: 'up_to_date' });
-  });
   it('a failed swap reported by the updater is read at start', async () => {
     const dir = tmp();
     fs.writeFileSync(path.join(dir, 'update-failed.json'), JSON.stringify({ version: '1.3.0', reason: 'the inside door could not bind' }));

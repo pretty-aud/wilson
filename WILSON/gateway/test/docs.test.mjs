@@ -120,11 +120,17 @@ describe('the GW2 hand-off (docs/sessions/handoffs/po-gw2-2026-10-10.md), held t
     expect(fakeCloud).toContain("arg('--port'");
   });
   it('For GW4: the release key slots empty, the channel, WiX, the base image, the install\'s order', () => {
-    expect(RELEASE_KEYS_WIRE).toEqual([]);
-    expect(handoff).toContain(`(\`${CHANNEL_URL}\``);
+    // GW2 handed over two EMPTY slots and the design's placeholder host; GW4
+    // filled slot 1 and moved the channel to GitHub Releases (her ruling of
+    // 2026-10-11). The hand-off keeps what GW2 said; the code says what is.
+    expect(handoff).toContain('two slots, EMPTY on purpose');
+    expect(handoff).toContain('(`https://releases.petalstudios.com/wilson-gateway/stable.json`');
+    expect(RELEASE_KEYS_WIRE).toHaveLength(1);
+    expect(CHANNEL_URL).toBe('https://github.com/pretty-aud/wilson/releases/latest/download/stable.json');
     expect(JSON.parse(tools).tools.wix.version).toBe('5.0.2');
     expect(handoff).toContain('pinned to 5.0.2');
-    expect(dockerfile).toMatch(/^FROM gcr\.io\/distroless\/nodejs24-debian12:nonroot$/m);
+    // GW2 named the base by tag and asked GW4 to pin it by digest: done.
+    expect(dockerfile).toMatch(/^FROM gcr\.io\/distroless\/nodejs24-debian12:nonroot@sha256:[0-9a-f]{64}$/m);
     expect(handoff).toContain('`gcr.io/distroless/nodejs24-debian12:nonroot`');
     let at = -1;
     for (const action of ['SetStateOwner', 'SetStateAcl', 'FreshPipeKey', 'WriteEnrolFile']) {

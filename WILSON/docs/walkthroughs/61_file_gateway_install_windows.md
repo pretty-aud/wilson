@@ -27,6 +27,12 @@ fingerprint you confirm in WILSON. Then you give it the share's login once,
 and `wilson-gateway doctor` tells you, in one block you paste back to me,
 what it is doing.
 
+**Since GW4 (2026-10-11).** Install from the Releases page rather than
+the Actions artifact: walkthrough 63, steps 10 to 15, does it and goes on
+to the release, the outside door and the self-update. With the release key
+now built in, the health line in step 9 ends *up to date*, not *updates off
+until a release key is set*.
+
 Written 2026-10-10 against `feat/post-overhaul-edit-versioning` (GW2,
 `po/gw2-gateway-service`). Run it after the next beta merge, against the
 **beta's** cloud (staging). Nothing here touches the desktop app.

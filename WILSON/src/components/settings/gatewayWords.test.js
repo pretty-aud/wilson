@@ -48,31 +48,90 @@ describe('§3 and §11, verbatim', () => {
     expect(s3).not.toContain(text.replace('two minutes per computer', 'five minutes per computer'))
   })
 
-  for (const [name, story, from, to] of [
-    ['the NAS story', NAS_STORY, '### A. On a NAS', '### B. On a Windows PC'],
-    ['the Windows story', WINDOWS_STORY, '### B. On a Windows PC', '## 12. The build plan'],
-  ]) {
-    it(`${name}: every sentence the card shows is §11's`, () => {
-      const s11 = plain(section(from, to))
-      const pieces = story.intro ? [story.intro] : []
-      for (const st of story.steps) {
-        pieces.push(`${st.lead} ${st.text}`)
-        for (const it of st.items || []) pieces.push(`${it.lead} ${it.text}`)
-      }
-      for (const a of story.after) pieces.push(`${a.lead}${a.text}`)
-      // CONTROL: the framing sentence speaks to the design's reader; the card leaves it out.
-      expect(JSON.stringify(story)).not.toContain('Read as the admin reads it')
-      for (const p of pieces) expect(s11, p.slice(0, 60)).toContain(p)
-      // The numbered steps are §11's, in its order and count.
-      const numbered = s11.match(/ \d\. /g) || []
-      expect(story.steps.length).toBe(numbered.length)
-    })
-  }
-
+  // GW4 (2026-10-11): §11's two stories were the design's; the stories are
+  // now the built gateway's, as the admin reads them (the GW4 brief, item 4),
+  // and GW1's "verbatim §11" pin gives way to the pins below. The design's
+  // review history says where they depart from §11, and why.
   it('the stories keep the network address\'s backslashes', () => {
     const volumes = NAS_STORY.steps[2].items.find(i => i.mounts)
     expect(volumes.text).toContain(`${BS}${BS}nas${BS}footage`)
     expect(WINDOWS_STORY.steps[0].text).toContain(`NT SERVICE${BS}WilsonGateway`)
+    expect(WINDOWS_STORY.steps[2].text).toContain(`wilson-gateway share-login ${BS}${BS}nas${BS}footage`)
+  })
+})
+
+describe('the install stories, as the admin reads them (GW4)', () => {
+  const all = (story) => {
+    const pieces = story.intro ? [story.intro] : []
+    for (const st of story.steps) {
+      pieces.push(`${st.lead} ${st.text}`)
+      for (const it of st.items || []) pieces.push(`${it.lead} ${it.text}`)
+    }
+    for (const a of story.after) pieces.push(`${a.lead} ${a.text}`)
+    return pieces.join(' ')
+  }
+  const nas = all(NAS_STORY)
+  const win = all(WINDOWS_STORY)
+
+  it('their shape: five steps on a NAS, six on Windows, the trust step the same object in both, the mount lines in the NAS story\'s volumes', () => {
+    expect(NAS_STORY.steps.map((s) => s.lead)).toEqual(['Get the image.', 'Make the folders.', 'Create the container.', 'Start it.', 'Trust it, once per office computer.'])
+    expect(WINDOWS_STORY.steps.map((s) => s.lead)).toEqual(['Run the installer', 'Confirm the fingerprint.', 'Give it the share\'s login.', 'See it appear.', 'Trust it, once per office computer.', 'Keep the PC on and awake'])
+    expect(NAS_STORY.steps[4]).toBe(WINDOWS_STORY.steps[4])
+    expect(NAS_STORY.steps[2].items.filter((i) => i.mounts).map((i) => i.lead)).toEqual(['Volumes:'])
+    for (const s of [NAS_STORY, WINDOWS_STORY]) for (const a of s.after) expect(a.lead, a.lead).toMatch(/^[A-Z][^.]*\.$/)
+  })
+  it('no word for the design\'s reader: no section signs, no review rounds, no decision numbers, no session names', () => {
+    for (const [name, text] of [['NAS', nas], ['Windows', win]]) {
+      for (const bad of [/§/, /review round/i, /Appendix/, /\bD\d{1,2}\b/, /\bGW\d\b/, /\bF\d{1,2}\b/, /\bR\d{1,2}\b/, /Read as the admin reads it/]) expect(text, `${name}: ${bad}`).not.toMatch(bad)
+    }
+    // CONTROL: the check finds what §11 itself said.
+    expect('the card tells you to change the setting (review round 2)').toMatch(/review round/i)
+  })
+  it('GW3\'s four things a browser\'s user must be told, in the Bins tab\'s own words (the copies held to binLocations.js)', async () => {
+    const B = await import('../../tools/rabbit_v0.1.0/bins/binLocations')
+    const W = await import('./gatewayWords')
+    expect(W.BROWSER_CHROME_SENTENCE).toBe(B.CHROME_LOCAL_NETWORK_SENTENCE)
+    expect(W.BROWSER_OWN_COMPUTER_SENTENCE).toBe(B.GATEWAY_OWN_COMPUTER_LINE)
+    expect(W.BROWSER_FORMAT_SENTENCE).toBe(B.NEEDS_DESKTOP_FORMAT)
+    expect(B.gatewayUnreachableSentence('Studio', '192.168.1.10:8443')).toContain(W.BROWSER_CERTIFICATE_SENTENCE)
+    const trust = NAS_STORY.steps[4]
+    expect(trust.items.map((i) => i.lead)).toEqual(['The certificate:', 'Chrome\'s question:', 'The gateway\'s own computer:', 'What plays:'])
+    for (const s of [W.BROWSER_CERTIFICATE_SENTENCE, W.BROWSER_CHROME_SENTENCE, W.BROWSER_OWN_COMPUTER_SENTENCE, W.BROWSER_FORMAT_SENTENCE]) {
+      expect(nas, s).toContain(s)
+      expect(win, s).toContain(s)
+    }
+    // The certificate's places on Windows and macOS, and a new root offered beside the old.
+    expect(trust.items[0].text).toContain('Trusted Root Certification Authorities')
+    expect(trust.items[0].text).toContain('Keychain Access → System')
+    expect(trust.items[0].text).toContain('the card offers the new one beside the old')
+    // What plays: proxies here, masters in the desktop app; never ProRes or DNx.
+    expect(trust.items[3].text).toContain('Proxies play in the browser; masters play in the desktop app')
+    expect(trust.items[3].text).toContain('not ProRes or DNx')
+  })
+  it('Windows: not signed yet, SmartScreen\'s warning and the way past it; never "signed" (D14: unsigned for now)', () => {
+    expect(win).toContain('It is not signed yet, so Windows SmartScreen says Windows protected your PC: choose More info, then Run anyway. A signed build will stop that warning later.')
+    for (const [name, text] of [['NAS', nas], ['Windows', win]]) expect(text, name).not.toMatch(/signed by|is signed\b/i)
+  })
+  it('the release on GitHub: the MSI by name, the image by digest from GitHub\'s registry', () => {
+    expect(win).toContain('WILSON-Gateway-Setup-<version>.msi, from the latest WILSON file gateway release at github.com/pretty-aud/wilson/releases')
+    expect(nas).toContain('ghcr.io/pretty-aud/wilson-gateway@sha256:')
+    expect(nas).toContain('sudo docker pull ghcr.io/pretty-aud/wilson-gateway@sha256:')
+  })
+  it('a domain\'s computer account (connect_without_login), the forward\'s DHCP reservation, never anything in front of 8443, the NAS\'s reverse proxy with the root pinned, the free certificate\'s terms', () => {
+    expect(win).toContain('"connect_without_login": ["nas"]')
+    expect(win).toContain('at most 16 servers')
+    for (const text of [nas, win]) {
+      expect(text).toContain('a fixed address on the router first (a DHCP reservation)')
+      expect(text).toContain('Never put a reverse proxy, a tunnel or any other program in front of port 8443.')
+      expect(text).toContain('accepting Let\'s Encrypt\'s Subscriber Agreement')
+    }
+    expect(nas).toContain('"outside": { "behind_local_proxy": true }')
+    expect(nas).toContain('check the certificate there against the gateway\'s own root')
+    expect(nas).toContain('A proxy that cannot check the certificate would hand your footage to whatever program took that port first')
+  })
+  it('a stopped install says where the log is and what to remove', () => {
+    expect(win).toContain('msiexec /i WILSON-Gateway-Setup-<version>.msi /l*v install.log')
+    expect(win).toContain('remove what the log names')
   })
 })
 
