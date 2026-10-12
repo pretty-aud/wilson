@@ -1691,6 +1691,11 @@ with the same gateway code. **INFERRED:** the runtime's own periodic sync
 can land between the test setting a fresh nonce and probing, so the door
 already holds the new nonce. Settle it: stop (or stub) the gateway's sync
 timer in that test, or probe before the next tick. Owner: a GW session.
+*(FX6, 2026-10-12, MEASURED: the "Gateway" workflow's ubuntu job, run
+38312716840 on `feff09f9`, a branch with no gateway change of its own (it
+had just merged FX5's), failed at the same `runtime.test.mjs:493`,
+`isThisGateway: true` where `false` was expected; the Windows job and the
+same gateway code's run on the integration branch (`996e9c30`) passed.)*
 
 ---
 
