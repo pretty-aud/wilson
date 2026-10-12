@@ -129,6 +129,14 @@ export class Updates {
     try { await this.#writeLast(v.manifest); } catch (e) { this.log('update_manifest_not_kept', { reason: String(e.message).slice(0, 120) }); }
     if (!v.newer) { if (this.current.state !== 'failed') this.current = { state: 'up_to_date' }; return this.current; }
     if (this.o.platform !== 'windows') { this.current = { state: 'available', version: v.manifest.version }; return this.current; }
+    // A version whose swap already failed here (the updater rolled it back and
+    // wrote update-failed.json) is not tried again by the daily check: each try
+    // stops the gateway for the swap and the 90 s health wait. A newer version,
+    // or an admin's Check now, tries again (GW4).
+    if (this.current.state === 'failed' && this.current.version === v.manifest.version && why !== 'cloud asked') {
+      this.log('update_skipped', { why, version: v.manifest.version, reason: 'this version failed here before; Check now tries it again' });
+      return this.current;
+    }
 
     const art = v.manifest.artefacts['windows-x64'];
     const name = path.posix.basename(new URL(art.url).pathname);

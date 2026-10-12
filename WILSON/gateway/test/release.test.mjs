@@ -328,6 +328,30 @@ describe('the gateway\'s update check against the loopback channel (Updates)', (
       srv.state.assets['stable.json.sig'] = signWith(manifest);
     }
   });
+  it('a version that failed here (rolled back) is not retried by the daily check; Check now and a newer version are', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'update-failed.json'), JSON.stringify({ version: '9.0.0', reason: 'the new version did not report healthy within 90 s', running: '0.1.0' }));
+    const asked = [];
+    const logs = [];
+    const u = make(dir, { askUpdater: async (m) => { asked.push(m); return { ok: true }; }, log: (e, d) => logs.push([e, d]) });
+    await u.readFailure();
+    const before = srv.hits.length;
+    expect(await u.check('daily')).toMatchObject({ state: 'failed', version: '9.0.0' });
+    expect(asked).toEqual([]);
+    expect(srv.hits.slice(before).filter((h) => h.assetName === ARTEFACT)).toEqual([]);
+    expect(logs.map((l) => l[0])).toContain('update_skipped');
+    // The admin's Check now tries it again.
+    expect(await u.check('cloud asked')).toEqual({ state: 'updating', version: '9.0.0' });
+    expect(asked).toHaveLength(1);
+    // CONTROL: a failure of ANOTHER version does not hold this one back.
+    const dir2 = tmp();
+    fs.writeFileSync(path.join(dir2, 'update-failed.json'), JSON.stringify({ version: '8.9.9', reason: 'x' }));
+    const asked2 = [];
+    const u2 = make(dir2, { askUpdater: async (m) => { asked2.push(m); return { ok: true }; } });
+    await u2.readFailure();
+    expect(await u2.check('daily')).toEqual({ state: 'updating', version: '9.0.0' });
+    expect(asked2).toHaveLength(1);
+  });
   it('no release key: updates are off and nothing is fetched', async () => {
     const before = srv.hits.length;
     const u = new Updates({ platform: 'windows', stateDir: tmp(), version: '0.1.0', keys: [], channelUrl: srv.channelUrl, transport: srv.transport });

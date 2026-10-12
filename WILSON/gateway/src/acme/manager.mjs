@@ -57,11 +57,17 @@ const PROBLEM = 'urn:ietf:params:acme:error:';
 export function reasonOf(err, name) {
   const type = String(err?.type || '').replace(PROBLEM, '');
   const detail = String(err?.detail || '');
+  const couldNotConnect = `Let’s Encrypt could not connect to ${name} on port 443: forward port 443 on the router to this gateway’s outside port`;
   switch (type) {
-    case 'connection': return `Let’s Encrypt could not connect to ${name} on port 443: forward port 443 on the router to this gateway’s outside port`;
+    case 'connection': return couldNotConnect;
     case 'dns': return `the name ${name} could not be found in DNS`;
     case 'unauthorized':
-    case 'incorrectResponse': return `something other than this gateway answered for ${name} on port 443`;
+    case 'incorrectResponse':
+      // Let's Encrypt says `connection` for a port nobody answers on; Pebble
+      // (its test server) says `unauthorized` with "Failed to connect to …"
+      // (measured in CI, 2026-10-12). The detail decides.
+      if (/failed to connect|connection refused|timed? ?out|no route to host/i.test(detail)) return couldNotConnect;
+      return `something other than this gateway answered for ${name} on port 443`;
     case 'tls': return `the secure connection to ${name} on port 443 failed`;
     case 'caa': return `the CAA record of ${name} does not allow Let’s Encrypt`;
     case 'rateLimited': return 'Let’s Encrypt’s rate limit was reached: trying again later';

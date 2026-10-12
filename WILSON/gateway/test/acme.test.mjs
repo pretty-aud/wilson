@@ -186,6 +186,9 @@ describe('when the free certificate applies (acmeNameFor)', () => {
     expect(reasonOf({ type: 'urn:ietf:params:acme:error:dns' }, NAME)).toMatch(/could not be found in DNS/);
     expect(reasonOf({ type: 'urn:ietf:params:acme:error:malformed', detail: 'Error occurred while resolving URL' }, NAME)).toMatch(/could not be found in DNS/);
     expect(reasonOf({ type: 'urn:ietf:params:acme:error:unauthorized' }, NAME)).toMatch(/something other than this gateway/);
+    // Pebble's wording for a refused connection (measured in CI): unauthorized, "Failed to connect to …".
+    expect(reasonOf({ type: 'urn:ietf:params:acme:error:unauthorized', detail: 'Failed to connect to 127.0.0.2:18444 for the tls-alpn-01 challenge' }, NAME)).toMatch(/could not connect to gw\.example\.test on port 443/);
+    expect(reasonOf({ type: 'urn:ietf:params:acme:error:unauthorized', detail: 'Incorrect validation certificate for tls-alpn-01 challenge.' }, NAME)).toMatch(/something other than this gateway/);
     expect(reasonOf({ type: 'urn:ietf:params:acme:error:rateLimited' }, NAME)).toMatch(/rate limit/);
     expect(reasonOf({ type: 'urn:ietf:params:acme:error:caa' }, NAME)).toMatch(/CAA/);
     expect(reasonOf({ message: 'acme: x: ECONNREFUSED' }, NAME)).toMatch(/could not be reached/);
