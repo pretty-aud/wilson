@@ -4,7 +4,15 @@
  * FX7 (2026-10-12): the Timeline's PROJECT and BID VER. labels in one size
  * and colour, in one column, the project standing out, no folder icon.
  *
- *   node scripts/fx7-shots.mjs <port> --out <dir> --phase before|after [--size 1440x900] [--no-shots]
+ *   node scripts/fx7-shots.mjs <port> --out <dir> --phase before|after [--size 1440x900] [--no-shots] [--check]
+ *
+ * --check (FX7 review round 1, R1-01: the unit tests pin rules, this pins the
+ * result): exits 1 unless, in every state, nothing stands before PROJECT,
+ * both labels are the kit's `ui-field-label` on the gutter with the same
+ * computed size, line height, weight, tracking, case and ink, the project's
+ * name and the dropdown start at one x, neither row overflows, and the
+ * project's name is the one name at 600 (the dropdown's value and the
+ * version's name in the words at 400). Each failure is printed.
  *
  * Walks walkthrough 69 on the dev fixtures' Salt Hours: the Timeline's first
  * screen under the lock, back to bidding (Current, nothing open), a bid
@@ -34,8 +42,10 @@ const PORT = args.find((a, i) => !a.startsWith('-') && !['--out', '--size', '--p
 const OUT = flag('--out');
 const PHASE = flag('--phase');
 const SHOTS = !args.includes('--no-shots');
+const CHECK = args.includes('--check');
+const failures = [];
 if (!OUT || !['before', 'after'].includes(PHASE)) {
-  console.error('usage: fx7-shots.mjs <port> --out <dir> --phase before|after [--size WxH] [--no-shots]');
+  console.error('usage: fx7-shots.mjs <port> --out <dir> --phase before|after [--size WxH] [--no-shots] [--check]');
   process.exit(1);
 }
 const [W, H] = (flag('--size') || '1440x900').split('x').map(Number);
@@ -82,8 +92,9 @@ try {
       const type = (e) => {
         if (!e) return null;
         const s = getComputedStyle(e);
-        return { size: s.fontSize, weight: s.fontWeight, tracking: s.letterSpacing, case: s.textTransform, ink: s.color };
+        return { size: s.fontSize, lineHeight: s.lineHeight, weight: s.fontWeight, tracking: s.letterSpacing, case: s.textTransform, ink: s.color };
       };
+      const vName = bar?.querySelector('.rb-tl-ver-name');
       const label = (e) => e && { text: e.textContent, cls: e.className, x: px(r(e).left), w: px(r(e).width), right: px(r(e).right), ...type(e) };
       const value = (e) => e && { x: px(r(e).left), w: px(r(e).width), ...type(e), text: e.tagName === 'SELECT' ? e.selectedOptions[0]?.textContent : e.textContent };
       // What sits before the project's label in its row (the folder icon, before FX7).
@@ -98,6 +109,7 @@ try {
         version: bar ? { label: label(vLabel), value: value(vValue), gap: vLabel && vValue ? px(r(vValue).left - r(vLabel).right) : null,
           mode: bar.dataset.mode, rowH: px(r(bar).height), overflow: bar.scrollWidth - bar.clientWidth,
           words: state ? { w: px(r(state).width), natural: state.scrollWidth, clipped: state.scrollWidth > state.clientWidth + 0.5, text: state.textContent } : null,
+          nameWeight: vName ? getComputedStyle(vName).fontWeight : null,
           select: w('.rb-tl-ver-select'), verbs: verbs ? px(r(verbs).width) : null, verbsRight: verbs ? px(r(verbs).right) : null, barRight: px(r(bar).right),
           buttons: verbs ? [...verbs.querySelectorAll('button')].map((b) => `${b.textContent.trim()} ${px(r(b).width)}`) : [] } : null,
         valuesAligned: pValue && vValue ? px(r(vValue).left - r(pValue).left) : null,
@@ -107,6 +119,27 @@ try {
       };
     });
     console.log(`  measured (${state}): ${JSON.stringify(m)}`);
+    if (CHECK) {
+      const fail = (what) => failures.push(`${state} at ${W}x${H}: ${what}`);
+      const p = m.project;
+      const v = m.version;
+      if (p.before.length) fail(`something before PROJECT: ${p.before.join(', ')}`);
+      if (p.label?.cls !== 'ui-field-label') fail(`PROJECT wears "${p.label?.cls}"`);
+      if (p.label?.x !== 24) fail(`PROJECT starts at x ${p.label?.x}, not the 24px gutter`);
+      if (p.overflow) fail(`the title bar overflows by ${p.overflow}px`);
+      if (p.value?.weight !== '600') fail(`the project's name is at ${p.value?.weight}`);
+      if (v) {
+        if (v.label?.cls !== 'ui-field-label') fail(`BID VER. wears "${v.label?.cls}"`);
+        for (const k of ['size', 'lineHeight', 'weight', 'tracking', 'case', 'ink']) {
+          if (p.label[k] !== v.label[k]) fail(`the labels' ${k} differs: ${p.label[k]} / ${v.label[k]}`);
+        }
+        if (m.labelsAligned !== 0) fail(`the labels start ${m.labelsAligned}px apart`);
+        if (Math.abs(m.valuesAligned) >= 0.5) fail(`the values start ${m.valuesAligned}px apart`);
+        if (v.overflow) fail(`the version bar overflows by ${v.overflow}px`);
+        if (v.value?.weight !== '400') fail(`the dropdown's value is at ${v.value?.weight}`);
+        if (v.nameWeight && v.nameWeight !== '400') fail(`the version's name in the words is at ${v.nameWeight}`);
+      }
+    }
     return m;
   };
   const shot = async (state) => {
@@ -207,4 +240,9 @@ try {
   await shot('tasks-tab');
 } finally {
   await browser.close();
+}
+if (CHECK) {
+  for (const f of failures) console.log(`  FAIL ${f}`);
+  console.log(`check at ${W}x${H}: ${failures.length ? `${failures.length} failure(s)` : 'every state holds'}`);
+  if (failures.length) process.exit(1);
 }

@@ -1249,33 +1249,53 @@ describe('S5d: the bid version bar takes the kit\'s own idioms', () => {
 // case and ink, no lane rule touches those; both rows start on the gutter;
 // both labels take the same width and keep the same 8px to their value, so
 // the project's name and the dropdown start at one x (MEASURED in Chromium,
-// scripts/fx7-shots.mjs: both at 88 at 1440 and 1280, in every mode).
+// scripts/fx7-shots.mjs --check: at 1440, 1280 and 1024, in every mode).
+// Review round 1 (R1-01): pinning the label rules alone let a margin on the
+// name, a padding on either row, or `.rb-ctx span:first-child { color }`
+// undo the result with every test green; so every rule that reaches the two
+// rows is held to what it is today, and the browser check is the end-to-end
+// proof. R1-04: the column is in the label's own em, so it grows with it.
 describe('FX7: PROJECT and "Bid ver." in one column, in the kit label\'s one size and ink', () => {
   const shell = read('../rabbitShell.css')
   /** Every rule, in a sheet, whose target is the kit label. */
   const labelRules = (css) => rulesOf(css).flatMap(({ sel, body }) => selectorsOf(sel)
     .filter((s) => /\.ui-field-label(?![\w-])/.test(lastCompound(s))).map((s) => ({ sel: s.trim(), body })))
-  const minWidth = (body) => Number((body.match(/(?:^|;)\s*min-width:\s*(\d+(?:\.\d+)?)px\s*(?:;|$)/) || [])[1] ?? NaN)
-  /** The column as the two sheets write it: each lane's label rules, their widths, every property they set. */
+  const minWidthEm = (body) => Number((body.match(/(?:^|;)\s*min-width:\s*(\d+(?:\.\d+)?)em\s*(?:;|$)/) || [])[1] ?? NaN)
+  /** The column as the two sheets write it: each lane's label rules, their widths in em, every property they set. */
   const column = (shellCss, tlCss) => {
     const title = labelRules(shellCss)
     const bar = labelRules(tlCss)
     return {
       selectors: [title.map((r) => r.sel), bar.map((r) => r.sel)],
-      widths: [title, bar].map((rs) => (rs.length === 1 ? minWidth(rs[0].body) : NaN)),
+      widths: [title, bar].map((rs) => (rs.length === 1 ? minWidthEm(rs[0].body) : NaN)),
       props: [...title, ...bar].flatMap((r) => propsOf(r.body)),
     }
   }
   const decls = (css, selector) => rulesOf(css).filter(({ sel }) => selectorsOf(sel).map((s) => s.trim()).includes(selector)).map(({ body }) => body).join('\n')
-  // The wider label, MEASURED (Geist, the Label step at 600, 0.06em): PROJECT
-  // 55.4px, BID VER. 50.5px.
-  const WIDEST = 55.4
-  it('one width: the title bar\'s label and the bar\'s take the same min-width, on the 4px grid, wide enough for PROJECT', () => {
+  // The wider label, MEASURED (Geist, the Label step at 600, 0.06em, at the
+  // step's 11px): PROJECT 55.4px, BID VER. 50.5px. A label's width scales
+  // with its size (its tracking is in em too), so in em it holds at any size.
+  const LABEL_PX = 11
+  const WIDEST_EM = 55.4 / LABEL_PX
+  /** Every rule that can reach the two rows: the title bar, its name, the
+      version bar in any mode, the dropdown — one line per selector, with its
+      declarations as written. */
+  const ROW_SCOPE = /\.(?:rb-ctx|rb-ctx-title|rb-tl-ver-bar|rb-tl-ver-select)(?![\w-])/
+  const rowRules = (css) => rulesOf(css).flatMap(({ sel, body }) => selectorsOf(sel).filter((s) => ROW_SCOPE.test(s))
+    .map((s) => `${s.trim()} { ${body.split(';').map((d) => d.trim().replace(/\s+/g, ' ')).filter(Boolean).join('; ')} }`))
+  /** A structural pseudo-class, a universal or a type selector under either row's container. */
+  const structural = (css) => rulesOf(css).flatMap(({ sel }) => selectorsOf(sel))
+    .filter((s) => /\.(?:rb-ctx|rb-tl-ver-bar)(?![\w-])/.test(s))
+    .filter((s) => /:(?:first|last|only|nth)-|(?:^|[\s>+~])(?:\*|[a-z][\w-]*)/.test(s.replace(/\[[^\]]*\]/g, '')))
+  it('one width: the title bar\'s label and the bar\'s take the same min-width, in the label\'s own em, wide enough for PROJECT and no wider than it needs', () => {
     const c = column(shell, sheet)
-    expect(c.selectors).toEqual([['.rb-ctx .ui-field-label'], ['.rb-tl-ver-bar > .ui-field-label']])
+    expect(c.selectors).toEqual([['.rb-ctx > .ui-toolbar-slot > .ui-field-label'], ['.rb-tl-ver-bar > .ui-field-label']])
     expect(c.widths[0]).toBe(c.widths[1])
-    expect(c.widths[0]).toBeGreaterThanOrEqual(WIDEST)
-    expect(c.widths[0] % 4).toBe(0)
+    expect(c.widths[0]).toBeGreaterThanOrEqual(WIDEST_EM)
+    // Proximity: the column leaves PROJECT under 4px more than its own width.
+    expect((c.widths[0] - WIDEST_EM) * LABEL_PX).toBeLessThan(4)
+    // The step it was measured at.
+    expect(indexCss).toMatch(new RegExp(`--text-label: ${LABEL_PX}px;`))
   })
   it('only the width: no lane rule sets the label\'s size, weight, tracking, case or ink — the kit\'s one rule does, for both', () => {
     expect(column(shell, sheet).props).toEqual(['min-width', 'min-width'])
@@ -1288,7 +1308,20 @@ describe('FX7: PROJECT and "Bid ver." in one column, in the kit label\'s one siz
     expect(decls(sheet, '.rb-tl-ver-bar')).toMatch(/padding: 4px var\(--spacing-gutter\);/)
     expect(decls(sheet, '.rb-tl-ver-bar')).toMatch(/gap: 8px;/)
   })
-  it('the project\'s name a step above the version\'s value: the Title step at 600 against the kit input\'s Dense at 400, and nothing lifts the dropdown', () => {
+  it('R1-01: every rule that reaches the two rows is what it is today — a change there is judged here — and none reaches in by position or by tag', () => {
+    expect([...rowRules(shell), ...rowRules(sheet)]).toEqual([
+      '.rb-ctx { background-color: var(--color-paper) }',
+      '.rb-ctx > .ui-toolbar-slot > .ui-field-label { min-width: 5.1em }',
+      '.rb-ctx-title { min-width: 0; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }',
+      '.rb-ctx-title[data-empty="true"] { color: var(--color-ink-3) }',
+      '.rb-tl-ver-bar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 0; padding: 4px var(--spacing-gutter); border-bottom: 1px solid var(--color-rule) }',
+      '.rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent) }',
+      '.rb-tl-ver-bar > .ui-field-label { min-width: 5.1em }',
+      '.rb-tl-ver-bar .rb-tl-ver-select { flex: 0 1 auto; min-width: 140px; max-width: clamp(140px, calc(100vw - 960px), 320px) }',
+    ])
+    expect([...structural(shell), ...structural(sheet)]).toEqual([])
+  })
+  it('the project\'s name a step above the version\'s value: the Title step at 600 against the dropdown\'s Dense at 400 and the version\'s name at 400 (R1-02)', () => {
     expect(read('../components/ProjectContextBar.jsx')).toContain('<span className="rb-ctx-title text-h3">')
     expect(indexCss).toMatch(/--text-h3: 14px;/)
     expect(indexCss).toMatch(/--text-h3--font-weight: 600;/)
@@ -1296,26 +1329,54 @@ describe('FX7: PROJECT and "Bid ver." in one column, in the kit label\'s one siz
     const input = [decls(indexCss, '.ui-input'), decls(indexCss, '.ui-input[data-size="sm"]')].join('\n')
     expect(input).toMatch(/font-size: var\(--text-dense\);/)
     expect(input).not.toMatch(/font-weight/)
-    expect(rulesOf(sheet).filter(({ sel, body }) => /rb-tl-ver-select/.test(sel) && /font-(weight|size)/.test(body)).map(({ sel }) => sel)).toEqual([])
+    // No rule of the bar's words or dropdown sets a weight: the version's
+    // name is the ink at the words' 400, as every state's other words are.
+    expect(rulesOf(sheet).filter(({ sel, body }) => /\.rb-tl-ver-/.test(sel) && /font-weight/.test(body)).map(({ sel }) => sel)).toEqual([])
+    expect(decls(sheet, '.rb-tl-ver-name')).toMatch(/color: var\(--color-ink\);/)
   })
   it('the title bar\'s sheet keeps no rule for the folder icon or the third-ink eyebrow', () => {
     expect(cssCode(shell)).not.toMatch(/\.rb-ctx-(icon|eyebrow)(?![\w-])/)
   })
-  it('CONTROL: a width changed on one side, a colour or a size on a label rule, a second label rule and the old eyebrow back are each caught', () => {
-    const RULE = '.rb-tl-ver-bar > .ui-field-label { min-width: 56px; }'
-    const TITLE = '.rb-ctx .ui-field-label { min-width: 56px; }'
+  it('CONTROL: a width changed on one side, too narrow, a colour or a size on a label rule, a second label rule and the old eyebrow back are each caught', () => {
+    const RULE = '.rb-tl-ver-bar > .ui-field-label { min-width: 5.1em; }'
+    const TITLE = '.rb-ctx > .ui-toolbar-slot > .ui-field-label { min-width: 5.1em; }'
     expect(sheet).toContain(RULE)
     expect(shell).toContain(TITLE)
-    const narrower = column(shell, sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 52px; }'))
+    const narrower = column(shell, sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 4.8em; }'))
     expect(narrower.widths[0]).not.toBe(narrower.widths[1])
-    const tooNarrow = column(shell.replace(TITLE, '.rb-ctx .ui-field-label { min-width: 52px; }'), sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 52px; }'))
+    const tooNarrow = column(shell.replace(TITLE, TITLE.replace('5.1em', '4.8em')), sheet.replace(RULE, RULE.replace('5.1em', '4.8em')))
     expect(tooNarrow.widths[0]).toBe(tooNarrow.widths[1])
-    expect(tooNarrow.widths[0]).toBeLessThan(WIDEST)
-    expect(column(shell, sheet.replace(RULE, '.rb-tl-ver-bar > .ui-field-label { min-width: 56px; color: var(--color-ink-3); }')).props).not.toEqual(['min-width', 'min-width'])
-    expect(column(shell.replace(TITLE, '.rb-ctx .ui-field-label { min-width: 56px; font-size: var(--text-caption); }'), sheet).props).not.toEqual(['min-width', 'min-width'])
-    const second = column(shell, `${sheet}\n.rb-tl-ver-state .ui-field-label { min-width: 40px; }`)
+    expect(tooNarrow.widths[0]).toBeLessThan(WIDEST_EM)
+    // The round's first cut, a fixed 56px, is not an em width at all.
+    expect(Number.isNaN(column(shell.replace(TITLE, TITLE.replace('5.1em', '56px')), sheet).widths[0])).toBe(true)
+    expect(column(shell, sheet.replace(RULE, RULE.replace(' }', ' color: var(--color-ink-3); }'))).props).not.toEqual(['min-width', 'min-width'])
+    expect(column(shell.replace(TITLE, TITLE.replace(' }', ' font-size: var(--text-caption); }')), sheet).props).not.toEqual(['min-width', 'min-width'])
+    const second = column(shell, `${sheet}\n.rb-tl-ver-state .ui-field-label { min-width: 4em; }`)
     expect(second.selectors[1]).toHaveLength(2)
     expect(Number.isNaN(second.widths[1])).toBe(true)
     expect(cssCode('.rb-ctx-eyebrow { color: var(--color-ink-3); }')).toMatch(/\.rb-ctx-(icon|eyebrow)(?![\w-])/)
+  })
+  it('CONTROL (R1-01): the reviewer\'s six plants each change the rows\' rules or reach in by position, and the round\'s bold name is caught', () => {
+    const plants = [
+      [shell, '.rb-ctx-title { margin-left: 6px; }'],
+      [shell, '.rb-ctx { padding-left: 12px; }'],
+      [sheet, '.rb-tl-ver-bar[data-mode="viewing"] { padding-left: 30px; }'],
+      [sheet, '.rb-tl-ver-bar .rb-tl-ver-select { margin-left: 8px; }'],
+      [shell, '.rb-ctx span:first-child { color: var(--color-ink-3); }'],
+      [sheet, '.rb-tl-ver-bar > :first-child { font-size: var(--text-caption); }'],
+    ]
+    const today = [...rowRules(shell), ...rowRules(sheet)]
+    for (const [css, rule] of plants) {
+      const planted = `${css}\n@layer components {\n  ${rule}\n}\n`
+      const rows = css === shell ? [...rowRules(planted), ...rowRules(sheet)] : [...rowRules(shell), ...rowRules(planted)]
+      expect(rows, rule).not.toEqual(today)
+    }
+    expect(structural('.rb-ctx span:first-child { color: red }')).toHaveLength(1)
+    expect(structural('.rb-tl-ver-bar > :first-child { color: red }')).toHaveLength(1)
+    expect(structural('.rb-tl-ver-bar > * { color: red }')).toHaveLength(1)
+    expect(structural('.rb-ctx > .ui-toolbar-slot > .ui-field-label { min-width: 5em }')).toEqual([])
+    const bold = sheet.replace('text-overflow: ellipsis; color: var(--color-ink); }', 'text-overflow: ellipsis; font-weight: 600; color: var(--color-ink); }')
+    expect(bold).not.toBe(sheet)
+    expect(rulesOf(bold).filter(({ sel, body }) => /\.rb-tl-ver-/.test(sel) && /font-weight/.test(body)).map(({ sel }) => sel)).toEqual(['.rb-tl-ver-name'])
   })
 })

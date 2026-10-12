@@ -244,6 +244,8 @@ describe('FX7: PROJECT and "Bid ver." are one label in one column, the project\'
     expect(project.nextElementSibling.textContent, mode).toBe('Salt Hours')
     expect(version.nextElementSibling, mode).toBe(combo())
     expect([...combo().classList], mode).toEqual(expect.arrayContaining(['ui-input', 'rb-tl-ver-select']))
+    // No inline style on either label or either value (review round 1, R1-01).
+    expect([project, version, project.nextElementSibling, combo()].map(n => n.getAttribute('style')), mode).toEqual([null, null, null, null])
   }
   it('in every mode of the bar — locked, bidding, viewing, a version open and changed — with every verb S5d gave each', async () => {
     await mount({ withTitle: true })

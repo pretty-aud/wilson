@@ -64,14 +64,16 @@ describe('ProjectContextBar: the two named slots', () => {
 // .jsx's and rabbitTimelineCss.test.js's; this is the title bar's own half.
 describe('FX7: PROJECT is the kit\'s label, first on the gutter, with no icon before it', () => {
   const leftOf = (container) => container.querySelector('.ui-toolbar.rb-ctx > .ui-toolbar-slot:first-child')
-  const shape = (left) => [...left.children].map((n) => [n.tagName.toLowerCase(), n.getAttribute('class'), n.textContent])
+  // Each child's tag, class, words and inline style (none: review round 1,
+  // R1-01 — a style on the label or the name would undo the column unseen).
+  const shape = (left) => [...left.children].map((n) => [n.tagName.toLowerCase(), n.getAttribute('class'), n.textContent, n.getAttribute('style')])
   it('the left slot is PROJECT (the kit\'s label, nothing else on it), the name at the Title step, the status — and no icon anywhere in it', () => {
     const { container } = render(<ProjectContextBar />)
     const left = leftOf(container)
     expect(shape(left)).toEqual([
-      ['span', 'ui-field-label', 'Project'],
-      ['span', 'rb-ctx-title text-h3', 'Salt Hours'],
-      ['span', 'ui-status', 'Active'],
+      ['span', 'ui-field-label', 'Project', null],
+      ['span', 'rb-ctx-title text-h3', 'Salt Hours', null],
+      ['span', 'ui-status', 'Active', null],
     ])
     expect(left.querySelector('svg')).toBeNull()
   })
@@ -82,8 +84,8 @@ describe('FX7: PROJECT is the kit\'s label, first on the gutter, with no icon be
     try {
       const { container } = render(<ProjectContextBar />)
       expect(shape(leftOf(container))).toEqual([
-        ['span', 'ui-field-label', 'Project'],
-        ['span', 'rb-ctx-title text-body', 'No project selected'],
+        ['span', 'ui-field-label', 'Project', null],
+        ['span', 'rb-ctx-title text-body', 'No project selected', null],
       ])
       expect(leftOf(container).querySelector('svg')).toBeNull()
     } finally {
