@@ -1287,7 +1287,7 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
                       </Badge>
                     )}
                     {row && <StatusWord status={row.status || 'not_started'} />}
-                    <HoverActions>
+                    <HoverActions className="rb-rel-item-acts">
                       {g.items.length > 1 && (
                         <>
                           <GatedAction allowed={canWrite} reason={writeReason}>
@@ -1332,7 +1332,7 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
           )}
         >
           <p className="rb-rel-confirm">
-            {`Remove "${lastName}"? It is this task's only item: the Timeline and the Budget will show the task under no asset, scene or shot until you add one.`}
+            {`Remove “${lastName}”? It is this task's only item: the Timeline and the Budget will show the task under no asset, scene or shot until you add one.`}
           </p>
         </Dialog>,
         document.body,

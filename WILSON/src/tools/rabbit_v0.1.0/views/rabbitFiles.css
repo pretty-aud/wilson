@@ -1558,6 +1558,10 @@
      dot's 8px held, the words in the third ink. */
   .rb-rel-dot-gap { flex: none; width: 8px; }
   .rb-rel-item[data-gone="true"] .rb-rel-name { color: var(--color-ink-3); }
+  /* Every row's hover slot holds three of the kit's small buttons' room
+     (Move up, Move down, Remove), so the status words end at one edge in
+     every kind, a kind of one item included (its slot holds Remove alone). */
+  .rb-rel-item-acts { flex: none; justify-content: flex-end; min-width: calc(var(--control-sm) * 3 + 4px); }
   /* The MAIN item of a kind, where the kind holds more than one: the kit's
      inert Badge (a word, never a state), between the name and the status. */
   .rb-rel-main { flex: none; }

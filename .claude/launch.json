@@ -176,6 +176,18 @@
         "--strictPort"
       ],
       "port": 5289
+    },
+    {
+      "name": "fx2-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/festive-lalande-047db5/WILSON",
+        "--port",
+        "5291",
+        "--strictPort"
+      ],
+      "port": 5291
     }
   ]
 }
