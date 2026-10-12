@@ -55,36 +55,37 @@ test data: **Salt Hours → Tasks**)
 | 9 | **Scenes** tab: open **The storm** | *Tasks (2)*: Glass and rain rig test and Spray comp, sc 04 sh 010–030 (`po-fx2-08`). Glass and rain rig test is still listed: The storm is still one of its items. **Father's boat**'s window lists it too. |
 | 10 | **Tasks**: open **Final mix**; hover **Score & Foley**, click **Remove** | *Remove the last item* asks first, **Cancel** focused (`po-fx2-07`): *Remove "Score & Foley"? It is this task's only item: the Timeline and the Budget will show the task under no asset, scene or shot until you add one.* **Cancel** keeps it. |
 | 11 | Open **Glass and rain rig test**, remove **Sea Spray Comp**, **Done**; then **Timeline** and **Ctrl+Z** | Sea Spray Comp is back (open the task again: **Items (5)**). Each add, remove and move is one step of undo. Ctrl+Z inside the task window on the Tasks tab does nothing, as for every task edit there today. |
+| 12 | **Assets** tab: hover **Sea Spray Comp**, click its **Delete** (the bin); then **Tasks**, open **Glass and rain rig test** and hover **Lighthouse Interior** | Sea Spray Comp's row reads *No longer in the project* (the test data trashes it, as the cloud does; the two tasks whose main asset it was leave the list, and the toast's **Undo** brings them back). Lighthouse Interior's **Move down** and **Remove** are greyed: *The next asset is no longer in the project: remove it first, so it does not become this task's main asset.* (`po-fx2-11`). Removing the gone row first opens them again: on the cloud, a task whose main asset is in the trash cannot be seen. |
 
 **B. A game project** (`/rabbit?fixtures=game`: the same project with levels
 and experiences turned on)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 12 | **Salt Hours → Tasks**, open **Practical lamp rig** | *Assets*: Lighthouse Interior; *Levels*: Lamp Room; *Experiences*: First Light (`po-fx2-09`). |
-| 13 | Click **+** | The search reads *Search assets, scenes, shots, levels, experiences…*, and the picker has five groups (`po-fx2-10`). |
-| 14 | **Timeline**, **Group by level**, then **Group by experience** | Practical lamp rig is under Lamp Room, then under First Light. The test data always kept a task's level; on the cloud this grouping put every task under *No level* until 0096. |
+| 13 | **Salt Hours → Tasks**, open **Practical lamp rig** | *Assets*: Lighthouse Interior; *Levels*: Lamp Room; *Experiences*: First Light (`po-fx2-09`). |
+| 14 | Click **+** | The search reads *Search assets, scenes, shots, levels, experiences…*, and the picker has five groups (`po-fx2-10`). |
+| 15 | **Timeline**, **Group by level**, then **Group by experience** | Practical lamp rig is under Lamp Room, then under First Light. The test data always kept a task's level; on the cloud this grouping put every task under *No level* until 0096. |
 
 **C. On the desktop app** (the Local Server; the same window)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 15 | Open a desktop project's task that has an asset | *Items (1)*: that asset. The desktop gives every task its items the first time it reads the project (each task's asset, scene, shot, level and experience), with the same rules as the cloud. |
-| 16 | Add a second asset, quit the app and open it again | The two assets, in the same order. |
+| 16 | Open a desktop project's task that has an asset | *Items (1)*: that asset. The desktop gives every task its items the first time it reads the project (each task's asset, scene, shot, level and experience), with the same rules as the cloud. |
+| 17 | Add a second asset, quit the app and open it again | The two assets, in the same order. |
 
 **D. On the real cloud** (wilson-dev; the beta signed in, when you choose)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 17 | Open any task that had an asset | *Items (1)*: that asset (dev has 21 such tasks, now 21 items). |
-| 18 | Add a scene to it in one browser, with the same project open in a second | The second browser shows the new item within a moment, without a reload (the table is on the project's live channel). |
-| 19 | As a project's reviewer, open a task | The **+**, the moves and the removes are greyed with the reason; nothing can be written (suite 99 refuses a reviewer's writes at the database too). |
+| 18 | Open any task that had an asset | *Items (1)*: that asset (dev has 21 such tasks, now 21 items). |
+| 19 | Add a scene to it in one browser, with the same project open in a second | The second browser shows the new item within a moment, without a reload (the table is on the project's live channel). |
+| 20 | As a project's reviewer, open a task | The **+**, the moves and the removes are greyed with the reason; nothing can be written (suite 99 refuses a reviewer's writes at the database too). |
 
 ## 2. How to check it
 
 - The tests: `npx vitest run src/tools/rabbit_v0.1.0/state/taskItemsModel.test.js src/tools/rabbit_v0.1.0/state/taskItemsParity.test.js src/tools/rabbit_v0.1.0/state/rabbitTaskItems.routes.test.js src/tools/rabbit_v0.1.0/state/taskItemsProvider.test.jsx src/tools/rabbit_v0.1.0/state/taskItemsRealtime.test.js src/tools/rabbit_v0.1.0/adapters/taskItemsCloud.test.js src/tools/rabbit_v0.1.0/components/taskItemsTable.test.jsx src/cloud/migrate/runMigration.test.js src/dev` — the rules (`taskItemsModel`), the desktop copy of the rules against the web's (`taskItemsParity`), the Local Server's routes and hooks over a bundle (`rabbitTaskItems.routes`), the provider's verbs with undo and the single links as item writes (`taskItemsProvider`), the live channel (`taskItemsRealtime`), the cloud adapter and a database without 0096 (`taskItemsCloud`), the window (`taskItemsTable`), a desktop project moved to the cloud carrying its items (`runMigration`), and the test data.
 - The database: suite 99 (`supabase/tests/rls/99_task_items.sql`, 97 probes) runs on every push in CI's pgTAP job after 0096; suite 72 now names sixteen tables on the live channel.
-- The development copy: the `fx2-worktree` launch entry, port 5291; `node scripts/task-items-shots.mjs 5291 --out <dir> [--size 1280x700]` walks §1 A and B (steps 1–6, 9, 10, 12, 13) and photographs them.
+- The development copy: the `fx2-worktree` launch entry, port 5291; `node scripts/task-items-shots.mjs 5291 --out <dir> [--size 1280x700]` walks §1 A and B (steps 1–6, 9, 10 and 12–14) and photographs them.
 
 ## 3. What was rehearsed, and how
 
@@ -95,12 +96,20 @@ and experiences turned on)
 - **Applied to wilson-dev** (`supabase db query --linked --file`, then its
   history row): the history reads … 0093 0095 0096; 21 items for the 21
   tasks with an asset; the table's four policies and its triggers are in
-  place; suites 11, 17, 20, 72, 92, 94, 95 and 99 pass against the applied
-  database.
+  place.
+- **Review round 1's corrections, applied again on 2026-10-12** (the task
+  row locked before the main item is read; a re-run refused over a later
+  migration): rolled back first with suite 99 (98 of 98), over 0091's
+  broadcast body as a first run would meet it (98 of 98), and three planted
+  faults refused as they should be (a broadcast body a later migration
+  wrote, a later migration in the history, the lock taken out); then
+  applied, the history row's statements updated to the file, and every
+  suite run against the applied database: 93 of 94 clean, suite 74 as
+  above.
 - **The window, §1 A and B**, in Playwright's Chromium at 1440x900 and
   1280x700 on the test data (`scripts/task-items-shots.mjs`; the pictures are
   `docs/sessions/handoffs/img/po-fx2-01` to `-10`, at both sizes). Steps 7–8
-  (the Timeline following a main scene), 11 (undo) and 14 (the game data's
+  (the Timeline following a main scene), 11 (undo) and 15 (the game data's
   groupings) were driven by scripts on the same data and read back.
 - **The desktop app was not opened.** Its routes and the hooks its generic
   task, scene, shot, level and experience routes call were driven over a
