@@ -4,9 +4,11 @@
 // Docker is not installed on the computer GW2 was built on).
 // =============================================================================
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SENTENCES } from '../src/rules/interfaces.mjs';
 
@@ -49,7 +51,7 @@ describe('the CI job (gateway.yml)', () => {
     expect(workflow).toMatch(/npx vitest run gateway/);
   });
   it('the bridge run looks for the code\'s own sentence', () => {
-    const grep = /grep -q "([^"]+)" \|\| fail 'no bridge sentence'/.exec(workflow);
+    const grep = /has "([^"]+)" \|\| fail 'no bridge sentence'/.exec(workflow);
     expect(grep).not.toBeNull();
     expect(SENTENCES.bridge).toContain(grep[1].replace(/\\u2019/g, '’'));
   });
@@ -64,5 +66,93 @@ describe('the CI job (gateway.yml)', () => {
     expect(workflow).toMatch(/WilsonGateway\|NT SERVICE\\WilsonGateway\|WilsonGateway/);
     expect(workflow).toMatch(/custom actions out of order/);
     expect(workflow).toMatch(/WILSON Gateway office door\|LocalSubnet\|8443\|6/);
+  });
+});
+
+// FX5 (2026-10-12): the container job failed at 3a17a5ec with nothing public
+// but "exit code 1". Under `set -o pipefail`, `docker logs … | grep -q X`
+// fails when grep exits at its first match while docker logs is still
+// writing (SIGPIPE, 141), and the check's bare `exit 1` skipped the ERR trap;
+// on the runner that check said a line in the log was missing 2 times in 200.
+describe('the container job\'s checks (test/e2e/containerChecks.sh, FX5)', () => {
+  const helperPath = path.join(GW, 'test', 'e2e', 'containerChecks.sh');
+  const helper = read(helperPath);
+  const job = workflow.slice(workflow.indexOf('\n  container:\n'), workflow.indexOf('\n  acme:\n'));
+
+  it('no check reads a log through a pipe, and no pipe in the workflow ends in a reader that stops early', () => {
+    expect(job).toContain("has 'outside_open' || fail 'the outside door did not open'"); // the check that failed
+    // The commands, not the comments that quote the old ones; a pipe is one `|`, `||` is not one.
+    const commands = workflow.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+    expect(commands).not.toMatch(/docker logs[^\n|]*(?<!\|)\|(?!\|)/);
+    expect(commands).not.toMatch(/(?<!\|)\|(?!\|)\s*grep\s+(-[A-Za-z]*[qm]|--quiet|--silent|--max-count)/);
+    expect(commands).not.toMatch(/(?<!\|)\|(?!\|)\s*head\b/);
+    expect('docker logs gw-host 2>&1 | grep -q x').toMatch(/docker logs[^\n|]*(?<!\|)\|(?!\|)/); // the guards' controls
+    expect('curl -sk x | head -c 400').toMatch(/(?<!\|)\|(?!\|)\s*head\b/);
+    expect("docker logs pebble > /tmp/pebble.log 2>&1 || true").not.toMatch(/docker logs[^\n|]*(?<!\|)\|(?!\|)/);
+    expect(helper).toMatch(/^has\(\) \{ docker logs "\$gw_name" > "\$gw_log" 2>&1 && grep -q -- "\$1" "\$gw_log"; \}$/m);
+  });
+
+  it('every step of the job sources the helper under `set -euo pipefail`, and no failure is a bare exit', () => {
+    const runs = job.split('\n      - ').filter((s) => s.includes('run: |'));
+    expect(runs).toHaveLength(3); // the build, the bridge, the host
+    for (const r of runs) expect(r).toMatch(/run: \|\n\s+set -euo pipefail\n\s+\. WILSON\/gateway\/test\/e2e\/containerChecks\.sh \S+/);
+    expect(job).not.toMatch(/\bexit 1\b/);
+    expect(job).not.toMatch(/FX5 (probe|proof)/); // the session's measurements, removed once read
+    expect(helper).toMatch(/^set -E$/m);
+    expect(helper).toMatch(/^trap 'gw_report \$\?' EXIT$/m);
+  });
+
+  describe.runIf(process.platform !== 'win32')('run by bash, with a stand-in for `docker logs` (POSIX; CI\'s Ubuntu)', () => {
+    let tmp;
+    let n = 0;
+    const logs = []; // the helper keeps a container's log in /tmp/<name>.log, as the job does
+    beforeAll(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fx5-')); });
+    afterAll(() => {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      for (const f of logs) fs.rmSync(f, { force: true });
+    });
+    // A running gateway's log goes on after the line a check looks for; this
+    // one goes on for more than a pipe holds, so a reader that stops at its
+    // first match always leaves the writer writing into a closed pipe.
+    const standIn = "docker() { echo 'Certificate fingerprint (SHA-256): AA:BB'; echo 'outside_open {\"port\":8444}'; seq 1 100000; }";
+    const bash = (body, { cloud = '' } = {}) => {
+      const name = `fx5-${process.pid}-${(n += 1)}`;
+      logs.push(`/tmp/${name}.log`);
+      const r = spawnSync('bash', ['-c', `${standIn}\nset -euo pipefail\n. '${helperPath}' check ${name} ${cloud}\n${body}`], { encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: tmp } });
+      return { status: r.status, out: r.stdout, name };
+    };
+
+    it('the old check says a line in the log is missing (141, SIGPIPE); `has` reads the log from a file and finds it', () => {
+      const old = spawnSync('bash', ['-c', `${standIn}\nset -uo pipefail\ndocker logs gw 2>&1 | grep -q outside_open\necho "status $?"`], { encoding: 'utf8' });
+      expect(old.stdout.trim()).toBe('status 141');
+      const now = bash("has 'outside_open' && echo found");
+      expect(now.status).toBe(0);
+      expect(now.out).toContain('found');
+      expect(now.out).not.toContain('::error');
+    });
+
+    it('a failed check leaves annotations: its sentence, the step\'s last lines, the container\'s last 40, the fake cloud\'s, each one annotation', () => {
+      const cloud = path.join(tmp, 'fc');
+      fs.mkdirSync(cloud);
+      fs.writeFileSync(path.join(cloud, 'out.json'), '{"url":"https://127.0.0.1:9443/functions/v1"}\n');
+      const r = bash("echo 'a line before the check'\nhas 'not in this log' || fail 'the outside door did not open'\necho never", { cloud });
+      expect(r.status).toBe(1);
+      const errors = r.out.split('\n').filter((l) => l.startsWith('::error '));
+      expect(errors[0]).toBe('::error title=check failed::the outside door did not open');
+      expect(errors[1]).toBe('::error title=check step (last 25 lines)::a line before the check');
+      expect(errors[2]).toBe(`::error title=${r.name} log (last 40 lines)::${Array.from({ length: 40 }, (_, i) => 99961 + i).join('%0A')}`);
+      expect(errors[3]).toBe('::error title=fake cloud (last 10 lines)::{"url":"https://127.0.0.1:9443/functions/v1"}');
+      expect(errors).toHaveLength(4);
+      expect(r.out).not.toContain('never');
+    });
+
+    it('a command that fails under set -e, in a function too, is named with its line; %, CR and LF are escaped', () => {
+      const r = bash("f() { printf 'a 100%% line\\rand on\\n'; false; }\nf\necho never");
+      expect(r.status).toBe(1);
+      const errors = r.out.split('\n').filter((l) => l.startsWith('::error '));
+      expect(errors[0]).toMatch(/^::error title=check failed::line \d+: false \(exit 1\)$/);
+      expect(errors[1]).toBe('::error title=check step (last 25 lines)::a 100%25 line%0Dand on');
+      expect(r.out).not.toContain('never');
+    });
   });
 });

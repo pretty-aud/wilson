@@ -20,6 +20,11 @@
 #                   LAN address, served, with that real address in the log;
 #                   the office door closes the same host before TLS; the
 #                   switch turned off closes the outside port
+#              Each step sources gateway/test/e2e/containerChecks.sh (FX5): a
+#              check reads the container's log from a file, never through a
+#              pipe, and a failure leaves public annotations saying what
+#              failed, with the step's, the container's and the fake cloud's
+#              last lines (a job's log needs admin rights to read).
 #   acme       the outside door's free certificate (GW4) against Pebble, Let's
 #              Encrypt's test server, and its DNS (both pinned by digest), on
 #              the runner's loopback: Pebble checks TLS-ALPN-01 on the port the
@@ -176,16 +181,18 @@ jobs:
           . WILSON/gateway/test/e2e/containerChecks.sh bridge gw-bridge
           mkdir -p /tmp/data-bridge && sudo chown 65532:65532 /tmp/data-bridge
           docker run -d --name gw-bridge -v /tmp/data-bridge:/data wilson-gateway:ci
-          for i in $(seq 1 30); do docker logs gw-bridge 2>&1 | grep -q 'Certificate fingerprint' && break; sleep 1; done
-          docker logs gw-bridge 2>&1 | head -20
-          docker logs gw-bridge 2>&1 | grep -q "is on a bridge network, so it cannot see browsers" || fail 'no bridge sentence'
-          docker logs gw-bridge 2>&1 | head -5 | grep -q 'Certificate fingerprint (SHA-256): ' || fail 'no fingerprint on the first lines'
+          for i in $(seq 1 30); do has 'Certificate fingerprint' && break; sleep 1; done
+          has 'Certificate fingerprint' || fail 'the gateway did not start: no fingerprint in its log after 30 s'
+          head -20 /tmp/gw-bridge.log
+          has "is on a bridge network, so it cannot see browsers" || fail 'no bridge sentence'
+          head -5 /tmp/gw-bridge.log > /tmp/gw-bridge.first
+          grep -q 'Certificate fingerprint (SHA-256): ' /tmp/gw-bridge.first || fail 'no fingerprint on the first lines'
           docker rm -f gw-bridge
 
       - name: 2. On the host's network, a Range read from the runner's LAN address, with that address in the log
         run: |
           set -euo pipefail
-          . WILSON/gateway/test/e2e/containerChecks.sh host gw-host
+          . WILSON/gateway/test/e2e/containerChecks.sh host gw-host /tmp/fc
           LAN=$(hostname -I | awk '{print $1}')
           echo "the runner's LAN address: $LAN"
           mkdir -p /tmp/fc /tmp/data-host /tmp/share
@@ -207,50 +214,26 @@ jobs:
             -e NODE_EXTRA_CA_CERTS=/ca/fake-cloud-root.pem \
             -v /tmp/fc:/ca:ro -v /tmp/data-host:/data -v /tmp/share:/locations/nas/footage:ro \
             wilson-gateway:ci
-          for i in $(seq 1 60); do docker logs gw-host 2>&1 | grep -q 'outside_open' && break; sleep 1; done
-          docker logs gw-host 2>&1 | head -30
-          # FX5's probe, removed once read: the check that failed at 3a17a5ec, run
-          # 200 times now that the log holds its line; an early line's (more of the
-          # log written after it); and the same check through a file.
-          probe() { local n=0 i; for i in $(seq 1 200); do if eval "$1"; then :; else n=$((n+1)); fi; done; echo "$n"; }
-          pipe_open=$(probe "docker logs gw-host 2>&1 | grep -q 'outside_open'")
-          pipe_first=$(probe "docker logs gw-host 2>&1 | grep -q 'Certificate fingerprint'")
-          file_open=$(probe "has 'outside_open'")
-          after=$(awk '/outside_open/ { f = 1; next } f' /tmp/gw-host.log | wc -l)
-          echo "::notice title=FX5 probe::under pipefail, docker logs | grep -q said a line in the log was missing: outside_open $pipe_open of 200, the fingerprint (the log's line 2) $pipe_first of 200; through a file, outside_open $file_open of 200. Lines after outside_open: $after."
-          docker logs gw-host 2>&1 | grep -q 'outside_open' || fail 'the outside door did not open'
+          for i in $(seq 1 60); do has 'outside_open' && break; sleep 1; done
+          head -30 /tmp/gw-host.log
+          has 'outside_open' || fail 'the outside door did not open'
           TICKET=$(post mint "{\"clip\":\"$CLIP\",\"sub\":\"$SUB\"}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).ticket))')
-          CODE=$(curl -sk -o /tmp/got.bin -w '%{http_code}' -H 'Range: bytes=0-1023' "https://$LAN:8444/v1/clips/$CLIP?t=$TICKET")
-          echo "outside door answered $CODE with $(stat -c %s /tmp/got.bin) bytes"
-          [ "$CODE" = 206 ] && [ "$(stat -c %s /tmp/got.bin)" = 1024 ] && cmp -n 1024 /tmp/got.bin /tmp/share/clip.mp4
-          sleep 1
-          docker logs gw-host 2>&1 | grep 'clip_served' | tail -1
-          docker logs gw-host 2>&1 | grep 'clip_served' | grep -q "\"peer\":\"$LAN\"" || fail 'the real peer address is not in the log'
+          CODE=$(curl -sk -o /tmp/got.bin -w '%{http_code}' -H 'Range: bytes=0-1023' "https://$LAN:8444/v1/clips/$CLIP?t=$TICKET" || true)
+          echo "outside door answered $CODE with $(stat -c %s /tmp/got.bin 2>/dev/null || echo no) bytes"
+          [ "$CODE" = 206 ] || fail "the outside door answered $CODE to the Range read, not 206"
+          [ "$(stat -c %s /tmp/got.bin)" = 1024 ] || fail 'the outside door did not serve the 1,024 bytes asked for'
+          cmp -n 1024 /tmp/got.bin /tmp/share/clip.mp4 || fail 'the bytes served are not the clip'
+          for i in $(seq 1 10); do has 'clip_served' && break; sleep 1; done
+          grep 'clip_served' /tmp/gw-host.log > /tmp/gw-host.served || fail 'no clip_served line in the log'
+          tail -1 /tmp/gw-host.served
+          grep -q "\"peer\":\"$LAN\"" /tmp/gw-host.served || fail 'the real peer address is not in the log'
           if curl -sk --max-time 5 "https://$LAN:8443/" -o /dev/null; then fail 'the office door served its own host'; else echo "the office door closed this host's own address before TLS (curl exit $?)"; fi
           post state '{"switch_on":false}'
-          for i in $(seq 1 30); do docker logs gw-host 2>&1 | grep -q 'outside_closed' && break; sleep 1; done
-          docker logs gw-host 2>&1 | grep 'outside_closed' | tail -1
+          for i in $(seq 1 30); do has 'outside_closed' && break; sleep 1; done
+          has 'outside_closed' || fail 'the outside door did not close in 30 s with the switch off'
+          grep 'outside_closed' /tmp/gw-host.log | tail -1
           if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then fail 'the outside door still answers with the switch off'; else echo "switch off: the outside port refuses (curl exit $?)"; fi
           docker rm -f gw-host
-
-      # FX5's proof, removed once read: the annotation echo, which no failure of
-      # this job had exercised, read back through the public API from a real run.
-      - name: FX5 proof (removed once read), a failed check
-        if: always()
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          . WILSON/gateway/test/e2e/containerChecks.sh proof-check
-          echo 'a line the step printed before its check failed'
-          fail 'FX5 proof: fail() ends the step and names the check'
-      - name: FX5 proof (removed once read), a failed command
-        if: always()
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          . WILSON/gateway/test/e2e/containerChecks.sh proof-command
-          echo 'a line the step printed before its command failed'
-          ls /no/such/path/fx5
   acme:
     name: ACME against Pebble (Let's Encrypt's test server)
     runs-on: ubuntu-latest
@@ -283,7 +266,10 @@ jobs:
             ghcr.io/letsencrypt/pebble:2.10.1@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199 \
             -config /test/config/gw-pebble.json -strict -dnsserver 127.0.0.1:8053
           for i in $(seq 1 30); do curl -sk https://127.0.0.1:14000/dir >/dev/null && break; sleep 1; done
-          curl -sk https://127.0.0.1:14000/dir | head -c 400; echo
+          # Read whole into a file, then shown: `curl … | head -c 400` under pipefail
+          # fails when head stops reading while curl is still writing (FX5).
+          curl -sk https://127.0.0.1:14000/dir -o "$RUNNER_TEMP/pebble-dir.json"
+          head -c 400 "$RUNNER_TEMP/pebble-dir.json"; echo
           # The name this account does not control points where nothing listens.
           curl -s -d '{"host":"refused.wilson.test","addresses":["127.0.0.2"]}' http://127.0.0.1:8055/add-a
           docker cp pebble:/test/certs/pebble.minica.pem "$RUNNER_TEMP/pebble.minica.pem"
@@ -295,4 +281,8 @@ jobs:
       - name: Pebble's log, on failure
         if: failure()
         run: |
-          docker logs pebble 2>&1 | tail -40 | sed 's/^/::error::pebble: /'
+          # One annotation of forty lines: GitHub keeps ten annotations a step (FX5).
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh pebble-log
+          docker logs pebble > /tmp/pebble.log 2>&1 || true
+          tail -n 40 /tmp/pebble.log | annotate 'pebble log (last 40 lines)'
