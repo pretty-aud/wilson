@@ -28,10 +28,12 @@
 // (the grid's real column count, read from its computed tracks), Home and
 // End to the ends; Enter goes into the card (its first control), Escape comes
 // back out to the card, and Tab past the card's last control leaves it.
-// Inside a card the arrows never change a seat by themselves (R1-03: on
-// Windows a closed select takes ↑ ↓ as a new value, and a seat is a
-// permission): open the seat with Alt+↓ or Space to choose. There is no
-// selection: the list has none.
+// Inside a card neither the arrows nor a typed letter change a seat by
+// themselves (R1-03, R2-02: on Windows a closed select takes ↑ ↓ and a letter
+// as a new value, and a seat is a permission): open the seat with Alt+↓ or
+// Space to choose. The gallery's keys stop at the gallery (R2-01: Home's
+// hidden handler took them too). A card removed with the focus on it hands
+// the focus to its neighbour (R2-04). There is no selection: the list has none.
 // ============================================================
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
@@ -82,17 +84,24 @@ export default function TeamGallery({ cards, label = 'Members' }) {
     const card = e.target?.closest?.('[data-team-card]')
     if (!card || !listRef.current?.contains(card)) return
     if (e.target !== card) {
-      // Inside a card: Escape comes back out to it; the arrows never change a
-      // closed seat select by themselves (Alt+↓ or Space opens it).
+      // Inside a card: Escape comes back out to it; neither the arrows nor a
+      // typed letter change a closed seat select by themselves (R2-02: "r"
+      // made a member a Reviewer, "m" a Manager) — Alt+↓ or Space opens it.
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEntered(null); card.focus(); return }
-      if (e.target.tagName === 'SELECT' && SELECT_KEYS.has(e.key) && !e.altKey) e.preventDefault()
+      const typed = e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey
+      if (e.target.tagName === 'SELECT' && !e.altKey && (SELECT_KEYS.has(e.key) || typed)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
       return
     }
     const i = keys.indexOf(card.dataset.teamCard)
     if (i < 0) return
     if (e.key === 'Enter') {
       const first = controlsOf(card)[0]
-      if (first) { e.preventDefault(); setEntered(keys[i]); first.focus() }
+      // The gallery's keys stop here: nothing behind the page takes them too
+      // (R2-01: Home's hidden handler opened D.O.G. on ↓ then Enter).
+      if (first) { e.preventDefault(); e.stopPropagation(); setEntered(keys[i]); first.focus() }
       return
     }
     // The grid's REAL column count, as the Bins grid reads it.
@@ -103,10 +112,26 @@ export default function TeamGallery({ cards, label = 'Members' }) {
     }[e.key]
     if (to === undefined) return
     e.preventDefault()
+    e.stopPropagation()
     const next = keys[Math.max(0, Math.min(keys.length - 1, to))]
     setCurrent(next)
     cardEl(next)?.focus()
   }
+
+  // A card removed while it had the focus (its remove button, R2-04): the
+  // focus goes to the card now in its place, or the last one, rather than
+  // falling to the page.
+  const lastIndexRef = useRef(0)
+  const keysKey = keys.join('\n')
+  useLayoutEffect(() => {
+    if (current === null || keys.includes(current) || keys.length === 0) return
+    const lost = !document.activeElement || document.activeElement === document.body
+    if (!lost) return
+    const next = keys[Math.min(lastIndexRef.current, keys.length - 1)]
+    setCurrent(next)
+    cardEl(next)?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keysKey])
 
   return (
     <div ref={listRef} className="rb-team-gallery" role="list" aria-label={label} onKeyDown={onKeyDown}>
@@ -124,6 +149,7 @@ export default function TeamGallery({ cards, label = 'Members' }) {
             data-team-card={key}
             onFocus={(e) => {
               setCurrent(key)
+              lastIndexRef.current = keys.indexOf(key)
               // Focus on one of its controls (a click, Enter): the card is entered.
               if (e.target !== e.currentTarget) setEntered(key)
             }}

@@ -4,10 +4,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.stubEnv('VITE_SUPABASE_URL', 'https://proj.supabase.co')
-vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: { storage: { from: () => { throw new Error('the default client is not used here') } } } }))
+// The real client's auth subscription, captured: the tests drive the module's OWN
+// callback (review round 2, R2-05: a copy of its logic proved nothing).
+const auth = vi.hoisted(() => ({ cb: null, unsubscribed: 0 }))
+vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {
+  auth: { onAuthStateChange: (cb) => { auth.cb = cb; return { data: { subscription: { unsubscribe() { auth.unsubscribed += 1 } } } } } },
+  storage: { from: () => { throw new Error('the default client is not used here') } },
+} }))
 
-const { avatarObjectPath, signAvatarPaths, _resetAvatarReadsForTests, _avatarSignCallsForTests, _authChangedForTests, AVATAR_BUCKET } = await import('./avatarReads')
+const { avatarObjectPath, signAvatarPaths, _resetAvatarReadsForTests, _avatarSignCallsForTests, AVATAR_BUCKET } = await import('./avatarReads')
 const OWNER = { workspaceId: 'ws1', userId: 'u1' }
+/** What the auth client tells the module: someone signed in, or (null) no one. */
+const authAs = (id, event = id ? 'SIGNED_IN' : 'SIGNED_OUT') => auth.cb(event, id ? { user: { id } } : null)
 
 const BASE = 'https://proj.supabase.co'
 const PUBLIC = (p) => `${BASE}/storage/v1/object/public/user-avatars/${p}`
@@ -137,30 +145,33 @@ describe('signAvatarPaths: one batched call, cached, signed URLs only', () => {
 })
 
 describe('review round 1, R1-06: the cache is the signed-in person\'s', () => {
+  it('the module follows the real auth client: it subscribed once, at load (R2-05)', () => {
+    expect(typeof auth.cb).toBe('function')
+  })
   it('another person signing in (or a sign-out) empties it: the next ask signs under the new session', async () => {
-    _authChangedForTests('user-a')
+    authAs('user-a')
     const { client, createSignedUrls } = clientFor()
     await signAvatarPaths(['ws1/a.png'], { client })
     await signAvatarPaths(['ws1/a.png'], { client })
     expect(createSignedUrls).toHaveBeenCalledTimes(1)
-    _authChangedForTests('user-a') // the same person again (a token refresh): kept
+    authAs('user-a', 'TOKEN_REFRESHED') // the same person again: kept
     await signAvatarPaths(['ws1/a.png'], { client })
     expect(createSignedUrls).toHaveBeenCalledTimes(1)
-    _authChangedForTests('user-b')
+    authAs('user-b')
     await signAvatarPaths(['ws1/a.png'], { client })
     expect(createSignedUrls).toHaveBeenCalledTimes(2)
-    _authChangedForTests(null) // signed out
+    authAs(null) // signed out
     await signAvatarPaths(['ws1/a.png'], { client })
     expect(createSignedUrls).toHaveBeenCalledTimes(3)
   })
   it('a call still in flight for the person before writes nothing into the cache of the person after', async () => {
-    _authChangedForTests('user-a')
+    authAs('user-a')
     let release
     const gate = new Promise((r) => { release = r })
     const slow = clientFor({ answer: (p) => ({ path: p, signedUrl: SIGNED(p), error: null }) })
     slow.createSignedUrls.mockImplementationOnce(async (paths) => { await gate; return { data: paths.map((p) => ({ path: p, signedUrl: SIGNED(p), error: null })), error: null } })
     const pending = signAvatarPaths(['ws1/a.png'], { client: slow.client })
-    _authChangedForTests('user-b')
+    authAs('user-b')
     release()
     expect((await pending).size).toBe(0)
     // …and user B's own ask signs afresh.

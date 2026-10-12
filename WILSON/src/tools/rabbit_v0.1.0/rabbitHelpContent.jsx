@@ -52,7 +52,7 @@ const TEAM_GALLERY_SHORTCUTS = [
   { keys: [['Home'], ['End']], does: 'First and last card' },
   { keys: [['Enter']], does: 'Go into the card: its seat, then its remove' },
   { keys: [['Esc']], does: 'Back out to the card' },
-  { keys: [['Alt', '↓'], ['Space']], does: 'Open the seat to choose one (the arrows alone never change it)' },
+  { keys: [['Alt', '↓'], ['Space']], does: 'Open the seat to choose one (arrows and letters alone never change it)' },
 ];
 
 function KeyCombos({ keys, range, surface }) {
@@ -1011,7 +1011,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Team gallery: the keyboard</h4>
             <p className={`${T.bodyText} mb-2`}>
-              On the Team tab with Gallery chosen. The gallery is one stop for Tab; the keys act on the card with the ring.
+              On the Team tab with Gallery chosen. The gallery is one stop for Tab (on the Local Server, grouped by something, one stop per group); the keys act on the card with the ring.
             </p>
             <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
               {TEAM_GALLERY_SHORTCUTS.map((s) => (

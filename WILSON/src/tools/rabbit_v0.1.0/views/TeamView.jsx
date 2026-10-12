@@ -585,9 +585,7 @@ export default function TeamView() {
                 <button type="button" onClick={() => toggleGroup(g.key)} aria-expanded={!collapsedGroups.has(g.key)}
                   className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-hover transition-colors"
                   style={{ borderBottom: '1px solid var(--color-rule)' }}>
-                  {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} /> : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
-                  <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{g.label}</span>
-                  <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{g.members.length}</span>
+                  <GroupHeadContent collapsed={collapsedGroups.has(g.key)} label={g.label} count={g.members.length} />
                 </button>
                 {!collapsedGroups.has(g.key) && <TeamGallery label={g.label} cards={g.members.map(localCard)} />}
               </section>
@@ -620,9 +618,7 @@ export default function TeamView() {
                         <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-hover transition-colors"
                           onClick={() => toggleGroup(g.key)}
                           style={{ borderBottom: '1px solid var(--color-rule)' }}>
-                          {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} /> : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
-                          <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{g.label}</span>
-                          <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{g.members.length}</span>
+                          <GroupHeadContent collapsed={collapsedGroups.has(g.key)} label={g.label} count={g.members.length} />
                         </div>
                       </td>
                     </tr>
@@ -804,8 +800,11 @@ function ProjectMembersPanel({ ctx }) {
             {/* Table / Gallery (FX3): the kit Tabs the Assets tab switches
                 with, in the roster's own header beside the seats they show
                 (review round 1, R1-08: a toolbar of its own put them at the
-                page's left edge, 300px from the roster at 1280). */}
-            <span className="ml-auto flex items-center">
+                page's left edge, 300px from the roster at 1280). They take
+                the header's whole height, sitting on its rule, so the active
+                tab's underline is the header's edge (R2-07: it floated 12px
+                above it) and the header keeps its height. */}
+            <span className="ml-auto self-stretch flex items-end -my-3">
               <Tabs label="View" panelId={TEAM_BODY_ID} items={TEAM_VIEW_ITEMS} value={view} onChange={setView} />
             </span>
             <span className="text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
@@ -889,9 +888,10 @@ function ProjectMembersPanel({ ctx }) {
                 return {
                   key: pm.user_id,
                   name,
-                  // The row's second line: the title and the @username, so
-                  // two people of one name stay two (review round 1, R1-09).
-                  role: [m?.title, m?.username ? `@${m.username}` : null].filter(Boolean).join(' · '),
+                  // The row's second line, in the row's order and words —
+                  // "@username — Title" — so two people of one name stay two
+                  // (review rounds 1 and 2, R1-09, R2-08).
+                  role: [m?.username ? `@${m.username}` : null, m?.title].filter(Boolean).join(' — '),
                   seatLabel: roleDef.label,
                   avatarUrl: m?.avatar_url || null,
                   // Whose picture it must be: the uploaders' {workspace}/{user}/… (R1-05).
@@ -1117,6 +1117,21 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
 
         </div>
     </Dialog>
+  )
+}
+
+// ─── A group's heading: its chevron, its name, its count ───
+// One drawing for the Local Server table's group rows and the gallery's group
+// headings (FX3 review round 2, R2-09: the gallery's was a copy).
+function GroupHeadContent({ collapsed, label, count }) {
+  return (
+    <>
+      {collapsed
+        ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />
+        : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
+      <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{label}</span>
+      <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{count}</span>
+    </>
   )
 }
 

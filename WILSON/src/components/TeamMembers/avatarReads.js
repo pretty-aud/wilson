@@ -40,13 +40,15 @@
 // path the caller may not read, or a failed call, simply yields no URL.
 // =============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { isOwnAvatarUrl } from './useWorkspaceMembers'
 
 export const AVATAR_BUCKET = 'user-avatars'
 const SIGN_TTL_S = 3600
 const REFRESH_MARGIN_MS = 5 * 60 * 1000
+const RETRY_MIN_MS = 60 * 1000
+const RETRY_MAX_MS = 10 * 60 * 1000
 const PUBLIC_MARK = `/storage/v1/object/public/${AVATAR_BUCKET}/`
 const SIGNED_MARK = `/storage/v1/object/sign/${AVATAR_BUCKET}/`
 const SEGMENT = /^[A-Za-z0-9._-]+$/
@@ -93,19 +95,25 @@ let cacheUser
 /** Empty the cache (a sign-out, another person signing in). */
 function forget() { cache.clear(); inflight.clear(); generation += 1 }
 
+/** Another person signed in, or no one: the cache is not theirs. A token
+ *  refresh or a re-read of the same session (same user) keeps it. */
+function onAuthChange(_event, session) {
+  const uid = session?.user?.id ?? null
+  if (uid !== cacheUser) { cacheUser = uid; forget() }
+}
+let authSub = null
 try {
-  supabase?.auth?.onAuthStateChange?.((_event, session) => {
-    const uid = session?.user?.id ?? null
-    if (uid !== cacheUser) { cacheUser = uid; forget() }
-  })
-} catch { /* no auth client (tests, a broken env): nothing to follow */ }
+  authSub = supabase?.auth?.onAuthStateChange?.(onAuthChange) ?? null
+} catch { /* no auth client (a broken env): nothing to follow */ }
+// A dev reload of this module must not leave its old subscription behind.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => { try { authSub?.data?.subscription?.unsubscribe?.() } catch { /* gone */ } })
+}
 
 /** Tests only: forget every signed URL and the call count. */
 export function _resetAvatarReadsForTests() { forget(); signCalls = 0; cacheUser = undefined }
 /** Tests only: how many createSignedUrls calls this module has made. */
 export function _avatarSignCallsForTests() { return signCalls }
-/** Tests only: what an auth change does. */
-export function _authChangedForTests(userId) { if (userId !== cacheUser) { cacheUser = userId; forget() } }
 
 function fresh(path, now) {
   const c = cache.get(path)
@@ -168,6 +176,7 @@ export function useAvatarImages(items, { client } = {}) {
   const [, setSigned] = useState(0)            // a render once the call answers
   const [failed, setFailed] = useState(() => new Set())
   const [retried, setRetried] = useState(() => new Set())
+  const missesRef = useRef(0)
   useEffect(() => {
     if (paths.length === 0) return undefined
     let alive = true
@@ -175,10 +184,16 @@ export function useAvatarImages(items, { client } = {}) {
     signAvatarPaths(paths, client ? { client } : undefined).then(() => {
       if (!alive) return
       setSigned((n) => n + 1)
-      // Sign again five minutes before the earliest link ends.
+      // Sign again five minutes before the earliest link ends. A round that
+      // did not refresh it (offline, refused) waits a minute, then two, four,
+      // up to ten — never once a second for as long as the gallery is open
+      // (review round 2, R2-03).
       const ends = paths.map((p) => cache.get(p)?.expiresAt).filter(Boolean)
       if (ends.length > 0) {
-        const wait = Math.max(0, Math.min(...ends) - REFRESH_MARGIN_MS - Date.now()) + 1000
+        const due = Math.min(...ends) - REFRESH_MARGIN_MS - Date.now()
+        if (due > 0) missesRef.current = 0
+        else missesRef.current += 1
+        const wait = due > 0 ? due + 1000 : Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** (missesRef.current - 1))
         timer = setTimeout(() => { if (alive) setRound((r) => r + 1) }, wait)
       }
     })

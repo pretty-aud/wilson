@@ -134,12 +134,12 @@ describe('FX3: the gallery\'s cards', () => {
     toGallery()
     expect(cardNames()).toEqual(['Mara Okonkwo', 'Theo Lindqvist', 'Jonah Beck', 'Dev Patel'])
     const [mara, , , dev] = cards()
-    // The row's second line: the title and the @username (R1-09), whole on the hover.
-    expect(mara.querySelector('.rb-team-card-role').textContent).toBe('Producer · @mara')
-    expect(mara.querySelector('.rb-team-card-role').title).toBe('Producer · @mara')
+    // The row's second line, in the row's order and words (R1-09, R2-08), whole on the hover.
+    expect(mara.querySelector('.rb-team-card-role').textContent).toBe('@mara — Producer')
+    expect(mara.querySelector('.rb-team-card-role').title).toBe('@mara — Producer')
     expect(mara.querySelector('.rb-team-card-name').title).toBe('Mara Okonkwo')
     expect(dev.querySelector('.rb-team-card-role').textContent).toBe('@dev')
-    expect(mara.getAttribute('aria-label')).toBe('Mara Okonkwo, Producer · @mara, Manager')
+    expect(mara.getAttribute('aria-label')).toBe('Mara Okonkwo, @mara — Producer, Manager')
     expect(within(mara).getByRole('combobox', { name: 'Seat for Mara Okonkwo' }).value).toBe('manager')
     // The kit Card, on the Assets gallery's chrome.
     expect(mara.classList.contains('ui-card')).toBe(true)
@@ -315,6 +315,9 @@ describe('FX3: the keyboard, as the Bins grid', () => {
       // fireEvent returns false when the default (the value change) was prevented.
       expect(fireEvent.keyDown(select, { key }), key).toBe(false)
     }
+    // …nor a typed letter (R2-02: 'r' made a member a Reviewer, 'm' a Manager).
+    for (const key of ['r', 'm', 'M', 'v', '1']) expect(fireEvent.keyDown(select, { key }), key).toBe(false)
+    expect(fireEvent.keyDown(select, { key: 'c', ctrlKey: true })).toBe(true) // a shortcut is not typing
     expect(fireEvent.keyDown(select, { key: 'ArrowDown', altKey: true })).toBe(true)
     expect(fireEvent.keyDown(select, { key: ' ' })).toBe(true)
     expect(ctx.updateProjectMemberRole).not.toHaveBeenCalled()
@@ -401,8 +404,62 @@ describe('FX3 review round 1: the smaller corrections', () => {
   it('R1-15: Help\'s Shortcuts page names the gallery\'s keys', () => {
     const text = render(<RabbitHelpContent helpPage="rabbit-shortcuts" theme="dark" />).container.textContent.replace(/\s+/g, ' ')
     expect(text).toContain('Team gallery: the keyboard')
-    for (const words of ['Move from card to card', 'First and last card', 'Go into the card: its seat, then its remove', 'Back out to the card', 'Open the seat to choose one (the arrows alone never change it)']) {
+    for (const words of ['Move from card to card', 'First and last card', 'Go into the card: its seat, then its remove', 'Back out to the card', 'Open the seat to choose one (arrows and letters alone never change it)', 'one stop per group']) {
       expect(text, words).toContain(words)
     }
+  })
+})
+
+describe('FX3 review round 2', () => {
+  it('R2-01: the gallery\'s keys stop at the gallery — a handler on the page (Home\'s, hidden under every page) never sees them', () => {
+    cloud()
+    toGallery()
+    const seen = []
+    const onPage = (e) => seen.push(e.key)
+    document.addEventListener('keydown', onPage)
+    try {
+      cards()[0].focus()
+      fireEvent.keyDown(cards()[0], { key: 'ArrowDown' })
+      fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' })
+      fireEvent.keyDown(document.activeElement, { key: 'Home' })
+      fireEvent.keyDown(document.activeElement, { key: 'Enter' })
+      const select = document.activeElement
+      expect(select.tagName).toBe('SELECT')
+      fireEvent.keyDown(select, { key: 'ArrowDown' })
+      fireEvent.keyDown(select, { key: 'r' })
+      fireEvent.keyDown(select, { key: 'Escape' })
+      expect(seen).toEqual([])
+      // CONTROL: a key the gallery does not handle reaches the page.
+      fireEvent.keyDown(cards()[0], { key: 'x' })
+      expect(seen).toEqual(['x'])
+    } finally {
+      document.removeEventListener('keydown', onPage)
+    }
+  })
+  it('R2-04: a card removed with the focus on it hands the focus to the card in its place (or the last), not to the page', async () => {
+    const { ctx, rerender } = cloud()
+    toGallery()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // Theo (the second card): his remove button has the focus when he goes.
+    const theoRemove = within(cards()[1]).getByRole('button', { name: 'Remove Theo Lindqvist from roster' })
+    act(() => { theoRemove.focus() })
+    fireEvent.click(theoRemove)
+    await waitFor(() => expect(ctx.removeProjectMember).toHaveBeenCalledWith('u2'))
+    // The store answers without him; the button that had the focus is gone.
+    act(() => { theoRemove.blur() })
+    rabbit.current = { ...ctx, projectMembers: ctx.projectMembers.filter((pm) => pm.user_id !== 'u2') }
+    rerender(<TeamView />)
+    expect(cardNames()).toEqual(['Mara Okonkwo', 'Jonah Beck', 'Dev Patel'])
+    expect(document.activeElement).toBe(cards()[1]) // Jonah, in Theo's place
+    expect(cards().map((c) => c.tabIndex)).toEqual([-1, 0, -1])
+    // The last card removed: the focus goes to the new last.
+    const devRemove = within(cards()[2]).getByRole('button', { name: 'Remove Dev Patel from roster' })
+    act(() => { devRemove.focus() })
+    fireEvent.click(devRemove)
+    await waitFor(() => expect(ctx.removeProjectMember).toHaveBeenCalledWith('u4'))
+    act(() => { devRemove.blur() })
+    rabbit.current = { ...rabbit.current, projectMembers: rabbit.current.projectMembers.filter((pm) => pm.user_id !== 'u4') }
+    rerender(<TeamView />)
+    expect(document.activeElement).toBe(cards()[1]) // Jonah, now the last
   })
 })

@@ -17,6 +17,10 @@
    and their seat, and the same controls the list has. Your choice is
    remembered on this computer.
 
+**Also fixed on the way:** on any page, pressing ↓ or ↑ and then Enter no
+longer jumps to D.O.G. (the hidden Home page was taking those keys from
+every page), and Alt+↓ is no longer taken from a dropdown on every page.
+
 **What this is.** FX3, the third of the three fix sessions from your list
 of 2026-10-11, with your two follow-ups of the same day on the first two
 items (no green bar behind the word; the bar further left, reading
@@ -80,11 +84,11 @@ Before: the roster as a list only (before-team 01).
 
 | # | Do | You should see |
 |---|----|----------------|
-| 16 | Open the Team tab | **Table** and **Gallery** in the roster's own header, beside the seat count; **Table** chosen; the roster list exactly as it was. (after-team 01) |
-| 17 | Click **Gallery** | One card per person inside the roster, in the list's order (managers, then members, then reviewers, by name): the picture, the name, the title with their @username, and in the card's foot the seat dropdown and the remove button. A long name or title shows whole when you hover it. (02) |
+| 16 | Open the Team tab | **Table** and **Gallery** in the roster's own header, beside the seat count; **Table** chosen; the roster list as it was, its header the same height. (after-team 01) |
+| 17 | Click **Gallery** | One card per person inside the roster, in the list's order (managers, then members, then reviewers, by name): the picture, the name, their @username and title (as the list writes them), and in the card's foot the seat dropdown and the remove button. A long name or title shows whole when you hover it. (02) |
 | 18 | Press **Tab** until the first card is ringed, then the **arrow keys** | The ring moves card to card; up and down move by a row. **Home** and **End** go to the ends. The whole gallery is one stop for Tab: the next Tab leaves it. (03) |
 | 19 | Press **Enter** on a card | You are in the card: its seat dropdown is ringed, and Tab goes on to its remove. **Escape** brings you back out to the card. (04) |
-| 20 | In the card, press **↓** on the seat | Nothing changes: the arrows never change a seat by themselves. **Alt+↓** (or **Space**) opens it to choose. |
+| 20 | In the card, press **↓** on the seat, or type a letter (**r**, **m**) | Nothing changes: arrows and letters never change a seat by themselves. **Alt+↓** (or **Space**) opens it to choose. |
 | 21 | Change a seat in a card; remove someone (it asks first, as the list does) | The same as in the list. |
 | 22 | Leave the tab and come back, or reload | Still **Gallery**: the choice is kept on this computer. |
 | 23 | As a reviewer on the project (cloud) | The cards show the seat as a label, with no dropdown and no remove, as the list does. |
@@ -100,7 +104,7 @@ as the table's do. Its cards show initials only (§4).
 ## 2. How to check it
 
 Do each part at a large window and again at 1280 by 700. Everything above
-works on the test data in the development copy except step 22 (a cloud
+works on the test data in the development copy except step 23 (a cloud
 project where you are a reviewer) and the Local Server's Team table
 (checked by automated tests). **Pictures in the test data are generated
 initials, drawn as circles**, so the cards crop them; a real photo fills
@@ -114,7 +118,8 @@ the picture area, cropped from its top third where a face is.
   8,132 (2 skipped) at the end of the four items, all passing; 340 / 8,147
   after the first review round's corrections (one of the file gateway's own
   tests fails under the full run's load on Windows and passes alone: an
-  entry in `docs/OUTSTANDING.md`, not this work).
+  entry in `docs/OUTSTANDING.md`, not this work); 342 / 8,154 (2 skipped)
+  after the second round's, all passing.
 - **The banner:** 28px tall, edge to edge, its dot on the title's left
   edge; the line is 1px. In every window: the title row, then the banner,
   then the details (asset 1152px wide, task 960, scene, shot, level and
