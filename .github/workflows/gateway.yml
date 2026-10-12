@@ -165,29 +165,32 @@ jobs:
         with:
           node-version: 24
       - name: Build the image
-        run: docker build -f WILSON/gateway/container/Dockerfile -t wilson-gateway:ci WILSON/gateway
+        run: |
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh build
+          docker build -f WILSON/gateway/container/Dockerfile -t wilson-gateway:ci WILSON/gateway
 
       - name: 1. On Docker's default bridge, the office door stays closed and says why
         run: |
           set -euo pipefail
-          trap 'docker logs gw-bridge 2>&1 | tail -30 | sed "s/^/::error::gw-bridge: /" || true' ERR
+          . WILSON/gateway/test/e2e/containerChecks.sh bridge gw-bridge
           mkdir -p /tmp/data-bridge && sudo chown 65532:65532 /tmp/data-bridge
           docker run -d --name gw-bridge -v /tmp/data-bridge:/data wilson-gateway:ci
           for i in $(seq 1 30); do docker logs gw-bridge 2>&1 | grep -q 'Certificate fingerprint' && break; sleep 1; done
           docker logs gw-bridge 2>&1 | head -20
-          docker logs gw-bridge 2>&1 | grep -q "is on a bridge network, so it cannot see browsers" || { echo 'no bridge sentence'; exit 1; }
-          docker logs gw-bridge 2>&1 | head -5 | grep -q 'Certificate fingerprint (SHA-256): ' || { echo 'no fingerprint on the first lines'; exit 1; }
+          docker logs gw-bridge 2>&1 | grep -q "is on a bridge network, so it cannot see browsers" || fail 'no bridge sentence'
+          docker logs gw-bridge 2>&1 | head -5 | grep -q 'Certificate fingerprint (SHA-256): ' || fail 'no fingerprint on the first lines'
           docker rm -f gw-bridge
 
       - name: 2. On the host's network, a Range read from the runner's LAN address, with that address in the log
         run: |
           set -euo pipefail
-          trap 'docker logs gw-host 2>&1 | tail -40 | sed "s/^/::error::gw-host: /" || true; tail -5 /tmp/fc/out.json 2>/dev/null | sed "s/^/::error::fake-cloud: /" || true' ERR
+          . WILSON/gateway/test/e2e/containerChecks.sh host gw-host
           LAN=$(hostname -I | awk '{print $1}')
           echo "the runner's LAN address: $LAN"
           mkdir -p /tmp/fc /tmp/data-host /tmp/share
           head -c 1048576 /dev/urandom > /tmp/share/clip.mp4
-          node WILSON/gateway/test/fakeCloud.mjs --port 9443 --dir /tmp/fc > /tmp/fc/out.json &
+          node WILSON/gateway/test/fakeCloud.mjs --port 9443 --dir /tmp/fc > /tmp/fc/out.json 2> /tmp/fc/err.log &
           for i in $(seq 1 30); do [ -s /tmp/fc/out.json ] && break; sleep 0.5; done
           cat /tmp/fc/out.json
           C=https://127.0.0.1:9443/_control
@@ -206,20 +209,48 @@ jobs:
             wilson-gateway:ci
           for i in $(seq 1 60); do docker logs gw-host 2>&1 | grep -q 'outside_open' && break; sleep 1; done
           docker logs gw-host 2>&1 | head -30
-          docker logs gw-host 2>&1 | grep -q 'outside_open' || { echo 'the outside door did not open'; exit 1; }
+          # FX5's probe, removed once read: the check that failed at 3a17a5ec, run
+          # 200 times now that the log holds its line; an early line's (more of the
+          # log written after it); and the same check through a file.
+          probe() { local n=0 i; for i in $(seq 1 200); do if eval "$1"; then :; else n=$((n+1)); fi; done; echo "$n"; }
+          pipe_open=$(probe "docker logs gw-host 2>&1 | grep -q 'outside_open'")
+          pipe_first=$(probe "docker logs gw-host 2>&1 | grep -q 'Certificate fingerprint'")
+          file_open=$(probe "has 'outside_open'")
+          after=$(awk '/outside_open/ { f = 1; next } f' /tmp/gw-host.log | wc -l)
+          echo "::notice title=FX5 probe::under pipefail, docker logs | grep -q said a line in the log was missing: outside_open $pipe_open of 200, the fingerprint (the log's line 2) $pipe_first of 200; through a file, outside_open $file_open of 200. Lines after outside_open: $after."
+          docker logs gw-host 2>&1 | grep -q 'outside_open' || fail 'the outside door did not open'
           TICKET=$(post mint "{\"clip\":\"$CLIP\",\"sub\":\"$SUB\"}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).ticket))')
           CODE=$(curl -sk -o /tmp/got.bin -w '%{http_code}' -H 'Range: bytes=0-1023' "https://$LAN:8444/v1/clips/$CLIP?t=$TICKET")
           echo "outside door answered $CODE with $(stat -c %s /tmp/got.bin) bytes"
           [ "$CODE" = 206 ] && [ "$(stat -c %s /tmp/got.bin)" = 1024 ] && cmp -n 1024 /tmp/got.bin /tmp/share/clip.mp4
           sleep 1
           docker logs gw-host 2>&1 | grep 'clip_served' | tail -1
-          docker logs gw-host 2>&1 | grep 'clip_served' | grep -q "\"peer\":\"$LAN\"" || { echo 'the real peer address is not in the log'; exit 1; }
-          if curl -sk --max-time 5 "https://$LAN:8443/" -o /dev/null; then echo 'the office door served its own host'; exit 1; else echo "the office door closed this host's own address before TLS (curl exit $?)"; fi
+          docker logs gw-host 2>&1 | grep 'clip_served' | grep -q "\"peer\":\"$LAN\"" || fail 'the real peer address is not in the log'
+          if curl -sk --max-time 5 "https://$LAN:8443/" -o /dev/null; then fail 'the office door served its own host'; else echo "the office door closed this host's own address before TLS (curl exit $?)"; fi
           post state '{"switch_on":false}'
           for i in $(seq 1 30); do docker logs gw-host 2>&1 | grep -q 'outside_closed' && break; sleep 1; done
           docker logs gw-host 2>&1 | grep 'outside_closed' | tail -1
-          if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then echo 'the outside door still answers with the switch off'; exit 1; else echo "switch off: the outside port refuses (curl exit $?)"; fi
+          if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then fail 'the outside door still answers with the switch off'; else echo "switch off: the outside port refuses (curl exit $?)"; fi
           docker rm -f gw-host
+
+      # FX5's proof, removed once read: the annotation echo, which no failure of
+      # this job had exercised, read back through the public API from a real run.
+      - name: FX5 proof (removed once read), a failed check
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh proof-check
+          echo 'a line the step printed before its check failed'
+          fail 'FX5 proof: fail() ends the step and names the check'
+      - name: FX5 proof (removed once read), a failed command
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh proof-command
+          echo 'a line the step printed before its command failed'
+          ls /no/such/path/fx5
   acme:
     name: ACME against Pebble (Let's Encrypt's test server)
     runs-on: ubuntu-latest

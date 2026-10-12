@@ -49,7 +49,7 @@ describe('the CI job (gateway.yml)', () => {
     expect(workflow).toMatch(/npx vitest run gateway/);
   });
   it('the bridge run looks for the code\'s own sentence', () => {
-    const grep = /grep -q "([^"]+)" \|\| \{ echo 'no bridge sentence'/.exec(workflow);
+    const grep = /grep -q "([^"]+)" \|\| fail 'no bridge sentence'/.exec(workflow);
     expect(grep).not.toBeNull();
     expect(SENTENCES.bridge).toContain(grep[1].replace(/\\u2019/g, '’'));
   });
