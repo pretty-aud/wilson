@@ -56,6 +56,8 @@ Run it against the **beta's** cloud, as walkthrough 61.
 | 3 | In the same environment: **Environment secrets** → **Add environment secret**: name `GATEWAY_RELEASE_SIGNING_KEY`, value: the one line from step 1, exactly | The secret listed, its value never shown again. Here, as the environment's secret, and nowhere else: the key file's own note says Settings → Secrets and variables → Actions, which would make it a repository secret that every workflow in the repository can read; as the environment's, only the job that waits for your approval reads it |
 | 4 | Delete `00_GATEWAY_RELEASE_KEY.txt`, then empty the Recycle Bin | The key now exists only in GitHub |
 
+**And three repository settings, once** (github.com/pretty-aud/wilson → **Settings**): **Actions** → **General** → **Workflow permissions**: *Read repository contents and packages permissions*, with *Allow GitHub Actions to create and approve pull requests* unticked; and **Rules** → **Rulesets** → **New tag ruleset** for the tags `gateway-v*`, restricting their creation, update and deletion, with you on its bypass list. Then no workflow but the release can write to the Releases page or the registry, and only you can make a release tag (review round 2).
+
 **B. The first real release**
 
 | # | Do | You should see |
@@ -109,7 +111,7 @@ Release 0.1.1 is built to fail: it exits as soon as it starts, so it never repor
 | 29 | `wilson-gateway doctor` | *update to 0.1.1 failed (the new version did not report healthy within 90 s); running 0.1.0*, and every door as before. The next daily check does not try 0.1.1 again |
 | 30 | `git tag gateway-v0.1.2 gateway-v0.1.0` then `git push origin gateway-v0.1.2`; approve the run | **WILSON file gateway 0.1.2**, Latest |
 | 31 | **Check now** again, then after two minutes `wilson-gateway doctor` | *0.1.2 · … · up to date*; `C:\Program Files\WILSON Gateway\previous` holds 0.1.0 |
-| 32 | Releases → **WILSON file gateway 0.1.1** → **Delete**; `git push origin --delete gateway-v0.1.1` and `git push origin --delete rehearsal/gateway-0.1.1-broken` | Latest is 0.1.2; the broken build is gone |
+| 32 | Releases → **WILSON file gateway 0.1.1** → **Delete**; `git push origin --delete gateway-v0.1.1` and `git push origin --delete rehearsal/gateway-0.1.1-broken`; then your profile → **Packages** → **wilson-gateway** → **View and manage all versions** → `0.1.1`'s **⋯** → **Delete version** | Latest is 0.1.2; the broken build is gone from the Releases page and from the registry |
 
 ---
 
@@ -142,9 +144,16 @@ Release 0.1.1 is built to fail: it exits as soon as it starts, so it never repor
 ## 4. Still not right, and not this session's to change
 
 - **Not signed** (D14): SmartScreen warns on every install. The workflow's
-  signing steps are in place and skipped; adding a certificate
-  (`GATEWAY_AUTHENTICODE_PFX` and `GATEWAY_AUTHENTICODE_PASSWORD`) turns
-  them on.
+  signing steps are in place and skipped. When a code-signing certificate is
+  bought, do not simply add it as a repository secret
+  (`GATEWAY_AUTHENTICODE_PFX`, `GATEWAY_AUTHENTICODE_PASSWORD`): every
+  workflow could read it. First the two signing steps move into jobs that use
+  an environment with you as required reviewer, as the release key's job
+  does (review round 2): a later session's change.
+- **The channel is the repository's Latest release.** If any other release
+  in `pretty-aud/wilson` ever becomes Latest, gateways cannot read their
+  channel; each says so on its health line after two days, and the next
+  gateway release puts it right.
 - **One release key.** The second slot is empty: if the key were ever
   stolen, its replacement reaches installed gateways only with a release
   signed by the old key, or an MSI installed by hand.

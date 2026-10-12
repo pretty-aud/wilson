@@ -41,9 +41,9 @@ describe('the design\'s GW4 dated lines', () => {
     expect(design.split(GW4_HEADING)).toHaveLength(2);
     expect(gw4).toContain('its hand-off is `docs/sessions/handoffs/po-gw4-2026-10-11.md`');
   });
-  it('twelve numbered lines, each opening with the section it departs from', () => {
+  it('fourteen numbered lines, each opening with the section it departs from', () => {
     const lines = [...gw4.matchAll(/^(\d+)\. \*\*(§|D)/gm)].map((m) => Number(m[1]));
-    expect(lines).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(lines).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
   });
   it('the redirect rule and the renewal\'s numbers are the code\'s', () => {
     expect(gw4).toContain(`(HTTPS only, at most ${WORD[MAX_REDIRECTS]} hops, every hop's host one of ${hosts})`);
@@ -61,13 +61,26 @@ describe('the design\'s GW4 dated lines', () => {
     expect(gw4).toContain('a release that compiles it in, signed by the old key, or with an MSI installed by hand');
   });
   it('round 1\'s corrections are in the lines: the floors, the installer, the key\'s place, the CA\'s pace, the updater\'s keys', () => {
-    expect(gw4).toContain('and (review round 1) a release that is not above the latest one: published, a lower release would become Latest and drop the floors.');
+    expect(gw4).toContain('and (review rounds 1 and 2) a release that is not above every published gateway release');
     expect(gw4).toContain('the signed version list also names the installer (`installer: { url, sha256, size }`, which gateways ignore), and the read-back holds the MSI to it');
     expect(gw4).toContain('the key being that environment\'s secret and never a repository secret, which every workflow could read');
     expect(MAX_RETRY_AFTER_MS).toBe(7 * 86_400_000);
     expect(REQUEST_DEADLINE_MS).toBe(120_000);
     expect(gw4).toContain('(honoured for at most seven days, the longest of Let\'s Encrypt\'s windows: review round 1), and no request to the CA lasts more than two minutes');
     expect(gw4).toContain('And the updater, which only the MSI installs, keeps the keys it was installed with');
+  });
+  it('round 2\'s corrections are in the lines: the lower list, the checks, the installer, the image\'s tag, the updater\'s pipe, the channel', () => {
+    expect(gw4).toContain('And it never takes a list whose version is below the last one it took, whatever its date');
+    expect(gw4).toContain('asked in the plan job before anything is built or pushed, again before the key is read, before the publish and after it');
+    expect(gw4).toContain('nothing proves a first install\'s origin until the installer carries a signature');
+    expect(gw4).toContain('no moving `stable` tag');
+    expect(gw4).toMatch(/^13\. \*\*§8, the updater's pipe and rollback:\*\*/m);
+    expect(gw4).toMatch(/^14\. \*\*§8, the channel and the repository's Latest:\*\*/m);
+    const updater = read(WILSON, 'gateway', 'updater', 'updater.mjs');
+    for (const c of ['swap', 'rollback', 'firewall_open', 'firewall_close', 'smb_dialects']) {
+      expect(updater, c).toContain(`case '${c}':`);
+      expect(gw4, c).toContain(`\`${c}\``);
+    }
   });
   it('no comment marker in the design', () => {
     expect((design.match(/<!--/g) || []).length).toBe(0);

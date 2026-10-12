@@ -59,7 +59,7 @@ async function main() {
       for (const [k, v] of Object.entries({ dry_run: String(p.dryRun), version: p.version, tag: p.tag, release_name: p.releaseName })) output(k, v);
       notice('Release plan', p.dryRun
         ? `A DRY RUN of ${p.version}: a throwaway key, a DRAFT pre-release named ${p.releaseName}, nothing pushed to the registry.`
-        : `The REAL release ${p.tag} (${p.version}): signed with the release key, the image pushed by digest, published as the latest release.`);
+        : `The REAL release ${p.tag} (${p.version}): checked against the published releases first, signed with the release key, the image pushed under its version (the signed list names its digest), published as the latest release.`);
       return;
     }
     case 'stamp': {
@@ -135,9 +135,24 @@ async function main() {
       notice('Container image', `${CONTAINER_IMAGE}@${digest}`);
       return;
     }
+    case 'check-release': {
+      // A real run, in the plan job (before the tests, the build, the image's
+      // push and the approval) and in the sign job (before the key is read):
+      // review round 2, finding 1. githubRelease checks again before and
+      // after the publish.
+      const repo = process.env.GITHUB_REPOSITORY;
+      if (repo !== RELEASE_REPOSITORY) fail(`this workflow releases ${RELEASE_REPOSITORY} only (running in ${repo})`);
+      const tag = process.env.TAG;
+      const version = process.env.VERSION;
+      const m = TAG_RE.exec(String(tag));
+      if (!m || m[4] || tag !== `gateway-v${version}`) fail(`check-release: ${tag} is not the release tag gateway-v${version}`);
+      const highest = await releasable({ API: process.env.GITHUB_API_URL || 'https://api.github.com', repo, tag, version });
+      notice('Release check', `${tag} is not released yet, and is above every published gateway release (${highest ? `the highest is ${highest.tag}` : 'there is none yet'})`);
+      return;
+    }
     case 'github-release': return githubRelease(flag('dir'));
     default:
-      process.stderr.write('pipeline/cli.mjs plan | stamp <v> | check-artefact <tgz> <v> <node.exe> | manifest … | sign … | container-digest … | github-release --dir <d>\n');
+      process.stderr.write('pipeline/cli.mjs plan | stamp <v> | check-artefact <tgz> <v> <node.exe> | manifest … | sign … | container-digest … | check-release | github-release --dir <d>\n');
       process.exit(2);
   }
 }
@@ -158,6 +173,46 @@ async function api(method, url, { body, contentType = 'application/json', accept
   });
   if (!res.ok) throw new Error(`${method} ${url.replace(/\?.*/, '')}: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return raw ? Buffer.from(await res.arrayBuffer()) : (res.status === 204 ? null : res.json());
+}
+
+/**
+ * The repository's published gateway releases (no drafts, no pre-releases),
+ * read page by page. Not `/releases/latest`: Latest is the repository's, and
+ * another product's release may hold it (review round 2, finding 2).
+ */
+async function publishedGatewayReleases(API, repo) {
+  const found = [];
+  for (let page = 1; page <= 20; page++) {
+    const list = await api('GET', `${API}/repos/${repo}/releases?per_page=100&page=${page}`);
+    if (!Array.isArray(list)) throw new Error('the release list is not a list');
+    for (const r of list) {
+      if (r?.draft || r?.prerelease) continue;
+      const m = TAG_RE.exec(String(r?.tag_name ?? ''));
+      if (m && !m[4]) found.push({ id: r.id, tag: r.tag_name, version: `${Number(m[1])}.${Number(m[2])}.${Number(m[3])}` });
+    }
+    if (list.length < 100) return found;
+  }
+  throw new Error('more than 2,000 releases: the list was not read to its end');
+}
+const highestOf = (releases) => releases.reduce((h, r) => (!h || compareVersions(r.version, h.version) > 0 ? r : h), null);
+
+/**
+ * A real release goes ahead only when its tag is not released already and its
+ * version is above every published gateway release: published, it becomes
+ * Latest, and a lower one would drop the floors the higher one set (review
+ * rounds 1 and 2). Answers the highest published gateway release, or null.
+ */
+async function releasable({ API, repo, tag, version }) {
+  const existing = await fetch(`${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, { headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
+  if (existing.status === 200) fail(`${tag} is released already; a release is never replaced. Tag the next version.`);
+  if (existing.status !== 404) fail(`could not tell whether ${tag} is released already (GitHub answered ${existing.status}); nothing was made. Run the job again.`);
+  let releases;
+  try { releases = await publishedGatewayReleases(API, repo); } catch (e) { fail(`could not read the repository's releases (${String(e.message).slice(0, 200)}); nothing was made. Run the job again.`); }
+  const highest = highestOf(releases);
+  if (highest && compareVersions(version, highest.version) <= 0) {
+    fail(`${tag} is not above the highest gateway release (${highest.tag}): published, it would become Latest and drop the version floors that release set. Tag a version above ${highest.version}.`);
+  }
+  return highest;
 }
 
 /**
@@ -193,29 +248,15 @@ async function githubRelease(dir) {
     '',
     `- **Windows**: \`${msiName(version)}\` (not signed yet: Windows SmartScreen warns; **More info → Run anyway** gets past it, and a signed build will stop the warning later). An installed gateway updates itself from \`${artefactName(version)}\`.`,
     `- **NAS (a container)**: \`${CONTAINER_IMAGE}@${digest}\`${dryRun ? ' (a dry run pushes no image; this is the digest of the image it built)' : ''}.`,
-    `- **The signed version list**: \`${MANIFEST_NAME}\` and \`${SIGNATURE_NAME}\` (Ed25519), naming the update artefact's and the installer's SHA-256; \`SHA256SUMS\` lists every file (it proves a download complete, not who made it).`,
+    `- **The signed version list**: \`${MANIFEST_NAME}\` and \`${SIGNATURE_NAME}\` (Ed25519): the version list every gateway checks before it updates; \`SHA256SUMS\` lists every file's SHA-256 (it shows a download is whole, not who made it).`,
     '',
     `Built from ${env.GITHUB_SHA} by ${env.GITHUB_WORKFLOW} run ${env.GITHUB_RUN_ID}.`,
   ].join('\n');
 
-  // A real tag released before is never replaced from here.
-  if (!dryRun) {
-    const existing = await fetch(`${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
-    if (existing.status === 200) fail(`${tag} is released already; a release is never replaced. Tag the next version.`);
-    if (existing.status !== 404) fail(`could not tell whether ${tag} is released already (GitHub answered ${existing.status}); nothing was made. Run the job again.`);
-    // Published, a real release becomes Latest: one below the latest gateway
-    // release would replace its version list and drop the floors it set
-    // (review round 1, finding 1). So a real release is above the latest.
-    const latest = await fetch(`${API}/repos/${repo}/releases/latest`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
-    if (latest.status === 200) {
-      const latestTag = String((await latest.json())?.tag_name ?? '');
-      const m = TAG_RE.exec(latestTag);
-      const latestVersion = m && !m[4] ? `${Number(m[1])}.${Number(m[2])}.${Number(m[3])}` : null;
-      if (latestVersion && compareVersions(version, latestVersion) <= 0) {
-        fail(`${tag} is not above the latest release (${latestTag}): published, it would become Latest and drop the version floors that release set. Tag a version above ${latestVersion}.`);
-      }
-    } else if (latest.status !== 404) fail(`could not tell which release is the latest (GitHub answered ${latest.status}); nothing was made. Run the job again.`);
-  }
+  // A real release: not released already, and above every published gateway
+  // release (the plan job and the sign job asked the same before; again here,
+  // and once more around the publish).
+  if (!dryRun) await releasable({ API, repo, tag, version });
   const rel = await api('POST', `${API}/repos/${repo}/releases`, {
     body: { tag_name: tag, target_commitish: env.GITHUB_SHA, name: env.RELEASE_NAME, body, draft: true, prerelease: dryRun, make_latest: 'false' },
   });
@@ -226,6 +267,11 @@ async function githubRelease(dir) {
 
   // Read back through the API: the assets as GitHub serves them.
   const listed = await api('GET', `${API}/repos/${repo}/releases/${rel.id}/assets?per_page=100`);
+  // Exactly the files this job uploaded: an asset someone else added to the
+  // draft is never published with it (review round 2, finding 5).
+  const listedNames = listed.map((a) => a.name).sort();
+  const uploadedNames = [...files.keys()].sort();
+  if (listedNames.join('/') !== uploadedNames.join('/')) fail(`read back: the release holds ${listedNames.join(', ')}, not exactly the ${uploadedNames.length} files this job uploaded`);
   const served = new Map();
   for (const a of listed) served.set(a.name, await downloadAsset(`${API}/repos/${repo}/releases/assets/${a.id}`));
   for (const n of files.keys()) if (!served.has(n)) fail(`read back: ${n} is not among the release's assets`);
@@ -245,7 +291,20 @@ async function githubRelease(dir) {
     notice('Dry run', `left as a DRAFT pre-release: ${rel.html_url} (delete it when you have looked; nothing was published and no image was pushed)`);
     return;
   }
+  // Again just before publishing: another release may have been published
+  // while this one was built and approved.
+  await releasable({ API, repo, tag, version });
   const pub = await api('PATCH', `${API}/repos/${repo}/releases/${rel.id}`, { body: { draft: false, make_latest: 'true' } });
+  // And after: two runs approved together can both pass the check (review
+  // round 2, finding 3). If a higher gateway release is published now, this
+  // one goes back to a draft and the higher one is Latest again.
+  let after;
+  try { after = highestOf(await publishedGatewayReleases(API, repo)); } catch (e) { fail(`published, but the release list could not be read back to confirm nothing higher was published meanwhile (${String(e.message).slice(0, 200)}): check the Releases page`); }
+  if (after && compareVersions(after.version, version) > 0) {
+    await api('PATCH', `${API}/repos/${repo}/releases/${rel.id}`, { body: { draft: true } });
+    await api('PATCH', `${API}/repos/${repo}/releases/${after.id}`, { body: { make_latest: 'true' } });
+    fail(`${after.tag} was published while ${tag} was being made: ${tag} is a draft again, and ${after.tag} is Latest. Tag a version above ${after.version}.`);
+  }
   notice('Published', `${pub.html_url}: the latest release; gateways take it within a day`);
 }
 

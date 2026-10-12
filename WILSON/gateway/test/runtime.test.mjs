@@ -341,6 +341,18 @@ describe('the switch, end to end (§9 point 4)', () => {
       expect(W.gw.versionFloors()).toEqual({ minimum: '99.5.0', hard: '98.0.0' });
     } finally { await W.close(); }
   });
+  it('GW4, review round 2: the channel\'s trouble reaches the health line and the sync\'s line, in place of "up to date"', async () => {
+    const channel = { lastOkAt: null, failure: { kind: 'refused', since: Date.now(), words: 'it cannot be read' } };
+    const W = await world({ gw: { updates: { state: () => ({ state: 'up_to_date' }), check: async () => {}, floors: () => ({ minimum: null, hard: null }), channel: () => channel } } });
+    try {
+      expect(W.gw.healthLine().text).toContain('updates: the latest release’s version list was refused: it cannot be read');
+      await W.gw.syncNow();
+      expect(JSON.stringify(W.cloud.state.gateways.get(W.cloud.onlyGateway()).lastReport)).toContain('updates: the latest release’s version list was refused: it cannot be read');
+      // CONTROL: a good channel says up to date.
+      channel.failure = null;
+      expect(W.gw.healthLine().text).toContain('up to date');
+    } finally { await W.close(); }
+  });
   it('a 401 on sync (Forget) closes both doors and says so', async () => {
     const W = await world();
     try {

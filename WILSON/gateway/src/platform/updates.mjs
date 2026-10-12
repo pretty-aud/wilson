@@ -31,13 +31,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { CHANNEL_URL, RELEASE_REPOSITORY, verifyManifest, compiledReleaseKeys, parseVersion } from '../update/manifest.mjs';
+import { CHANNEL_URL, RELEASE_REPOSITORY, verifyManifest, compiledReleaseKeys, parseVersion, compareVersions } from '../update/manifest.mjs';
 import { releaseFetch, releaseAssetUrlOf } from '../update/releaseFetch.mjs';
 
 const MAX_MANIFEST = 64 * 1024;
 const MAX_SIGNATURE = 4096;
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 export const LAST_MANIFEST_FILE = 'last-manifest.json';
+
+/** Why a version list was refused, in the health line's words (verifyManifest's reasons). */
+export const REFUSED_WORDS = Object.freeze({
+  signature: 'its signature does not verify with this gateway’s release key',
+  signature_shape: 'its signature cannot be read',
+  json: 'it cannot be read',
+  shape: 'it cannot be read',
+  future: 'it is dated more than a day ahead of this computer’s clock',
+  stale: 'it is older than the last one this gateway took',
+});
 
 export class Updates {
   /**
@@ -54,9 +64,26 @@ export class Updates {
     this.current = this.keys.length ? { state: 'up_to_date' } : { state: 'disabled' };
     this.last = null; // the last verified manifest: { version, published_at, minimum_version, hard_minimum_version }
     this.running = null;
+    // The channel as the last checks found it (review round 2, findings 2 and
+    // 4): a channel that cannot be read, or that serves a version list this
+    // gateway refuses or will not take, must not read as "up to date".
+    this.channelState = { lastOkAt: null, failure: null };
   }
 
   state() { return this.current; }
+
+  /**
+   * The release channel, for the health line: `lastOkAt` (the last check that
+   * read and took a version list), and the failure since (null when the last
+   * check was good): { kind: 'unreadable'|'refused'|'lower', since, words, version?, kept? }.
+   */
+  channel() { return this.channelState; }
+
+  #channelFailed(kind, words, extra = {}) {
+    const prev = this.channelState.failure;
+    const since = prev && prev.kind === kind ? prev.since : this.now();
+    this.channelState = { lastOkAt: this.channelState.lastOkAt, failure: { kind, since, words, ...extra } };
+  }
 
   /** The floors the last verified manifest set (null when none). */
   floors() {
@@ -133,16 +160,31 @@ export class Updates {
       signatureText = (await releaseFetch(sigUrl, { maxBytes: MAX_SIGNATURE, transport: this.transport })).body.toString('utf8');
     } catch (e) {
       this.log('update_check_failed', { why, reason: String(e.message).slice(0, 160) });
+      this.#channelFailed('unreadable', `the release channel could not be read (${String(e.message).slice(0, 80)})`);
       return this.current;
     }
     const platformKey = this.o.platform === 'windows' ? 'windows-x64' : 'container';
     const v = verifyManifest({ manifestBytes, signatureText, keys: this.keys, lastPublishedAt: last?.published_at ?? null, runningVersion: this.o.version, platformKey, now: this.now(), sameIsStale: false });
     if (!v.ok) {
       this.log('update_manifest_refused', { why, reason: v.reason });
+      let named = null; // for the words only: the version the refused list names, when it can be read
+      try { const j = JSON.parse(manifestBytes.toString('utf8')); if (parseVersion(j?.version)) named = j.version; } catch { /* unreadable */ }
+      this.#channelFailed('refused', REFUSED_WORDS[v.reason] || 'it is not one this gateway takes', named ? { version: named } : {});
       if (v.reason === 'stale' && this.current.state !== 'failed') this.current = { state: 'up_to_date' };
       return this.current;
     }
+    // A version list LOWER than the last one this gateway verified never
+    // replaces it, whatever its date: its floors stay (review round 2,
+    // finding 4). The pipeline publishes only above every gateway release, so
+    // a lower list served as the latest is a mistake or an attack, and a new
+    // release is the repair.
+    if (last?.version && compareVersions(v.manifest.version, last.version) < 0) {
+      this.log('update_manifest_lower', { why, version: v.manifest.version, kept: last.version });
+      this.#channelFailed('lower', `it names ${v.manifest.version}, below ${last.version}, the last version list this gateway took`, { version: v.manifest.version, kept: last.version });
+      return this.current;
+    }
     try { await this.#writeLast(v.manifest); } catch (e) { this.log('update_manifest_not_kept', { reason: String(e.message).slice(0, 120) }); }
+    this.channelState = { lastOkAt: this.now(), failure: null };
     if (!v.newer) { if (this.current.state !== 'failed') this.current = { state: 'up_to_date' }; return this.current; }
     if (this.o.platform !== 'windows') { this.current = { state: 'available', version: v.manifest.version }; return this.current; }
     // A version whose swap already failed here (the updater rolled it back and

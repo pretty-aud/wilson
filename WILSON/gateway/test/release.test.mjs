@@ -27,7 +27,8 @@ import {
   verifyManifest, artefactUrlOk, highestVersion, FUTURE_SLACK_MS,
 } from '../src/update/manifest.mjs';
 import { releaseFetch, RELEASE_HOSTS, MAX_REDIRECTS, hopRefusal, releaseAssetUrlOf } from '../src/update/releaseFetch.mjs';
-import { Updates, LAST_MANIFEST_FILE } from '../src/platform/updates.mjs';
+import { Updates, LAST_MANIFEST_FILE, REFUSED_WORDS } from '../src/platform/updates.mjs';
+import { composeHealthLine, channelPhrase, CHANNEL_QUIET_MS } from '../src/rules/health.mjs';
 import { makeUpdaterEnv } from '../updater/updater.mjs';
 import { signingKeyFromWire, publicKeyToWire } from '../src/wire/formats.mjs';
 import { startReleaseServer } from './releaseServer.mjs';
@@ -244,7 +245,7 @@ describe('releaseFetch: GitHub\'s redirects, and nowhere else', () => {
       await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 50_000, timeoutMs: 800, transport: srv.transport })).rejects.toMatchObject({ code: 'timeout' });
       await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 50_000, timeoutMs: 10_000, deadlineMs: 800, transport: srv.transport })).rejects.toMatchObject({ code: 'deadline' });
     } finally { srv.state.override = null; }
-  });
+  }, 20_000); // five fetches in a row: under a full run's load they can pass vitest's 5 s, and the override would outlive the test
   it('a status other than 200 at the end is refused', async () => {
     await expect(releaseFetch('https://github.com/pretty-aud/wilson/releases/download/gateway-v9.0.0/missing', { maxBytes: 10, transport: srv.transport })).rejects.toMatchObject({ code: 'status' });
   });
@@ -421,6 +422,79 @@ describe('the gateway\'s update check against the loopback channel (Updates)', (
     fs.writeFileSync(path.join(dir, 'update-failed.json'), JSON.stringify({ version: null, reason: 'verification failed (stale)', running: '0.1.0', at: new Date(t).toISOString() }));
     expect(await u.refreshFailure()).toEqual({ state: 'failed', version: '9.0.0', reason: 'verification failed (stale)' });
     expect(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.mjs'), 'utf8')).toMatch(/setInterval\(\(\) => \{ gw\.updates\.refreshFailure\(\)\.catch\(\(\) => \{\}\); \}, 15_000\)\.unref\(\);/);
+  });
+  it('a lower version list never replaces the last one taken, whatever its date: the floors stay, and the health line says it was not taken (review round 2, finding 4)', async () => {
+    const dir = tmp();
+    // The gateway took 9.1.0, with floors 9.0.0 (an incident's release), signed at 07:00 …
+    fs.writeFileSync(path.join(dir, LAST_MANIFEST_FILE), JSON.stringify({ version: '9.1.0', published_at: '2026-10-11T07:00:00.000Z', minimum_version: '9.0.0', hard_minimum_version: '9.0.0' }));
+    const logs = [];
+    const asked = [];
+    const u = make(dir, { log: (e, d) => logs.push([e, d]), askUpdater: async (m) => { asked.push(m); return { ok: true }; } });
+    await u.readFailure();
+    // … and the channel now serves 9.0.0, signed LATER (08:00), with no floors.
+    expect(await u.check('test')).toEqual({ state: 'up_to_date' });
+    expect(u.floors()).toEqual({ minimum: '9.0.0', hard: '9.0.0' });
+    expect(asked).toEqual([]);
+    expect(logs).toContainEqual(['update_manifest_lower', { why: 'test', version: '9.0.0', kept: '9.1.0' }]);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, LAST_MANIFEST_FILE), 'utf8')).version).toBe('9.1.0');
+    expect(u.channel().failure).toMatchObject({ kind: 'lower', version: '9.0.0', kept: '9.1.0' });
+    expect(channelPhrase(u.channel(), Date.parse('2026-10-11T12:00:00Z'))).toEqual({ text: 'updates: the latest release was not taken: it names 9.0.0, below 9.1.0, the last version list this gateway took; a newer release will reach this gateway', tone: 'amber' });
+    // CONTROL: the same list after a LOWER one was taken is taken (a higher version, whatever the dates).
+    const dir2 = tmp();
+    fs.writeFileSync(path.join(dir2, LAST_MANIFEST_FILE), JSON.stringify({ version: '8.0.0', published_at: '2026-10-11T07:00:00.000Z' }));
+    const u2 = make(dir2, { askUpdater: async () => ({ ok: true, accepted: true }) });
+    await u2.readFailure();
+    expect(await u2.check('test')).toEqual({ state: 'updating', version: '9.0.0' });
+    expect(u2.channel().failure).toBeNull();
+  });
+  it('the channel\'s trouble is said instead of "up to date": a refused list at once, with why; an unreadable channel after two days; a good check clears it (review round 2, findings 2 and 4)', async () => {
+    let t = Date.parse('2026-10-11T12:00:00Z');
+    const dir = tmp();
+    const u = make(dir, { now: () => t, version: '9.0.0' }); // running 9.0.0: nothing newer to take
+    const line = () => composeHealthLine({ now: t, name: 'PC', version: '9.0.0', lastSyncAt: t, inside: { state: 'open', addresses: [] }, outside: {}, locations: [], certificate: null, update: { ...u.state(), channel: u.channel() } }).text;
+    await u.check('test');
+    expect(u.channel()).toEqual({ lastOkAt: t, failure: null });
+    expect(line()).toContain('up to date');
+    // The channel answers 404 (another release is the repository's Latest): nothing said for two days …
+    srv.state.override = ({ host, url, res }) => { if (host === 'github.com' && url.includes('/latest/')) { res.writeHead(404); res.end(); return true; } return undefined; };
+    try {
+      t += 3_600_000;
+      expect(await u.check('daily')).toEqual({ state: 'up_to_date' });
+      expect(u.channel().failure).toMatchObject({ kind: 'unreadable' });
+      expect(channelPhrase(u.channel(), t)).toBeNull();
+      expect(line()).toContain('up to date');
+      // … then said, with the day of the last good check.
+      t += CHANNEL_QUIET_MS;
+      await u.check('daily');
+      expect(channelPhrase(u.channel(), t)).toEqual({ text: 'updates: not checked since 2026-10-11: the release channel could not be read (github.com: 404)', tone: 'amber' });
+      expect(line()).toContain('updates: not checked since 2026-10-11');
+      expect(line()).not.toContain('up to date');
+    } finally { srv.state.override = null; }
+    // A list whose signature does not verify: said at once, with the version it names.
+    srv.state.assets['stable.json.sig'] = signWith(manifest, crypto.generateKeyPairSync('ed25519').privateKey);
+    try {
+      await u.check('daily');
+      expect(channelPhrase(u.channel(), t)).toEqual({ text: 'updates: the latest release’s version list was refused: its signature does not verify with this gateway’s release key (it names 9.0.0)', tone: 'amber' });
+    } finally { srv.state.assets['stable.json.sig'] = signWith(manifest); }
+    expect(REFUSED_WORDS.stale).toBe('it is older than the last one this gateway took');
+    // A gateway that has not read the channel once since it started counts from its first failed try.
+    let t2 = Date.parse('2026-10-20T09:00:00Z');
+    const fresh = make(tmp(), { now: () => t2, version: '9.0.0' });
+    srv.state.override = ({ host, url, res }) => { if (host === 'github.com' && url.includes('/latest/')) { res.writeHead(404); res.end(); return true; } return undefined; };
+    try {
+      await fresh.check('start');
+      t2 += 24 * 3_600_000;
+      await fresh.check('daily');
+      expect(channelPhrase(fresh.channel(), t2)).toBeNull();
+      t2 += 24 * 3_600_000;
+      await fresh.check('daily');
+      expect(channelPhrase(fresh.channel(), t2)).toEqual({ text: 'updates: not checked since 2026-10-20: the release channel could not be read (github.com: 404)', tone: 'amber' });
+    } finally { srv.state.override = null; }
+    // A good check clears it.
+    await u.check('daily');
+    expect(u.channel()).toEqual({ lastOkAt: t, failure: null });
+    expect(line()).toContain('up to date');
+    expect(CHANNEL_QUIET_MS).toBe(48 * 3_600_000);
   });
   it('no release key: updates are off and nothing is fetched', async () => {
     const before = srv.hits.length;

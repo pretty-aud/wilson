@@ -103,6 +103,17 @@ describe('the archive (ustar, files and directories only)', () => {
     expect(real.length).toBeGreaterThan(40);
     for (const name of real) expect(safeEntryName(name), name).toBe(name);
   });
+  it('refuses two entries that are one file to Windows: the same name in another case, or an 8.3 short name (review round 2, note 9)', () => {
+    expect(() => readTar(writeTar([{ name: 'app/src/cli.mjs', type: 'file', data: 'a' }, { name: 'app/src/CLI.MJS', type: 'file', data: 'b' }]))).toThrow(/another case/);
+    expect(() => readTar(writeTar([{ name: 'app/src/version.mjs', type: 'file', data: 'a' }, { name: 'app/src/VERSION.mjs', type: 'file', data: 'b' }]))).toThrow(/another case/);
+    for (const name of ['app/src/LONGFI~1.MJS', 'PROGRA~1/x', 'app/a~9b']) {
+      expect(safeEntryName(name), name).toBeNull();
+      expect(() => readTar(writeTar([{ name, type: 'file', data: 'x' }])), name).toThrow();
+    }
+    // CONTROL: a tilde not followed by a digit, and different names, are fine.
+    expect(safeEntryName('app/src/a~b.mjs')).toBe('app/src/a~b.mjs');
+    expect(readTar(writeTar([{ name: 'app/src/a.mjs', type: 'file', data: 'a' }, { name: 'app/src/b.mjs', type: 'file', data: 'b' }])).map((e) => e.name)).toEqual(['app/src/a.mjs', 'app/src/b.mjs']);
+  });
   it('refuses a corrupt header', () => {
     const raw = writeTar([{ name: 'a.txt', type: 'file', data: 'x' }], { gzip: false });
     raw[0] ^= 1;

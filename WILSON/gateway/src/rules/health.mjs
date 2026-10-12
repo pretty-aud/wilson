@@ -176,7 +176,29 @@ export function outsideCertificateWarning(oc, now) {
   return null;
 }
 
-function updatePhrase(u, platform) {
+/** A channel that cannot be read is said after two days of trying (a day's outage is GitHub's, not news). */
+export const CHANNEL_QUIET_MS = 48 * 3600_000;
+
+/**
+ * The release channel's trouble, in place of "up to date" (review round 2,
+ * findings 2 and 4): a version list refused or not taken says so at once; a
+ * channel that cannot be read, after CHANNEL_QUIET_MS without a good check.
+ */
+export function channelPhrase(channel, now) {
+  const f = channel?.failure;
+  if (!f) return null;
+  if (f.kind === 'refused') return { text: `updates: the latest release’s version list was refused: ${f.words}${f.version ? ` (it names ${f.version})` : ''}`, tone: 'amber' };
+  if (f.kind === 'lower') return { text: `updates: the latest release was not taken: ${f.words}; a newer release will reach this gateway`, tone: 'amber' };
+  const since = channel.lastOkAt ?? f.since;
+  if (f.kind === 'unreadable' && Number.isFinite(since) && now - since >= CHANNEL_QUIET_MS) return { text: `updates: not checked since ${day(since)}: ${f.words}`, tone: 'amber' };
+  return null;
+}
+
+function updatePhrase(u, platform, now) {
+  if (u && (!u.state || u.state === 'up_to_date')) {
+    const ch = channelPhrase(u.channel, now);
+    if (ch) return ch;
+  }
   if (!u || u.state === 'up_to_date') return { text: 'up to date', tone: 'plain' };
   if (u.state === 'available') return { text: platform === 'container' ? `${u.version} is available: pull the image` : `${u.version} is available`, tone: 'amber' };
   if (u.state === 'updating') return { text: `updating to ${u.version}`, tone: 'plain' };
@@ -203,7 +225,7 @@ export function composeHealthLine(state) {
   sep(); push(certificatePhrase(state.certificate, now));
   const outsideCert = outsideCertificatePhrase(state.outsideCertificate, now);
   if (outsideCert) { sep(); push(outsideCert); }
-  sep(); push(updatePhrase(state.update, state.platform));
+  sep(); push(updatePhrase(state.update, state.platform, now));
 
   // The lines under it: the red and amber facts the admin must act on.
   const warnings = [];

@@ -17,7 +17,7 @@ import { FIREWALL_RULE } from '../updater/updater.mjs';
 import { RELEASE_HOSTS } from '../src/update/releaseFetch.mjs';
 import { LETS_ENCRYPT_DIRECTORY } from '../src/acme/client.mjs';
 import { renewAt } from '../src/acme/manager.mjs';
-import { outsideCertificateWarning } from '../src/rules/health.mjs';
+import { outsideCertificateWarning, CHANNEL_QUIET_MS } from '../src/rules/health.mjs';
 import { CONTAINER_IMAGE, RELEASE_REPOSITORY, RELEASE_KEYS_WIRE } from '../src/update/manifest.mjs';
 import { SKEW_S } from '../src/wire/ticket.mjs';
 import { SMARTSCREEN_SUMMARY } from '../src/installer.mjs';
@@ -214,15 +214,39 @@ describe('review round 1\'s corrections, in the guide\'s words', () => {
     expect(guide).toContain('that proves the download whole and the file the release holds, not who made the release');
     expect(guide).toContain('`SHA256SUMS` proves a download whole, not its origin');
     expect(read(WILSON, 'gateway', 'pipeline', 'lib.mjs')).toContain('installer: { url: installerUrl, sha256:');
-    expect(guide).toContain('names the installer\'s SHA-256 too');
+    expect(guide).toContain('the release\'s signed version list protects a gateway\'s updates, not a first install');
     expect(wt63).not.toMatch(/is the check/);
   });
   it('the floors stay in force: the pipeline publishes only above the latest release (finding 1)', () => {
-    expect(guide).toContain('The release pipeline publishes a version only above the latest release, so the floors a release sets stay in force until a higher release replaces them.');
-    expect(pipeline).toContain('is not above the latest release');
+    expect(guide).toContain('so the floors a release sets stay in force until a higher release replaces them.');
+    expect(pipeline).toContain('is not above the highest gateway release');
   });
   it('the updater keeps the keys it was installed with, and the incident row says what that asks (note 6)', () => {
     expect(guide).toContain('And the updater, which only the MSI installs, keeps the keys it was installed with: a release signed only with a new key is refused at its swap until that gateway\'s MSI is reinstalled');
     expect(guide).toContain('asks each company to reinstall the MSI, which carries the updater');
+  });
+});
+
+describe('review round 2\'s corrections, in the guide\'s words', () => {
+  it('the updater\'s pipe: every request it takes is named, and who holds its key (note 11)', () => {
+    const updater = read(WILSON, 'gateway', 'updater', 'updater.mjs');
+    const cases = [...updater.matchAll(/^ {8}case '([a-z_]+)':/gm)].map((m) => m[1]);
+    expect(cases).toEqual(['swap', 'rollback', 'firewall_open', 'firewall_close', 'smb_dialects']);
+    const row = guide.split('\n').find((l) => l.startsWith('| The updater on Windows |'));
+    for (const said of ['swapping a verified release', 'putting the previous version back (rollback)', 'adding or removing the outside door\'s firewall rule', 'reading which SMB dialect each share connection uses', 'the gateway\'s own service account holds that key too']) expect(row, said).toContain(said);
+    expect(row).not.toContain('three things only');
+  });
+  it('no check an administrator cannot make: the signed list protects updates, not a first install (finding 6)', () => {
+    expect(guide).not.toContain('names the installer\'s SHA-256');
+    expect(guide).toContain('the release\'s signed version list protects a gateway\'s updates, not a first install');
+  });
+  it('the floors\' rules and the channel\'s trouble, as the code keeps them (findings 1 to 4)', () => {
+    expect(guide).toContain('The release pipeline publishes a version only above every gateway release already published');
+    expect(guide).toContain('a gateway never takes a version list lower than the last one it took');
+    expect(guide).toContain('the repair is a new, higher release');
+    expect(guide).toContain('- **The channel is the repository\'s Latest release.**');
+    expect(guide).toContain('*updates: not checked since …*');
+    expect(CHANNEL_QUIET_MS).toBe(48 * 3_600_000);
+    expect(guide).toContain('after two days of trying');
   });
 });

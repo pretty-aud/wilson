@@ -23,6 +23,7 @@ import { publicKeyToWire } from '../src/wire/formats.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GW = path.join(HERE, '..');
+const CLI = path.join(GW, 'pipeline', 'cli.mjs');
 const read = (...p) => fs.readFileSync(path.join(...p), 'utf8').replace(/\r\n/g, '\n');
 const workflow = read(GW, '..', '..', '.github', 'workflows', 'gateway-release.yml');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
@@ -77,6 +78,10 @@ describe('the Windows artefact, read back with the gateway\'s own reader', () =>
   ];
   it('node.exe and app/ as current\\ holds them, the version stamped, node.exe the staged one', () => {
     expect(checkArtefact(writeTar(app('1.2.3')), { version: '1.2.3', nodeExeSha256: sha(Buffer.from('MZ node')) })).toMatchObject({ ok: true, problems: [] });
+  });
+  it('refuses an artefact holding two names that are one file to Windows (version.mjs beside VERSION.mjs; review round 2, note 9)', () => {
+    const twice = [...app('1.2.3'), { name: 'app/src/VERSION.mjs', type: 'file', data: "export const VERSION = '6.6.6';\n" }];
+    expect(() => checkArtefact(writeTar(twice), { version: '1.2.3' })).toThrow(/another case/);
   });
   it('refuses a stray file, a test, another version, another node.exe, a missing piece', () => {
     expect(checkArtefact(writeTar([...app('1.2.3'), { name: 'app/test/x.test.mjs', type: 'file', data: '' }]), { version: '1.2.3' }).problems).toEqual(['a file the app does not ship: app/test/x.test.mjs']);
@@ -249,16 +254,25 @@ describe('the manifest command (the two sign jobs run it)', () => {
 // the draft, the uploads, the read-back through the API (the asset download
 // redirected to a storage route that must NOT see the token), and the publish.
 describe('github-release against a fake GitHub API on loopback', () => {
-  const runCli = (env) => new Promise((resolve) => {
+  const runCli = (env, cli = CLI, args = ['github-release', '--dir', env.DIR]) => new Promise((resolve) => {
     import('node:child_process').then(({ execFile }) => {
-      execFile(process.execPath, [path.join(GW, 'pipeline', 'cli.mjs'), 'github-release', '--dir', env.DIR], { env: { ...process.env, ...env }, timeout: 30_000 }, (err, stdout, stderr) => resolve({ code: err ? err.code ?? 1 : 0, stdout, stderr }));
+      execFile(process.execPath, [cli, ...args], { env: { ...process.env, ...env }, timeout: 30_000 }, (err, stdout, stderr) => resolve({ code: err ? err.code ?? 1 : 0, stdout, stderr }));
     });
   });
-  async function fakeGitHub({ tagStatus = 404, latest = { status: 404 }, tamper = null } = {}) {
+  // GitHub's release rules, as far as the release job meets them: "release by
+  // tag" answers only for a published release; the list holds the published
+  // ones (and ours once published); a test may publish a higher release while
+  // ours is uploading (`publishBefore`) or as ours is published
+  // (`publishDuring`), or add an asset to our draft (`extraAsset`).
+  async function fakeGitHub({ tagStatus = 404, releases = [], listStatus = 200, tamper = null, extraAsset = null, publishBefore = null, publishDuring = null } = {}) {
     const http = await import('node:http');
     const calls = [];
     const assets = new Map();
     let published = null;
+    let ours = null;
+    let latestId = null;
+    const list = releases.map((r, i) => ({ id: 500 + i, draft: false, prerelease: false, ...r }));
+    const add = (tag) => { if (!list.some((r) => r.tag_name === tag)) list.push({ id: 600 + list.length, tag_name: tag, draft: false, prerelease: false }); };
     const server = http.createServer((req, res) => {
       const chunks = [];
       req.on('data', (c) => chunks.push(c));
@@ -269,27 +283,52 @@ describe('github-release against a fake GitHub API on loopback', () => {
         const json = (status, v) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
         const base = `http://127.0.0.1:${server.address().port}`;
         if (req.method === 'GET' && /\/releases\/tags\//.test(u.pathname)) return json(tagStatus, tagStatus === 200 ? { id: 5, draft: false, tag_name: decodeURIComponent(u.pathname.split('/').pop()) } : { message: tagStatus === 404 ? 'Not Found' : 'Server Error' });
-        if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases/latest') return latest.status === 200 ? json(200, { tag_name: latest.tag, draft: false, prerelease: false }) : json(latest.status, { message: latest.status === 404 ? 'Not Found' : 'Server Error' });
+        if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases') {
+          if (listStatus !== 200) return json(listStatus, { message: 'Server Error' });
+          const all = [...list, ...(ours && !ours.draft ? [{ id: 77, ...ours }] : [])];
+          const per = Number(u.searchParams.get('per_page') || 30);
+          const page = Number(u.searchParams.get('page') || 1);
+          return json(200, all.slice((page - 1) * per, page * per));
+        }
         if (req.method === 'POST' && u.pathname === '/repos/pretty-aud/wilson/releases') {
           const b = JSON.parse(body.toString());
           calls.at(-1).create = b;
+          ours = { tag_name: b.tag_name, prerelease: !!b.prerelease, draft: true };
           return json(201, { id: 77, name: b.name, html_url: `${base}/release/77`, upload_url: `${base}/upload/77/assets{?name,label}` });
         }
         if (req.method === 'POST' && u.pathname === '/upload/77/assets') {
           const id = 900 + assets.size;
           assets.set(id, { name: u.searchParams.get('name'), bytes: body });
+          if (publishBefore && assets.size === 1) add(publishBefore);
           return json(201, { id });
         }
-        if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases/77/assets') return json(200, [...assets.entries()].map(([id, a]) => ({ id, name: a.name })));
+        if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases/77/assets') {
+          return json(200, [...[...assets.entries()].map(([id, a]) => ({ id, name: a.name })), ...(extraAsset ? [{ id: 999, name: extraAsset }] : [])]);
+        }
         let m;
         if (req.method === 'GET' && (m = /^\/repos\/pretty-aud\/wilson\/releases\/assets\/(\d+)$/.exec(u.pathname))) { res.writeHead(302, { location: `${base}/storage/${m[1]}?sig=abc` }); return res.end(); }
-        if (req.method === 'GET' && (m = /^\/storage\/(\d+)$/.exec(u.pathname))) { const a = assets.get(Number(m[1])); res.writeHead(200); return res.end(tamper ? tamper(a.name, a.bytes) : a.bytes); }
-        if (req.method === 'PATCH' && u.pathname === '/repos/pretty-aud/wilson/releases/77') { published = JSON.parse(body.toString()); return json(200, { html_url: `${base}/release/77` }); }
+        if (req.method === 'GET' && (m = /^\/storage\/(\d+)$/.exec(u.pathname))) {
+          if (m[1] === '999') { res.writeHead(200); return res.end('someone else\'s file'); }
+          const a = assets.get(Number(m[1]));
+          res.writeHead(200);
+          return res.end(tamper ? tamper(a.name, a.bytes) : a.bytes);
+        }
+        if (req.method === 'PATCH' && (m = /^\/repos\/pretty-aud\/wilson\/releases\/(\d+)$/.exec(u.pathname))) {
+          const p = JSON.parse(body.toString());
+          calls.at(-1).patch = p;
+          const id = Number(m[1]);
+          if (id === 77) {
+            if (p.draft === false) { published = published ?? p; ours.draft = false; if (publishDuring) add(publishDuring); }
+            if (p.draft === true) ours.draft = true;
+          }
+          if (p.make_latest === 'true') latestId = id;
+          return json(200, { html_url: `${base}/release/${id}` });
+        }
         return json(404, { message: `no route ${req.method} ${u.pathname}` });
       });
     });
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    return { calls, assets, published: () => published, base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) };
+    return { calls, assets, published: () => published, latest: () => latestId, ours: () => ours, base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) };
   }
   function releaseDir(version, { keyPair = crypto.generateKeyPairSync('ed25519'), tag = 'gateway-dry-run-5' } = {}) {
     const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'gw4-ghr-'));
@@ -347,36 +386,27 @@ describe('github-release against a fake GitHub API on loopback', () => {
       } finally { await gh.close(); }
     }
   });
-  it('a REAL release not above the latest gateway release is refused before anything is made (it would drop the floors); a lower latest, or another product\'s, lets it go on', async () => {
-    for (const [latest, said] of [
-      [{ status: 200, tag: 'gateway-v1.3.0' }, 'gateway-v1.2.3 is not above the latest release (gateway-v1.3.0): published, it would become Latest and drop the version floors that release set. Tag a version above 1.3.0.'],
-      [{ status: 200, tag: 'gateway-v1.2.3' }, 'gateway-v1.2.3 is not above the latest release (gateway-v1.2.3)'],
-      [{ status: 502 }, 'could not tell which release is the latest (GitHub answered 502)'],
+  it('a REAL release not above every published gateway release is refused before anything is made, whatever is Latest (review rounds 1 and 2)', async () => {
+    for (const [releases, said] of [
+      [[{ tag_name: 'gateway-v1.3.0' }], 'gateway-v1.2.3 is not above the highest gateway release (gateway-v1.3.0): published, it would become Latest and drop the version floors that release set. Tag a version above 1.3.0.'],
+      [[{ tag_name: 'desktop-v9.0.0' }, { tag_name: 'gateway-v1.3.0' }], 'is not above the highest gateway release (gateway-v1.3.0)'],
     ]) {
-      const gh = await fakeGitHub({ latest });
+      const gh = await fakeGitHub({ releases });
       try {
         const { dir } = releaseDir('1.2.3', { tag: 'gateway-v1.2.3' });
         const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'false', VERSION: '1.2.3', TAG: 'gateway-v1.2.3', RELEASE_NAME: 'WILSON file gateway 1.2.3', PUBLIC_KEY: '' }));
-        expect(r.code, JSON.stringify(latest)).not.toBe(0);
+        expect(r.code, JSON.stringify(releases)).not.toBe(0);
         expect(r.stdout).toContain(said);
         expect(gh.calls.some((c) => c.create)).toBe(false);
       } finally { await gh.close(); }
     }
-    for (const latest of [{ status: 200, tag: 'gateway-v1.2.2' }, { status: 200, tag: 'desktop-v9.0.0' }, { status: 404 }]) {
-      const gh = await fakeGitHub({ latest });
-      try {
-        const { dir } = releaseDir('1.2.3', { tag: 'gateway-v1.2.3' });
-        await runCli(env(gh, { DIR: dir, DRY_RUN: 'false', VERSION: '1.2.3', TAG: 'gateway-v1.2.3', RELEASE_NAME: 'WILSON file gateway 1.2.3', PUBLIC_KEY: '' }));
-        expect(gh.calls.some((c) => c.create), JSON.stringify(latest)).toBe(true);
-      } finally { await gh.close(); }
-    }
     // A dry run never asks: it is never published.
-    const gh = await fakeGitHub({ latest: { status: 200, tag: 'gateway-v9.9.9' } });
+    const gh = await fakeGitHub({ releases: [{ tag_name: 'gateway-v9.9.9' }] });
     try {
       const { dir, publicWire } = releaseDir('0.0.0');
       const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'true', VERSION: '0.0.0', TAG: 'gateway-dry-run-5', RELEASE_NAME: 'gateway-dry-run-5', PUBLIC_KEY: publicWire }));
       expect(r.code, r.stdout + r.stderr).toBe(0);
-      expect(gh.calls.some((c) => c.path.endsWith('/releases/latest'))).toBe(false);
+      expect(gh.calls.some((c) => c.method === 'GET' && c.path === '/repos/pretty-aud/wilson/releases')).toBe(false);
     } finally { await gh.close(); }
   }, 30_000);
   it('an asset GitHub serves other than as uploaded stops the release before it is published (SHA256SUMS here, which the manifest does not name)', async () => {
@@ -397,6 +427,107 @@ describe('github-release against a fake GitHub API on loopback', () => {
     expect(r.code).not.toBe(0);
     expect(r.stdout).toContain('::error::fetch failed (ECONNREFUSED)');
   });
+  it('check-release (the plan job, and the sign job before the key is read): a released tag, a version not above every published gateway release, a list GitHub cannot give are refused; another product\'s release, a draft, a pre-release or a dry run\'s tag does not count (review round 2, findings 1 and 2)', async () => {
+    const run = (gh, over = {}) => runCli({ GITHUB_TOKEN: 'ghs_test_token', GITHUB_REPOSITORY: 'pretty-aud/wilson', GITHUB_API_URL: gh.base, TAG: 'gateway-v1.2.3', VERSION: '1.2.3', ...over }, CLI, ['check-release']);
+    for (const [opts, said] of [
+      [{ tagStatus: 200 }, 'gateway-v1.2.3 is released already; a release is never replaced. Tag the next version.'],
+      [{ tagStatus: 503 }, 'could not tell whether gateway-v1.2.3 is released already (GitHub answered 503)'],
+      [{ releases: [{ tag_name: 'gateway-v1.3.0' }] }, 'gateway-v1.2.3 is not above the highest gateway release (gateway-v1.3.0)'],
+      [{ releases: [{ tag_name: 'gateway-v1.2.3' }] }, 'is not above the highest gateway release (gateway-v1.2.3)'],
+      [{ releases: [{ tag_name: 'desktop-v9.0.0' }, { tag_name: 'gateway-v1.10.0' }] }, 'is not above the highest gateway release (gateway-v1.10.0)'],
+      [{ listStatus: 502 }, 'could not read the repository\'s releases'],
+      // The highest on the list's second page (a hundred to a page).
+      [{ releases: [...Array.from({ length: 120 }, (_, i) => ({ tag_name: `other-v${i}` })), { tag_name: 'gateway-v2.0.0' }] }, 'is not above the highest gateway release (gateway-v2.0.0)'],
+    ]) {
+      const gh = await fakeGitHub(opts);
+      try {
+        const r = await run(gh);
+        expect(r.code, JSON.stringify(opts)).not.toBe(0);
+        expect(r.stdout).toContain(said);
+      } finally { await gh.close(); }
+    }
+    for (const releases of [[], [{ tag_name: 'gateway-v1.2.2' }], [{ tag_name: 'desktop-v9.0.0' }], [{ tag_name: 'gateway-v1.3.0', draft: true }], [{ tag_name: 'gateway-v1.3.0', prerelease: true }], [{ tag_name: 'gateway-v1.3.0-dryrun' }]]) {
+      const gh = await fakeGitHub({ releases });
+      try {
+        const r = await run(gh);
+        expect(r.code, JSON.stringify(releases) + r.stdout).toBe(0);
+        expect(r.stdout).toContain('::notice title=Release check::gateway-v1.2.3 is not released yet, and is above every published gateway release');
+      } finally { await gh.close(); }
+    }
+    // A tag that is not this version's, or another repository: refused before GitHub is asked anything.
+    const gh = await fakeGitHub();
+    try {
+      expect((await run(gh, { TAG: 'gateway-v1.2.4' })).stdout).toContain('check-release: gateway-v1.2.4 is not the release tag gateway-v1.2.3');
+      expect((await run(gh, { GITHUB_REPOSITORY: 'someone/fork' })).stdout).toContain('this workflow releases pretty-aud/wilson only');
+      expect(gh.calls).toEqual([]);
+    } finally { await gh.close(); }
+  }, 60_000);
+  it('an asset someone else adds to the draft stops the release before it is published (review round 2, finding 5)', async () => {
+    const gh = await fakeGitHub({ extraAsset: 'WILSON-Gateway-Setup-0.3.0-x64.msi' });
+    try {
+      const { dir, publicWire } = releaseDir('0.0.0');
+      const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'true', VERSION: '0.0.0', TAG: 'gateway-dry-run-5', RELEASE_NAME: 'gateway-dry-run-5', PUBLIC_KEY: publicWire }));
+      expect(r.code).not.toBe(0);
+      expect(r.stdout).toContain('WILSON-Gateway-Setup-0.3.0-x64.msi');
+      expect(r.stdout).toContain('not exactly the 5 files this job uploaded');
+      expect(gh.published()).toBeNull();
+    } finally { await gh.close(); }
+  });
+  // A REAL release's publish, run end to end: the pipeline's own files copied
+  // to a scratch folder with ONE change, slot 1 holding a throwaway key's
+  // public half, so the read-back can pass on loopback (no real key exists
+  // here). Everything else is the code the release job runs.
+  function copyWithKey(publicWire) {
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'gw4-copy-'));
+    for (const d of ['src', 'pipeline']) fs.cpSync(path.join(GW, d), path.join(dir, d), { recursive: true });
+    fs.copyFileSync(path.join(GW, 'package.json'), path.join(dir, 'package.json'));
+    const mf = path.join(dir, 'src', 'update', 'manifest.mjs');
+    const text = fs.readFileSync(mf, 'utf8');
+    const was = RELEASE_KEYS_WIRE[0].public_key;
+    if (text.split(was).length !== 2) throw new Error('the compiled key is not in manifest.mjs once');
+    fs.writeFileSync(mf, text.replace(was, publicWire));
+    return { cli: path.join(dir, 'pipeline', 'cli.mjs'), cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  }
+  async function realRun(ghOpts) {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const copy = copyWithKey(publicKeyToWire(kp.publicKey));
+    const gh = await fakeGitHub(ghOpts);
+    const { dir } = releaseDir('1.2.3', { keyPair: kp, tag: 'gateway-v1.2.3' });
+    const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'false', VERSION: '1.2.3', TAG: 'gateway-v1.2.3', RELEASE_NAME: 'WILSON file gateway 1.2.3', PUBLIC_KEY: '' }), copy.cli);
+    return { r, gh, done: async () => { await gh.close(); copy.cleanup(); } };
+  }
+  it('a REAL release, end to end: checked, drafted, read back with the compiled key, checked again, published as Latest, and nothing higher found after', async () => {
+    const { r, gh, done } = await realRun({ releases: [{ tag_name: 'gateway-v1.2.2' }, { tag_name: 'desktop-v9.0.0' }] });
+    try {
+      expect(r.code, r.stdout + r.stderr).toBe(0);
+      expect(gh.published()).toEqual({ draft: false, make_latest: 'true' });
+      expect(gh.latest()).toBe(77);
+      expect(gh.ours()).toMatchObject({ tag_name: 'gateway-v1.2.3', draft: false });
+      expect(r.stdout).toContain('::notice title=Published::');
+      // The list was read three times: before the draft, before the publish, after it.
+      expect(gh.calls.filter((c) => c.method === 'GET' && c.path === '/repos/pretty-aud/wilson/releases')).toHaveLength(3);
+    } finally { await done(); }
+  }, 30_000);
+  it('a higher release published while this one uploads: refused just before the publish, left a draft (review round 2, finding 3)', async () => {
+    const { r, gh, done } = await realRun({ publishBefore: 'gateway-v1.3.0' });
+    try {
+      expect(r.code).not.toBe(0);
+      expect(r.stdout).toContain('gateway-v1.2.3 is not above the highest gateway release (gateway-v1.3.0)');
+      expect(gh.published()).toBeNull();
+      expect(gh.ours().draft).toBe(true);
+    } finally { await done(); }
+  }, 30_000);
+  it('a higher release published as this one is: this one goes back to a draft, the higher one is Latest again, and the run fails (review round 2, finding 3)', async () => {
+    const { r, gh, done } = await realRun({ publishDuring: 'gateway-v1.3.0' });
+    try {
+      expect(r.code).not.toBe(0);
+      expect(r.stdout).toContain('gateway-v1.3.0 was published while gateway-v1.2.3 was being made: gateway-v1.2.3 is a draft again, and gateway-v1.3.0 is Latest. Tag a version above 1.3.0.');
+      const patches = gh.calls.filter((c) => c.method === 'PATCH').map((c) => [c.path.split('/').pop(), c.patch]);
+      expect(patches).toEqual([['77', { draft: false, make_latest: 'true' }], ['77', { draft: true }], ['600', { make_latest: 'true' }]]);
+      expect(gh.ours().draft).toBe(true);
+      expect(gh.latest()).toBe(600);
+    } finally { await done(); }
+  }, 30_000);
   it('refuses to release any other repository', async () => {
     const gh = await fakeGitHub();
     try {
@@ -451,10 +582,27 @@ describe('the workflow (gateway-release.yml), as written', () => {
     expect(workflow).toContain('STAGE="$T/gw/stage/current"');
     expect(workflow).toContain('pipeline/cli.mjs check-artefact');
     expect(workflow).toContain('-HostExe');
-    expect(workflow).toMatch(/if \[ "\$DRY_RUN" = false \]; then args\+=\(--tag "\$IMAGE:\$VERSION" --tag "\$IMAGE:stable" --push\)/);
     expect(workflow).toMatch(/else args\+=\(--output "type=oci,dest=/);
     expect(workflow).toMatch(/name: Sign in to GitHub's registry \(a real release only\)\n {8}if: env\.DRY_RUN == 'false'/);
     expect(workflow).toContain('--platform linux/amd64,linux/arm64');
+  });
+  it('a real run is checked before anything is built, pushed or signed: in the plan job, and again in the sign job before the key is read (review round 2, finding 1)', () => {
+    const plan = workflow.slice(workflow.indexOf('\n  plan:\n'), workflow.indexOf('\n  tests:\n'));
+    expect(plan).toMatch(/- name: Not released yet, and above every published gateway release \(a real run\)\n {8}if: steps\.plan\.outputs\.dry_run == 'false'\n {8}env:\n {10}GITHUB_TOKEN: \$\{\{ github\.token \}\}\n {10}VERSION: \$\{\{ steps\.plan\.outputs\.version \}\}\n {10}TAG: \$\{\{ steps\.plan\.outputs\.tag \}\}\n {8}run: node WILSON\/gateway\/pipeline\/cli\.mjs check-release\n/);
+    const sign = workflow.slice(workflow.indexOf('\n  sign:\n'), workflow.indexOf('\n  release:\n'));
+    const check = sign.indexOf('cli.mjs check-release');
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(sign.indexOf('GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.GATEWAY_RELEASE_SIGNING_KEY }}'));
+    for (const job of ['tests', 'windows', 'container', 'sign_dry_run', 'sign', 'release']) {
+      const head = workflow.slice(workflow.indexOf(`\n  ${job}:\n`)).split('\n').slice(0, 7).join('\n');
+      expect(head, job).toMatch(/\n {4}needs: (plan|\[plan)/);
+    }
+    // The signed list is kept a day, not a week.
+    expect(workflow.match(/name: gateway-signed\n {10}path: \|\n[^\n]+\n[^\n]+\n {10}retention-days: 1 /g)).toHaveLength(2);
+  });
+  it('no moving `stable` tag: a real release pushes its image under its version only (review round 2, finding 1)', () => {
+    expect(workflow).toMatch(/if \[ "\$DRY_RUN" = false \]; then args\+=\(--tag "\$IMAGE:\$VERSION" --push\)/);
+    expect(workflow).not.toContain(':stable');
   });
   it('the release job makes a draft, reads it back, and publishes only a real one', () => {
     const cli = read(GW, 'pipeline', 'cli.mjs');

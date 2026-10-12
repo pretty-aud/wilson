@@ -745,7 +745,7 @@ export class Gateway {
       locations: [...this.locations.values()].map((l) => ({ name: l.name, unc: l.unc, state: l.state === 'unknown' ? null : l.state, since: l.since, mountAt: containerRootFor(l.unc) })),
       certificate: this.ownInside ? { kind: 'own', ownUntil: this.ownInside.notAfter } : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null } : null,
       outsideCertificate: this.#outsideCertificateState(),
-      update: (() => { const u = this.updates.state(); return { ...u, running: VERSION }; })(),
+      update: (() => { const u = this.updates.state(); return { ...u, running: VERSION, channel: this.updates.channel?.() ?? null }; })(),
       hardMinimum: (() => { const { hard } = this.versionFloors(); return !!(hard && compareVersions(VERSION, hard) < 0); })(),
       revoked: this.revoked,
       notEnrolled: !this.enrolment,

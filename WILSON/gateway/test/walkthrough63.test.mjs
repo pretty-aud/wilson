@@ -144,6 +144,14 @@ describe('walkthrough 63 (the releases and the rehearsal)', () => {
   it('what SHA256SUMS proves, and what it does not (review round 1, finding 3)', () => {
     expect(wt).toContain('the download is whole and is the file the release holds. It is not proof of who made it (the installer is not signed yet)');
   });
+  it('the repository\'s three settings, the certificate\'s place to come, the channel\'s limit, and the broken image deleted too (review round 2)', () => {
+    expect(wt).toContain('**And three repository settings, once**');
+    expect(wt).toContain('**Workflow permissions**: *Read repository contents and packages permissions*, with *Allow GitHub Actions to create and approve pull requests* unticked');
+    expect(wt).toContain('**New tag ruleset** for the tags `gateway-v*`');
+    expect(wt).toContain('do not simply add it as a repository secret');
+    expect(wt).toContain('- **The channel is the repository\'s Latest release.**');
+    expect(wt).toMatch(/^\| 32 \| [^\n]*\*\*Delete version\*\* \| Latest is 0\.1\.2; the broken build is gone from the Releases page and from the registry \|$/m);
+  });
   it('says what this computer did not do', () => {
     expect(wt).toMatch(/\*\*Not done here, by rule:\*\*\s+installing the MSI or either service, adding or changing a firewall rule,\s+clicking a Windows dialog, a public name or port 443 on this PC, and any\s+real release: steps 1 to 32 are yours\./);
     expect((wt.match(/<!--/g) || []).length).toBe(0);

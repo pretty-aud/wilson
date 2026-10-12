@@ -6,7 +6,11 @@
 # Run workflow, dry_run left ticked). Run by hand ON a tag gateway-vX.Y.Z with
 # dry_run unticked, it repeats that tag's real release (never one published).
 #
-#   plan          what this run is: real or dry, the version, the release's tag
+#   plan          what this run is: real or dry, the version, the release's tag;
+#                 for a real run, that the tag is not released and its version
+#                 is above every published gateway release (asked before the
+#                 tests, the build and the approval; again before the key is
+#                 read, before the publish, and after it)
 #   tests         the gateway's own suite on Windows and Ubuntu (Node 22's npm
 #                 installs, Node 24 runs the tests)
 #   windows       the service host from source; Authenticode (D14: skipped while
@@ -16,8 +20,9 @@
 #                 current\ (node.exe from the zip pinned by hash, app\), and read
 #                 back with the gateway's own tar reader
 #   container     ghcr.io/pretty-aud/wilson-gateway for amd64 and arm64 from the
-#                 base pinned by digest; a real release pushes it (tags <v> and
-#                 stable) and takes its digest; a dry run pushes nothing
+#                 base pinned by digest; a real release pushes it under the tag
+#                 <v> (no moving `stable` tag: a push comes before the approval)
+#                 and takes its digest; a dry run pushes nothing
 #   sign, sign_dry_run
 #                 stable.json written from the build's facts and signed: a real
 #                 release with the secret GATEWAY_RELEASE_SIGNING_KEY (in the
@@ -76,6 +81,13 @@ jobs:
         env:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: node WILSON/gateway/pipeline/cli.mjs plan
+      - name: Not released yet, and above every published gateway release (a real run)
+        if: steps.plan.outputs.dry_run == 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: node WILSON/gateway/pipeline/cli.mjs check-release
 
   tests:
     name: Gateway tests (${{ matrix.os }})
@@ -222,7 +234,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
         run: echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
-      - name: Build (a real release pushes by digest; a dry run keeps the image in a file)
+      - name: Build (a real release pushes it, tagged with its version; a dry run keeps the image in a file)
         run: |
           set -euo pipefail
           args=(--platform linux/amd64,linux/arm64 --provenance=false --sbom=false
@@ -230,7 +242,7 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA"
             --metadata-file "$RUNNER_TEMP/meta.json"
             -f WILSON/gateway/container/Dockerfile)
-          if [ "$DRY_RUN" = false ]; then args+=(--tag "$IMAGE:$VERSION" --tag "$IMAGE:stable" --push)
+          if [ "$DRY_RUN" = false ]; then args+=(--tag "$IMAGE:$VERSION" --push)
           else args+=(--output "type=oci,dest=$RUNNER_TEMP/image.oci.tar"); fi
           docker buildx build "${args[@]}" WILSON/gateway
           if [ -f "$RUNNER_TEMP/image.oci.tar" ]; then tar -xOf "$RUNNER_TEMP/image.oci.tar" index.json > "$RUNNER_TEMP/index.json"; fi
@@ -282,7 +294,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release/stable.json
             ${{ runner.temp }}/release/stable.json.sig
-          retention-days: 7
+          retention-days: 1 # a signed list from a run that fails later is not left for a week
           if-no-files-found: error
 
   sign:
@@ -312,6 +324,10 @@ jobs:
           path: ${{ runner.temp }}/release
       - name: stable.json, from the build's facts
         run: node WILSON/gateway/pipeline/cli.mjs manifest --version "$VERSION" --tag "$TAG" --artefact "$RUNNER_TEMP/release/wilson-gateway-$VERSION-windows-x64.tar.gz" --digest "$DIGEST" --out "$RUNNER_TEMP/release/stable.json"
+      - name: Still not released, and still above every published gateway release (before the key is read)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node WILSON/gateway/pipeline/cli.mjs check-release
       - name: Signed with the release key (the secret is never printed)
         env:
           GATEWAY_RELEASE_SIGNING_KEY: ${{ secrets.GATEWAY_RELEASE_SIGNING_KEY }}
@@ -322,7 +338,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release/stable.json
             ${{ runner.temp }}/release/stable.json.sig
-          retention-days: 7
+          retention-days: 1 # a signed list from a run that fails later is not left for a week
           if-no-files-found: error
 
   release:
