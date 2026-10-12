@@ -115,6 +115,7 @@ describe('peers.mjs: office ranges (D21)', () => {
 
 describe('peers.mjs: the outside source address and via', () => {
   const proxy = { addresses: ['127.0.0.1', '::1'], name: 'local_proxy' };
+  const cloudflare = { addresses: ['127.0.0.1', '::1'], name: 'cloudflare' };
   it('the peer, direct, when there is no declared proxy, whatever headers say', () => {
     expect(outsideSource({ peer: '203.0.113.7', headers: { 'x-forwarded-for': '10.0.0.1' } })).toEqual({ address: '203.0.113.7', via: 'direct' });
   });
@@ -122,8 +123,21 @@ describe('peers.mjs: the outside source address and via', () => {
     expect(outsideSource({ peer: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.1, 203.0.113.7' }, declaredProxy: proxy })).toEqual({ address: '203.0.113.7', via: 'local_proxy' });
     expect(outsideSource({ peer: '192.168.1.99', headers: { 'x-forwarded-for': '203.0.113.7' }, declaredProxy: proxy })).toEqual({ address: '192.168.1.99', via: 'direct' });
   });
-  it("CF-Connecting-IP wins over X-Forwarded-For; a garbage value is not taken", () => {
-    expect(outsideSource({ peer: '::1', headers: { 'cf-connecting-ip': '2001:db8::7', 'x-forwarded-for': '203.0.113.7' }, declaredProxy: proxy })).toEqual({ address: '2001:db8::7', via: 'local_proxy' });
+  // GW5 review round 1, finding B: CF-Connecting-IP is forgeable behind any
+  // proxy that is not Cloudflare (a NAS reverse proxy, Tailscale, ngrok do not
+  // set or strip it), so a remote viewer could poison the audit's source. It is
+  // honoured ONLY for a proxy the admin declared as Cloudflare.
+  it('CF-Connecting-IP is trusted ONLY for a Cloudflare proxy (finding B)', () => {
+    // Cloudflare: cloudflared sets and strips it, so it wins over X-Forwarded-For.
+    expect(outsideSource({ peer: '::1', headers: { 'cf-connecting-ip': '2001:db8::7', 'x-forwarded-for': '203.0.113.7' }, declaredProxy: cloudflare })).toEqual({ address: '2001:db8::7', via: 'cloudflare' });
+    // A NAS reverse proxy / any non-Cloudflare proxy: a remote viewer's forged
+    // CF-Connecting-IP is IGNORED; the X-Forwarded-For last hop (which the proxy
+    // appends) is the recorded source.
+    expect(outsideSource({ peer: '127.0.0.1', headers: { 'cf-connecting-ip': '198.51.100.222', 'x-forwarded-for': '203.0.113.7' }, declaredProxy: proxy })).toEqual({ address: '203.0.113.7', via: 'local_proxy' });
+    // A forged CF-Connecting-IP naming a PRIVATE address cannot poison the row either.
+    expect(outsideSource({ peer: '127.0.0.1', headers: { 'cf-connecting-ip': '10.9.9.9' }, declaredProxy: proxy })).toEqual({ address: '127.0.0.1', via: 'local_proxy (no forwarded address)' });
+    // Tailscale / ngrok are the same as the NAS proxy (not Cloudflare).
+    expect(outsideSource({ peer: '127.0.0.1', headers: { 'cf-connecting-ip': '1.2.3.4', 'x-forwarded-for': '9.9.9.9' }, declaredProxy: { addresses: ['127.0.0.1'], name: 'tailscale' } })).toEqual({ address: '9.9.9.9', via: 'tailscale' });
     expect(outsideSource({ peer: '127.0.0.1', headers: { 'x-forwarded-for': 'evil<script>' }, declaredProxy: proxy })).toEqual({ address: '127.0.0.1', via: 'local_proxy (no forwarded address)' });
     expect(lastForwardedHop(['1.1.1.1', '2.2.2.2'])).toBe('2.2.2.2');
     expect(lastForwardedHop('')).toBeNull();

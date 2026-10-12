@@ -96,9 +96,19 @@ export function outsideSource({ peer, headers = {}, declaredProxy = null }) {
   const peerText = normalizeIp(peer) || String(peer || '').slice(0, 64);
   const isProxy = !!declaredProxy && (declaredProxy.addresses || []).some((a) => sameIp(a, peer));
   if (!isProxy) return { address: peerText, via: 'direct' };
-  const cf = firstValue(headers['cf-connecting-ip']);
+  const name = String(declaredProxy.name || 'proxy').slice(0, 48);
+  // `CF-Connecting-IP` is trusted ONLY when the admin declared this proxy as
+  // Cloudflare (GW5 review round 1, finding B): cloudflared sets it and strips
+  // any inbound copy, so it names the real client. Every other proxy — the NAS
+  // reverse proxy (behind_local_proxy, name 'local_proxy'), Tailscale, ngrok —
+  // does NOT set or strip it, so a remote viewer who sends the header would
+  // otherwise have it written verbatim into the audit row (§6), forging or
+  // suppressing their recorded source and the shared_url signal. For those the
+  // source is the X-Forwarded-For LAST hop, which the proxy appends (the
+  // install story's requirement); the gateway reads only that hop, never the
+  // client-supplied head of the chain.
+  const cf = name === 'cloudflare' ? firstValue(headers['cf-connecting-ip']) : undefined;
   const fromCf = typeof cf === 'string' ? normalizeIp(cf) : null;
   const forwarded = fromCf || lastForwardedHop(headers['x-forwarded-for']);
-  const name = String(declaredProxy.name || 'proxy').slice(0, 48);
   return forwarded ? { address: forwarded, via: name } : { address: peerText, via: `${name} (no forwarded address)` };
 }

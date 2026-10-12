@@ -12,7 +12,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeShare, makeWorld, CLIP, CLIP2, SUB2, LOC } from './harness.mjs';
+import { makeShare, makeWorld, CLIP, CLIP2, SUB, SUB2, LOC } from './harness.mjs';
 import { reachKeyOf, reachProof } from '../src/wire/formats.mjs';
 import { outsidePeerKey } from '../src/rules/ip.mjs';
 import { resolveLimits, peerLimiters, Pools, FixedWindow } from '../src/rules/limits.mjs';
@@ -528,6 +528,32 @@ describe('one connection serves a bounded number of requests (review round 1, fi
       agent.destroy();
       await W.close();
       share.cleanup();
+    }
+  });
+});
+
+describe('finding E (review round 1): a throw mid-serve releases the stream slot, the pool slot and the handle', () => {
+  it('a failing viewings.begin does not leak slots — ten failures, then the door still serves', async () => {
+    const W = await makeWorld({ door: 'outside', share });
+    try {
+      // The journal write inside viewings.begin throws (a full or failing disk):
+      // the serve phase has already taken a perPersonStreams slot, a pool stream
+      // slot and the file handle. Before the fix the handler's 500 leaked all three.
+      W.ctx.viewings.begin = () => { throw new Error('journal write failed'); };
+      for (let i = 0; i < 10; i++) {
+        const r = await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-9' } });
+        expect(r.status).toBe(500);
+      }
+      // Nothing leaked: the person's stream count and the global outside pool are back to zero.
+      expect(W.ctx.perPersonStreams.count(SUB)).toBe(0);
+      expect(W.ctx.pools.snapshot().streams.outside).toBe(0);
+      // And the door still serves (the per-person cap of 8 streams was not exhausted by the 10 failures).
+      W.ctx.viewings.begin = (...a) => Object.getPrototypeOf(W.ctx.viewings).begin.apply(W.ctx.viewings, a);
+      const ok = await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-9' } });
+      expect(ok.status).toBe(206);
+      expect(ok.body.equals(share.clipBytes.subarray(0, 10))).toBe(true);
+    } finally {
+      await W.close();
     }
   });
 });

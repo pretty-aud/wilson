@@ -194,54 +194,77 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
   const release = ctx.perPersonStreams.acquire(authority.sub);
   if (!release) { closeHandle(); return deny(429, 'streams', { headers: { 'Retry-After': '5' } }); }
   if (!ctx.pools.openStream(door)) { release(); closeHandle(); return deny(429, 'pool', { headers: { 'Retry-After': '5' } }); }
+  // Pools.closeStream is NOT idempotent — a second close decrements a DIFFERENT
+  // stream's slot (the floor-at-zero only hides it for the last open stream),
+  // which would corrupt the pool count (review round 2, finding E). So the
+  // stream slot is released through a once-guard, as perPersonStreams' release
+  // and closeHandle already are. Today the catch and done() are mutually
+  // exclusive (handed/finished), but this makes the three releases safe to call
+  // twice whatever a later edit does.
+  let streamSlotClosed = false;
+  const closeStreamSlot = () => { if (!streamSlotClosed) { streamSlotClosed = true; ctx.pools.closeStream(door); } };
   if (door === 'outside' && ctx.outsideBytes.remaining(authority.sub) <= 0) {
-    release(); ctx.pools.closeStream(door); closeHandle();
+    release(); closeStreamSlot(); closeHandle();
     return deny(429, 'bytes_budget', { headers: { 'Retry-After': String(ctx.outsideBytes.retryAfterS(authority.sub)) } });
   }
-  const viewing = door === 'outside'
-    ? ctx.viewings.begin({ sub: authority.sub, clip: clipId, jti: stream.jti, clipBytes: size, source: source.address, via: source.via, userAgent: ctx.userAgent(req), shared })
-    : null;
+  // The serve phase, guarded: once the stream slot, the pool slot and the file
+  // handle are held, a throw before the stream is handed to the pipeline (a
+  // journal write in viewings.begin, writeHead, createReadStream) must release
+  // all three, not leak them to the handler's 500 (GW5 review round 1, finding
+  // E). `done()` releases them on the normal path; the catch covers the window
+  // before `done` is wired. All three releases are once-guarded (release's
+  // released flag, closeStreamSlot, closeHandle), so neither path double-frees.
+  let handed = false;
+  try {
+    const viewing = door === 'outside'
+      ? ctx.viewings.begin({ sub: authority.sub, clip: clipId, jti: stream.jti, clipBytes: size, source: source.address, via: source.via, userAgent: ctx.userAgent(req), shared })
+      : null;
 
-  res.sendDate = false;
-  for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);
-  for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
-  res.setHeader('Content-Length', plan.length);
-  res.writeHead(plan.status);
-  if (plan.length === 0) {
-    res.end();
-    release(); ctx.pools.closeStream(door); closeHandle();
+    res.sendDate = false;
+    for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);
+    for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+    res.setHeader('Content-Length', plan.length);
+    res.writeHead(plan.status);
+    if (plan.length === 0) {
+      res.end();
+      release(); closeStreamSlot(); closeHandle();
+      return undefined;
+    }
+
+    let sent = 0;
+    let finished = false;
+    const counter = new Transform({
+      transform(chunk, _enc, cb) {
+        sent += chunk.length;
+        if (door === 'outside' && ctx.outsideBytes.spend(authority.sub, chunk.length)) {
+          cb(Object.assign(new Error('bytes budget'), { code: 'EBUDGET' }));
+          return;
+        }
+        cb(null, chunk);
+      },
+    });
+    const live = setInterval(() => { if (!ctx.streams.isLive(stream)) res.destroy(); }, ctx.liveCheckMs || LIVE_CHECK_MS);
+    live.unref?.();
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      clearInterval(live);
+      release();
+      closeStreamSlot();
+      if (viewing) ctx.viewings.served(viewing, { start: plan.start, bytes: sent });
+      ctx.log('clip_served', { door, status: plan.status, jti: stream.jti, bytes: sent, peer: source.address, via: source.via });
+    };
+    // The bytes from the handle that was checked (autoClose: the stream closes it).
+    const reader = fh.createReadStream({ start: plan.start, end: plan.end, highWaterMark: 256 * 1024, autoClose: true });
+    fh = null;
+    pipeline(reader, counter, res, () => done());
+    res.once('close', done);
+    handed = true;
     return undefined;
+  } catch (e) {
+    if (!handed) { release(); closeStreamSlot(); closeHandle(); }
+    throw e;
   }
-
-  let sent = 0;
-  let finished = false;
-  const counter = new Transform({
-    transform(chunk, _enc, cb) {
-      sent += chunk.length;
-      if (door === 'outside' && ctx.outsideBytes.spend(authority.sub, chunk.length)) {
-        cb(Object.assign(new Error('bytes budget'), { code: 'EBUDGET' }));
-        return;
-      }
-      cb(null, chunk);
-    },
-  });
-  const live = setInterval(() => { if (!ctx.streams.isLive(stream)) res.destroy(); }, ctx.liveCheckMs || LIVE_CHECK_MS);
-  live.unref?.();
-  const done = () => {
-    if (finished) return;
-    finished = true;
-    clearInterval(live);
-    release();
-    ctx.pools.closeStream(door);
-    if (viewing) ctx.viewings.served(viewing, { start: plan.start, bytes: sent });
-    ctx.log('clip_served', { door, status: plan.status, jti: stream.jti, bytes: sent, peer: source.address, via: source.via });
-  };
-  // The bytes from the handle that was checked (autoClose: the stream closes it).
-  const reader = fh.createReadStream({ start: plan.start, end: plan.end, highWaterMark: 256 * 1024, autoClose: true });
-  fh = null;
-  pipeline(reader, counter, res, () => done());
-  res.once('close', done);
-  return undefined;
 }
 
 /**
