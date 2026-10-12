@@ -134,6 +134,16 @@ describe('walkthrough 63 (the releases and the rehearsal)', () => {
     expect(ticked.filter((t) => t === env).length).toBeGreaterThanOrEqual(2);
     for (const t of ticked) expect([env, '.github/workflows/gateway-release.yml', 'po/gw4-gateway-release']).toContain(t);
   });
+  it('the key goes in the environment as its secret, never a repository secret (review round 1, finding 2)', () => {
+    expect(wt).toContain('**Environment secrets** → **Add environment secret**: name `GATEWAY_RELEASE_SIGNING_KEY`');
+    expect(wt).not.toContain('works too, without the review step');
+    expect(wt).toContain('which would make it a repository secret that every workflow in the repository can read; as the environment\'s, only the job that waits for your approval reads it');
+    // The review gate is the signing job's environment, whatever the secret's place.
+    expect(workflow).toMatch(/^ {4}environment: gateway-release$/m);
+  });
+  it('what SHA256SUMS proves, and what it does not (review round 1, finding 3)', () => {
+    expect(wt).toContain('the download is whole and is the file the release holds. It is not proof of who made it (the installer is not signed yet)');
+  });
   it('says what this computer did not do', () => {
     expect(wt).toMatch(/\*\*Not done here, by rule:\*\*\s+installing the MSI or either service, adding or changing a firewall rule,\s+clicking a Windows dialog, a public name or port 443 on this PC, and any\s+real release: steps 1 to 32 are yours\./);
     expect((wt.match(/<!--/g) || []).length).toBe(0);

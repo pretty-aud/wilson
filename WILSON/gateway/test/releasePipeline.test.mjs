@@ -27,6 +27,7 @@ const read = (...p) => fs.readFileSync(path.join(...p), 'utf8').replace(/\r\n/g,
 const workflow = read(GW, '..', '..', '.github', 'workflows', 'gateway-release.yml');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const DIGEST = 'sha256:' + 'd'.repeat(64);
+const MSI = Buffer.from('MSI bytes');
 
 describe('the plan: what a run is', () => {
   const base = { runId: '123', packageVersion: '0.1.0' };
@@ -89,14 +90,23 @@ describe('the Windows artefact, read back with the gateway\'s own reader', () =>
 describe('stable.json and its signature', () => {
   const artefact = Buffer.from(crypto.randomBytes(5000));
   const floors0 = { minimum_version: null, hard_minimum_version: null };
-  it('the manifest names the release asset and the image by digest, and a gateway would accept its shape', () => {
-    const m = JSON.parse(makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0, notes: 'n' }).toString());
-    expect(m).toEqual({
+  it('the manifest names the release asset, the installer and the image by digest, and a gateway would accept its shape (the installer it ignores)', () => {
+    const installer = Buffer.from('the MSI');
+    const bytes = makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: '2026-10-11T10:00:00.000Z', artefact, installer, containerDigest: DIGEST, floors: floors0, notes: 'n' });
+    expect(JSON.parse(bytes.toString())).toEqual({
       version: '1.2.3', published_at: '2026-10-11T10:00:00.000Z', minimum_version: null, hard_minimum_version: null,
       artefacts: { 'windows-x64': { url: `https://github.com/pretty-aud/wilson/releases/download/gateway-v1.2.3/${artefactName('1.2.3')}`, sha256: sha(artefact), size: artefact.length }, container: { image: CONTAINER_IMAGE, digest: DIGEST } },
+      installer: { url: `https://github.com/pretty-aud/wilson/releases/download/gateway-v1.2.3/${msiName('1.2.3')}`, sha256: sha(installer), size: installer.length },
       notes: 'n',
     });
-    expect(() => makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: 'x', artefact, containerDigest: 'sha256:short', floors: floors0 })).toThrow(/digest/);
+    const k = crypto.generateKeyPairSync('ed25519');
+    for (const platformKey of ['windows-x64', 'container']) {
+      expect(verifyManifest({ manifestBytes: bytes, signatureText: crypto.sign(null, bytes, k.privateKey).toString('base64'), keys: [k.publicKey], runningVersion: '1.0.0', platformKey, now: Date.parse('2026-10-11T10:00:00Z') }).ok, platformKey).toBe(true);
+    }
+    expect(() => makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: 'x', artefact, installer, containerDigest: 'sha256:short', floors: floors0 })).toThrow(/digest/);
+    for (const none of [undefined, Buffer.alloc(0), 'MSI']) {
+      expect(() => makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: 'x', artefact, installer: none, containerDigest: DIGEST, floors: floors0 })).toThrow(/the installer \(the MSI\) is missing/);
+    }
   });
   it('the floors: X.Y.Z or null, never above the release, the hard one never above the other', () => {
     expect(floorsFor(read(GW, 'pipeline', 'floors.json'), '0.1.0')).toEqual({ minimum_version: null, hard_minimum_version: null });
@@ -106,7 +116,7 @@ describe('stable.json and its signature', () => {
     expect(() => floorsFor('{"minimum_version":"one"}', '1.2.3')).toThrow(/not X\.Y\.Z/);
   });
   it('a dry run signs with a throwaway pair; the signature verifies with its public half, as a gateway verifies it', () => {
-    const mb = makeManifest({ version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 });
+    const mb = makeManifest({ installer: MSI, version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 });
     const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
     const s = signManifest(mb, privateKey, { dryRun: true });
     expect(s.publicKeyWire).toBe(publicKeyToWire(publicKey));
@@ -115,7 +125,7 @@ describe('stable.json and its signature', () => {
   });
   it('the signed manifest is checked as a gateway checks it before it leaves the job: a shape or a date a gateway would refuse is never signed', () => {
     const { privateKey } = crypto.generateKeyPairSync('ed25519');
-    const base = JSON.parse(makeManifest({ version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 }).toString());
+    const base = JSON.parse(makeManifest({ installer: MSI, version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 }).toString());
     const elsewhere = { ...base, artefacts: { ...base.artefacts, 'windows-x64': { ...base.artefacts['windows-x64'], url: 'https://evil.example/wilson-gateway-0.0.0-windows-x64.tar.gz' } } };
     expect(() => signManifest(Buffer.from(JSON.stringify(elsewhere)), privateKey, { dryRun: true })).toThrow(/does not verify for windows-x64 \(shape\)/);
     const future = { ...base, published_at: new Date(Date.now() + 3 * 86_400_000).toISOString() };
@@ -124,7 +134,7 @@ describe('stable.json and its signature', () => {
     expect(signManifest(Buffer.from(JSON.stringify(base)), privateKey, { dryRun: true }).signature).toMatch(/^[A-Za-z0-9+/]{86}==$/);
   });
   it('a REAL release refuses a key that is in no slot (gateways would refuse its manifests)', () => {
-    const mb = makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 });
+    const mb = makeManifest({ installer: MSI, version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 });
     const other = crypto.generateKeyPairSync('ed25519').privateKey;
     expect(() => signManifest(mb, other, { dryRun: false })).toThrow(/in no release key slot/);
     // CONTROL: the slot holds one key, and it is not this one.
@@ -148,9 +158,9 @@ describe('stable.json and its signature', () => {
 describe('the read-back: the release as GitHub serves it, held to its manifest', () => {
   const artefact = Buffer.from(crypto.randomBytes(3000));
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
-  const mb = makeManifest({ version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: { minimum_version: null, hard_minimum_version: null } });
+  const mb = makeManifest({ installer: MSI, version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: { minimum_version: null, hard_minimum_version: null } });
   const assets = () => new Map([
-    [msiName('0.0.0'), Buffer.from('MSI')],
+    [msiName('0.0.0'), MSI],
     [artefactName('0.0.0'), artefact],
     [MANIFEST_NAME, mb],
     [SIGNATURE_NAME, Buffer.from(crypto.sign(null, mb, privateKey).toString('base64'))],
@@ -178,15 +188,60 @@ describe('the read-back: the release as GitHub serves it, held to its manifest',
       return x;
     };
     const floors = { minimum_version: null, hard_minimum_version: null };
-    const v1 = makeManifest({ version: '0.0.1', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors });
+    const v1 = makeManifest({ installer: MSI, version: '0.0.1', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors });
     expect(readBack({ assets: resigned(v1), version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).problems).toEqual([
       'stable.json says 0.0.1, the release is 0.0.0',
       `the manifest's artefact URL is not this release's ${artefactName('0.0.0')}`,
+      `the manifest's installer URL is not this release's ${msiName('0.0.0')}`,
     ]);
-    const elsewhere = makeManifest({ version: '0.0.0', tag: 'gateway-dry-run-8', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors });
+    const elsewhere = makeManifest({ installer: MSI, version: '0.0.0', tag: 'gateway-dry-run-8', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors });
     expect(readBack({ assets: resigned(elsewhere), version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).problems).toEqual([
       `the manifest's artefact URL is not this release's ${artefactName('0.0.0')}`,
+      `the manifest's installer URL is not this release's ${msiName('0.0.0')}`,
     ]);
+  });
+  it('the MSI is held to the signed version list: other bytes, another size, another release\'s installer, none named (review round 1, finding 3)', () => {
+    const rb = (x) => readBack({ assets: x, version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] });
+    const same = assets(); same.set(msiName('0.0.0'), Buffer.from('MSI bytez'));
+    expect(rb(same).problems).toEqual(["the installer's SHA-256 is not the manifest's"]);
+    const longer = assets(); longer.set(msiName('0.0.0'), Buffer.from('MSI bytes!'));
+    expect(rb(longer).problems).toEqual([`the installer is 10 bytes, the manifest says ${MSI.length}`, "the installer's SHA-256 is not the manifest's"]);
+    const resigned = (m) => {
+      const bytes = Buffer.from(JSON.stringify(m));
+      const x = assets();
+      x.set(MANIFEST_NAME, bytes);
+      x.set(SIGNATURE_NAME, Buffer.from(crypto.sign(null, bytes, privateKey).toString('base64')));
+      return x;
+    };
+    const elsewhere = JSON.parse(mb.toString());
+    elsewhere.installer.url = elsewhere.installer.url.replace('gateway-dry-run-9', 'gateway-dry-run-8');
+    expect(rb(resigned(elsewhere)).problems).toEqual([`the manifest's installer URL is not this release's ${msiName('0.0.0')}`]);
+    const none = JSON.parse(mb.toString());
+    delete none.installer;
+    expect(rb(resigned(none)).problems).toContain(`the manifest's installer URL is not this release's ${msiName('0.0.0')}`);
+    // CONTROL: as made, nothing.
+    expect(rb(assets()).problems).toEqual([]);
+  });
+});
+
+describe('the manifest command (the two sign jobs run it)', () => {
+  it('names the MSI the Windows job put beside the artefact, and makes no version list without it', () => {
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'gw4-manifest-'));
+    try {
+      const art = path.join(dir, artefactName('1.2.3'));
+      fs.writeFileSync(art, crypto.randomBytes(100));
+      fs.writeFileSync(path.join(dir, msiName('1.2.3')), MSI);
+      const out = path.join(dir, 'stable.json');
+      const run = () => spawnSync(process.execPath, [path.join(GW, 'pipeline', 'cli.mjs'), 'manifest', '--version', '1.2.3', '--tag', 'gateway-v1.2.3', '--artefact', art, '--digest', DIGEST, '--out', out], { encoding: 'utf8' });
+      const r = run();
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(JSON.parse(fs.readFileSync(out, 'utf8')).installer).toEqual({ url: `https://github.com/pretty-aud/wilson/releases/download/gateway-v1.2.3/${msiName('1.2.3')}`, sha256: sha(MSI), size: MSI.length });
+      expect(r.stdout).toContain(`the installer ${msiName('1.2.3')} ${MSI.length} bytes, sha256 ${sha(MSI)}`);
+      fs.rmSync(path.join(dir, msiName('1.2.3')));
+      fs.rmSync(out);
+      expect(run().status).not.toBe(0);
+      expect(fs.existsSync(out)).toBe(false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
 
@@ -199,7 +254,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
       execFile(process.execPath, [path.join(GW, 'pipeline', 'cli.mjs'), 'github-release', '--dir', env.DIR], { env: { ...process.env, ...env }, timeout: 30_000 }, (err, stdout, stderr) => resolve({ code: err ? err.code ?? 1 : 0, stdout, stderr }));
     });
   });
-  async function fakeGitHub({ tagStatus = 404 } = {}) {
+  async function fakeGitHub({ tagStatus = 404, latest = { status: 404 }, tamper = null } = {}) {
     const http = await import('node:http');
     const calls = [];
     const assets = new Map();
@@ -214,6 +269,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
         const json = (status, v) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
         const base = `http://127.0.0.1:${server.address().port}`;
         if (req.method === 'GET' && /\/releases\/tags\//.test(u.pathname)) return json(tagStatus, tagStatus === 200 ? { id: 5, draft: false, tag_name: decodeURIComponent(u.pathname.split('/').pop()) } : { message: tagStatus === 404 ? 'Not Found' : 'Server Error' });
+        if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases/latest') return latest.status === 200 ? json(200, { tag_name: latest.tag, draft: false, prerelease: false }) : json(latest.status, { message: latest.status === 404 ? 'Not Found' : 'Server Error' });
         if (req.method === 'POST' && u.pathname === '/repos/pretty-aud/wilson/releases') {
           const b = JSON.parse(body.toString());
           calls.at(-1).create = b;
@@ -227,7 +283,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
         if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases/77/assets') return json(200, [...assets.entries()].map(([id, a]) => ({ id, name: a.name })));
         let m;
         if (req.method === 'GET' && (m = /^\/repos\/pretty-aud\/wilson\/releases\/assets\/(\d+)$/.exec(u.pathname))) { res.writeHead(302, { location: `${base}/storage/${m[1]}?sig=abc` }); return res.end(); }
-        if (req.method === 'GET' && (m = /^\/storage\/(\d+)$/.exec(u.pathname))) { res.writeHead(200); return res.end(assets.get(Number(m[1])).bytes); }
+        if (req.method === 'GET' && (m = /^\/storage\/(\d+)$/.exec(u.pathname))) { const a = assets.get(Number(m[1])); res.writeHead(200); return res.end(tamper ? tamper(a.name, a.bytes) : a.bytes); }
         if (req.method === 'PATCH' && u.pathname === '/repos/pretty-aud/wilson/releases/77') { published = JSON.parse(body.toString()); return json(200, { html_url: `${base}/release/77` }); }
         return json(404, { message: `no route ${req.method} ${u.pathname}` });
       });
@@ -238,8 +294,8 @@ describe('github-release against a fake GitHub API on loopback', () => {
   function releaseDir(version, { keyPair = crypto.generateKeyPairSync('ed25519'), tag = 'gateway-dry-run-5' } = {}) {
     const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'gw4-ghr-'));
     const artefact = Buffer.from(crypto.randomBytes(4000));
-    const mb = makeManifest({ version, tag, publishedAt: new Date().toISOString(), artefact, containerDigest: DIGEST, floors: { minimum_version: null, hard_minimum_version: null } });
-    fs.writeFileSync(path.join(dir, msiName(version)), 'MSI bytes');
+    const mb = makeManifest({ version, tag, publishedAt: new Date().toISOString(), artefact, installer: MSI, containerDigest: DIGEST, floors: { minimum_version: null, hard_minimum_version: null } });
+    fs.writeFileSync(path.join(dir, msiName(version)), MSI);
     fs.writeFileSync(path.join(dir, artefactName(version)), artefact);
     fs.writeFileSync(path.join(dir, MANIFEST_NAME), mb);
     fs.writeFileSync(path.join(dir, SIGNATURE_NAME), crypto.sign(null, mb, keyPair.privateKey).toString('base64'));
@@ -290,6 +346,56 @@ describe('github-release against a fake GitHub API on loopback', () => {
         expect(gh.published()).toBeNull();
       } finally { await gh.close(); }
     }
+  });
+  it('a REAL release not above the latest gateway release is refused before anything is made (it would drop the floors); a lower latest, or another product\'s, lets it go on', async () => {
+    for (const [latest, said] of [
+      [{ status: 200, tag: 'gateway-v1.3.0' }, 'gateway-v1.2.3 is not above the latest release (gateway-v1.3.0): published, it would become Latest and drop the version floors that release set. Tag a version above 1.3.0.'],
+      [{ status: 200, tag: 'gateway-v1.2.3' }, 'gateway-v1.2.3 is not above the latest release (gateway-v1.2.3)'],
+      [{ status: 502 }, 'could not tell which release is the latest (GitHub answered 502)'],
+    ]) {
+      const gh = await fakeGitHub({ latest });
+      try {
+        const { dir } = releaseDir('1.2.3', { tag: 'gateway-v1.2.3' });
+        const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'false', VERSION: '1.2.3', TAG: 'gateway-v1.2.3', RELEASE_NAME: 'WILSON file gateway 1.2.3', PUBLIC_KEY: '' }));
+        expect(r.code, JSON.stringify(latest)).not.toBe(0);
+        expect(r.stdout).toContain(said);
+        expect(gh.calls.some((c) => c.create)).toBe(false);
+      } finally { await gh.close(); }
+    }
+    for (const latest of [{ status: 200, tag: 'gateway-v1.2.2' }, { status: 200, tag: 'desktop-v9.0.0' }, { status: 404 }]) {
+      const gh = await fakeGitHub({ latest });
+      try {
+        const { dir } = releaseDir('1.2.3', { tag: 'gateway-v1.2.3' });
+        await runCli(env(gh, { DIR: dir, DRY_RUN: 'false', VERSION: '1.2.3', TAG: 'gateway-v1.2.3', RELEASE_NAME: 'WILSON file gateway 1.2.3', PUBLIC_KEY: '' }));
+        expect(gh.calls.some((c) => c.create), JSON.stringify(latest)).toBe(true);
+      } finally { await gh.close(); }
+    }
+    // A dry run never asks: it is never published.
+    const gh = await fakeGitHub({ latest: { status: 200, tag: 'gateway-v9.9.9' } });
+    try {
+      const { dir, publicWire } = releaseDir('0.0.0');
+      const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'true', VERSION: '0.0.0', TAG: 'gateway-dry-run-5', RELEASE_NAME: 'gateway-dry-run-5', PUBLIC_KEY: publicWire }));
+      expect(r.code, r.stdout + r.stderr).toBe(0);
+      expect(gh.calls.some((c) => c.path.endsWith('/releases/latest'))).toBe(false);
+    } finally { await gh.close(); }
+  }, 30_000);
+  it('an asset GitHub serves other than as uploaded stops the release before it is published (SHA256SUMS here, which the manifest does not name)', async () => {
+    const gh = await fakeGitHub({ tamper: (name, b) => (name === 'SHA256SUMS' ? Buffer.concat([b, Buffer.from('x')]) : b) });
+    try {
+      const { dir, publicWire } = releaseDir('0.0.0');
+      const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'true', VERSION: '0.0.0', TAG: 'gateway-dry-run-5', RELEASE_NAME: 'gateway-dry-run-5', PUBLIC_KEY: publicWire }));
+      expect(r.code).not.toBe(0);
+      expect(r.stdout).toContain('SHA256SUMS as served is not the file uploaded');
+      expect(gh.published()).toBeNull();
+    } finally { await gh.close(); }
+  });
+  it('a failed call to GitHub says why (fetch says only "fetch failed"; its cause\'s code is added)', async () => {
+    const net = await import('node:net');
+    const closed = await new Promise((r) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+    const { dir, publicWire } = releaseDir('0.0.0');
+    const r = await runCli({ GITHUB_TOKEN: 'ghs_test_token', GITHUB_REPOSITORY: 'pretty-aud/wilson', GITHUB_API_URL: `http://127.0.0.1:${closed}`, GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '5', GITHUB_WORKFLOW: 'Gateway release', DIR: dir, DRY_RUN: 'true', VERSION: '0.0.0', TAG: 'gateway-dry-run-5', RELEASE_NAME: 'gateway-dry-run-5', PUBLIC_KEY: publicWire });
+    expect(r.code).not.toBe(0);
+    expect(r.stdout).toContain('::error::fetch failed (ECONNREFUSED)');
   });
   it('refuses to release any other repository', async () => {
     const gh = await fakeGitHub();

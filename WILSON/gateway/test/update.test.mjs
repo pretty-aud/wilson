@@ -9,6 +9,9 @@
 
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { verifyManifest, verifyArtefact, compareVersions, parseVersion, RELEASE_KEYS_WIRE, compiledReleaseKeys } from '../src/update/manifest.mjs';
 import { readTar, writeTar, safeEntryName } from '../src/update/tar.mjs';
 import { runSwap, recoverSwap, runRollback, swapPaths } from '../src/update/swap.mjs';
@@ -18,6 +21,7 @@ const keyA = crypto.generateKeyPairSync('ed25519');
 const keyB = crypto.generateKeyPairSync('ed25519');
 const sign = (bytes, k = keyA.privateKey) => crypto.sign(null, Buffer.from(bytes), k).toString('base64');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const GW = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function manifestFor(archive, over = {}) {
   return Buffer.from(JSON.stringify({
@@ -84,6 +88,20 @@ describe('the archive (ustar, files and directories only)', () => {
     expect(() => readTar(writeTar([{ name: 'a', type: 'file', data: 'x', typeflag: '2', linkname: '/etc/passwd' }]))).toThrow(/type/);
     for (const name of ['../evil.exe', '/abs.exe', 'C:/x.exe', 'a/../../b', 'a\\b']) expect(() => readTar(writeTar([{ name, type: 'file', data: 'x' }])), name).toThrow();
     expect(safeEntryName('ok/dir/')).toBe('ok/dir');
+  });
+  it('refuses a name Windows reads as something else: an alternate data stream, a reserved character, a trailing dot or space, a device (review round 1, finding 5)', () => {
+    for (const name of ['app/src/cli.mjs:evil', 'app/CON', 'app/con.txt', 'app/Com1', 'app/lpt9.log', 'app/COM¹', 'app/CON .txt', 'app/src.', 'app/x ', 'app/a|b', 'app/a?b', 'app/a*b', 'app/a"b', 'app/a<b', 'app/a>b']) {
+      expect(safeEntryName(name), name).toBeNull();
+      expect(() => readTar(writeTar([{ name, type: 'file', data: 'x' }])), name).toThrow();
+    }
+    // CONTROL: names that only look like them, and every name a real artefact carries.
+    for (const name of ['app/src/config.mjs', 'app/src/console.mjs', 'app/src/connect.mjs', 'app/lpt.mjs', 'app/com10.mjs', 'app/src/.keep', 'node.exe', 'app/package.json']) expect(safeEntryName(name), name).toBe(name);
+    const real = [];
+    const walk = (d, p) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.isDirectory()) walk(path.join(d, e.name), `${p}/${e.name}`); else real.push(`${p}/${e.name}`); } };
+    walk(path.join(GW, 'src'), 'app/src');
+    walk(path.join(GW, 'updater'), 'app/updater');
+    expect(real.length).toBeGreaterThan(40);
+    for (const name of real) expect(safeEntryName(name), name).toBe(name);
   });
   it('refuses a corrupt header', () => {
     const raw = writeTar([{ name: 'a.txt', type: 'file', data: 'x' }], { gzip: false });

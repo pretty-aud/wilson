@@ -78,6 +78,23 @@ describe('the release key slots and the channel (GW4)', () => {
   });
 });
 
+describe('the updater keeps the keys it was installed with (review round 1, note 6)', () => {
+  it('a release signed only with a key the updater lacks is refused at its swap, whatever the gateway took; the swap never moves the updater\'s own folder', async () => {
+    const k1 = crypto.generateKeyPairSync('ed25519');
+    const k2 = crypto.generateKeyPairSync('ed25519');
+    const artefact = Buffer.from(crypto.randomBytes(1000));
+    const m = manifestFor(artefact);
+    const dir = tmp();
+    const { env, paths } = makeUpdaterEnv({ programDir: path.join(dir, 'program'), stateDir: path.join(dir, 'state'), keys: [k1.publicKey] });
+    // The gateway, updated to a build that trusts both keys, would take it …
+    expect(verifyManifest({ manifestBytes: m, signatureText: signWith(m, k2.privateKey), keys: [k1.publicKey, k2.publicKey], runningVersion: '0.1.0', platformKey: 'windows-x64' }).ok).toBe(true);
+    // … the updater, still the MSI's, refuses it; the same release signed with the old key passes.
+    expect(await env.verify({ manifestBytes: m, signatureText: signWith(m, k2.privateKey), archiveBytes: artefact, runningVersion: '0.1.0', lastPublishedAt: null })).toEqual({ ok: false, reason: 'signature' });
+    expect(await env.verify({ manifestBytes: m, signatureText: signWith(m, k1.privateKey), archiveBytes: artefact, runningVersion: '0.1.0', lastPublishedAt: null })).toMatchObject({ ok: true, version: '9.0.0' });
+    expect(Object.values(paths).some((p) => /[\\/]updater$/i.test(String(p)))).toBe(false);
+  });
+});
+
 describe('what a manifest may name (artefact URLs on GitHub, the container by digest)', () => {
   const ok = `${ARTEFACT_URL_PREFIX}gateway-v1.2.3/wilson-gateway-1.2.3-windows-x64.tar.gz`;
   it('a release asset of THIS repository, exactly', () => {

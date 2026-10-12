@@ -23,6 +23,8 @@ import { VERSION } from '../version.mjs';
 export const LETS_ENCRYPT_DIRECTORY = 'https://acme-v02.api.letsencrypt.org/directory';
 const MAX_BODY = 1024 * 1024;
 const TIMEOUT_MS = 30_000;
+/** One request, start to end, at most this long (review round 1, finding 4). */
+export const REQUEST_DEADLINE_MS = 120_000;
 const PROBLEM = 'urn:ietf:params:acme:error:';
 
 export class AcmeError extends Error {
@@ -44,10 +46,15 @@ export function retryAfterMs(value, now = Date.now()) {
   return Number.isFinite(t) ? Math.max(0, t - now) : null;
 }
 
-function request(url, { method = 'GET', body = null, headers = {}, transport = null }) {
+function request(url, { method = 'GET', body = null, headers = {}, transport = null, deadlineMs = REQUEST_DEADLINE_MS }) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     if (u.protocol !== 'https:') { reject(new AcmeError(`acme: ${u.protocol} is not https`)); return; }
+    let timer = null;
+    let ours = null; // a refusal of ours that ended the request: the silence, the deadline, the size
+    const settle = (fn) => (v) => { clearTimeout(timer); fn(v); };
+    const failed = (e) => settle(reject)(ours ?? (e instanceof AcmeError ? e : new AcmeError(`acme: ${u.hostname}: ${e.code || e.message}`)));
+    const end = (e) => { ours = ours ?? e; req.destroy(e); };
     const req = https.request(u, {
       method,
       headers: { 'user-agent': `wilson-gateway/${VERSION} (acme)`, accept: 'application/json', ...headers, ...(body ? { 'content-length': Buffer.byteLength(body) } : {}) },
@@ -61,14 +68,18 @@ function request(url, { method = 'GET', body = null, headers = {}, transport = n
       let n = 0;
       res.on('data', (c) => {
         n += c.length;
-        if (n > MAX_BODY) { res.destroy(new AcmeError(`acme: ${u.hostname} answered more than ${MAX_BODY} bytes`)); return; }
+        if (n > MAX_BODY) { ours = ours ?? new AcmeError(`acme: ${u.hostname} answered more than ${MAX_BODY} bytes`); res.destroy(ours); return; }
         chunks.push(c);
       });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
-      res.on('error', reject);
+      res.on('end', () => settle(resolve)({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+      res.on('error', failed);
     });
-    req.on('timeout', () => req.destroy(new AcmeError(`acme: ${u.hostname} did not answer within ${TIMEOUT_MS / 1000} s`)));
-    req.on('error', (e) => reject(e instanceof AcmeError ? e : new AcmeError(`acme: ${u.hostname}: ${e.code || e.message}`)));
+    // The whole call, however the peer paces its bytes: a CA, or something on
+    // the path, that answers a byte at a time cannot hold the renewal for
+    // ever (review round 1, finding 4). TIMEOUT_MS is the longest silence.
+    timer = setTimeout(() => end(new AcmeError(`acme: ${u.hostname} took longer than ${Math.round(deadlineMs / 1000)} s`)), deadlineMs);
+    req.on('timeout', () => end(new AcmeError(`acme: ${u.hostname} did not answer within ${TIMEOUT_MS / 1000} s`)));
+    req.on('error', failed);
     if (body) req.write(body);
     req.end();
   });
@@ -87,6 +98,7 @@ export class AcmeClient {
     this.key = o.accountKey;
     this.kid = o.kid || null;
     this.transport = o.transport || null;
+    this.requestDeadlineMs = o.requestDeadlineMs || REQUEST_DEADLINE_MS; // tests only: a shorter one
     this.now = o.now || Date.now;
     this.sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.dir = null;
@@ -104,7 +116,7 @@ export class AcmeClient {
 
   async directory() {
     if (this.dir) return this.dir;
-    const res = await request(this.directoryUrl, { transport: this.transport });
+    const res = await request(this.directoryUrl, { transport: this.transport, deadlineMs: this.requestDeadlineMs });
     const d = res.status === 200 ? parseJson(res) : null;
     if (!d || typeof d.newNonce !== 'string' || typeof d.newAccount !== 'string' || typeof d.newOrder !== 'string') throw new AcmeError(`acme: the directory at ${this.directoryUrl} is not an ACME directory (${res.status})`);
     for (const k of ['newNonce', 'newAccount', 'newOrder']) d[k] = this.#sameOrigin(d[k]);
@@ -115,7 +127,7 @@ export class AcmeClient {
   async #nonce() {
     if (this.nonces.length) return this.nonces.pop();
     const d = await this.directory();
-    const res = await request(d.newNonce, { method: 'HEAD', transport: this.transport });
+    const res = await request(d.newNonce, { method: 'HEAD', transport: this.transport, deadlineMs: this.requestDeadlineMs });
     const n = res.headers['replay-nonce'];
     if (!n) throw new AcmeError('acme: no Replay-Nonce from newNonce');
     return n;
@@ -135,7 +147,7 @@ export class AcmeClient {
     for (let attempt = 0; ; attempt++) {
       const nonce = await this.#nonce();
       const jws = signJws({ key: this.key, url: target, nonce, payload, kid: jwk ? null : this.kid });
-      const res = await request(target, { method: 'POST', body: JSON.stringify(jws), headers: { 'content-type': 'application/jose+json', accept }, transport: this.transport });
+      const res = await request(target, { method: 'POST', body: JSON.stringify(jws), headers: { 'content-type': 'application/jose+json', accept }, transport: this.transport, deadlineMs: this.requestDeadlineMs });
       this.#keep(res);
       if (res.status < 400) return { status: res.status, headers: res.headers, json: parseJson(res), body: res.body };
       const p = parseJson(res) || {};

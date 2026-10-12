@@ -103,10 +103,18 @@ export function floorsFor(floorsText, version) {
   return out;
 }
 
-/** stable.json's exact bytes, from the build's facts. */
-export function makeManifest({ version, tag, publishedAt, artefact, containerDigest, floors, notes }) {
+/**
+ * stable.json's exact bytes, from the build's facts. Besides what a gateway
+ * reads (the artefact for its platform), it names the MSI an administrator
+ * installs (`installer`), so the one file a person runs is in the signed
+ * record too (review round 1, finding 3); gateways ignore the field.
+ */
+export function makeManifest({ version, tag, publishedAt, artefact, installer, containerDigest, floors, notes }) {
   const url = `${ARTEFACT_URL_PREFIX}${tag}/${artefactName(version)}`;
   if (!artefactUrlOk(url)) throw new Error(`manifest: ${url} is not a release asset URL a gateway accepts`);
+  const installerUrl = `${ARTEFACT_URL_PREFIX}${tag}/${msiName(version)}`;
+  if (!artefactUrlOk(installerUrl)) throw new Error(`manifest: ${installerUrl} is not a release asset URL`);
+  if (!Buffer.isBuffer(installer) || installer.length === 0) throw new Error('manifest: the installer (the MSI) is missing');
   if (!/^sha256:[0-9a-f]{64}$/.test(String(containerDigest))) throw new Error('manifest: the container digest is not sha256:<64 hex>');
   const m = {
     version,
@@ -117,6 +125,7 @@ export function makeManifest({ version, tag, publishedAt, artefact, containerDig
       'windows-x64': { url, sha256: crypto.createHash('sha256').update(artefact).digest('hex'), size: artefact.length },
       container: { image: CONTAINER_IMAGE, digest: containerDigest },
     },
+    installer: { url: installerUrl, sha256: crypto.createHash('sha256').update(installer).digest('hex'), size: installer.length },
     notes: String(notes || '').slice(0, 2000),
   };
   return Buffer.from(`${JSON.stringify(m, null, 2)}\n`, 'utf8');
@@ -153,9 +162,10 @@ export function signManifest(manifestBytes, privateKey, { dryRun }) {
 }
 
 /**
- * The release as GitHub serves it, held to its manifest: every asset's size
- * and SHA-256, the Windows artefact the one the manifest names, the signature
- * over the served stable.json verified with `keys`.
+ * The release as GitHub serves it, held to its manifest: the update artefact
+ * and the MSI each this release's own asset, of the size and SHA-256 the
+ * manifest names; the signature over the served stable.json verified with
+ * `keys`. (`sums` lists every asset's size and SHA-256 for the job's notices.)
  *
  * @param o { assets: Map<name, Buffer>, version, tag, keys: KeyObject[] }
  */
@@ -181,7 +191,15 @@ export function readBack({ assets, version, tag, keys }) {
     if (art.length !== win?.size) problems.push(`the artefact is ${art.length} bytes, the manifest says ${win?.size}`);
     if (crypto.createHash('sha256').update(art).digest('hex') !== win?.sha256) problems.push('the artefact\'s SHA-256 is not the manifest\'s');
   }
-  if (!assets.get(msiName(version))) problems.push(`${msiName(version)} is not an asset`);
+  const msi = assets.get(msiName(version));
+  if (!msi) problems.push(`${msiName(version)} is not an asset`);
+  else {
+    // The MSI is held to the signed version list, not only found (review round 1, finding 3).
+    const inst = m.installer;
+    if (inst?.url !== `${ARTEFACT_URL_PREFIX}${tag}/${msiName(version)}`) problems.push(`the manifest's installer URL is not this release's ${msiName(version)}`);
+    if (msi.length !== inst?.size) problems.push(`the installer is ${msi.length} bytes, the manifest says ${inst?.size}`);
+    if (crypto.createHash('sha256').update(msi).digest('hex') !== inst?.sha256) problems.push('the installer\'s SHA-256 is not the manifest\'s');
+  }
   const sums = [...assets.entries()].filter(([n]) => n !== 'SHA256SUMS').map(([n, b]) => ({ name: n, size: b.length, sha256: crypto.createHash('sha256').update(b).digest('hex') }));
   return { ok: problems.length === 0, problems, sums, manifest: m };
 }

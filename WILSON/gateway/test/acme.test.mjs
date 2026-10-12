@@ -18,13 +18,13 @@ import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { b64u, jwkOf, thumbprint, keyAuthorization, signJws, newP256Key } from '../src/acme/jose.mjs';
 import { makeCsr, makeChallengeCertificate, acmeNameOk, ACME_IDENTIFIER_OID } from '../src/acme/certs.mjs';
-import { AcmeClient, retryAfterMs } from '../src/acme/client.mjs';
-import { AcmeManager, acmeNameFor, renewAt, reasonOf, checkIssued, BACKOFF_MS, MAX_ATTEMPTS_PER_HOUR } from '../src/acme/manager.mjs';
+import { AcmeClient, retryAfterMs, REQUEST_DEADLINE_MS } from '../src/acme/client.mjs';
+import { AcmeManager, acmeNameFor, renewAt, reasonOf, checkIssued, BACKOFF_MS, MAX_ATTEMPTS_PER_HOUR, MAX_RETRY_AFTER_MS } from '../src/acme/manager.mjs';
 import { createDoorServer, ACME_TLS_ALPN } from '../src/doors/server.mjs';
 import { DEFAULT_LIMITS } from '../src/rules/limits.mjs';
 import { outsideCertificatePhrase, outsideCertificateWarning, composeHealthLine } from '../src/rules/health.mjs';
 import { startFakeAcme, parseCsr, challengeFacts } from './fakeAcme.mjs';
-import { selfSignedFor } from './releaseServer.mjs';
+import { selfSignedFor, loopbackLookup } from './releaseServer.mjs';
 
 const NAME = 'gw.example.test';
 const DAY = 86_400_000;
@@ -349,6 +349,60 @@ describe('the state machine against a fake CA (manager.mjs, client.mjs)', () => 
     const other = selfSignedFor(['other.example.test']);
     expect(() => checkIssued(other.certPem, other.keyPem, NAME)).toThrow(/not for gw\.example\.test/);
     expect(() => checkIssued(other.certPem, key.export({ type: 'pkcs8', format: 'pem' }), 'other.example.test')).toThrow(/not for the key/);
+  });
+});
+
+describe('the CA\'s pace and its Retry-After (review round 1, finding 4)', () => {
+  it('a request the CA answers a byte at a time ends at its deadline, and reads as Let\'s Encrypt not reached', async () => {
+    const cert = selfSignedFor(['slow.example.test']);
+    const server = https.createServer({ cert: cert.certPem, key: cert.keyPem }, (req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      const t = setInterval(() => res.write(' '), 50); // never silent for 30 s, never done
+      res.on('close', () => clearInterval(t));
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    cleanups.push(() => new Promise((r) => { server.closeAllConnections?.(); server.close(() => r()); }));
+    const c = new AcmeClient({ directoryUrl: 'https://slow.example.test/dir', accountKey: newP256Key(), transport: { ca: cert.certPem, lookup: loopbackLookup, port: server.address().port }, requestDeadlineMs: 600 });
+    const t0 = Date.now();
+    const e = await c.directory().then(() => null, (x) => x);
+    expect(e?.message).toBe('acme: slow.example.test took longer than 1 s');
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(reasonOf(e, NAME)).toBe('Let’s Encrypt could not be reached from this computer');
+    expect(REQUEST_DEADLINE_MS).toBe(120_000);
+    // The manager's own attempt (the path a gateway runs) ends with it, says why, and frees the next tick.
+    const m = new AcmeManager({ dir: tmp(), secrets: plainSecrets, directoryUrl: 'https://slow.example.test/dir', transport: { ca: cert.certPem, lookup: loopbackLookup, port: server.address().port }, requestDeadlineMs: 600, sleep: async () => {} });
+    await m.load();
+    const t1 = Date.now();
+    expect(await m.tick({ name: NAME, doorOpen: true })).toEqual({ ok: false, reason: 'Let’s Encrypt could not be reached from this computer' });
+    expect(Date.now() - t1).toBeLessThan(3000);
+    expect(m.running).toBeFalsy();
+    expect(m.status(NAME)).toMatchObject({ state: 'failing', failing: { reason: 'Let’s Encrypt could not be reached from this computer' } });
+  });
+  it('the deadline holds for a gateway that already has its account too (the other client the manager makes)', async () => {
+    const clock = { t: Date.now() };
+    const fake = await startFakeAcme({ doorFor: () => null, now: () => clock.t });
+    cleanups.push(() => fake.close());
+    const m = new AcmeManager({ dir: tmp(), secrets: plainSecrets, now: () => clock.t, directoryUrl: fake.directoryUrl, transport: fake.transport, requestDeadlineMs: 600, sleep: async () => {} });
+    await m.load();
+    expect(await m.tick({ name: NAME, doorOpen: true })).toMatchObject({ ok: false }); // the account made; the door not reached
+    expect(m.account).not.toBeNull();
+    fake.stallOrders(true);
+    clock.t = m.state.nextAttemptAt;
+    const t0 = Date.now();
+    expect(await m.tick({ name: NAME, doorOpen: true })).toEqual({ ok: false, reason: 'Let’s Encrypt could not be reached from this computer' });
+    expect(Date.now() - t0).toBeLessThan(3000);
+  });
+  it('a rate limit\'s Retry-After is honoured, for at most seven days (a longer one, or a date in 9999, would stop the renewal for good)', async () => {
+    expect(MAX_RETRY_AFTER_MS).toBe(7 * DAY);
+    for (const [retryAfter, want] of [['3600', 3_600_000], ['9999999', MAX_RETRY_AFTER_MS], ['Fri, 31 Dec 9999 23:59:59 GMT', MAX_RETRY_AFTER_MS]]) {
+      const clock = { t: Date.now() };
+      const fake = await startFakeAcme({ doorFor: () => null, now: () => clock.t, rateLimitOrders: retryAfter });
+      cleanups.push(() => fake.close());
+      const m = new AcmeManager({ dir: tmp(), secrets: plainSecrets, now: () => clock.t, directoryUrl: fake.directoryUrl, transport: fake.transport, sleep: async () => {} });
+      await m.load();
+      expect(await m.tick({ name: NAME, doorOpen: true })).toMatchObject({ ok: false, reason: 'Let’s Encrypt’s rate limit was reached: trying again later' });
+      expect(m.state.nextAttemptAt - clock.t, retryAfter).toBe(Math.max(BACKOFF_MS[0], want));
+    }
   });
 });
 

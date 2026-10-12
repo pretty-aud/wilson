@@ -25,9 +25,9 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   planRelease, stampVersion, checkArtefact, floorsFor, makeManifest, privateKeyFromSecret, signManifest, readBack,
-  artefactName, msiName, MANIFEST_NAME, SIGNATURE_NAME, RELEASE_REPOSITORY,
+  artefactName, msiName, MANIFEST_NAME, SIGNATURE_NAME, RELEASE_REPOSITORY, TAG_RE,
 } from './lib.mjs';
-import { compiledReleaseKeys, CONTAINER_IMAGE } from '../src/update/manifest.mjs';
+import { compiledReleaseKeys, compareVersions, CONTAINER_IMAGE } from '../src/update/manifest.mjs';
 import { signingKeyFromWire } from '../src/wire/formats.mjs';
 import { readTar } from '../src/update/tar.mjs';
 
@@ -85,18 +85,22 @@ async function main() {
     case 'manifest': {
       const version = flag('version');
       const artefact = fs.readFileSync(flag('artefact'));
+      // The MSI beside the artefact (the Windows job uploads both): the signed
+      // version list names it too (review round 1, finding 3).
+      const installer = fs.readFileSync(path.join(path.dirname(flag('artefact')), msiName(version)));
       const floors = floorsFor(fs.readFileSync(path.join(HERE, 'floors.json'), 'utf8'), version);
       const bytes = makeManifest({
         version,
         tag: flag('tag'),
         publishedAt: new Date().toISOString(),
         artefact,
+        installer,
         containerDigest: flag('digest'),
         floors,
         notes: `WILSON file gateway ${version}.`,
       });
       fs.writeFileSync(flag('out'), bytes);
-      notice('stable.json', `${bytes.length} bytes, sha256 ${sha(bytes)}; floors ${floors.minimum_version ?? 'none'} / ${floors.hard_minimum_version ?? 'none'}`);
+      notice('stable.json', `${bytes.length} bytes, sha256 ${sha(bytes)}; the installer ${msiName(version)} ${installer.length} bytes, sha256 ${sha(installer)}; floors ${floors.minimum_version ?? 'none'} / ${floors.hard_minimum_version ?? 'none'}`);
       return;
     }
     case 'sign': {
@@ -189,7 +193,7 @@ async function githubRelease(dir) {
     '',
     `- **Windows**: \`${msiName(version)}\` (not signed yet: Windows SmartScreen warns; **More info → Run anyway** gets past it, and a signed build will stop the warning later). An installed gateway updates itself from \`${artefactName(version)}\`.`,
     `- **NAS (a container)**: \`${CONTAINER_IMAGE}@${digest}\`${dryRun ? ' (a dry run pushes no image; this is the digest of the image it built)' : ''}.`,
-    `- **The signed version list**: \`${MANIFEST_NAME}\` and \`${SIGNATURE_NAME}\` (Ed25519); \`SHA256SUMS\` lists every file.`,
+    `- **The signed version list**: \`${MANIFEST_NAME}\` and \`${SIGNATURE_NAME}\` (Ed25519), naming the update artefact's and the installer's SHA-256; \`SHA256SUMS\` lists every file (it proves a download complete, not who made it).`,
     '',
     `Built from ${env.GITHUB_SHA} by ${env.GITHUB_WORKFLOW} run ${env.GITHUB_RUN_ID}.`,
   ].join('\n');
@@ -199,6 +203,18 @@ async function githubRelease(dir) {
     const existing = await fetch(`${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
     if (existing.status === 200) fail(`${tag} is released already; a release is never replaced. Tag the next version.`);
     if (existing.status !== 404) fail(`could not tell whether ${tag} is released already (GitHub answered ${existing.status}); nothing was made. Run the job again.`);
+    // Published, a real release becomes Latest: one below the latest gateway
+    // release would replace its version list and drop the floors it set
+    // (review round 1, finding 1). So a real release is above the latest.
+    const latest = await fetch(`${API}/repos/${repo}/releases/latest`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
+    if (latest.status === 200) {
+      const latestTag = String((await latest.json())?.tag_name ?? '');
+      const m = TAG_RE.exec(latestTag);
+      const latestVersion = m && !m[4] ? `${Number(m[1])}.${Number(m[2])}.${Number(m[3])}` : null;
+      if (latestVersion && compareVersions(version, latestVersion) <= 0) {
+        fail(`${tag} is not above the latest release (${latestTag}): published, it would become Latest and drop the version floors that release set. Tag a version above ${latestVersion}.`);
+      }
+    } else if (latest.status !== 404) fail(`could not tell which release is the latest (GitHub answered ${latest.status}); nothing was made. Run the job again.`);
   }
   const rel = await api('POST', `${API}/repos/${repo}/releases`, {
     body: { tag_name: tag, target_commitish: env.GITHUB_SHA, name: env.RELEASE_NAME, body, draft: true, prerelease: dryRun, make_latest: 'false' },
@@ -216,6 +232,9 @@ async function githubRelease(dir) {
   const keys = dryRun ? [signingKeyFromWire({ kid: 'dryrun', public_key: env.PUBLIC_KEY })?.key].filter(Boolean) : compiledReleaseKeys();
   if (!keys.length) fail('read back: no key to verify the signature with');
   const r = readBack({ assets: served, version, tag, keys });
+  // And every asset as GitHub serves it is the file this job uploaded.
+  for (const [n, b] of files) if (sha(served.get(n)) !== sha(b)) r.problems.push(`${n} as served is not the file uploaded`);
+  r.ok = r.problems.length === 0;
   for (const s of r.sums) notice(`Asset ${s.name}`, `${s.size} bytes, sha256 ${s.sha256}`);
   notice('stable.json as served (base64)', served.get(MANIFEST_NAME).toString('base64'));
   notice('stable.json.sig as served', served.get(SIGNATURE_NAME).toString('utf8'));
@@ -230,4 +249,5 @@ async function githubRelease(dir) {
   notice('Published', `${pub.html_url}: the latest release; gateways take it within a day`);
 }
 
-main().catch((e) => fail(String(e?.message || e).slice(0, 500)));
+// fetch says only "fetch failed": the cause's code (ECONNREFUSED, a DNS answer) says why.
+main().catch((e) => fail(`${String(e?.message || e)}${e?.cause?.code ? ` (${e.cause.code})` : ''}`.slice(0, 500)));

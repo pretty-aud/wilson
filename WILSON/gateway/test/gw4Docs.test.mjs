@@ -11,7 +11,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNEL_URL, CONTAINER_IMAGE, RELEASE_KEYS_WIRE, RELEASE_KEY_SLOTS } from '../src/update/manifest.mjs';
 import { RELEASE_HOSTS, MAX_REDIRECTS } from '../src/update/releaseFetch.mjs';
-import { RENEW_BEFORE_MAX_MS, BACKOFF_MS, MAX_ATTEMPTS_PER_HOUR } from '../src/acme/manager.mjs';
+import { RENEW_BEFORE_MAX_MS, BACKOFF_MS, MAX_ATTEMPTS_PER_HOUR, MAX_RETRY_AFTER_MS } from '../src/acme/manager.mjs';
+import { REQUEST_DEADLINE_MS } from '../src/acme/client.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WILSON = path.join(HERE, '..', '..');
@@ -58,6 +59,15 @@ describe('the design\'s GW4 dated lines', () => {
     expect(gw4).toMatch(/^12\. \*\*§10 row 14, the compromise procedure:\*\* /m);
     expect(gw4).toContain('the second slot is empty');
     expect(gw4).toContain('a release that compiles it in, signed by the old key, or with an MSI installed by hand');
+  });
+  it('round 1\'s corrections are in the lines: the floors, the installer, the key\'s place, the CA\'s pace, the updater\'s keys', () => {
+    expect(gw4).toContain('and (review round 1) a release that is not above the latest one: published, a lower release would become Latest and drop the floors.');
+    expect(gw4).toContain('the signed version list also names the installer (`installer: { url, sha256, size }`, which gateways ignore), and the read-back holds the MSI to it');
+    expect(gw4).toContain('the key being that environment\'s secret and never a repository secret, which every workflow could read');
+    expect(MAX_RETRY_AFTER_MS).toBe(7 * 86_400_000);
+    expect(REQUEST_DEADLINE_MS).toBe(120_000);
+    expect(gw4).toContain('(honoured for at most seven days, the longest of Let\'s Encrypt\'s windows: review round 1), and no request to the CA lasts more than two minutes');
+    expect(gw4).toContain('And the updater, which only the MSI installs, keeps the keys it was installed with');
   });
   it('no comment marker in the design', () => {
     expect((design.match(/<!--/g) || []).length).toBe(0);

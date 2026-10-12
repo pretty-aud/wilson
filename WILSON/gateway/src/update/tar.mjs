@@ -28,12 +28,20 @@ const octal = (buf, start, len) => {
   return s === '' ? 0 : parseInt(s, 8);
 };
 
-/** A safe relative POSIX name, or null. */
+// Names Windows gives another meaning (review round 1, finding 5; the updater
+// writes as LocalSystem): a `:` names an alternate data stream, `<>"|?*` are
+// refused or wildcards, a trailing dot or space is dropped (two names, one
+// file), and a device name is a device, with any extension.
+const WINDOWS_RESERVED_CHARS = /[<>:"|?*]/;
+const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
+
+/** A safe relative POSIX name that means one plain file on Windows too, or null. */
 export function safeEntryName(name) {
   if (typeof name !== 'string' || !name || name.length > 255) return null;
   if (name.includes('\\') || name.includes('\0') || name.startsWith('/') || /^[A-Za-z]:/.test(name)) return null;
   const segs = name.split('/').filter((s, i, a) => !(s === '' && i === a.length - 1)); // a trailing slash on a dir
   if (segs.length === 0 || segs.some((s) => s === '' || s === '.' || s === '..' || /[\u0000-\u001f]/.test(s))) return null;
+  if (segs.some((s) => WINDOWS_RESERVED_CHARS.test(s) || /[. ]$/.test(s) || WINDOWS_DEVICE.test(s.split('.')[0].trimEnd()))) return null;
   return segs.join('/');
 }
 

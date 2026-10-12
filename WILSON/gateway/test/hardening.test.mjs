@@ -189,7 +189,7 @@ describe('what the guide tells an admin to check or do is the code\'s', () => {
     // One key is built in and the second slot is empty, so the procedure cannot "sign with the second key".
     expect(RELEASE_KEYS_WIRE).toHaveLength(1);
     expect(guide).not.toMatch(/signs with the second release key/);
-    expect(s9).toContain('for a stolen key, ships a new release key inside a release signed by the old one (the second slot is empty today, §10)');
+    expect(s9).toContain('for a stolen key, ships a new release key inside a release signed by the old one and asks each company to reinstall the MSI, which carries the updater (the second slot is empty today, §10)');
     expect(guide).toContain('- **One release key is built in today.** The second slot is empty');
   });
   it('the TPN controls it touches, in the framework\'s numbering, each once and in order', () => {
@@ -204,5 +204,25 @@ describe('what the guide tells an admin to check or do is the code\'s', () => {
     const root = makeRoot({ hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
     const leaf = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
     expect(new crypto.X509Certificate(leaf.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
+  });
+});
+
+describe('review round 1\'s corrections, in the guide\'s words', () => {
+  const wt63 = read(WILSON, 'docs', 'walkthroughs', '63_file_gateway_release_and_rehearsal.md');
+  it('what SHA256SUMS proves: a download whole, not who made it; the version list names the installer (finding 3)', () => {
+    expect(guide).not.toMatch(/is the check/);
+    expect(guide).toContain('that proves the download whole and the file the release holds, not who made the release');
+    expect(guide).toContain('`SHA256SUMS` proves a download whole, not its origin');
+    expect(read(WILSON, 'gateway', 'pipeline', 'lib.mjs')).toContain('installer: { url: installerUrl, sha256:');
+    expect(guide).toContain('names the installer\'s SHA-256 too');
+    expect(wt63).not.toMatch(/is the check/);
+  });
+  it('the floors stay in force: the pipeline publishes only above the latest release (finding 1)', () => {
+    expect(guide).toContain('The release pipeline publishes a version only above the latest release, so the floors a release sets stay in force until a higher release replaces them.');
+    expect(pipeline).toContain('is not above the latest release');
+  });
+  it('the updater keeps the keys it was installed with, and the incident row says what that asks (note 6)', () => {
+    expect(guide).toContain('And the updater, which only the MSI installs, keeps the keys it was installed with: a release signed only with a new key is refused at its swap until that gateway\'s MSI is reinstalled');
+    expect(guide).toContain('asks each company to reinstall the MSI, which carries the updater');
   });
 });

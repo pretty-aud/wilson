@@ -98,7 +98,8 @@ function issue(root, { name, spkiDer, lifetimeMs, now }) {
  * @param o.badNonceEvery  every Nth signed request is answered badNonce (0: never)
  * @param o.now            the CA's clock for the certificates' dates
  */
-export async function startFakeAcme({ doorFor, lifetimeMs = 90 * 86_400_000, badNonceEvery = 0, now = () => Date.now(), tlsMaxVersion = 'TLSv1.3' } = {}) {
+export async function startFakeAcme({ doorFor, lifetimeMs = 90 * 86_400_000, badNonceEvery = 0, now = () => Date.now(), tlsMaxVersion = 'TLSv1.3', rateLimitOrders = null } = {}) {
+  let stallOrders = false; // a new order answered a byte at a time, never finished (stallOrders(true))
   const host = 'acme.test';
   const cert = selfSignedFor([host]);
   const root = makeRoot();
@@ -177,6 +178,8 @@ export async function startFakeAcme({ doorFor, lifetimeMs = 90 * 86_400_000, bad
           return send(fresh ? 201 : 200, { status: 'valid', contact: payload.contact ?? [] }, { location: kid });
         }
         if (req.url === '/order') {
+          if (rateLimitOrders) return problem(429, 'rateLimited', 'too many new orders recently', { 'retry-after': rateLimitOrders });
+          if (stallOrders) { res.writeHead(201, { 'content-type': 'application/json' }); const drip = setInterval(() => res.write(' '), 50); res.on('close', () => clearInterval(drip)); return undefined; }
           const name = payload?.identifiers?.[0]?.value;
           const id = ++n;
           const authzId = `a${id}`;
@@ -232,6 +235,7 @@ export async function startFakeAcme({ doorFor, lifetimeMs = 90 * 86_400_000, bad
     rootPem: root.pem,
     log,
     accounts,
+    stallOrders: (v) => { stallOrders = !!v; },
     orders,
     close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(() => r()); }),
   };

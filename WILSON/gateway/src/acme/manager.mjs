@@ -44,6 +44,13 @@ const DAY = 86_400_000;
 export const RENEW_BEFORE_MAX_MS = 30 * DAY;
 export const BACKOFF_MS = Object.freeze([60_000, 10 * 60_000, 60 * 60_000, 6 * 3600_000]);
 export const MAX_ATTEMPTS_PER_HOUR = 6;
+/**
+ * A rate limit's Retry-After is honoured for at most this long: seven days is
+ * the longest of Let's Encrypt's windows, and a longer answer (a bug, or a
+ * date in the year 9999) would stop the renewal for good (review round 1,
+ * finding 4).
+ */
+export const MAX_RETRY_AFTER_MS = 7 * DAY;
 const CHALLENGE_HOLD_MS = 3 * 60_000;
 
 /** When a certificate is renewed: a third of its life before its end, at most 30 days before. */
@@ -76,7 +83,7 @@ export function reasonOf(err, name) {
     default: break;
   }
   if (type) return `Let’s Encrypt refused (${type})`;
-  if (/did not answer|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up/i.test(String(err?.message))) return 'Let’s Encrypt could not be reached from this computer';
+  if (/did not answer|took longer than|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up/i.test(String(err?.message))) return 'Let’s Encrypt could not be reached from this computer';
   if (/still (pending|processing)/.test(String(err?.message))) return 'Let’s Encrypt did not finish checking in time';
   return 'the certificate could not be issued';
 }
@@ -116,6 +123,7 @@ export class AcmeManager {
     this.now = o.now || Date.now;
     this.directoryUrl = o.directoryUrl || LETS_ENCRYPT_DIRECTORY;
     this.transport = o.transport || null;
+    this.requestDeadlineMs = o.requestDeadlineMs; // tests only (the client's own default otherwise)
     this.log = o.log || (() => {});
     this.onCertificate = o.onCertificate || (() => {});
     this.sleep = o.sleep;
@@ -159,7 +167,7 @@ export class AcmeManager {
   async #client() {
     if (!this.account) {
       const key = newP256Key();
-      const c = new AcmeClient({ directoryUrl: this.directoryUrl, accountKey: key, transport: this.transport, now: this.now, sleep: this.sleep });
+      const c = new AcmeClient({ directoryUrl: this.directoryUrl, accountKey: key, transport: this.transport, requestDeadlineMs: this.requestDeadlineMs, now: this.now, sleep: this.sleep });
       const kid = await c.account();
       await this.fsp.writeFile(this.#f('account-key.bin'), await this.secrets.protect(Buffer.from(key.export({ type: 'pkcs8', format: 'pem' }), 'utf8')), { mode: 0o600 });
       await this.fsp.writeFile(this.#f('account.json'), JSON.stringify({ directory: this.directoryUrl, kid, created: new Date(this.now()).toISOString(), terms: c.termsOfService }, null, 2), { mode: 0o600 });
@@ -167,7 +175,7 @@ export class AcmeManager {
       this.log('acme_account', { directory: this.directoryUrl, terms: c.termsOfService });
       return c;
     }
-    return new AcmeClient({ directoryUrl: this.directoryUrl, accountKey: this.account.key, kid: this.account.kid, transport: this.transport, now: this.now, sleep: this.sleep });
+    return new AcmeClient({ directoryUrl: this.directoryUrl, accountKey: this.account.key, kid: this.account.kid, transport: this.transport, requestDeadlineMs: this.requestDeadlineMs, now: this.now, sleep: this.sleep });
   }
 
   /** The challenge the outside door answers for this SNI name now, or null (the door's hook). */
@@ -256,7 +264,7 @@ export class AcmeManager {
     } catch (e) {
       const reason = reasonOf(e, name);
       const failures = (this.state.failures || 0) + 1;
-      const wait = Math.max(BACKOFF_MS[Math.min(failures - 1, BACKOFF_MS.length - 1)], e?.retryAfterMs ?? 0);
+      const wait = Math.max(BACKOFF_MS[Math.min(failures - 1, BACKOFF_MS.length - 1)], Math.min(e?.retryAfterMs ?? 0, MAX_RETRY_AFTER_MS));
       this.state = { ...this.state, name, failures, lastError: { reason, type: e?.type ?? null, at: this.now() }, nextAttemptAt: this.now() + wait };
       this.log('acme_failed', { name, reason, type: e?.type ?? null, detail: String(e?.detail || e?.message || '').slice(0, 200), next_in_s: Math.round(wait / 1000) });
       return { ok: false, reason };
