@@ -185,3 +185,63 @@ describe('the "Bins" help page: File gateway (GW1)', () => {
     expect(text).toContain(`only while a workspace admin has turned on ${REMOTE_VIEWING_LABEL}`)
   })
 })
+
+// GW4 (2026-10-11): the two install stories as Help pages of their own, the
+// ONE text the card's tabs under Add a gateway show (gatewayWords.js's
+// NAS_STORY and WINDOWS_STORY): every word of a story is on its page, the card
+// renders the same objects, and the hardening guide they point to exists.
+describe('the install stories as Help pages (GW4)', () => {
+  const storyPage = (id, theme = 'dark') => render(<RabbitHelpContent helpPage={id} theme={theme} />).container
+  const flat = (s) => s.replace(/\s+/g, ' ')
+  it('sit right after Bins in R.A.B.B.I.T.\'s help, labelled as Help names them', () => {
+    const ids = RABBIT_HELP_SIDEBAR_ITEMS.map((i) => i.id)
+    expect(ids.slice(ids.indexOf('rabbit-bins'), ids.indexOf('rabbit-bins') + 3)).toEqual(['rabbit-bins', 'rabbit-gateway-nas', 'rabbit-gateway-windows'])
+    expect(RABBIT_HELP_SIDEBAR_ITEMS.find((i) => i.id === 'rabbit-gateway-nas').label).toBe('File gateway on a NAS')
+    expect(RABBIT_HELP_SIDEBAR_ITEMS.find((i) => i.id === 'rabbit-gateway-windows').label).toBe('File gateway on Windows')
+    // The Bins page's File gateway card names them as the sidebar does.
+    expect(page()).toContain('Help has both as pages of their own, File gateway on a NAS and File gateway on Windows')
+  })
+  it('each page shows every step, every item and every note of its story, in order, on both surfaces', async () => {
+    const { NAS_STORY, WINDOWS_STORY } = await import('../../components/settings/gatewayWords')
+    for (const [id, story] of [['rabbit-gateway-nas', NAS_STORY], ['rabbit-gateway-windows', WINDOWS_STORY]]) {
+      const c = storyPage(id)
+      const text = flat(c.textContent)
+      let at = -1
+      for (const st of story.steps) {
+        for (const piece of [`${st.lead} ${st.text}`, ...(st.items || []).map((it) => `${it.lead} ${it.text}`)]) {
+          const i = text.indexOf(flat(piece))
+          expect(i, `${id}: ${piece.slice(0, 50)}`).toBeGreaterThan(at)
+          at = i
+        }
+      }
+      for (const a of story.after) expect(text, `${id}: ${a.lead}`).toContain(flat(`${a.lead} ${a.text}`))
+      expect(text).toContain(story.intro)
+      // The steps are a numbered list, as the card numbers them.
+      expect(c.querySelectorAll('ol > li')).toHaveLength(story.steps.length)
+      cleanup()
+      expect(flat(storyPage(id, 'light').textContent)).toBe(text)
+      cleanup()
+    }
+  })
+  it('the card renders the same two objects (one text, two places), under the tab names the pages give', () => {
+    const card = src('src/components/settings/GatewaySettings.jsx')
+    expect(card).toContain('<Story story={tab === \'nas\' ? NAS_STORY : WINDOWS_STORY} locations={locations} />')
+    expect(card).toMatch(/import \{[^}]*\bNAS_STORY, WINDOWS_STORY\b[^}]*\} from '\.\/gatewayWords'/)
+    expect(flat(storyPage('rabbit-gateway-nas').textContent)).toContain('these same steps under On a NAS')
+    cleanup()
+    expect(flat(storyPage('rabbit-gateway-windows').textContent)).toContain('these same steps under On a Windows PC')
+  })
+  it('links the hardening guide, which is in the repository at that path, and says the switch and TPN as the design does', async () => {
+    const { HARDENING_GUIDE_URL } = await import('../../components/settings/gatewayWords')
+    expect(HARDENING_GUIDE_URL).toBe('https://github.com/pretty-aud/wilson/blob/main/WILSON/docs/gateway/HARDENING.md')
+    for (const id of ['rabbit-gateway-nas', 'rabbit-gateway-windows']) {
+      const a = [...storyPage(id).querySelectorAll('a')].find((x) => x.textContent === 'hardening guide')
+      expect(a, id).toBeTruthy()
+      expect(a.getAttribute('href')).toBe(HARDENING_GUIDE_URL)
+      expect(a.getAttribute('target')).toBe('_blank')
+      cleanup()
+    }
+    expect(src('docs/gateway/HARDENING.md')).toMatch(/^# The WILSON file gateway: the hardening guide/)
+    expect(flat(storyPage('rabbit-gateway-nas').textContent)).toContain('Turning on viewing from outside the office is the moment a workspace leaves TPN Gold Shield eligibility; WILSON never sells the gateway as TPN-compliant.')
+  })
+})

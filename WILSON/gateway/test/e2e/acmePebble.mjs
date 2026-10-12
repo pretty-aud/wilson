@@ -114,8 +114,21 @@ try {
   for (const [label, n, want] of [['not controlled', refused, /could not connect to/], ['blocked', blocked, /does not issue certificates for|refused/]]) {
     const r = await m.tick({ name: n, doorOpen: true });
     const warning = outsideCertificateWarning({ ...m.status(n), doorOpen: true }, Date.now());
-    report.steps.push({ step: `refused (${label})`, name: n, result: r, warning: warning?.text ?? null });
-    if (!r || r.ok || !want.test(r.reason) || m.tls(n)) die(`${n} was not refused as expected: ${JSON.stringify(r)}`);
+    const failed = logs.filter((l) => l.e === 'acme_failed' && l.name === n).at(-1) || null;
+    const answered = logs.filter((l) => l.e === 'acme_challenge_answered' && l.servername === n).length;
+    report.steps.push({ step: `refused (${label})`, name: n, result: r, warning: warning?.text ?? null, ca_said: failed?.detail ?? null, type: failed?.type ?? null, answered_on_this_door: answered });
+    if (!r || r.ok || !want.test(r.reason) || m.tls(n)) {
+      // What the CA's DNS says for the name, and what answers there for acme-tls/1.
+      const { Resolver } = await import('node:dns/promises');
+      const resolver = new Resolver(); resolver.setServers(['127.0.0.1:8053']);
+      const a = await resolver.resolve4(n).catch((e) => `A: ${e.code}`);
+      const aaaa = await resolver.resolve6(n).catch((e) => `AAAA: ${e.code}`);
+      const there = Array.isArray(a) && a[0] ? await new Promise((resolve) => {
+        const s = tls.connect({ host: a[0], port, servername: n, ALPNProtocols: ['acme-tls/1'], rejectUnauthorized: false }, () => { resolve({ alpn: s.alpnProtocol, san: s.getPeerCertificate().subjectaltname }); s.end(); });
+        s.on('error', (e) => resolve({ error: e.code || e.message }));
+      }) : null;
+      die(`${n} was not refused as expected: ${JSON.stringify(r)}; the CA said: ${failed?.type} ${failed?.detail}; challenges for it answered on this door: ${answered}; its DNS here: A ${JSON.stringify(a)}, AAAA ${JSON.stringify(aaaa)}; at that address: ${JSON.stringify(there)}`);
+    }
     say(`Pebble refused (${label})`, `${n}: ${r.reason}; the health line says: ${warning?.text}`);
   }
   report.ok = true;
