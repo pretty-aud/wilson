@@ -8,7 +8,7 @@
 // =============================================================================
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 import {
   activeScenesOf, activeShotsOf, activeShotListOf, scenesOfList, shotsOfList, listsContainingOf,
@@ -1559,7 +1559,8 @@ describe('FX4 review round 1 — the bar, the selector and the words', () => {
     save.focus()
     await act(async () => { fireEvent.click(save) })
     expect(document.activeElement.textContent).toBe('Save as…')
-    expect(status().textContent).toBe('“Director\'s cut · v1” saved')
+    // Emptied first, then said (R2-05): the region hears a change each time.
+    await waitFor(() => expect(status().textContent).toBe('“Director\'s cut · v1” saved'))
   })
 
   it('R1-06: after Discard changes focus goes to Save as… too, and the line says the changes were discarded', async () => {
@@ -1568,7 +1569,54 @@ describe('FX4 review round 1 — the bar, the selector and the words', () => {
     fireEvent.click(within(bar()).getByRole('button', { name: 'Discard changes' }))
     await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard changes?' })).getByRole('button', { name: 'Discard changes' })) })
     expect(document.activeElement.textContent).toBe('Save as…')
-    expect(bar().querySelector('.sr-only[role="status"]').textContent).toBe('Changes discarded')
+    await waitFor(() => expect(bar().querySelector('.sr-only[role="status"]').textContent).toBe('Changes discarded'))
+  })
+
+  // Review round 2 (R2-05): one region, always in the bar — in List order too
+  // — and the same words twice are heard twice (emptied before each).
+  it('R2-05: a new edit\'s Discard (back to List order): focus goes to the edit selector, and the line in the bar says so; a second Discard is said again', async () => {
+    draftPage({ edits: [] })
+    const status = () => bar().querySelector('.sr-only[role="status"]')
+    expect(status()).not.toBeNull()
+    const discardNew = async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+      fireEvent.click(menuItem('New edit from this list'))
+      await yes('Start new edit')
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Discard changes' }))
+      await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard changes?' })).getByRole('button', { name: 'Discard changes' })) })
+    }
+    await discardNew()
+    expect(document.activeElement).toBe(editSelect())
+    await waitFor(() => expect(status().textContent).toBe('Changes discarded'))
+    const seen = []
+    const watch = new MutationObserver(() => seen.push(status().textContent))
+    watch.observe(status(), { childList: true, characterData: true, subtree: true })
+    try {
+      await discardNew()
+      await waitFor(() => expect(seen).toContain('Changes discarded'))
+      expect(seen[0]).toBe('')
+    } finally { watch.disconnect() }
+  })
+
+  it('R2-05: a save that left changes made meanwhile unsaved says so, and focus goes back to Save edit', async () => {
+    let finish
+    const saveEditDraft = vi.fn(() => new Promise((r) => { finish = r }))
+    draftPage({ saveEditDraft })
+    await changeClimb()
+    const save = within(bar()).getByRole('button', { name: 'Save edit' })
+    save.focus()
+    await act(async () => { fireEvent.click(save) })
+    // Chromium blurs a focused button the moment it is disabled (Save edit
+    // is, while it saves); jsdom does not, so the test does what Chromium does.
+    expect(save.disabled).toBe(true)
+    // (jsdom ignores blur() on a disabled button: the focus is lost instead
+    // the way a page loses it, to an element taken out of the document.)
+    act(() => { const gone = document.createElement('button'); document.body.appendChild(gone); gone.focus(); gone.remove() })
+    expect(document.activeElement).toBe(document.body)
+    // The stand-in leaves the changes in place, as a rebase does.
+    await act(async () => { finish({ ...EDIT_1 }) })
+    await waitFor(() => expect(bar().querySelector('.sr-only[role="status"]').textContent).toBe('“Director\'s cut · v1” saved. Changes made while it saved are not saved yet.'))
+    expect(document.activeElement.textContent).toBe('Save edit')
   })
 
   it('R1-06 CONTROL: focus a control still holds is left where it is', async () => {

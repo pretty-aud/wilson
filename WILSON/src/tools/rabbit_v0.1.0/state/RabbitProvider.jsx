@@ -107,7 +107,7 @@ import {
 } from './shotListModel';
 import {
   draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
-  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft, savedAtOf, rebaseDraft,
+  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft, savedAtOf, rebaseDraft, sameCut,
 } from './editDrafts';
 import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // Post-overhaul S5: bid versions as living documents — the one pure answer
@@ -3144,6 +3144,17 @@ export function RabbitProvider({ children }) {
       setDraft(pid, list.id, next);
       return next;
     }
+    // Review round 2 (R2-02c): a first change to a saved edit whose round
+    // trip (New shot) outlived a Save edit of that edit starts from the edit
+    // as it is NOW — its cut and its Save — never the one seen at the press.
+    if (opts.editId && typeof opts.orApply === 'function') {
+      const current = findEdit(opts.editId);
+      if (current && current.shot_list_id === list.id) {
+        const items = opts.orApply(current.items || []);
+        if (!items) return null;
+        opts = { ...opts, base: current.items || [], items, title: current.title, version: current.version, baseSavedAt: savedAtOf(current.snapshot) };
+      }
+    }
     const draft = startDraft({
       projectId: pid,
       listId: list.id,
@@ -3167,12 +3178,35 @@ export function RabbitProvider({ children }) {
    * FX4 review round 1 (R1-09's twin): `items` may be a function of the
    * draft's items as they are NOW (a change whose New shot took a round trip
    * is applied to the draft the provider holds, never to the one the view
-   * saw before it), and `opts.editId`, when given, must be the draft's own —
-   * a change meant for one edit's changes never lands on another's.
+   * saw before it). Review round 2 (R2-02): `opts.draftId`, when given, names
+   * the changes it was made to — kept through a save that rebases them — and
+   * a change never lands on other changes; when those changes were SAVED
+   * meanwhile (nothing unsaved is left of them), it starts the changes of the
+   * edit they became, from that edit as it is now.
    */
   const changeEditDraft = useCallback((listId, items, opts = {}) => {
-    const { pid, draft } = requireDraft(listId);
-    if (Object.prototype.hasOwnProperty.call(opts, 'editId') && (draft.editId || null) !== (opts.editId || null)) {
+    const pid = activeProjectIdRef.current;
+    const named = Object.prototype.hasOwnProperty.call(opts, 'draftId') ? opts.draftId : undefined;
+    const held = pid ? editDraftsRef.current[draftKey(pid, listId)] : null;
+    if (!held && named && typeof items === 'function') {
+      const became = savedAsRef.current.get(named);
+      const edit = became ? findEdit(became) : null;
+      if (edit && edit.shot_list_id === listId && !edit.archived_at) {
+        const nextItems = items(edit.items || []);
+        if (!nextItems) return null;
+        const started = startDraft({
+          projectId: pid, listId, draftId: named,
+          basedOnEditId: edit.id, editId: edit.id, baseSavedAt: savedAtOf(edit.snapshot),
+          title: edit.title, version: edit.version,
+          base: edit.items || [], items: nextItems,
+          now: new Date().toISOString(), made: opts.made || [],
+        });
+        setDraft(pid, listId, started);
+        return started;
+      }
+    }
+    const { draft } = requireDraft(listId);
+    if (named !== undefined && draft.draftId !== named) {
       throw new Error('another edit of this list has unsaved changes now, so this change was not made');
     }
     const nextItems = typeof items === 'function' ? items(draft.items) : items;
@@ -3222,9 +3256,10 @@ export function RabbitProvider({ children }) {
   // held everything still while it wrote; now it is one press and two round
   // trips while the cut, its keys and the ways out stay live.
   const editSavesRef = useRef(new Map());
-  function savesInFlight() {
-    return [...editSavesRef.current.values()];
-  }
+  // Review round 2 (R2-02): which edit a draft (by its draftId) was saved as,
+  // so a change still in flight when it was saved finds the changes it was
+  // made to — or, nothing unsaved being left of them, the edit they became.
+  const savedAsRef = useRef(new Map());
 
   /**
    * Save edit (D13, D14; FX4). A draft of a SAVED edit (`editId`, FX4) is
@@ -3243,12 +3278,14 @@ export function RabbitProvider({ children }) {
   const saveEditDraft = useCallback(async (listId, opts = {}) => {
     const pid = activeProjectIdRef.current;
     const key = draftKey(pid, listId);
-    const earlier = editSavesRef.current.get(key);
-    if (earlier) {
-      const done = await earlier.catch(() => undefined);
-      if (!editDraftsRef.current[key]) return done;
-    }
+    // Review round 2 (R2-07): chained at the call, before any await, so three
+    // callers or more run one after another, never two at once.
+    const earlier = editSavesRef.current.get(key) || null;
     const run = (async () => {
+      if (earlier) {
+        const done = await earlier.catch(() => undefined);
+        if (!editDraftsRef.current[key]) return done;
+      }
       const { pid: at, draft } = requireDraft(listId);
       // Whose draft this is, held across the round trip: a sign-out can land
       // in the middle of it (review round 2, R2-03).
@@ -3309,17 +3346,32 @@ export function RabbitProvider({ children }) {
   // Anything else (another person's draft, begun after a sign-out) is not
   // this save's to touch.
   function settleDraftAfterSave(pid, listId, draft, person, saved) {
+    if (draft.draftId && saved?.id) savedAsRef.current.set(draft.draftId, saved.id);
     const now = editDraftsRef.current[draftKey(pid, listId)];
-    // Gone from memory (a sign-out meanwhile) or the one written: it ends,
-    // and its stored copy goes under ITS person (S3c R2-03).
-    if (!now || now === draft) { setDraft(pid, listId, null, person); return; }
+    // The one written: it ends, and its stored copy goes under ITS person
+    // (S3c R2-03).
+    if (now === draft) { setDraft(pid, listId, null, person); return; }
+    if (!now) {
+      // Gone from memory (a sign-out meanwhile). Review round 2 (R2-08): its
+      // stored copy goes only if it is what was written; one holding changes
+      // made while the save wrote is kept, on the version just saved, for
+      // "Recover unsaved edit?" to offer.
+      const stored = storedDraftKey(person, pid, listId);
+      const copy = readStoredDrafts()[stored];
+      if (!copy || copy.changedAt === draft.changedAt || sameCut(copy.items, saved?.items)) setDraft(pid, listId, null, person);
+      else writeStoredDraft(stored, storedCopy(rebaseDraft(draftFromCopy(copy), saved), person));
+      return;
+    }
     const mine = (now.personKey || person) === person;
-    const sameKind = (now.editId || null) === (draft.editId || null);
-    if (mine && sameKind) setDraft(pid, listId, rebaseDraft(now, saved), person);
+    const sameChanges = !!draft.draftId && now.draftId === draft.draftId;
+    // Review round 2 (R2-03): changes made meanwhile that came back to the cut
+    // just saved leave nothing unsaved: they end.
+    if (mine && sameChanges && sameCut(now.items, saved?.items)) { setDraft(pid, listId, null, person); return; }
+    if (mine && sameChanges) setDraft(pid, listId, rebaseDraft(now, saved), person);
     // Another person's draft (begun after a sign-out) stays as it is; only
     // the saved draft's own stored copy goes (setDraft never ends another
-    // person's draft). The same person's draft of another kind owns the
-    // list's stored copy now, and is left alone.
+    // person's draft). The same person's other changes (discarded and begun
+    // again meanwhile) own the list's stored copy now, and are left alone.
     else if (!mine) setDraft(pid, listId, null, person);
   }
 
@@ -3409,15 +3461,13 @@ export function RabbitProvider({ children }) {
       items,
       undoable: false,
     });
-    // The draft it wrote ends now (it IS the edit); one changed meanwhile
-    // waits for the Save below, so it can stand on that Save (R1-01).
-    const nowDraft = draft ? editDraftsRef.current[draftKey(pid, listId)] : null;
-    const changedMeanwhile = !!(draft && nowDraft && nowDraft !== draft);
-    if (draft && !changedMeanwhile) setDraft(pid, listId, null, person);
+    // Review round 2 (R2-04): the draft stays on screen until the edit is
+    // Saved too — ending it here showed List order between the two writes —
+    // and is settled once, below: it ends (it IS the edit), or, changed
+    // meanwhile, stands on the Save (R1-01).
     if (activeProjectIdRef.current !== pid) {
-      // No Save follows on another project's visit: the changes made
-      // meanwhile stand on the edit as written.
-      if (changedMeanwhile) settleDraftAfterSave(pid, listId, draft, person, row);
+      // No Save follows on another project's visit: it settles on the edit as written.
+      if (draft) settleDraftAfterSave(pid, listId, draft, person, row);
       return row;
     }
     // Its undo step is its person's: one who signed in meanwhile does not
@@ -3427,7 +3477,7 @@ export function RabbitProvider({ children }) {
     try {
       saved = await mutationsRef.current.saveEdit(row.id, row.items, undefined, { history: false, previous });
     } catch (err) {
-      if (changedMeanwhile) settleDraftAfterSave(pid, listId, draft, person, row);
+      if (draft) settleDraftAfterSave(pid, listId, draft, person, row);
       if (stillTheirs()) {
         pushHistory({
           undoOps: [surfaced(() => mutationsRef.current.withdrawEdit(row.id))],
@@ -3438,7 +3488,7 @@ export function RabbitProvider({ children }) {
       e.savedRow = row;
       throw e;
     }
-    if (changedMeanwhile) settleDraftAfterSave(pid, listId, draft, person, saved || row);
+    if (draft) settleDraftAfterSave(pid, listId, draft, person, saved || row);
     if (!stillTheirs()) return saved || row;
     const snapshot = saved?.snapshot ?? null;
     pushHistory({
@@ -3581,15 +3631,18 @@ export function RabbitProvider({ children }) {
     if (drafts.length === 1) throw refused[0].err;
     throw new Error([...notices, ...refused.map(({ d, err }) => `“${formatShotListLabel(d)}” was not saved: ${err?.message || err}`)].join(' '));
   }, [saveEditDraft]);
-  // FX4 review round 1 (R1-01): a Save edit already pressed is not undone by
-  // a Discard asked after it (the window's close question): it finishes
-  // first, and Discard drops only what is still unsaved then — the changes
-  // made while it wrote.
+  // Discard drops what is unsaved now. A Save edit pressed before it and
+  // still writing is not taken back (it was asked for first), and when it
+  // lands nothing of it comes back. FX4 review round 2 (R2-01): Discard never
+  // waits for it — a write that never settles must not hold the window's
+  // close question (or any exit) for ever.
   const discardOpenDrafts = useCallback(async () => {
-    const pending = savesInFlight();
-    if (pending.length) await Promise.allSettled(pending);
     for (const d of openDraftsNow()) setDraft(d.projectId, d.listId, null);
   }, []);
+  // Review round 2 (R2-06): whether Save edit can save any of the open
+  // project's unsaved changes — not when every one is changes to an edit
+  // archived since (those only Save as… keeps, as a new version).
+  const canSaveOpenDrafts = useCallback(() => openDraftsNow().some(d => !d.editId || !findEdit(d.editId)?.archived_at), []);
   const answerLeave = useCallback((go) => {
     const ask = leaveAskRef.current;
     leaveAskRef.current = null;
@@ -3610,20 +3663,16 @@ export function RabbitProvider({ children }) {
     order: 2,
     applies: (reason) => reason !== 'popup',
     dirty: () => editDraftHeldRef.current,
-    // FX4 review round 1 (R1-01): an exit pressed while Save edit is still
-    // writing waits for it: what it saved needs no question, and the
-    // question's own Save edit never writes the same changes a second time.
-    // Only what is still unsaved after it — changes made meanwhile — asks.
+    // FX4 review round 2 (R2-01): the question opens at once, as it always
+    // did, even while a Save edit is still writing — waiting for it left
+    // every exit dead and the page live under it. When that save lands and
+    // nothing unsaved is left, the question settles as "go" by itself (the
+    // effect above); its own Save edit waits behind the one in flight and
+    // never writes the same changes twice (saveEditDraft's chain).
     ask: (reason) => new Promise((resolve) => {
-      const open = () => {
-        if (!openDraftsNow().length) { resolve(true); return; }
-        const ask = { reason, resolve };
-        leaveAskRef.current = ask;
-        setLeaveAsk(ask);
-      };
-      const pending = savesInFlight();
-      if (pending.length) Promise.allSettled(pending).then(open);
-      else open();
+      const ask = { reason, resolve };
+      leaveAskRef.current = ask;
+      setLeaveAsk(ask);
     }),
     describe: () => unsavedEditWords(),
     count: () => openDraftsNow().length,
@@ -7840,6 +7889,7 @@ export function RabbitProvider({ children }) {
     unsavedEditCount,
     saveOpenDrafts,
     discardOpenDrafts,
+    canSaveOpenDrafts,
     // The bin system (demo 2026-09-11).
     bins:            bundle.bins || [],
     binFiles:        bundle.binFiles || [],
@@ -8059,7 +8109,7 @@ export function RabbitProvider({ children }) {
     openProjectDrafts, editDraftOf, hasUnsavedEdit, recoverableEditDrafts,
     startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft, saveEditAs,
     recoverEditDraft, dismissStoredEditDraft,
-    leaveAsk, answerLeave, describeUnsavedEdits, unsavedEditCount, saveOpenDrafts, discardOpenDrafts,
+    leaveAsk, answerLeave, describeUnsavedEdits, unsavedEditCount, saveOpenDrafts, discardOpenDrafts, canSaveOpenDrafts,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,

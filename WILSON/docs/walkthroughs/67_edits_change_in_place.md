@@ -46,10 +46,10 @@ by `scripts/fx4-shots.mjs`.
 | 5 | Drag another shot by its grip | It lands at once, as part of the same unsaved changes. Nothing asks until you save or discard. |
 | 6 | Hover **Save edit** | *Saves these changes into "Shot list 1 · v1", replacing its cut as it was saved. Save as… keeps that one and saves these as a new version.* (after-04) |
 | 7 | Click **Save edit** | Saved into *Shot list 1 · v1*: the same name, no new version in the selector, *Saved* with today's date, and the pulse gone. The keyboard's place moves to **Save as…**, and a screen reader hears *"Shot list 1 · v1" saved*. (after-05; before-05 was the window that made v2) |
-| 7a | Make a change, click **Save edit**, and while it is still saving make another change | The save writes what was there when you pressed it. The change made while it saved stays on screen as **● Unsaved**, now changes to the version just saved: nothing is lost, and the next Save edit writes it. |
+| 7a | Make a change, click **Save edit**, and while it is still saving make another change (a drag, a row's ⋯, a **New shot**) | The save writes what was there when you pressed it. The change made while it saved stays on screen as **● Unsaved**, now changes to the version just saved: nothing is lost, the next Save edit writes it, and Ctrl+Z takes it back to the cut just saved. A screen reader hears *"…" saved. Changes made while it saved are not saved yet.* |
 | 8 | *Up the stair*'s ⋯ → **Duplicate in edit**, then **Save as…** | *Save as a new version*: *A new version, from "Shot list 1 · v1": this cut, 17 shots in this order. "Shot list 1 · v1" stays as it was saved.* **Title** fixed while **Same title, next version** is on, *Will be "Shot list 1 · v2"*, and a **Summary**. (after-06) |
 | 9 | Type a summary, click **Save new version** | *Shot list 1 · v2* is on screen and saved; *Shot list 1 · v1* is still in the selector, as it was saved. (after-07) |
-| 10 | Make a change, then click **Timeline** in the tab strip | *Save the edit before leaving?*: *"Shot list 1 · v2", an edit of "Shot list 1 · v1", has changes that are not saved. Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.* **Keep editing** is focused (Escape too). Its **Save edit** saves into the edit, as the bar's does. Leave while a **Save edit** is still saving and the save finishes first: nothing asks for what it saved. (after-08) |
+| 10 | Make a change, then click **Timeline** in the tab strip | *Save the edit before leaving?*: *"Shot list 1 · v2", an edit of "Shot list 1 · v1", has changes that are not saved. Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.* **Keep editing** is focused (Escape too). Its **Save edit** saves into the edit, as the bar's does. Leave while a **Save edit** is still saving and the question opens at once; when that save lands with nothing left unsaved, it closes by itself and you go on. Its **Discard changes** never waits for a save that is slow to answer. (after-08) |
 | 11 | Make a change, click **Discard changes** | *The changes to "Shot list 1 · v2" are not saved: they go, and it comes back as it was saved.* **Discard changes** brings the saved cut back, and the keyboard's place moves to **Save as…**. |
 | 12 | With a saved edit on screen and nothing changed, click **Save as…** | The same window: a copy of the edit as the next version. |
 | 13 | Press **Ctrl+Z** after a change (before saving) | It undoes that change; **Ctrl+Y** redoes it. **Unsaved** stays until you save or discard. After **Save edit**, Ctrl+Z takes the save back (the edit's cut as it was saved before), on the cloud as on the Local Server. |
@@ -60,7 +60,7 @@ by `scripts/fx4-shots.mjs`.
 | # | Do | You should see |
 |---|----|----------------|
 | 15 | You and someone else both change the same saved edit. They press **Save edit** first, then you do | Your Save edit saves nothing, and the bar says: *Someone saved "…" since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.* Your changes stay on screen. This holds even when the two saves land in the same moment: the cloud, the Local Server and the test data each write an edit only while it still carries the save your changes began from. (Checked by tests: edits are not sent live to other screens, so this is found when you save.) Once Save as… has kept your changes, the message goes. |
-| 16 | A manager archives the edit while you have changes to it | **Save edit** says the edit was archived since and names **Save as…**; your changes stay. |
+| 16 | A manager archives the edit while you have changes to it | The selector reads *(unsaved changes, archived)*; **Save edit** greys, its hover saying **Save as…** keeps them as a new version; your changes stay. Leaving asks without a Save edit (it could only fail): Keep editing, then Save as…, or Discard changes. |
 
 ### As a reviewer (the cloud)
 
@@ -93,8 +93,18 @@ edit to change after it. It was checked by an automated test.
   under the full run's load on Windows and passes alone (`docs/OUTSTANDING.md`).
   After the change: 349 / 8,404 (2 skipped), the same two-under-load
   exceptions (the gateway's, and once an O.T.T.E.R. wiring scan), both
-  passing alone. The rest of this section is filled in after the review
-  rounds.
+  passing alone. After the first review round 349 / 8,433, after the
+  second 349 / 8,445 (2 skipped), all passing but the gateway's load
+  time-out, which passes alone.
+- **Two review rounds** (one reviewer each, attacking first the whole
+  change, then the first round's corrections). The first found one serious
+  fault, a change made while Save edit was still saving was lost, and eleven
+  smaller ones; the second found nine, none serious, in the first round's
+  corrections. All are fixed. Every fix was proved by breaking it on
+  purpose and watching its test fail: 88 deliberately broken versions.
+  84 were caught at once; two more once their tests were made stronger;
+  and two are second guards, each caught when broken together with the
+  guard it backs.
 - **In a real browser** (Chromium, the development copy): 40 checks driven
   by keys and real drags. They covered the list's first drag still asking, its Cancel
   focused, Tab and Enter starting the edit, focus landing on Save edit, Save
@@ -168,7 +178,12 @@ changes and from a saved edit, the leave and close questions' words and
 their Save edit, a recovered copy, and a sign-out in the middle of a save
 were checked through the real data layer in tests (`editDraftsProvider`'s
 FX4 block). Two people on one edit was checked there by changing the stored
-edit under an open change.
+edit under an open change, and in Chromium by a second save landing between
+the check and the write. A save that is slow, or never answers, was driven
+in Chromium with the test data's writes held back: changes made meanwhile
+(a drag, a row's ⋯, a New shot) kept; the leave question opening at once
+and closing by itself; Escape staying; Discard leaving while the write
+still hung; the window's close question not held by it.
 
 **Not checked:** a real second person on the cloud, a real reviewer seat,
 the desktop app (its window's close question shares the leave question's

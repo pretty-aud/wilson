@@ -29,7 +29,15 @@ import AnswerDialog from './AnswerDialog'
  * edit no longer makes a next version (a saved edit's changes are saved into
  * it), and Discard changes drops only what is not saved, never the edit.
  */
-export function leaveWords(unsaved, count = 1) {
+export function leaveWords(unsaved, count = 1, canSave = true) {
+  // FX4 review round 2 (R2-06): changes to an edit archived since cannot be
+  // saved into it, and only Save as… (on the bar) keeps them, as a new
+  // version: the question offers no Save edit that can only fail.
+  if (!canSave) {
+    return count > 1
+      ? `${unsaved} Their edits have been archived since, so they cannot be saved into them: Keep editing goes back to them, where Save as… keeps them as new versions; Discard changes drops what is not saved.`
+      : `${unsaved} Its edit has been archived since, so they cannot be saved into it: Keep editing goes back to them, where Save as… keeps them as a new version; Discard changes drops what is not saved.`
+  }
   return count > 1
     ? `${unsaved} Save edit saves each; Discard changes drops what is not saved; Keep editing goes back to them.`
     : `${unsaved} Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.`
@@ -44,6 +52,7 @@ export default function LeaveEditDialog() {
   // saved".
   const count = ctx.unsavedEditCount?.() ?? 1
   if (count < 1) return null
+  const canSave = ctx.canSaveOpenDrafts ? ctx.canSaveOpenDrafts() : true
   return (
     <AnswerDialog
       title="Save the edit before leaving?"
@@ -51,10 +60,10 @@ export default function LeaveEditDialog() {
       onStay={() => ctx.answerLeave(false)}
       answers={[
         { label: 'Discard changes', variant: 'danger', onClick: async () => { await ctx.discardOpenDrafts(); ctx.answerLeave(true) } },
-        { label: 'Save edit', variant: 'primary', onClick: async () => { await ctx.saveOpenDrafts(); ctx.answerLeave(true) } },
+        ...(canSave ? [{ label: 'Save edit', variant: 'primary', onClick: async () => { await ctx.saveOpenDrafts(); ctx.answerLeave(true) } }] : []),
       ]}
     >
-      {leaveWords(ctx.describeUnsavedEdits(), count)}
+      {leaveWords(ctx.describeUnsavedEdits(), count, canSave)}
     </AnswerDialog>
   )
 }

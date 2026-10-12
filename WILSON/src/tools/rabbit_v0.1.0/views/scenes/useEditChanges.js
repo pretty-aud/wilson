@@ -58,8 +58,10 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
         prepared = prepare ? await prepare() : null
         if (!apply || !onScreen) return false
         // The draft as it is NOW in the provider (a prepare may have taken a
-        // round trip), and only the same edit's (FX4 review round 1).
-        return !!ctx.changeEditDraft(list.id, (items) => apply(items, prepared), { made: made ? made(prepared) : [], editId: onScreen.editId || null })
+        // round trip), and only these same changes (FX4 review rounds 1 and
+        // 2: by their identity, kept through a save that rebased them; saved
+        // meanwhile, onto the edit they became).
+        return !!ctx.changeEditDraft(list.id, (items) => apply(items, prepared), { made: made ? made(prepared) : [], draftId: onScreen.draftId || null })
       } catch (err) {
         const wrote = prepared?.name ? ` The new shot “${prepared.name}” was added to the list and stays there.` : ''
         onError?.(wrote ? new Error(`${err?.message || err}.${wrote}`) : err)

@@ -68,13 +68,24 @@ export function storedDraftKey(personKey, projectId, listId) {
 const copyItems = (items) => (Array.isArray(items) ? items.map(it => ({ ...it })) : [])
 
 /**
+ * FX4 review round 2 (R2-02): a draft's own identity, kept through its
+ * changes, its undo, a save that rebases it and its stored copy — so a
+ * change whose round trip outlived a save (New shot) finds the changes it
+ * was made to, whatever edit they are now changes to.
+ */
+function newDraftId() {
+  return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
  * A new draft: `base` is what was on screen, `items` the first change
  * applied to it (D13). Its undo goes back to `base`.
  */
 const copyIds = (ids) => (Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [])
 
-export function startDraft({ projectId, listId, basedOnEditId = null, editId = null, baseSavedAt = null, title, version, base, items, now, made = [] }) {
+export function startDraft({ projectId, listId, basedOnEditId = null, editId = null, baseSavedAt = null, title, version, base, items, now, made = [], draftId = null }) {
   return {
+    draftId: draftId || newDraftId(),
     projectId,
     listId,
     basedOnEditId: basedOnEditId || null,
@@ -138,6 +149,7 @@ export function storedCopy(draft, personKey) {
     basedOnEditId: draft.basedOnEditId || null,
     editId: draft.editId || null,
     baseSavedAt: draft.baseSavedAt || null,
+    draftId: draft.draftId || null,
     title: draft.title,
     version: draft.version,
     base: draft.base,
@@ -156,8 +168,10 @@ export function savedAtOf(snapshot) {
  * FX4 review round 1 (R1-01): changes made WHILE a Save edit was in flight
  * are not that save's. Once it is written they stay unsaved — the same items
  * — as changes to the edit it saved (`saved`): its id, name and Save are the
- * draft's now, and its cut is where they start from. Their undo starts
- * afresh: what came before is the save.
+ * draft's now, and its cut is where they start from. They keep their
+ * identity (`draftId`), so a change still in flight finds them. Review round
+ * 2 (R2-03): their undo goes back to the cut just saved — one step — never
+ * past it (the save is the provider's own undo step).
  */
 export function rebaseDraft(draft, saved) {
   return {
@@ -168,9 +182,16 @@ export function rebaseDraft(draft, saved) {
     version: saved.version,
     baseSavedAt: savedAtOf(saved.snapshot),
     base: copyItems(saved.items),
-    past: [],
+    past: [copyItems(saved.items)],
     future: [],
   }
+}
+
+/** Review round 2 (R2-03): two cuts are the same when their items are, in order (ids, shots, blocks). */
+export function sameCut(a, b) {
+  const x = Array.isArray(a) ? a : []
+  const y = Array.isArray(b) ? b : []
+  return x.length === y.length && x.every((it, i) => it?.id === y[i]?.id && (it?.shot_id || null) === (y[i]?.shot_id || null) && (it?.scene_id || null) === (y[i]?.scene_id || null))
 }
 
 /**
@@ -179,6 +200,8 @@ export function rebaseDraft(draft, saved) {
  */
 export function draftFromCopy(copy) {
   return {
+    // FX4 review round 2: a copy from before has no identity of its own; it gets one.
+    draftId: typeof copy.draftId === 'string' && copy.draftId ? copy.draftId : newDraftId(),
     projectId: copy.projectId,
     listId: copy.listId,
     basedOnEditId: copy.basedOnEditId || null,

@@ -75,7 +75,7 @@ describe('the stored copy ("Recover unsaved edit?")', () => {
   it('holds what the draft needs — not its undo stacks — and comes back as a dirty draft with an empty undo', () => {
     const d = changeDraft(start(), C, 't2')
     const copy = storedCopy(d, 'u1')
-    expect(copy).toEqual({ personKey: 'u1', projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', editId: null, baseSavedAt: null, title: 'Cut', version: 3, base: d.base, items: d.items, changedAt: 't2', made: [] })
+    expect(copy).toEqual({ personKey: 'u1', projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', editId: null, baseSavedAt: null, draftId: d.draftId, title: 'Cut', version: 3, base: d.base, items: d.items, changedAt: 't2', made: [] })
     expect(copy.past).toBeUndefined()
     const back = draftFromCopy(JSON.parse(JSON.stringify(copy)))
     expect(back).toMatchObject({ projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', editId: null, baseSavedAt: null, title: 'Cut', version: 3, dirty: true, past: [], future: [], made: [] })

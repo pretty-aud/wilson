@@ -309,56 +309,78 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     : 'This edit is set aside: restore it to change it.'
   // Review round 1 (R1-06): what a save or a discard did, said politely —
   // the control that did it greys or goes, so nothing else would say it.
+  // Review round 2 (R2-05): one live region, always in the bar (ShotListBar's
+  // `announce`), emptied before each message so the same words twice are
+  // heard twice; and a save that left changes made meanwhile unsaved says so.
   const [announced, setAnnounced] = useState('')
+  const announceTimer = useRef(null)
+  const announce = useCallback((words) => {
+    setAnnounced('')
+    clearTimeout(announceTimer.current)
+    announceTimer.current = setTimeout(() => setAnnounced(words), 60)
+  }, [])
+  useEffect(() => () => clearTimeout(announceTimer.current), [])
   // One Save edit at a time (S3b review round 1, R1-13's rule for Save).
   const [savingEdit, setSavingEdit] = useState(false)
   const savingEditRef = useRef(false)
+  // What the last Save edit saved, said once it has settled (and the bar with it).
+  const justSaved = useRef(null)
   const saveEditNow = () => {
     if (savingEditRef.current || !draftOnScreen || !list) return
     const listId = list.id
     savingEditRef.current = true
     setSavingEdit(true)
-    setAnnounced('')
     run(async () => {
       try {
         const saved = await ctx.saveEditDraft(listId)
         if (saved?.id) viewed.viewEdit?.(saved.id, listId)
-        if (saved) setAnnounced(`“${label(saved)}” saved`)
+        if (saved) justSaved.current = `“${label(saved)}”`
       } catch (err) {
         // A new edit written whose names alone were refused IS saved: show
         // it, and say what was not done (the Banner).
         if (err?.savedRow) viewed.viewEdit?.(err.savedRow.id, listId)
         throw err
       }
-    }).finally(() => { savingEditRef.current = false; setSavingEdit(false) })
+    }).finally(() => { savingEditRef.current = false; refocus.current = true; setSavingEdit(false) })
   }
+  useEffect(() => {
+    if (savingEdit || !justSaved.current) return
+    const what = justSaved.current
+    justSaved.current = null
+    announce(draftOnScreen ? `${what} saved. Changes made while it saved are not saved yet.` : `${what} saved`)
+  })
   // Review round 1 (R1-06): Yes swaps the table and the bar's More menu for
   // the draft's, so the control the question came from is gone and focus
   // fell to the page. It goes to Save edit — the next thing the edit waits
-  // on — but only when nothing else has it. FX4 review round 1 (R1-06): and
-  // when the changes end (saved, or discarded), Save edit greys and Discard
-  // changes goes: focus, if nothing has it, goes to Save as…, beside them.
+  // on — but only when nothing else has it. FX4 review rounds 1 and 2
+  // (R1-06, R2-05): whenever the bar's edit verbs change under the focus —
+  // changes begun, saved, rebased or discarded — and nothing else has it,
+  // it goes to the bar's next thing: Save edit while changes are unsaved,
+  // Save as… on a saved edit, the edit selector in List order. Only once
+  // they can take it: a save in flight greys them.
   const saveEditRef = useRef(null)
   const saveAsRef = useRef(null)
   const draftShownKey = draftOnScreen ? `${draftOnScreen.listId}|${draftOnScreen.basedOnEditId || ''}` : null
   const lastShownKey = useRef(draftShownKey)
-  const refocusSaveAs = useRef(false)
+  const refocus = useRef(false)
   const focusLost = () => {
     const at = document.activeElement
     return !at || at === document.body || !at.isConnected
   }
   useEffect(() => {
-    const was = lastShownKey.current
+    if (lastShownKey.current === draftShownKey) return
     lastShownKey.current = draftShownKey
-    if (draftShownKey) { if (focusLost()) saveEditRef.current?.focus(); return }
-    if (was && focusLost()) refocusSaveAs.current = true
+    refocus.current = true
   }, [draftShownKey])
-  // …once Save as… takes focus again: it is greyed while a Save edit finishes.
   useEffect(() => {
-    if (!refocusSaveAs.current || savingEdit) return
-    refocusSaveAs.current = false
-    if (focusLost()) saveAsRef.current?.focus()
-  }, [draftShownKey, savingEdit])
+    if (savingEdit || !refocus.current) return
+    refocus.current = false
+    if (!focusLost()) return
+    const target = draftOnScreen ? saveEditRef.current
+      : editRow ? saveAsRef.current
+      : document.querySelector('.rb-scene-lists select[aria-label="Edit on screen"]')
+    target?.focus()
+  })
   const editVerbsOnBar = editOnScreen.mode !== 'none' ? (
     <>
       <GatedAction
@@ -397,9 +419,6 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
       {draftOnScreen && (
         <Button size="sm" variant="ghost" disabled={savingEdit} onClick={() => setDialog({ kind: 'discardEdit', row: shownDraft })}>Discard changes</Button>
       )}
-      {/* Review round 1 (R1-06): what a save or a discard did, for a screen
-          reader — here, where an edit is on screen before and after both. */}
-      <span className="sr-only" role="status" aria-live="polite">{announced}</span>
     </>
   ) : null
   // FX4: a saved edit's unsaved changes are that edit, chosen in the
@@ -594,6 +613,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           : recentEdit ? `${label(recentEdit.row)}, an edit of ${label(lists.find(l => l.id === recentEdit.row.shot_list_id)) || 'its list'}` : ''}
         gate={gate}
         edit={editBar}
+        announce={announced}
         on={{
           newList: guarded(() => setDialog({ kind: 'form', mode: 'new' })),
           openPicker: () => { setPickerError(null); setPickerOpen(true) },
@@ -671,7 +691,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
               viewed.viewEdit?.(saved.id, listId)
               // Review round 1 (R1-05): a refusal Save as… answered is over.
               onError(null)
-              setAnnounced(`“${label(saved)}” saved`)
+              announce(`“${label(saved)}” saved`)
             } catch (err) {
               // Written, but its Save refused: the edit IS there — show it,
               // and say what was not done where the bar's refusals are said.
@@ -689,7 +709,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           title="Discard changes?"
           confirmLabel="Discard changes"
           onCancel={close}
-          onConfirm={() => inDialog(async () => { ctx.discardEditDraft(list.id); close(); onError(null); setAnnounced('Changes discarded') })}
+          onConfirm={() => inDialog(async () => { ctx.discardEditDraft(list.id); close(); onError(null); announce('Changes discarded') })}
         >
           {discardWords({
             draft: target,

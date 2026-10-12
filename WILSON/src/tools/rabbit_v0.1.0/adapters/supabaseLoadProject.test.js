@@ -1551,6 +1551,23 @@ describe('upsertEdit(edit, { expectSavedAt }) — the conditional write (FX4 R1-
     expect(err.code).toBe('42501')
   })
 
+  // Review round 2 (R2-09): the read after zero rows that FAILED says its own error, never "not yours".
+  it('zero rows, and the read after it fails: that read\'s own error, not a permission refusal', async () => {
+    const { client } = conditionalClient({ updated: [], stored: null })
+    const from = client.from
+    client.from = (table) => {
+      const b = from(table)
+      const then = b.then
+      b.then = (resolve, reject) => (b.__isRead ? Promise.resolve({ data: null, error: { message: 'network down', code: 'PGRST000' } }).then(resolve, reject) : then(resolve, reject))
+      const select = b.select
+      b.select = (cols) => { if (cols === 'id, snapshot') b.__isRead = true; return select(cols) }
+      return b
+    }
+    const err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.message).toBe('[supabase] network down')
+    expect(err.code).toBe('PGRST000')
+  })
+
   it('CONTROL: without expectSavedAt (or for a new row with no id) the write is the upsert it was', async () => {
     const rec = recordingClient({ projects: PROJECT_ROW })
     const adapter = install(rec)

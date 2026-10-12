@@ -4362,6 +4362,8 @@ export function supabaseAdapter() {
         if (res.error) return unwrapShotList(res, missing0084Table);
         if (Array.isArray(res.data) && res.data.length) return res.data[0];
         const now = await client.from('edits').select('id, snapshot').eq('id', id).maybeSingle();
+        // Review round 2 (R2-09): a read that failed says its own error, never "not yours".
+        if (now?.error) return unwrapShotList(now, missing0084Table);
         const have = now?.data?.snapshot && typeof now.data.snapshot.saved_at === 'string' ? now.data.snapshot.saved_at : null;
         if (now?.data && have !== want) {
           const err = new Error(`[supabase] ${EDIT_SAVED_SINCE_MESSAGE}`);
