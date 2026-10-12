@@ -129,7 +129,8 @@ describe('the GW2 hand-off (docs/sessions/handoffs/po-gw2-2026-10-10.md), held t
     expect(CHANNEL_URL).toBe('https://github.com/pretty-aud/wilson/releases/latest/download/stable.json');
     expect(JSON.parse(tools).tools.wix.version).toBe('5.0.2');
     expect(handoff).toContain('pinned to 5.0.2');
-    expect(dockerfile).toMatch(/^FROM gcr\.io\/distroless\/nodejs24-debian12:nonroot$/m);
+    // GW2 named the base by tag and asked GW4 to pin it by digest: done.
+    expect(dockerfile).toMatch(/^FROM gcr\.io\/distroless\/nodejs24-debian12:nonroot@sha256:[0-9a-f]{64}$/m);
     expect(handoff).toContain('`gcr.io/distroless/nodejs24-debian12:nonroot`');
     let at = -1;
     for (const action of ['SetStateOwner', 'SetStateAcl', 'FreshPipeKey', 'WriteEnrolFile']) {
