@@ -577,7 +577,7 @@ Fix them in this work?**
 
 ---
 
-## Batch 8 — when a teammate saves the view you have open
+## Batch 8 — when a teammate saves the view you have open (answered)
 
 **Q3d. A teammate saves a change to a view you have open. What does your
 table do?**
@@ -591,9 +591,18 @@ table do?**
 *Why my pick:* everyone reading "Shoot week" sees the same thing, without
 losing a change of your own.
 
-### Her answers, batch 8
+### Her answers, batch 8 (2026-10-13; asked in chat as multiple choice; recorded verbatim)
 
-*(waiting)*
+- **Q3d:** "It follows (Recommended)"
+
+### What follows from batch 8 (say if any is wrong)
+
+- **A teammate's save reaches your open table at once.** If you have an
+  unsaved change of your own, yours stays on screen and the bar under the
+  toolbar says the view was changed by someone else; *Reset* brings theirs.
+
+**Every question is answered (2026-10-13).** The design is
+`docs/design/CUSTOM_VIEWS_DESIGN.md`, written to these answers.
 
 ---
 
