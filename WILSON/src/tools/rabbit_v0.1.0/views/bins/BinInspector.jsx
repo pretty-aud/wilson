@@ -277,7 +277,7 @@ export default function BinInspector({
           <Field label="Tags" mixed={mv('tags').mixed} hint="comma separated">
             <TextInput value={tags} onChange={setTags} onCommit={commitTags} disabled={!canWrite} placeholder="hero, b-roll, interview" />
           </Field>
-          <div className="bn-field-grid grid grid-cols-2 gap-4">
+          <div className="bn-field-grid bn-insp-grid grid gap-4">
             <Field label="Slate" mixed={mv('slate').mixed}>
               <TextInput value={slate} onChange={setSlate} onCommit={() => commit('slate', slate, mv('slate').value)} disabled={!canWrite} placeholder="24A" />
             </Field>

@@ -78,6 +78,110 @@ after her report.
 
 ## Broken features
 
+### On the desktop, the browser's own storage most likely starts empty at every launch
+**INFERRED (VW1's research, 2026-10-13; from the code and the handbook's
+§14, not measured by relaunching the packaged app).** The desktop's local
+server listens on port 0 (`electron/main.cjs`, `expressApp.listen(0, …)`)
+and the window loads `http://127.0.0.1:<that port>`; a browser keeps
+`localStorage` per origin, port included, so each launch should start with an
+empty store. What lives there today and would reset: the Scenes tab's
+remembered shot list (`rabbit_scene_viewed_lists`), the unsaved edit copies
+(`rabbit_edit_drafts`), Budget's and Team's saved views, the Timeline's
+settings and collapsed phases, the holidays. (The five tables' saved views
+move into the project with VW1.) Would settle it: change one of them in the
+packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
+protocol or a remembered port), or these stores moved into the machine's
+settings file.
+
+### The Tasks CSV export leaves out the asset and the bid, and writes statuses as stored
+**INFERRED (VW1's research, 2026-10-13; from the code).**
+`ProjectTasksView.jsx` → `handleExportCsv` writes no Asset (or any item)
+column and no Bid, and Status and Priority as their stored words
+(`in_progress`). Audrey ruled it for later (VW1's Q21). Would settle it:
+export the fixtures' Tasks and open the file.
+
+### Budget's Expenses: the *Linked task* filter calls every task "Untitled", and the saved views go stale after a project switch
+**INFERRED (VW1's research, 2026-10-13; from the code).** The filter's task
+values read `t.name`, which tasks do not have (they have `title`). The
+expense views' key is per project but the list is read once when the tab
+mounts; a project switch from the context bar keeps the tab mounted, so the
+menu lists the previous project's views and the next save writes them under
+the new project. Ruled for later (VW1's Q19, Q21).
+
+### Grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list
+**INFERRED (VW1's research, 2026-10-13; from the code, not measured).** The
+Tasks table's `groups` builds one group per asset, phase or project member
+plus *Unassigned*; a task assigned to someone not staffed on the project (or
+pointing at a phase or asset the project no longer lists) lands in no group
+and vanishes from the grouped table while the count still includes it.
+Would settle it: assign a fixture task to a person outside the project,
+group by Assignee.
+
+### The Assets table sorts the provider's own array in place
+**INFERRED (VW1's research, 2026-10-13; from the code).** With no filter or
+search, `ProjectAssetsView.jsx`'s `applyFilters` returns `ctx.assets`
+itself and `applySort` calls `.sort()` on it, reordering the shared array
+other views read. Levels and Experiences copy first.
+### Under a minimum font size the tables' dates are cut again, the calendar over the year
+**MEASURED (FX10 review round 1, R1-07, 2026-10-13; re-run by the session).**
+Firefox 157 at 1280x700 with `font.minimum-size.x-western` set to 16 (its
+Settings → Fonts → Minimum font size, an accessibility setting), the Tasks
+table on the dev fixtures, measured by the reviewer's copy of
+`scripts/fx10-date-fields-shots.mjs` (an option writes the preference into
+its throwaway Firefox profile; not in the committed script) and run again
+by the session with the same numbers: the date fields' 13px text
+is drawn at 16px, so a set date needs 142px and the empty
+`mm / dd / yyyy` 146.2px against the 132px the field has in its 144px
+column. The last 6.5px of a set date and 11px of the empty pattern are
+cut under the calendar button, 3px from it: her `09 / 26 / 202` again.
+The task window's wide fields stay whole. FX10's floor is a fixed
+`--date-room: 120px` tuned to the 13px text, and every table column is
+in px, so neither grows with a minimum font size; at the default size the
+dates are whole in all three engines measured (walkthrough 71). Not a
+regression: before FX10 these fields were cut at the default size too.
+Chromium's own minimum font size (chrome://settings/fonts) was not
+measured; the desktop app sets none (no `minimumFontSize` in its
+`webPreferences`). Fix shape: the room in em of the field's own font
+(about 9.25em) with the tables' date columns derived from it — which
+turns FX8's no-sideways-scroll arithmetic at 1280 into a font-dependent
+one — or a font-relative layout for the tables as a whole. Owner: the
+kit's date floor (`src/index.css`) and the tables' lanes.
+
+### The project control panel's 24 fields have no accessible name
+**MEASURED (FX10, 2026-10-13; review round 1's R1-12 named the two
+dates).** On the dev fixtures (Salt Hours → Summary → Control panel), read
+in the page: all 24 of the panel's inputs, selects and its textarea —
+Project name, Client / Studio, Description, Status tag, Director,
+Producer, Project code, Status, Type, Tier, Start date, End date,
+Currency, the four budget figures, Actuals column mode, Number of
+columns, Scene digits, Shot digits, Separator, Numbering start, Frames
+per second — have no `<label>` (`labels.length` 0), no `aria-label`, no
+`aria-labelledby` and no `title`. `ProjectSummaryView`'s `SettingsField`
+draws its words as a `<span>` beside the control, so a screen reader
+announces a field by its placeholder where it has one ("PROJ" for
+Project code) and otherwise by nothing but its role and value (review
+round 2 read Chromium's own accessibility tree: each date has the role
+"date" and an empty name). Older than FX10, outside its diff. Fix shape:
+`SettingsField` renders a `<label>` around its words and control (the
+kit's `Field` does), or gives each control an `aria-label` from its
+words. Owner: the Summary lane (`ProjectSummaryView.jsx`).
+
+### In the smallest desktop window, an open task form leaves a shot's take notes no room
+**MEASURED (FX10, 2026-10-13; found by the measuring script's pass over
+every control in a date's window, review round 2's R2-04).** On the dev
+fixtures at 1024x700, Salt Hours → Scenes → Shots → *The door* → Add new
+task: the shot window's main column falls from 594px to 260px beside the
+form, and each take row — its number (16px), its poster (72px) and its
+buttons (148px) — leaves the note's `flex-1` box 0px: the note field is
+18px wide, its words ("Keep for the trailer.", or the placeholder "Why
+this take…") unreadable and hard to click. The same with the date floor
+taken out in the page, so it is older than FX10 and not its CSS. With the
+form closed the notes are 248px at 1024; at 1280 and 1440 with the form
+open the same pass found their words whole. Fix shape: let a take
+row put its buttons under the note below a width, or give the note a
+minimum and let the row scroll. Owner: the Scenes lane (the shot window's
+takes in `ScenesView.jsx`, beside `RelationsPanel.jsx`'s side form).
+
 ### On a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped
 **MEASURED (FX8 review round 2, R2-09, 2026-10-12; Chromium with touch
 emulated, `hasTouch: true`, which makes `(hover: none)` match).** FX8-KR-2
@@ -1710,24 +1814,18 @@ merged with FX5 (`6051b432`, `--maxWorkers=4`, the dev server and
 Playwright idle beside it), `acme.test.mjs`'s "bad nonces are retried with
 the nonce the refusal carries" failed (`{ ok: false }` where `{ ok: true }`
 was expected, 150 ms) and passed alone three times out of three; FX7's
-three full runs before the merge had no gateway failure.)*
-
-### The gateway's reach-proof test races the gateway's own sync, and fails CI now and then
-**MEASURED (FX4, 2026-10-12).** CI's Vitest job (the "RLS tests" workflow,
-Linux) failed on two of FX4's first four pushes — run 38214523896 on
-`91523bca`, which changed no product code, and run 38216853649 on
-`2af04f85` — both at `gateway/test/runtime.test.mjs:493`, GW3's "a fresh
-nonce the gateway has not synced yet … proves nothing for the new":
-expected `isThisGateway: false`, received `true`. The next push's run passed
-with the same gateway code. **INFERRED:** the runtime's own periodic sync
-can land between the test setting a fresh nonce and probing, so the door
-already holds the new nonce. Settle it: stop (or stub) the gateway's sync
-timer in that test, or probe before the next tick. Owner: a GW session.
-*(FX6, 2026-10-12, MEASURED: the "Gateway" workflow's ubuntu job, run
-38312716840 on `feff09f9`, a branch with no gateway change of its own (it
-had just merged FX5's), failed at the same `runtime.test.mjs:493`,
-`isThisGateway: true` where `false` was expected; the Windows job and the
-same gateway code's run on the integration branch (`996e9c30`) passed.)*
+three full runs before the merge had no gateway failure.)* *(FX9,
+2026-10-12, MEASURED on FX9's tree (`54472510`; its change is one test's
+assertions): 17 runs of `runtime.test.mjs` beside a full `npx vitest run`
+at its default workers (32 logical CPUs) and a second test loop, the file
+taking up to 26.7 s where it takes 3 s alone, failed twice on the 5 s
+time-out — "an outside viewing: journal start and end …" (with the journal
+rewrite's unhandled `EPERM` again) and "no cloud for 60 s closes the outside
+door (D15) …". Beside `--maxWorkers=4`, 200 runs: one failure, "🚨 the probe
+never accepts an echo of the nonce …" (`runtime.test.mjs:596`, a 3.7 s
+file): its throwaway loopback echo server received no request (`answers`
+was `[]`). The test does not record the probe's error, and 3,400 in-process
+repeats of it under the same load missed none: cause NOT ESTABLISHED.)*
 
 ---
 
@@ -1737,6 +1835,9 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
+| Post-overhaul FX10 (2026-10-13; `po/fx10-date-fields` into `feat/post-overhaul-edit-versioning`) — the date fields (Audrey: "the calendar icon is covering the dates when it has all the space to space them out"): every date and the empty `mm / dd / yyyy` whole, the calendar icon clear and spaced, in the desktop app and in Firefox (her screenshot's), by one kit rule — a date field's floor, the date's room plus its own padding (FX10-KR-1) — with the Tasks, Assets and Shots date columns widened and four windows' rows reshaped; display only, no migration; walkthrough 71; two review rounds | **three entries under Broken features:** *under a minimum font size the tables' dates are cut again* (MEASURED, round 1's R1-07: FX10's floor and the tables' columns are px); *the project control panel's 24 fields have no accessible name* (MEASURED; older than FX10; round 1's R1-12 named the dates); *in the smallest desktop window, an open task form leaves a shot's take notes no room* (MEASURED by the measuring script's neighbours pass; older than FX10). Round 2's R2-03, the desktop app's table dates losing the keyboard's focus at their calendar glyph (older than FX10), was fixed, not entered | nothing. Comment markers: 4 → 4. |
+| Post-overhaul FX9 (2026-10-12; `po/fx9-reach-test-race` into `feat/post-overhaul-edit-versioning`) — the gateway's reach-proof test holds the gateway's syncs instead of racing them (`gateway/test/runtime.test.mjs` only; no product code): the race measured (the sync a `check_reach_now` asks for when its reach check lands, 17 ms after it idle; not the 10 s heartbeat), the window read whole in one assertion, two planted door faults caught, 200 loaded runs with no reach failure; one review round (opus) | **nothing under Broken features.** A dated FX9 line on FX3's gateway-load entry (two 5 s time-outs at a heavier load, one echo-probe miss in 200 runs with its cause not established; not FX9's code) | **one entry:** *The gateway's reach-proof test races the gateway's own sync, and fails CI now and then* — the test holds the syncs (`54472510`) |
 | Post-overhaul FX8 (2026-10-12; `po/fx8-table-row-actions` into `feat/post-overhaul-edit-versioning`) — the tables' row buttons (Audrey: "lets have uniformity and have the same icon ... lets move them all closer to the title of the items in the tables"): one page icon opens an item's window everywhere ("Open <name>"), every row's buttons right after its title in one order (Open, the row's own, Delete last) through the kit's RowTitle (FX8-KR-1), the actions columns gone, the title column at most 360px in Tasks, Assets, Levels and Experiences with the other columns taking the rest (walkthrough 70); two review rounds | **two entries under Broken features, found by the review rounds and older than FX8:** *Levels and Experiences have no write gate* (INFERRED, round 1); *on a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped* (MEASURED, round 2). The rows FX8 measured and left (the Shots table's sideways scroll, walkthrough 47 Q185; the nested shots' at 1280, P1-63; the Budget's expenses, Talent, Team, Files, relations and shot-list window rows) are tracked where they were or are walkthrough 70's questions | nothing |
 | Post-overhaul FX6 (2026-10-12; `po/fx6-status-line-weight` into `feat/post-overhaul-edit-versioning`) — the status line under every item popup's title, thicker (Audrey: "lets make the line thicker it feels to thin"): 3px, from 2, 3 and 4px rendered on every tone on both grounds at 1280 and 1440, set in the kit's one `.ui-status-banner` rule, on `typeScale.test.js`'s hand-judged list with her words; client only, no migration; walkthrough 68; two review rounds | **one entry under Broken features:** *under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined* (MEASURED in Chromium's emulation; not FX6's code; found by its review round 1, R1-04). A dated FX6 line on FX3's gateway-load entry (`release.test.mjs`'s two tests in the first full run at the cut; not FX6's code) | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX7 (2026-10-12; `po/fx7-timeline-header-labels` into `feat/post-overhaul-edit-versioning`) — the Timeline's PROJECT and Bid ver. labels (Audrey: "bid ver and project should be same sizing and color. if anything project should stand out more. lets remove the folder icon before the word project"): both the kit's `ui-field-label` in one column (5.1em of the label, 56.1px at 11px), so the project's name and the dropdown start at one x; no folder icon (the project title bar, every tab); the name a step above the dropdown and, since review round 1, above the version's name in the bar's words (now regular weight; the Budget tab's row keeps its bold); client only, no migration; walkthrough 69; two review rounds (every finding fixed, or named in the hand-off) | **nothing new.** A dated FX7 line on FX3's gateway-load entry (an `acme.test.mjs` test failing once in the merged tree's full run, passing alone; not FX7's code). Nothing broken was found in FX7's own work. Walkthrough 69's one question (keep the version's name regular on the Timeline, or bold again) and the figures band's own TIMELINE title (its icon, the darker grey; a section title in `TimelineView.jsx`, left as it is) are choices, recorded in the hand-off (`docs/sessions/handoffs/po-fx7-2026-10-12.md`) | **nothing.** Comment markers: 4 → 4. |
@@ -1903,7 +2004,7 @@ defines them; a row's "owner" is who acts first.
 - **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
 - **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
 - **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
-- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22.
+- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22. **Wider (VW1's research, 2026-10-13, MEASURED with `scripts/vw1-shots.mjs`):** all six saved-views menus have it — Tasks, Assets, Scenes, Levels and Experiences (each saved row a `div` with no role and no tab stop; only its delete ✕ is a button) and Team (from the code); Escape closes none of the five measured. VW1 replaces the five tables' menus with the new Views dropdown (its build sessions, `docs/design/CUSTOM_VIEWS_DESIGN.md` §4.9); Expenses and Team keep theirs (Audrey, VW1's Q19).
 - **P1-09 · Escape discards unsaved drafts** in ~~the Scenes popups,~~ `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d. **The Scenes popups' part FIXED by post-overhaul S3b** (2026-10-01, `po/s3b-shot-lists-ui`, D21): closing a scene or shot popup (✕, Close, Escape, the backdrop) with a changed description or notes, or Escape in a changed box, asks "Discard your changes?" first, Cancel focused. Left there: S3b-04 and S3b-05 below.
 - **P1-10 · Keyboard scrolling hides the focused row or cell** (the Bins list under its sticky head; Crew/Talent period cells past the scroller's edge). MEASURED. Owner: a session and the kit (scroll padding, B5b-KR-5). From B4c-13, B5b-7.
 - **P1-11 · A minimap bar drag does not save.** MEASURED. Owner: Audrey (C1). From B3d. After S1 the minimap drag is a true no-op for a phase drawn over exactly its own dates (post-overhaul S1, 2026-09-30; the minimap draws phases only): its mouse-up writes the DRAWN dates back, and those are now the stored ones, so it no longer stores a day early on this machine. It still rewrites a phase drawn over a different span — one with no dates or one date (drawn over its tasks' span, or today to +14 / padded 14 days when it has none), or a parent widened to cover its sub-phases — with that drawn span. Why the drag moves nothing, confirmed in the running app by S1's review round 2: `OverviewBar`'s move handler writes to `e.currentTarget`, which React 19 sets to null after dispatch, so it throws ("Cannot set properties of null (setting '_draftStart')"), and the mouse-up then writes the unmoved drawn span.
@@ -1926,7 +2027,7 @@ defines them; a row's "owner" is who acts first.
 - ~~**P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.~~ — FIXED by post-overhaul S3b: the popups' own label went; FileManager's head says it once.
 - (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1; walkthrough 47 Q192.)
 - **P1-25 · React logs duplicate keys (26×) after a take is unassigned or undone** (`rabbitFixturesAdapter.js:68-74`, `RabbitProvider.jsx:2919`; dev fixtures). MEASURED.
-- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED.
+- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED. **Wider (VW1's research, 2026-10-13, MEASURED on `?fixtures=game`):** the Tasks count is wrong too — it counts a task only under its first level (`taskCountById` reads the task's main `level_id`), so "Cliff Path", which fixture task 18 names second, reads 0 assets and 0 tasks in the table and in its window's *Linked counts* line while the window lists *Assets (2)* and *Tasks (1)* (`docs/sessions/handoffs/img/po-vw1-levels-05-window-counts-*.png`). Audrey ruled the fix (VW1's Q12); it is step 2 of `docs/design/CUSTOM_VIEWS_DESIGN.md` §7.
 - **P1-27 · Two tests import `@babel/parser` / `@babel/traverse` undeclared** (`otterCss.test.js`, `authSelectors.test.js`; resolved through plugin-react). MEASURED by reading `package.json`. Declaring them is a lock change: the lock's owner.
 - **P1-28 · A missing thumbnail draws the browser's broken-image icon** in a light 1px frame (`FileThumbnail`, the entity popups, Scenes rows; the asset detail draws initials instead). MEASURED.
 

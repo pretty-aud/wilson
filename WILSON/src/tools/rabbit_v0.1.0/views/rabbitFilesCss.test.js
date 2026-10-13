@@ -30,6 +30,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   jsxTags, cssCode, selectorsOf, lastCompound, specificity, gt,
   spreadAttributes, paletteLeaks, variableAttributes, keyedValues, unmatchedValues, arrayValues, mapFieldValues, propValues,
+  declaredValue, winningInsets, withDeclaration, classReach,
 } from '../rabbitCssGuards.js'
 import { contrast, over } from '../../../ui/contrast.js'
 import { PAPER, PAPER_RAISED, INK, INK_2, INK_3, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
@@ -649,5 +650,101 @@ describe('B4c review round two: the declarations that fix what round two measure
     // The play control is the tile's own box, its ring drawn inside it.
     expect(declsFor('.rb-fm-play')).toMatchObject({ display: 'block', padding: '0', border: '0', 'outline-offset': '-2px' })
     expect(parseFloat(declsFor('.rb-rel-pick-list')['scroll-padding-block'])).toBeGreaterThanOrEqual(ringRoom)
+  })
+})
+
+// FX10 (2026-10-13): the dates on this sheet hold the whole date and its
+// calendar — the Assets table's, the Assets window's and the Levels and
+// Experiences windows' (borderless fields), and an item window's new-task
+// form (the kit's small well). The floor is the kit's (src/index.css,
+// `input[type="date"]`, pinned by src/ui/dateField.test.js); this sheet
+// declares its borderless fields' insets and gives their containers the width
+// the floor makes. Firefox, which always draws its calendar button, cut the
+// year under it in every Assets row (the field was 112px, the date's room 100)
+// and in the new-task form (125px, 119 at 1280 in the desktop app).
+describe('FX10: the dates on this sheet hold the whole date and its calendar', () => {
+  const room = Number((cssCode(indexCss).match(/--date-room:\s*(\d+)px;/) || [])[1])
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-asset-table-wrap').body
+  const v = (name) => (wrap.match(new RegExp(`${name}:\\s*([^;]+);`)) || [])[1]
+  it('the borderless date fields — 6px a side, no border — declare that inset, 12, on their own class, and leave the floor its min-width', () => {
+    for (const cls of ['.rb-asset-date', '.rb-ent-date']) {
+      expect(declaredValue(sheet, cls, '--date-inset'), cls).toBe('12px')
+      expect([declaredValue(sheet, cls, 'padding'), declaredValue(sheet, cls, 'border')], cls).toEqual(['0 6px', '0'])
+      expect(declaredValue(sheet, cls, 'min-width'), cls).toBeNull()
+    }
+  })
+  it('an Assets row\'s date bleeds 6px into its cell\'s 12 a side, so the column is the floor and 12 — 144px; Description gave the 40px back (180 → 140)', () => {
+    expect([declaredValue(sheet, '.rb-asset-date', 'width'), declaredValue(sheet, '.rb-asset-date', 'margin-inline')]).toEqual(['calc(100% + 12px)', '-6px'])
+    expect(declaredValue(indexCss, '.ui-td', 'padding')).toBe('var(--cell-pad-y) var(--cell-pad-x)')
+    expect((cssCode(indexCss).match(/--cell-pad-x:\s*(\d+)px;/) || [])[1]).toBe('12')
+    // The field: the column less the cell's 12 a side, plus its 6px bleed a side.
+    expect(v('--rb-asset-date')).toBe(`${room + 12 + 12}px`)
+    expect(v('--rb-asset-desc')).toBe('140px')
+  })
+  it('an Assets row\'s calendar glyph shows on the pointed row or the focused field, hidden by its opacity so Tab can stop on it; the asset window always shows it (review round 2, R2-03)', () => {
+    expect(declaredValue(sheet, '.rb-asset-date::-webkit-calendar-picker-indicator', 'opacity')).toBe('0')
+    for (const sel of ['.rb-asset-row:hover .rb-asset-date:not(:disabled)::-webkit-calendar-picker-indicator', '.rb-asset-date:focus-within::-webkit-calendar-picker-indicator', '.rb-asset-prop > .rb-asset-date::-webkit-calendar-picker-indicator']) {
+      expect(declaredValue(sheet, sel, 'opacity'), sel).toBe('1')
+    }
+    expect(rulesOf(sheet).filter(({ sel, body }) => /calendar-picker-indicator/.test(sel) && /(?:^|;)\s*display\s*:\s*none/.test(body))).toEqual([])
+  })
+  it('the Levels and Experiences windows: a property is never narrower than the date\'s room, one to a row where two would be', () => {
+    expect(declaredValue(sheet, '.rb-ent-prop-grid', 'grid-template-columns'))
+      .toBe('repeat(auto-fit, minmax(max(var(--date-room), calc(50% - 12px)), 1fr))')
+    // Half the grid less half its 24px column gap: two to a row exactly fill it.
+    expect(declaredValue(sheet, '.rb-ent-prop-grid', 'gap')).toBe('16px 24px')
+  })
+  /* Review round 1 (R1-01): the dates' floor taken out of a three-to-a-row
+     grid left Bid days 51px in the desktop app ("12.5" read "12."). Start and
+     End share a row, two to a row, and Bid days has the next: at the form's
+     narrowest — 400px, less its 16px a side and a 17px scrollbar — a field
+     is 169.5px, over the small well's date floor (138) and far over Bid
+     days' "12.5". Dates first (round 2, R2-01): the Tasks table and the New
+     task window order them so, and with Bid days first the dates fell below
+     a 700px-tall window's fold. */
+  const rel = read('../components/RelationsPanel.jsx').replace(/\r\n/g, '\n')
+  const ROWS = /<div className="rb-rel-task-grid">\s*<Field label="Start">[\s\S]*?<\/Field>\s*<Field label="End">[\s\S]*?<\/Field>\s*<\/div>\s*<div className="rb-rel-task-grid">\s*<Field label="Bid days">[\s\S]*?<\/Field>\s*<\/div>/
+  const halfOf = (s) => {
+    const w = px(declaredValue(s, '.rb-rel-task', 'width'))
+    const pad = Number((declaredValue(s, '.rb-rel-task-body', 'padding') || '').split(/\s+/)[1]?.replace('px', ''))
+    const cols = declaredValue(s, '.rb-rel-task-grid', 'grid-template-columns')
+    const gap = Number((declaredValue(s, '.rb-rel-task-grid', 'gap') || '').split(/\s+/)[1]?.replace('px', ''))
+    return cols === 'repeat(2, minmax(0, 1fr))' ? (w - 2 * pad - 17 - gap) / 2 : NaN
+  }
+  const px = (v) => Number((String(v).match(/^(\d+(?:\.\d+)?)px$/) || [])[1])
+  it('an item window\'s new-task form: Start and End two to a row, Bid days on the next — each 169.5px at the form\'s narrowest, over the 138px floor', () => {
+    expect(rel).toMatch(ROWS)
+    expect(rel).not.toMatch(/data-cols/)
+    expect(rulesOf(sheet).some(({ sel }) => /data-cols/.test(sel))).toBe(false)
+    expect(halfOf(sheet)).toBe(169.5)
+    expect(halfOf(sheet)).toBeGreaterThanOrEqual(room + 18)
+    expect(rel.match(/className="ui-input rb-rel-task-field rb-rel-task-date"\s+data-size="sm"/g)).toHaveLength(2)
+  })
+  it('CONTROL: three to a row again, Bid days first again, or a narrower form, is caught', () => {
+    const three = rel.replace(/<\/Field>\s*<\/div>\s*<div className="rb-rel-task-grid">\s*<Field label="Bid days">/, '</Field>\n          <Field label="Bid days">')
+    expect(three).not.toBe(rel)
+    expect(three).not.toMatch(ROWS)
+    const bidFirst = rel.replace(ROWS, '<div className="rb-rel-task-grid">\n<Field label="Bid days"></Field>\n</div>\n<div className="rb-rel-task-grid">\n<Field label="Start"></Field>\n<Field label="End"></Field>\n</div>')
+    expect(bidFirst).not.toMatch(ROWS)
+    expect(halfOf(withDeclaration(sheet, '.rb-rel-task-grid', 'grid-template-columns', 'repeat(3, minmax(0, 1fr))'))).toBeNaN()
+    expect(halfOf(withDeclaration(sheet, '.rb-rel-task', 'width', '320px'))).toBeLessThan(room + 18)
+  })
+  /* R1-02's P05b: a heavier rule padding the Assets date cell would squeeze
+     the field the column arithmetic above sums with the kit's 12px a side.
+     The padding that WINS on a date cell — every rule of the kit's and this
+     sheet's that can land on it — is the kit's. */
+  // A context counts when every class it names can be around the cell: the
+  // view's own or one around where the view is rendered (classReach; round
+  // 2, R2-02's M11 — a hand-listed set of the cell's ancestors missed real
+  // ones). The Files tab's tables in this sheet (`.rb-files-frame`,
+  // `.rb-fm-root`) are not around it.
+  const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-asset-ctl-cell'], attrs: {}, never: [':first-child', ':last-child'],
+    reach: classReach(join(here, '../..', '..')).written['tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx'] }
+  const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
+  it('the padding that wins on an Assets date cell is the kit\'s 12px a side the column is summed with, and nothing ties with it', () => {
+    expect(cellPads(sheet)).toEqual({ values: ['var(--cell-pad-x)', 'var(--cell-pad-x)'], ties: [] })
+  })
+  it('CONTROL: a heavier rule that pads the date cells otherwise is caught', () => {
+    expect(cellPads(`${sheet}\n.rb-asset-table-wrap .rb-asset-table .ui-tr > .ui-td.rb-asset-ctl-cell { padding: 0 16px; }`).values).toEqual([16, 16])
   })
 })

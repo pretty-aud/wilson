@@ -85,6 +85,21 @@ const switchOn = async (W) => {
   await waitFor(() => W.gw.outsideState === 'open');
 };
 
+// FX9: "the cloud has an answer the gateway has not synced yet" is held, not
+// raced. The sync in flight, if any, lands first; then the sync loop stops, so
+// neither its heartbeat (sync_interval_s, 10 s) nor an on-demand sync (the one a
+// check_reach_now asks for when its reach check lands, an unknown kid, a
+// catalogue check) hands the gateway an answer until release(); one asked for
+// while held is dropped, not deferred (a catalogue check reads "not reached").
+// The last in-flight check and the stop are one synchronous step: nothing
+// starts between.
+const holdSyncs = async (W) => {
+  while (W.gw.sync.running) await W.gw.sync.running;
+  W.gw.sync.stop();
+  return { release: () => W.gw.sync.start() };
+};
+const syncCalls = (W) => W.cloud.state.calls.filter((c) => c.fn === 'gateway-sync').length;
+
 describe('enrolment (§2)', () => {
   it('the container\'s token at first start: enrolled once, the token spent, the fingerprint printed, the credential kept', async () => {
     const W = await world();
@@ -489,8 +504,25 @@ describe('GW3: the reach proof, the real runtime against the fake cloud\'s probe
       expect(r.body).toEqual({ ok: true, nonce_proof: expect.stringMatching(/^[0-9a-f]{64}$/) });
       expect(r.body.nonce_echo).toBeUndefined();
       // A fresh nonce the gateway has not synced yet: the door still holds the old one, and proves nothing for the new.
-      W.cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');
-      expect(await probe()).toMatchObject({ isThisGateway: false, proof_checked: true, body: { ok: true } });
+      // The syncs are held first (FX9): the reach check above asks for one more sync when it lands (measured 17 ms
+      // after the sync idle, 7–29 ms in 40 loaded runs, and up to the reach check's 2 s cap), and that sync landing
+      // between the fresh nonce and the door's answer handed the door the new one (CI, seven times by 2026-10-12).
+      // Held, a door that proves the new nonce proves one no sync gave it, which is the fault this is for; the window
+      // is read whole, so a failure says which of the two it was.
+      const old = W.cloud.state.reachNonce;
+      const hold = await holdSyncs(W);
+      const syncsBefore = syncCalls(W);
+      const fresh = crypto.randomBytes(16).toString('hex');
+      W.cloud.state.reachNonce = fresh;
+      const early = await probe();
+      const held = W.gw.remote.reachNonce;
+      expect({ isThisGateway: early.isThisGateway, proof_checked: early.proof_checked, body: early.body, syncsInWindow: syncCalls(W) - syncsBefore, doorHolds: held === old ? 'the old nonce' : held === fresh ? 'the fresh nonce' : held })
+        .toEqual({ isThisGateway: false, proof_checked: true, body: { ok: true }, syncsInWindow: 0, doorHolds: 'the old nonce' });
+      // ...and still proves the old one: the false above is the nonce, not a door that has stopped proving.
+      W.cloud.state.reachNonce = old;
+      expect(await probe()).toMatchObject({ isThisGateway: true });
+      W.cloud.state.reachNonce = fresh;
+      hold.release();
       await W.gw.syncNow();
       expect(await probe()).toMatchObject({ isThisGateway: true });
       // The credential the proof is keyed by is the one the cloud kept: another gateway's key proves nothing here.

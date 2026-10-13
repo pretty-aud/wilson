@@ -266,3 +266,15 @@ describe('V2: a note\'s date clears 4.5:1 on the selected tint and the hover was
     expect(css).toMatch(/\.dash-note-row\[data-selected="true"\] \{\s*background-color: var\(--color-signal-tint\);/)
   })
 })
+
+// Post-overhaul FX10 (2026-10-13; review round 1, R1-06): every date field
+// keeps the kit's date floor (src/index.css, `input[type="date"]`), and the
+// meta row's `min-width: 104px` outranked it here — at 104 Firefox would draw
+// its calendar button over the year. A rule one class heavier gives the note's
+// date the floor back; src/ui/dateField.test.js checks the whole cascade.
+describe('FX10: the note\'s date keeps the kit\'s date floor', () => {
+  it('the meta row\'s fields keep their 104 to 180px, and the date a floor one class heavier', () => {
+    expect(dashboardCss).toMatch(/\.dash-note-meta > \.ui-input \{ flex: 0 1 auto; min-width: 104px; max-width: 180px; \}/)
+    expect(dashboardCss).toMatch(/\.dash-note-meta > \.ui-input\.dash-date \{ min-width: calc\(var\(--date-room\) \+ var\(--date-inset\)\); \}/)
+  })
+})
