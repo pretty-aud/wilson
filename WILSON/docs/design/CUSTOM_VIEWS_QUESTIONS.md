@@ -193,7 +193,7 @@ about one asset's work may not want the project's key dates in it.
 
 ---
 
-## Batch 3 — the card, and a task's linked items in the table (your screenshot)
+## Batch 3 — the card, and a task's linked items in the table (your screenshot) (answered)
 
 **Q5a. When you press Filters (or Sort, Group, Fields) in the Views dropdown,
 where does its card appear?** (A follow-up to your Q5 answer.)
@@ -248,13 +248,67 @@ you mean you can NOT see them in the Tasks table, and want them there?**
 *Why my pick:* each kind reads and edits like the Asset column you know
 (law of similarity), and a view can show only the kinds it needs.
 
-### Her answers, batch 3
+### Her answers, batch 3 (2026-10-13; asked in chat as multiple choice; recorded verbatim)
 
-*(waiting)*
+- **Q5a:** "so when i press in filters show me a card with the current existing and set filters. then have a button to allow me to create a new filter. when i start to make a filter use the interface you create before for filters but in the dropdown card"
+- **Q9:** "All of them (Recommended)"
+- **Q10:** "Pick several there (Recommended)"
+- **Q11:** "Yes, a column for each (Recommended)"
+
+### What follows from batch 3 (say if any is wrong)
+
+- **The Filters card** lists the view's filters as they are set now, then a
+  button to add a new filter; a new filter is made with today's filter rows
+  (*Where / And*, field · condition · value), inside the card. The Sort,
+  Group and Fields cards follow the same pattern: what is set now, then the
+  way to add or change it. Where the card opens was not answered; it is
+  Q5b, with a picture of each.
+- **The Tasks table's Asset column shows every linked asset** by name, the
+  main one first, "+2" when they do not fit, the whole list on hover; the
+  Board's cards name them all too.
+- **Clicking the cell opens a picker**: every asset of the project with a
+  tick box and a search box (same-named assets show their type and phase);
+  tick or untick several; the order and the main one stay as the task's
+  window sets them.
+- **Scene, Shot, Level and Experience columns join the Tasks table**, each
+  working like the Asset column; Level and Experience show only on projects
+  that use them; a view can hide any of them.
+- **Filtering by any of these kinds finds a task through any of its items**
+  ("Asset is Storm Lantern" finds a task whose second asset is Storm
+  Lantern), as the cell shows them all. Today the Asset filter matches the
+  first asset only.
 
 ---
 
-## Batch 4 — the other tables' links, columns, what a view remembers, filters
+## Batch 4 — where a card opens, grouping by a linked item, the other tables, columns
+
+**Q5b. Where does a card open?** (Your Q5a answer said what the Filters card
+holds; this asks only where it appears. In the chat each choice has a
+picture.)
+- **In place of the list, with a back arrow** *(Recommended)*: the dropdown
+  becomes the Filters card, one card at a time; a ← at its top returns to
+  the list of views and parts. It covers only as much of the table as the
+  dropdown did, so you watch the rows change as you set the filter.
+- **Beside the dropdown**: the Filters card opens next to the dropdown and
+  both stay open; it covers more of the table (about half of it at 1280).
+
+*Why my pick:* the table stays in view while you work (working memory), and
+the card you are in is the only thing open (common region).
+
+**Q11a. Grouping the Tasks table by Asset (or Scene, Shot, Level,
+Experience): where does a task linked to two of them go?** (FX2 asked you a
+wider version of this, for the Timeline and the Budget too; it is still
+open there. This asks only about the Tasks table.)
+- **Once, under its main one** *(Recommended)*: the task shows once, under
+  its first (main) asset; its cell names the others. The groups' counts add
+  up to the number of tasks, as the Timeline and the Budget count today.
+- **Under each of them**: the task shows in the group of every asset it is
+  linked to (twice for two); each group lists all the work about that asset,
+  and the counts add up to more than the number of tasks.
+
+*Why my pick:* one row per task keeps the counts, the ticked rows and bulk
+changes honest; the cell already names every asset, and filtering by an
+asset finds the task wherever it is linked.
 
 **Q12. The other four tables: should they show their linked items too?**
 Today Assets shows a count of its tasks (right); Scenes and Shots show no
@@ -285,6 +339,14 @@ Tasks columns have been used.
 (FX8); free widths bring sideways scrolling back. Notion does allow widths,
 so it is a real choice.
 
+### Her answers, batch 4
+
+*(waiting)*
+
+---
+
+## Batch 5 — what a view remembers, filters, sorts, grouping
+
 **Q8. Besides filters, sorting, grouping and fields, what else does a view
 remember?**
 - **Its layout and size** *(Recommended)*: whether it is the Table, the
@@ -310,14 +372,6 @@ it either).
 *Why my pick:* it covers what a production table needs ("my open work")
 without the and/or puzzle Notion itself moved out of sight in 2022.
 
-### Her answers, batch 4
-
-*(waiting)*
-
----
-
-## Batch 5 — sorts, grouping, Scenes and Shots, the old views
-
 **Q14. How many sorts can a view hold?**
 - **Several, in order** *(Recommended)*: for example by Phase, then by Start
   date, set in the Sort card; the toolbar's Sort dropdown still sets the
@@ -338,6 +392,14 @@ say that.
 *Why my pick:* today empty groups show in one place only (the Tasks table's
 Status grouping); the switch makes every table behave one way. Notion's
 tables cannot sub-group either (only its boards).
+
+### Her answers, batch 5
+
+*(waiting)*
+
+---
+
+## Batch 6 — Scenes and Shots, the old views, Budget and Team, ready-made views
 
 **Q16. Scenes and Shots: one list of views, or two?**
 - **Two lists** *(Recommended)*: Scenes views and Shots views are separate,
@@ -363,14 +425,6 @@ at every restart: research §2.2.)
 - **Keep them apart**: they stay in that browser as a separate *From this
   computer* list beside the project's views.
 
-### Her answers, batch 5
-
-*(waiting)*
-
----
-
-## Batch 6 — Budget and Team, ready-made views, and what was found along the way
-
 **Q19. Budget's Expenses and the Team tab have saved views too (you did not
 name them). What about them?**
 - **Later** *(Recommended)*: they stay as they are in this work; once the
@@ -384,6 +438,14 @@ name them). What about them?**
   make the rest.
 - **A few starters**: for example Tasks: *By phase*, *Overdue*; Scenes: *By
   status*; Shots: *By scene*; each can be deleted.
+
+### Her answers, batch 6
+
+*(waiting)*
+
+---
+
+## Batch 7 — what was found along the way
 
 **Q21. The research found defects in the same controls (research §2.7).
 Fix them in this work?**
@@ -399,7 +461,7 @@ Fix them in this work?**
 - **Record only**: fix nothing beyond the views themselves; record every
   defect in `docs/OUTSTANDING.md`.
 
-### Her answers, batch 6
+### Her answers, batch 7
 
 *(waiting)*
 
