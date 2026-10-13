@@ -218,8 +218,12 @@ seen in the running app; **from the code** means read, not run.
 | **Scenes**, Shots mode | the same, with Sort 9 fields and Group 6 (*Scene* by default) | New scene · **New shot** |
 | **Levels**, **Experiences** | Filter · Sort (3) · arrow (always, even unsorted) · Group (1) · Table / Gallery · card sizes (gallery only) · **Views** · Search (names only) | the count · **New level** / **New experience** |
 
-At 1280 the Scenes toolbar wraps: the search box and the count drop to a
-second line (`po-vw1-scenes-01-rest-1280x700.png`).
+**At 1280 three toolbars already take two lines** (81px tall against 45px
+at 1440): Tasks (the count, Export, Phase, Key date, Deleted key dates and
+New task drop to the second line, `po-vw1-tasks-01-rest-1280x700.png`), and
+Scenes and Shots (the search box and the count drop,
+`po-vw1-scenes-01-rest-1280x700.png`). Assets, Levels and Experiences fit
+on one line at both sizes.
 
 **Fields offered** (measured, from each select's options):
 

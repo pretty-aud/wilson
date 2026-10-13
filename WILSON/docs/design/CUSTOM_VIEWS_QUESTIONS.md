@@ -429,7 +429,7 @@ tables cannot sub-group either (only its boards).
 
 ---
 
-## Batch 6 — Scenes and Shots, the old views, Budget and Team, ready-made views
+## Batch 6 — Scenes and Shots, the old views, Budget and Team, ready-made views (answered)
 
 **Q16. Scenes and Shots: one list of views, or two?**
 - **Two lists** *(Recommended)*: Scenes views and Shots views are separate,
@@ -469,13 +469,69 @@ name them). What about them?**
 - **A few starters**: for example Tasks: *By phase*, *Overdue*; Scenes: *By
   status*; Shots: *By scene*; each can be deleted.
 
-### Her answers, batch 6
+### Her answers, batch 6 (2026-10-13; asked in chat as multiple choice; recorded verbatim)
 
-*(waiting)*
+- **Q16:** "Two lists (Recommended)"
+- **Q17:** "Start fresh"
+- **Q19:** "Later (Recommended)"
+- **Q20:** "Only All (Recommended)"
+
+### What follows from batch 6 (say if any is wrong)
+
+- **Scenes and Shots each have their own list of views**; the dropdown shows
+  the list for the mode on screen.
+- **The five tables' old views are removed** (the lists each browser keeps
+  for Tasks, Assets, Scenes, Levels and Experiences); everyone starts from
+  the built-in *All* view.
+- **Budget's Expenses and the Team tab keep their saved views as they are**;
+  the new views come to them in a later session.
+- **Each table comes with the built-in *All* view only.**
 
 ---
 
-## Batch 7 — what was found along the way
+## Batch 7 — where saving sits, what All shows, the views' order, what was found along the way
+
+**Q3c. While a view has a change, where do *Save*, *Save as new view* and
+*Reset* sit?** (Today the Tasks, Scenes and Shots toolbars already take two
+lines at 1280; Assets, Levels and Experiences fit on one.)
+- **A bar under the toolbar** *(Recommended)*: while the view has a change, a
+  slim bar under the toolbar says "Shoot week: changed for now" with
+  *Reset*, *Save as new view* and *Save*; it goes when you save or reset. The
+  toolbar does not move. (Notion shows its *Reset* / *Save for everyone*
+  under the view tabs in the same way.)
+- **In the toolbar, after Views**: the three buttons appear right after the
+  Views button; on a smaller screen the toolbar wraps onto a second line.
+- **Inside the Views dropdown**: the Views button reads "Shoot week ·
+  edited"; *Save*, *Save as new view* and *Reset* sit at the top of the
+  dropdown.
+
+*Why my pick:* the change is impossible to miss (Von Restorff) without
+moving or crowding the toolbar, and the buttons go away when there is
+nothing to save.
+
+**Q6a. What does the built-in *All* view show in the Tasks table, now that
+Scene, Shot, Level and Experience columns join it?** Today the table needs
+1,238px and fits a 1280 window with nothing to spare; each new column adds
+about 150px (two on a film project: about 1,540px; four on a project with
+both scenes and levels: about 1,840px).
+- **Every column, the name kept in view** *(Recommended)*: *All* is the
+  whole table: every column the project uses (Scene and Shot where the
+  project has scenes, Level and Experience where it uses them). A narrower
+  window scrolls the table sideways, as the Shots table does today, and the
+  task's name stays in place while the rest scrolls. Views you make trim it.
+- **Today's columns only**: *All* keeps today's columns and fits as now; the
+  new columns show in views you make (one view, made once for the project,
+  shows them for everyone).
+
+*Why my pick:* you asked to see what a task is about; *All* should show it
+without a view to make first. Keeping the name in view keeps every row
+readable while you scroll.
+
+**Q5c. How are the views ordered in the dropdown?** (*All* is always first.)
+- **The order they were made, and dragged** *(Recommended)*: a new view goes
+  to the end; anyone who can save views can drag one to another place, and
+  everyone sees that order (as Notion's view tabs).
+- **Alphabetical**: always A to Z.
 
 **Q21. The research found defects in the same controls (research §2.7).
 Fix them in this work?**
@@ -492,6 +548,26 @@ Fix them in this work?**
   defect in `docs/OUTSTANDING.md`.
 
 ### Her answers, batch 7
+
+*(waiting)*
+
+---
+
+## Batch 8 — when a teammate saves the view you have open
+
+**Q3d. A teammate saves a change to a view you have open. What does your
+table do?**
+- **It follows** *(Recommended)*: your table updates in place. If you have
+  a change of your own that you have not saved, yours stays on screen and the
+  bar under the toolbar says the view was changed by someone else (*Reset*
+  brings theirs).
+- **It waits**: your table keeps what you opened until you pick the view
+  again or reopen the table.
+
+*Why my pick:* everyone reading "Shoot week" sees the same thing, without
+losing a change of your own.
+
+### Her answers, batch 8
 
 *(waiting)*
 
