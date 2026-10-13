@@ -280,7 +280,7 @@ you mean you can NOT see them in the Tasks table, and want them there?**
 
 ---
 
-## Batch 4 — where a card opens, grouping by a linked item, the other tables, columns
+## Batch 4 — where a card opens, grouping by a linked item, the other tables, columns (answered)
 
 **Q5b. Where does a card open?** (Your Q5a answer said what the Filters card
 holds; this asks only where it appears. In the chat each choice has a
@@ -339,9 +339,24 @@ Tasks columns have been used.
 (FX8); free widths bring sideways scrolling back. Notion does allow widths,
 so it is a real choice.
 
-### Her answers, batch 4
+### Her answers, batch 4 (2026-10-13; asked in chat as multiple choice, Q5b and Q11a with a picture of each choice; recorded verbatim)
 
-*(waiting)*
+- **Q5b:** "In place, with a back arrow (Recommended)"
+- **Q11a:** "Once, under its main one (Recommended)"
+- **Q12:** "Fix counts, no new columns (Recommended)"
+- **Q7:** "Order, not width (Recommended)"
+
+### What follows from batch 4 (say if any is wrong)
+
+- **A card opens in place of the dropdown's list**, one at a time, with a ←
+  back to the list; the table stays in view below it.
+- **Grouped by a linked kind, a task shows once, under its main item**; its
+  cell names the others; the groups' counts add up to the number of tasks.
+- **The other four tables get no new columns**; every count counts every
+  link (Levels' and Experiences' asset and task counts, the scene window's
+  asset count), and a view can show or hide the counts.
+- **A view sets the columns' order** (dragging fields in the Fields card) and
+  which show; **widths stay as WILSON sets them**.
 
 ---
 
