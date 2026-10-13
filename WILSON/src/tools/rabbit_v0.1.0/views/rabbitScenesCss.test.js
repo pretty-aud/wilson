@@ -1002,3 +1002,26 @@ describe('FX1: the number fields on the sheet', () => {
     expect(declaredValue(withDeclaration(sheet, '.rb-scene-number-btn', 'color', 'transparent'), '.rb-scene-number-btn', 'color')).not.toBe('var(--color-ink-2)')
   })
 })
+
+// FX10 (2026-10-13): the Shots table's dates hold the whole date and its
+// calendar. Its 144px column held a 120px small well, the date's room 102:
+// Firefox, which always draws its calendar button, cut the year under it in
+// every row, and Chromium left the icon 3.7px from an empty one. The kit's
+// floor (src/index.css, `input[type="date"]`, pinned by
+// src/ui/dateField.test.js) keeps the well at least 138px; the date cells pad
+// 6px a side, as the Frames cell beside them does, and the column is 150px.
+describe('FX10: the Shots table\'s dates hold the whole date and its calendar', () => {
+  const room = Number((cssCode(indexCss).match(/--date-room:\s*(\d+)px;/) || [])[1])
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-scene-table-wrap').body
+  const CELL = '.rb-scene-table .ui-tr > .ui-td.rb-scene-date-cell'
+  it('the date cells pad 6px a side; the column is the small well\'s floor and those: 150px', () => {
+    expect([declaredValue(sheet, CELL, 'padding-left'), declaredValue(sheet, CELL, 'padding-right')]).toEqual(['6px', '6px'])
+    expect((wrap.match(/--rb-scene-col-date:\s*([^;]+);/) || [])[1]).toBe(`${room + 18 + 6 + 6}px`)
+  })
+  it('every date field of the Scenes tab is the kit\'s small well, the table\'s and the two windows\' (its inset the kit\'s)', () => {
+    expect(read('ScenesView.jsx').match(/className="ui-input rb-scene-date"\s+data-size="sm"/g)).toHaveLength(6)
+  })
+  it('CONTROL: the 144px column with the kit cell\'s 12px a side held a 120px well — under the 138 floor', () => {
+    expect(144 - 12 - 12).toBeLessThan(room + 18)
+  })
+})

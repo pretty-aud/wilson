@@ -51,6 +51,7 @@ import {
   unreadableAttributes, toneLiterals, kitFights, colourLiterals, fillShadows,
   orangeGrounds, undefinedProperties, readAwayFromSetter, stateLeaks,
   impossibleTones as impossibleTonesOf, toneSources as toneSourcesOf,
+  declaredValue, rulesOf, cssCode,
 } from '../rabbitCssGuards.js'
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
 
@@ -349,5 +350,48 @@ describe('FX2: the task window\'s left column scrolls; its parts never shrink', 
   it('every child of .rb-task-detail-files keeps its height, and the column scrolls', () => {
     expect(normal(sheet)).toMatch(/\.rb-task-detail-files > \* \{ flex-shrink: 0; \}/)
     expect(normal(sheet)).toMatch(/\.rb-task-detail-files \{[^}]*overflow-y: auto;/)
+  })
+})
+
+// FX10 (2026-10-13): the Tasks table's dates hold the whole date and its
+// calendar. Audrey: "the calendar icon is covering the dates when it has all
+// the space to space them out" — Firefox drew `09 / 26 / 202` in the 112px
+// field the 124px column held, its button over the year's last figure, and
+// Chromium cut the empty pattern by a pixel once its glyph showed. The kit's
+// floor (src/index.css, `input[type="date"]`: the date's room and the field's
+// own insets, pinned by src/ui/dateField.test.js) holds every date field;
+// this sheet declares its borderless field's insets and gives the columns the
+// width that floor and the cell's padding make.
+describe('FX10: the Tasks table\'s dates hold the whole date and its calendar', () => {
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-task-table-wrap').body
+  const v = (name) => (wrap.match(new RegExp(`${name}:\\s*([^;]+);`)) || [])[1]
+  const room = Number((cssCode(indexCss).match(/--date-room:\s*(\d+)px;/) || [])[1])
+  const CELL = '.rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell'
+  it('a row\'s date is the borderless cell field — 6px a side, no border — and declares that inset, 12, on its own class', () => {
+    expect(declaredValue(sheet, '.rb-task-cell-date', '--date-inset')).toBe('12px')
+    expect([declaredValue(sheet, '.rb-task-cell-select', 'padding'), declaredValue(sheet, '.rb-task-cell-select', 'border')]).toEqual(['0 6px', '0'])
+  })
+  it('its column is the floor (the room and the field\'s 12) and the cell\'s 6px a side: 144px', () => {
+    expect(room).toBe(120)
+    expect([declaredValue(sheet, CELL, 'padding-left'), declaredValue(sheet, CELL, 'padding-right')]).toEqual(['6px', '6px'])
+    expect(v('--rb-task-col-date')).toBe(`${room + 12 + 6 + 6}px`)
+  })
+  it('a phase\'s dates and a key date\'s editor are the kit\'s small well, exactly its floor wide — 138px, inside the 144px Start cell', () => {
+    expect(declaredValue(sheet, '.ui-input.rb-task-date-input', 'width')).toBe('calc(var(--date-room) + var(--date-inset))')
+    expect(source.tasks.match(/className="ui-input rb-task-date-input"\s+data-size="sm"/g)).toHaveLength(3)
+    expect(room + 18 + 6).toBeLessThanOrEqual(room + 12 + 6 + 6)
+  })
+  it('the title gave the 40px back: its minimum 216px, so the table\'s narrowest is the 1238px it was', () => {
+    expect(v('--rb-task-title-min')).toBe('216px')
+  })
+  it('the calendar glyph still shows only on the pointed row or the focused field (Chromium\'s; Firefox always draws its button)', () => {
+    expect(declaredValue(sheet, '.rb-task-cell-date::-webkit-calendar-picker-indicator', 'display')).toBe('none')
+    for (const sel of ['.rb-task-row:hover .rb-task-cell-date:not(:disabled)::-webkit-calendar-picker-indicator', '.rb-task-cell-date:focus::-webkit-calendar-picker-indicator']) {
+      expect(declaredValue(sheet, sel, 'display'), sel).toBe('block')
+    }
+  })
+  it('CONTROL: the 124px column held a 112px field — 100px for the date and its icon, under Gecko\'s 116.1 for the empty pattern and its button', () => {
+    expect(124 - 6 - 6 - 12).toBeLessThan(116.1)
+    expect(room).toBeGreaterThan(116.1)
   })
 })

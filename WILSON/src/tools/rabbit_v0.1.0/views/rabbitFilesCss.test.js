@@ -30,6 +30,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   jsxTags, cssCode, selectorsOf, lastCompound, specificity, gt,
   spreadAttributes, paletteLeaks, variableAttributes, keyedValues, unmatchedValues, arrayValues, mapFieldValues, propValues,
+  declaredValue,
 } from '../rabbitCssGuards.js'
 import { contrast, over } from '../../../ui/contrast.js'
 import { PAPER, PAPER_RAISED, INK, INK_2, INK_3, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
@@ -649,5 +650,51 @@ describe('B4c review round two: the declarations that fix what round two measure
     // The play control is the tile's own box, its ring drawn inside it.
     expect(declsFor('.rb-fm-play')).toMatchObject({ display: 'block', padding: '0', border: '0', 'outline-offset': '-2px' })
     expect(parseFloat(declsFor('.rb-rel-pick-list')['scroll-padding-block'])).toBeGreaterThanOrEqual(ringRoom)
+  })
+})
+
+// FX10 (2026-10-13): the dates on this sheet hold the whole date and its
+// calendar — the Assets table's, the Assets window's and the Levels and
+// Experiences windows' (borderless fields), and an item window's new-task
+// form (the kit's small well). The floor is the kit's (src/index.css,
+// `input[type="date"]`, pinned by src/ui/dateField.test.js); this sheet
+// declares its borderless fields' insets and gives their containers the width
+// the floor makes. Firefox, which always draws its calendar button, cut the
+// year under it in every Assets row (the field was 112px, the date's room 100)
+// and in the new-task form (125px, 119 at 1280 in the desktop app).
+describe('FX10: the dates on this sheet hold the whole date and its calendar', () => {
+  const room = Number((cssCode(indexCss).match(/--date-room:\s*(\d+)px;/) || [])[1])
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-asset-table-wrap').body
+  const v = (name) => (wrap.match(new RegExp(`${name}:\\s*([^;]+);`)) || [])[1]
+  it('the borderless date fields — 6px a side, no border — declare that inset, 12, on their own class, and leave the floor its min-width', () => {
+    for (const cls of ['.rb-asset-date', '.rb-ent-date']) {
+      expect(declaredValue(sheet, cls, '--date-inset'), cls).toBe('12px')
+      expect([declaredValue(sheet, cls, 'padding'), declaredValue(sheet, cls, 'border')], cls).toEqual(['0 6px', '0'])
+      expect(declaredValue(sheet, cls, 'min-width'), cls).toBeNull()
+    }
+  })
+  it('an Assets row\'s date bleeds 6px into its cell\'s 12 a side, so the column is the floor and 12 — 144px; Description gave the 40px back (180 → 140)', () => {
+    expect([declaredValue(sheet, '.rb-asset-date', 'width'), declaredValue(sheet, '.rb-asset-date', 'margin-inline')]).toEqual(['calc(100% + 12px)', '-6px'])
+    expect(declaredValue(indexCss, '.ui-td', 'padding')).toBe('var(--cell-pad-y) var(--cell-pad-x)')
+    expect((cssCode(indexCss).match(/--cell-pad-x:\s*(\d+)px;/) || [])[1]).toBe('12')
+    // The field: the column less the cell's 12 a side, plus its 6px bleed a side.
+    expect(v('--rb-asset-date')).toBe(`${room + 12 + 12}px`)
+    expect(v('--rb-asset-desc')).toBe('140px')
+  })
+  it('the Levels and Experiences windows: a property is never narrower than the date\'s room, one to a row where two would be', () => {
+    expect(declaredValue(sheet, '.rb-ent-prop-grid', 'grid-template-columns'))
+      .toBe('repeat(auto-fit, minmax(max(var(--date-room), calc(50% - 12px)), 1fr))')
+    // Half the grid less half its 24px column gap: two to a row exactly fill it.
+    expect(declaredValue(sheet, '.rb-ent-prop-grid', 'gap')).toBe('16px 24px')
+  })
+  it('an item window\'s new-task form: Start and End never narrower than the small well\'s floor; Bid days takes what is left', () => {
+    expect(declaredValue(sheet, '.rb-rel-task-grid[data-cols="3"]', 'grid-template-columns'))
+      .toBe('minmax(0, 3fr) repeat(2, minmax(calc(var(--date-room) + 18px), 4fr))')
+    const rel = read('../components/RelationsPanel.jsx')
+    expect(rel.match(/className="ui-input rb-rel-task-field rb-rel-task-date"\s+data-size="sm"/g)).toHaveLength(2)
+  })
+  it('CONTROL: the 124px column held a 112px field and the form 125px ones — under the floors, 132 and 138', () => {
+    expect(124 - 12 - 12 + 12).toBeLessThan(room + 12)
+    expect(125).toBeLessThan(room + 18)
   })
 })

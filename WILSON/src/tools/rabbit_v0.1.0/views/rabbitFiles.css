@@ -579,8 +579,14 @@
     --rb-asset-type: 112px;
     --rb-asset-phase: 136px;
     --rb-asset-status: 152px;
-    --rb-asset-date: 124px;
-    --rb-asset-desc: 180px;
+    /* A date and its calendar, whole (FX10): the row's borderless field
+       bleeds 6px into its cell's 12 a side, so the column is the kit's
+       floor for it (the date's room and its 6px a side) and 12: 120 + 12 +
+       12. It was 124, the date's room 100: Firefox drew its calendar button
+       over the year in every row. Description's base gives the 40px back
+       (180 → 140), so the fixed columns and the name are what they were. */
+    --rb-asset-date: 144px;
+    --rb-asset-desc: 140px;
     --rb-asset-tasks: 64px;
     --rb-asset-name-min: 244px;
     --rb-asset-name-max: 360px;
@@ -790,12 +796,16 @@
 
   /* The dates: borderless like the cell selects, in the second ink, the
      picker dark (R4-28); the calendar glyph only while the row is hovered or
-     the field focused — hidden, it takes no room, so the column holds the
-     whole date (B2's answer). */
+     the field focused (Chromium's; Firefox always draws its button). FX10:
+     never narrower than the kit's date floor — the date's room and these
+     6px a side, declared here as its inset — so the date and the glyph are
+     both whole (B2's answer, the glyph taking no room until it shows, left
+     100px for both: an empty field's last "y" was cut, and Firefox, whose
+     button always shows, cut the year in every row). */
   .rb-asset-date {
+    --date-inset: 12px;
     display: block;
     width: calc(100% + 12px);
-    min-width: 0;
     height: var(--control-sm);
     margin-inline: -6px;
     padding: 0 6px;
@@ -1523,7 +1533,11 @@
      body's scrollbar, measured) its last digit went under the glyph, as it
      did before; the bid is a short figure ("12.5", 26px) in its 90. */
   .rb-rel-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
-  .rb-rel-task-grid[data-cols="3"] { grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 4fr); }
+  /* Bid days, Start, End. FX10: Start and End never narrower than the kit's
+     date floor for their small well (the date's room and its 8 + 8 + 1 + 1;
+     they were 125px, 119 at 1280 in the desktop app, and Firefox cut the
+     date under its button); Bid days takes what is left. */
+  .rb-rel-task-grid[data-cols="3"] { grid-template-columns: minmax(0, 3fr) repeat(2, minmax(calc(var(--date-room) + 18px), 4fr)); }
   .rb-rel-task-grid > .ui-field + .ui-field { margin-top: 0; }
   /* An empty choice reads in the third ink (4.66:1 in the raised well); a
      set one in the ink. A disabled field keeps the kit's. */
@@ -2244,9 +2258,12 @@
   /* The Label step over each value (FieldLabel: the kit Field's label
      class), and the properties two to a row with their old gaps. Each field
      is its content's width, so a select's hover fill and caret sit by its
-     words. */
+     words. FX10: a property is never narrower than a date's room (the kit's
+     `--date-room`; the dates bleed 6px a side into the gaps), so where two
+     to a row would be narrower — 264px of grid, the window's left column
+     with the task form open at 1024 — they go one to a row. */
   .rb-ent-label { display: block; margin-bottom: 6px; }
-  .rb-ent-prop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin-bottom: 20px; }
+  .rb-ent-prop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(var(--date-room), calc(50% - 12px)), 1fr)); gap: 16px 24px; margin-bottom: 20px; }
   .rb-ent-prop { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
   /* The linked counts: a read-only value, one control tall so its row
      stays level, in the mono and the ink (it was 11px capitals in #78716c,
@@ -2269,11 +2286,14 @@
      of Electron's smallest window (1024x700) with the task form open the
      first field ran under the second and the second past the column's
      edge, and neither calendar glyph showed (B4c review round one,
-     measured). */
+     measured). FX10: and never narrower than the kit's date floor — the
+     date's room and these 6px a side, declared here as its inset — which
+     the grid above makes room for: a property is never narrower than the
+     date's room, one to a row where two would be. */
   .rb-ent-date {
+    --date-inset: 12px;
     display: block;
     width: auto;
-    min-width: 0;
     max-width: calc(100% + 12px);
     height: var(--control-sm);
     margin-inline: -6px;

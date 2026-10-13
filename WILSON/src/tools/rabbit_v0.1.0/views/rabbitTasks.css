@@ -180,19 +180,27 @@
     --rb-task-col-check: 36px;
     --rb-task-col-status: 148px;
     --rb-task-col-priority: 88px;
-    --rb-task-col-date: 124px;
+    /* A date and its calendar, whole (FX10): the kit's floor for the row's
+       borderless field — the date's room and the field's 6px a side — and
+       the cell's 6px a side, 120 + 12 + 12. It was 124: a 112px field, the
+       date's room 100, and Firefox, which always draws its calendar button,
+       drew `09 / 26 / 202` under it in every row (her screenshot). */
+    --rb-task-col-date: 144px;
     --rb-task-col-bid: 64px;
     --rb-task-asset-min: 150px;
     --rb-task-phase-min: 124px;
     --rb-task-assignee-min: 124px;
     /* A title's words and its three 28px buttons (open, history, delete):
-       never less than 256px — 152px of words, the 4px and the 88px of
-       buttons, and their cell's 12px — never more than 360px. 256 so the
-       table (1238px) fits a 1280 window beside the list's scrollbar, any
-       width up to 18px (FX8 review round 1, R1-02: at 272 it scrolled
-       sideways beside a 10px one, as it did at 1254 before; round 2, R2-08:
-       262 left 2px, and Windows' classic scrollbar is 17). */
-    --rb-task-title-min: 256px;
+       never less than 216px — 112px of words, the 4px and the 88px of
+       buttons, and their cell's 12px — never more than 360px. The minimum
+       is what the table's 1238px leaves: it fits a 1280 window beside the
+       list's scrollbar, any width up to 18px (FX8 review round 1, R1-02: at
+       272 it scrolled sideways beside a 10px one, as it did at 1254 before;
+       round 2, R2-08: 262 left 2px, and Windows' classic scrollbar is 17).
+       It was 256 until FX10 gave the two date columns 40px: the title is
+       the one column that holds more than a short name, every title shows
+       whole when pointed at, and from 1440 up it keeps its 360px. */
+    --rb-task-title-min: 216px;
     --rb-task-title-max: 360px;
     --rb-task-fixed: calc(var(--rb-task-col-check) + var(--rb-task-col-status) + var(--rb-task-col-priority)
       + var(--rb-task-asset-min) + var(--rb-task-phase-min) + var(--rb-task-assignee-min)
@@ -211,10 +219,10 @@
      the toolbar's first button starts on; it is the query container the
      columns measure (`100cqw`). */
   .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
-  /* 982px of fixed columns + a 256px title: below this the table scrolls
-     sideways instead of wrapping a date mid-token (V1-06). It fits a 1280
-     window (1256px of scroller, 1238 or more beside a scrollbar up to 18px);
-     only Electron's 1024px floor scrolls. */
+  /* 1022px of fixed columns + a 216px title (982 + 256 until FX10): below
+     this the table scrolls sideways instead of wrapping a date mid-token
+     (V1-06). It fits a 1280 window (1256px of scroller, 1238 or more beside
+     a scrollbar up to 18px); only Electron's 1024px floor scrolls. */
   .rb-task-table { min-width: calc(var(--rb-task-fixed) + var(--rb-task-title-min)); }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
@@ -376,7 +384,10 @@
     color: var(--color-ink-3);
   }
   .rb-task-phase-date { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; color: var(--color-ink-3); }
-  .ui-input.rb-task-date-input { width: 132px; color-scheme: dark; font-variant-numeric: tabular-nums; }
+  /* A phase's dates and a key date's editor: the kit's small well, exactly
+     its date floor wide (FX10: 138px; it was 132, and a key date's editor
+     ran 8px past its 124px cell). */
+  .ui-input.rb-task-date-input { width: calc(var(--date-room) + var(--date-inset)); color-scheme: dark; font-variant-numeric: tabular-nums; }
   .ui-input.rb-task-date-input[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
   .ui-input.rb-task-phase-input { width: 240px; font-weight: 600; }
 
@@ -467,10 +478,14 @@
   .rb-task-row:focus-within .rb-task-cell-editor::after { opacity: 1; }
   .rb-task-cell-editor:has(> .rb-task-cell-select:disabled)::after { display: none; }
 
-  /* The date cells' calendar glyph, the same way — and it takes no room
-     until it shows, so a 116px column holds the whole date (it clipped to
-     "08/03/202" while the hidden glyph kept its 16px). */
-  .rb-task-cell-date { color-scheme: dark; font-variant-numeric: tabular-nums; cursor: text; }
+  /* The date cells' calendar glyph, the same way: shown while the row is
+     pointed at or the field focused (Chromium's; Firefox always draws its
+     button). FX10: the field is the kit's date floor wide — its room and
+     these 6px a side, declared here as its inset — so the glyph, when it
+     shows, has the room after the date: 120px for the date and the glyph
+     (it was 100, and with the glyph shown an empty field's last "y" was
+     cut and a set date sat 5px from it). */
+  .rb-task-cell-date { --date-inset: 12px; color-scheme: dark; font-variant-numeric: tabular-nums; cursor: text; }
   .rb-task-cell-date::-webkit-calendar-picker-indicator { display: none; }
   .rb-task-row:hover .rb-task-cell-date:not(:disabled)::-webkit-calendar-picker-indicator,
   .rb-task-cell-date:focus::-webkit-calendar-picker-indicator { display: block; }
