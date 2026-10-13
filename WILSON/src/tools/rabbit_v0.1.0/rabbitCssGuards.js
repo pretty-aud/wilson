@@ -11,9 +11,9 @@
 // (2026-09-24) from views/rabbitTasksCss.test.js: see the banner below.
 // =============================================================================
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, relative, posix } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 /** The kit's stylesheet, read once: `weakAgainstKit`'s default opponent. */
@@ -28,8 +28,71 @@ export const jsCode = (src) => src.replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//gm, '$
 export const rulesOf = (css) => [...cssCode(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
   .map(([, sel, body]) => ({ sel: sel.trim(), body }))
   .filter(({ sel }) => !sel.startsWith('@'))
+/** rulesOf, with where each rule sits: `at`, the at-rule preludes around it
+    (outermost first); `layered`, whether one of them is an @layer; `layer`,
+    the innermost layer's name ('' for an anonymous one, null outside every
+    layer). The layer outranks specificity (`cascadeTier`). */
+const contexts = new Map()
+export const rulesWithContext = (css) => {
+  // Read once per sheet text (a scan over every date field reads each sheet
+  // for each field); the result is shared, so callers never change it.
+  const known = contexts.get(css)
+  if (known) return known
+  const code = cssCode(css)
+  const out = []
+  const stack = []
+  let start = 0
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i]
+    if (c === '{') { stack.push(code.slice(start, i).trim()); start = i + 1 }
+    else if (c === '}') {
+      const sel = stack.pop()
+      if (sel != null && !sel.startsWith('@')) {
+        const lay = stack.filter((p) => p.startsWith('@layer')).pop()
+        out.push({ sel, body: code.slice(start, i), at: stack.slice(), layered: !!lay, layer: lay == null ? null : lay.replace(/^@layer\s*/, '').trim() })
+      }
+      start = i + 1
+    } else if (c === ';' && !stack.length) start = i + 1
+  }
+  if (contexts.size > 256) contexts.clear()
+  contexts.set(css, out)
+  return out
+}
+/** Where a declaration stands before specificity (CSS Cascade 5): the
+    layers in the order Tailwind declares them — `theme, base, components,
+    utilities` — then any layer named later, then no layer; a normal
+    declaration in a later layer outranks an earlier one at any specificity,
+    and !important reverses the order and outranks every normal one. `layer`
+    is a rule's `layer` (rulesWithContext), or a boolean for a layered or an
+    unlayered rule of the sheets' one layer, `components`. Review round 2
+    (R2-02): ranking every layer alike let `@layer utilities` take a date's
+    room unseen. */
+export const LAYER_ORDER = ['theme', 'base', 'components', 'utilities']
+export const layerRank = (layer) => {
+  if (layer == null || layer === false) return LAYER_ORDER.length + 1
+  if (layer === true) return LAYER_ORDER.indexOf('components')
+  const i = LAYER_ORDER.indexOf(layer)
+  return i >= 0 ? i : LAYER_ORDER.length
+}
+export const cascadeTier = (important, layer) => (important ? 100 - layerRank(layer) : layerRank(layer))
+/** A declared value and whether it is !important, the flag taken off. */
+export const importance = (raw) => ({ value: raw.replace(/\s*!\s*important\s*$/i, ''), important: /!\s*important\s*$/i.test(raw) })
 /** The compound selector that targets the element itself. */
 export const lastCompound = (sel) => sel.trim().split(/[\s>+~]+/).pop()
+/** lastCompound that never splits inside brackets or parentheses:
+    `.a:is(.b, .c)` is one compound (FX10 review round 2, R2-02's M13 —
+    lastCompound cut it at the space after the comma). */
+export const topCompound = (sel) => {
+  const s = sel.trim()
+  let depth = 0, start = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (c === '(' || c === '[') depth++
+    else if (c === ')' || c === ']') depth--
+    else if (depth === 0 && (c === ' ' || c === '\t' || c === '\n' || c === '>' || c === '+' || c === '~')) start = i + 1
+  }
+  return s.slice(start)
+}
 /** The properties a declaration block sets. */
 export const propsOf = (body) => [...body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((m) => m[1])
 /** padding-left → padding, border-bottom-color → border, … */
@@ -1044,4 +1107,248 @@ export function kitOffsetRules(cls, kit = indexCss) {
     .filter(({ body }) => /(?:^|;)\s*outline-offset\s*:/.test(body))
     .flatMap(({ sel }) => selectorsOf(sel))
     .filter((one) => lastCompound(one) === ':focus-visible' || named.test(lastCompound(one)))
+}
+
+/* ── which rules can land on an element (post-overhaul FX10) ─────────────── */
+/** Can a compound selector land on `el` — { tag, classes, attrs: { name: value } }?
+    A pseudo-element is not the element; `:where()` / `:is()` around the whole
+    compound is read through; `:not(x)` excludes an element x describes; any
+    other pseudo-class is a state the element may be in. An attribute the
+    element does not list may be set or not (a state, `[data-empty]`), except
+    the ones it is known by — `type`, `data-size`, `data-surface` — which
+    must match. (FX10 review round 1, R1-02: a rule was read only by its exact
+    selector, so a context rule that padded a date field passed.) Round 2
+    (R2-02): `:is()` / `:where()` inside a compound need one argument that can
+    land; `:not(x)` excludes only where x is decided by what the element is
+    known by — `:not([data-empty="true"])` may hold or not, so it excludes
+    nothing (it had read as excluding every field). */
+const KNOWN_ATTRS = ['type', 'data-size', 'data-surface']
+const decidable = (one) => {
+  const t = one.trim()
+  if (!t || /[\s>+~:]/.test(t)) return false
+  return [...t.matchAll(/\[([\w-]+)/g)].every((m) => KNOWN_ATTRS.includes(m[1]))
+}
+export function compoundMatches(compound, el) {
+  let s = compound.trim()
+  const whole = s.match(/^:(?:where|is)\(([^()]*)\)$/)
+  if (whole) return selectorsOf(whole[1]).some((one) => compoundMatches(topCompound(one), el))
+  if (s.includes('::')) return false
+  // A state or a place the element is known never to be in (`el.never`:
+  // a middle cell is never `:first-child` or `:last-child`).
+  for (const p of el.never || []) if (s.replace(/:not\([^()]*\)/g, '').includes(p)) return false
+  // :not() arguments: the element is excluded by one it is known to meet.
+  for (const [, arg] of s.matchAll(/:not\(([^()]*)\)/g)) {
+    if (selectorsOf(arg).some((one) => decidable(one) && compoundMatches(one.trim(), el))) return false
+  }
+  // :is() / :where() inside the compound: one argument must be able to land.
+  for (const [, arg] of s.matchAll(/:(?:where|is)\(([^()]*)\)/g)) {
+    if (!selectorsOf(arg).some((one) => compoundMatches(topCompound(one), el))) return false
+  }
+  s = s.replace(/:not\([^()]*\)/g, '').replace(/:(?:where|is)\([^()]*\)/g, '').replace(/:[\w-]+(\([^()]*\))?/g, '')
+  const tag = (s.match(/^[a-zA-Z][\w-]*/) || [])[0]
+  if (tag && tag !== '*' && tag.toLowerCase() !== el.tag) return false
+  for (const [, c] of s.matchAll(/\.([\w-]+)/g)) if (!el.classes.includes(c)) return false
+  const attrs = [...s.matchAll(/\[([\w-]+)\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s]*)))?\s*\]/g)]
+    .map((m) => ({ name: m[1], op: m[2], value: m[3] ?? m[4] ?? m[5] }))
+  for (const { name, op, value } of attrs) {
+    if (!KNOWN_ATTRS.includes(name)) continue
+    const have = el.attrs[name]
+    if (have == null) return false
+    if (op === '=' && have !== value) return false
+  }
+  return true
+}
+/** A declaration block's horizontal insets, where it sets them, with their
+    importance: `{ prop: { value, important } }` for padding-left, padding-right,
+    border-left-width and border-right-width, from the longhands and the
+    `padding`, `padding-inline`, `border`, `border-width`, `border-left` / `-right`
+    shorthands. A plain length is a number of px; anything else its text.
+    Within the block an !important declaration is not undone by a later
+    normal one. */
+export function insetDeclarations(body) {
+  const out = {}
+  const decl = (p) => {
+    let v = null
+    for (const m of body.matchAll(new RegExp(`(?:^|;)\\s*${escapeRe(p)}\\s*:\\s*([^;]*?)\\s*(?=;|$)`, 'g'))) {
+      if (v == null || !importance(v).important || importance(m[1]).important) v = m[1]
+    }
+    return v
+  }
+  const len = (t) => (t == null ? undefined : /^0$/.test(t) ? 0 : /^-?\d+(?:\.\d+)?px$/.test(t) ? parseFloat(t) : t)
+  const sides = (v) => { const p = v.trim().split(/\s+/); return { left: p[3] ?? p[1] ?? p[0], right: p[1] ?? p[0] } }
+  const put = (prop, value, important) => { if (out[prop]?.important && !important) return; out[prop] = { value, important } }
+  const order = []
+  for (const m of body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)) order.push(m[1])
+  for (const p of order) {
+    const raw = decl(p)
+    if (raw == null) continue
+    const { value: v, important: imp } = importance(raw)
+    if (p === 'padding') { const s = sides(v); put('padding-left', len(s.left), imp); put('padding-right', len(s.right), imp) }
+    else if (p === 'padding-inline') { const [a, b] = v.trim().split(/\s+/); put('padding-left', len(a), imp); put('padding-right', len(b ?? a), imp) }
+    else if (p === 'padding-left' || p === 'padding-inline-start') put('padding-left', len(v), imp)
+    else if (p === 'padding-right' || p === 'padding-inline-end') put('padding-right', len(v), imp)
+    else if (p === 'border' || p === 'border-left' || p === 'border-right' || p === 'border-inline') {
+      const w = v.trim() === '0' || /^none\b/.test(v.trim()) ? 0 : len((v.match(/(^|\s)(\d+(?:\.\d+)?px|0)(?=\s|$)/) || [])[2] ?? v)
+      if (p !== 'border-right') put('border-left-width', w, imp)
+      if (p !== 'border-left') put('border-right-width', w, imp)
+    } else if (p === 'border-width') { const s = sides(v); put('border-left-width', len(s.left), imp); put('border-right-width', len(s.right), imp) }
+    else if (p === 'border-left-width' || p === 'border-inline-start-width') put('border-left-width', len(v), imp)
+    else if (p === 'border-right-width' || p === 'border-inline-end-width') put('border-right-width', len(v), imp)
+  }
+  return out
+}
+/** insetDeclarations' values alone. */
+export function horizontalInsets(body) {
+  return Object.fromEntries(Object.entries(insetDeclarations(body)).map(([p, d]) => [p, d.value]))
+}
+/** Across `sheets` (in load order), the horizontal insets that win on `el`:
+    for each of padding-left / -right and border-left / -right-width, the
+    declaration whose selector can land on it that the cascade puts first —
+    its tier (`cascadeTier`: !important, then its layer), then its
+    specificity, then the later one — and every other declaration at that
+    tier and specificity with a different value (`ties`: load order
+    decides). A context selector counts unless it names a class outside
+    `el.reach` (the classes that can be around the element: `classReach`'s
+    `written` for its file; the kit's `ui-` classes always count) — review
+    round 2, R2-02's M11: a hand-listed set of the ancestors the element HAS
+    missed its view's own wrappers, and the rules naming them. Without
+    `el.reach`, every context counts. */
+export function winningInsets(sheets, el) {
+  const won = {}
+  sheets.forEach((sheet, f) => rulesWithContext(sheet).forEach(({ sel, body, layer }, r) => {
+    for (const one of selectorsOf(sel)) {
+      const last = topCompound(one)
+      if (!compoundMatches(last, el)) continue
+      if (el.reach && one.trim() !== last.trim()) {
+        const named = (one.slice(0, one.lastIndexOf(last)).match(/\.([\w-]+)/g) || []).map((c) => c.slice(1))
+        if (named.some((c) => !c.startsWith('ui-') && !el.reach.has(c))) continue
+      }
+      for (const [p, { value, important }] of Object.entries(insetDeclarations(body))) {
+        const d = { selector: one.trim(), value, spec: specificity(one), tier: cascadeTier(important, layer), order: [f, r] }
+        const cur = won[p]
+        if (!cur) { won[p] = { ...d, ties: [] }; continue }
+        const cmp = d.tier - cur.tier || gt(d.spec, cur.spec)
+        if (cmp > 0) won[p] = { ...d, ties: [] }
+        else if (cmp === 0) {
+          const ties = d.value === cur.value ? cur.ties : [...cur.ties, cur]
+          won[p] = { ...d, ties: ties.filter((t) => t.value !== d.value) }
+        }
+      }
+    }
+  }))
+  return won
+}
+/** The parts Blink draws a date field with (Gecko's cannot be styled). */
+export const DATE_PARTS = /::-webkit-(?:calendar-picker-indicator|datetime-edit[\w-]*|inner-spin-button|clear-button)(?![\w-])/
+/** The rules in `sheets` that style a part of the field `el` — their
+    compound before the pseudo-element can land on it — with the properties
+    each sets (review round 2, R2-02's M8: a margin on the calendar glyph
+    took the date's room, and every check read the field alone). */
+export function datePartRules(sheets, el) {
+  const out = []
+  sheets.forEach((sheet, f) => rulesWithContext(sheet).forEach(({ sel, body, layer }, r) => {
+    for (const one of selectorsOf(sel)) {
+      const last = topCompound(one)
+      const m = last.match(DATE_PARTS)
+      if (!m || !compoundMatches(last.slice(0, m.index) || '*', el)) continue
+      out.push({ selector: one.trim(), part: m[0], props: propsOf(body), body, layer, order: [f, r] })
+    }
+  }))
+  return out
+}
+/** Every JSX opening tag in the source with the opening tags it sits inside
+    in that file, outermost first: `{ tag, text, ancestors }`. A tag is walked
+    as jsxTags walks it; `</Tag>` closes the nearest open Tag, `<>` and `</>`
+    a fragment; a `<` right after a name, `)` or `]` is a comparison. */
+export function jsxNesting(source) {
+  const out = []
+  const stack = []
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== '<' || /[\w)\]]/.test(source[i - 1] || '')) continue
+    const close = source.slice(i, i + 80).match(/^<\/([A-Za-z][\w.]*)?\s*>/)
+    if (close) {
+      const name = close[1] || ''
+      for (let k = stack.length - 1; k >= 0; k--) if (stack[k].tag === name) { stack.length = k; break }
+      i += close[0].length - 1
+      continue
+    }
+    if (source[i + 1] === '>') { stack.push({ tag: '', text: '<>' }); i++; continue }
+    if (!/[A-Za-z]/.test(source[i + 1] || '')) continue
+    let depth = 0, j = i
+    for (; j < source.length; j++) {
+      const c = source[j]
+      if (c === '{') depth++
+      else if (c === '}') depth--
+      else if (c === '>' && depth === 0) break
+    }
+    const text = source.slice(i, j + 1)
+    const tag = text.match(/^<([A-Za-z][\w.]*)/)[1]
+    out.push({ tag, text, ancestors: stack.map((s) => s.text) })
+    if (!/\/\s*>$/.test(text)) stack.push({ tag, text })
+    i = j
+  }
+  return out
+}
+/** The classes an opening tag's element carries: its own and its kit root's. */
+export const classesOf = (tagText) => elementsOf(tagText).flatMap((e) => [...e.classes, ...e.kit])
+const reaches = new Map()
+/** For every .jsx under `root` (tests aside), keyed by its path from `root`:
+    `own`, the classes the file writes, and `written`, those and the classes
+    of the elements around each place another file renders it, at any remove
+    — or all that file's own, where no such place is found (a component
+    handed on as a value). Renders are read from relative imports, static or
+    `lazy(() => import())`, by the names they bind. A context selector whose
+    ancestors name a class outside `written` cannot hold an element of the
+    file. (FX10 review round 2, R2-02: M1c, a parent's context the field's own
+    file did not write; M11, a hand-listed set of a cell's ancestors that
+    missed its view's own wrappers.) */
+export function classReach(root) {
+  if (reaches.has(root)) return reaches.get(root)
+  const walk = (dir) => readdirSync(dir).flatMap((n) => {
+    const p = join(dir, n)
+    if (statSync(p).isDirectory()) return n === 'node_modules' ? [] : walk(p)
+    return /\.jsx$/.test(n) && !/\.test\.jsx$/.test(n) ? [p] : []
+  })
+  const sources = walk(root).map((p) => ({ file: relative(root, p).replace(/\\/g, '/'), src: readFileSync(p, 'utf8').replace(/\r\n/g, '\n') }))
+  const files = new Set(sources.map((s) => s.file))
+  const resolveFrom = (from, spec) => {
+    const base = posix.normalize(posix.join(posix.dirname(from), spec))
+    return [base, `${base}.jsx`, `${base}.js`, `${base}/index.jsx`].find((c) => files.has(c))
+  }
+  const renders = []
+  for (const { file, src } of sources) {
+    const code = jsCode(src)
+    for (const m of code.matchAll(/\bimport\s+([\w$\s{},*]+?)\s+from\s+['"](\.{1,2}\/[^'"]+)['"]/g)) {
+      const child = resolveFrom(file, m[2])
+      if (!child || child === file) continue
+      const names = m[1].replace(/[{}]/g, ',').split(',').map((s) => s.trim()).filter(Boolean)
+        .map((s) => (s.startsWith('* as ') ? s.slice(5) : s.split(/\s+as\s+/).pop()).trim())
+      renders.push({ child, parent: file, names })
+    }
+    for (const m of code.matchAll(/\b(?:const|let)\s+([\w$]+)\s*=\s*(?:React\.)?lazy\(\s*\(\)\s*=>\s*import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      const child = resolveFrom(file, m[2])
+      if (child && child !== file) renders.push({ child, parent: file, names: [m[1]] })
+    }
+  }
+  const own = Object.fromEntries(sources.map(({ file, src }) => [file, new Set(elementsOf(src).flatMap((e) => [...e.classes, ...e.kit]))]))
+  const nesting = Object.fromEntries(sources.map(({ file, src }) => [file, jsxNesting(normal(jsCode(src)))]))
+  const memo = new Map()
+  const around = (file, seen) => {
+    if (memo.has(file)) return memo.get(file)
+    if (seen.has(file)) return new Set()
+    seen.add(file)
+    const out = new Set()
+    for (const { child, parent, names } of renders) {
+      if (child !== file) continue
+      const uses = nesting[parent].filter((t) => names.some((n) => t.tag === n || t.tag.startsWith(`${n}.`)))
+      const near = uses.length ? uses.flatMap((t) => t.ancestors.flatMap(classesOf)) : [...own[parent]]
+      for (const c of [...near, ...around(parent, seen)]) out.add(c)
+    }
+    memo.set(file, out)
+    return out
+  }
+  const written = Object.fromEntries(sources.map(({ file }) => [file, new Set([...own[file], ...around(file, new Set())])]))
+  const out = { sources, own, written }
+  reaches.set(root, out)
+  return out
 }

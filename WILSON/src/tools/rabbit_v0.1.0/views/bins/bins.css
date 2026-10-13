@@ -165,6 +165,13 @@
      grid container; this is that reset, and a kit request in the B6 hand-off.
      The grid's own gap does the spacing. */
   .bn-field-grid > .ui-field + .ui-field { margin-top: 0; }
+  /* The inspector's logging fields, two to a row: Slate | Take, Modifier |
+     Camera, Roll / card | Shoot day. The right column is never narrower
+     than Shoot day's date and its calendar need (the kit's date floor for
+     its small well, 138px; post-overhaul FX10 review round 1, R1-03): with
+     the rail's scrollbar showing a half was 134px and the field ran 4px
+     past the column. The left column, short codes, gives the room. */
+  .bn-insp-grid { grid-template-columns: minmax(0, 1fr) minmax(calc(var(--date-room) + 18px), 1fr); }
 
   /* A dark scrim under a label laid over a poster frame. */
   .bn-scrim { background-color: color-mix(in srgb, var(--color-paper-recessed) 75%, transparent); }

@@ -384,7 +384,12 @@
     --rb-scene-col-desc: 100px;
     --rb-scene-col-runtime: 120px;
     --rb-scene-col-frames: 88px;
-    --rb-scene-col-date: 144px;
+    /* A date and its calendar, whole (FX10): the kit's date floor for the
+       small well (the date's room, 8 + 8 + 1 + 1) and the cell's 6px a
+       side, as the Frames cell beside it pads: 120 + 18 + 12. It was 144
+       with the kit cell's 12px a side: a 120px well, the date's room 102,
+       and Firefox cut the year under its calendar button in every row. */
+    --rb-scene-col-date: 150px;
     --rb-scene-nest-min: calc(var(--rb-scene-col-check) + var(--rb-scene-col-mark) + var(--rb-scene-col-nest-thumb)
       + var(--rb-scene-col-nest-num) + var(--rb-scene-col-nest-name) + var(--rb-scene-col-status)
       + var(--rb-scene-col-time) + var(--rb-scene-col-nest-type) + var(--rb-scene-col-nest-framing)
@@ -796,6 +801,9 @@
   .rb-scene-number.rb-scene-frames > .ui-input.rb-scene-number-input { text-align: right; }
   .rb-scene-number.rb-scene-frames > .rb-scene-number-cap { justify-content: flex-end; }
   .rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell { padding-right: 6px; padding-left: 6px; }
+  /* The dates' cells pad 6px a side too (FX10): their wells keep the kit's
+     date floor, and the column (`--rb-scene-col-date`) is that and these. */
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-date-cell { padding-right: 6px; padding-left: 6px; }
   .rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell > .rb-scene-cut-none { margin-right: 6px; }
   /* The two dates: the kit's small field, its picker dark (it was an inline
      colorScheme), an empty one's pattern in the third ink — while it can be

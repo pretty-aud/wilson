@@ -168,6 +168,12 @@
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 24px;
+  /* FX10-KR-1 (2026-10-13): a date field's room for the date and its
+     calendar, inside its own padding and border. Gecko draws the widest —
+     "mm / dd / yyyy" and its button, 116.1px at the Dense step (en-US,
+     measured) — and 120 leaves both engines clear space between the two.
+     Read by the date rule in @layer components (`input[type="date"]`). */
+  --date-room: 120px;
   --panel-sm: 200px;
   --panel-md: 240px;
   --panel-lg: 300px;
@@ -900,6 +906,46 @@ select option {
      so it survives being moved. `.at-section select.ui-input[data-size=
      "sm"]` was the page-local copy and C3c retired it once this landed. */
   select.ui-input[data-size="sm"] { padding-right: 28px; }
+
+  /* ── Date fields: the whole date, then its calendar, never under it ─────
+     (post-overhaul FX10, kit request FX10-KR-1; Audrey, 2026-10-13: "the
+     calendar icon is covering the dates when it has all the space to space
+     them out" — her Tasks table read `09 / 26 / 202`, the icon over the
+     last figure, and `mm / dd / yy` in an empty one.)
+     Neither engine moves its icon out of a date's way. Blink lets the
+     date's box shrink and cuts its end (`-webkit-datetime-edit` is
+     overflow hidden, flex-basis 0) with its indicator after it; Gecko draws
+     the date spaced, "09 / 26 / 2026", and its calendar button — always
+     shown: no `-webkit-` rule reaches it — over the end. So every date
+     field, kit or not, keeps a floor: the date's room (`--date-room`, in
+     @theme) plus its own padding and border (`--date-inset`). The kit's
+     wells declare theirs here, md 12 + 12 + 1 + 1 and sm 8 + 8 + 1 + 1, at
+     no specificity (`:where`), so a field with insets of its own declares
+     them with one class beside its padding (the tables' borderless fields:
+     6 + 6). Both engines draw the icon at the field's right end, so a
+     field wider than its floor spends the room between date and icon.
+     NOT `min-width: max-content`: Blink's own measure of a date field is
+     not the date's — about 25px wider than its 80.9px whatever the value —
+     and it moves with the engine and the screen (a borderless 6px field:
+     133px at 1x and 139 at 2x in Chromium 147's emulation, 131 to 133 in
+     Electron 33), so a column sized to it would come up short on another
+     screen.
+     Tabular figures: every date one width, a column of them aligned.
+     Display only — the native picker, typing, the keyboard and the value
+     are the browser's and the caller's. Measured in Chromium 147, Electron
+     33 (Chromium 130) and Firefox 157 by scripts/fx10-date-fields-shots.mjs
+     (walkthrough 71); pinned by src/ui/dateField.test.js, which also fails
+     on a date field of a kind whose inset is not declared. */
+  :where(input[type="date"]) {
+    --date-inset: 26px;
+  }
+  :where(input[type="date"][data-size="sm"]) {
+    --date-inset: 18px;
+  }
+  input[type="date"] {
+    min-width: calc(var(--date-room) + var(--date-inset));
+    font-variant-numeric: tabular-nums;
+  }
 
   /* ── CellSelect: a table cell's own select (B4, kit request B2 §4) ─────
      Promoted from B2's `.rb-task-cell-editor` / `.rb-task-cell-select` (and

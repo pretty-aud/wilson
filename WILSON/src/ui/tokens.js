@@ -123,6 +123,8 @@ export const THEME = Object.freeze({
   'icon-sm': '14px',
   'icon-md': '16px',
   'icon-lg': '24px',
+  // FX10-KR-1: a date field's room for the date and its calendar (see @theme).
+  'date-room': '120px',
   'panel-sm': '200px',
   'panel-md': '240px',
   'panel-lg': '300px',

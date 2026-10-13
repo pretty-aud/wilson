@@ -706,7 +706,11 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
             </SettingsField>
           </div>
           <div className="pt-3 mt-1" style={{ borderTop: '1px solid var(--color-rule)' }}>
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* Six to a row from 1280 (FX10 review round 1, R1-03): at 1024 a
+                sixth was 142px, under the 146px a date and its calendar need
+                (the kit's date floor), so the two dates ran past their cells.
+                Three to a row below 1280. */}
+            <div className="grid grid-cols-3 xl:grid-cols-6 gap-3">
               <SettingsField label="Project code">
                 <SettingsInput value={project.project_code || ''} onChange={v => update('project_code', v)} placeholder="PROJ" />
               </SettingsField>
