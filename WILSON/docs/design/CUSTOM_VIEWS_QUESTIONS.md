@@ -94,7 +94,7 @@ it?**
 
 ---
 
-## Batch 2 — saving a view, and the Views dropdown
+## Batch 2 — saving a view, and the Views dropdown (answered)
 
 **Q3a. When you have changed an open view, what does saving do?** (A
 follow-up to your Q3 answer.)
@@ -162,13 +162,51 @@ the same); the dropdown stays a short list (Hick's law).
 *Why my pick:* the name is how you recognise and open a row; a Tasks view
 about one asset's work may not want the project's key dates in it.
 
-### Her answers, batch 2
+### Her answers, batch 2 (2026-10-13; asked in chat as multiple choice; recorded verbatim)
 
-*(waiting)*
+- **Q3a:** "Save, or Save as new (Recommended)"
+- **Q3b:** "While WILSON is open (Recommended)"
+- **Q5:** "option 1 but make it similar to the notion system where it is a dropdown where you can select what you want to view and edit and a second dropdown /card appears. so if i press on the option for filters a card with just filters should pop up. again like notion"
+- **Q6:** "All but the name (Recommended)"
+
+### What follows from batch 2 (say if any is wrong)
+
+- **A changed view shows *Save*, *Save as new view* and *Reset*** (only
+  while it has a change). *Save* writes into the view for everyone; *Save as
+  new view* names a new one; *Reset* returns to the view as saved. The
+  built-in *All* view cannot be changed or deleted (only *Save as new view*
+  from it). Reviewers see *Reset* only.
+- **A change you have not saved lasts while WILSON is open**: going to
+  another tab and back keeps it; closing WILSON, reloading or switching
+  project drops it, and the table opens on the last saved view you used.
+- **The Views dropdown** (opened from today's *Views* button, which shows
+  the name of the view on screen and *edited* while it has a change; on
+  Scenes the bookmark icon becomes the word *Views*): it lists the project's
+  views with the one on screen ticked, and holds what you can view and edit,
+  Notion-style: choosing **Filters**, **Sort**, **Group** or **Fields** opens
+  a card with just that part. For people who may save views it also holds
+  *New view* and, on each view, a *…* menu (Edit, Rename, Duplicate,
+  Delete; Delete asks first). My side panel is dropped. Where that second
+  card opens is Q5a.
+- **Fields:** every field but the item's name can be hidden; in Tasks, the
+  key-date rows can be turned off too.
 
 ---
 
-## Batch 3 — a task's linked items in the table (your screenshot)
+## Batch 3 — the card, and a task's linked items in the table (your screenshot)
+
+**Q5a. When you press Filters (or Sort, Group, Fields) in the Views dropdown,
+where does its card appear?** (A follow-up to your Q5 answer.)
+- **In place of the list, with a back arrow** *(Recommended)*: the dropdown
+  becomes the Filters card (one card at a time); a ← at its top returns to
+  the list. It covers only as much of the table as the dropdown did, so you
+  see the rows change as you set the filter.
+- **Beside the dropdown**: the Filters card opens next to the dropdown and
+  both stay open; it covers more of the table.
+
+*Why my pick:* one card at a time keeps the table in view while you work
+(working memory) and the place you are in obvious (common region); on a
+1280 screen two cards side by side would cover half the table.
 
 **Q9. In the Tasks table, what should the Asset column show for a task linked
 to several assets?** (Your words: "either shows all or none".)
@@ -210,6 +248,14 @@ you mean you can NOT see them in the Tasks table, and want them there?**
 *Why my pick:* each kind reads and edits like the Asset column you know
 (law of similarity), and a view can show only the kinds it needs.
 
+### Her answers, batch 3
+
+*(waiting)*
+
+---
+
+## Batch 4 — the other tables' links, columns, what a view remembers, filters
+
 **Q12. The other four tables: should they show their linked items too?**
 Today Assets shows a count of its tasks (right); Scenes and Shots show no
 tasks or assets; Levels and Experiences show counts of assets and tasks
@@ -226,14 +272,6 @@ so "Cliff Path" reads 0 and 0 while its window lists 2 assets and 1 task).
 *Why my pick:* your note was about the Tasks table; the counts are wrong and
 should be right either way; names in the other tables can follow once the
 Tasks columns have been used.
-
-### Her answers, batch 3
-
-*(waiting)*
-
----
-
-## Batch 4 — columns, what a view remembers, filters and sorts
 
 **Q7. Can a view change the columns' order and width?**
 - **Order, not width** *(Recommended)*: you drag fields up and down in the
@@ -272,22 +310,22 @@ it either).
 *Why my pick:* it covers what a production table needs ("my open work")
 without the and/or puzzle Notion itself moved out of sight in 2022.
 
-**Q14. How many sorts can a view hold?**
-- **Several, in order** *(Recommended)*: for example by Phase, then by Start
-  date, set in the view's editor; the toolbar's Sort dropdown still sets the
-  first.
-- **One, as today.**
-
-*Why my pick:* a schedule reads by phase and then by date; one sort cannot
-say that.
-
 ### Her answers, batch 4
 
 *(waiting)*
 
 ---
 
-## Batch 5 — grouping, Scenes and Shots, the old views, Budget and Team
+## Batch 5 — sorts, grouping, Scenes and Shots, the old views
+
+**Q14. How many sorts can a view hold?**
+- **Several, in order** *(Recommended)*: for example by Phase, then by Start
+  date, set in the Sort card; the toolbar's Sort dropdown still sets the
+  first.
+- **One, as today.**
+
+*Why my pick:* a schedule reads by phase and then by date; one sort cannot
+say that.
 
 **Q15. Grouping in a view:**
 - **One grouping, and hide empty groups** *(Recommended)*: one grouping as
@@ -325,6 +363,14 @@ at every restart: research §2.2.)
 - **Keep them apart**: they stay in that browser as a separate *From this
   computer* list beside the project's views.
 
+### Her answers, batch 5
+
+*(waiting)*
+
+---
+
+## Batch 6 — Budget and Team, ready-made views, and what was found along the way
+
 **Q19. Budget's Expenses and the Team tab have saved views too (you did not
 name them). What about them?**
 - **Later** *(Recommended)*: they stay as they are in this work; once the
@@ -332,14 +378,6 @@ name them). What about them?**
   session.
 - **Now**: they get the new views in this work too.
 - **Remove theirs**: their saved views are taken out.
-
-### Her answers, batch 5
-
-*(waiting)*
-
----
-
-## Batch 6 — ready-made views, and what was found along the way
 
 **Q20. Should a table come with ready-made views?**
 - **Only All** *(Recommended)*: each table has the built-in *All* view; you
