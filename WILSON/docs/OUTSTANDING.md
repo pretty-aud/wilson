@@ -1755,24 +1755,18 @@ merged with FX5 (`6051b432`, `--maxWorkers=4`, the dev server and
 Playwright idle beside it), `acme.test.mjs`'s "bad nonces are retried with
 the nonce the refusal carries" failed (`{ ok: false }` where `{ ok: true }`
 was expected, 150 ms) and passed alone three times out of three; FX7's
-three full runs before the merge had no gateway failure.)*
-
-### The gateway's reach-proof test races the gateway's own sync, and fails CI now and then
-**MEASURED (FX4, 2026-10-12).** CI's Vitest job (the "RLS tests" workflow,
-Linux) failed on two of FX4's first four pushes — run 38214523896 on
-`91523bca`, which changed no product code, and run 38216853649 on
-`2af04f85` — both at `gateway/test/runtime.test.mjs:493`, GW3's "a fresh
-nonce the gateway has not synced yet … proves nothing for the new":
-expected `isThisGateway: false`, received `true`. The next push's run passed
-with the same gateway code. **INFERRED:** the runtime's own periodic sync
-can land between the test setting a fresh nonce and probing, so the door
-already holds the new nonce. Settle it: stop (or stub) the gateway's sync
-timer in that test, or probe before the next tick. Owner: a GW session.
-*(FX6, 2026-10-12, MEASURED: the "Gateway" workflow's ubuntu job, run
-38312716840 on `feff09f9`, a branch with no gateway change of its own (it
-had just merged FX5's), failed at the same `runtime.test.mjs:493`,
-`isThisGateway: true` where `false` was expected; the Windows job and the
-same gateway code's run on the integration branch (`996e9c30`) passed.)*
+three full runs before the merge had no gateway failure.)* *(FX9,
+2026-10-12, MEASURED on FX9's tree (`54472510`; its change is one test's
+assertions): 17 runs of `runtime.test.mjs` beside a full `npx vitest run`
+at its default workers (32 logical CPUs) and a second test loop, the file
+taking up to 26.7 s where it takes 3 s alone, failed twice on the 5 s
+time-out — "an outside viewing: journal start and end …" (with the journal
+rewrite's unhandled `EPERM` again) and "no cloud for 60 s closes the outside
+door (D15) …". Beside `--maxWorkers=4`, 200 runs: one failure, "🚨 the probe
+never accepts an echo of the nonce …" (`runtime.test.mjs:596`, a 3.7 s
+file): its throwaway loopback echo server received no request (`answers`
+was `[]`). The test does not record the probe's error, and 3,400 in-process
+repeats of it under the same load missed none: cause NOT ESTABLISHED.)*
 
 ---
 
@@ -1783,6 +1777,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
+| Post-overhaul FX9 (2026-10-12; `po/fx9-reach-test-race` into `feat/post-overhaul-edit-versioning`) — the gateway's reach-proof test holds the gateway's syncs instead of racing them (`gateway/test/runtime.test.mjs` only; no product code): the race measured (the sync a `check_reach_now` asks for when its reach check lands, 17 ms after it idle; not the 10 s heartbeat), the window read whole in one assertion, two planted door faults caught, 200 loaded runs with no reach failure; one review round (opus) | **nothing under Broken features.** A dated FX9 line on FX3's gateway-load entry (two 5 s time-outs at a heavier load, one echo-probe miss in 200 runs with its cause not established; not FX9's code) | **one entry:** *The gateway's reach-proof test races the gateway's own sync, and fails CI now and then* — the test holds the syncs (`54472510`) |
 | Post-overhaul FX8 (2026-10-12; `po/fx8-table-row-actions` into `feat/post-overhaul-edit-versioning`) — the tables' row buttons (Audrey: "lets have uniformity and have the same icon ... lets move them all closer to the title of the items in the tables"): one page icon opens an item's window everywhere ("Open <name>"), every row's buttons right after its title in one order (Open, the row's own, Delete last) through the kit's RowTitle (FX8-KR-1), the actions columns gone, the title column at most 360px in Tasks, Assets, Levels and Experiences with the other columns taking the rest (walkthrough 70); two review rounds | **two entries under Broken features, found by the review rounds and older than FX8:** *Levels and Experiences have no write gate* (INFERRED, round 1); *on a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped* (MEASURED, round 2). The rows FX8 measured and left (the Shots table's sideways scroll, walkthrough 47 Q185; the nested shots' at 1280, P1-63; the Budget's expenses, Talent, Team, Files, relations and shot-list window rows) are tracked where they were or are walkthrough 70's questions | nothing |
 | Post-overhaul FX6 (2026-10-12; `po/fx6-status-line-weight` into `feat/post-overhaul-edit-versioning`) — the status line under every item popup's title, thicker (Audrey: "lets make the line thicker it feels to thin"): 3px, from 2, 3 and 4px rendered on every tone on both grounds at 1280 and 1440, set in the kit's one `.ui-status-banner` rule, on `typeScale.test.js`'s hand-judged list with her words; client only, no migration; walkthrough 68; two review rounds | **one entry under Broken features:** *under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined* (MEASURED in Chromium's emulation; not FX6's code; found by its review round 1, R1-04). A dated FX6 line on FX3's gateway-load entry (`release.test.mjs`'s two tests in the first full run at the cut; not FX6's code) | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX7 (2026-10-12; `po/fx7-timeline-header-labels` into `feat/post-overhaul-edit-versioning`) — the Timeline's PROJECT and Bid ver. labels (Audrey: "bid ver and project should be same sizing and color. if anything project should stand out more. lets remove the folder icon before the word project"): both the kit's `ui-field-label` in one column (5.1em of the label, 56.1px at 11px), so the project's name and the dropdown start at one x; no folder icon (the project title bar, every tab); the name a step above the dropdown and, since review round 1, above the version's name in the bar's words (now regular weight; the Budget tab's row keeps its bold); client only, no migration; walkthrough 69; two review rounds (every finding fixed, or named in the hand-off) | **nothing new.** A dated FX7 line on FX3's gateway-load entry (an `acme.test.mjs` test failing once in the merged tree's full run, passing alone; not FX7's code). Nothing broken was found in FX7's own work. Walkthrough 69's one question (keep the version's name regular on the Timeline, or bold again) and the figures band's own TIMELINE title (its icon, the darker grey; a section title in `TimelineView.jsx`, left as it is) are choices, recorded in the hand-off (`docs/sessions/handoffs/po-fx7-2026-10-12.md`) | **nothing.** Comment markers: 4 → 4. |
