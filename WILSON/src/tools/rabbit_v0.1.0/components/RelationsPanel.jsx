@@ -621,8 +621,11 @@ export function NewTaskSidePopup({
           </Field>
         </div>
 
-        {/* Bid + Dates: the figures in the mono, the dates' picker dark */}
-        <div className="rb-rel-task-grid" data-cols="3">
+        {/* Bid days, then the dates on a row of their own (FX10 review round
+            1, R1-01): two dates and their calendars take the row, which three
+            to a row could not give them without leaving Bid days too narrow
+            for "12.5". The figures in the mono, the dates' picker dark. */}
+        <div className="rb-rel-task-grid">
           <Field label="Bid days">
             <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
               onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
@@ -630,6 +633,8 @@ export function NewTaskSidePopup({
               data-size="sm"
               placeholder="—" />
           </Field>
+        </div>
+        <div className="rb-rel-task-grid">
           <Field label="Start">
             <input type="date" value={draft.start_date || ''} onChange={e => upd({ start_date: e.target.value || '' })}
               className="ui-input rb-rel-task-field rb-rel-task-date"

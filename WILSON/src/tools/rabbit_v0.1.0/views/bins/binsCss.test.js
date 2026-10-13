@@ -668,3 +668,25 @@ describe('reduced motion (plan §3.4): the list header\'s colour change stops in
     expect(motionCoverage(loud).loud).toEqual(['.bn-th .ui-th-btn'])
   })
 })
+
+// Post-overhaul FX10 (2026-10-13; review round 1, R1-03): the inspector's
+// Shoot day keeps the kit's date floor for its small well (138px: the date's
+// room and 8 + 8 + 1 + 1). With the rail's scrollbar showing, a half of the
+// two-column grid was 134px and the field ran 4px past it, out of line with
+// Take and Camera above it.
+describe('FX10: the inspector\'s Shoot day keeps the date floor', () => {
+  const insp = JSX['BinInspector.jsx'].replace(/\r\n/g, '\n')
+  const grid = insp.slice(insp.indexOf('bn-insp-grid'), insp.indexOf('</div>', insp.indexOf('bn-insp-grid')))
+  it('the grid\'s right column is never narrower than the floor; the left, short codes, gives the room', () => {
+    expect(code).toMatch(/\.bn-insp-grid \{ grid-template-columns: minmax\(0, 1fr\) minmax\(calc\(var\(--date-room\) \+ 18px\), 1fr\); \}/)
+    expect(insp).toMatch(/className="bn-field-grid bn-insp-grid grid gap-4"/)
+    // A grid-cols utility would outrank the sheet's template (a later layer).
+    expect(grid.slice(0, grid.indexOf('>'))).not.toMatch(/grid-cols-/)
+  })
+  it('Shoot day is the right column\'s, the floor\'s, field', () => {
+    const labels = [...grid.matchAll(/<Field label="([^"]+)"/g)].map((m) => m[1])
+    expect(labels).toEqual(['Slate', 'Take', 'Modifier', 'Camera', 'Roll / card', 'Shoot day'])
+    expect(labels.indexOf('Shoot day') % 2).toBe(1)
+    expect(grid.slice(grid.indexOf('<Field label="Shoot day"'))).toContain('type="date"')
+  })
+})

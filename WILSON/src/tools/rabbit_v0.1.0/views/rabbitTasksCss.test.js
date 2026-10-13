@@ -51,7 +51,7 @@ import {
   unreadableAttributes, toneLiterals, kitFights, colourLiterals, fillShadows,
   orangeGrounds, undefinedProperties, readAwayFromSetter, stateLeaks,
   impossibleTones as impossibleTonesOf, toneSources as toneSourcesOf,
-  declaredValue, rulesOf, cssCode,
+  declaredValue, rulesOf, cssCode, winningInsets, ringInset, kitOffsetRules, specificity, gt,
 } from '../rabbitCssGuards.js'
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
 
@@ -384,6 +384,11 @@ describe('FX10: the Tasks table\'s dates hold the whole date and its calendar', 
   it('the title gave the 40px back: its minimum 216px, so the table\'s narrowest is the 1238px it was', () => {
     expect(v('--rb-task-title-min')).toBe('216px')
   })
+  it('a key date\'s editor and a phase\'s dates draw the kit\'s ring inside them, over every kit rule that offsets an input\'s ring (review round 1, R1-05: the cell clipped it)', () => {
+    const RING = '.rb-task-table-wrap .ui-table.rb-task-table .ui-input.rb-task-date-input:focus-visible'
+    expect(ringInset(sheet, RING)).toBe(true)
+    for (const k of kitOffsetRules('ui-input')) expect(gt(specificity(RING), specificity(k)), k).toBeGreaterThan(0)
+  })
   it('the calendar glyph still shows only on the pointed row or the focused field (Chromium\'s; Firefox always draws its button)', () => {
     expect(declaredValue(sheet, '.rb-task-cell-date::-webkit-calendar-picker-indicator', 'display')).toBe('none')
     for (const sel of ['.rb-task-row:hover .rb-task-cell-date:not(:disabled)::-webkit-calendar-picker-indicator', '.rb-task-cell-date:focus::-webkit-calendar-picker-indicator']) {
@@ -393,5 +398,20 @@ describe('FX10: the Tasks table\'s dates hold the whole date and its calendar', 
   it('CONTROL: the 124px column held a 112px field — 100px for the date and its icon, under Gecko\'s 116.1 for the empty pattern and its button', () => {
     expect(124 - 6 - 6 - 12).toBeLessThan(116.1)
     expect(room).toBeGreaterThan(116.1)
+  })
+  /* Review round 1 (R1-02): the arithmetic read the cell's padding by one
+     exact selector, so a later rule that padded the date cells otherwise
+     passed. The padding that WINS on a date cell — the kit's and this
+     sheet's rules that can land on it, the last cell's 27px excepted, which
+     never meets Start or End — is the 6px the column was summed with. */
+  const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-task-cell'], attrs: {}, never: [':first-child', ':last-child'],
+    ancestors: ['rb-task-table-wrap', 'ui-table-scroll', 'ui-table', 'rb-task-table', 'ui-tr', 'rb-task-row', 'rb-task-ms'] }
+  const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
+  it('the padding that wins on a date cell is the 6px a side the column is summed with, and nothing ties with it', () => {
+    expect(cellPads(sheet)).toEqual({ values: [6, 6], ties: [] })
+  })
+  it('CONTROL: a later or heavier rule that pads the date cells otherwise is caught', () => {
+    expect(cellPads(`${sheet}\n.rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding-right: 12px; }`).values).not.toEqual([6, 6])
+    expect(cellPads(`${sheet}\n.rb-task-table-wrap .ui-table.rb-task-table .ui-tr .ui-td.rb-task-cell { padding: 0 2px; }`).values).toEqual([2, 2])
   })
 })

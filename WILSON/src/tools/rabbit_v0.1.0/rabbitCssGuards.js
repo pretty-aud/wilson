@@ -1045,3 +1045,102 @@ export function kitOffsetRules(cls, kit = indexCss) {
     .flatMap(({ sel }) => selectorsOf(sel))
     .filter((one) => lastCompound(one) === ':focus-visible' || named.test(lastCompound(one)))
 }
+
+/* ── which rules can land on an element (post-overhaul FX10) ─────────────── */
+/** Can a compound selector land on `el` — { tag, classes, attrs: { name: value } }?
+    A pseudo-element is not the element; `:where()` / `:is()` around the whole
+    compound is read through; `:not(x)` excludes an element x describes; any
+    other pseudo-class is a state the element may be in. An attribute the
+    element does not list may be set or not (a state, `[data-empty]`), except
+    the ones it is known by — `type`, `data-size`, `data-surface` — which
+    must match. (FX10 review round 1, R1-02: a rule was read only by its exact
+    selector, so a context rule that padded a date field passed.) */
+export function compoundMatches(compound, el) {
+  let s = compound.trim()
+  const whole = s.match(/^:(?:where|is)\(([^()]*)\)$/)
+  if (whole) return selectorsOf(whole[1]).some((one) => compoundMatches(lastCompound(one), el))
+  if (s.includes('::')) return false
+  // A state or a place the element is known never to be in (`el.never`:
+  // a middle cell is never `:first-child` or `:last-child`).
+  for (const p of el.never || []) if (s.replace(/:not\([^()]*\)/g, '').includes(p)) return false
+  // :not() arguments: the element is excluded by any simple selector it meets.
+  for (const [, arg] of s.matchAll(/:not\(([^()]*)\)/g)) {
+    if (selectorsOf(arg).some((one) => /^[.#[\w]/.test(one.trim()) && compoundMatches(one.trim(), el))) return false
+  }
+  s = s.replace(/:not\([^()]*\)/g, '').replace(/:(?:where|is)\([^()]*\)/g, '').replace(/:[\w-]+(\([^()]*\))?/g, '')
+  const tag = (s.match(/^[a-zA-Z][\w-]*/) || [])[0]
+  if (tag && tag !== '*' && tag.toLowerCase() !== el.tag) return false
+  for (const [, c] of s.matchAll(/\.([\w-]+)/g)) if (!el.classes.includes(c)) return false
+  const attrs = [...s.matchAll(/\[([\w-]+)\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s]*)))?\s*\]/g)]
+    .map((m) => ({ name: m[1], op: m[2], value: m[3] ?? m[4] ?? m[5] }))
+  for (const { name, op, value } of attrs) {
+    if (!['type', 'data-size', 'data-surface'].includes(name)) continue
+    const have = el.attrs[name]
+    if (have == null) return false
+    if (op === '=' && have !== value) return false
+  }
+  return true
+}
+/** A declaration block's horizontal insets, where it sets them: padding-left,
+    padding-right, border-left-width, border-right-width in px, from the
+    longhands and the `padding`, `padding-inline`, `border`, `border-width`,
+    `border-left` / `-right` shorthands. A value that is not a plain length is
+    returned as its text. */
+export function horizontalInsets(body) {
+  const out = {}
+  const decl = (p) => { let v = null; for (const m of body.matchAll(new RegExp(`(?:^|;)\\s*${escapeRe(p)}\\s*:\\s*([^;]*?)\\s*(?=;|$)`, 'g'))) v = m[1]; return v }
+  const len = (t) => (t == null ? undefined : /^0$/.test(t) ? 0 : /^-?\d+(?:\.\d+)?px$/.test(t) ? parseFloat(t) : t)
+  const sides = (v) => { const p = v.trim().split(/\s+/); return { left: p[3] ?? p[1] ?? p[0], right: p[1] ?? p[0] } }
+  const order = []
+  for (const m of body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)) order.push(m[1])
+  for (const p of order) {
+    const v = decl(p)
+    if (v == null) continue
+    if (p === 'padding') { const s = sides(v); out['padding-left'] = len(s.left); out['padding-right'] = len(s.right) }
+    else if (p === 'padding-inline') { const [a, b] = v.trim().split(/\s+/); out['padding-left'] = len(a); out['padding-right'] = len(b ?? a) }
+    else if (p === 'padding-left' || p === 'padding-inline-start') out['padding-left'] = len(v)
+    else if (p === 'padding-right' || p === 'padding-inline-end') out['padding-right'] = len(v)
+    else if (p === 'border' || p === 'border-left' || p === 'border-right' || p === 'border-inline') {
+      const w = v.trim() === '0' || /^none\b/.test(v.trim()) ? 0 : len((v.match(/(^|\s)(\d+(?:\.\d+)?px|0)(?=\s|$)/) || [])[2] ?? v)
+      if (p !== 'border-right') out['border-left-width'] = w
+      if (p !== 'border-left') out['border-right-width'] = w
+    } else if (p === 'border-width') { const s = sides(v); out['border-left-width'] = len(s.left); out['border-right-width'] = len(s.right) }
+    else if (p === 'border-left-width' || p === 'border-inline-start-width') out['border-left-width'] = len(v)
+    else if (p === 'border-right-width' || p === 'border-inline-end-width') out['border-right-width'] = len(v)
+  }
+  return out
+}
+/** Across `sheets` (in load order), the horizontal insets that win on `el`:
+    for each of padding-left / -right and border-left / -right-width, the
+    declaration of the highest specificity (the later one on a tie) whose
+    selector can land on it, and every other declaration at that specificity
+    with a different value (`ties`: load order decides). With `el.ancestors`
+    (the classes of every element it sits in), a context selector counts only
+    when each class its ancestors name is one of them; without, every context
+    counts. */
+export function winningInsets(sheets, el) {
+  const won = {}
+  sheets.forEach((sheet, f) => rulesOf(sheet).forEach(({ sel, body }, r) => {
+    for (const one of selectorsOf(sel)) {
+      const last = lastCompound(one)
+      if (!compoundMatches(last, el)) continue
+      if (el.ancestors && one.trim() !== last.trim()) {
+        const named = (one.slice(0, one.lastIndexOf(last)).match(/\.([\w-]+)/g) || []).map((c) => c.slice(1))
+        if (!named.every((c) => el.ancestors.includes(c))) continue
+      }
+      const ins = horizontalInsets(body)
+      for (const [p, value] of Object.entries(ins)) {
+        const d = { selector: one.trim(), value, spec: specificity(one), order: [f, r] }
+        const cur = won[p]
+        if (!cur) { won[p] = { ...d, ties: [] }; continue }
+        const cmp = gt(d.spec, cur.spec)
+        if (cmp > 0) won[p] = { ...d, ties: [] }
+        else if (cmp === 0) {
+          const ties = d.value === cur.value ? cur.ties : [...cur.ties, cur]
+          won[p] = { ...d, ties: ties.filter((t) => t.value !== d.value) }
+        }
+      }
+    }
+  }))
+  return won
+}

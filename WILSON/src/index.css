@@ -924,18 +924,24 @@ select option {
      them with one class beside its padding (the tables' borderless fields:
      6 + 6). Both engines draw the icon at the field's right end, so a
      field wider than its floor spends the room between date and icon.
-     NOT `min-width: max-content`: Blink's own measure of a date field grows
-     with the screen's pixel ratio (a borderless 6px field: 133px at 1x, 136
-     at 1.5x, 139 at 2x, 145 at 3x) while its date stays 80.9px, so a column
-     sized to it would come up short on another screen.
+     NOT `min-width: max-content`: Blink's own measure of a date field is
+     not the date's — about 25px wider than its 80.9px whatever the value —
+     and it moves with the engine and the screen (a borderless 6px field:
+     133px at 1x and 139 at 2x in Chromium 147's emulation, 131 to 133 in
+     Electron 33), so a column sized to it would come up short on another
+     screen.
      Tabular figures: every date one width, a column of them aligned.
      Display only — the native picker, typing, the keyboard and the value
      are the browser's and the caller's. Measured in Chromium 147, Electron
      33 (Chromium 130) and Firefox 157 by scripts/fx10-date-fields-shots.mjs
      (walkthrough 71); pinned by src/ui/dateField.test.js, which also fails
      on a date field of a kind whose inset is not declared. */
-  :where(input[type="date"]) { --date-inset: 26px; }
-  :where(input[type="date"][data-size="sm"]) { --date-inset: 18px; }
+  :where(input[type="date"]) {
+    --date-inset: 26px;
+  }
+  :where(input[type="date"][data-size="sm"]) {
+    --date-inset: 18px;
+  }
   input[type="date"] {
     min-width: calc(var(--date-room) + var(--date-inset));
     font-variant-numeric: tabular-nums;

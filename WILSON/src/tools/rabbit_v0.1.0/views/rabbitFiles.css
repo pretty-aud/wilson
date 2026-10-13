@@ -1526,18 +1526,17 @@
   }
   .rb-rel-task-glyph { flex: none; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
   .rb-rel-task-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px; }
-  /* Two fields side by side (three for the bid and its dates), 12px apart
-     as they were. The kit's stacked-field margin stands down in the grid.
-     The three share their row 3 : 4 : 4, where it was thirds: a date is
-     75px of figures plus the picker's glyph, and at a third (110px with the
-     body's scrollbar, measured) its last digit went under the glyph, as it
-     did before; the bid is a short figure ("12.5", 26px) in its 90. */
+  /* Two fields side by side, 12px apart as they were. The kit's
+     stacked-field margin stands down in the grid. Bid days and the two
+     dates shared a row until FX10 — 3 : 4 : 4, where a date at a third
+     (110px with the body's scrollbar) had its last digit under the glyph,
+     and at 3 : 4 : 4 Firefox still cut the date under its button (125px
+     wells, 119 in the desktop app at 1280). FX10 gave the dates the kit's
+     floor and review round 1 (R1-01) measured what that cost: Bid days
+     51px in the desktop app, "12.5" read "12.". So Bid days has a row of
+     its own and Start and End the next: in the 400px form, less the body's
+     scrollbar, a field is 169px — the dates' floor is 138. */
   .rb-rel-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
-  /* Bid days, Start, End. FX10: Start and End never narrower than the kit's
-     date floor for their small well (the date's room and its 8 + 8 + 1 + 1;
-     they were 125px, 119 at 1280 in the desktop app, and Firefox cut the
-     date under its button); Bid days takes what is left. */
-  .rb-rel-task-grid[data-cols="3"] { grid-template-columns: minmax(0, 3fr) repeat(2, minmax(calc(var(--date-room) + 18px), 4fr)); }
   .rb-rel-task-grid > .ui-field + .ui-field { margin-top: 0; }
   /* An empty choice reads in the third ink (4.66:1 in the raised well); a
      set one in the ink. A disabled field keeps the kit's. */

@@ -30,7 +30,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   jsxTags, cssCode, selectorsOf, lastCompound, specificity, gt,
   spreadAttributes, paletteLeaks, variableAttributes, keyedValues, unmatchedValues, arrayValues, mapFieldValues, propValues,
-  declaredValue,
+  declaredValue, winningInsets, withDeclaration,
 } from '../rabbitCssGuards.js'
 import { contrast, over } from '../../../ui/contrast.js'
 import { PAPER, PAPER_RAISED, INK, INK_2, INK_3, DANGER, HOVER, BACKDROP } from '../../../ui/tokens.js'
@@ -687,14 +687,47 @@ describe('FX10: the dates on this sheet hold the whole date and its calendar', (
     // Half the grid less half its 24px column gap: two to a row exactly fill it.
     expect(declaredValue(sheet, '.rb-ent-prop-grid', 'gap')).toBe('16px 24px')
   })
-  it('an item window\'s new-task form: Start and End never narrower than the small well\'s floor; Bid days takes what is left', () => {
-    expect(declaredValue(sheet, '.rb-rel-task-grid[data-cols="3"]', 'grid-template-columns'))
-      .toBe('minmax(0, 3fr) repeat(2, minmax(calc(var(--date-room) + 18px), 4fr))')
-    const rel = read('../components/RelationsPanel.jsx')
+  /* Review round 1 (R1-01): the dates' floor taken out of a three-to-a-row
+     grid left Bid days 51px in the desktop app ("12.5" read "12."). Bid days
+     has a row of its own and Start and End the next, two to a row: at the
+     form's narrowest — 400px, less its 16px a side and a 17px scrollbar —
+     a field is 169.5px, over the small well's date floor (138) and far over
+     Bid days' "12.5". */
+  const rel = read('../components/RelationsPanel.jsx').replace(/\r\n/g, '\n')
+  const ROWS = /<div className="rb-rel-task-grid">\s*<Field label="Bid days">[\s\S]*?<\/Field>\s*<\/div>\s*<div className="rb-rel-task-grid">\s*<Field label="Start">[\s\S]*?<\/Field>\s*<Field label="End">[\s\S]*?<\/Field>\s*<\/div>/
+  const halfOf = (s) => {
+    const w = px(declaredValue(s, '.rb-rel-task', 'width'))
+    const pad = Number((declaredValue(s, '.rb-rel-task-body', 'padding') || '').split(/\s+/)[1]?.replace('px', ''))
+    const cols = declaredValue(s, '.rb-rel-task-grid', 'grid-template-columns')
+    const gap = Number((declaredValue(s, '.rb-rel-task-grid', 'gap') || '').split(/\s+/)[1]?.replace('px', ''))
+    return cols === 'repeat(2, minmax(0, 1fr))' ? (w - 2 * pad - 17 - gap) / 2 : NaN
+  }
+  const px = (v) => Number((String(v).match(/^(\d+(?:\.\d+)?)px$/) || [])[1])
+  it('an item window\'s new-task form: Bid days on a row of its own, Start and End two to the next — each 169.5px at the form\'s narrowest, over the 138px floor', () => {
+    expect(rel).toMatch(ROWS)
+    expect(rel).not.toMatch(/data-cols/)
+    expect(rulesOf(sheet).some(({ sel }) => /data-cols/.test(sel))).toBe(false)
+    expect(halfOf(sheet)).toBe(169.5)
+    expect(halfOf(sheet)).toBeGreaterThanOrEqual(room + 18)
     expect(rel.match(/className="ui-input rb-rel-task-field rb-rel-task-date"\s+data-size="sm"/g)).toHaveLength(2)
   })
-  it('CONTROL: the 124px column held a 112px field and the form 125px ones — under the floors, 132 and 138', () => {
-    expect(124 - 12 - 12 + 12).toBeLessThan(room + 12)
-    expect(125).toBeLessThan(room + 18)
+  it('CONTROL: three to a row again, or a narrower form, is caught', () => {
+    const three = rel.replace(/<\/Field>\s*<\/div>\s*<div className="rb-rel-task-grid">\s*<Field label="Start">/, '</Field>\n          <Field label="Start">')
+    expect(three).not.toMatch(ROWS)
+    expect(halfOf(withDeclaration(sheet, '.rb-rel-task-grid', 'grid-template-columns', 'repeat(3, minmax(0, 1fr))'))).toBeNaN()
+    expect(halfOf(withDeclaration(sheet, '.rb-rel-task', 'width', '320px'))).toBeLessThan(room + 18)
+  })
+  /* R1-02's P05b: a heavier rule padding the Assets date cell would squeeze
+     the field the column arithmetic above sums with the kit's 12px a side.
+     The padding that WINS on a date cell — every rule of the kit's and this
+     sheet's that can land on it — is the kit's. */
+  const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-asset-ctl-cell'], attrs: {}, never: [':first-child', ':last-child'],
+    ancestors: ['rb-asset-table-wrap', 'ui-table-scroll', 'ui-table', 'rb-asset-table', 'ui-tr', 'rb-asset-row'] }
+  const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
+  it('the padding that wins on an Assets date cell is the kit\'s 12px a side the column is summed with, and nothing ties with it', () => {
+    expect(cellPads(sheet)).toEqual({ values: ['var(--cell-pad-x)', 'var(--cell-pad-x)'], ties: [] })
+  })
+  it('CONTROL: a heavier rule that pads the date cells otherwise is caught', () => {
+    expect(cellPads(`${sheet}\n.rb-asset-table-wrap .rb-asset-table .ui-tr > .ui-td.rb-asset-ctl-cell { padding: 0 16px; }`).values).toEqual([16, 16])
   })
 })

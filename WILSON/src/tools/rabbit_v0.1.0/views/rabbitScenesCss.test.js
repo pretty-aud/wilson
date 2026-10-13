@@ -27,7 +27,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
   arrayValues, scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset,
-  specificity, gt,
+  specificity, gt, winningInsets,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -1021,7 +1021,19 @@ describe('FX10: the Shots table\'s dates hold the whole date and its calendar', 
   it('every date field of the Scenes tab is the kit\'s small well, the table\'s and the two windows\' (its inset the kit\'s)', () => {
     expect(read('ScenesView.jsx').match(/className="ui-input rb-scene-date"\s+data-size="sm"/g)).toHaveLength(6)
   })
-  it('CONTROL: the 144px column with the kit cell\'s 12px a side held a 120px well — under the 138 floor', () => {
-    expect(144 - 12 - 12).toBeLessThan(room + 18)
+  /* Review round 1 (R1-02, its P13): the cell's padding was read by one exact
+     selector, so a later rule that put the kit's 12px back passed. The
+     padding that WINS on a date cell — every rule of the kit's and this
+     sheet's that can land on it — is the 6px the column was summed with. */
+  const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-scene-date-cell'], attrs: {}, never: [':first-child', ':last-child'],
+    ancestors: ['rb-scene-groups', 'rb-scene-table-wrap', 'ui-table-scroll', 'ui-table', 'rb-scene-table', 'rb-scene-table-shots', 'ui-tr', 'rb-scene-row'] }
+  const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
+  it('the padding that wins on a Shots date cell is the 6px a side the column is summed with, and nothing ties with it', () => {
+    expect(cellPads(sheet)).toEqual({ values: [6, 6], ties: [] })
+  })
+  it('CONTROL: a later rule that puts the kit\'s 12px back on the date cells is caught, and the column\'s room under it fails the floor', () => {
+    const later = `${sheet}\n.rb-scene-table .ui-tr > .ui-td.rb-scene-date-cell { padding-left: 12px; padding-right: 12px; }`
+    expect(cellPads(later).values).toEqual([12, 12])
+    expect(150 - 12 - 12).toBeLessThan(room + 18)
   })
 })

@@ -34,6 +34,10 @@
  *             ("09 / 26 / 2026") and ALWAYS shows its calendar button (no
  *             `::-webkit-calendar-picker-indicator` rule reaches it) except on
  *             a disabled field: Audrey's screenshot is this engine's.
+ *   Electron and Firefox each listen on a free port this run picks, and the
+ *   run checks that the browser it reached is the one it started (Electron:
+ *   a page titled with a one-off token; Firefox: the session's profile is
+ *   the throwaway one) — it never measures some other app's browser.
  *
  * For each field, in three states (rest: the pointer parked; hover: the
  * pointer on the field, which hovers its row; focus: the field focused), it
@@ -51,7 +55,17 @@
  *   - every engine: a pixel scan of the field as drawn (its picture, scanned
  *     for ink): where the date's ink ends, where the icon's starts, the gap
  *     between, and the date's ink width against the same value drawn in a
- *     400px field (a shorter ink width = the date is cut).
+ *     400px field (a shorter ink width = the date is cut). Focused, the
+ *     scan leaves out the outer 3px a side (where an inset ring is drawn)
+ *     and gives the gap only: the engine paints the date's focused part on
+ *     a highlight, so its ink is not the reference's, and Chromium's parts
+ *     and Firefox's `short` say whether it is cut (review round 1, R1-09);
+ *   - after the states, every other control sharing the field's row (its
+ *     table row, or its nearest grid or row of controls): its text against
+ *     its room, an empty number field filled with "12.5" first — a date's
+ *     room must not come out of a neighbour's (review round 1, R1-09). The
+ *     `control-squeezed` part (not in `all`) squeezes the Bins inspector's
+ *     left column to 24px in its page: the pass must report it.
  * Then a close-up picture of the measured fields per state (2x), and with
  * --full the whole window at rest and hovered. The pet companion's sprite is
  * hidden while measuring (it floats over the Bins inspector's Shoot day).
@@ -76,6 +90,8 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
+import { randomBytes } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 
 const args = process.argv.slice(2);
@@ -93,7 +109,8 @@ const FULL_DATE = '2026-09-26';
 // Steps: '@proj' the Salt Hours card; 'tab:<name>' a tab; 'click:<name>' any
 // control by its name (exact, then prefix); 'row:<text>' a table row holding
 // the text; 'css:<selector>' the first shown
-// match, clicked; 'select:<aria-label>=<value>' a select set; 'wait:<css>'.
+// match, clicked; 'select:<aria-label>=<value>' a select set; 'wait:<css>';
+// 'style:<css>' a style sheet added to this page (the control part only).
 // `fields` selects the date inputs measured (the first `take`); `values` the
 // configurations they are measured in, by index (a missing index keeps the
 // field's own value).
@@ -133,10 +150,14 @@ const PARTS = {
   // the cloud branch (ProjectMembersPanel), which has no date field.
   intake: { steps: ['@proj', 'tab:Intake', 'click:New project', 'wait:input[type="date"]'], fields: 'input[type="date"]', take: 2, values: [[FULL_DATE, '']] },
   'bins-inspector': { steps: ['@proj', 'tab:Bins', 'click:List view', 'wait:.bn-trow', 'css:.bn-trow', 'wait:input[type="date"]'], fields: 'input[type="date"]', take: 1, values: [[FULL_DATE], ['']] },
+  // A control, not a surface (left out of `all`): the same inspector with its
+  // left column squeezed to 24px in this page, which the neighbours pass must
+  // report as not fitting.
+  'control-squeezed': { control: true, steps: ['@proj', 'tab:Bins', 'click:List view', 'wait:.bn-trow', 'css:.bn-trow', 'wait:input[type="date"]', 'style:.bn-insp-grid{grid-template-columns:24px minmax(calc(var(--date-room) + 18px),1fr)!important}'], fields: 'input[type="date"]', take: 1, values: [[FULL_DATE]] },
 };
-const ALL = Object.keys(PARTS);
+const ALL = Object.keys(PARTS).filter((p) => !PARTS[p].control);
 if (!OUT || !['before', 'after'].includes(PHASE) || !['chromium', 'electron', 'firefox', 'chrome', 'msedge'].includes(ENGINE)) {
-  console.error(`usage: fx10-date-fields-shots.mjs <port> --out <dir> --phase before|after [--engine chromium|electron|firefox|chrome|msedge] [--electron <exe>] [--size WxH] [--part ${ALL.join('|')}|all] [--no-shots] [--full]`);
+  console.error(`usage: fx10-date-fields-shots.mjs <port> --out <dir> --phase before|after [--engine chromium|electron|firefox|chrome|msedge] [--electron <exe>] [--size WxH] [--part ${Object.keys(PARTS).join('|')}|all] [--no-shots] [--full]`);
   process.exit(1);
 }
 const [W, H] = (flag('--size') || '1440x900').split('x').map(Number);
@@ -218,6 +239,12 @@ async function pgStep(step) {
   if (kind === 'wait') {
     const el = await waitFor(() => [...document.querySelectorAll(rest)].find(shown));
     return el ? null : `wait ${rest}`;
+  }
+  if (kind === 'style') {
+    const st = document.createElement('style');
+    st.textContent = rest;
+    document.head.appendChild(st);
+    await s(300); return null;
   }
   return `unknown step ${step}`;
 }
@@ -318,6 +345,56 @@ function pgReference(i) {
   return { x: r.left, y: r.top, w: r.width, h: r.height, bL: parseFloat(cs.borderLeftWidth) || 0, bR: parseFloat(cs.borderRightWidth) || 0, padR: parseFloat(cs.paddingRight) || 0 };
 }
 function pgReferenceOff() { const old = document.getElementById('fx10-ref'); if (old) old.remove(); return 1; }
+/** Every other control sharing the field's row, and whether its text fits
+    its room (review round 1, R1-09: the floor took a form's Bid days down to
+    51px and only date fields were measured). The row: the field's table row,
+    else its nearest grid of two or more columns or row-wise flex box with two
+    or more children holding a control (an inline Field's label beside its
+    control is not one). An empty number field gets "12.5" first, through its
+    own input event; a number field's room leaves out the 15px its spinner
+    keeps (Blink lays it out unseen at rest; Gecko draws it). A select's room
+    is its padding box, the kit's chevron padding already out of it. */
+async function pgNeighbours(i) {
+  const { sleep: s } = window.__fx10;
+  const el = document.querySelector(`[data-fx10="${i}"]`);
+  if (!el) return { row: null, controls: [] };
+  const CONTROL = 'input:not([type="date"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]), select';
+  const holds = (c) => c.matches('input, select, textarea') || !!c.querySelector('input, select, textarea');
+  let row = el.closest('tr');
+  for (let a = el.parentElement; !row && a && a !== document.body; a = a.parentElement) {
+    const cs = getComputedStyle(a);
+    const tracks = cs.gridTemplateColumns.split(/\s+/).filter((t) => /px$/.test(t)).length;
+    const across = (cs.display.includes('grid') && tracks > 1) || (cs.display.includes('flex') && !cs.flexDirection.startsWith('column'));
+    if (across && [...a.children].filter(holds).length > 1) row = a;
+  }
+  if (!row) return { row: null, controls: [] };
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  let typed = 0;
+  for (const n of row.querySelectorAll('input[type="number"]')) {
+    if (!n.getClientRects().length || n.value !== '' || n.disabled || n.readOnly) continue;
+    setter.call(n, '12.5');
+    n.dispatchEvent(new Event('input', { bubbles: true }));
+    n.dispatchEvent(new Event('change', { bubbles: true }));
+    typed++;
+  }
+  if (typed) await s(300);
+  const ctx = document.createElement('canvas').getContext('2d');
+  const out = [];
+  for (const n of row.querySelectorAll(CONTROL)) {
+    if (!n.getClientRects().length) continue;
+    const cs = getComputedStyle(n);
+    const text = n.tagName === 'SELECT' ? ((n.options[n.selectedIndex] || {}).text || '') : (n.value || n.placeholder || '');
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const textW = ctx.measureText(text).width;
+    const r = n.getBoundingClientRect();
+    const px = (v) => parseFloat(v) || 0;
+    const room = r.width - px(cs.paddingLeft) - px(cs.paddingRight) - px(cs.borderLeftWidth) - px(cs.borderRightWidth) - (n.type === 'number' ? 15 : 0);
+    const field = n.closest('.ui-field');
+    const label = n.getAttribute('aria-label') || (field && (field.querySelector('label, .ui-field-label') || {}).textContent) || n.name || n.tagName;
+    out.push({ label: String(label).replace(/\s+/g, ' ').trim().slice(0, 30), tag: n.tagName.toLowerCase(), type: n.tagName === 'SELECT' ? 'select' : n.type, w: Math.round(r.width * 10) / 10, room: Math.round(room * 10) / 10, text: text.slice(0, 40), textW: Math.round(textW * 10) / 10, fits: textW <= room + 0.5 });
+  }
+  return { row: `${row.tagName.toLowerCase()}.${String(row.className || '').trim().split(/\s+/).slice(0, 3).join('.')}`, controls: out };
+}
 function pgFocus(i) { const el = document.querySelector(`[data-fx10="${i}"]`); el.focus(); return document.activeElement === el; }
 function pgBlur() { if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); return 1; }
 
@@ -355,10 +432,21 @@ async function chromiumEngine(channel) {
  * package.json (or --electron <path to electron.exe>), one hidden window on a
  * throwaway user-data folder, driven over the DevTools protocol.
  */
+/** A port nothing listens on now (review round 1, R1-09: two runs on random
+    ports could attach to each other's browser). */
+const freePort = () => new Promise((res, rej) => {
+  const srv = createServer();
+  srv.once('error', rej);
+  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => res(port)); });
+});
+
 async function electronEngine() {
   const exe = flag('--electron') || join(process.cwd(), 'node_modules', 'electron', 'dist', 'electron.exe');
   const dir = mkdtempSync(join(tmpdir(), 'fx10-el-'));
-  const port = 9900 + Math.floor(Math.random() * 90);
+  const port = await freePort();
+  // The window opens on a page titled with this run's token: the browser the
+  // DevTools port answers for is checked to be this run's before any use.
+  const token = `fx10-${randomBytes(6).toString('hex')}`;
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fx10-measure', main: 'main.cjs' }));
   writeFileSync(join(dir, 'main.cjs'), [
     "const { app, BrowserWindow } = require('electron');",
@@ -366,7 +454,7 @@ async function electronEngine() {
     'app.whenReady().then(() => {',
     `  const w = new BrowserWindow({ width: ${W}, height: ${H}, show: false, useContentSize: true, webPreferences: { offscreen: true, backgroundThrottling: false } });`,
     '  w.webContents.setFrameRate(30);',
-    "  w.loadURL('about:blank');",
+    `  w.loadURL('data:text/html,<title>${token}</title>');`,
     '});',
     "app.on('window-all-closed', () => app.quit());",
   ].join('\n'));
@@ -387,6 +475,9 @@ async function electronEngine() {
   const context = browser.contexts()[0];
   let page = context.pages()[0];
   for (let i = 0; i < 50 && !page; i++) { await sleep(200); page = context.pages()[0]; }
+  let title = '';
+  for (let i = 0; i < 50 && title !== token; i++) { title = await page.title().catch(() => ''); if (title !== token) await sleep(100); }
+  if (title !== token) { try { await browser.close(); } catch { /* not ours */ } await kill(); throw new Error(`the DevTools port ${port} answered for a browser that is not this run's`); }
   await page.setViewportSize({ width: W, height: H });
   const run = (fn, arg) => page.evaluate(`(${fn.toString()})(${JSON.stringify(arg ?? null)})`);
   const version = await page.evaluate('navigator.userAgent.match(/Electron\\/[\\d.]+|Chrome\\/[\\d.]+/g).join(" ")');
@@ -416,7 +507,7 @@ async function electronEngine() {
 }
 
 async function firefoxEngine() {
-  const port = 9600 + Math.floor(Math.random() * 300);
+  const port = await freePort();
   const profile = mkdtempSync(join(tmpdir(), 'fx10-ff-'));
   // No crash reporter: a headless Firefox stopped from here must not leave a
   // reporter window on the desktop.
@@ -451,6 +542,10 @@ async function firefoxEngine() {
   let session; let context;
   try {
     session = await send('session.new', { capabilities: {} });
+    // The session is this run's Firefox: its profile is the one made here.
+    const prof = session.capabilities['moz:profile'];
+    const norm = (p) => p.split('\\').join('/').toLowerCase();
+    if (prof && norm(prof) !== norm(profile)) throw new Error(`the BiDi port ${port} answered for a Firefox that is not this run's (${prof})`);
     context = (await send('browsingContext.create', { type: 'tab' })).context;
     await send('browsingContext.setViewport', { context, viewport: { width: W, height: H }, devicePixelRatio: 2 });
   } catch (e) { try { ws.close(); } catch { /* closed */ } await kill(); throw e; }
@@ -580,15 +675,15 @@ function decodePng(buf) {
  * content box's right edge, where Gecko draws its button), or null when no
  * icon is drawn.
  */
-function scanInk(png, dpr, box, iconFrom) {
+function scanInk(png, dpr, box, iconFrom, margin = 0) {
   const { width, height, rgb } = png;
   const lum = (x, y) => { const i = (y * width + x) * 3; return 0.2126 * rgb[i] + 0.7152 * rgb[i + 1] + 0.0722 * rgb[i + 2]; };
   const hist = new Map();
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) { const l = Math.round(lum(x, y) / 4); hist.set(l, (hist.get(l) || 0) + 1); }
   let bg = 0; let best = -1;
   for (const [l, n] of hist) if (n > best) { best = n; bg = l * 4; }
-  const x0 = Math.ceil((box.bL + 1) * dpr);
-  const x1 = width - Math.ceil((box.bR + 1) * dpr);
+  const x0 = Math.ceil(Math.max(box.bL + 1, margin) * dpr);
+  const x1 = width - Math.ceil(Math.max(box.bR + 1, margin) * dpr);
   const y0 = Math.ceil(3 * dpr);
   const y1 = height - Math.ceil(3 * dpr);
   const ink = [];
@@ -676,9 +771,13 @@ try {
           // Where the icon's box starts: Chromium's indicator, or Gecko's button.
           // Gecko draws no button on a disabled field.
           const iconFrom = parts ? (parts.icon ? parts.icon.x - box.x - 1 : null) : box.disabled ? null : box.w - box.padR - box.bR - 18;
-          const scan = state === 'focus' ? null : scanInk(png, engine.dpr, box, iconFrom);
+          // Focused: the outer 3px a side left out (an inset ring is drawn
+          // there), and the gap only — the engine paints the focused part of
+          // the date (its month) on a highlight, so the ink is not the
+          // reference's; Chromium's parts and Firefox's `short` say the cut.
+          const scan = scanInk(png, engine.dpr, box, iconFrom, state === 'focus' ? 3 : 0);
           const ref = refs[f.i];
-          const cut = scan && ref && ref.textW != null && scan.textW != null ? r1(Math.max(0, ref.textW - scan.textW)) : null;
+          const cut = state !== 'focus' && scan && ref && ref.textW != null && scan.textW != null ? r1(Math.max(0, ref.textW - scan.textW)) : null;
           rows.push({
             i: f.i, label: f.label, cls: f.cls, value: box.value || '(empty)',
             field: r1(box.w), cell: r1(box.cell.w), cellTag: box.cell.tag, cellCls: box.cell.cls,
@@ -715,6 +814,17 @@ try {
           if (!spec.keepFocus) await engine.run(pgBlur);
           await engine.pointer(W - 70, 12);
         }
+      }
+      // The controls sharing each field's row, after its states (R1-09).
+      config.neighbours = {};
+      for (const f of got.fields) {
+        const nb = await engine.run(pgNeighbours, f.i);
+        config.neighbours[f.i] = nb;
+        const tight = nb.controls.filter((n) => !n.fits);
+        const least = nb.controls.reduce((m, n) => (m && m.room - m.textW <= n.room - n.textW ? m : n), null);
+        console.log(`  row of #${f.i} (${nb.row || 'none'}): ${nb.controls.length} other control${nb.controls.length === 1 ? '' : 's'}`
+          + (least ? `, least spare ${r1(least.room - least.textW)} (${least.label}: "${least.text}" ${least.textW} in ${least.room} of ${least.w})` : '')
+          + (tight.length ? ` — ${tight.length} NOT FITTING: ${tight.map((n) => `${n.label} "${n.text}" ${n.textW} in ${n.room}`).join('; ')}` : ''));
       }
       part.configs.push(config);
     }
