@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+/**
+ * UI overhaul codemod — PASS 3: FONT-MONO.
+ *
+ *   node scripts/ui-pass3-mono.mjs --dry
+ *   node scripts/ui-pass3-mono.mjs --sample keep [n]
+ *   node scripts/ui-pass3-mono.mjs --sample drop [n]
+ *   node scripts/ui-pass3-mono.mjs
+ *
+ * Deletes `font-mono` where the content is not data. The map and the argument
+ * for every pattern are in `ui-mono-map.mjs`; this file is the mechanism.
+ *
+ * A numeric cell that keeps mono also takes `tabular-nums` (§3.1: "Numerics in
+ * tables use font-variant-numeric: tabular-nums, right alignment, and the mono
+ * at --mono-size-adjust"), so a kept numeric site gains that class if it does
+ * not already carry it.
+ */
+import { readFileSync, writeFileSync } from 'node:fs';
+import { sourceFiles } from './ui-audit.mjs';
+import { protectedRanges, isProtected } from './ui-source-regions.mjs';
+import { enclosingRun, enclosingTag, elementBody } from './ui-type-inventory.mjs';
+import { classifyMono, IS_PATHLIKE, NUMERIC_ALIGN, splitIdentifiers } from './ui-mono-map.mjs';
+
+const DRY = process.argv.includes('--dry');
+const SAMPLE = process.argv.includes('--sample') ? process.argv[process.argv.indexOf('--sample') + 1] : null;
+const SAMPLE_N = parseInt(process.argv[process.argv.indexOf('--sample') + 2] || '30', 10);
+const SKIP = [/[\/]Home\.jsx$/];
+const files = sourceFiles().filter((f) => !SKIP.some((re) => re.test(f)));
+
+
+const sites = [];
+for (const file of files) {
+  const src = readFileSync(file, 'utf8');
+  const guarded = protectedRanges(src);
+  const re = /\bfont-mono\b/g;
+  let m;
+  while ((m = re.exec(src))) {
+    if (isProtected(guarded, m.index)) continue;
+    const run = enclosingRun(src, m.index) || '';
+    const tag = enclosingTag(src, m.index);
+    const body = elementBody(src, m.index);
+    const verdict = classifyMono({ tag, run, body });
+    sites.push({ file, start: m.index, end: m.index + m[0].length, run, tag, body, ...verdict,
+      line: src.slice(0, m.index).split('\n').length });
+  }
+}
+
+if (SAMPLE) {
+  const want = SAMPLE === 'keep';
+  const pool = sites.filter((s) => s.keep === want);
+  console.log(`# font-mono ${SAMPLE}: ${pool.length} sites, showing up to ${SAMPLE_N}`);
+  const step = Math.max(1, Math.floor(pool.length / SAMPLE_N));
+  for (let i = 0, n = 0; i < pool.length && n < SAMPLE_N; i += step, n++) {
+    const s = pool[i];
+    console.log(`<${s.tag}> ${s.file}:${s.line}  — ${s.why}`);
+    console.log(`     body: ${s.body.slice(0, 96)}`);
+  }
+  process.exit(0);
+}
+
+/* Apply: delete the class on a drop; add `tabular-nums` on a kept numeric that
+   does not carry it. Back to front, so no index shifts under a later edit. */
+const byFile = new Map();
+for (const s of sites) {
+  if (!byFile.has(s.file)) byFile.set(s.file, []);
+  byFile.get(s.file).push(s);
+}
+
+const tally = new Map();
+const bump = (k) => tally.set(k, (tally.get(k) || 0) + 1);
+let dropped = 0, kept = 0, numerics = 0, emptyAttrs = 0;
+const report = [];
+
+for (const [file, list] of byFile) {
+  let out = readFileSync(file, 'utf8');
+  const edits = [];
+  for (const s of list) {
+    bump(`${s.keep ? 'keep' : 'drop'} — ${s.why}`);
+    if (s.keep) {
+      kept++;
+      /* §3.1's numeric-cell clause: figures in tables line up or they are not
+         a column. Only for figures, never for an id or a path.
+         🚨 BOTH SPELLINGS, and a right alignment is sufficient on its own.
+         Testing the raw body only meant `bidTotal` and `actualTotal` did not
+         contain `\btotal\b`, so ONE of the five currency columns in
+         R.A.B.B.I.T.'s bid row got `tabular-nums` and four did not — which is
+         worse than none of them having it, because a column that half lines up
+         looks broken rather than unstyled. */
+      const figureWord = /\b(?:count|total|totals|subtotal|sum|amount|price|cost|rate|budget|qty|quantity|size|bytes|pct|percent|fee|variance|logged|bid)\b/i;
+      const isFigure = (figureWord.test(s.body) || figureWord.test(splitIdentifiers(s.body)) || NUMERIC_ALIGN.test(s.run))
+        && !IS_PATHLIKE.some((re) => re.test(s.body))   // a path is data, not a column of digits
+        && !/\btabular-nums\b/.test(s.run);
+      if (isFigure) { edits.push({ start: s.end, end: s.end, to: ' tabular-nums' }); numerics++; }
+      continue;
+    }
+    dropped++;
+    edits.push({ start: s.start, end: s.end, to: null });
+  }
+  if (!edits.length) continue;
+  edits.sort((a, b) => b.start - a.start);
+  for (const e of edits) {
+    if (e.to !== null) { out = out.slice(0, e.start) + e.to + out.slice(e.end); continue; }
+    let a = e.start, b = e.end;
+    if (out[a - 1] === ' ') a -= 1;
+    else if (out[b] === ' ') b += 1;
+    out = out.slice(0, a) + out.slice(b);
+  }
+  /* When `font-mono` was the ONLY class on an element, removing it leaves
+     `className=""` — dead markup that a reviewer will (rightly) flag and that
+     says nothing about what the element is. Eight of these appeared in the
+     first run. The attribute goes with it. */
+  const emptied = out.match(/\s*className=""/g);
+  if (emptied) {
+    out = out.replace(/\s*className=""/g, '');
+    emptyAttrs += emptied.length;
+  }
+
+  if (!DRY) writeFileSync(file, out, 'utf8');
+  report.push([file, edits.length]);
+}
+
+report.sort((a, b) => b[1] - a[1]);
+console.log(`# pass 3 — font-mono${DRY ? ' (dry run)' : ''}`);
+console.log(`${sites.length} sites: ${dropped} dropped, ${kept} kept (${numerics} gained tabular-nums, ${emptyAttrs} empty className attributes removed)\n`);
+for (const [k, v] of [...tally].sort((a, b) => b[1] - a[1])) console.log(`  ${String(v).padStart(5)}  ${k}`);
+console.log('\n| file | edits |');
+console.log('|---|---|');
+for (const [f, n] of report.slice(0, 20)) console.log(`| ${f} | ${n} |`);

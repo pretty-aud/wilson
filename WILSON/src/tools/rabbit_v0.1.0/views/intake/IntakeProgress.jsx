@@ -17,7 +17,6 @@ export default function IntakeProgress({
   projectId,
   files,
   personas,
-  apiKey,
   onComplete,
   onBack,
 }) {
@@ -35,7 +34,7 @@ export default function IntakeProgress({
     if (startedRef.current) return
     if (!startBackgroundIngestion) return
     startedRef.current = true
-    startBackgroundIngestion({ files, personas, apiKey }).catch(() => {
+    startBackgroundIngestion({ files, personas }).catch(() => {
       // The provider records the error on `ingestionRun.error`.
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -63,15 +62,15 @@ export default function IntakeProgress({
   const pct = chunksTotal > 0 ? Math.round((chunksDone / chunksTotal) * 100) : 0
 
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-6 p-8" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full flex flex-col items-center justify-center gap-6 p-8" style={{ backgroundColor: 'var(--color-paper)' }}>
       {/* Headline */}
       <div className="flex items-center gap-2">
         {phase === 'error' ? (
-          <AlertCircle className="w-6 h-6" style={{ color: '#fca5a5' }} />
+          <AlertCircle className="w-6 h-6" style={{ color: 'var(--color-danger)' }} />
         ) : (
-          <Sparkles className="w-6 h-6" style={{ color: '#fb923c' }} />
+          <Sparkles className="w-6 h-6" style={{ color: 'var(--color-ink)' }} />
         )}
-        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#fb923c' }}>
+        <h2 className="text-h3 font-semibold" style={{ color: 'var(--color-ink)' }}>
           {phase === 'starting' && 'Preparing intake…'}
           {phase === 'running'  && 'Running intake'}
           {phase === 'done'     && 'Intake complete'}
@@ -79,7 +78,7 @@ export default function IntakeProgress({
         </h2>
       </div>
 
-      <p className="text-[10px] font-mono italic max-w-md text-center" style={{ color: '#78716c' }}>
+      <p className="text-dense italic max-w-md text-center" style={{ color: 'var(--color-ink-3)' }}>
         You can leave this view — the breakdown keeps running in the background.
         Watch the toast in the bottom-left corner.
       </p>
@@ -88,18 +87,21 @@ export default function IntakeProgress({
       {phase !== 'error' && (
         <div className="w-full max-w-md flex flex-col gap-2">
           <div
-            className="h-3 w-full rounded-sm overflow-hidden"
-            style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
+            className="h-3 w-full rounded-control overflow-hidden"
+            style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}
           >
             <div
-              className="h-full transition-all duration-200"
+              className="h-full transition-[width] duration-200"
               style={{
                 width: `${pct}%`,
-                backgroundColor: '#ea580c',
+                backgroundColor: 'var(--color-signal-fill)',
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+          {/* P1 §7 audit: a progress readout, not a label — the Caption step
+              in sentence case with tabular figures (it was the capitalised
+              Label step in the mono, a sentence included; Q2, Q4). */}
+          <div className="flex items-center justify-between text-caption tabular-nums" style={{ color: 'var(--color-ink-2)' }}>
             <span>
               {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'
@@ -107,11 +109,11 @@ export default function IntakeProgress({
             </span>
             <span className="flex items-center gap-1">
               {phase === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
-              {phase === 'done'    && 'done'}
+              {phase === 'done'    && 'Done'}
             </span>
           </div>
           {lastLabel && (
-            <div className="text-[10px] font-mono truncate" style={{ color: '#78716c' }}>
+            <div className="text-dense truncate" style={{ color: 'var(--color-ink-3)' }}>
               last: {lastLabel}
             </div>
           )}
@@ -121,8 +123,8 @@ export default function IntakeProgress({
       {/* Error block */}
       {phase === 'error' && errorMsg && (
         <div
-          className="max-w-md text-[11px] font-mono leading-relaxed p-3 rounded-sm text-center"
-          style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
+          className="max-w-md text-dense p-3 rounded-control text-center"
+          style={{ backgroundColor: 'var(--color-paper)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
         >
           {errorMsg}
         </div>
@@ -134,10 +136,9 @@ export default function IntakeProgress({
           <button
             type="button"
             onClick={handleAbort}
-            className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
+            className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
           >
-            <X className="w-3 h-3" />
+            <X aria-hidden="true" />
             Cancel
           </button>
         )}
@@ -149,10 +150,9 @@ export default function IntakeProgress({
               startedRef.current = false
               onBack?.()
             }}
-            className="px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
+            className="ui-btn" data-variant="secondary" data-size="md" data-surface="dark"
           >
-            ← Back to settings
+            Back to settings
           </button>
         )}
       </div>

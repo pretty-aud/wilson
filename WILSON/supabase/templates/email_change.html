@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  WILSON email-change confirmation.
+
+  Template variables:
+    {{ .ConfirmationURL }}   link that confirms the new email address
+    {{ .Email }}             the NEW email address (destination of this mail)
+    {{ .Data.old_email }}    the previous email address (passed via updateUser)
+    {{ .Data.username }}     the user's WILSON username
+
+  Triggered when a user changes their email in Settings → Profile.
+-->
+<head>
+  <meta charset="utf-8" />
+  <title>Confirm your new WILSON email</title>
+</head>
+<body style="margin:0;padding:0;background:#f4a261;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1f2937;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0"
+               style="background:#ffffff;border-radius:4px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background:#ea580c;padding:22px 28px;">
+              <div style="color:#ffffff;font-weight:600;letter-spacing:0.16em;font-size:14px;text-transform:uppercase;">WILSON</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <h1 style="margin:0 0 12px 0;font-size:20px;font-weight:600;letter-spacing:0.02em;color:#111827;">
+                Confirm your new email
+              </h1>
+              <p style="margin:0 0 16px 0;font-size:15px;line-height:1.55;">
+                {{ .Data.username }} — you asked to change the email on your WILSON account from
+                <strong>{{ .Data.old_email }}</strong> to <strong>{{ .Email }}</strong>. Tap the button to confirm.
+              </p>
+              <p style="margin:0 0 24px 0;font-size:15px;line-height:1.55;">
+                Until you confirm, sign-in still uses the previous address. The link expires in 24 hours.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 28px 28px;">
+              <a href="{{ .ConfirmationURL }}"
+                 style="display:inline-block;background:#ea580c;color:#ffffff;padding:12px 28px;font-size:14px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;border-radius:2px;">
+                Confirm new email
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 28px 28px;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#6b7280;">
+                If the button doesn't work, paste this URL into your browser:<br/>
+                <span style="word-break:break-all;color:#1f2937;">{{ .ConfirmationURL }}</span>
+              </p>
+              <p style="margin:16px 0 0 0;font-size:12px;line-height:1.5;color:#6b7280;">
+                Didn't request this change? Contact your workspace admin — someone may have your account credentials.
+              </p>
+            </td>
+          </tr>
+        </table>
+        <div style="color:#7c2d12;font-size:11px;letter-spacing:0.08em;margin-top:18px;">
+          SENT BY WILSON · PETAL STUDIOS
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

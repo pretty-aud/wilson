@@ -1,0 +1,76 @@
+# Walkthroughs
+
+A walkthrough is a session's report for Audrey: what changed, how to see it,
+and what the session needs her to decide. Numbers run in the order the
+sessions shipped. 01–19 come before the UI overhaul; 20–47 are the overhaul.
+
+## Read this one
+
+**[47 — The UI overhaul, in one read](47_ui_overhaul_final.md).** It replaces
+20–46: what changed page by page with the before and after pictures, every
+open question from 20–46 in one numbered list (merged where they were asked
+twice), where the pet sits over the page, what is already ruled, and the kit
+parts still missing. Nothing below needs opening to answer it.
+
+## The UI overhaul, 20–47
+
+| # | File | What it reported |
+|---|---|---|
+| 20 | [20_ui_foundation.md](20_ui_foundation.md) | F1: Geist throughout, the tokens, the one focus ring. |
+| 21 | [21_ui_shell.md](21_ui_shell.md) | F2: the shell and nav strip; Team members on the dark surface. |
+| 22 | [22_ui_settings.md](22_ui_settings.md) | D1: Settings in one row pattern, one tab underline. |
+| 23 | [23_ui_auth_help_home.md](23_ui_auth_help_home.md) | D2: sign-in, Help and Home (your rulings W4–W8 came from it). |
+| 24 | [24_ui_resources.md](24_ui_resources.md) | C1: Files, Projects and Rate card on the dark paper. |
+| 25 | [25_ui_dashboard.md](25_ui_dashboard.md) | C2: the Dashboard. |
+| 26 | [26_dev_fixtures.md](26_dev_fixtures.md) | The dev fixtures (Salt Hours) that fill every page in a dev build. |
+| 27 | [27_ui_admin_terminal.md](27_ui_admin_terminal.md) | C3, C3b, C3c: the Admin terminal. |
+| 28 | [28_ui_kit_requests.md](28_ui_kit_requests.md) | F3: kit requests part one (dark pickers, dialogs that take the keyboard). |
+| 29 | [29_ui_settings_confirms_bars.md](29_ui_settings_confirms_bars.md) | D1b: Settings' confirms as the app's dialog; the light pages' 120/80 bars. |
+| 30 | [30_ui_type_codemod.md](30_ui_type_codemod.md) | T0: one type scale everywhere. |
+| 31 | [31_ui_kit_requests_2.md](31_ui_kit_requests_2.md) | F4: kit requests part two. |
+| 32 | [32_ui_light_shell_auth.md](32_ui_light_shell_auth.md) | T3: the light pages, the shell and sign-in (the Close WILSON box). |
+| 33 | [33_ui_t1_dark_tools.md](33_ui_t1_dark_tools.md) | T1: D.O.G. and O.T.T.E.R. type leftovers; the lesson page. |
+| 34 | [34_ui_t2_rabbit.md](34_ui_t2_rabbit.md) | T2: R.A.B.B.I.T.'s last hand-set type (Intake, Team, Summary). |
+| 35 | [35_ui_v1_visual_qa.md](35_ui_v1_visual_qa.md) | V1: the first visual check of every page. |
+| 36 | [36_ui_dog_1.md](36_ui_dog_1.md) | A1: D.O.G.'s chrome, part one. |
+| 37 | [37_ui_rabbit_shell.md](37_ui_rabbit_shell.md) | B1: R.A.B.B.I.T.'s shell, Intake, Summary and Team. |
+| 38 | [38_ui_bins.md](38_ui_bins.md) | B6: Bins on the kit. |
+| 39 | [39_ui_rabbit_tasks.md](39_ui_rabbit_tasks.md) | B2: Tasks and the task popup. |
+| 40 | [40_ui_dog_2.md](40_ui_dog_2.md) | A2: D.O.G.'s chrome, part two. |
+| 41 | [41_ui_otter_1.md](41_ui_otter_1.md) | A3: O.T.T.E.R. part one (the lesson, the library). |
+| 42 | [42_ui_rabbit_timeline.md](42_ui_rabbit_timeline.md) | B3–B3d: the Timeline and its minimap. |
+| 43 | [43_ui_otter_2.md](43_ui_otter_2.md) | A4: O.T.T.E.R. part two (its windows, the Validator). |
+| 44 | [44_ui_rabbit_files.md](44_ui_rabbit_files.md) | B4–B4c: R.A.B.B.I.T.'s files, Assets, Levels and Experiences. |
+| 45 | [45_ui_rabbit_budget_scenes.md](45_ui_rabbit_budget_scenes.md) | B5, B5b: Budget and Scenes. |
+| 46 | [46_ui_v2_visual_qa.md](46_ui_v2_visual_qa.md) | V2: the second visual check, after the tool lanes. |
+| **47** | **[47_ui_overhaul_final.md](47_ui_overhaul_final.md)** | **P1: the overhaul in one read — the one to read.** |
+
+## Post-overhaul, 48 onward
+
+Sessions on `feat/post-overhaul-edit-versioning` (plan:
+`docs/design/POST_OVERHAUL_PLAN.md`). Copies are on the Desktop in
+`WILSON walkthroughs\Post-overhaul\`.
+
+| # | File | Session |
+|---|---|---|
+| 48 | [48_timeline_pass.md](48_timeline_pass.md) | S1: the Timeline pass (phase-name ink, the week header, the date parse). |
+| 49 | [49_settings_placement_and_orange.md](49_settings_placement_and_orange.md) | S2a: each tool's Help and Settings at its strip's right end, the orange she named, the pet's Shift tap. |
+| 50 | [50_otter_functions_and_lesson.md](50_otter_functions_and_lesson.md) | S2b: the function library's code coloured like an editor, its categories kept (yours reads "General"), the lesson page at the 66-character ceiling, centred, with a one-line breadcrumb. |
+| 53 | [53_edits.md](53_edits.md) | S3c: edits, the cuts of a shot list saved as versions (a drag or a row's ⋯, one question, Save edit pulsing until saved, every exit asking first); the Budget's "Based on shot list"; the Timeline's "Shot list:" label; a linked shot names its list. |
+| 54 | [54_legal_files.md](54_legal_files.md) | S4b: Add as Legal on the Files tab for managers and admins; a Legal file, its name, note, activity and bytes are theirs alone (migration 0088); on the Local Server a LEGAL folder you lock on the NAS. |
+| 56 | [56_files_explorer.md](56_files_explorer.md) | S4c: the Files tab's Table as an explorer (one folder at a time, the path above it, Backspace goes up, the search reaches everything); shot folders inside their scene's folder, with a one-time "Move shot folders into their scenes…"; files on levels and experiences. |
+| 57 | [57_bins_on_the_cloud_desktop.md](57_bins_on_the_cloud_desktop.md) | BC2: bins on the cloud from the desktop app signed in. The company names its shares once (App settings, Storage, Footage locations); clips are added from them, play and scrub off the share, say "not on this computer" by the share's name where it cannot be reached, and a computer that sees a share as a drive letter is asked once where it is; the admin's switch decides whether pictures leave the office. |
+| 58 | [58_bins_in_the_browser.md](58_bins_in_the_browser.md) | BC3: the Bins tab in a browser is the catalogue (every bin and clip with its picture, logging, marks and takes; move, copy, remove with Undo) with one notice saying that adding and playing need the desktop app, New bin where Add stood, and Space showing the picture large; and a desktop project's bins move to the cloud with it (App settings, Storage, Migrate to cloud), each footage root named once, a root left unnamed keeping its clips here, listed. |
+| 59 | [59_signin_welcome.md](59_signin_welcome.md) | S6a: after the password the sign-in's light-orange band only closes, in one movement, to the thin strip WELCOME sits in; it no longer widens first. |
+| 60 | [60_file_gateway_settings.md](60_file_gateway_settings.md) | GW1: the file gateway's cloud side. App settings, Storage, File gateway: Add a gateway (the token once, the cloud's address, the NAS and Windows install stories with each location's mount line written out), the fingerprint that unlocks Download certificate, one health line per gateway, Check reach in words, the outside address and office ranges, Forget with a minute's Undo, who viewed which clip from outside in the last 30 days, and the last twenty changes; the switch's card says what it now opens; the Bins inspector's one line for admins. |
+| 61 | [61_file_gateway_install_windows.md](61_file_gateway_install_windows.md) | GW2: the file gateway on a Windows PC. The installer (unsigned: SmartScreen warns), the token and the cloud's address, the office addresses and the certificate fingerprint at the end, the share's login in an administrator prompt, `wilson-gateway doctor` as the report, the office door refusing its own computer, and the outside door on the switch, checked from a phone on mobile data. Run after the next beta merge, against the beta's cloud. |
+| 62 | [62_file_gateway_playback.md](62_file_gateway_playback.md) | GW3: the file gateway in the web app. The Bins tab in a browser plays a clip through the company's gateway where one answers (the inspector, Space large, the hover scrub), with the viewer's name, member code and the clock over the picture through the outside door; one sentence for every state the gateway can be in (none, silent, unreachable from this browser, a location it cannot read, a clip not at its path); a format a browser cannot decode keeps its picture; one clip's viewings from outside opened from the inspector (admins); the Settings card's lines for a gateway's new root certificate; and the two halves reconciled (the workspace id, the reach proof, the next root, a viewing's fraction; migration 0095 / suite 98). |
+| 63 | [63_file_gateway_release_and_rehearsal.md](63_file_gateway_release_and_rehearsal.md) | GW4: the file gateway's releases and the rehearsal on this PC. The release key into GitHub once (the Desktop file, then deleted); a release is a tag you push (`gateway-v0.1.0`), which builds the installer, the update and the NAS image, signs the version list and publishes them on the Releases page; the install from that release past SmartScreen (not signed yet); a second computer trusting the root; a phone on mobile data playing through the free certificate (a name on your domain, port 443) with your name over the picture and its row written down; and the self-update, with one rollback forced by a release broken on purpose. The install stories are Help pages too; the hardening guide is `docs/gateway/HARDENING.md`. Run after the beta merge. |
+| 64 | [64_shot_frame_count_field.md](64_shot_frame_count_field.md) | FX1: the shot's Frames field in the Scenes tab no longer has the browser's arrows over its figure. It holds five digits with its own arrows clear of them (shown when you point at it or are in it); six or more read as five and an ellipsis (123456 reads 12345…), the whole number in the tooltip and back when you click in. The same field in the Shots view, an edit's cut and the shot and scene details (Frame count, Shot number, Scene number). Display only, no database change. |
+| 65 | [65_task_many_items.md](65_task_many_items.md) | FX2: a task is about several things. The task window opens on an Items table at the top of its left column (the scene window's Assets table in shape: one +, one picker over the project's assets, scenes, shots, levels and experiences, grouped by kind; Move up, Move down and Remove at the row's end; only the last item's remove asks). The first of each kind is the task's main one: sums and grouped rows (the Budget, the Timeline) show a task once, under it, and every window listing "the tasks about this" names every item. A task's level and experience reach the cloud for the first time. Migration 0096 (`task_items`, its suite 99), applied on wilson-dev only. |
+| 66 | [66_banner_version_bar_team_gallery.md](66_banner_version_bar_team_gallery.md) | FX3: every item's window (asset, task, scene, shot, level, experience) has its status under its title again, the dot and the word with one line in the status's colour, following the status live; the Timeline's bid version bar is the first row under the project title, labelled "Bid ver."; the Scenes tab's "Save as…" reads "Save edit as…"; the Team tab's Table / Gallery switch and its member cards with the profile picture (signed reads only) or the initials. |
+| 67 | [67_edits_change_in_place.md](67_edits_change_in_place.md) | FX4: a change to a saved edit no longer asks for a new version: it is made to that edit at once, the bar shows ● Unsaved with Save edit (saves into the edit on screen, its title and version kept, no window) and Save as… (the one way to a new version; its window asks the title and version); the list's own "Save edit as…" reads "Save as…" again; Save edit refuses to write over a save someone made since. Client only, no database change. |
+| 68 | [68_status_line_weight.md](68_status_line_weight.md) | FX6: the line in the status's colour under every item window's status (asset, task, scene, shot, level, experience) is 3px, a bar rather than a hairline (it was 1px), chosen from 2, 3 and 4px drawn in every status colour and shown side by side; the window's size and the details' place unchanged; under High Contrast the line stays, in the theme's text colour. One question: keep 3px, or 2 or 4. Client only, no database change. |
+| 69 | [69_timeline_header_labels.md](69_timeline_header_labels.md) | FX7: the Timeline's two first rows read as one: PROJECT and BID VER. are the same label (one size, weight and grey), in one column on the left margin, so the project's name and the bid version's dropdown start at the same place; no folder icon before PROJECT (on every tab); the project's name is the largest value and the only bold name (the bid version's name beside the dropdown is regular weight now). Every control and state of the version bar as before. Client only, no database change. |
+| 70 | [70_table_row_actions.md](70_table_row_actions.md) | FX8: the tables' row buttons. One page icon opens an item's window in every table (Scenes, shots, an edit's shots, Levels and Experiences had an eye), named "Open <name>"; every row's buttons sit right after its title in one order (Open, the row's own — the edit history, the shot-list ⋯, the edit's ⋯ — Delete last), shown on pointing or Tab, the columns at the row's end gone; the title column at most 360px in Tasks, Assets, Levels and Experiences, the other columns taking the rest. Client only, no database change. |
+| 71 | [71_date_fields.md](71_date_fields.md) | FX10: every date field shows its whole date, and an empty one its whole `mm / dd / yyyy`, with the calendar icon after it and space between, in the desktop app and in Firefox (her screenshot was Firefox's: the button over the year in every table row). One rule for every date field, a floor: the date's room plus the field's own padding. The Tasks and Assets date columns 124 → 144px (Tasks' title gives 40px at 1280, Assets' Description 40px at every width), the Shots date columns 144 → 150; an item window's new-task form puts Bid days on its own line; the Summary's Control panel is six across from 1280; the Bins inspector's Shoot day column keeps its room. Two questions: the Tasks title at 1280, and the desktop app's row-hover icons. Client only, no database change. |

@@ -1,0 +1,282 @@
+// =============================================================================
+// projectFileStream.cjs — a project file's body STREAMED to disk (demo
+// 2026-09-11).
+//
+// Audrey, 2026-09-11, adding a file to a project on the Local Server backend:
+// "[localServer] HTTP 413". The Local Server upload path since S12 read the
+// File into memory, base64-encoded it and POSTed it inside JSON, so the
+// server's global `express.json({ limit: '50mb' })` capped a project file at
+// roughly 37 MB and answered 413 for anything larger — a single clip.
+//
+// This route is the same upload with a different transport:
+//
+//   PUT /api/rabbit/projects/:projectId/files-stream
+//       ?name=<file name>&mimeType=<type>&sizeBytes=<n>&scope=<json>
+//       body: the bytes, application/octet-stream
+//
+// The renderer hands `fetch` (or XHR, for progress) the File object itself,
+// so Chromium reads it from disk in chunks; here it is piped straight to a
+// temp file beside its final path and renamed on finish. Nothing is buffered
+// on either side, and the global JSON parser never sees an octet-stream body.
+//
+// It records EXACTLY what the base64 POST records — the same row shape, the
+// same directory choice (LEGAL for a Legal scope since S4b, INVOICES for a
+// financial one, the project's files dir otherwise), the same 'uploaded'
+// file event — so every reader of
+// bundle.files is unchanged. The POST stays for anything that still calls
+// it, and since S4b's review round 1 (R1-BEH-05) it lives HERE too, moved
+// word for word from main.cjs, so both transports share one scope check
+// (fileTags.checkLegalUpload) and one directory choice, and both are served
+// for real in tests. Every host dependency is injected (the helpers are
+// closures inside main.cjs's startLocalServer); projectFileStream.test.js
+// drives both through a real express app on a temp root.
+// =============================================================================
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { checkLegalUpload } = require('./fileTags.cjs');
+
+const ROUTE = '/api/rabbit/projects/:projectId/files-stream';
+const POST_ROUTE = '/api/rabbit/projects/:projectId/files';
+
+function parseScope(raw) {
+  if (typeof raw !== 'string' || !raw) return {};
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseSize(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+// Demo 2026-09-11: the file's own facts (storage/mediaMetadata.js) — a
+// duration in seconds and the source's modified time — accepted only in the
+// shapes the renderer sends; anything else is null, never an error.
+function parseDuration(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : null;
+}
+function parseIsoDate(raw) {
+  if (typeof raw !== 'string' || !raw) return null;
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+function mountProjectFileStream(expressApp, {
+  readRabbitBundle,
+  writeRabbitBundle,
+  rabbitTouch,
+  rabbitLogFileEvent,
+  rabbitNotFound,
+  resolveProjectFilesDir,
+  resolveProjectInvoicesDir,
+  resolveProjectLegalDir,
+  uuidv4,
+  log = () => {},
+} = {}) {
+  for (const [name, fn] of Object.entries({
+    readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
+    resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
+  })) {
+    if (typeof fn !== 'function') throw new Error(`mountProjectFileStream: ${name} is required`);
+  }
+
+  // The one directory choice both transports make: a Legal body in LEGAL
+  // (never anywhere else — legalFiling.cjs), an invoice in INVOICES, any
+  // other file in the project's files directory.
+  const uploadDirFor = (bundle, projectId, { isLegal, isFinancial }) => (isLegal
+    ? resolveProjectLegalDir(bundle, projectId)
+    : isFinancial
+      ? resolveProjectInvoicesDir(bundle, projectId)
+      : resolveProjectFilesDir(bundle, projectId));
+
+  // ── Files: upload (base64 JSON payload) — moved from main.cjs (S4b) ──
+  // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
+  // Server decodes and writes {file_id}-{name} into the directory
+  // uploadDirFor chooses (LEGAL, INVOICES or the project's files dir).
+  // Multipart was the original spec but base64 keeps us off a new dep
+  // (multer/formidable) and works fine inside the existing 50mb json limit.
+  expressApp.post(POST_ROUTE, (req, res) => {
+    const bundle = readRabbitBundle(req.params.projectId);
+    if (!bundle) return rabbitNotFound(res);
+    const { name, mimeType, sizeBytes, base64, scope = {} } = req.body || {};
+    if (!name || !base64) return res.status(400).json({ error: 'name and base64 required' });
+
+    const fileId = uuidv4();
+    const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const diskName = `${fileId}-${safeName}`;
+    // S4b (0088): a Legal file — its own LEGAL folder, the tag written now
+    // and never after. Never an invoice too, never core (the cloud refuses
+    // both).
+    const placement = checkLegalUpload(scope);
+    if (!placement.ok) return res.status(400).json({ error: placement.error, code: placement.code });
+    const { isLegal, isFinancial } = placement;
+    const filesDir = uploadDirFor(bundle, req.params.projectId, placement);
+    fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
+
+    const row = rabbitTouch({
+      id:               fileId,
+      project_id:       req.params.projectId,
+      phase_id:         scope.phaseId || null,
+      asset_id:         scope.assetId || null,
+      task_id:          scope.taskId  || null,
+      name,
+      mime_type:        mimeType || null,
+      size_bytes:       sizeBytes ?? null,
+      storage_provider: 'local_server',
+      storage_path:     diskName,
+      kind:             scope.kind || 'source',
+      // 🚨 The polarity flag travels EXPLICITLY, exactly as it does in
+      // supabaseAdapter.uploadFile — see the long note there. §6 #31 (b).
+      is_core_definer:  !!scope.isCoreDefiner,
+      // 0075's two columns, mirrored here so the desktop bundle and the
+      // cloud row have the same shape. Audrey's parity rule (2026-08-10):
+      // "all functionality should be the same in both versions of the app."
+      // Before C3 this route stored neither, while the PATCH route below
+      // spread them in from req.body — so a kind set on the desktop
+      // persisted and the same gesture in cloud mode was silently dropped.
+      // The two halves now agree at BOTH ends.
+      document_kind:    scope.documentKind || null,
+      description:      scope.description  || null,
+      // Mirrors public.files.is_financial (0038). On Local Server it also
+      // decides which directory the body resolves against.
+      is_financial:     isFinancial,
+      uploaded_at:      new Date().toISOString(),
+      // S4b: the legal tag, written with the LEGAL folder (and only then).
+      ...(isLegal ? { tags: ['legal'] } : {}),
+    });
+    bundle.files.push(row);
+    rabbitLogFileEvent(bundle, {
+      file_id:          row.id,
+      project_id:       req.params.projectId,
+      file_name:        row.name,
+      storage_provider: row.storage_provider,
+      event:            'uploaded',
+      new_path:         row.storage_path,
+      size_bytes:       row.size_bytes ?? null,
+    });
+    writeRabbitBundle(req.params.projectId, bundle);
+    res.json(row);
+  });
+
+  expressApp.put(ROUTE, (req, res) => {
+    const bundle = readRabbitBundle(req.params.projectId);
+    if (!bundle) return rabbitNotFound(res);
+    const name = typeof req.query.name === 'string' ? req.query.name.trim() : '';
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const mimeType = typeof req.query.mimeType === 'string' && req.query.mimeType ? req.query.mimeType : null;
+    const sizeBytes = parseSize(req.query.sizeBytes);
+    const scope = parseScope(req.query.scope);
+    const durationSec = parseDuration(req.query.durationSec);
+    const sourceModifiedAt = parseIsoDate(req.query.sourceModifiedAt);
+
+    const fileId = uuidv4();
+    // The same sanitiser the POST uses: stored_name is joined under the
+    // project root, and a name with a separator in it would walk out of it.
+    const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const diskName = `${fileId}-${safeName}`;
+    // Post-overhaul S4b (0088): a Legal file goes to the project's LEGAL
+    // folder and carries the legal tag from now on — the base64 POST's rule,
+    // and the cloud's (the LEGAL segment). Never an invoice too, never core.
+    const placement = checkLegalUpload(scope);
+    if (!placement.ok) return res.status(400).json({ error: placement.error, code: placement.code });
+    const { isLegal, isFinancial } = placement;
+    let filesDir;
+    try {
+      filesDir = uploadDirFor(bundle, req.params.projectId, placement);
+      if (!filesDir) throw new Error('no files directory');
+      if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+    } catch (err) {
+      return res.status(500).json({ error: `files directory unavailable: ${err.message}` });
+    }
+    const finalPath = path.join(filesDir, diskName);
+    const tmpPath = `${finalPath}.part-${process.pid}-${Date.now()}`;
+
+    let done = false;
+    const fail = (status, message) => {
+      if (done) return;
+      done = true;
+      try { fs.unlinkSync(tmpPath); } catch { /* never written, or already gone */ }
+      if (!res.headersSent) res.status(status).json({ error: message });
+    };
+
+    let out;
+    try {
+      out = fs.createWriteStream(tmpPath, { flags: 'wx' });
+    } catch (err) {
+      return fail(500, `upload failed: ${err.message}`);
+    }
+    out.on('error', (err) => fail(500, `upload failed: ${err.message}`));
+    req.on('aborted', () => { out.destroy(); fail(499, 'upload aborted'); });
+    req.on('error', (err) => { out.destroy(); fail(500, `upload failed: ${err.message}`); });
+    out.on('finish', () => {
+      if (done) return;
+      done = true;
+      let written;
+      try {
+        fs.renameSync(tmpPath, finalPath);
+        written = fs.statSync(finalPath).size;
+      } catch (err) {
+        try { fs.unlinkSync(tmpPath); } catch { /* already gone */ }
+        if (!res.headersSent) res.status(500).json({ error: `upload failed: ${err.message}` });
+        return;
+      }
+      // The row, field for field the one the base64 POST writes.
+      const fresh = readRabbitBundle(req.params.projectId) || bundle;
+      if (!fresh.files) fresh.files = [];
+      const row = rabbitTouch({
+        id:               fileId,
+        project_id:       req.params.projectId,
+        phase_id:         scope.phaseId || null,
+        asset_id:         scope.assetId || null,
+        task_id:          scope.taskId  || null,
+        name,
+        mime_type:        mimeType,
+        size_bytes:       sizeBytes ?? written,
+        storage_provider: 'local_server',
+        storage_path:     diskName,
+        kind:             scope.kind || 'source',
+        is_core_definer:  !!scope.isCoreDefiner,
+        // 0075's two columns (Track C / C3), mirrored here as the base64 POST
+        // mirrors them: the local adapter sends EVERY upload down this route
+        // since the demo, so without these the desktop threw a file's kind
+        // and description away at upload — the exact loss 0075 closed in the
+        // cloud. Added at the post-overhaul merge (2026-09-30); the POST is
+        // the reference and this row must stay field for field its equal.
+        document_kind:    scope.documentKind || null,
+        description:      scope.description  || null,
+        is_financial:     isFinancial,
+        uploaded_at:      new Date().toISOString(),
+        // S4b: the legal tag, written with the LEGAL folder (and only then).
+        ...(isLegal ? { tags: ['legal'] } : {}),
+        // 0081's two columns, mirrored on the local row (demo 2026-09-11).
+        duration_sec:       durationSec,
+        source_modified_at: sourceModifiedAt,
+      });
+      fresh.files.push(row);
+      rabbitLogFileEvent(fresh, {
+        file_id:          row.id,
+        project_id:       req.params.projectId,
+        file_name:        row.name,
+        storage_provider: row.storage_provider,
+        event:            'uploaded',
+        new_path:         row.storage_path,
+        size_bytes:       row.size_bytes ?? null,
+      });
+      writeRabbitBundle(req.params.projectId, fresh);
+      log(`[files-stream] ${req.params.projectId}: ${diskName} (${written} bytes)`);
+      res.json(row);
+    });
+    req.pipe(out);
+  });
+}
+
+module.exports = { mountProjectFileStream, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE, POST_ROUTE };
