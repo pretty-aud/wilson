@@ -236,37 +236,45 @@ describe('FX8: the title columns — the title takes what the others leave up to
     expect(tasks).toMatch(/\.rb-task-table-wrap > \.ui-table-scroll \{ padding: 0 12px; container-type: inline-size; \}/)
   })
 
-  it('Tasks: 274px at 1280 (264 while the list scrolls, and still no sideways scroll), its 360px maximum at 1440 and 1920 (350 while the list scrolls) with Asset, Phase and Assignee taking the rest, 262px and the old sideways scroll at 1024', () => {
+  // FX10 (2026-10-13): the two date columns grew 20px each (124 → 144, the
+  // date and its calendar whole in every engine) and the title's minimum
+  // gave the 40px back (256 → 216), so the table's narrowest is the 1238px
+  // it was and nothing new scrolls sideways; at 1280 the title is 40px
+  // narrower, from 1440 up it is its 360px maximum as before and Asset,
+  // Phase and Assignee share 40px less.
+  it('Tasks: 234px at 1280 (224 while the list scrolls, and still no sideways scroll), its 360px maximum at 1440 and 1920 (350 while the list scrolls) with Asset, Phase and Assignee taking the rest, 216px and the old sideways scroll at 1024', () => {
     const at = (W, sb = 0) => { const px = widthAt(tasks, '.rb-task-table-wrap', W); return { px, ...layout(px, TASK_COLS, TASK_MIN, W, sb) } }
     const w1280 = at(1256)
-    close(w1280.title, 274); expect(w1280.sideways).toBe(false)
+    close(w1280.title, 234); expect(w1280.sideways).toBe(false)
     close(w1280.px('var(--rb-task-col-asset)'), 150)
+    close(w1280.px('var(--rb-task-col-date)'), 144)
     // R1-02: the app shows a 10px scrollbar on a list that scrolls; the
-    // table (1244px at its narrowest) still fits the 1246px left.
+    // table (1238px at its narrowest) still fits the 1246px left.
     const s1280 = at(1256, SB)
-    close(s1280.title, 264); expect(s1280.sideways).toBe(false)
+    close(s1280.title, 224); expect(s1280.sideways).toBe(false)
     const w1440 = at(1416)
     close(w1440.title, 360); expect(w1440.sideways).toBe(false)
-    close(w1440.px('var(--rb-task-col-asset)'), 150 + (1416 - 1342) / 3)
-    close(w1440.px('var(--rb-task-col-phase)'), 124 + (1416 - 1342) / 3)
+    close(w1440.px('var(--rb-task-col-asset)'), 150 + (1416 - 1382) / 3)
+    close(w1440.px('var(--rb-task-col-phase)'), 124 + (1416 - 1382) / 3)
     close(at(1416, SB).title, 350)
     const w1920 = at(1896)
     close(w1920.title, 360)
-    close(w1920.px('var(--rb-task-col-assignee)'), 124 + (1896 - 1342) / 3)
+    close(w1920.px('var(--rb-task-col-assignee)'), 124 + (1896 - 1382) / 3)
     const w1024 = at(1000, SB)
-    close(w1024.title, 256); expect(w1024.sideways).toBe(true)
-    // The table's minimum: 982 + a 256px title, 16px under the 1254 it was
-    // (982 + the 72px actions column + a 200px title), which scrolled
-    // sideways at 1280 while the list's scrollbar showed. Round 2 (R2-08):
-    // room for any scrollbar up to 18px — Windows' classic one is 17.
+    close(w1024.title, 216); expect(w1024.sideways).toBe(true)
+    // The table's minimum: 1022 + a 216px title — the 1238 of FX8's 982 + a
+    // 256px title, which room for any scrollbar up to 18px asked for (round
+    // 2, R2-08: Windows' classic one is 17).
     close(w1024.tableW, 1238)
     expect(at(1256, 17).sideways).toBe(false)
     expect(at(1256, 18).sideways).toBe(false)
   })
-  it('CONTROL: the title\'s old minimums scroll sideways at 1280 beside a scrollbar — 272 beside the 10px one, 262 beside a 17px one', () => {
-    const withMin = (n) => widthAt(tasks.replace(/--rb-task-title-min: 256px;/, `--rb-task-title-min: ${n}px;`), '.rb-task-table-wrap', 1256)
+  it('CONTROL: the title\'s old minimums scroll sideways at 1280 beside a scrollbar — 272 beside the 10px one, 262 beside a 17px one, and FX8\'s 256 beside the wider dates', () => {
+    const withMin = (n) => widthAt(tasks.replace(/--rb-task-title-min: 216px;/, `--rb-task-title-min: ${n}px;`), '.rb-task-table-wrap', 1256)
     expect(layout(withMin(272), TASK_COLS, TASK_MIN, 1256, SB).sideways).toBe(true)
     expect(layout(withMin(262), TASK_COLS, TASK_MIN, 1256, 17).sideways).toBe(true)
+    expect(layout(withMin(256), TASK_COLS, TASK_MIN, 1256, SB).sideways).toBe(true)
+    expect(layout(withMin(217), TASK_COLS, TASK_MIN, 1256, 18).sideways).toBe(true)
   })
   it('CONTROL: the arithmetic reads the sheet — without the spare share the title runs on past its maximum', () => {
     const px = widthAt(tasks.replace(/--rb-task-spare: [^;]+;/, '--rb-task-spare: 0px;'), '.rb-task-table-wrap', 1896)
@@ -288,7 +296,12 @@ describe('FX8: the title columns — the title takes what the others leave up to
     // While the list scrolls (R1-02): 10px less, and still no sideways scroll.
     close(at(1256, true, SB).title, 282); expect(at(1256, true, SB).sideways).toBe(false)
     close(at(1416, true, SB).title, 350)
-    close(at(1416).title, 360); close(at(1416).px('var(--rb-asset-col-desc)'), 180 + 1416 - 964 - 360)
+    // FX10: the two date columns grew 20px each (124 → 144) and Description's
+    // base gave the 40px back (180 → 140): the fixed 964 and every title above
+    // are what they were; Description is 40px narrower at every width.
+    close(at(1256).px('var(--rb-asset-date)'), 144)
+    close(at(1256).px('var(--rb-asset-col-desc)'), 140)
+    close(at(1416).title, 360); close(at(1416).px('var(--rb-asset-col-desc)'), 140 + 1416 - 964 - 360)
     close(at(1896).title, 360)
     // Before: 964 + the actions column (72 with the history, 44 without) + a 200px name.
     close(at(1000).tableW, 964 + 72 + 200)

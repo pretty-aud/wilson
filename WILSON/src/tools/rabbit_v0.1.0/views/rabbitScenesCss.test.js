@@ -27,7 +27,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
   arrayValues, scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset,
-  specificity, gt,
+  specificity, gt, winningInsets, classReach,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -1000,5 +1000,44 @@ describe('FX1: the number fields on the sheet', () => {
     expect(forcedBlock(sheet.replace(/@media\s*\(\s*forced-colors\s*:\s*active\s*\)/, '@media (prefers-contrast: more)'))).toBeNull()
     expect(declaredValue(forcedBlock(withDeclaration(sheet, FIELD, 'text-overflow', null)), FIELD, 'text-overflow')).toBe(null)
     expect(declaredValue(withDeclaration(sheet, '.rb-scene-number-btn', 'color', 'transparent'), '.rb-scene-number-btn', 'color')).not.toBe('var(--color-ink-2)')
+  })
+})
+
+// FX10 (2026-10-13): the Shots table's dates hold the whole date and its
+// calendar. Its 144px column held a 120px small well, the date's room 102:
+// Firefox, which always draws its calendar button, cut the year under it in
+// every row, and Chromium left the icon 3.7px from an empty one. The kit's
+// floor (src/index.css, `input[type="date"]`, pinned by
+// src/ui/dateField.test.js) keeps the well at least 138px; the date cells pad
+// 6px a side, as the Frames cell beside them does, and the column is 150px.
+describe('FX10: the Shots table\'s dates hold the whole date and its calendar', () => {
+  const room = Number((cssCode(indexCss).match(/--date-room:\s*(\d+)px;/) || [])[1])
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-scene-table-wrap').body
+  const CELL = '.rb-scene-table .ui-tr > .ui-td.rb-scene-date-cell'
+  it('the date cells pad 6px a side; the column is the small well\'s floor and those: 150px', () => {
+    expect([declaredValue(sheet, CELL, 'padding-left'), declaredValue(sheet, CELL, 'padding-right')]).toEqual(['6px', '6px'])
+    expect((wrap.match(/--rb-scene-col-date:\s*([^;]+);/) || [])[1]).toBe(`${room + 18 + 6 + 6}px`)
+  })
+  it('every date field of the Scenes tab is the kit\'s small well, the table\'s and the two windows\' (its inset the kit\'s)', () => {
+    expect(read('ScenesView.jsx').match(/className="ui-input rb-scene-date"\s+data-size="sm"/g)).toHaveLength(6)
+  })
+  /* Review round 1 (R1-02, its P13): the cell's padding was read by one exact
+     selector, so a later rule that put the kit's 12px back passed. The
+     padding that WINS on a date cell — every rule of the kit's and this
+     sheet's that can land on it — is the 6px the column was summed with. */
+  // A context counts when every class it names can be around the cell: the
+  // view's own or one around where the view is rendered (classReach; round
+  // 2, R2-02's M11 — a hand-listed set of the cell's ancestors missed real
+  // ones).
+  const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-scene-date-cell'], attrs: {}, never: [':first-child', ':last-child'],
+    reach: classReach(join(here, '../..', '..')).written['tools/rabbit_v0.1.0/views/ScenesView.jsx'] }
+  const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
+  it('the padding that wins on a Shots date cell is the 6px a side the column is summed with, and nothing ties with it', () => {
+    expect(cellPads(sheet)).toEqual({ values: [6, 6], ties: [] })
+  })
+  it('CONTROL: a later rule that puts the kit\'s 12px back on the date cells is caught, and the column\'s room under it fails the floor', () => {
+    const later = `${sheet}\n.rb-scene-table .ui-tr > .ui-td.rb-scene-date-cell { padding-left: 12px; padding-right: 12px; }`
+    expect(cellPads(later).values).toEqual([12, 12])
+    expect(150 - 12 - 12).toBeLessThan(room + 18)
   })
 })

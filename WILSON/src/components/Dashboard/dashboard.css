@@ -579,6 +579,11 @@
      filed as a kit request (R.A.B.B.I.T. has about a dozen more). */
   .dash-date { color-scheme: dark; }
   .dash-note-meta > .ui-input { flex: 0 1 auto; min-width: 104px; max-width: 180px; }
+  /* …but the date never under the kit's date floor (post-overhaul FX10, the
+     whole date and its calendar): the 104px above outranks the kit's
+     `input[type="date"]` rule, and at 104 Firefox would draw its calendar
+     button over the year (FX10 review round 1, R1-06). */
+  .dash-note-meta > .ui-input.dash-date { min-width: calc(var(--date-room) + var(--date-inset)); }
   .dash-save-state {
     margin-left: auto;
     font-size: var(--text-caption);

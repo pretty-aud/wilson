@@ -51,6 +51,7 @@ import {
   unreadableAttributes, toneLiterals, kitFights, colourLiterals, fillShadows,
   orangeGrounds, undefinedProperties, readAwayFromSetter, stateLeaks,
   impossibleTones as impossibleTonesOf, toneSources as toneSourcesOf,
+  declaredValue, rulesOf, cssCode, winningInsets, ringInset, kitOffsetRules, specificity, gt, classReach,
 } from '../rabbitCssGuards.js'
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
 
@@ -349,5 +350,81 @@ describe('FX2: the task window\'s left column scrolls; its parts never shrink', 
   it('every child of .rb-task-detail-files keeps its height, and the column scrolls', () => {
     expect(normal(sheet)).toMatch(/\.rb-task-detail-files > \* \{ flex-shrink: 0; \}/)
     expect(normal(sheet)).toMatch(/\.rb-task-detail-files \{[^}]*overflow-y: auto;/)
+  })
+})
+
+// FX10 (2026-10-13): the Tasks table's dates hold the whole date and its
+// calendar. Audrey: "the calendar icon is covering the dates when it has all
+// the space to space them out" — Firefox drew `09 / 26 / 202` in the 112px
+// field the 124px column held, its button over the year's last figure, and
+// Chromium cut the empty pattern by a pixel once its glyph showed. The kit's
+// floor (src/index.css, `input[type="date"]`: the date's room and the field's
+// own insets, pinned by src/ui/dateField.test.js) holds every date field;
+// this sheet declares its borderless field's insets and gives the columns the
+// width that floor and the cell's padding make.
+describe('FX10: the Tasks table\'s dates hold the whole date and its calendar', () => {
+  const wrap = rulesOf(sheet).find(({ sel }) => sel === '.rb-task-table-wrap').body
+  const v = (name) => (wrap.match(new RegExp(`${name}:\\s*([^;]+);`)) || [])[1]
+  const room = Number((cssCode(indexCss).match(/--date-room:\s*(\d+)px;/) || [])[1])
+  const CELL = '.rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell'
+  it('a row\'s date is the borderless cell field — 6px a side, no border — and declares that inset, 12, on its own class', () => {
+    expect(declaredValue(sheet, '.rb-task-cell-date', '--date-inset')).toBe('12px')
+    expect([declaredValue(sheet, '.rb-task-cell-select', 'padding'), declaredValue(sheet, '.rb-task-cell-select', 'border')]).toEqual(['0 6px', '0'])
+  })
+  it('its column is the floor (the room and the field\'s 12) and the cell\'s 6px a side: 144px', () => {
+    expect(room).toBe(120)
+    expect([declaredValue(sheet, CELL, 'padding-left'), declaredValue(sheet, CELL, 'padding-right')]).toEqual(['6px', '6px'])
+    expect(v('--rb-task-col-date')).toBe(`${room + 12 + 6 + 6}px`)
+  })
+  it('a phase\'s dates and a key date\'s editor are the kit\'s small well, exactly its floor wide — 138px, inside the 144px Start cell', () => {
+    expect(declaredValue(sheet, '.ui-input.rb-task-date-input', 'width')).toBe('calc(var(--date-room) + var(--date-inset))')
+    expect(source.tasks.match(/className="ui-input rb-task-date-input"\s+data-size="sm"/g)).toHaveLength(3)
+    expect(room + 18 + 6).toBeLessThanOrEqual(room + 12 + 6 + 6)
+  })
+  it('the title gave the 40px back: its minimum 216px, so the table\'s narrowest is the 1238px it was', () => {
+    expect(v('--rb-task-title-min')).toBe('216px')
+  })
+  it('a key date\'s editor and a phase\'s dates draw the kit\'s ring inside them, over every kit rule that offsets an input\'s ring (review round 1, R1-05: the cell clipped it)', () => {
+    const RING = '.rb-task-table-wrap .ui-table.rb-task-table .ui-input.rb-task-date-input:focus-visible'
+    expect(ringInset(sheet, RING)).toBe(true)
+    for (const k of kitOffsetRules('ui-input')) expect(gt(specificity(RING), specificity(k)), k).toBeGreaterThan(0)
+  })
+  it('the calendar glyph still shows only on the pointed row or the focused field (Chromium\'s; Firefox always draws its button), hidden by its opacity so Tab can stop on it (review round 2, R2-03)', () => {
+    expect(declaredValue(sheet, '.rb-task-cell-date::-webkit-calendar-picker-indicator', 'opacity')).toBe('0')
+    for (const sel of ['.rb-task-row:hover .rb-task-cell-date:not(:disabled)::-webkit-calendar-picker-indicator', '.rb-task-cell-date:focus-within::-webkit-calendar-picker-indicator']) {
+      expect(declaredValue(sheet, sel, 'opacity'), sel).toBe('1')
+    }
+    // Never out of the page: Tab's stop on the glyph lost the focus with it.
+    expect(rulesOf(sheet).filter(({ sel, body }) => /calendar-picker-indicator/.test(sel) && /(?:^|;)\s*display\s*:\s*none/.test(body))).toEqual([])
+  })
+  it('CONTROL: the 124px column held a 112px field — 100px for the date and its icon, under Gecko\'s 116.1 for the empty pattern and its button', () => {
+    expect(124 - 6 - 6 - 12).toBeLessThan(116.1)
+    expect(room).toBeGreaterThan(116.1)
+  })
+  /* Review round 1 (R1-02): the arithmetic read the cell's padding by one
+     exact selector, so a later rule that padded the date cells otherwise
+     passed. The padding that WINS on a date cell — the kit's and this
+     sheet's rules that can land on it, the last cell's 27px excepted, which
+     never meets Start or End — is the 6px the column was summed with. */
+  // A context counts when every class it names can be around the cell: the
+  // view's own or one around where the view is rendered (classReach; round
+  // 2, R2-02's M11 — a hand-listed set of the cell's ancestors missed
+  // `.rb-task-view` and `.rb-task-body`).
+  const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-task-cell'], attrs: {}, never: [':first-child', ':last-child'],
+    reach: classReach(join(here, '../..', '..')).written['tools/rabbit_v0.1.0/views/ProjectTasksView.jsx'] }
+  const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
+  it('the padding that wins on a date cell is the 6px a side the column is summed with, and nothing ties with it', () => {
+    expect(cellPads(sheet)).toEqual({ values: [6, 6], ties: [] })
+  })
+  it('CONTROL: a later or heavier rule that pads the date cells otherwise is caught', () => {
+    expect(cellPads(`${sheet}\n.rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding-right: 12px; }`).values).not.toEqual([6, 6])
+    expect(cellPads(`${sheet}\n.rb-task-table-wrap .ui-table.rb-task-table .ui-tr .ui-td.rb-task-cell { padding: 0 2px; }`).values).toEqual([2, 2])
+    // A lighter rule loses in the layer and wins !important (or outside it).
+    expect(cellPads(`${sheet}\n@layer components {\n  .rb-task-cell { padding-left: 2px; }\n}`).values).toEqual([6, 6])
+    expect(cellPads(`${sheet}\n@layer components {\n  .rb-task-cell { padding-left: 2px !important; }\n}`).values).toEqual([2, 6])
+    // A heavier rule through the view's own wrappers counts (round 2, R2-02's
+    // M11); one through a table the view never sits in does not.
+    expect(cellPads(`${sheet}\n@layer components {\n  .rb-task-view .rb-task-body .rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding: 0 20px; }\n}`).values).toEqual([20, 20])
+    expect(cellPads(`${sheet}\n@layer components {\n  .rb-files-frame .rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding: 0 20px; }\n}`).values).toEqual([6, 6])
   })
 })

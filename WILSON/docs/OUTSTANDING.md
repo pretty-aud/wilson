@@ -122,6 +122,65 @@ group by Assignee.
 search, `ProjectAssetsView.jsx`'s `applyFilters` returns `ctx.assets`
 itself and `applySort` calls `.sort()` on it, reordering the shared array
 other views read. Levels and Experiences copy first.
+### Under a minimum font size the tables' dates are cut again, the calendar over the year
+**MEASURED (FX10 review round 1, R1-07, 2026-10-13; re-run by the session).**
+Firefox 157 at 1280x700 with `font.minimum-size.x-western` set to 16 (its
+Settings → Fonts → Minimum font size, an accessibility setting), the Tasks
+table on the dev fixtures, measured by the reviewer's copy of
+`scripts/fx10-date-fields-shots.mjs` (an option writes the preference into
+its throwaway Firefox profile; not in the committed script) and run again
+by the session with the same numbers: the date fields' 13px text
+is drawn at 16px, so a set date needs 142px and the empty
+`mm / dd / yyyy` 146.2px against the 132px the field has in its 144px
+column. The last 6.5px of a set date and 11px of the empty pattern are
+cut under the calendar button, 3px from it: her `09 / 26 / 202` again.
+The task window's wide fields stay whole. FX10's floor is a fixed
+`--date-room: 120px` tuned to the 13px text, and every table column is
+in px, so neither grows with a minimum font size; at the default size the
+dates are whole in all three engines measured (walkthrough 71). Not a
+regression: before FX10 these fields were cut at the default size too.
+Chromium's own minimum font size (chrome://settings/fonts) was not
+measured; the desktop app sets none (no `minimumFontSize` in its
+`webPreferences`). Fix shape: the room in em of the field's own font
+(about 9.25em) with the tables' date columns derived from it — which
+turns FX8's no-sideways-scroll arithmetic at 1280 into a font-dependent
+one — or a font-relative layout for the tables as a whole. Owner: the
+kit's date floor (`src/index.css`) and the tables' lanes.
+
+### The project control panel's 24 fields have no accessible name
+**MEASURED (FX10, 2026-10-13; review round 1's R1-12 named the two
+dates).** On the dev fixtures (Salt Hours → Summary → Control panel), read
+in the page: all 24 of the panel's inputs, selects and its textarea —
+Project name, Client / Studio, Description, Status tag, Director,
+Producer, Project code, Status, Type, Tier, Start date, End date,
+Currency, the four budget figures, Actuals column mode, Number of
+columns, Scene digits, Shot digits, Separator, Numbering start, Frames
+per second — have no `<label>` (`labels.length` 0), no `aria-label`, no
+`aria-labelledby` and no `title`. `ProjectSummaryView`'s `SettingsField`
+draws its words as a `<span>` beside the control, so a screen reader
+announces a field by its placeholder where it has one ("PROJ" for
+Project code) and otherwise by nothing but its role and value (review
+round 2 read Chromium's own accessibility tree: each date has the role
+"date" and an empty name). Older than FX10, outside its diff. Fix shape:
+`SettingsField` renders a `<label>` around its words and control (the
+kit's `Field` does), or gives each control an `aria-label` from its
+words. Owner: the Summary lane (`ProjectSummaryView.jsx`).
+
+### In the smallest desktop window, an open task form leaves a shot's take notes no room
+**MEASURED (FX10, 2026-10-13; found by the measuring script's pass over
+every control in a date's window, review round 2's R2-04).** On the dev
+fixtures at 1024x700, Salt Hours → Scenes → Shots → *The door* → Add new
+task: the shot window's main column falls from 594px to 260px beside the
+form, and each take row — its number (16px), its poster (72px) and its
+buttons (148px) — leaves the note's `flex-1` box 0px: the note field is
+18px wide, its words ("Keep for the trailer.", or the placeholder "Why
+this take…") unreadable and hard to click. The same with the date floor
+taken out in the page, so it is older than FX10 and not its CSS. With the
+form closed the notes are 248px at 1024; at 1280 and 1440 with the form
+open the same pass found their words whole. Fix shape: let a take
+row put its buttons under the note below a width, or give the note a
+minimum and let the row scroll. Owner: the Scenes lane (the shot window's
+takes in `ScenesView.jsx`, beside `RelationsPanel.jsx`'s side form).
 
 ### On a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped
 **MEASURED (FX8 review round 2, R2-09, 2026-10-12; Chromium with touch
@@ -1777,6 +1836,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
+| Post-overhaul FX10 (2026-10-13; `po/fx10-date-fields` into `feat/post-overhaul-edit-versioning`) — the date fields (Audrey: "the calendar icon is covering the dates when it has all the space to space them out"): every date and the empty `mm / dd / yyyy` whole, the calendar icon clear and spaced, in the desktop app and in Firefox (her screenshot's), by one kit rule — a date field's floor, the date's room plus its own padding (FX10-KR-1) — with the Tasks, Assets and Shots date columns widened and four windows' rows reshaped; display only, no migration; walkthrough 71; two review rounds | **three entries under Broken features:** *under a minimum font size the tables' dates are cut again* (MEASURED, round 1's R1-07: FX10's floor and the tables' columns are px); *the project control panel's 24 fields have no accessible name* (MEASURED; older than FX10; round 1's R1-12 named the dates); *in the smallest desktop window, an open task form leaves a shot's take notes no room* (MEASURED by the measuring script's neighbours pass; older than FX10). Round 2's R2-03, the desktop app's table dates losing the keyboard's focus at their calendar glyph (older than FX10), was fixed, not entered | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX9 (2026-10-12; `po/fx9-reach-test-race` into `feat/post-overhaul-edit-versioning`) — the gateway's reach-proof test holds the gateway's syncs instead of racing them (`gateway/test/runtime.test.mjs` only; no product code): the race measured (the sync a `check_reach_now` asks for when its reach check lands, 17 ms after it idle; not the 10 s heartbeat), the window read whole in one assertion, two planted door faults caught, 200 loaded runs with no reach failure; one review round (opus) | **nothing under Broken features.** A dated FX9 line on FX3's gateway-load entry (two 5 s time-outs at a heavier load, one echo-probe miss in 200 runs with its cause not established; not FX9's code) | **one entry:** *The gateway's reach-proof test races the gateway's own sync, and fails CI now and then* — the test holds the syncs (`54472510`) |
 | Post-overhaul FX8 (2026-10-12; `po/fx8-table-row-actions` into `feat/post-overhaul-edit-versioning`) — the tables' row buttons (Audrey: "lets have uniformity and have the same icon ... lets move them all closer to the title of the items in the tables"): one page icon opens an item's window everywhere ("Open <name>"), every row's buttons right after its title in one order (Open, the row's own, Delete last) through the kit's RowTitle (FX8-KR-1), the actions columns gone, the title column at most 360px in Tasks, Assets, Levels and Experiences with the other columns taking the rest (walkthrough 70); two review rounds | **two entries under Broken features, found by the review rounds and older than FX8:** *Levels and Experiences have no write gate* (INFERRED, round 1); *on a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped* (MEASURED, round 2). The rows FX8 measured and left (the Shots table's sideways scroll, walkthrough 47 Q185; the nested shots' at 1280, P1-63; the Budget's expenses, Talent, Team, Files, relations and shot-list window rows) are tracked where they were or are walkthrough 70's questions | nothing |
 | Post-overhaul FX6 (2026-10-12; `po/fx6-status-line-weight` into `feat/post-overhaul-edit-versioning`) — the status line under every item popup's title, thicker (Audrey: "lets make the line thicker it feels to thin"): 3px, from 2, 3 and 4px rendered on every tone on both grounds at 1280 and 1440, set in the kit's one `.ui-status-banner` rule, on `typeScale.test.js`'s hand-judged list with her words; client only, no migration; walkthrough 68; two review rounds | **one entry under Broken features:** *under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined* (MEASURED in Chromium's emulation; not FX6's code; found by its review round 1, R1-04). A dated FX6 line on FX3's gateway-load entry (`release.test.mjs`'s two tests in the first full run at the cut; not FX6's code) | nothing. Comment markers: 4 → 4. |
