@@ -238,6 +238,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/adoring-bell-e4dfc4/WILSON --port 5296 --strictPort"
       ],
       "port": 5296
+    },
+    {
+      "_comment": "FX10 (the date fields: the whole date and the empty mm / dd / yyyy always visible, the calendar icon clear of it; display only, no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. The four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe), and the worktree's gitignored .env.local holds the same four; the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: every date field of the tables and the windows; ?fixtures=game adds Levels and Experiences (walkthrough 71; scripts/fx10-date-fields-shots.mjs measures and photographs them).",
+      "name": "fx10-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/blissful-sanderson-646ed3/WILSON --port 5297 --strictPort"
+      ],
+      "port": 5297
     }
   ]
 }
