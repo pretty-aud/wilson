@@ -310,6 +310,12 @@ up to 360px (FX8's rule).
 | **Shots** | ☐ 28 · picture 76 · # 56 · **Shot name** 308 · Takes 200 · Status 160 · Time of day 128 · Type 96 · Framing 88 · Cam move 128 · **Description 0** · Duration 120 · Frames 88 · Start 144 · End 144 | 1764 | **yes, at both sizes** |
 | **Levels**, **Experiences** | ☐ 36 · **Name** 360 · Status 152 · Assets (a count) 72 · Tasks (a count) 64 · Description 732/572 | 1416 / 1256 | no |
 
+- **Since measured (2026-10-13, later the same day):** FX10 widened the
+  Tasks and Assets date columns 124 → 144px (Tasks' title minimum 256 →
+  216, Assets' Description minimum 180 → 140, so both tables still need
+  1,238px and fit 1280 without scrolling) and the Shots date columns 144 →
+  150px (`docs/sessions/handoffs/po-fx10-2026-10-13.md`). The numbers in
+  this table are the ones before FX10.
 - **The Shots table is the one that already needs a column chooser**: its
   Description column gets 0px at both sizes and the table runs 1764px wide
   (walkthrough 47 Q185 asked "a column chooser, or keep all sixteen?"; the
