@@ -606,6 +606,18 @@ losing a change of your own.
 
 ---
 
+## Batch 9 onward — the design's remaining questions (prepared 2026-10-13, not yet asked)
+
+Writing the design and its two review rounds found twelve more things she
+will see that her answers do not reach. At her word (*"im going to sleep.
+please continue. leave any remaining questions for tomorrow"*) they were not
+asked that night. They are in the design's §10 (Q-A to Q-J, Q-G in three),
+each with its choices, the recommended one first, and the **interim choice**
+a build session uses until she answers. Ask them four at a time, as above,
+and record her answers here, verbatim, under "Her answers, batch 9" and on.
+
+---
+
 ## Not asked, because nothing you see depends on it
 
 - Where the cloud keeps the views (a table per project, readable only by the
