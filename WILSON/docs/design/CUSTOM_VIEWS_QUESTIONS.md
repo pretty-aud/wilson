@@ -489,7 +489,7 @@ name them). What about them?**
 
 ---
 
-## Batch 7 — where saving sits, what All shows, the views' order, what was found along the way
+## Batch 7 — where saving sits, what All shows, the views' order, what was found along the way (answered)
 
 **Q3c. While a view has a change, where do *Save*, *Save as new view* and
 *Reset* sit?** (Today the Tasks, Scenes and Shots toolbars already take two
@@ -547,9 +547,33 @@ Fix them in this work?**
 - **Record only**: fix nothing beyond the views themselves; record every
   defect in `docs/OUTSTANDING.md`.
 
-### Her answers, batch 7
+### Her answers, batch 7 (2026-10-13; asked in chat as multiple choice, Q3c and Q6a with pictures; recorded verbatim)
 
-*(waiting)*
+- **Q3c:** "A bar under the toolbar (Recommended)"
+- **Q6a:** "Every column, name in view (Recommended)"
+- **Q5c:** "Made order, draggable (Recommended)"
+- **Q21:** "Fix those in these controls (Recommended)"
+
+### What follows from batch 7 (say if any is wrong)
+
+- **While a view has a change, a slim bar under the toolbar** says "<view>:
+  changed for now" with *Reset*, *Save as new view* and *Save* (for
+  reviewers, *Reset* only; from *All*, no *Save*); it goes when the change
+  is saved or reset; the toolbar does not move.
+- **The Tasks table's *All* view shows every column the project uses**
+  (Scene and Shot where it has scenes, Level and Experience where it uses
+  them); a narrower window scrolls the table sideways, and the task's name
+  stays in place while the rest scrolls.
+- **Views are listed in the order they were made**, *All* first; anyone who
+  can save views can drag one to another place, and everyone sees that
+  order.
+- **Fixed in this work:** a new filter row no longer empties the table; a
+  filter row's condition follows its field; Scenes and Shots keep separate
+  filters and sorts; ticked rows that a filter or search hides are unticked;
+  the views menu works by keyboard and Escape closes it. **Recorded for
+  later** in `docs/OUTSTANDING.md`: the Tasks CSV export's missing columns,
+  the Expenses filter's "Untitled" tasks, and the other findings of research
+  §2.7 outside these controls.
 
 ---
 
