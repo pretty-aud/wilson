@@ -18,99 +18,131 @@ Tasks, Scenes, Assets, Levels and Experiences.
 
 **The UX laws behind the picks** (the `laws-of-ux` and `design-direction`
 skills, loaded for this list): *Jakob's law* (people expect a view to behave
-as Notion's does), *Hick's law* and *choice overload* (a short list of views
-per person; the editor's power behind one click, not on the toolbar),
-*working memory* (see the table change while you build the view), *Tesler's
-law* (the complexity lives in the editor, not in every person's day), and
+as Notion's does), *Hick's law* and *choice overload* (a short list of views;
+the editor's power behind one click, not on the toolbar), *working memory*
+(see the table change while you build the view), *Tesler's law* (the
+complexity lives in the editor, not in every person's day), and
 *forgiveness* (nothing a teammate relies on changes by accident; Reset and
 undo).
 
 ---
 
-## Batch 1 — who sees a view, who can change it, what opens first
+## Batch 1 — who sees a view, who can change it, what opens first (answered)
 
 **Q1. Who sees a view you save?**
 Today a saved view lives in one browser for one person, and every project
 shares the list. In Notion every view is shared by everyone, and a person's
 filter or sort change stays their own until *Save for everyone*.
 - **You choose, each time** *(Recommended)*: when you save a view you pick
-  *Everyone on this project* or *Only me*. Everyone's views appear for the
-  whole project team; yours appear only for you, on any computer you sign in
-  on.
+  *Everyone on this project* or *Only me*.
 - **Everyone on the project**: every view is shared with the project's team.
 - **Only me**: every view is your own (still per project, following you to
   any computer); teammates make their own.
-
-*Why my pick:* a team needs shared views ("Shoot week") and a person needs
-private ones ("My tasks this week") that do not lengthen everyone's list
-(Hick's law).
 
 **Q2. Who may create, change and delete a view everyone sees?**
 (WILSON's roles: company-wide admin, manager or user; on a project,
 manager, member or reviewer.)
 - **Managers and admins** *(Recommended)*: the project's managers, and the
-  company's admins and managers. Members and reviewers can still apply any
-  shared view and make their own *Only me* views.
+  company's admins and managers; members and reviewers make their own *Only
+  me* views.
 - **Anyone who can edit the project**: the above plus the project's members
-  (who already edit its tasks and scenes); reviewers apply shared views and
-  make their own.
+  (who already edit its tasks and scenes); reviewers use shared views.
 - **Everyone on the project**: reviewers too.
-
-*Why my pick:* a shared view is the team's agreed way of reading the
-project; Notion keeps changing views to full editors and adds *Lock views*.
-Nobody is blocked, because everyone can still make their own.
 
 **Q3. While a view is open, what do the Filter, Sort and Group controls do to
 it?**
 - **Change it until you save** *(Recommended)*: the table changes at once;
-  the Views button then shows the view as *edited*, with *Save* and *Reset*
-  beside it. *Save* writes the change into the view (or offers *Save as a
-  new view* if you may not change that one); *Reset* puts the view back. If
-  someone else saves a change to a view you have open, your table follows
-  it, unless you have unsaved changes of your own.
-- **Save into the view at once**: every change is saved into the open view
-  straight away, for everyone who uses it.
-- **Never touch the view**: the toolbar's Filter, Sort and Group are always
-  for the moment only; a view changes only through the Views dropdown's own
-  editor.
-
-*Why my pick:* it is Notion's way (Jakob's law), and nothing a teammate
-relies on changes by accident (forgiveness: *Reset* is the undo).
+  the Views button shows the view as *edited*, with *Save* and *Reset*.
+- **Save into the view at once.**
+- **Never touch the view**: the toolbar is always for the moment only; a
+  view changes only through the Views dropdown's own editor.
 
 **Q4. What does a table show when you open it?**
 - **The view you last used** *(Recommended)*: each table opens on the view
   you last used there, in that project; the very first time, on the built-in
   *All* view (today's table: every field, nothing filtered).
-- **A project default**: a manager picks one view per table as the project's
-  default, and everyone opens on it.
-- **Always All**: always the plain table; you pick a view each time.
+- **A project default**: a manager picks one view per table.
+- **Always All.**
 
-*Why my pick:* you come back to where you were, with no choice to make again
-(working memory).
+### Her answers, batch 1 (2026-10-13; asked in chat as multiple choice; recorded verbatim)
 
-### Her answers, batch 1 (asked in chat as multiple choice; recorded verbatim)
+- **Q1:** "Everyone on the project"
+- **Q2:** "Anyone who can edit"
+- **Q3:** "similar to notion, let people create specific view for the exact session they are in. and give them a button to save the view for later.  so use pre saved views, if the user starts to make their own unique view, please allow them to use it just for that moment AND allow them to save it for future use. again refer to Notion UX for this"
+- **Q4:** "The view you last used (Recommended)"
 
-*(waiting)*
+### What follows from batch 1 (say if any is wrong)
+
+- **Every view is shared with the project's team**; there are no *Only me*
+  views.
+- **Who may save, change and delete views:** the project's managers and
+  members, and the company's admins and managers (everyone who can already
+  edit the project). **Reviewers** use every view and can change one for the
+  moment (Q3), but cannot save it.
+- **A change made with Filter, Sort or Group (or in the editor) is for the
+  moment until it is saved**, and there is a button to save it for later
+  (Q3). What that button does to an already-saved view, and how long "the
+  moment" lasts, are the follow-ups Q3a and Q3b.
+- **Each person opens each table on the view they last used there**, per
+  project (Q4); on the signed-out desktop, per computer.
+- **The signed-out desktop (old Q18, answered by Q1 and your rule that it
+  works the same on the cloud or a NAS):** views are saved with the
+  project's data on that computer or NAS, so they survive restarts and
+  everyone using the project there sees them. With no sign-in there, anyone
+  using it may save views (there are no roles to check); the walkthrough
+  says so in one line.
 
 ---
 
-## Batch 2 — the Views dropdown, and what a view holds
+## Batch 2 — saving a view, and the Views dropdown
+
+**Q3a. When you have changed an open view, what does saving do?** (A
+follow-up to your Q3 answer.)
+- **Save, or Save as new** *(Recommended)*: the changed view shows *Save*
+  (writes the change into this view, for everyone), *Save as new view*
+  (keeps the original and names a new one) and *Reset* (back to the view as
+  saved). The built-in *All* view cannot be changed or deleted, so there is
+  always a way back to the whole table; from it, only *Save as new view* is
+  offered. Reviewers see only *Reset*: their changes are for the moment.
+- **Save as new only**: a change never alters a saved view from the
+  toolbar; to change a view itself, use *Edit* in the Views dropdown. The
+  changed view shows *Save as new view* and *Reset*.
+- **Save only (Notion's way)**: *Save* writes the change into this view for
+  everyone (Notion's *Save for everyone*); new views are made with *New
+  view* in the dropdown.
+
+*Why my pick:* your words name both: "save it for future use" (a new view)
+and "refer to Notion" (Notion's *Save for everyone* updates the view). The
+buttons show only while there is a change (Hick's law: no clutter at rest).
+
+**Q3b. How long does a change you have not saved last?**
+- **While WILSON is open** *(Recommended)*: going to another tab and coming
+  back keeps it; closing WILSON, reloading, or switching project drops it,
+  and the table then opens on the last saved view you used (your Q4).
+- **Until you leave the table**: as today, opening another R.A.B.B.I.T. tab
+  drops it.
+- **Until you save or reset it**: kept for you even after closing WILSON
+  (Notion keeps a person's unsaved changes), until you save or reset.
+
+*Why my pick:* your words "for the exact session they are in" and "just for
+that moment"; moving between tabs is part of one piece of work, closing
+WILSON is not.
 
 **Q5. What should the Views dropdown hold, and where do you build a view?**
 The dropdown opens from today's *Views* button (on Scenes the bookmark icon
 becomes the word *Views*, as on the other tables). In every choice the
-button shows the name of the view on screen.
+button shows the name of the view on screen, and *edited* while it has a
+change.
 - **A list, and an editor at the side** *(Recommended)*: the dropdown lists
-  the project's views (*Everyone* first, then *Only me*), the one on screen
-  ticked, with *New view* at the bottom; each view has a *…* menu with Edit,
-  Rename, Duplicate and Delete (Delete asks first). *New view* and *Edit*
-  open a panel at the side of the table with four parts (Filters, Sort,
-  Group, Fields) and the table follows as you change them, so you see the
-  result while you build it.
+  the project's views, the one on screen ticked; for people who may save
+  views, *New view* at the bottom and a *…* menu on each view (Edit, Rename,
+  Duplicate, Delete; Delete asks first). *New view* and *Edit* open a panel
+  at the side of the table with four parts (Filters, Sort, Group, Fields),
+  and the table follows as you change them, so you see the result while you
+  build it.
 - **Everything inside the dropdown**: like Notion's settings menu, the
   dropdown itself becomes the editor, one part at a time (Filters ›, Sort ›,
-  Group ›, Fields ›), and closes when you are done; the table follows behind
-  it.
+  Group ›, Fields ›), the table following behind it.
 - **Tabs above the table**: each view is a tab above the table, as in
   Notion; the editor opens from a tab's menu. It takes a new row of space
   above every table.
@@ -129,31 +161,6 @@ the same); the dropdown stays a short list (Hick's law).
 
 *Why my pick:* the name is how you recognise and open a row; a Tasks view
 about one asset's work may not want the project's key dates in it.
-
-**Q7. Can a view change the columns' order and width?**
-- **Order, not width** *(Recommended)*: you drag fields up and down in the
-  view's Fields list to reorder the columns; widths stay as WILSON sets them
-  today (the name takes the room left, up to 360px).
-- **Order and width**: you can also drag a column's edge to make it wider or
-  narrower, kept with the view.
-- **Neither**: only show and hide; the order stays as it is.
-
-*Why my pick:* the widths were set so every table fits a 1280 screen
-(FX8); free widths bring sideways scrolling back. Notion does allow widths,
-so it is a real choice.
-
-**Q8. Besides filters, sorting, grouping and fields, what else does a view
-remember?**
-- **Its layout and size** *(Recommended)*: whether it is the Table, the
-  Board or the Gallery, and the picture or card size, as saved views do
-  today. The search box is never saved.
-- **Its layout, size and the search text.**
-- **Nothing else**: the layout and size stay as you left them whichever
-  view you pick.
-
-*Why my pick:* a "Board by status" view should open as a board; a search is
-a moment's question, not a way of reading the project (Notion does not save
-it either).
 
 ### Her answers, batch 2
 
@@ -226,7 +233,32 @@ Tasks columns have been used.
 
 ---
 
-## Batch 4 — how much a view can do
+## Batch 4 — columns, what a view remembers, filters and sorts
+
+**Q7. Can a view change the columns' order and width?**
+- **Order, not width** *(Recommended)*: you drag fields up and down in the
+  view's Fields list to reorder the columns; widths stay as WILSON sets them
+  today (the name takes the room left, up to 360px).
+- **Order and width**: you can also drag a column's edge to make it wider or
+  narrower, kept with the view.
+- **Neither**: only show and hide; the order stays as it is.
+
+*Why my pick:* the widths were set so every table fits a 1280 screen
+(FX8); free widths bring sideways scrolling back. Notion does allow widths,
+so it is a real choice.
+
+**Q8. Besides filters, sorting, grouping and fields, what else does a view
+remember?**
+- **Its layout and size** *(Recommended)*: whether it is the Table, the
+  Board or the Gallery, and the picture or card size, as saved views do
+  today. The search box is never saved.
+- **Its layout, size and the search text.**
+- **Nothing else**: the layout and size stay as you left them whichever
+  view you pick.
+
+*Why my pick:* a "Board by status" view should open as a board; a search is
+a moment's question, not a way of reading the project (Notion does not save
+it either).
 
 **Q13. How much can a view's filter do?**
 - **All must match, any of several values** *(Recommended)*: as the Filter
@@ -248,6 +280,14 @@ without the and/or puzzle Notion itself moved out of sight in 2022.
 
 *Why my pick:* a schedule reads by phase and then by date; one sort cannot
 say that.
+
+### Her answers, batch 4
+
+*(waiting)*
+
+---
+
+## Batch 5 — grouping, Scenes and Shots, the old views, Budget and Team
 
 **Q15. Grouping in a view:**
 - **One grouping, and hide empty groups** *(Recommended)*: one grouping as
@@ -272,38 +312,18 @@ tables cannot sub-group either (only its boards).
 Shots filter can empty the Scenes table (research §2.7); two lists end
 that.
 
-### Her answers, batch 4
-
-*(waiting)*
-
----
-
-## Batch 5 — moving in: the old views, the desktop, Budget and Team, ready-made views
-
 **Q17. Your saved views today live in each browser and are shared by every
-project. What happens to them?** (On the desktop they most likely already
-vanish at every restart: research §2.2.)
-- **Offer to bring them in** *(Recommended)*: the first time you open a
-  table's Views in a project, it offers your old views for that table once:
-  bring them into this project as *Only me* views, or delete them. A filter
-  that points at something not in this project is dropped, and it says so.
+project. Now views belong to the project and everyone on it sees them. What
+happens to the old ones?** (On the desktop they most likely already vanish
+at every restart: research §2.2.)
+- **Offer to bring them in** *(Recommended)*: the first time someone who may
+  save views opens a table's Views in a project, it offers that browser's
+  old views for that table once: bring them into this project (everyone on
+  it will see them) or delete them. A filter that points at something not in
+  this project is dropped, and it says so.
 - **Start fresh**: the old views are removed; you make new ones.
-- **Keep them apart**: they stay in the browser as a separate *From this
+- **Keep them apart**: they stay in that browser as a separate *From this
   computer* list beside the project's views.
-
-**Q18. The desktop app signed out (one computer or a NAS, no sign-in, no
-roles): how do views work there?**
-- **Saved with the project; *Only me* per computer** *(Recommended)*: views
-  are saved with the project's data on that computer or NAS, so they survive
-  restarts and everyone using the project there sees the shared ones; with
-  no sign-in, *Only me* means *this computer*, and anyone may change any
-  view (there are no roles to check).
-- **Saved with the project; all shared**: the same, but every view is shared
-  there; *Only me* is not offered when signed out.
-
-*Why my pick:* it works the same as the cloud as far as the desktop can
-(your rule: the same on the cloud or a NAS); the walkthrough says in one
-line what the desktop cannot check.
 
 **Q19. Budget's Expenses and the Team tab have saved views too (you did not
 name them). What about them?**
@@ -313,19 +333,19 @@ name them). What about them?**
 - **Now**: they get the new views in this work too.
 - **Remove theirs**: their saved views are taken out.
 
-**Q20. Should a table come with ready-made views?**
-- **Only All** *(Recommended)*: each table has the built-in *All* view; you
-  make the rest.
-- **A few starters**: for example Tasks: *My tasks*, *By phase*, *Overdue*;
-  Scenes: *By status*; Shots: *By scene*; each can be deleted.
-
 ### Her answers, batch 5
 
 *(waiting)*
 
 ---
 
-## Batch 6 — what was found along the way
+## Batch 6 — ready-made views, and what was found along the way
+
+**Q20. Should a table come with ready-made views?**
+- **Only All** *(Recommended)*: each table has the built-in *All* view; you
+  make the rest.
+- **A few starters**: for example Tasks: *By phase*, *Overdue*; Scenes: *By
+  status*; Shots: *By scene*; each can be deleted.
 
 **Q21. The research found defects in the same controls (research §2.7).
 Fix them in this work?**
@@ -350,9 +370,9 @@ Fix them in this work?**
 ## Not asked, because nothing you see depends on it
 
 - Where the cloud keeps the views (a table per project, readable only by the
-  project's people under the same rules as the project itself, with every
-  role rule of Q2 checked by the database, not only by the screen), and how
-  the desktop keeps them with the project's files.
+  project's people under the same rules as the project itself, with the role
+  rule of Q2 checked by the database, not only by the screen), and how the
+  desktop keeps them with the project's files.
 - The new dropdown and editor are built from the app's shared kit (the same
   look as every other menu and panel), work entirely by keyboard, and every
   change to a view can be undone.
