@@ -1,0 +1,1769 @@
+{
+  "tasks": {
+    "rest": {
+      "viewport": "1440x900",
+      "toolbar": {
+        "cls": "ui-toolbar rb-task-toolbar",
+        "w": 1440,
+        "wraps": true,
+        "h": 45
+      },
+      "controls": [
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Filter",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 24,
+          "w": 76.5,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "Sort…",
+          "name": "Sort",
+          "title": null,
+          "pressed": null,
+          "x": 108.5,
+          "w": 118,
+          "h": 28,
+          "options": [
+            "Sort…",
+            "Title",
+            "Status",
+            "Priority",
+            "Start date",
+            "End date",
+            "Bid days",
+            "Created"
+          ]
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "No grouping",
+          "name": "Group",
+          "title": null,
+          "pressed": null,
+          "x": 243.5,
+          "w": 132,
+          "h": 28,
+          "options": [
+            "No grouping",
+            "Status",
+            "Asset",
+            "Phase",
+            "Priority",
+            "Assignee"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Table",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 392.5,
+          "w": 56.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Board",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 452.7,
+          "w": 58.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Views",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 519,
+          "w": 81.3,
+          "h": 28
+        },
+        {
+          "tag": "input",
+          "role": null,
+          "words": "Search tasks…",
+          "name": "Search tasks",
+          "title": null,
+          "pressed": null,
+          "x": 617.3,
+          "w": 140,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Export",
+          "name": null,
+          "title": "Export the current view as CSV",
+          "pressed": null,
+          "x": 859.5,
+          "w": 85.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Phase",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 952.8,
+          "w": 82.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Key date",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1043,
+          "w": 97.8,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Deleted key dates",
+          "name": null,
+          "title": "Recently deleted key dates",
+          "pressed": null,
+          "x": 1148.8,
+          "w": 156.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New task",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1313,
+          "w": 103,
+          "h": 28
+        }
+      ],
+      "table": {
+        "w": 1416
+      },
+      "scroller": {
+        "clientW": 1440,
+        "scrollW": 1440,
+        "sideways": false
+      },
+      "headers": [
+        {
+          "label": "(none)",
+          "w": 36
+        },
+        {
+          "label": "Title",
+          "w": 360
+        },
+        {
+          "label": "Status",
+          "w": 148
+        },
+        {
+          "label": "Priority",
+          "w": 88
+        },
+        {
+          "label": "Asset",
+          "w": 174.7
+        },
+        {
+          "label": "Phase",
+          "w": 148.7
+        },
+        {
+          "label": "Assignee",
+          "w": 148.7
+        },
+        {
+          "label": "Start",
+          "w": 124
+        },
+        {
+          "label": "End",
+          "w": 124
+        },
+        {
+          "label": "Bid",
+          "w": 64
+        }
+      ],
+      "bodyRows": 48
+    },
+    "filterOpen": {
+      "cls": "rb-task-filters",
+      "words": "Add filter"
+    },
+    "viewsTrigger": {
+      "words": "Views",
+      "name": null,
+      "title": null,
+      "expanded": "false",
+      "haspopup": null
+    },
+    "viewsOpen": {
+      "cls": "rb-task-menu",
+      "role": null,
+      "words": "No saved viewsSave current view",
+      "items": [
+        {
+          "tag": "button",
+          "cls": "rb-task-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "viewsClosesOnEscape": false,
+    "savedOne": true,
+    "viewsWithOne": {
+      "cls": "rb-task-menu",
+      "role": null,
+      "words": "Research viewSave current view",
+      "items": [
+        {
+          "tag": "div",
+          "cls": "rb-task-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Research view",
+          "name": null
+        },
+        {
+          "tag": "button",
+          "cls": "ui-iconbtn",
+          "role": null,
+          "tabindex": null,
+          "words": "",
+          "name": "Delete the saved view \"Research view\""
+        },
+        {
+          "tag": "button",
+          "cls": "rb-task-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "savedRow": {
+      "tag": "div",
+      "cls": "rb-task-menu-item",
+      "role": null,
+      "tabindex": null,
+      "focusable": false,
+      "buttonsInside": [
+        "Delete the saved view \"Research view\""
+      ]
+    },
+    "twoAssetRow": {
+      "(none)": {
+        "words": ""
+      },
+      "Title": {
+        "words": "Glass and rain rig test"
+      },
+      "Status": {
+        "control": "select",
+        "name": "Status",
+        "chosen": "Waiting to start",
+        "options": [
+          "Waiting to start",
+          "In progress",
+          "Pending review",
+          "Needs revisions",
+          "Approved",
+          "Final",
+          "Blocked",
+          "On hold",
+          "Omitted"
+        ]
+      },
+      "Priority": {
+        "control": "select",
+        "name": "Priority",
+        "chosen": "Medium",
+        "options": [
+          "Low",
+          "Medium",
+          "High",
+          "Urgent"
+        ]
+      },
+      "Asset": {
+        "control": "select",
+        "name": "Asset",
+        "chosen": "Lighthouse Interior",
+        "options": [
+          "—",
+          "Shooting Script v4",
+          "Treatment",
+          "Lookbook",
+          "Storyboards",
+          "Mara",
+          "Mara's Father",
+          "Lighthouse Interior",
+          "Cliff Path",
+          "Harbour Café",
+          "Brass Compass",
+          "Storm Lantern",
+          "Sea Spray Comp",
+          "Sky Replacement",
+          "Score & Foley",
+          "Festival DCP"
+        ]
+      },
+      "Phase": {
+        "control": "select",
+        "name": "Phase",
+        "chosen": "Pre-production",
+        "options": [
+          "—",
+          "Development",
+          "Pre-production",
+          "Production",
+          "Post-production",
+          "Delivery"
+        ]
+      },
+      "Assignee": {
+        "control": "select",
+        "name": "Assignee",
+        "chosen": "Kenji Morimoto",
+        "options": [
+          "—",
+          "Dev Patel",
+          "Jonah Beck",
+          "Kenji Morimoto",
+          "Lena Fischer",
+          "Mara Okonkwo",
+          "Priya Raman",
+          "Sofia Aldana",
+          "Theo Lindqvist"
+        ]
+      },
+      "Start": {
+        "words": ""
+      },
+      "End": {
+        "words": ""
+      },
+      "Bid": {
+        "words": ""
+      }
+    }
+  },
+  "assets": {
+    "rest": {
+      "viewport": "1440x900",
+      "toolbar": {
+        "cls": "ui-toolbar rb-asset-toolbar",
+        "w": 1440,
+        "wraps": true,
+        "h": 45
+      },
+      "controls": [
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Filter",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 24,
+          "w": 76.5,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "Sort…",
+          "name": "Sort",
+          "title": null,
+          "pressed": null,
+          "x": 108.5,
+          "w": 118,
+          "h": 28,
+          "options": [
+            "Sort…",
+            "Name",
+            "Type",
+            "Status",
+            "Start date",
+            "Due date",
+            "Created"
+          ]
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "No grouping",
+          "name": "Group",
+          "title": null,
+          "pressed": null,
+          "x": 243.5,
+          "w": 132,
+          "h": 28,
+          "options": [
+            "No grouping",
+            "Type",
+            "Phase",
+            "Status"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Table",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 392.5,
+          "w": 56.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Gallery",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 452.7,
+          "w": 65,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": null,
+          "title": "sm thumbnails",
+          "pressed": "true",
+          "x": 525.6,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": null,
+          "title": "md thumbnails",
+          "pressed": "false",
+          "x": 555.6,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": null,
+          "title": "lg thumbnails",
+          "pressed": "false",
+          "x": 585.6,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Views",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 621.6,
+          "w": 81.3,
+          "h": 28
+        },
+        {
+          "tag": "input",
+          "role": null,
+          "words": "Search assets…",
+          "name": "Search assets",
+          "title": null,
+          "pressed": null,
+          "x": 720,
+          "w": 140,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New asset",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1306.7,
+          "w": 109.3,
+          "h": 28
+        }
+      ],
+      "table": {
+        "w": 1416
+      },
+      "scroller": {
+        "clientW": 1440,
+        "scrollW": 1440,
+        "sideways": false
+      },
+      "headers": [
+        {
+          "label": "(none)",
+          "w": 36
+        },
+        {
+          "label": "Thumbnail",
+          "w": 36
+        },
+        {
+          "label": "Name",
+          "w": 360
+        },
+        {
+          "label": "Type",
+          "w": 112
+        },
+        {
+          "label": "Phase",
+          "w": 136
+        },
+        {
+          "label": "Status",
+          "w": 152
+        },
+        {
+          "label": "Start",
+          "w": 124
+        },
+        {
+          "label": "Due",
+          "w": 124
+        },
+        {
+          "label": "Description",
+          "w": 272
+        },
+        {
+          "label": "Tasks",
+          "w": 64
+        }
+      ],
+      "bodyRows": 15
+    },
+    "filterOpen": {
+      "cls": "rb-asset-filters",
+      "words": "Add filter"
+    },
+    "viewsTrigger": {
+      "words": "Views",
+      "name": null,
+      "title": null,
+      "expanded": "false",
+      "haspopup": null
+    },
+    "viewsOpen": {
+      "cls": "rb-asset-menu",
+      "role": null,
+      "words": "No saved viewsSave current view",
+      "items": [
+        {
+          "tag": "button",
+          "cls": "rb-asset-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "viewsClosesOnEscape": false,
+    "savedOne": true,
+    "viewsWithOne": {
+      "cls": "rb-asset-menu",
+      "role": null,
+      "words": "Research viewSave current view",
+      "items": [
+        {
+          "tag": "div",
+          "cls": "rb-asset-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Research view",
+          "name": null
+        },
+        {
+          "tag": "button",
+          "cls": "ui-iconbtn",
+          "role": null,
+          "tabindex": null,
+          "words": "",
+          "name": "Delete the saved view \"Research view\""
+        },
+        {
+          "tag": "button",
+          "cls": "rb-asset-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "savedRow": {
+      "tag": "div",
+      "cls": "rb-asset-menu-item",
+      "role": null,
+      "tabindex": null,
+      "focusable": false,
+      "buttonsInside": [
+        "Delete the saved view \"Research view\""
+      ]
+    }
+  },
+  "scenes": {
+    "rest": {
+      "viewport": "1440x900",
+      "toolbar": {
+        "cls": "ui-toolbar rb-scene-toolbar",
+        "w": 1440,
+        "wraps": true,
+        "h": 45
+      },
+      "controls": [
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Scenes",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 24,
+          "w": 61.7,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Shots",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 89.7,
+          "w": 49.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Filter",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 147,
+          "w": 76.5,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "List order",
+          "name": "Sort",
+          "title": null,
+          "pressed": null,
+          "x": 240.5,
+          "w": 145,
+          "h": 28,
+          "options": [
+            "List order",
+            "Name",
+            "Scene number",
+            "Type",
+            "Status",
+            "Time of day",
+            "Created"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "Sorted ascending — reverse",
+          "title": "Sorted ascending — reverse",
+          "pressed": null,
+          "x": 389.5,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "No grouping",
+          "name": "Group",
+          "title": null,
+          "pressed": null,
+          "x": 434.5,
+          "w": 132,
+          "h": 28,
+          "options": [
+            "No grouping",
+            "Type",
+            "Status"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Table",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 583.5,
+          "w": 68.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Gallery",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 655.6,
+          "w": 77,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "sm thumbnails",
+          "title": "sm thumbnails",
+          "pressed": "true",
+          "x": 741.6,
+          "w": 26,
+          "h": 26
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "md thumbnails",
+          "title": "md thumbnails",
+          "pressed": null,
+          "x": 767.6,
+          "w": 26,
+          "h": 26
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "lg thumbnails",
+          "title": "lg thumbnails",
+          "pressed": null,
+          "x": 793.6,
+          "w": 26,
+          "h": 26
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "Saved views",
+          "title": "Saved views",
+          "pressed": null,
+          "x": 891.9,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "input",
+          "role": null,
+          "words": "Search…",
+          "name": "Search",
+          "title": null,
+          "pressed": null,
+          "x": 936.9,
+          "w": 188.6,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New scene",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1171.1,
+          "w": 112.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New shot",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1291.4,
+          "w": 124.6,
+          "h": 28
+        }
+      ],
+      "table": {
+        "w": 1392
+      },
+      "scroller": {
+        "clientW": 1440,
+        "scrollW": 1440,
+        "sideways": false
+      },
+      "headers": [
+        {
+          "label": "(none)",
+          "w": 28
+        },
+        {
+          "label": "Shots",
+          "w": 36
+        },
+        {
+          "label": "Thumbnail",
+          "w": 76
+        },
+        {
+          "label": "#",
+          "w": 56
+        },
+        {
+          "label": "Name",
+          "w": 308
+        },
+        {
+          "label": "Status",
+          "w": 160
+        },
+        {
+          "label": "Time of day",
+          "w": 128
+        },
+        {
+          "label": "Type",
+          "w": 96
+        },
+        {
+          "label": "Description",
+          "w": 296
+        },
+        {
+          "label": "Runtime",
+          "w": 120
+        },
+        {
+          "label": "Frames",
+          "w": 88
+        }
+      ],
+      "bodyRows": 6
+    },
+    "filterOpen": {
+      "cls": "rb-scene-filters",
+      "words": "Add filterDone"
+    },
+    "viewsTrigger": {
+      "words": "",
+      "name": "Saved views",
+      "title": "Saved views",
+      "expanded": "false",
+      "haspopup": null
+    },
+    "viewsOpen": {
+      "cls": "rb-scene-menu",
+      "role": null,
+      "words": "No saved views yetSave current view",
+      "items": [
+        {
+          "tag": "button",
+          "cls": "rb-scene-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "viewsClosesOnEscape": false,
+    "savedOne": true,
+    "viewsWithOne": {
+      "cls": "rb-scene-menu",
+      "role": null,
+      "words": "Research viewSave current view",
+      "items": [
+        {
+          "tag": "div",
+          "cls": "rb-scene-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Research view",
+          "name": null
+        },
+        {
+          "tag": "button",
+          "cls": "ui-iconbtn",
+          "role": null,
+          "tabindex": null,
+          "words": "",
+          "name": "Delete the saved view \"Research view\""
+        },
+        {
+          "tag": "button",
+          "cls": "rb-scene-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "savedRow": {
+      "tag": "div",
+      "cls": "rb-scene-menu-item",
+      "role": null,
+      "tabindex": null,
+      "focusable": false,
+      "buttonsInside": [
+        "Delete the saved view \"Research view\""
+      ]
+    }
+  },
+  "shots": {
+    "rest": {
+      "viewport": "1440x900",
+      "toolbar": {
+        "cls": "ui-toolbar rb-scene-toolbar",
+        "w": 1440,
+        "wraps": true,
+        "h": 45
+      },
+      "controls": [
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Scenes",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 24,
+          "w": 59.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Shots",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 87.3,
+          "w": 51.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Filter",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 146.6,
+          "w": 76.5,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "List order",
+          "name": "Sort",
+          "title": null,
+          "pressed": null,
+          "x": 240.1,
+          "w": 150,
+          "h": 28,
+          "options": [
+            "List order",
+            "Name",
+            "Shot number",
+            "Type",
+            "Status",
+            "Time of day",
+            "Framing",
+            "Camera movement",
+            "Frame count",
+            "Created"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "Sorted ascending — reverse",
+          "title": "Sorted ascending — reverse",
+          "pressed": null,
+          "x": 394.1,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "Scene",
+          "name": "Group",
+          "title": null,
+          "pressed": null,
+          "x": 439.1,
+          "w": 171,
+          "h": 28,
+          "options": [
+            "No grouping",
+            "Scene",
+            "Status",
+            "Type",
+            "Time of day",
+            "Framing",
+            "Camera movement"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Table",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 627.1,
+          "w": 68.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Gallery",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 699.3,
+          "w": 77,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "sm thumbnails",
+          "title": "sm thumbnails",
+          "pressed": "true",
+          "x": 785.3,
+          "w": 26,
+          "h": 26
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "md thumbnails",
+          "title": "md thumbnails",
+          "pressed": null,
+          "x": 811.3,
+          "w": 26,
+          "h": 26
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "lg thumbnails",
+          "title": "lg thumbnails",
+          "pressed": null,
+          "x": 837.3,
+          "w": 26,
+          "h": 26
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "Saved views",
+          "title": "Saved views",
+          "pressed": null,
+          "x": 935.6,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "input",
+          "role": null,
+          "words": "Search…",
+          "name": "Search",
+          "title": null,
+          "pressed": null,
+          "x": 980.6,
+          "w": 130.5,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New scene",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1171.1,
+          "w": 112.3,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New shot",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1291.4,
+          "w": 124.6,
+          "h": 28
+        }
+      ],
+      "table": {
+        "w": 1764
+      },
+      "scroller": {
+        "clientW": 1440,
+        "scrollW": 1812,
+        "sideways": true
+      },
+      "headers": [
+        {
+          "label": "(none)",
+          "w": 28
+        },
+        {
+          "label": "Thumbnail",
+          "w": 76
+        },
+        {
+          "label": "#",
+          "w": 56
+        },
+        {
+          "label": "Shot name",
+          "w": 308
+        },
+        {
+          "label": "Takes",
+          "w": 200
+        },
+        {
+          "label": "Status",
+          "w": 160
+        },
+        {
+          "label": "Time of day",
+          "w": 128
+        },
+        {
+          "label": "Type",
+          "w": 96
+        },
+        {
+          "label": "Framing",
+          "w": 88
+        },
+        {
+          "label": "Cam move",
+          "w": 128
+        },
+        {
+          "label": "Description",
+          "w": 0
+        },
+        {
+          "label": "Duration",
+          "w": 120
+        },
+        {
+          "label": "Frames",
+          "w": 88
+        },
+        {
+          "label": "Start",
+          "w": 144
+        },
+        {
+          "label": "End",
+          "w": 144
+        }
+      ],
+      "bodyRows": 28
+    },
+    "filterOpen": {
+      "cls": "rb-scene-filters",
+      "words": "Add filterDone"
+    },
+    "viewsTrigger": {
+      "words": "",
+      "name": "Saved views",
+      "title": "Saved views",
+      "expanded": "false",
+      "haspopup": null
+    },
+    "viewsOpen": {
+      "cls": "rb-scene-menu",
+      "role": null,
+      "words": "No saved views yetSave current view",
+      "items": [
+        {
+          "tag": "button",
+          "cls": "rb-scene-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "viewsClosesOnEscape": false,
+    "savedOne": true,
+    "viewsWithOne": {
+      "cls": "rb-scene-menu",
+      "role": null,
+      "words": "Research viewSave current view",
+      "items": [
+        {
+          "tag": "div",
+          "cls": "rb-scene-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Research view",
+          "name": null
+        },
+        {
+          "tag": "button",
+          "cls": "ui-iconbtn",
+          "role": null,
+          "tabindex": null,
+          "words": "",
+          "name": "Delete the saved view \"Research view\""
+        },
+        {
+          "tag": "button",
+          "cls": "rb-scene-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "savedRow": {
+      "tag": "div",
+      "cls": "rb-scene-menu-item",
+      "role": null,
+      "tabindex": null,
+      "focusable": false,
+      "buttonsInside": [
+        "Delete the saved view \"Research view\""
+      ]
+    }
+  },
+  "levels": {
+    "rest": {
+      "viewport": "1440x900",
+      "toolbar": {
+        "cls": "ui-toolbar rb-ent-toolbar",
+        "w": 1440,
+        "wraps": true,
+        "h": 45
+      },
+      "controls": [
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Filter",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 24,
+          "w": 76.5,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "Sort…",
+          "name": "Sort",
+          "title": null,
+          "pressed": null,
+          "x": 108.5,
+          "w": 106,
+          "h": 28,
+          "options": [
+            "Sort…",
+            "Name",
+            "Status",
+            "Created"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "Sorted ascending — reverse",
+          "title": "Sorted ascending — reverse",
+          "pressed": null,
+          "x": 218.5,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "No grouping",
+          "name": "Group",
+          "title": null,
+          "pressed": null,
+          "x": 263.5,
+          "w": 132,
+          "h": 28,
+          "options": [
+            "No grouping",
+            "Status"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Table",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 412.5,
+          "w": 56.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Gallery",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 472.7,
+          "w": 65,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Views",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 545.6,
+          "w": 81.3,
+          "h": 28
+        },
+        {
+          "tag": "input",
+          "role": null,
+          "words": "Search…",
+          "name": "Search levels",
+          "title": null,
+          "pressed": null,
+          "x": 644,
+          "w": 140,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New level",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1311.3,
+          "w": 104.7,
+          "h": 28
+        }
+      ],
+      "table": {
+        "w": 1416
+      },
+      "scroller": {
+        "clientW": 1440,
+        "scrollW": 1440,
+        "sideways": false
+      },
+      "headers": [
+        {
+          "label": "(none)",
+          "w": 36
+        },
+        {
+          "label": "Name",
+          "w": 360
+        },
+        {
+          "label": "Status",
+          "w": 152
+        },
+        {
+          "label": "Assets",
+          "w": 72
+        },
+        {
+          "label": "Tasks",
+          "w": 64
+        },
+        {
+          "label": "Description",
+          "w": 732
+        }
+      ],
+      "bodyRows": 4
+    },
+    "filterOpen": {
+      "cls": "rb-ent-filters",
+      "words": "Add filter"
+    },
+    "viewsTrigger": {
+      "words": "Views",
+      "name": null,
+      "title": null,
+      "expanded": "false",
+      "haspopup": null
+    },
+    "viewsOpen": {
+      "cls": "rb-ent-menu",
+      "role": null,
+      "words": "No saved viewsSave current view",
+      "items": [
+        {
+          "tag": "button",
+          "cls": "rb-ent-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "viewsClosesOnEscape": false,
+    "savedOne": true,
+    "viewsWithOne": {
+      "cls": "rb-ent-menu",
+      "role": null,
+      "words": "Research viewSave current view",
+      "items": [
+        {
+          "tag": "div",
+          "cls": "rb-ent-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Research view",
+          "name": null
+        },
+        {
+          "tag": "button",
+          "cls": "ui-iconbtn",
+          "role": null,
+          "tabindex": null,
+          "words": "",
+          "name": "Delete the saved view \"Research view\""
+        },
+        {
+          "tag": "button",
+          "cls": "rb-ent-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "savedRow": {
+      "tag": "div",
+      "cls": "rb-ent-menu-item",
+      "role": null,
+      "tabindex": null,
+      "focusable": false,
+      "buttonsInside": [
+        "Delete the saved view \"Research view\""
+      ]
+    },
+    "cliffPathRow": {
+      "assets": "0",
+      "tasks": "0"
+    },
+    "cliffPathWindow": {
+      "lists": [
+        "Assets (2)",
+        "Tasks (1)",
+        "Files (0)"
+      ],
+      "linkedCounts": "Linked counts0 assets / 0 tasks / 0 file"
+    }
+  },
+  "experiences": {
+    "rest": {
+      "viewport": "1440x900",
+      "toolbar": {
+        "cls": "ui-toolbar rb-ent-toolbar",
+        "w": 1440,
+        "wraps": true,
+        "h": 45
+      },
+      "controls": [
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Filter",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 24,
+          "w": 76.5,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "Sort…",
+          "name": "Sort",
+          "title": null,
+          "pressed": null,
+          "x": 108.5,
+          "w": 106,
+          "h": 28,
+          "options": [
+            "Sort…",
+            "Name",
+            "Status",
+            "Created"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "",
+          "name": "Sorted ascending — reverse",
+          "title": "Sorted ascending — reverse",
+          "pressed": null,
+          "x": 218.5,
+          "w": 28,
+          "h": 28
+        },
+        {
+          "tag": "select",
+          "role": null,
+          "words": "No grouping",
+          "name": "Group",
+          "title": null,
+          "pressed": null,
+          "x": 263.5,
+          "w": 132,
+          "h": 28,
+          "options": [
+            "No grouping",
+            "Status"
+          ]
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Table",
+          "name": null,
+          "title": null,
+          "pressed": "true",
+          "x": 412.5,
+          "w": 56.2,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": "tab",
+          "words": "Gallery",
+          "name": null,
+          "title": null,
+          "pressed": "false",
+          "x": 472.7,
+          "w": 65,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "Views",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 545.6,
+          "w": 81.3,
+          "h": 28
+        },
+        {
+          "tag": "input",
+          "role": null,
+          "words": "Search…",
+          "name": "Search experiences",
+          "title": null,
+          "pressed": null,
+          "x": 644,
+          "w": 140,
+          "h": 28
+        },
+        {
+          "tag": "button",
+          "role": null,
+          "words": "New experience",
+          "name": null,
+          "title": null,
+          "pressed": null,
+          "x": 1272.4,
+          "w": 143.6,
+          "h": 28
+        }
+      ],
+      "table": {
+        "w": 1416
+      },
+      "scroller": {
+        "clientW": 1440,
+        "scrollW": 1440,
+        "sideways": false
+      },
+      "headers": [
+        {
+          "label": "(none)",
+          "w": 36
+        },
+        {
+          "label": "Name",
+          "w": 360
+        },
+        {
+          "label": "Status",
+          "w": 152
+        },
+        {
+          "label": "Assets",
+          "w": 72
+        },
+        {
+          "label": "Tasks",
+          "w": 64
+        },
+        {
+          "label": "Description",
+          "w": 732
+        }
+      ],
+      "bodyRows": 3
+    },
+    "filterOpen": {
+      "cls": "rb-ent-filters",
+      "words": "Add filter"
+    },
+    "viewsTrigger": {
+      "words": "Views",
+      "name": null,
+      "title": null,
+      "expanded": "false",
+      "haspopup": null
+    },
+    "viewsOpen": {
+      "cls": "rb-ent-menu",
+      "role": null,
+      "words": "No saved viewsSave current view",
+      "items": [
+        {
+          "tag": "button",
+          "cls": "rb-ent-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "viewsClosesOnEscape": false,
+    "savedOne": true,
+    "viewsWithOne": {
+      "cls": "rb-ent-menu",
+      "role": null,
+      "words": "Research viewSave current view",
+      "items": [
+        {
+          "tag": "div",
+          "cls": "rb-ent-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Research view",
+          "name": null
+        },
+        {
+          "tag": "button",
+          "cls": "ui-iconbtn",
+          "role": null,
+          "tabindex": null,
+          "words": "",
+          "name": "Delete the saved view \"Research view\""
+        },
+        {
+          "tag": "button",
+          "cls": "rb-ent-menu-item",
+          "role": null,
+          "tabindex": null,
+          "words": "Save current view",
+          "name": null
+        }
+      ]
+    },
+    "savedRow": {
+      "tag": "div",
+      "cls": "rb-ent-menu-item",
+      "role": null,
+      "tabindex": null,
+      "focusable": false,
+      "buttonsInside": [
+        "Delete the saved view \"Research view\""
+      ]
+    }
+  }
+}
