@@ -18,7 +18,9 @@
 //      inset, no context rule pads it otherwise unless judged here, its type
 //      is the Dense step, and the min-width that wins is the floor; and no
 //      utility class or inline style undoes any of that. A date field of a
-//      kind whose inset is not declared, spelled any way, fails.
+//      kind whose inset is not declared, spelled any way, fails. "Wins" is
+//      the cascade's: an !important declaration over a normal one, one
+//      outside every layer over one inside, then specificity, then order.
 // The controls run every check on mutants of the real sheets and JSX (review
 // round 1, R1-02: the first version read rules by their exact selector, so a
 // context rule that padded a date field, a font-size, a utility or a field
@@ -33,7 +35,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import {
   indexCss, cssCode, rulesOf, selectorsOf, lastCompound, specificity, gt, declaredValue, elementsOf,
-  compoundMatches, horizontalInsets, withDeclaration,
+  compoundMatches, horizontalInsets, withDeclaration, rulesWithContext, insetDeclarations, cascadeTier, importance,
 } from '../tools/rabbit_v0.1.0/rabbitCssGuards.js'
 import { THEME } from './tokens.js'
 
@@ -197,7 +199,7 @@ const WRITTEN = Object.fromEntries(SOURCES.map(({ file, src }) => [file, new Set
 function declarationsOn(model, sheets = SHEETS) {
   const out = []
   sheets.forEach(({ file, css: sheet }, f) => {
-    rulesOf(sheet).forEach(({ sel, body }, r) => {
+    rulesWithContext(sheet).forEach(({ sel, body, layered }, r) => {
       for (const one of selectorsOf(sel)) {
         const last = lastCompound(one)
         if (!compoundMatches(last, model)) continue
@@ -207,13 +209,24 @@ function declarationsOn(model, sheets = SHEETS) {
           const written = WRITTEN[model.file] || new Set()
           if (ancestors.some((a) => !a.startsWith('.ui-') && !written.has(a.slice(1)))) continue
         }
-        out.push({ file, selector: one.trim(), context, spec: specificity(one), order: [f, r], body })
+        out.push({ file, selector: one.trim(), context, spec: specificity(one), order: [f, r], body, layered })
       }
     })
   })
   return out
 }
-const cascade = (a, b) => gt(a.spec, b.spec) || a.order[0] - b.order[0] || a.order[1] - b.order[1]
+/** The cascade's order between two declarations of one property: tier
+    (`cascadeTier`), then specificity, then load order. */
+const cascade = (a, b) => a.tier - b.tier || gt(a.spec, b.spec) || a.order[0] - b.order[0] || a.order[1] - b.order[1]
+/** A block's declaration of `prop` that holds: the last, but an !important
+    one before any later normal one. */
+const declOf = (body, prop) => {
+  let v = null
+  for (const m of body.matchAll(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]*?)\\s*(?=;|$)`, 'g'))) {
+    if (v == null || !importance(v).important || importance(m[1]).important) v = m[1]
+  }
+  return v
+}
 /** Context rules that can reach a date field by its classes and that a
     reader has judged never to hold one, each with the reason. Anything else
     that pads a date field otherwise than its inset fails. */
@@ -223,8 +236,12 @@ const JUDGED = {
   '.rb-budget-status-select[data-dot="true"] > .ui-input': 'the Expenses filter\'s status select and its dot; the purchase date is in the expense form',
 }
 const TEXT_SIZES = [...cssCode(css).matchAll(/--text-([a-z0-9]+)\s*:/g)].map((m) => m[1])
-const PAD_UTILITY = /^(?:p|px|pl|pr|ps|pe)-/
-const SIZE_UTILITY = new RegExp(`^text-(?:${TEXT_SIZES.join('|')})$`)
+/** A class's utility with its variants (`md:`, `data-[x]:`, `[&>i]:`) and its
+    important mark (`!` before or after) taken off. */
+const bare = (c) => c.replace(/^(?:(?:[\w-]*\[[^\]]*\]|[\w-]+):)+/, '').replace(/^!|!$/g, '')
+const PAD_UTILITY = /^(?:p|px|pl|pr|ps|pe)-|^\[padding(?:-left|-right|-inline(?:-start|-end)?)?:/
+const MIN_UTILITY = /^min-w-|^\[min-width:/
+const SIZE_UTILITY = new RegExp(`^text-(?:${TEXT_SIZES.join('|')})$|^text-\\[(?:\\d|length:|var\\()|^\\[font-size:`)
 
 /** What undoes a date field's floor: the problems, as sentences. */
 function problems(models = MODELS, sheets = SHEETS) {
@@ -234,39 +251,47 @@ function problems(models = MODELS, sheets = SHEETS) {
     const decls = declarationsOn(m, sheets)
     // 1. The insets: what wins is the inset; no context rule pads it otherwise.
     if (m.kind.kind === 'utility') {
-      const pads = m.el.classes.filter((c) => PAD_UTILITY.test(c) && !/^py-/.test(c))
+      const pads = m.el.classes.map(bare).filter((c) => PAD_UTILITY.test(c))
       if (pads.join(' ') !== 'px-3') out.push(`${m.where}: padding utilities ${pads.join(' ')}, not the px-3 its inset reads`)
     } else {
-      const utils = m.el.classes.filter((c) => PAD_UTILITY.test(c) && !/^py-/.test(c))
+      const utils = m.el.classes.filter((c) => PAD_UTILITY.test(bare(c)))
       if (utils.length) out.push(`${m.where}: a padding utility (${utils.join(' ')}) outranks every sheet`)
       for (const prop of Object.keys(m.expect)) {
-        const set = decls.map((d) => ({ ...d, value: horizontalInsets(d.body)[prop] })).filter((d) => d.value !== undefined)
+        const set = decls.map((d) => { const x = insetDeclarations(d.body)[prop]; return x && { ...d, value: x.value, tier: cascadeTier(x.important, d.layered) } }).filter(Boolean)
         const free = set.filter((d) => !d.context).sort(cascade)
         const base = free[free.length - 1]
         const value = base ? base.value : 0
         if (value !== m.expect[prop]) out.push(`${m.where}: ${prop} ${value} by ${base ? `${base.file} \`${base.selector}\`` : 'the reset'}, its inset says ${m.expect[prop]}`)
         for (const d of set) {
           if (!d.context || d.value === m.expect[prop] || Object.hasOwn(JUDGED, d.selector)) continue
-          if (base && gt(d.spec, base.spec) < 0) continue
+          if (base && (d.tier - base.tier || gt(d.spec, base.spec)) < 0) continue
           out.push(`${m.where}: ${d.file} \`${d.selector}\` sets ${prop} ${d.value}, its inset says ${m.expect[prop]}`)
         }
       }
     }
     // 2. The type: the Dense step the room was measured at.
-    for (const c of m.el.classes) if (SIZE_UTILITY.test(c) && c !== 'text-dense') out.push(`${m.where}: ${c}, not the Dense step`)
+    for (const c of m.el.classes) if (SIZE_UTILITY.test(bare(c)) && bare(c) !== 'text-dense') out.push(`${m.where}: ${c}, not the Dense step`)
     for (const d of decls) {
       for (const p of ['font-size', 'font']) {
-        const v = declaredValue(`${d.selector} {${d.body}}`, d.selector, p)
-        if (v == null) continue
+        const raw = declOf(d.body, p)
+        if (raw == null) continue
+        const v = importance(raw).value
         if (p === 'font-size' ? !['var(--text-dense)', '13px'].includes(v) : !/\b(?:13px|var\(--text-dense\))/.test(v)) out.push(`${m.where}: ${d.file} \`${d.selector}\` sets ${p} ${v}, not the Dense step`)
       }
     }
     // 3. The min-width that wins is the floor; nothing inline or utility.
-    if (m.el.classes.some((c) => /^min-w-/.test(c))) out.push(`${m.where}: a min-width utility outranks the floor`)
-    if (/\bminWidth\s*:/.test(m.el.attrs)) out.push(`${m.where}: an inline minWidth outranks the floor`)
-    const mins = decls.map((d) => ({ ...d, value: declaredValue(`${d.selector} {${d.body}}`, d.selector, 'min-width') })).filter((d) => d.value != null)
-    const top = mins.reduce((best, d) => (best == null || gt(d.spec, best.spec) > 0 ? d : best), null)
-    const rivals = mins.filter((d) => top && gt(d.spec, top.spec) === 0)
+    if (m.el.classes.some((c) => MIN_UTILITY.test(bare(c)))) out.push(`${m.where}: a min-width utility outranks the floor`)
+    // An inline style outranks every sheet: read as a literal object, or refused.
+    if (/\bstyle=\{(?!\{)/.test(m.el.attrs)) out.push(`${m.where}: a style the scan cannot read (not a literal object)`)
+    const style = (m.el.attrs.match(/\bstyle=\{\{([\s\S]*?)\}\}/) || [])[1] || ''
+    if (/\bminWidth\s*:/.test(style)) out.push(`${m.where}: an inline minWidth outranks the floor`)
+    if (/\bpadding\w*\s*:/.test(style)) out.push(`${m.where}: an inline padding outranks its inset`)
+    for (const [, key, value] of style.matchAll(/\b(border(?:Width|Left|Right|LeftWidth|RightWidth|Inline\w*)?)\s*:\s*([^,}]*)/g)) {
+      if (!/^['"`]?1px\b/.test(value.trim())) out.push(`${m.where}: an inline ${key} ${value.trim()} outranks its inset`)
+    }
+    const mins = decls.map((d) => { const raw = declOf(d.body, 'min-width'); if (raw == null) return null; const { value, important } = importance(raw); return { ...d, value, tier: cascadeTier(important, d.layered) } }).filter(Boolean)
+    const top = mins.reduce((best, d) => (best == null || (d.tier - best.tier || gt(d.spec, best.spec)) > 0 ? d : best), null)
+    const rivals = mins.filter((d) => top && d.tier === top.tier && gt(d.spec, top.spec) === 0)
     if (!top || top.value !== FLOOR_VALUE) out.push(`${m.where}: the min-width that wins is ${top ? `${top.file} \`${top.selector}\` ${top.value}` : 'none'}, not the floor`)
     else if (rivals.some((d) => d.value !== FLOOR_VALUE)) out.push(`${m.where}: ${rivals.map((d) => `${d.file} \`${d.selector}\``).join(' and ')} tie with the floor (load order decides)`)
   }
@@ -328,6 +353,25 @@ describe('FX10: every date field in src/ keeps the floor, whatever lands on it',
     expect(problems(MODELS, add('dashboard.css', '.dash-note-meta > .ui-input.rb-task-date-input { padding: 0 2px; }'))).toEqual([])
   })
 
+  it('CONTROL: an !important rule, or one outside every layer, outranks any specificity, and is caught', () => {
+    const add = (file, rule) => SHEETS.map((s) => (s.file.endsWith(file) ? { ...s, css: `${s.css}\n${rule}` } : s))
+    const layer = (rule) => `@layer components {\n  ${rule}\n}`
+    // A class alone, (0,1,0) under the floor's (0,1,1): in the layer it loses…
+    expect(problems(MODELS, add('rabbitTasks.css', layer('.rb-task-cell-date { min-width: 0; }'))).filter((p) => /not the floor/.test(p))).toEqual([])
+    // …important, it wins; outside every layer, it wins.
+    expect(problems(MODELS, add('rabbitTasks.css', layer('.rb-task-cell-date { min-width: 0 !important; }'))).some((p) => /rb-task-cell-date` 0, not the floor/.test(p))).toBe(true)
+    expect(problems(MODELS, add('rabbitTasks.css', '.rb-task-cell-date { min-width: 0; }')).some((p) => /rb-task-cell-date` 0, not the floor/.test(p))).toBe(true)
+    // A padding the same way.
+    expect(problems(MODELS, add('rabbitTasks.css', layer('.rb-task-cell-date { padding-right: 6px; }')))).toEqual([])
+    expect(problems(MODELS, add('rabbitTasks.css', layer('.rb-task-cell-date { padding-right: 2px !important; }'))).some((p) => /padding-right 2 by \S*rabbitTasks\.css `\.rb-task-cell-date`/.test(p))).toBe(true)
+    // Within one block an important declaration holds against a later normal one.
+    expect(insetDeclarations('padding: 0 8px !important; padding-left: 4px')['padding-left']).toEqual({ value: 8, important: true })
+    expect(declOf('min-width: 0 !important; min-width: 140px', 'min-width')).toBe('0 !important')
+    expect(importance('0 ! important')).toEqual({ value: '0', important: true })
+    // Where each rule sits.
+    expect(rulesWithContext('.a { x: 1 } @layer components { @media (min-width: 1px) { .b { y: 2 } } }').map((r) => [r.sel, r.layered, r.at.length])).toEqual([['.a', false, 0], ['.b', true, 2]])
+  })
+
   it('CONTROL: a field of no known kind, spelled any way, or undone by a utility or an inline style, is caught (round 1\'s P06, P07)', () => {
     const one = (jsx) => modelOf({ file: 'x/Probe.jsx', el: elementsOf(jsx).filter(isDate)[0] })
     expect(problems([one('<input type={\'date\'} className="rb-x-when" />')])[0]).toMatch(/no kind/)
@@ -335,6 +379,20 @@ describe('FX10: every date field in src/ keeps the floor, whatever lands on it',
     expect(problems([one('<Input type="date" className="min-w-0" />')]).some((p) => /min-width utility/.test(p))).toBe(true)
     expect(problems([one('<input type="date" className="ui-input text-body" data-size="sm" />')]).some((p) => /text-body/.test(p))).toBe(true)
     expect(problems([one('<input type="date" className="ui-input" data-size="sm" style={{ minWidth: 0 }} />')]).some((p) => /inline minWidth/.test(p))).toBe(true)
+    // A utility behind a variant, marked important, or written as an arbitrary value.
+    for (const cls of ['md:min-w-0', '!min-w-0', 'min-w-0!', 'min-w-[0]', '[min-width:0]', 'data-[open]:min-w-0']) {
+      expect(problems([one(`<input type="date" className="ui-input ${cls}" data-size="sm" />`)]).some((p) => /min-width utility/.test(p)), cls).toBe(true)
+    }
+    expect(problems([one('<input type="date" className="ui-input md:pr-8" data-size="sm" />')]).some((p) => /padding utility/.test(p))).toBe(true)
+    expect(problems([one('<input type="date" className="ui-input [padding-right:30px]" data-size="sm" />')]).some((p) => /padding utility/.test(p))).toBe(true)
+    expect(problems([one('<input type="date" className="ui-input text-[15px]" data-size="sm" />')]).some((p) => /not the Dense step/.test(p))).toBe(true)
+    // An inline style: one the scan cannot read, a padding, a border other than the 1px a well has.
+    expect(problems([one('<input type="date" className="ui-input" data-size="sm" style={dateStyle} />')]).some((p) => /cannot read/.test(p))).toBe(true)
+    expect(problems([one('<input type="date" className="ui-input" data-size="sm" style={{ paddingRight: 30 }} />')]).some((p) => /inline padding/.test(p))).toBe(true)
+    expect(problems([one('<input type="date" className="ui-input" data-size="sm" style={{ border: \'2px solid red\' }} />')]).some((p) => /inline border '2px/.test(p))).toBe(true)
+    expect(problems([one('<input type="date" className="ui-input" data-size="sm" style={{ colorScheme: \'dark\', border: \'1px solid #44403c\' }} />')]).filter((p) => /inline|cannot read/.test(p))).toEqual([])
+    // A component the scan does not know, handed type="date".
+    expect(problems([one('<InlineCell type="date" value={d} />')])[0]).toMatch(/no kind/)
     // And the scan reads the expression spelling and a kit field's size.
     expect(one('<TextInput type="date" value={d} />').kind).toEqual({ kind: 'kit', inset: 18 })
     expect(one('<Input type="date" value={d} />').kind).toEqual({ kind: 'kit', inset: 26 })

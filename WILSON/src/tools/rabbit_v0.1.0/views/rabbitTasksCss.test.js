@@ -413,5 +413,8 @@ describe('FX10: the Tasks table\'s dates hold the whole date and its calendar', 
   it('CONTROL: a later or heavier rule that pads the date cells otherwise is caught', () => {
     expect(cellPads(`${sheet}\n.rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding-right: 12px; }`).values).not.toEqual([6, 6])
     expect(cellPads(`${sheet}\n.rb-task-table-wrap .ui-table.rb-task-table .ui-tr .ui-td.rb-task-cell { padding: 0 2px; }`).values).toEqual([2, 2])
+    // A lighter rule loses in the layer and wins !important (or outside it).
+    expect(cellPads(`${sheet}\n@layer components {\n  .rb-task-cell { padding-left: 2px; }\n}`).values).toEqual([6, 6])
+    expect(cellPads(`${sheet}\n@layer components {\n  .rb-task-cell { padding-left: 2px !important; }\n}`).values).toEqual([2, 6])
   })
 })

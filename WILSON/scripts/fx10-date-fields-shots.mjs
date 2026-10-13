@@ -134,6 +134,10 @@ const PARTS = {
   // level's own dates.
   'level-window-form': { query: '?fixtures=game', steps: ['@proj', 'tab:Levels', 'click:Open Harbour Approach', 'wait:[role="dialog"]', 'click:Add new task', 'wait:input[placeholder="Task title…"]'], fields: '[role="dialog"] input.rb-ent-date', take: 2, values: [[FULL_DATE, '']] },
   'level-task': { query: '?fixtures=game', steps: ['@proj', 'tab:Levels', 'click:Open Harbour Approach', 'wait:[role="dialog"]', 'click:Add new task', 'wait:input[placeholder="Task title…"]'], fields: '[role="dialog"] input.rb-rel-task-date', take: 2, values: [[FULL_DATE, '']] },
+  // The same form in a scene's and a shot's window (RelationsPanel serves
+  // all four; review round 1 checked these two by hand).
+  'scene-task': { steps: ['@proj', 'tab:Scenes', 'click:Open Lighthouse, dawn', 'wait:[role="dialog"]', 'click:Add new task', 'wait:input[placeholder="Task title…"]'], fields: '[role="dialog"] input.rb-rel-task-date', take: 2, values: [[FULL_DATE, '']] },
+  'shot-task': { steps: ['@proj', 'tab:Scenes', 'tab:Shots', 'click:Open The door', 'wait:[role="dialog"]', 'click:Add new task', 'wait:input[placeholder="Task title…"]'], fields: '[role="dialog"] input.rb-rel-task-date', take: 2, values: [[FULL_DATE, '']] },
   'timeline-task': { steps: ['@proj', 'tab:Timeline', 'click:Task', 'wait:.rb-tl-ed-title'], fields: 'input[type="date"]', take: 2, values: [[FULL_DATE, '']], within: '.rb-tl-ed-title' },
   'timeline-phase': { steps: ['@proj', 'tab:Timeline', 'click:Phase', 'wait:.rb-tl-ed-title'], fields: 'input[type="date"]', take: 2, values: [[FULL_DATE, '']], within: '.rb-tl-ed-title' },
   'timeline-keydate': { steps: ['@proj', 'tab:Timeline', 'click:Key date', 'wait:.rb-tl-ed-title'], fields: 'input[type="date"]', take: 1, values: [[FULL_DATE], ['']], within: '.rb-tl-ed-title' },
@@ -352,8 +356,10 @@ function pgReferenceOff() { const old = document.getElementById('fx10-ref'); if 
     or more children holding a control (an inline Field's label beside its
     control is not one). An empty number field gets "12.5" first, through its
     own input event; a number field's room leaves out the 15px its spinner
-    keeps (Blink lays it out unseen at rest; Gecko draws it). A select's room
-    is its padding box, the kit's chevron padding already out of it. */
+    keeps where one is drawn (Blink lays it out unseen at rest; Gecko draws
+    it). A select's room is its content box, the kit's chevron padding
+    already out of it. A control whose own words are drawn clear (another
+    element shows them) is listed and not judged. */
 async function pgNeighbours(i) {
   const { sleep: s } = window.__fx10;
   const el = document.querySelector(`[data-fx10="${i}"]`);
@@ -380,6 +386,7 @@ async function pgNeighbours(i) {
   if (typed) await s(300);
   const ctx = document.createElement('canvas').getContext('2d');
   const out = [];
+  const clear = (c) => c === 'transparent' || /^rgba\([^)]*,\s*0\)$/.test(c || '');
   for (const n of row.querySelectorAll(CONTROL)) {
     if (!n.getClientRects().length) continue;
     const cs = getComputedStyle(n);
@@ -388,10 +395,22 @@ async function pgNeighbours(i) {
     const textW = ctx.measureText(text).width;
     const r = n.getBoundingClientRect();
     const px = (v) => parseFloat(v) || 0;
-    const room = r.width - px(cs.paddingLeft) - px(cs.paddingRight) - px(cs.borderLeftWidth) - px(cs.borderRightWidth) - (n.type === 'number' ? 15 : 0);
+    // A number field's spinner, where one is drawn: Gecko draws none under
+    // `appearance: textfield`, Blink none once its inner spin button is put
+    // away (FX1's NumberField does both).
+    let spinner = 0;
+    if (n.type === 'number') {
+      if (/Firefox\//.test(navigator.userAgent)) spinner = cs.appearance === 'textfield' ? 0 : 15;
+      else { const sb = getComputedStyle(n, '::-webkit-inner-spin-button'); spinner = sb.display === 'none' || sb.appearance === 'none' ? 0 : 15; }
+    }
+    const room = r.width - px(cs.paddingLeft) - px(cs.paddingRight) - px(cs.borderLeftWidth) - px(cs.borderRightWidth) - spinner;
+    // Words drawn clear are drawn by another element (the Shots table's
+    // Framing cell shows its code over a select whose own words are clear):
+    // reported, not judged.
+    const hidden = clear(cs.webkitTextFillColor) || clear(cs.color);
     const field = n.closest('.ui-field');
     const label = n.getAttribute('aria-label') || (field && (field.querySelector('label, .ui-field-label') || {}).textContent) || n.name || n.tagName;
-    out.push({ label: String(label).replace(/\s+/g, ' ').trim().slice(0, 30), tag: n.tagName.toLowerCase(), type: n.tagName === 'SELECT' ? 'select' : n.type, w: Math.round(r.width * 10) / 10, room: Math.round(room * 10) / 10, text: text.slice(0, 40), textW: Math.round(textW * 10) / 10, fits: textW <= room + 0.5 });
+    out.push({ label: String(label).replace(/\s+/g, ' ').trim().slice(0, 30), tag: n.tagName.toLowerCase(), type: n.tagName === 'SELECT' ? 'select' : n.type, w: Math.round(r.width * 10) / 10, room: Math.round(room * 10) / 10, text: text.slice(0, 40), textW: Math.round(textW * 10) / 10, hidden, fits: hidden || textW <= room + 0.5 });
   }
   return { row: `${row.tagName.toLowerCase()}.${String(row.className || '').trim().split(/\s+/).slice(0, 3).join('.')}`, controls: out };
 }
@@ -821,7 +840,7 @@ try {
         const nb = await engine.run(pgNeighbours, f.i);
         config.neighbours[f.i] = nb;
         const tight = nb.controls.filter((n) => !n.fits);
-        const least = nb.controls.reduce((m, n) => (m && m.room - m.textW <= n.room - n.textW ? m : n), null);
+        const least = nb.controls.filter((n) => !n.hidden).reduce((m, n) => (m && m.room - m.textW <= n.room - n.textW ? m : n), null);
         console.log(`  row of #${f.i} (${nb.row || 'none'}): ${nb.controls.length} other control${nb.controls.length === 1 ? '' : 's'}`
           + (least ? `, least spare ${r1(least.room - least.textW)} (${least.label}: "${least.text}" ${least.textW} in ${least.room} of ${least.w})` : '')
           + (tight.length ? ` — ${tight.length} NOT FITTING: ${tight.map((n) => `${n.label} "${n.text}" ${n.textW} in ${n.room}`).join('; ')}` : ''));

@@ -28,6 +28,33 @@ export const jsCode = (src) => src.replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//gm, '$
 export const rulesOf = (css) => [...cssCode(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
   .map(([, sel, body]) => ({ sel: sel.trim(), body }))
   .filter(({ sel }) => !sel.startsWith('@'))
+/** rulesOf, with where each rule sits: `at`, the at-rule preludes around it
+    (outermost first), and `layered`, whether one of them is an @layer. An
+    unlayered declaration outranks every layered one, and an !important one
+    every normal one, whatever their specificity (`cascadeTier`). */
+export const rulesWithContext = (css) => {
+  const code = cssCode(css)
+  const out = []
+  const stack = []
+  let start = 0
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i]
+    if (c === '{') { stack.push(code.slice(start, i).trim()); start = i + 1 }
+    else if (c === '}') {
+      const sel = stack.pop()
+      if (sel != null && !sel.startsWith('@')) out.push({ sel, body: code.slice(start, i), at: stack.slice(), layered: stack.some((p) => p.startsWith('@layer')) })
+      start = i + 1
+    } else if (c === ';' && !stack.length) start = i + 1
+  }
+  return out
+}
+/** Where a declaration stands before specificity: 0 normal in a layer, 1
+    normal outside every layer, 2 !important outside, 3 !important in a layer
+    (the app's sheets have one layer, `components`; Tailwind's utilities are
+    the class lists', read apart). */
+export const cascadeTier = (important, layered) => (important ? (layered ? 3 : 2) : (layered ? 0 : 1))
+/** A declared value and whether it is !important, the flag taken off. */
+export const importance = (raw) => ({ value: raw.replace(/\s*!\s*important\s*$/i, ''), important: /!\s*important\s*$/i.test(raw) })
 /** The compound selector that targets the element itself. */
 export const lastCompound = (sel) => sel.trim().split(/[\s>+~]+/).pop()
 /** The properties a declaration block sets. */
@@ -1081,46 +1108,61 @@ export function compoundMatches(compound, el) {
   }
   return true
 }
-/** A declaration block's horizontal insets, where it sets them: padding-left,
-    padding-right, border-left-width, border-right-width in px, from the
-    longhands and the `padding`, `padding-inline`, `border`, `border-width`,
-    `border-left` / `-right` shorthands. A value that is not a plain length is
-    returned as its text. */
-export function horizontalInsets(body) {
+/** A declaration block's horizontal insets, where it sets them, with their
+    importance: `{ prop: { value, important } }` for padding-left, padding-right,
+    border-left-width and border-right-width, from the longhands and the
+    `padding`, `padding-inline`, `border`, `border-width`, `border-left` / `-right`
+    shorthands. A plain length is a number of px; anything else its text.
+    Within the block an !important declaration is not undone by a later
+    normal one. */
+export function insetDeclarations(body) {
   const out = {}
-  const decl = (p) => { let v = null; for (const m of body.matchAll(new RegExp(`(?:^|;)\\s*${escapeRe(p)}\\s*:\\s*([^;]*?)\\s*(?=;|$)`, 'g'))) v = m[1]; return v }
+  const decl = (p) => {
+    let v = null
+    for (const m of body.matchAll(new RegExp(`(?:^|;)\\s*${escapeRe(p)}\\s*:\\s*([^;]*?)\\s*(?=;|$)`, 'g'))) {
+      if (v == null || !importance(v).important || importance(m[1]).important) v = m[1]
+    }
+    return v
+  }
   const len = (t) => (t == null ? undefined : /^0$/.test(t) ? 0 : /^-?\d+(?:\.\d+)?px$/.test(t) ? parseFloat(t) : t)
   const sides = (v) => { const p = v.trim().split(/\s+/); return { left: p[3] ?? p[1] ?? p[0], right: p[1] ?? p[0] } }
+  const put = (prop, value, important) => { if (out[prop]?.important && !important) return; out[prop] = { value, important } }
   const order = []
   for (const m of body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)) order.push(m[1])
   for (const p of order) {
-    const v = decl(p)
-    if (v == null) continue
-    if (p === 'padding') { const s = sides(v); out['padding-left'] = len(s.left); out['padding-right'] = len(s.right) }
-    else if (p === 'padding-inline') { const [a, b] = v.trim().split(/\s+/); out['padding-left'] = len(a); out['padding-right'] = len(b ?? a) }
-    else if (p === 'padding-left' || p === 'padding-inline-start') out['padding-left'] = len(v)
-    else if (p === 'padding-right' || p === 'padding-inline-end') out['padding-right'] = len(v)
+    const raw = decl(p)
+    if (raw == null) continue
+    const { value: v, important: imp } = importance(raw)
+    if (p === 'padding') { const s = sides(v); put('padding-left', len(s.left), imp); put('padding-right', len(s.right), imp) }
+    else if (p === 'padding-inline') { const [a, b] = v.trim().split(/\s+/); put('padding-left', len(a), imp); put('padding-right', len(b ?? a), imp) }
+    else if (p === 'padding-left' || p === 'padding-inline-start') put('padding-left', len(v), imp)
+    else if (p === 'padding-right' || p === 'padding-inline-end') put('padding-right', len(v), imp)
     else if (p === 'border' || p === 'border-left' || p === 'border-right' || p === 'border-inline') {
       const w = v.trim() === '0' || /^none\b/.test(v.trim()) ? 0 : len((v.match(/(^|\s)(\d+(?:\.\d+)?px|0)(?=\s|$)/) || [])[2] ?? v)
-      if (p !== 'border-right') out['border-left-width'] = w
-      if (p !== 'border-left') out['border-right-width'] = w
-    } else if (p === 'border-width') { const s = sides(v); out['border-left-width'] = len(s.left); out['border-right-width'] = len(s.right) }
-    else if (p === 'border-left-width' || p === 'border-inline-start-width') out['border-left-width'] = len(v)
-    else if (p === 'border-right-width' || p === 'border-inline-end-width') out['border-right-width'] = len(v)
+      if (p !== 'border-right') put('border-left-width', w, imp)
+      if (p !== 'border-left') put('border-right-width', w, imp)
+    } else if (p === 'border-width') { const s = sides(v); put('border-left-width', len(s.left), imp); put('border-right-width', len(s.right), imp) }
+    else if (p === 'border-left-width' || p === 'border-inline-start-width') put('border-left-width', len(v), imp)
+    else if (p === 'border-right-width' || p === 'border-inline-end-width') put('border-right-width', len(v), imp)
   }
   return out
 }
+/** insetDeclarations' values alone. */
+export function horizontalInsets(body) {
+  return Object.fromEntries(Object.entries(insetDeclarations(body)).map(([p, d]) => [p, d.value]))
+}
 /** Across `sheets` (in load order), the horizontal insets that win on `el`:
     for each of padding-left / -right and border-left / -right-width, the
-    declaration of the highest specificity (the later one on a tie) whose
-    selector can land on it, and every other declaration at that specificity
+    declaration whose selector can land on it that the cascade puts first —
+    its tier (`cascadeTier`: !important, then outside every layer), then
+    its specificity, then the later one — and every other declaration at that specificity
     with a different value (`ties`: load order decides). With `el.ancestors`
     (the classes of every element it sits in), a context selector counts only
     when each class its ancestors name is one of them; without, every context
     counts. */
 export function winningInsets(sheets, el) {
   const won = {}
-  sheets.forEach((sheet, f) => rulesOf(sheet).forEach(({ sel, body }, r) => {
+  sheets.forEach((sheet, f) => rulesWithContext(sheet).forEach(({ sel, body, layered }, r) => {
     for (const one of selectorsOf(sel)) {
       const last = lastCompound(one)
       if (!compoundMatches(last, el)) continue
@@ -1128,12 +1170,11 @@ export function winningInsets(sheets, el) {
         const named = (one.slice(0, one.lastIndexOf(last)).match(/\.([\w-]+)/g) || []).map((c) => c.slice(1))
         if (!named.every((c) => el.ancestors.includes(c))) continue
       }
-      const ins = horizontalInsets(body)
-      for (const [p, value] of Object.entries(ins)) {
-        const d = { selector: one.trim(), value, spec: specificity(one), order: [f, r] }
+      for (const [p, { value, important }] of Object.entries(insetDeclarations(body))) {
+        const d = { selector: one.trim(), value, spec: specificity(one), tier: cascadeTier(important, layered), order: [f, r] }
         const cur = won[p]
         if (!cur) { won[p] = { ...d, ties: [] }; continue }
-        const cmp = gt(d.spec, cur.spec)
+        const cmp = d.tier - cur.tier || gt(d.spec, cur.spec)
         if (cmp > 0) won[p] = { ...d, ties: [] }
         else if (cmp === 0) {
           const ties = d.value === cur.value ? cur.ties : [...cur.ties, cur]
