@@ -360,7 +360,7 @@ so it is a real choice.
 
 ---
 
-## Batch 5 — what a view remembers, filters, sorts, grouping
+## Batch 5 — what a view remembers, filters, sorts, grouping (answered)
 
 **Q8. Besides filters, sorting, grouping and fields, what else does a view
 remember?**
@@ -408,9 +408,24 @@ say that.
 Status grouping); the switch makes every table behave one way. Notion's
 tables cannot sub-group either (only its boards).
 
-### Her answers, batch 5
+### Her answers, batch 5 (2026-10-13; asked in chat as multiple choice; recorded verbatim)
 
-*(waiting)*
+- **Q8:** "layout if anything"
+- **Q13:** "All match, several values (Recommended)"
+- **Q14:** "Several, in order (Recommended)"
+- **Q15:** "One, and hide empty (Recommended)"
+
+### What follows from batch 5 (say if any is wrong)
+
+- **A view remembers its layout** (Table, Board or Gallery) besides its
+  filters, sorts, grouping and fields; **not** the picture or card size
+  (that stays as you left it, as today) and **never** the search.
+- **Filters:** every condition must match; a condition can match any of
+  several values ("Status is In progress or Pending review").
+- **Sorts:** several, in order, set in the Sort card; the toolbar's Sort
+  dropdown sets the first.
+- **Grouping:** one grouping, with a switch to show or hide empty groups, the
+  same on every table.
 
 ---
 
