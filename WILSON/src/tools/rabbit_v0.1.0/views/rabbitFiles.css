@@ -824,9 +824,13 @@
   .rb-asset-date:hover:not(:disabled) { background-color: var(--color-hover); }
   .rb-asset-date:disabled { color: var(--color-ink-3); cursor: not-allowed; }
   .rb-asset-date[data-empty="true"] { color: var(--color-ink-3); }
-  .rb-asset-date::-webkit-calendar-picker-indicator { display: none; }
+  /* The glyph hidden by its opacity, never `display: none`: Tab stops on it
+     inside the field, where the field is :focus-within and not :focus, and
+     a glyph taken out of the page dropped the focus to the page (FX10
+     review round 2, R2-03). */
+  .rb-asset-date::-webkit-calendar-picker-indicator { opacity: 0; }
   .rb-asset-row:hover .rb-asset-date:not(:disabled)::-webkit-calendar-picker-indicator,
-  .rb-asset-date:focus::-webkit-calendar-picker-indicator { display: block; }
+  .rb-asset-date:focus-within::-webkit-calendar-picker-indicator { opacity: 1; }
 
   /* Read-only words (the description is edited in the detail popup): the
      second ink, no hover fill, no pointer (R4-44); an empty one the third.
@@ -1100,7 +1104,7 @@
      every value in the grid. */
   .rb-asset-prop > .rb-asset-date { width: auto; }
   .rb-asset-prop > .rb-asset-date:not(:disabled):not([data-empty="true"]) { color: var(--color-ink); }
-  .rb-asset-prop > .rb-asset-date::-webkit-calendar-picker-indicator { display: block; }
+  .rb-asset-prop > .rb-asset-date::-webkit-calendar-picker-indicator { opacity: 1; }
   /* The description: its words as a quiet block that opens the editor (the
      whole grid's width), the editor the kit's well at the same place. */
   .rb-asset-prop-text {

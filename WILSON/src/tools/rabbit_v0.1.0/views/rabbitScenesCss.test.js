@@ -27,7 +27,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
   arrayValues, scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset,
-  specificity, gt, winningInsets,
+  specificity, gt, winningInsets, classReach,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -1025,8 +1025,12 @@ describe('FX10: the Shots table\'s dates hold the whole date and its calendar', 
      selector, so a later rule that put the kit's 12px back passed. The
      padding that WINS on a date cell — every rule of the kit's and this
      sheet's that can land on it — is the 6px the column was summed with. */
+  // A context counts when every class it names can be around the cell: the
+  // view's own or one around where the view is rendered (classReach; round
+  // 2, R2-02's M11 — a hand-listed set of the cell's ancestors missed real
+  // ones).
   const DATE_CELL = { tag: 'td', classes: ['ui-td', 'rb-scene-date-cell'], attrs: {}, never: [':first-child', ':last-child'],
-    ancestors: ['rb-scene-groups', 'rb-scene-table-wrap', 'ui-table-scroll', 'ui-table', 'rb-scene-table', 'rb-scene-table-shots', 'ui-tr', 'rb-scene-row'] }
+    reach: classReach(join(here, '../..', '..')).written['tools/rabbit_v0.1.0/views/ScenesView.jsx'] }
   const cellPads = (s) => { const w = winningInsets([indexCss, s], DATE_CELL); return { values: [w['padding-left'].value, w['padding-right'].value], ties: [...w['padding-left'].ties, ...w['padding-right'].ties] } }
   it('the padding that wins on a Shots date cell is the 6px a side the column is summed with, and nothing ties with it', () => {
     expect(cellPads(sheet)).toEqual({ values: [6, 6], ties: [] })

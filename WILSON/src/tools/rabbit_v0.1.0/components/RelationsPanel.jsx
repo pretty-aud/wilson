@@ -621,19 +621,13 @@ export function NewTaskSidePopup({
           </Field>
         </div>
 
-        {/* Bid days, then the dates on a row of their own (FX10 review round
+        {/* The dates on a row of their own, then Bid days (FX10 review round
             1, R1-01): two dates and their calendars take the row, which three
             to a row could not give them without leaving Bid days too narrow
-            for "12.5". The figures in the mono, the dates' picker dark. */}
-        <div className="rb-rel-task-grid">
-          <Field label="Bid days">
-            <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
-              onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
-              className="ui-input rb-rel-task-number"
-              data-size="sm"
-              placeholder="—" />
-          </Field>
-        </div>
+            for "12.5". Start and End first, as the Tasks table and the New
+            task window order them, and so they stay in view in a 700px-tall
+            window (round 2, R2-01). The figures in the mono, the dates'
+            picker dark. */}
         <div className="rb-rel-task-grid">
           <Field label="Start">
             <input type="date" value={draft.start_date || ''} onChange={e => upd({ start_date: e.target.value || '' })}
@@ -646,6 +640,15 @@ export function NewTaskSidePopup({
               className="ui-input rb-rel-task-field rb-rel-task-date"
               data-size="sm"
               data-empty={draft.end_date ? 'false' : 'true'} />
+          </Field>
+        </div>
+        <div className="rb-rel-task-grid">
+          <Field label="Bid days">
+            <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
+              onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
+              className="ui-input rb-rel-task-number"
+              data-size="sm"
+              placeholder="—" />
           </Field>
         </div>
 

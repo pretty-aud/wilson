@@ -680,8 +680,14 @@ describe('FX10: the inspector\'s Shoot day keeps the date floor', () => {
   it('the grid\'s right column is never narrower than the floor; the left, short codes, gives the room', () => {
     expect(code).toMatch(/\.bn-insp-grid \{ grid-template-columns: minmax\(0, 1fr\) minmax\(calc\(var\(--date-room\) \+ 18px\), 1fr\); \}/)
     expect(insp).toMatch(/className="bn-field-grid bn-insp-grid grid gap-4"/)
-    // A grid-cols utility would outrank the sheet's template (a later layer).
-    expect(grid.slice(0, grid.indexOf('>'))).not.toMatch(/grid-cols-/)
+    // A grid-cols utility would outrank the sheet's template (a later layer),
+    // and an inline style every sheet (review round 2, R2-02's M9).
+    const tag = (src) => src.slice(src.indexOf('bn-insp-grid'), src.indexOf('>', src.indexOf('bn-insp-grid')))
+    expect(tag(insp)).not.toMatch(/grid-cols-|\bstyle=/)
+    // CONTROL: either written on the tag is caught.
+    for (const add of [' grid-cols-2', '" style={{ gridTemplateColumns: \'1fr 1fr\' }} x="']) {
+      expect(tag(insp.replace('bn-insp-grid grid gap-4', `bn-insp-grid grid gap-4${add}`)), add).toMatch(/grid-cols-|\bstyle=/)
+    }
   })
   it('Shoot day is the right column\'s, the floor\'s, field', () => {
     const labels = [...grid.matchAll(/<Field label="([^"]+)"/g)].map((m) => m[1])

@@ -61,11 +61,14 @@
  *     a highlight, so its ink is not the reference's, and Chromium's parts
  *     and Firefox's `short` say whether it is cut (review round 1, R1-09);
  *   - after the states, every other control sharing the field's row (its
- *     table row, or its nearest grid or row of controls): its text against
- *     its room, an empty number field filled with "12.5" first — a date's
- *     room must not come out of a neighbour's (review round 1, R1-09). The
+ *     table row, else its form, section or window, else its nearest grid or
+ *     row of controls): its text against its room, an empty number field
+ *     filled with "12.5" first — a date's room must not come out of a
+ *     neighbour's (review rounds 1 and 2, R1-09, R2-04). The
  *     `control-squeezed` part (not in `all`) squeezes the Bins inspector's
  *     left column to 24px in its page: the pass must report it.
+ * Each JSON carries the script's own hash (`script`): the summaries refuse to
+ * set runs of two versions side by side (R2-04).
  * Then a close-up picture of the measured fields per state (2x), and with
  * --full the whole window at rest and hovered. The pet companion's sprite is
  * hidden while measuring (it floats over the Bins inspector's Shoot day).
@@ -87,11 +90,12 @@
  */
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
 const args = process.argv.slice(2);
@@ -142,6 +146,9 @@ const PARTS = {
   'timeline-phase': { steps: ['@proj', 'tab:Timeline', 'click:Phase', 'wait:.rb-tl-ed-title'], fields: 'input[type="date"]', take: 2, values: [[FULL_DATE, '']], within: '.rb-tl-ed-title' },
   'timeline-keydate': { steps: ['@proj', 'tab:Timeline', 'click:Key date', 'wait:.rb-tl-ed-title'], fields: 'input[type="date"]', take: 1, values: [[FULL_DATE], ['']], within: '.rb-tl-ed-title' },
   holidays: { steps: ['click:R.A.B.B.I.T. settings', 'wait:input[aria-label="Holiday date"]'], fields: 'input[aria-label="Holiday date"]', take: 1, values: [[FULL_DATE], ['']] },
+  // The settings open locked (the field disabled, and Gecko draws no button
+  // on a disabled field): the same field with Editable switched on.
+  'holidays-editable': { steps: ['click:R.A.B.B.I.T. settings', 'wait:input[aria-label="Holiday date"]', 'click:Editable', 'wait:input[aria-label="Holiday date"]:not([disabled])'], fields: 'input[aria-label="Holiday date"]', take: 1, values: [[FULL_DATE], ['']] },
   'budget-expense': { steps: ['@proj', 'tab:Budget', 'tab:Expenses', 'click:New expense', 'wait:input[aria-label="Purchase date"]'], fields: 'input[aria-label="Purchase date"]', take: 1, values: [[FULL_DATE], ['']] },
   'control-panel': { steps: ['@proj', 'tab:Summary', 'click:Control panel', 'wait:input[type="date"]'], fields: 'input[type="date"]', take: 2, values: [[FULL_DATE, '']] },
   // Outside R.A.B.B.I.T., reached by the kit's rule too: D.O.G.'s new-project
@@ -352,6 +359,7 @@ function pgReferenceOff() { const old = document.getElementById('fx10-ref'); if 
 /** Every other control sharing the field's row, and whether its text fits
     its room (review round 1, R1-09: the floor took a form's Bid days down to
     51px and only date fields were measured). The row: the field's table row,
+    else the form, section, group or window (`[role="dialog"]`) it is in,
     else its nearest grid of two or more columns or row-wise flex box with two
     or more children holding a control (an inline Field's label beside its
     control is not one). An empty number field gets "12.5" first, through its
@@ -366,7 +374,10 @@ async function pgNeighbours(i) {
   if (!el) return { row: null, controls: [] };
   const CONTROL = 'input:not([type="date"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]), select';
   const holds = (c) => c.matches('input, select, textarea') || !!c.querySelector('input, select, textarea');
-  let row = el.closest('tr');
+  // Its table row, else the form, section or window it is in (review round
+  // 2, R2-04: the nearest grid stopped at the dates' own row and missed the
+  // form's Bid days), else the nearest grid or row of controls.
+  let row = el.closest('tr') || el.closest('form, fieldset, section, [role="dialog"], [role="group"], [role="region"]');
   for (let a = el.parentElement; !row && a && a !== document.body; a = a.parentElement) {
     const cs = getComputedStyle(a);
     const tracks = cs.gridTemplateColumns.split(/\s+/).filter((t) => /px$/.test(t)).length;
@@ -564,7 +575,7 @@ async function firefoxEngine() {
     // The session is this run's Firefox: its profile is the one made here.
     const prof = session.capabilities['moz:profile'];
     const norm = (p) => p.split('\\').join('/').toLowerCase();
-    if (prof && norm(prof) !== norm(profile)) throw new Error(`the BiDi port ${port} answered for a Firefox that is not this run's (${prof})`);
+    if (!prof || norm(prof) !== norm(profile)) throw new Error(`the BiDi port ${port} answered for a Firefox that is not this run's (${prof || 'no moz:profile'})`);
     context = (await send('browsingContext.create', { type: 'tab' })).context;
     await send('browsingContext.setViewport', { context, viewport: { width: W, height: H }, devicePixelRatio: 2 });
   } catch (e) { try { ws.close(); } catch { /* closed */ } await kill(); throw e; }
@@ -740,7 +751,10 @@ const engine = ENGINE === 'firefox' ? await firefoxEngine()
   : ENGINE === 'electron' ? await electronEngine()
   : await chromiumEngine(ENGINE === 'chromium' ? null : ENGINE);
 console.log(`${engine.name} ${engine.version} · ${W}x${H} · phase ${PHASE}`);
-const results = { engine: engine.name, version: engine.version, size: `${W}x${H}`, phase: PHASE, parts: {} };
+// The script's own hash: a summary refuses to set runs of two versions side
+// by side (review round 2, R2-04).
+const SCRIPT = createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex').slice(0, 12);
+const results = { engine: engine.name, version: engine.version, size: `${W}x${H}`, phase: PHASE, script: SCRIPT, parts: {} };
 try {
   for (const PART of WANT) {
     const spec = PARTS[PART];

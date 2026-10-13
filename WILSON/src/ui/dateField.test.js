@@ -12,20 +12,30 @@
 //   2. the insets: the kit's wells declare theirs at no specificity, equal to
 //      their padding and border as the kit writes them;
 //   3. the numbers against what was measured (jsdom lays nothing out);
-//   4. EVERY date field in src/, against EVERY rule in every sheet that can
-//      land on it (its classes, its kit root, `input`, `[type]`, `[data-size]`,
-//      context selectors included): the padding and border that win are its
-//      inset, no context rule pads it otherwise unless judged here, its type
-//      is the Dense step, and the min-width that wins is the floor; and no
+//   4. every date field the JSX writes, against the rules of every sheet whose
+//      selector can land on it as this file reads selectors (its classes, its
+//      kit root, `input`, `[type]`, `[data-size]`; context selectors whose
+//      ancestors its file or a file that renders it writes, or the kit's):
+//      the padding and border that win are its inset, no context rule pads
+//      it otherwise unless judged here, its own --date-inset is its inset,
+//      its type is the Dense step, the min-width that wins is the floor, and
+//      no rule moves or sizes its calendar glyph or its date's box; no
 //      utility class or inline style undoes any of that. A date field of a
 //      kind whose inset is not declared, spelled any way, fails. "Wins" is
-//      the cascade's: an !important declaration over a normal one, one
-//      outside every layer over one inside, then specificity, then order.
+//      the cascade's as this file models it: !important, then the layer
+//      (theme, base, components, utilities, a later one, none), then
+//      specificity, then order;
+//   5. --date-room is declared once, in @theme, and every --date-inset sits
+//      directly in the components layer, never inside a condition; no
+//      inline style sets either.
 // The controls run every check on mutants of the real sheets and JSX (review
-// round 1, R1-02: the first version read rules by their exact selector, so a
-// context rule that padded a date field, a font-size, a utility or a field
-// spelled `type={'date'}` all passed).
-// The layout itself is measured in three engines by
+// round 1, R1-02: the first version read rules by their exact selector;
+// round 2, R2-02: thirteen ways still passed — another layer, a custom
+// property, a condition, a pseudo-element, a parent component's class, a
+// judged wrapper, `:not()` and `:is()` read wrong).
+// It is a static reading, not a browser: what it cannot see — a style set
+// from JavaScript, a selector this file does not parse — the layout cannot
+// prove here. The layout itself is measured in three engines by
 // scripts/fx10-date-fields-shots.mjs (walkthrough 71).
 // =============================================================================
 
@@ -34,8 +44,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import {
-  indexCss, cssCode, rulesOf, selectorsOf, lastCompound, specificity, gt, declaredValue, elementsOf,
+  indexCss, cssCode, jsCode, normal, rulesOf, selectorsOf, topCompound, specificity, gt, declaredValue, elementsOf,
   compoundMatches, horizontalInsets, withDeclaration, rulesWithContext, insetDeclarations, cascadeTier, importance,
+  datePartRules, jsxNesting, classReach, classesOf,
 } from '../tools/rabbit_v0.1.0/rabbitCssGuards.js'
 import { THEME } from './tokens.js'
 
@@ -191,30 +202,47 @@ function modelOf({ file, el }) {
 }
 const DATE_FIELDS = SOURCES.flatMap(({ file, src }) => elementsOf(src).filter(isDate).map((el) => ({ file, el })))
 const MODELS = DATE_FIELDS.map(modelOf)
-/** The classes each source file writes: a context selector whose ancestors
-    name a lane class its file never writes cannot hold the field. */
-const WRITTEN = Object.fromEntries(SOURCES.map(({ file, src }) => [file, new Set(elementsOf(src).flatMap((e) => [...e.classes, ...e.kit]))]))
+/** The classes that can be around a field of each file: its own, and those
+    around each place another file renders it (classReach; review round 2,
+    R2-02's M1c: the field's own file alone missed `.rb-ent-detail-task`,
+    around the level window's `<NewTaskSidePopup>` in EntityListView.jsx). A
+    context selector whose ancestors name a lane class outside them cannot
+    hold the field. */
+const { own: OWN, written: WRITTEN } = classReach(SRC)
 
+/** A sheet's rules, one entry per selector of each rule's list, read once
+    per sheet text: the scan asks every sheet about every date field. */
+const PARSED = new Map()
+function parsed(sheet) {
+  let rules = PARSED.get(sheet)
+  if (!rules) {
+    rules = rulesWithContext(sheet).flatMap(({ sel, body, layer, at }, r) => selectorsOf(sel).map((one) => {
+      const last = topCompound(one)
+      const context = one.trim() !== last.trim()
+      return { one: one.trim(), last, context, spec: specificity(one), body, layer, at, r,
+        ancestors: context ? one.slice(0, one.lastIndexOf(last)).match(/\.([\w-]+)/g) || [] : [] }
+    }))
+    PARSED.set(sheet, rules)
+  }
+  return rules
+}
 /** Every declaration, in every sheet, whose selector can land on the field. */
 function declarationsOn(model, sheets = SHEETS) {
   const out = []
+  const written = WRITTEN[model.file] || OWN[model.file] || new Set()
   sheets.forEach(({ file, css: sheet }, f) => {
-    rulesWithContext(sheet).forEach(({ sel, body, layered }, r) => {
-      for (const one of selectorsOf(sel)) {
-        const last = lastCompound(one)
-        if (!compoundMatches(last, model)) continue
-        const context = one.trim() !== last.trim()
-        if (context) {
-          const ancestors = one.slice(0, one.lastIndexOf(last)).match(/\.([\w-]+)/g) || []
-          const written = WRITTEN[model.file] || new Set()
-          if (ancestors.some((a) => !a.startsWith('.ui-') && !written.has(a.slice(1)))) continue
-        }
-        out.push({ file, selector: one.trim(), context, spec: specificity(one), order: [f, r], body, layered })
-      }
-    })
+    for (const x of parsed(sheet)) {
+      if (!compoundMatches(x.last, model)) continue
+      if (x.context && x.ancestors.some((a) => !a.startsWith('.ui-') && !written.has(a.slice(1)))) continue
+      out.push({ file, selector: x.one, context: x.context, spec: x.spec, order: [f, x.r], body: x.body, layer: x.layer })
+    }
   })
   return out
 }
+/** The controls below run the whole scan several times: on a loaded CI
+    runner one pass has taken over a second (5s, vitest's default, was not
+    enough for five). */
+const SCANS = 60000
 /** The cascade's order between two declarations of one property: tier
     (`cascadeTier`), then specificity, then load order. */
 const cascade = (a, b) => a.tier - b.tier || gt(a.spec, b.spec) || a.order[0] - b.order[0] || a.order[1] - b.order[1]
@@ -228,13 +256,20 @@ const declOf = (body, prop) => {
   return v
 }
 /** Context rules that can reach a date field by its classes and that a
-    reader has judged never to hold one, each with the reason. Anything else
-    that pads a date field otherwise than its inset fails. */
+    reader has judged never to hold one, each with the reason and the wrapper
+    the judgement rests on — which the JSX is checked never to put a date
+    field in (review round 2, R2-02's M7). Anything else that pads a date
+    field otherwise than its inset fails. */
 const JUDGED = {
-  '.rb-task-status-cell .rb-task-cell-select': 'the Status cell\'s select; the dates sit in their own cells',
-  '.rb-task-cell-editor > .rb-task-cell-select': 'the selects\' caret wrapper; a date field is never inside it',
-  '.rb-budget-status-select[data-dot="true"] > .ui-input': 'the Expenses filter\'s status select and its dot; the purchase date is in the expense form',
+  '.rb-task-status-cell .rb-task-cell-select': { wrapper: 'rb-task-status-cell', why: 'the Status cell\'s select; the dates sit in their own cells' },
+  '.rb-task-cell-editor > .rb-task-cell-select': { wrapper: 'rb-task-cell-editor', why: 'the selects\' caret wrapper; a date field is never inside it' },
+  '.rb-budget-status-select[data-dot="true"] > .ui-input': { wrapper: 'rb-budget-status-select', why: 'the Expenses filter\'s status select and its dot; the purchase date is in the expense form' },
 }
+/** What may be set on a date field's own parts: their look, never their
+    place or size — and never `display: none` or `visibility: hidden`, which
+    take Tab's stop on the glyph out of the page with the focus on it
+    (review round 2, R2-03). */
+const PART_LOOK = /^(?:opacity|cursor|filter|color|background(?:-[a-z]+)*|transition(?:-[a-z]+)*|pointer-events|outline(?:-[a-z]+)*|border-radius|color-scheme)$/
 const TEXT_SIZES = [...cssCode(css).matchAll(/--text-([a-z0-9]+)\s*:/g)].map((m) => m[1])
 /** A class's utility with its variants (`md:`, `data-[x]:`, `[&>i]:`) and its
     important mark (`!` before or after) taken off. */
@@ -257,7 +292,7 @@ function problems(models = MODELS, sheets = SHEETS) {
       const utils = m.el.classes.filter((c) => PAD_UTILITY.test(bare(c)))
       if (utils.length) out.push(`${m.where}: a padding utility (${utils.join(' ')}) outranks every sheet`)
       for (const prop of Object.keys(m.expect)) {
-        const set = decls.map((d) => { const x = insetDeclarations(d.body)[prop]; return x && { ...d, value: x.value, tier: cascadeTier(x.important, d.layered) } }).filter(Boolean)
+        const set = decls.map((d) => { const x = insetDeclarations(d.body)[prop]; return x && { ...d, value: x.value, tier: cascadeTier(x.important, d.layer) } }).filter(Boolean)
         const free = set.filter((d) => !d.context).sort(cascade)
         const base = free[free.length - 1]
         const value = base ? base.value : 0
@@ -289,11 +324,67 @@ function problems(models = MODELS, sheets = SHEETS) {
     for (const [, key, value] of style.matchAll(/\b(border(?:Width|Left|Right|LeftWidth|RightWidth|Inline\w*)?)\s*:\s*([^,}]*)/g)) {
       if (!/^['"`]?1px\b/.test(value.trim())) out.push(`${m.where}: an inline ${key} ${value.trim()} outranks its inset`)
     }
-    const mins = decls.map((d) => { const raw = declOf(d.body, 'min-width'); if (raw == null) return null; const { value, important } = importance(raw); return { ...d, value, tier: cascadeTier(important, d.layered) } }).filter(Boolean)
-    const top = mins.reduce((best, d) => (best == null || (d.tier - best.tier || gt(d.spec, best.spec)) > 0 ? d : best), null)
-    const rivals = mins.filter((d) => top && d.tier === top.tier && gt(d.spec, top.spec) === 0)
+    // What wins `prop` on the field: the cascade's top, and the rules of
+    // another sheet level with it (between sheets, load order decides).
+    const winner = (prop) => {
+      const all = decls.map((d) => { const raw = declOf(d.body, prop); if (raw == null) return null; const { value, important } = importance(raw); return { ...d, value, tier: cascadeTier(important, d.layer) } }).filter(Boolean)
+      const top = all.reduce((best, d) => (best == null || cascade(d, best) > 0 ? d : best), null)
+      return { top, rivals: all.filter((d) => top && d.file !== top.file && d.tier === top.tier && gt(d.spec, top.spec) === 0) }
+    }
+    const { top, rivals } = winner('min-width')
     if (!top || top.value !== FLOOR_VALUE) out.push(`${m.where}: the min-width that wins is ${top ? `${top.file} \`${top.selector}\` ${top.value}` : 'none'}, not the floor`)
     else if (rivals.some((d) => d.value !== FLOOR_VALUE)) out.push(`${m.where}: ${rivals.map((d) => `${d.file} \`${d.selector}\``).join(' and ')} tie with the floor (load order decides)`)
+    // 4. Its own --date-inset, as the cascade picks it, is its inset (review
+    //    round 2, R2-02's M3b: `--date-inset: 0` on the field took 18px).
+    const inset = winner('--date-inset')
+    if (!inset.top || inset.top.value !== `${m.kind.inset}px`) out.push(`${m.where}: --date-inset ${inset.top ? `${inset.top.value} by ${inset.top.file} \`${inset.top.selector}\`` : 'unset'}, its inset is ${m.kind.inset}px`)
+    else if (inset.rivals.some((d) => d.value !== inset.top.value)) out.push(`${m.where}: ${inset.rivals.map((d) => `${d.file} \`${d.selector}\``).join(' and ')} tie on --date-inset (load order decides)`)
+    // 5. Its parts: their look only (M8: a margin on the glyph hid the date).
+    for (const r of datePartRules(sheets.map((s) => s.css), m)) {
+      for (const p of r.props) {
+        if (p === 'display' ? /(?:^|;)\s*display\s*:\s*none/.test(r.body) : p === 'visibility' ? /(?:^|;)\s*visibility\s*:\s*(?:hidden|collapse)/.test(r.body) : !PART_LOOK.test(p)) {
+          out.push(`${m.where}: \`${r.selector}\` sets ${p} on the date's ${r.part}`)
+        }
+      }
+    }
+  }
+  return out
+}
+
+/** Where the floor's two custom properties are declared, against where they
+    may be: --date-room once, in index.css's @theme (a second anywhere —
+    inherited by every field under it — changes the room unseen, R2-02's
+    M3); --date-inset only directly in the components layer, never in a
+    condition (M4, M5); neither in a style the JSX writes. */
+function customPropertyProblems(sheets = SHEETS, sources = SOURCES) {
+  const out = []
+  for (const { file, css: sheet } of sheets) {
+    const code = cssCode(sheet)
+    const rooms = [...code.matchAll(/--date-room\s*:/g)].length
+    if (file === 'index.css') {
+      if (rooms !== 1 || !/@theme[^{]*\{[^}]*--date-room\s*:/.test(code)) out.push(`${file}: --date-room declared ${rooms} times, not once in @theme`)
+    } else if (rooms) out.push(`${file}: declares --date-room`)
+    for (const r of rulesWithContext(sheet)) {
+      if (!/(?:^|;)\s*--date-inset\s*:/.test(r.body)) continue
+      if (r.at.join(' > ') !== '@layer components') out.push(`${file}: \`${r.sel}\` declares --date-inset inside ${r.at.join(' > ') || 'no layer'}`)
+    }
+  }
+  for (const { file, src } of sources) if (/--date-(?:room|inset)/.test(jsCode(src))) out.push(`${file}: a style sets --date-room or --date-inset`)
+  return out
+}
+/** A date field the JSX puts inside a wrapper a JUDGED rule rests on. */
+function judgedWrapperProblems(sources = SOURCES) {
+  const wrappers = Object.values(JUDGED).map((j) => j.wrapper)
+  const out = []
+  for (const { file, src } of sources) {
+    for (const t of jsxNesting(normal(jsCode(src)))) {
+      if (!isDate({ attrs: t.text })) continue
+      for (const a of t.ancestors) {
+        const m = a.match(/\sclassName=(?:"([^"]*)"|\{`([^`]*)`\})/) || []
+        const words = (m[1] ?? m[2] ?? '').split(/\s+/)
+        for (const w of wrappers) if (words.includes(w)) out.push(`${file}: a date field inside .${w}`)
+      }
+    }
   }
   return out
 }
@@ -321,6 +412,29 @@ describe('FX10: every date field in src/ keeps the floor, whatever lands on it',
 
   it('every one keeps its floor: the padding and border that win are its inset, its type the Dense step, the min-width that wins the floor', () => {
     expect(problems()).toEqual([])
+  }, SCANS)
+
+  it('--date-room is declared once, in @theme; every --date-inset sits directly in the components layer; no style the JSX writes sets either', () => {
+    expect(customPropertyProblems()).toEqual([])
+  })
+
+  it('what can be around a field is read from the JSX: its file, and the elements around each place a file renders it (R2-02\'s M1c, M11)', () => {
+    // The level window renders RelationsPanel's form inside `.rb-ent-detail-task`.
+    expect(WRITTEN['tools/rabbit_v0.1.0/components/RelationsPanel.jsx'].has('rb-ent-detail-task')).toBe(true)
+    // The Tasks table's own wrappers, which a hand-listed set had missed.
+    for (const c of ['rb-task-view', 'rb-task-body']) expect(WRITTEN['tools/rabbit_v0.1.0/views/ProjectTasksView.jsx'].has(c), c).toBe(true)
+    // …and what is never around them: O.T.T.E.R.'s lesson tables, the Files tab's.
+    for (const f of ['ProjectTasksView.jsx', 'ProjectAssetsView.jsx', 'ScenesView.jsx']) {
+      for (const c of ['lesson-content', 'rb-fm-root', 'rb-files-frame']) expect(WRITTEN[`tools/rabbit_v0.1.0/views/${f}`].has(c), `${f} near .${c}`).toBe(false)
+    }
+    expect(classesOf('<Td className="rb-x">')).toEqual(['rb-x', 'ui-td'])
+  })
+
+  it('no date field sits inside a wrapper a judged rule rests on, and the JSX reader knows what holds what', () => {
+    expect(judgedWrapperProblems()).toEqual([])
+    const tree = jsxNesting('<div className="a">{x && <span><input type="date" /></span>}<p>a<b>b</b></p></div>')
+    expect(tree.find((t) => t.tag === 'input').ancestors).toEqual(['<div className="a">', '<span>'])
+    expect(tree.find((t) => t.tag === 'p').ancestors).toEqual(['<div className="a">'])
   })
 
   it('a borderless field declares its 12px inset on its own class', () => {
@@ -341,7 +455,7 @@ describe('FX10: every date field in src/ keeps the floor, whatever lands on it',
     expect(blocksAround(inMedia, `${FLOOR} {`)).toEqual(['@layer components', '@media (min-width: 9000px)'])
     const dash = SHEETS.map((s) => (s.file.endsWith('dashboard.css') ? { ...s, css: `${s.css}\n.dash-note-meta .ui-input.dash-date { min-width: 60px; }` } : s))
     expect(problems(MODELS, dash).some((p) => /dash-date/.test(p) && /tie|not the floor/.test(p))).toBe(true)
-  })
+  }, SCANS)
 
   it('CONTROL: a context rule that pads or resizes a date field, in any lane, is caught (round 1\'s P01, P02b, P14)', () => {
     const add = (file, rule) => SHEETS.map((s) => (s.file.endsWith(file) ? { ...s, css: `${s.css}\n${rule}` } : s))
@@ -351,7 +465,7 @@ describe('FX10: every date field in src/ keeps the floor, whatever lands on it',
     expect(problems(MODELS, add('index.css', '.ui-input[data-size="sm"] { padding: 0 10px; }')).some((p) => /padding-left 10/.test(p))).toBe(true)
     // …and a rule in another lane's sheet whose ancestor that lane alone writes is not.
     expect(problems(MODELS, add('dashboard.css', '.dash-note-meta > .ui-input.rb-task-date-input { padding: 0 2px; }'))).toEqual([])
-  })
+  }, SCANS)
 
   it('CONTROL: an !important rule, or one outside every layer, outranks any specificity, and is caught', () => {
     const add = (file, rule) => SHEETS.map((s) => (s.file.endsWith(file) ? { ...s, css: `${s.css}\n${rule}` } : s))
@@ -369,8 +483,38 @@ describe('FX10: every date field in src/ keeps the floor, whatever lands on it',
     expect(declOf('min-width: 0 !important; min-width: 140px', 'min-width')).toBe('0 !important')
     expect(importance('0 ! important')).toEqual({ value: '0', important: true })
     // Where each rule sits.
-    expect(rulesWithContext('.a { x: 1 } @layer components { @media (min-width: 1px) { .b { y: 2 } } }').map((r) => [r.sel, r.layered, r.at.length])).toEqual([['.a', false, 0], ['.b', true, 2]])
-  })
+    expect(rulesWithContext('.a { x: 1 } @layer components { @media (min-width: 1px) { .b { y: 2 } } }').map((r) => [r.sel, r.layer, r.at.length])).toEqual([['.a', null, 0], ['.b', 'components', 2]])
+  }, SCANS)
+
+  it('CONTROL: round 2\'s ways through are caught — a parent\'s context, a later layer, a custom property, a condition, a part, `:not()`, `:is()`, a judged wrapper (R2-02)', () => {
+    const add = (file, rule) => SHEETS.map((s) => (s.file.endsWith(file) ? { ...s, css: `${s.css}\n${rule}` } : s))
+    const layer = (rule, name = 'components') => `@layer ${name} {\n  ${rule}\n}`
+    const hit = (sheets, re) => problems(MODELS, sheets).some((p) => re.test(p))
+    // M1c: a context written by the component that renders the field.
+    expect(hit(add('rabbitFiles.css', layer('.rb-ent-detail-task .rb-rel-task-field.rb-rel-task-date { padding: 0 40px; }')), /RelationsPanel.*padding-left 40/)).toBe(true)
+    // M2d, M2e: a later layer, at no specificity.
+    expect(hit(add('index.css', layer(':where(.rb-task-cell-date) { padding-right: 20px; }', 'utilities')), /padding-right 20/)).toBe(true)
+    expect(hit(add('dashboard.css', layer('.dash-date { min-width: 0; }', 'utilities')), /dash-date.*not the floor/)).toBe(true)
+    // M3b: the field's own --date-inset.
+    expect(hit(add('rabbitTasks.css', layer('.rb-task-table-wrap .ui-table.rb-task-table .ui-input.rb-task-date-input { --date-inset: 0; }')), /--date-inset 0 by/)).toBe(true)
+    // M8: the glyph moved, or taken out of the page.
+    expect(hit(add('rabbitScenes.css', layer('.ui-input.rb-scene-date::-webkit-calendar-picker-indicator { margin-inline-start: 40px; }')), /margin-inline-start on the date's ::-webkit-calendar-picker-indicator/)).toBe(true)
+    expect(hit(add('rabbitTasks.css', layer('.rb-task-cell-date::-webkit-calendar-picker-indicator { display: none; }')), /sets display on the date's/)).toBe(true)
+    // M12: `:not()` on an attribute the field is not known by excludes nothing.
+    expect(hit(add('rabbitTasks.css', layer('.rb-task-cell-date.rb-task-cell-select:not([data-empty="true"]) { padding-right: 30px; }')), /padding-right 30/)).toBe(true)
+    // M13: a compound with `:is(a, b)` in it is one compound.
+    expect(hit(add('rabbitTasks.css', layer('.rb-task-cell-select:is(.rb-task-cell-date, .rb-task-cell-number) { padding-right: 30px; }')), /padding-right 30/)).toBe(true)
+    expect(topCompound('.x > .rb-task-cell-select:is(.rb-task-cell-date, .rb-task-cell-number)')).toBe('.rb-task-cell-select:is(.rb-task-cell-date, .rb-task-cell-number)')
+    // M3, M4, M5: the custom properties.
+    expect(customPropertyProblems(add('rabbitTasks.css', layer('.rb-task-table-wrap .ui-table.rb-task-table { --date-room: 96px; }')))).toEqual(['tools/rabbit_v0.1.0/views/rabbitTasks.css: declares --date-room'])
+    const smInMedia = css.replace(`  ${SM} {\n    --date-inset: 18px;\n  }`, `  @media (min-width: 9000px) {\n  ${SM} {\n    --date-inset: 18px;\n  }\n  }`)
+    expect(smInMedia).not.toBe(css)
+    expect(customPropertyProblems([{ file: 'index.css', css: smInMedia }, ...SHEETS.slice(1)]).some((p) => /inside @layer components > @media/.test(p))).toBe(true)
+    expect(customPropertyProblems(add('rabbitFiles.css', layer('@media (min-width: 9000px) { .rb-asset-date { --date-inset: 12px; } }'))).some((p) => /rb-asset-date.*inside/.test(p))).toBe(true)
+    expect(customPropertyProblems(SHEETS, [{ file: 'x/Probe.jsx', src: '<td style={{ \'--date-room\': \'96px\' }} />' }])).toHaveLength(1)
+    // M7: a date field in a judged wrapper.
+    expect(judgedWrapperProblems([{ file: 'x/Probe.jsx', src: '<span className="rb-task-cell-editor"><input type="date" className="rb-task-cell-select rb-task-cell-date" /></span>' }])).toEqual(['x/Probe.jsx: a date field inside .rb-task-cell-editor'])
+  }, SCANS)
 
   it('CONTROL: a field of no known kind, spelled any way, or undone by a utility or an inline style, is caught (round 1\'s P06, P07)', () => {
     const one = (jsx) => modelOf({ file: 'x/Probe.jsx', el: elementsOf(jsx).filter(isDate)[0] })

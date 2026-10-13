@@ -198,11 +198,12 @@
        272 it scrolled sideways beside a 10px one, as it did at 1254 before;
        round 2, R2-08: 262 left 2px, and Windows' classic scrollbar is 17).
        It was 256 until FX10 gave the two date columns 40px: the title is
-       the one column that holds more than a short name (taken from Asset,
-       Phase and Assignee instead, 45 of the fixtures' names would be cut at
-       1280, against 13 more titles), a title's whole words are its native
-       tooltip, and from 1440 up it keeps its 360px. At 1280 the words have
-       about 120px before the buttons: most titles end in "…" there. */
+       the one column that holds more than a short name, a title's whole
+       words are its native tooltip, and from 1440 up it keeps its 360px. At
+       1280 in the desktop app, beside the list's scrollbar, the words have
+       119px before the buttons: 24 of the fixtures' 42 titles end in "…",
+       15 more than with the 40px back; taken from Asset, Phase and Assignee
+       instead, 54 more of their names would (FX10 review round 2, R2-06). */
     --rb-task-title-min: 216px;
     --rb-task-title-max: 360px;
     --rb-task-fixed: calc(var(--rb-task-col-check) + var(--rb-task-col-status) + var(--rb-task-col-priority)
@@ -492,11 +493,15 @@
      these 6px a side, declared here as its inset — so the glyph, when it
      shows, has the room after the date: 120px for the date and the glyph
      (it was 100, and with the glyph shown an empty field's last "y" was
-     cut and a set date sat 5px from it). */
+     cut and a set date sat 5px from it). Hidden by its opacity, never
+     `display: none`: Tab stops on the glyph inside the field (Chromium's
+     own stop), and there the field is :focus-within, not :focus — a glyph
+     taken out of the page then dropped the focus to the page itself
+     (FX10 review round 2, R2-03). */
   .rb-task-cell-date { --date-inset: 12px; color-scheme: dark; font-variant-numeric: tabular-nums; cursor: text; }
-  .rb-task-cell-date::-webkit-calendar-picker-indicator { display: none; }
+  .rb-task-cell-date::-webkit-calendar-picker-indicator { opacity: 0; }
   .rb-task-row:hover .rb-task-cell-date:not(:disabled)::-webkit-calendar-picker-indicator,
-  .rb-task-cell-date:focus::-webkit-calendar-picker-indicator { display: block; }
+  .rb-task-cell-date:focus-within::-webkit-calendar-picker-indicator { opacity: 1; }
   .rb-task-cell-number {
     text-align: right;
     font-family: var(--font-mono);
