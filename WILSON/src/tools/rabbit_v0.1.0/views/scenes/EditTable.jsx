@@ -28,16 +28,17 @@
 // ============================================================
 
 import { Fragment, useMemo } from 'react'
-import { Film, Eye, Clapperboard, GripVertical } from 'lucide-react'
-import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState } from '../../../../ui'
+import { Film, FileText, Clapperboard, GripVertical } from 'lucide-react'
+import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState, RowTitle, HoverActions } from '../../../../ui'
 import MenuButton from './MenuButton'
 import NumberField from './NumberField'
 import { framesToTimecode } from './timecode'
 import { blockLine } from './useCutDrag'
 import '../rabbitScenes.css'
 
-/** Every column: what a band row spans. */
-const SPAN = 8
+/** Every column: what a band row spans (FX8: no actions column — a row's
+    buttons sit in its Shot cell, a band's menu after its words). */
+const SPAN = 7
 
 /** The grip a row or a block is dragged by (decorative to a screen reader: Move up / Move down are the keyboard's way, D16). */
 export function Grip({ drag, kind, id, name }) {
@@ -64,7 +65,7 @@ export function Grip({ drag, kind, id, name }) {
  * search         the toolbar's search: rows whose name matches; a band with none is left out
  * menuFor(row)   the row's ⋯ items (none: no ⋯)
  * bandMenuFor(band)   the band's ⋯ items
- * onOpenShot(id) View details
+ * onOpenShot(id) a row's Open (the page icon)
  * drag           step 6: useCutDrag's handlers, or null (nothing can be dragged here)
  * empty          what an empty cut says, and offers ({ body, action })
  */
@@ -98,7 +99,6 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
             <Th width="var(--rb-scene-col-status)">Status</Th>
             <Th width="var(--rb-scene-col-runtime)" numeric>Duration</Th>
             <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
-            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
           </Row>
         )}
       >
@@ -127,7 +127,7 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                 onDragLeave={drag ? drag.leave('band', bandId, inBand) : undefined}
                 onDrop={drag ? drag.drop('band', bandId) : undefined}
               >
-                <Td colSpan={SPAN - 1} className="rb-scene-group-cell">
+                <Td colSpan={SPAN} className="rb-scene-group-cell">
                   <span className="rb-scene-group-head">
                     {drag && <Grip drag={drag} kind="band" id={bandId} name={`the ${band.label} block`} />}
                     <span className="rb-scene-cut-band-name">
@@ -135,14 +135,19 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                       <Film className="rb-scene-group-icon" aria-hidden="true" />
                       <span className="rb-scene-group-label">{band.label}</span>
                       <span className="rb-scene-group-count">({band.rows.length} shot{band.rows.length !== 1 ? 's' : ''})</span>
-                      {bandFrames > 0 && (
-                        <span className="rb-scene-group-frames">{framesToTimecode(bandFrames, fps)} · {bandFrames.toLocaleString()} frames</span>
-                      )}
                     </span>
+                    {/* The band's menu right after its words, shown on
+                        pointing and on focus, as a row's buttons are (FX8,
+                        review round 1, R1-06); its runtime at the end. */}
+                    {bandItems.length > 0 && (
+                      <HoverActions className="rb-scene-band-acts">
+                        <MenuButton title={`Edit actions for the ${band.label} block`} items={bandItems} minWidth={220} />
+                      </HoverActions>
+                    )}
+                    {bandFrames > 0 && (
+                      <span className="rb-scene-group-frames">{framesToTimecode(bandFrames, fps)} · {bandFrames.toLocaleString()} frames</span>
+                    )}
                   </span>
-                </Td>
-                <Td align="right" className="rb-scene-acts-cell">
-                  {bandItems.length > 0 && <MenuButton title={`Edit actions for the ${band.label} block`} items={bandItems} minWidth={220} />}
                 </Td>
               </Row>
               {band.rows.map(r => {
@@ -174,8 +179,19 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                     <Td numeric className="rb-scene-num-cell" data-empty={shot?.shot_number == null ? 'true' : undefined}>
                       {shot?.shot_number ?? '—'}
                     </Td>
-                    <Td>
-                      <span className="rb-scene-cut-name" title={r.name}>{r.name}</span>
+                    {/* The shot's name, and the row's buttons right after it in
+                        the one order — Open (the page icon), then the edit's
+                        menu — on hover and on focus (FX8, the kit's
+                        RowTitle; they were always shown, at the row's end).
+                        The name cell's 4px/3px, so the row stays 44px (FX8
+                        review round 1, R1-03: the kit's 8px made it 45). */}
+                    <Td className="rb-scene-name-cell">
+                      <RowTitle actions={(shot || items.length > 0) ? <>
+                        {shot && <IconButton size="sm" Icon={FileText} title={`Open ${r.name}`} onClick={() => onOpenShot?.(shot.id)} />}
+                        {items.length > 0 && <MenuButton title={`Edit actions for ${r.name} (cut ${r.index + 1})`} items={items} minWidth={220} />}
+                      </> : null}>
+                        <span className="rb-scene-cut-name" title={r.name}>{r.name}</span>
+                      </RowTitle>
                     </Td>
                     <Td className="rb-scene-status-cell">
                       {shot ? (
@@ -211,12 +227,6 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                           placeholder="0"
                         />
                       ) : <span className="rb-scene-cut-none">—</span>}
-                    </Td>
-                    <Td align="right" className="rb-scene-acts-cell">
-                      <span className="rb-scene-cut-acts">
-                        {shot && <IconButton size="sm" Icon={Eye} title={`View details of ${r.name}`} onClick={() => onOpenShot?.(shot.id)} />}
-                        {items.length > 0 && <MenuButton title={`Edit actions for ${r.name} (cut ${r.index + 1})`} items={items} minWidth={220} />}
-                      </span>
                     </Td>
                   </Row>
                 )

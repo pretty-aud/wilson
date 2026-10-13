@@ -510,7 +510,7 @@ describe('the asset popup — its four relation fields and the pickers they open
 
   it('the four fields render the RelationBadge, named for their kind and count, each in its place; no "(s)" words, no nested button', () => {
     page()
-    fireEvent.click(screen.getByRole('button', { name: 'View asset details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Mara' }))
     const popup = screen.getByRole('dialog', { name: 'Mara' })
     const badges = [...popup.querySelectorAll('.rb-asset-prop-grid .rb-rel-badge')]
     expect(badges.map((b) => b.getAttribute('aria-label'))).toEqual(
@@ -526,7 +526,7 @@ describe('the asset popup — its four relation fields and the pickers they open
 
   it('each field opens its picker, a kit Dialog in <body> ON TOP of the popup: Escape closes the picker and the popup stays; the next Escape closes the popup', () => {
     const { ctx } = page()
-    fireEvent.click(screen.getByRole('button', { name: 'View asset details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Mara' }))
     const popup = screen.getByRole('dialog', { name: 'Mara' })
     const titles = ['Link scenes', 'Link shots', 'Link levels', 'Link experiences']
     const badges = [...popup.querySelectorAll('.rb-asset-prop-grid .rb-rel-badge')]
@@ -645,7 +645,7 @@ describe('S3c step 1: the relations gate (S3b-01) and links to another shot list
     cleanup()
     rabbit.current = { ...rabbit.current, myProjectRole: 'reviewer', projectIsStaffed: true }
     render(<ProjectAssetsView />)
-    fireEvent.click(screen.getByRole('button', { name: 'View asset details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Mara' }))
     const popup = screen.getByRole('dialog', { name: 'Mara' })
     const badges = [...popup.querySelectorAll('.rb-asset-prop-grid .rb-rel-badge')]
     expect(badges).toHaveLength(4)

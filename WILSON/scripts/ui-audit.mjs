@@ -374,6 +374,11 @@ export const CSS_PATTERNS = [
                       the closable wrapper (kit request KR-1). (A third,
                       .dog-settings-tab, went when A2 put the Settings tabs
                       on the kit's Tabs, 2026-09-23.)
+       index.css (FX6) `.ui-status-banner` — the 3px line under an item
+                      popup's title. Not an indicator: Audrey's status bar,
+                      judged in her words (2026-10-12: "lets make the line
+                      thicker it feels to thin"; walkthrough 68). The row
+                      reads 19 with it (18 at FX6's cut).
 
      The one that was NOT an indicator — dashboard.css's ProseMirror
      blockquote, a neutral colour with no conditional and no state — is the

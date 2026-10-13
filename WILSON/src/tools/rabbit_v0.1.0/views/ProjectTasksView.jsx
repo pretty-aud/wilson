@@ -54,7 +54,7 @@ import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
-  HoverActions, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus,
+  HoverActions, RowTitle, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus,
 } from '../../../ui'
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
@@ -982,25 +982,28 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // The header and the cells share one grid, so the header labels sit over
 // their columns again: the flex version put rows 12px (24px when grouped)
-// right of their own headers (review R05). Widths are px for the columns
-// whose content has a known width (1054px with the checkbox) and the title
-// takes the rest, never less than 200px: below 1254px of table the view
-// scrolls sideways (only at Electron's 1024px floor) rather than wrapping a
-// date mid-token (V1-06) or starving the title.
+// right of their own headers (review R05). Widths are the sheet's
+// (`.rb-task-table-wrap`): px for the columns whose content has a known
+// width (982px with the checkbox), and the title takes the rest up to its
+// maximum (360px), never less than 256px; past the maximum Asset, Phase and
+// Assignee share what is left (FX8: "the cell/section for the title is sooo
+// wide"). Below 1238px of table the view scrolls sideways (only at
+// Electron's 1024px floor, a scrollbar of up to 18px allowed for at 1280)
+// rather than wrapping a date mid-token (V1-06) or starving the title. A row's buttons sit in the title cell, right after its
+// words (FX8, the kit's RowTitle): there is no actions column.
 function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title' },
-    { key: 'status',      label: 'Status',   width: 148 },
-    { key: 'priority',    label: 'Priority', width: 88 },
-    { key: 'asset_id',    label: 'Asset',    width: 150 },
-    { key: 'phase_id',    label: 'Phase',    width: 124 },
-    { key: 'assignee_id', label: 'Assignee', width: 124 },
-    { key: 'start_date',  label: 'Start',    width: 124 },
-    { key: 'end_date',    label: 'End',      width: 124 },
-    { key: 'bid_days',    label: 'Bid',      width: 64, numeric: true },
-    { key: '_actions',    label: '',         width: onHistoryClick ? 72 : 44 },
+    { key: 'status',      label: 'Status',   width: 'var(--rb-task-col-status)' },
+    { key: 'priority',    label: 'Priority', width: 'var(--rb-task-col-priority)' },
+    { key: 'asset_id',    label: 'Asset',    width: 'var(--rb-task-col-asset)' },
+    { key: 'phase_id',    label: 'Phase',    width: 'var(--rb-task-col-phase)' },
+    { key: 'assignee_id', label: 'Assignee', width: 'var(--rb-task-col-assignee)' },
+    { key: 'start_date',  label: 'Start',    width: 'var(--rb-task-col-date)' },
+    { key: 'end_date',    label: 'End',      width: 'var(--rb-task-col-date)' },
+    { key: 'bid_days',    label: 'Bid',      width: 'var(--rb-task-col-bid)', numeric: true },
   ]
-  // The checkbox column plus the ten above: what a spanning cell spans.
+  // The checkbox column plus the nine above: what a spanning cell spans.
   const span = columns.length + 1
 
   // ── Multi-select state ──
@@ -1166,7 +1169,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
         head={(
           <Row>
             {/* Checkbox column */}
-            <Th width={36} className="rb-task-check-cell">
+            <Th width="var(--rb-task-col-check)" className="rb-task-check-cell">
               <button type="button" onClick={toggleAll}
                 className="rb-task-check"
                 data-checked={allSelected ? 'all' : someSelected ? 'some' : 'none'}
@@ -1516,38 +1519,44 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
       </Td>
       {columns.map(c => {
         if (c.key === 'title') {
+          // FX8: its one button, Delete, right after its words (a key date
+          // has no window to open), as every row's buttons are.
           return (
             <Td key={c.key} className="rb-task-cell">
-              <span className="rb-task-ms-title">
-                <Diamond className="rb-task-ms-icon" data-filled="true" aria-hidden="true" />
-                {editTitle && !isProjectBound ? (
-                  <input type="text" value={localTitle} autoFocus
-                    onChange={e => setLocalTitle(e.target.value)}
-                    onBlur={commitTitle}
-                    onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { setLocalTitle(milestone.title); setEditTitle(false) } }}
-                    aria-label="Key date name"
-                    className="ui-input rb-task-cell-input"
-                    data-size="sm"
-                  />
-                ) : (
-                  isProjectBound ? (
-                    <span className="rb-task-ms-name" data-empty="false"
-                      title={milestone.description || milestone.title}>
-                      {milestone.title}
-                    </span>
+              <RowTitle actions={canWrite && !isProjectBound ? (
+                <IconButton size="sm" Icon={Trash2} danger title={`Delete ${milestone.title || 'Untitled key date'}`} onClick={handleDelete} />
+              ) : null}>
+                <span className="rb-task-ms-title">
+                  <Diamond className="rb-task-ms-icon" data-filled="true" aria-hidden="true" />
+                  {editTitle && !isProjectBound ? (
+                    <input type="text" value={localTitle} autoFocus
+                      onChange={e => setLocalTitle(e.target.value)}
+                      onBlur={commitTitle}
+                      onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { setLocalTitle(milestone.title); setEditTitle(false) } }}
+                      aria-label="Key date name"
+                      className="ui-input rb-task-cell-input"
+                      data-size="sm"
+                    />
                   ) : (
-                    <button type="button"
-                      className="rb-task-ms-name"
-                      data-empty={milestone.title ? 'false' : 'true'}
-                      onClick={openTitleEditor}
-                      title={milestone.description || milestone.title}
-                    >
-                      {milestone.title || 'Untitled key date'}
-                    </button>
-                  )
-                )}
-                {isProjectBound && <Badge>Bound</Badge>}
-              </span>
+                    isProjectBound ? (
+                      <span className="rb-task-ms-name" data-empty="false"
+                        title={milestone.description || milestone.title}>
+                        {milestone.title}
+                      </span>
+                    ) : (
+                      <button type="button"
+                        className="rb-task-ms-name"
+                        data-empty={milestone.title ? 'false' : 'true'}
+                        onClick={openTitleEditor}
+                        title={milestone.description || milestone.title}
+                      >
+                        {milestone.title || 'Untitled key date'}
+                      </button>
+                    )
+                  )}
+                  {isProjectBound && <Badge>Bound</Badge>}
+                </span>
+              </RowTitle>
             </Td>
           )
         }
@@ -1575,17 +1584,6 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                 )
               ) : (
                 <span className="rb-task-none">—</span>
-              )}
-            </Td>
-          )
-        }
-        if (c.key === '_actions') {
-          return (
-            <Td key={c.key} align="right">
-              {canWrite && !isProjectBound && (
-                <HoverActions>
-                  <IconButton size="sm" Icon={Trash2} danger title="Delete key date" onClick={handleDelete} />
-                </HoverActions>
               )}
             </Td>
           )
@@ -1636,16 +1634,27 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   // `disabled:cursor-not-allowed` class beside it; every one of these selects
   // is `disabled={!canWrite}`, so the stylesheet keys the cursor on :disabled.
 
+  // What the row's buttons are named for (FX8: "Open <name>", "Delete <name>").
+  const name = task.title || 'Untitled task'
+
   function renderCell(col) {
     switch (col.key) {
       case 'title':
+        // FX8: the row's buttons right after its words, in the one order —
+        // Open (the page icon), its edit history, Delete last — shown on the
+        // row's hover and on focus (the kit's RowTitle).
         return (
-          <span className="rb-task-title-cell">
+          <RowTitle actions={<>
+            <IconButton size="sm" Icon={FileText} title={`Open ${name}`} onClick={onDetailClick} />
+            {onHistoryClick && (
+              <IconButton size="sm" Icon={History} title={`View edit history for ${name}`} onClick={onHistoryClick} />
+            )}
+            {canWrite && (
+              <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={handleDelete} />
+            )}
+          </>}>
             <CellInlineText value={task.title || ''} placeholder="Untitled task" onCommit={v => handleUpdate({ title: v })} readOnly={!canWrite} />
-            <HoverActions>
-              <IconButton size="sm" Icon={FileText} title="View task details" onClick={onDetailClick} />
-            </HoverActions>
-          </span>
+          </RowTitle>
         )
       case 'status':
         return (
@@ -1718,17 +1727,6 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return <CellDateInput value={task.end_date || ''} label="End date" onCommit={v => handleUpdate({ end_date: v || null })} readOnly={!canWrite} />
       case 'bid_days':
         return <CellNumberInput value={task.bid_days} label="Bid days" onCommit={v => handleUpdate({ bid_days: v })} readOnly={!canWrite} />
-      case '_actions':
-        return (
-          <HoverActions>
-            {onHistoryClick && (
-              <IconButton size="sm" Icon={History} title="View edit history" onClick={onHistoryClick} />
-            )}
-            {canWrite && (
-              <IconButton size="sm" Icon={Trash2} danger title="Delete task" onClick={handleDelete} />
-            )}
-          </HoverActions>
-        )
       default:
         return <span className="rb-task-none">{task[col.key] ?? '—'}</span>
     }
@@ -1765,7 +1763,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         </button>
       </Td>
       {columns.map(c => (
-        <Td key={c.key} numeric={c.numeric} align={c.key === '_actions' ? 'right' : 'left'} className="rb-task-cell">
+        <Td key={c.key} numeric={c.numeric} className="rb-task-cell">
           {renderCell(c)}
         </Td>
       ))}
@@ -1925,11 +1923,12 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
         <span className="rb-task-card-title">
           {task.title || 'Untitled task'}
         </span>
+        {/* FX8: named as the table row's are — "Open <name>", "Delete <name>". */}
         <HoverActions>
-          <IconButton size="sm" Icon={FileText} title="View task details" onClick={onDetailClick} />
+          <IconButton size="sm" Icon={FileText} title={`Open ${task.title || 'Untitled task'}`} onClick={onDetailClick} />
           {canWrite && (
             // Soft delete — no confirm; the shell-level undo toast covers it.
-            <IconButton size="sm" Icon={Trash2} danger title="Delete task" onClick={() => removal.ask({ tasks: [task.id] }, () => ctx?.deleteTask?.(task.id))} />
+            <IconButton size="sm" Icon={Trash2} danger title={`Delete ${task.title || 'Untitled task'}`} onClick={() => removal.ask({ tasks: [task.id] }, () => ctx?.deleteTask?.(task.id))} />
           )}
         </HoverActions>
       </div>

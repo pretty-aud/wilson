@@ -106,7 +106,7 @@ try {
 
   // The Delete question, which says it is the project's.
   await rowOf('Cliff path').hover();
-  await click(rowOf('Cliff path').getByRole('button', { name: 'Delete scene', exact: true }), 'Delete scene');
+  await click(rowOf('Cliff path').getByRole('button', { name: 'Delete Cliff path', exact: true }), 'Delete scene');
   await must(dialog('Delete scene?'), 'the Delete question');
   await shot('delete-question');
   await click(button('Cancel', dialog('Delete scene?')), 'Cancel');
@@ -171,7 +171,7 @@ try {
   await click(dialog('Shot lists').getByRole('button', { name: 'Shot list 1', exact: true }), 'Shot list 1');
   await click(button('Open', dialog('Shot lists')), 'Open');
   await rowOf('Lighthouse, dawn').hover();
-  await click(rowOf('Lighthouse, dawn').getByRole('button', { name: 'View details', exact: true }), 'View details');
+  await click(rowOf('Lighthouse, dawn').getByRole('button', { name: 'Open Lighthouse, dawn', exact: true }), 'Open');
   const popup = dialog('Lighthouse, dawn');
   await must(popup, 'the scene popup');
   await click(popup.locator('.rb-scene-detail-main .rb-scene-prop-text').first(), 'the description');

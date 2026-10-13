@@ -205,10 +205,11 @@ describe('surface 6a', () => {
     expect(table?.tagName).toBe('TABLE')
     const ths = [...table.querySelectorAll('thead th')]
     // Before: a checkbox, two blank columns (the toggle, the thumbnail), #,
-    // NAME, STATUS, TIME OF DAY, TYPE, DESCRIPTION, RUNTIME, FRAMES and the
-    // actions' blank. The words are sentence case; the kit Th draws the Label
-    // step's capitals.
-    expect(ths.map(visibleLabel)).toEqual(['', '', '', '#', 'Name', 'Status', 'Time of day', 'Type', 'Description', 'Runtime', 'Frames', ''])
+    // NAME, STATUS, TIME OF DAY, TYPE, DESCRIPTION, RUNTIME and FRAMES; the
+    // actions' blank column is gone (FX8: a row's buttons sit in its name
+    // cell). The words are sentence case; the kit Th draws the Label step's
+    // capitals.
+    expect(ths.map(visibleLabel)).toEqual(['', '', '', '#', 'Name', 'Status', 'Time of day', 'Type', 'Description', 'Runtime', 'Frames'])
     expect(ths.filter((th) => th.getAttribute('data-numeric') === 'true').map(visibleLabel)).toEqual(['#', 'Runtime', 'Frames'])
     // A row: one cell per column, its figures right-aligned in the kit's numeric cell.
     const row = rowOf('Lighthouse, dawn')
@@ -227,7 +228,8 @@ describe('surface 6a', () => {
     // The nest is one row of the scene table, straight after its scene, spanning every column.
     const holder = nest.closest('tr.rb-scene-nest-row')
     expect(holder.previousElementSibling).toBe(rowOf('Lighthouse, dawn'))
-    expect(holder.querySelector(':scope > td').getAttribute('colspan')).toBe('12')
+    expect(holder.querySelector(':scope > td').getAttribute('colspan')).toBe(String(sceneTable().querySelectorAll('thead th').length))
+    expect(holder.querySelector(':scope > td').getAttribute('colspan')).toBe('11')
     // Its rows are the scene's shots, in order, with their Add shot after them.
     expect([...nest.querySelectorAll('tbody > tr')].map((tr) => within(tr).getByRole('button', { name: /^Select / }).getAttribute('aria-label')))
       .toEqual(['Select The door', 'Select The cold lamp'])
@@ -239,7 +241,8 @@ describe('surface 6a', () => {
   it('the shot table is a real <table>: the same columns in the same order, Takes where the bins are (R3-20)', () => {
     page()
     toShots()
-    const expected = ['', '', '#', 'Shot name', 'Status', 'Time of day', 'Type', 'Framing', 'Cam move', 'Description', 'Duration', 'Frames', 'Start', 'End', '']
+    // FX8: no actions column at the end — a row's buttons sit in its name cell.
+    const expected = ['', '', '#', 'Shot name', 'Status', 'Time of day', 'Type', 'Framing', 'Cam move', 'Description', 'Duration', 'Frames', 'Start', 'End']
     let ths = [...shotTable().querySelectorAll('thead th')]
     expect(ths.map(visibleLabel)).toEqual(expected)
     expect(ths.filter((th) => th.getAttribute('data-numeric') === 'true').map(visibleLabel)).toEqual(['#', 'Duration', 'Frames'])
@@ -250,13 +253,28 @@ describe('surface 6a', () => {
     ths = [...shotTable().querySelectorAll('thead th')]
     expect(ths.map(visibleLabel)).toEqual([...expected.slice(0, 4), 'Takes', ...expected.slice(4)])
     expect(rowOf('The door').querySelectorAll(':scope > td')).toHaveLength(ths.length)
-    // A scene group's band is one row across the table; its Scene details beside its toggle, not inside it.
+    // A scene group's band is one row across the table; its Open (the scene's page icon, FX8) beside its toggle, not inside it.
     const band = shotTable().querySelector('tr.rb-scene-group-row')
     expect(band.querySelector(':scope > td').getAttribute('colspan')).toBe(String(ths.length))
     const toggle = within(band).getByRole('button', { name: /^Lighthouse, dawn/ })
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(toggle.querySelector('button')).toBeNull()
-    expect(within(band).getByRole('button', { name: 'Scene details' })).toBeTruthy()
+    const open = within(band).getByRole('button', { name: 'Open Lighthouse, dawn' })
+    expect(open.querySelector('svg').classList.contains('lucide-file-text')).toBe(true)
+    // FX8 review round 1 (R1-06): the Open right after the band's words, in
+    // the kit's HoverActions as a row's buttons are, then the band's rest
+    // (its runtime) — which still opens and closes the scene on a click.
+    const head = band.querySelector('.rb-scene-group-head')
+    expect([...head.children].filter((c) => !c.classList.contains('rb-scene-grip')).map((c) => c.className))
+      .toEqual(['rb-scene-group-toggle', 'ui-hover-actions rb-scene-band-acts', 'rb-scene-band-rest'])
+    expect(open.closest('.ui-hover-actions').previousElementSibling).toBe(toggle)
+    expect(toggle.textContent).not.toMatch(/frames/)
+    fireEvent.click(head.querySelector('.rb-scene-band-rest'))
+    const toggled = within(shotTable().querySelector('tr.rb-scene-group-row')).getByRole('button', { name: /^Lighthouse, dawn/ })
+    expect(toggled.getAttribute('aria-expanded')).toBe('false')
+    // Review round 2 (R2-10): the keyboard's place is the band's toggle, as
+    // when the toggle was the whole band (it fell to <body>).
+    expect(document.activeElement).toBe(toggled)
   })
 
   it('a row\'s status is the kit StatusDot beside a kit CellSelect, its tone from the one STATUS map (R3-11)', () => {
@@ -423,16 +441,22 @@ describe('surface 6a', () => {
       expect(check.closest('tr').getAttribute('data-selected')).toBe('true')
     }
     expect(within(document.querySelector('.rb-scene-bulk')).getByText('1 selected')).toBeTruthy()
-    const acts = (name) => rowOf(name).querySelector(':scope > td.rb-scene-acts-cell > .ui-hover-actions')
-    // S3b: the row's shot-list menu sits between View details and Delete.
+    // FX8: the row's buttons sit in its name cell, right after the words
+    // (the kit's RowTitle), in the one order — Open (the page icon), the
+    // row's shot-list menu (S3b), Delete last — each named for its row.
+    const acts = (name) => rowOf(name).querySelector(':scope > td.rb-scene-name-cell > .ui-row-title > .ui-hover-actions')
     expect(within(acts('Lighthouse, dawn')).getAllByRole('button').map((b) => b.getAttribute('title')))
-      .toEqual(['View details', 'Shot list actions for Lighthouse, dawn', 'Delete scene'])
+      .toEqual(['Open Lighthouse, dawn', 'Shot list actions for Lighthouse, dawn', 'Delete Lighthouse, dawn'])
     expect(within(acts('The door')).getAllByRole('button').map((b) => b.getAttribute('title')))
-      .toEqual(['View details', 'Shot list actions for The door', 'Delete shot'])
-    // The slot is one width in every table: the sheet's one column, three
-    // 28px buttons since S3b (it was two, 84px).
-    expect(read('./rabbitScenes.css')).toMatch(/--rb-scene-col-acts: 112px;/)
-    expect([...sceneTable().querySelectorAll('thead th')].at(-1).style.width).toBe('var(--rb-scene-col-acts)')
+      .toEqual(['Open The door', 'Shot list actions for The door', 'Delete The door'])
+    expect(within(acts('Lighthouse, dawn')).getByRole('button', { name: 'Open Lighthouse, dawn' }).querySelector('svg').classList.contains('lucide-file-text')).toBe(true)
+    // The words first, the slot after them, nothing else in the cell; no
+    // actions column (it was the sheet's one 112px column since S3b).
+    expect([...rowOf('Lighthouse, dawn').querySelector('td.rb-scene-name-cell > .ui-row-title').children].map((c) => c.className))
+      .toEqual(['ui-row-title-words', 'ui-hover-actions ui-row-title-acts'])
+    expect(rowOf('Lighthouse, dawn').querySelector('td.rb-scene-acts-cell')).toBeNull()
+    expect(read('./rabbitScenes.css')).not.toMatch(/--rb-scene-col-acts/)
+    expect([...sceneTable().querySelectorAll('thead th')].at(-1).style.width).toBe('var(--rb-scene-col-frames)')
   })
 
   it('nothing to list is the kit EmptyState, in the same words (R3-19)', () => {
@@ -467,7 +491,7 @@ describe('surface 6a', () => {
   it('W9: a row\'s Delete asks on the kit Dialog in <body> — Cancel keeps the scene, Delete deletes it (and so its shots) through the context', async () => {
     const confirm = vi.spyOn(window, 'confirm')
     const { ctx } = page()
-    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))
     let dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     expect(dialog.getAttribute('data-width')).toBe('confirm')
@@ -478,12 +502,12 @@ describe('surface 6a', () => {
     expect(ctx.deleteScene).not.toHaveBeenCalled()
     expect(rowOf('Lighthouse, dawn')).toBeTruthy()
     // Its backdrop still cancels, as the hand-rolled one's did.
-    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))
     fireEvent.mouseDown(screen.getByRole('dialog').closest('.ui-dialog-backdrop'))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(ctx.deleteScene).not.toHaveBeenCalled()
 
-    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))
     dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
@@ -644,11 +668,11 @@ describe('surface 6b', () => {
     expect([...door.querySelectorAll('.rb-scene-card-figure')].map((f) => f.textContent)).toEqual(['00:00:10:00', '240 fr'])
     expect([lamp.querySelector('.rb-scene-card-desc'), lamp.querySelector('.rb-scene-card-num').textContent, lamp.querySelectorAll('.rb-scene-card-figure').length])
       .toEqual([null, '#20', 0])
-    // A group's head: the scene, its count and its runtime, and Scene details the named kit IconButton.
+    // A group's head: the scene, its count and its runtime, and its Open (the scene's page icon, FX8) the named kit IconButton.
     const head = gallery().querySelector('.rb-scene-gallery-group > .rb-scene-gallery-head')
     expect(head.querySelector('.rb-scene-group-label').textContent).toBe('Lighthouse, dawn')
     expect([...head.querySelectorAll('.rb-scene-group-count')].map((s) => s.textContent)).toEqual(['2 shots', '· 00:00:10:00'])
-    expect(within(head).getByRole('button', { name: 'Scene details' }).classList.contains('ui-iconbtn')).toBe(true)
+    expect(within(head).getByRole('button', { name: 'Open Lighthouse, dawn' }).classList.contains('ui-iconbtn')).toBe(true)
   })
 
   it('the three card sizes stay three, keyed on the gallery\'s data-card, and the sheet sizes them', () => {
@@ -753,8 +777,8 @@ describe('surface 6b', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
     const heads = [...gallery().querySelectorAll('.rb-scene-gallery-head')]
     expect(heads.map((h) => h.querySelector('.rb-scene-group-label').textContent)).toEqual(['Final', 'In progress'])
-    // A field group has no scene, so no Scene details.
-    for (const h of heads) expect(within(h).queryByRole('button', { name: 'Scene details' })).toBeNull()
+    // A field group has no scene, so no Open.
+    for (const h of heads) expect(within(h).queryByRole('button', { name: /^Open / })).toBeNull()
     expect(error.mock.calls.map((c) => String(c[0])).filter((m) => /unique "key"/.test(m))).toEqual([])
   })
 
@@ -883,14 +907,14 @@ describe('surface 6b', () => {
 })
 
 /* ── surface 6c: the scene and shot detail popups ────────────────────────── */
-/** A popup, opened from its row's "View details" (the walk's way in). */
+/** A popup, opened from its row's Open (the walk's way in; "View details", an eye, before FX8). */
 const openScenePopup = (name = 'Lighthouse, dawn') => {
-  fireEvent.click(within(rowOf(name)).getByRole('button', { name: 'View details' }))
+  fireEvent.click(within(rowOf(name)).getByRole('button', { name: `Open ${name}` }))
   return screen.getByRole('dialog', { name })
 }
 const openShotPopup = (name = 'The door') => {
   toShots()
-  fireEvent.click(within(rowOf(name)).getByRole('button', { name: 'View details' }))
+  fireEvent.click(within(rowOf(name)).getByRole('button', { name: `Open ${name}` }))
   return screen.getByRole('dialog', { name })
 }
 const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
@@ -1154,9 +1178,9 @@ describe('surface 6c', () => {
     expect(screen.getByRole('dialog', { name: 'The cold lamp' })).toBe(dialog)
   })
 
-  it('the popup\'s Delete asks with focus on Cancel, and the question hands focus back to the row\'s "View details" every way it closes; its Delete deletes, as before', async () => {
+  it('the popup\'s Delete asks with focus on Cancel, and the question hands focus back to the row\'s Open every way it closes; its Delete deletes, as before', async () => {
     const { ctx } = page()
-    const view = within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'View details' })
+    const view = within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Open Lighthouse, dawn' })
     const ask = () => {
       view.focus()
       fireEvent.click(view)
@@ -1355,17 +1379,17 @@ describe('review round one', () => {
     expect(calls()).toEqual([0, 0])
     cancel()
     // A row's question.
-    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Delete shot' }))
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Delete The door' }))
     expect(screen.getByRole('dialog', { name: 'Delete shot?' })).toBeTruthy()
     press(document.activeElement)
     expect(calls()).toEqual([0, 0])
     cancel()
     expect(screen.queryByRole('dialog')).toBeNull()
     // No question up: the keys undo and redo on the page…
-    press(within(rowOf('The door')).getByRole('button', { name: 'View details' }))
+    press(within(rowOf('The door')).getByRole('button', { name: 'Open The door' }))
     expect(calls()).toEqual([1, 2])
     // …and with a popup open, as they did before the kit Dialog.
-    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'View details' }))
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Open The door' }))
     const popup = screen.getByRole('dialog', { name: 'The door' })
     press(popup.querySelector('.ui-dialog-head button'))
     expect(calls()).toEqual([2, 4])
@@ -1534,7 +1558,7 @@ describe('S3b step 1: the tab is safe with more than one list', () => {
   // ten: a scene with eleven shots came back with nine of them.
   it('a scene\'s delete is S3a\'s deleteScene alone — the scene\'s every shot, in every list, goes with it in one undo step (R1-01)', async () => {
     const { ctx } = page(TWO_LISTS())
-    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
     expect(ctx.deleteScene).toHaveBeenCalledTimes(1)
@@ -2527,14 +2551,14 @@ describe('S3b step 6: Delete says it is the project\'s, and every list\'s', () =
     const two = TWO_LISTS()
     const old = { ...LIST_1, id: 'list-o', title: 'Old cut', archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
     const { ctx } = page({ ...two, shotLists: [...two.shotLists, old], shotListItems: [...two.shotListItems, ...itemsFor('list-o', [{ scene_id: 'sc1', position: 0 }])] })
-    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))
     const dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
     expect(askWords(dialog)).toBe('This will permanently delete “Lighthouse, dawn” and its 3 shots from the project. It will be gone from all 3 shot lists that hold it: “Old cut · v1” (archived), “Pickups · v1” and “Shoot · v1”. To take it out of “Shoot · v1” only, use “Remove from this list” in its shot-list menu.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
     cleanup()
     page(TWO_LISTS())
-    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))
     expect(askWords(screen.getByRole('dialog', { name: 'Delete scene?' }))).toBe('This will permanently delete “Lighthouse, dawn” and its 3 shots from the project. It will be gone from both shot lists that hold it: “Pickups · v1” and “Shoot · v1”. To take it out of “Shoot · v1” only, use “Remove from this list” in its shot-list menu.')
   })
 
@@ -2548,11 +2572,11 @@ describe('S3b step 6: Delete says it is the project\'s, and every list\'s', () =
     const p = openPicker()
     fireEvent.click(within(p).getByRole('button', { name: /^Not in any list/ }))
     fireEvent.click(within(p).getByRole('button', { name: 'Open' }))
-    fireEvent.click(within(rowOf('The jetty')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('The jetty')).getByRole('button', { name: 'Delete The jetty' }))
     expect(askWords(screen.getByRole('dialog', { name: 'Delete scene?' }))).toBe('This will permanently delete “The jetty” from the project.')
     cleanup()
     page({ ...TWO_LISTS(), ...seat(null) })
-    fireEvent.click(within(rowOf('Cliff path')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Cliff path')).getByRole('button', { name: 'Delete Cliff path' }))
     expect(askWords(screen.getByRole('dialog', { name: 'Delete scene?' }))).toBe('This will permanently delete “Cliff path” from the project. It will be gone from “Shoot · v1” too.')
   })
 })
@@ -2742,7 +2766,7 @@ describe('S3b step 7: a reviewer reads the scenes and shots, and builds lists, b
       expect(gate, words).not.toBeNull()
       expect(gate.getAttribute('title'), words).toBe(REVIEWER_REASON)
     }
-    expect(gateOf(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))).not.toBeNull()
+    expect(gateOf(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))).not.toBeNull()
     // The list verbs: the row's menu and the bar's.
     expect(gateOf(moreButton('Lighthouse, dawn'))).toBeNull()
     expect(gateOf(within(bar()).getByRole('button', { name: 'New shot list' }))).toBeNull()
@@ -2756,7 +2780,7 @@ describe('S3b step 7: a reviewer reads the scenes and shots, and builds lists, b
     openScene('Lighthouse, dawn')
     const nest = rowOf('Lighthouse, dawn').nextElementSibling
     expect(gateOf(within(nest).getByRole('button', { name: 'Add shot' }))).not.toBeNull()
-    expect(gateOf(within(rowOf('The door')).getByRole('button', { name: 'Delete shot' }))).not.toBeNull()
+    expect(gateOf(within(rowOf('The door')).getByRole('button', { name: 'Delete The door' }))).not.toBeNull()
     expect(within(rowOf('The door')).getByLabelText('Frames for The door').disabled).toBe(true)
     // 🚨 jsdom does not honour `inert`, so these clicks and changes reach the
     // handlers a browser keeps them from: every funnel refuses on its own
@@ -2764,9 +2788,9 @@ describe('S3b step 7: a reviewer reads the scenes and shots, and builds lists, b
     fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
     fireEvent.click(within(nest).getByRole('button', { name: 'Add shot' }))
     fireEvent.change(within(bulk).getByRole('combobox', { name: 'Status' }), { target: { value: 'final' } })
-    fireEvent.click(within(rowOf('Cliff path')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(rowOf('Cliff path')).getByRole('button', { name: 'Delete Cliff path' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete scene?' })).getByRole('button', { name: 'Delete' }))
-    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Delete shot' }))
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Delete The door' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete shot?' })).getByRole('button', { name: 'Delete' }))
     await act(async () => {})
     expect([ctx.addScene, ctx.addShot, ctx.updateScene, ctx.deleteScene, ctx.deleteShot].map((f) => f.mock.calls.length)).toEqual([0, 0, 0, 0, 0])
@@ -3016,7 +3040,7 @@ describe('S3b review round 1', () => {
     const nest = rowOf('Lighthouse, dawn').nextElementSibling
     expect(gateOf(within(nest).getByRole('button', { name: 'Add shot' }))?.getAttribute('title')).toBe(ARCHIVED_REASON)
     // The rows themselves are the project's: still edited and deleted here.
-    expect(gateOf(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))).toBeNull()
+    expect(gateOf(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete Lighthouse, dawn' }))).toBeNull()
     // jsdom does not honour inert: the funnels refuse on their own.
     fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
     fireEvent.click(within(nest).getByRole('button', { name: 'Add shot' }))

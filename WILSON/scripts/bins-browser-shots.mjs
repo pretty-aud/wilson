@@ -178,7 +178,7 @@ try {
   await click(tab('Shots'), 'the Shots view');
   await sleep(400);
   const shotRow = page.locator('tr', { hasText: 'The cold lamp' }).first();
-  await click(shotRow.getByRole('button', { name: 'View details', exact: true }), 'the shot\'s View details');
+  await click(shotRow.getByRole('button', { name: /^Open / }), 'the shot\'s Open');
   const takes = page.locator('.rb-scene-detail-takes');
   await must(takes, 'the shot popup\'s Takes');
   await takes.evaluate(el => el.scrollIntoView({ block: 'center' }));

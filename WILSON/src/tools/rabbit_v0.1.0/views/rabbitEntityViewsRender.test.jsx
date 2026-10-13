@@ -116,9 +116,9 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     mount(p.View)
     expect(screen.getByRole('button', { name: `New ${p.noun}` })).toBeTruthy()
     expect(screen.queryByRole('button', { name: `New ${p.noun === 'level' ? 'experience' : 'level'}` })).toBeNull()
-    for (const name of p.names) expect(within(row(name)).getByRole('button', { name: `Delete ${p.noun}` })).toBeTruthy()
+    for (const name of p.names) expect(within(row(name)).getByRole('button', { name: `Delete ${name}` })).toBeTruthy()
     for (const name of p.others) expect(screen.queryByText(name)).toBeNull()
-    // A row's cells: checkbox, name, status, assets, tasks, description, actions.
+    // A row's cells: checkbox, name (its buttons after its words, FX8), status, assets, tasks, description.
     p.names.forEach((name, i) => {
       const cells = row(name).children
       expect([cells[3].textContent, cells[4].textContent]).toEqual(p.counts[i])
@@ -235,7 +235,7 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
       ],
       uploadFile: vi.fn(),
     })
-    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: 'View details' }))
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Open ${p.names[0]}` }))
     const popup = screen.getByRole('dialog', { name: p.names[0] })
     const counts = [...popup.querySelectorAll('.rb-ent-prop-value')].map(el => el.textContent).find(t => /files?$/.test(t))
     expect(counts).toBe(`${p.counts[0][0]} assets / ${p.counts[0][1]} tasks / 2 files`)
@@ -267,7 +267,7 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
 
   it('deleting a row asks first (the ConfirmDialog), then calls its own delete method', async () => {
     const { ctx } = mount(p.View)
-    const ask = () => fireEvent.click(within(row(p.names[1])).getByRole('button', { name: `Delete ${p.noun}` }))
+    const ask = () => fireEvent.click(within(row(p.names[1])).getByRole('button', { name: `Delete ${p.names[1]}` }))
     ask()
     expect(screen.getByText(`Delete ${p.noun}?`)).toBeTruthy()
     expect(screen.getByText(`This will permanently delete "${p.names[1]}".`)).toBeTruthy()
@@ -311,7 +311,7 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
 
   it('the detail popup is its own: its noun, its update method, a new task linked by its key, and its date fields on the kit\'s one focus treatment', async () => {
     const { ctx } = mount(p.View)
-    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: 'View details' }))
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Open ${p.names[0]}` }))
     // Step C: the kit Dialog, named by its row (it was the `.max-w-4xl` box).
     const popup = screen.getByRole('dialog', { name: p.names[0] })
     expect(within(popup).getByText(`${p.Noun} name`)).toBeTruthy()
@@ -391,7 +391,8 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     const { container, ctx } = mount(p.View)
     const table = container.querySelector('table.ui-table')
     const heads = [...table.querySelectorAll('thead th')]
-    expect(heads.map((th) => th.textContent)).toEqual(['', 'Name', 'Status', 'Assets', 'Tasks', 'Description', 'Actions'])
+    // FX8: no actions column — a row's buttons sit in its name cell, right after the words.
+    expect(heads.map((th) => th.textContent)).toEqual(['', 'Name', 'Status', 'Assets', 'Tasks', 'Description'])
     // R4-17: the two counts right-aligned and tabular, under numeric headers.
     expect(heads.filter((th) => th.getAttribute('data-numeric') === 'true').map((th) => th.textContent)).toEqual(['Assets', 'Tasks'])
     const rows = [...table.querySelectorAll('tbody tr.ui-tr')]
@@ -424,9 +425,15 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     expect(reverse.getAttribute('title')).toBe('Sorted descending — reverse')
     expect(screen.getByRole('button', { name: `Select every ${p.noun}` })).toBeTruthy()
     for (const n of p.names) expect(screen.getByRole('button', { name: `Select ${n}` })).toBeTruthy()
-    // The names the walk and the wiring tests step on stay exactly as they were.
-    expect(screen.getAllByRole('button', { name: 'View details' })).toHaveLength(2)
-    expect(screen.getAllByRole('button', { name: `Delete ${p.noun}` })).toHaveLength(2)
+    // FX8: a row's buttons are named for their row — Open (the page icon,
+    // an eye named "View details" before) and Delete — right after its words.
+    for (const n of p.names) {
+      const open = within(row(n)).getByRole('button', { name: `Open ${n}` })
+      expect(open.querySelector('svg').classList.contains('lucide-file-text')).toBe(true)
+      expect(open.closest('.ui-row-title')).toBe(row(n).querySelector('.ui-row-title'))
+      expect(within(row(n)).getByRole('button', { name: `Delete ${n}` }).closest('.ui-row-title-acts')).not.toBeNull()
+    }
+    expect(screen.queryByRole('button', { name: 'View details' })).toBeNull()
     const named = () => {
       for (const b of screen.getAllByRole('button')) {
         expect(b.getAttribute('aria-label') || b.title || b.textContent.trim(), b.outerHTML.slice(0, 90)).toBeTruthy()
@@ -489,7 +496,7 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
   it('every question is the kit Dialog, portalled into <body>: the row\'s delete and the bulk one at the confirm width, New at the form width', () => {
     const confirm = vi.spyOn(window, 'confirm')
     const { container } = mount(p.View)
-    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Delete ${p.noun}` }))
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Delete ${p.names[0]}` }))
     let dialog = screen.getByRole('dialog', { name: `Delete ${p.noun}?` })
     inBody(dialog, container)
     expect(dialog.getAttribute('data-width')).toBe('confirm')
@@ -514,7 +521,7 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
 
   it('a press on the backdrop answers the delete question and New as it always did: the row stays, nothing is created — and a press inside either keeps it open', () => {
     const { ctx } = mount(p.View)
-    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Delete ${p.noun}` }))
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Delete ${p.names[0]}` }))
     const question = screen.getByRole('dialog', { name: `Delete ${p.noun}?` })
     // CONTROL: a press on the question itself is not a press on its backdrop.
     fireEvent.mouseDown(question)
@@ -571,7 +578,7 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
 
 describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step C)', (p) => {
   const openPopup = (name = p.names[0]) => {
-    fireEvent.click(within(row(name)).getByRole('button', { name: 'View details' }))
+    fireEvent.click(within(row(name)).getByRole('button', { name: `Open ${name}` }))
     return screen.getByRole('dialog', { name })
   }
   const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
@@ -659,8 +666,8 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
   it('its Delete asks with focus on Cancel, as a row\'s Delete does — not on the question\'s ✕, where the popup\'s own close used to send it', () => {
     const { ctx } = mount(p.View)
     // Opened from the keyboard's place, so closing the popup hands focus back
-    // to "View details" — in the same commit the question opens.
-    const view = within(row(p.names[0])).getByRole('button', { name: 'View details' })
+    // to the row's Open — in the same commit the question opens.
+    const view = within(row(p.names[0])).getByRole('button', { name: `Open ${p.names[0]}` })
     view.focus()
     fireEvent.click(view)
     const dialog = screen.getByRole('dialog', { name: p.names[0] })
@@ -674,9 +681,9 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     expect(ctx[p.remove]).not.toHaveBeenCalled()
   })
 
-  it('its Delete question hands focus back to the row\'s "View details" that opened the popup, every way it closes (B4c review round two: it fell to <body>)', () => {
+  it('its Delete question hands focus back to the row\'s Open that opened the popup, every way it closes (B4c review round two: it fell to <body>)', () => {
     const { ctx } = mount(p.View)
-    const view = within(row(p.names[0])).getByRole('button', { name: 'View details' })
+    const view = within(row(p.names[0])).getByRole('button', { name: `Open ${p.names[0]}` })
     const closes = {
       Cancel: (q) => fireEvent.click(within(q.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' })),
       Escape: () => fireEvent.keyDown(document.activeElement, { key: 'Escape' }),
@@ -962,7 +969,7 @@ describe('Levels and Experiences are one component', () => {
         phases: [], teamAssignments: [],
       }
       render(<View />)
-      fireEvent.click(within(screen.getByText('Harbour Approach').closest('tr')).getByRole('button', { name: 'View details' }))
+      fireEvent.click(within(screen.getByText('Harbour Approach').closest('tr')).getByRole('button', { name: 'Open Harbour Approach' }))
       const out = [document.body.innerHTML]
       fireEvent.click(screen.getByRole('button', { name: 'Add new task' }))
       out.push(document.body.innerHTML)

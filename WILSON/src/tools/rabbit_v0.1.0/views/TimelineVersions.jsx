@@ -213,7 +213,10 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
     <>
       <div className="rb-tl-ver-bar" data-mode={mode} aria-label="Bid versions" role="group">
         {/* "Bid ver." (Audrey, 2026-10-11: 'make it say "bid ver." instead of
-            "bid version"'); the hover and the dropdown's own name say it whole. */}
+            "bid version"'); the hover and the dropdown's own name say it whole.
+            FX7 (2026-10-12: "bid ver and project should be same sizing and
+            color"): the kit's label, as the title bar's PROJECT above it is,
+            in one column with it (rabbitTimeline.css). */}
         <span className="ui-field-label" title="Bid version">Bid ver.</span>
         <KitSelect
           className="rb-tl-ver-select"

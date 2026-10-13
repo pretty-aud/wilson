@@ -564,6 +564,15 @@
   .rb-asset-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
 
   /* ── The table: the kit's Table, 36px rows ─────────────────────────────── */
+  /* The name takes the width the others leave, between its minimum and its
+     maximum; past the maximum Description takes what is left (FX8: "the
+     cell/section for the title is sooo wide"), so a row's buttons, right
+     after its words, never sit far from them. `100cqw` is the scroller's
+     content box without its scrollbar taken off (Chromium's container
+     units ignore it, FX8 review round 1, R1-02): while the list scrolls the
+     name, which takes the rest, is its maximum less the scrollbar. The
+     name's minimum is the 200px it had plus the actions column its buttons
+     left: 72px with the edit history, 44px without. */
   .rb-asset-table-wrap {
     --rb-asset-check: 36px;
     --rb-asset-thumb: var(--row);
@@ -573,8 +582,12 @@
     --rb-asset-date: 124px;
     --rb-asset-desc: 180px;
     --rb-asset-tasks: 64px;
-    --rb-asset-acts: 44px;
-    --rb-asset-name-min: 200px;
+    --rb-asset-name-min: 244px;
+    --rb-asset-name-max: 360px;
+    --rb-asset-fixed: calc(var(--rb-asset-check) + var(--rb-asset-thumb) + var(--rb-asset-type)
+      + var(--rb-asset-phase) + var(--rb-asset-status) + var(--rb-asset-date) * 2
+      + var(--rb-asset-desc) + var(--rb-asset-tasks));
+    --rb-asset-col-desc: calc(var(--rb-asset-desc) + max(0px, 100cqw - var(--rb-asset-fixed) - var(--rb-asset-name-max)));
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
@@ -583,15 +596,13 @@
   }
   .rb-asset-table-wrap[data-thumb="md"] { --rb-asset-thumb: calc(var(--row) * 2); }
   .rb-asset-table-wrap[data-thumb="lg"] { --rb-asset-thumb: calc(var(--row) * 3); }
-  .rb-asset-table-wrap[data-history="true"] { --rb-asset-acts: 72px; }
+  .rb-asset-table-wrap[data-history="true"] { --rb-asset-name-min: 272px; }
   /* The scroller insets the table so the checkboxes sit under the toolbar's
-     first control, as the Tasks table's do. */
-  .rb-asset-table-wrap > .ui-table-scroll { padding: 0 12px; }
+     first control, as the Tasks table's do; it is the query container the
+     columns measure (`100cqw`). */
+  .rb-asset-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
   .rb-asset-table-wrap .ui-table.rb-asset-table {
-    min-width: calc(var(--rb-asset-check) + var(--rb-asset-thumb) + var(--rb-asset-type)
-      + var(--rb-asset-phase) + var(--rb-asset-status) + var(--rb-asset-date) * 2
-      + var(--rb-asset-desc) + var(--rb-asset-tasks) + var(--rb-asset-acts)
-      + var(--rb-asset-name-min));
+    min-width: calc(var(--rb-asset-fixed) + var(--rb-asset-name-min));
   }
 
   /* The bulk bar overlays the head, right of the checkbox column (B2's). */
@@ -628,10 +639,6 @@
   .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-check-cell { padding: 6px 0 5px; text-align: center; }
   .rb-asset-table-wrap .rb-asset-table .ui-th.rb-asset-thumb-cell,
   .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-thumb-cell { padding: 0; }
-  .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-acts-cell { padding: 4px 6px 3px; }
-  /* The actions' slot as a block (the kit's is inline-flex, and its line box
-     took the row to 36.8px), its buttons at the cell's right edge. */
-  .rb-asset-acts-cell > .ui-hover-actions.rb-asset-acts { display: flex; justify-content: flex-end; }
   .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-group-cell { padding: 0; }
   /* At 2x and 3x the cells hold to the row's top, so the name, the selects
      and the dates sit level with a thumbnail's top edge instead of floating
@@ -739,8 +746,14 @@
 
   /* The name: the row's anchor, Dense at 600 in the full ink (R4-03). Its
      button pads itself 6px, so the cell pulls it 6px out: the text starts
-     under the header's label. */
-  .rb-asset-name { display: flex; align-items: center; gap: 4px; min-width: 0; margin-left: -6px; }
+     under the header's label. The words and the buttons after them are the
+     kit's RowTitle (FX8). */
+  .ui-row-title.rb-asset-name { margin-left: -6px; }
+  /* A button sizes to its words, not to its box: in the row's title it
+     takes the words box (its old flex parent gave it `flex: 1 1 auto`), so
+     a long name is cut with its "…" before the buttons and never runs
+     under them (FX8 review round 1, R1-01). */
+  .ui-row-title .rb-asset-cell-text { width: 100%; }
   .rb-asset-cell-text {
     display: block;
     flex: 1 1 auto;
@@ -1810,13 +1823,25 @@
   .rb-ent-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
 
   /* ── The table: the kit's Table, 36px rows ─────────────────────────────── */
+  /* The name takes the width the others leave, between its minimum and its
+     maximum; past the maximum Description takes what is left (FX8: Name and
+     Description had split the width, 510px each at 1440, a row's buttons at
+     its far end). `100cqw` is the scroller's content box without its
+     scrollbar taken off (Chromium's container units ignore it, FX8 review
+     round 1, R1-02): while the list scrolls the name, which takes the rest,
+     is its maximum less the scrollbar. The name's minimum is the 160px it
+     had plus the actions column its buttons left (72px). */
   .rb-ent-table-wrap {
     --rb-ent-check: 36px;
     --rb-ent-status: 152px;
     --rb-ent-assets: 72px;
     --rb-ent-tasks: 64px;
-    --rb-ent-acts: 72px;
     --rb-ent-text-min: 160px;
+    --rb-ent-name-min: 232px;
+    --rb-ent-name-max: 360px;
+    --rb-ent-fixed: calc(var(--rb-ent-check) + var(--rb-ent-status) + var(--rb-ent-assets)
+      + var(--rb-ent-tasks) + var(--rb-ent-text-min));
+    --rb-ent-desc: calc(var(--rb-ent-text-min) + max(0px, 100cqw - var(--rb-ent-fixed) - var(--rb-ent-name-max)));
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
@@ -1824,11 +1849,11 @@
     flex-direction: column;
   }
   /* The scroller insets the table so the checkboxes sit under the toolbar's
-     first control, as the Assets and Tasks tables' do. */
-  .rb-ent-table-wrap > .ui-table-scroll { padding: 0 12px; }
+     first control, as the Assets and Tasks tables' do; it is the query
+     container the columns measure (`100cqw`). */
+  .rb-ent-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
   .rb-ent-table-wrap .ui-table.rb-ent-table {
-    min-width: calc(var(--rb-ent-check) + var(--rb-ent-status) + var(--rb-ent-assets)
-      + var(--rb-ent-tasks) + var(--rb-ent-acts) + var(--rb-ent-text-min) * 2);
+    min-width: calc(var(--rb-ent-fixed) + var(--rb-ent-name-min));
   }
 
   /* The bulk bar overlays the head, right of the checkbox column (B2's). */
@@ -1862,10 +1887,6 @@
   .rb-ent-table-wrap .rb-ent-table .ui-td.rb-ent-ctl-cell { padding-top: 4px; padding-bottom: 3px; }
   .rb-ent-table-wrap .rb-ent-table .ui-th.rb-ent-check-cell { padding: 0; text-align: center; }
   .rb-ent-table-wrap .rb-ent-table .ui-td.rb-ent-check-cell { padding: 6px 0 5px; text-align: center; }
-  .rb-ent-table-wrap .rb-ent-table .ui-td.rb-ent-acts-cell { padding: 4px 6px 3px; }
-  /* The actions' slot as a block (the kit's is inline-flex, and its line box
-     took the row to 36.8px), its buttons at the cell's right edge. */
-  .rb-ent-acts-cell > .ui-hover-actions.rb-ent-acts { display: flex; justify-content: flex-end; }
   /* The two counts: the kit's numeric cell (R4-17), in the second ink. */
   .rb-ent-num { color: var(--color-ink-2); }
 
@@ -1934,6 +1955,11 @@
     transition: background-color var(--duration-state) ease-out;
   }
   .rb-ent-cell-text:hover { background-color: var(--color-hover); }
+  /* In a row's title (FX8, the kit's RowTitle) the words keep their 6px pull
+     to the left and stop at the words box on the right, so the buttons sit
+     the kit's 4px past the words' own 6px, as in every table. */
+  .ui-row-title .rb-ent-cell-text { width: calc(100% + 6px); margin-right: 0; }
+  .ui-row-title .ui-input.rb-ent-cell-input[data-size="sm"] { width: calc(100% + 6px); margin-right: 0; }
   .rb-ent-cell-text[data-quiet="true"] { font-weight: 400; color: var(--color-ink-2); }
   .rb-ent-cell-text[data-empty="true"] { color: var(--color-ink-3); }
   /* Editing: the kit's small well, where the text was. */
@@ -2152,6 +2178,12 @@
     justify-content: center;
     gap: 4px;
     background-color: var(--color-backdrop);
+  }
+  /* Where nothing hovers the kit shows the slot at rest (FX8-KR-2): no scrim
+     over the picture then, the two buttons in its corner on their raised
+     paper (FX8 review round 2, R2-02). */
+  @media (hover: none) {
+    .ui-hover-actions.rb-ent-thumb-acts { inset: auto 6px 6px auto; background-color: transparent; }
   }
   /* 🚨 Each button on the raised paper, so its glyph reads on ANY picture:
      through the scrim over a light one, the kit's transparent button left

@@ -118,12 +118,12 @@ try {
     if (PART === 'banner') {
       await open();
       await click(tab('Assets'), 'the Assets tab');
-      await rowAction('View asset details', 'an asset\'s details');
+      await rowAction(/^Open /, 'an asset\'s details');
       await underTitle('asset'); await shot('asset');
       await closeDialog();
 
       await click(tab('Tasks'), 'the Tasks tab');
-      await rowAction('View task details', 'a task\'s details');
+      await rowAction(/^Open /, 'a task\'s details');
       await underTitle('task'); await shot('task');
       await closeDialog();
       if (PHASE === 'after') {
@@ -162,22 +162,22 @@ try {
 
       await click(tab('Scenes'), 'the Scenes tab');
       await sleep(400);
-      await rowAction('View details', 'a scene\'s details');
+      await rowAction(/^Open /, 'a scene\'s details');
       await underTitle('scene'); await shot('scene');
       await closeDialog();
       await click(tab('Shots'), 'the Shots content tab');
       await sleep(400);
-      await rowAction('View details', 'a shot\'s details');
+      await rowAction(/^Open /, 'a shot\'s details');
       await underTitle('shot'); await shot('shot');
       await closeDialog();
 
       await open('?fixtures=game');
       await click(tab('Levels'), 'the Levels tab');
-      await rowAction('View details', 'a level\'s details');
+      await rowAction(/^Open /, 'a level\'s details');
       await underTitle('level'); await shot('level');
       await closeDialog();
       await click(tab('Experiences'), 'the Experiences tab');
-      await rowAction('View details', 'an experience\'s details');
+      await rowAction(/^Open /, 'an experience\'s details');
       await underTitle('experience'); await shot('experience');
       await closeDialog();
     } else if (PART === 'versionbar') {
@@ -203,7 +203,8 @@ try {
           const bar = document.querySelector('.rb-tl-ver-bar');
           // The project title bar (ProjectContextBar, the chrome every tab shares).
           const title = document.querySelector('.ui-toolbar.rb-ctx');
-          const eyebrow = document.querySelector('.rb-ctx-eyebrow');
+          // FX7: PROJECT is the kit's label now (it was the eyebrow).
+          const eyebrow = document.querySelector('.rb-ctx .ui-field-label') || document.querySelector('.rb-ctx-eyebrow');
           const label = bar?.querySelector('.ui-field-label');
           const tb = [...document.querySelectorAll('.ui-toolbar')].find((t) => t.querySelector('[aria-label="Detail zoom"]'));
           const verbs = bar?.querySelector('.rb-tl-ver-verbs');
