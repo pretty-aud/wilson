@@ -5,6 +5,13 @@
 // over an in-memory bundle with the REAL functions (the module, and
 // rabbitSubentityRoutes lifted out of main.cjs as desktopDeleteSweep.test.js
 // lifts it).
+//
+// VW1m (2026-10-16), Audrey's batch 12 to 14 rulings: no item of a kind counts
+// for more than another. The five single fields are only the older builds'
+// copy (each kind's first item in the stored order); an older build's write
+// of one field ADDS and never moves (0097 §7b); a read never reorders; a
+// deleted asset, scene, shot, level or experience leaves its tasks (her Q-M2,
+// "The tasks stay"); the readable timeline.json lists every asset of a task.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -127,7 +134,9 @@ describe('the read reconcile — a bundle from before FX2, and every read after'
     expect(b.tasks[0].asset_id).toBe('A1')
   })
 
-  it('a field a build wrote over the items wins as the MAIN item, and removes nothing', () => {
+  // VW1m (2026-10-16): FX2's read moved a field that disagreed with the
+  // items to the front ("a read writes, and a stale field reorders").
+  it('a field naming an item the task already has moves NOTHING; the copy reads the first in the stored order', () => {
     const b = bundleOf({
       tasks: [{ id: 'T1', project_id: PID, asset_id: 'A2' }],
       taskItems: [
@@ -135,9 +144,28 @@ describe('the read reconcile — a bundle from before FX2, and every read after'
         { id: 'k2', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A2', position: 1 },
       ],
     })
-    items.reconcileTaskItemsOnRead(b, { projectId: PID })
-    expect(order(b, 'T1', 'asset')).toEqual(['A2:0', 'A1:1'])
-    expect(b.tasks[0].asset_id).toBe('A2')
+    const before = structuredClone(b.taskItems)
+    expect(items.reconcileTaskItemsOnRead(b, { projectId: PID })).toBe(true)
+    expect(b.taskItems).toEqual(before)
+    expect(b.tasks[0].asset_id).toBe('A1')
+  })
+
+  it('a field an older build set with no item for it gains that item, and removes and moves nothing', () => {
+    const b = bundleOf({
+      tasks: [{ id: 'T1', project_id: PID, asset_id: 'A3' }],
+      taskItems: [
+        { id: 'k1', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A1', position: 0, created_at: '2026-10-01T00:00:00Z' },
+        { id: 'k2', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A2', position: 1, created_at: '2026-10-02T00:00:00Z' },
+      ],
+    })
+    const before = structuredClone(b.taskItems)
+    items.reconcileTaskItemsOnRead(b, { projectId: PID, now: '2026-10-16T00:00:00Z' })
+    expect(b.taskItems.slice(0, 2)).toEqual(before)
+    expect(items.itemsOfTask(b.taskItems, 'T1', 'asset').map(i => i.entity_id).sort()).toEqual(['A1', 'A2', 'A3'])
+    expect(b.taskItems[2].id).toBe(items.stableItemId(PID, 'T1', 'asset', 'A3'))
+    expect(b.tasks[0].asset_id).toBe('A1')
+    // Converges: the copy now names an item the task has, so the next read is a no-op.
+    expect(items.reconcileTaskItemsOnRead(b, { projectId: PID })).toBe(false)
   })
 })
 
@@ -183,7 +211,7 @@ describe('the four routes', () => {
     expect(call(routes, 'GET', P, { projectId: 'nope' }).code).toBe(404)
   })
 
-  it('POST adds an item, writes once, and keeps the task\'s fields its main items', () => {
+  it('POST adds an item, writes once, and keeps the older builds\' copy the first items', () => {
     const b = seeded()
     const { routes, writes } = mounted(b)
     const r = call(routes, 'POST', P, {}, { task_id: 'T1', entity_type: 'level', entity_id: 'L1' })
@@ -191,7 +219,7 @@ describe('the four routes', () => {
     expect(r.body).toMatchObject({ task_id: 'T1', project_id: PID, entity_type: 'level', entity_id: 'L1', position: 0 })
     expect(writes).toHaveLength(1)
     expect(fields(b, 'T1')).toBe('A1 - - L1 -')
-    // A second asset leaves the main one.
+    // A second asset joins; the copy still reads the first added.
     call(routes, 'POST', P, {}, { id: 'mine', task_id: 'T1', entity_type: 'asset', entity_id: 'A2', position: 1 })
     expect(fields(b, 'T1')).toBe('A1 - - L1 -')
   })
@@ -230,7 +258,9 @@ describe('the four routes', () => {
     expect(fields(b, 'T1')).toBe('A1 - - - -')
   })
 
-  it('reorder puts the named ids first and the rest after, dense, and the first becomes the main', () => {
+  // VW1m (2026-10-16): kept for older builds only (this app has no Move
+  // buttons); a reorder moves the stored order, so the copy follows it.
+  it('reorder (an older build\'s) puts the named ids first and the rest after, dense, and the copy follows', () => {
     const b = seeded()
     const { routes } = mounted(b)
     call(routes, 'POST', P, {}, { id: 'i2', task_id: 'T1', entity_type: 'asset', entity_id: 'A2', position: 1 })
@@ -250,12 +280,13 @@ describe('the four routes', () => {
     expect(writes).toHaveLength(0)
   })
 
-  it('DELETE removes an item and the next becomes main; an unknown id is not an error', () => {
+  it('DELETE removes only that item, and the copy reads the next; an unknown id is not an error', () => {
     const b = seeded()
     const { routes } = mounted(b)
     call(routes, 'POST', P, {}, { id: 'i2', task_id: 'T1', entity_type: 'asset', entity_id: 'A2', position: 1 })
-    const first = items.mainItemOf(b.taskItems, 'T1', 'asset')
+    const first = items.itemsOfTask(b.taskItems, 'T1', 'asset')[0]
     expect(call(routes, 'DELETE', `${P}/:itemId`, { itemId: first.id }).body).toEqual({ ok: true, removed: true })
+    expect(order(b, 'T1', 'asset')).toEqual(['A2:1'])
     expect(b.tasks[0].asset_id).toBe('A2')
     expect(call(routes, 'DELETE', `${P}/:itemId`, { itemId: 'nope' }).body).toEqual({ ok: true, removed: false })
   })
@@ -305,20 +336,45 @@ describe('a task written through the generic routes (0096 §7b / §7c on the des
     expect(r.body.experience_id ?? null).toBeNull()
   })
 
-  it('PATCH of a field: a new id replaces the main item; an existing one moves first; a clear hands main to the next', () => {
+  // VW1m (2026-10-16), 0097 §7b's twin: this app sends no single field; a
+  // PATCH of one is an older build's, and it ADDS. FX2 replaced the first
+  // item ("A, then B" lost A) and moved an existing one first.
+  it('PATCH of a field (an older build): a new id is ADDED at the end and the old one stays; one the task has moves nothing; a clear takes only what it named', () => {
     const b = bundleOf({ taskItems: [] })
     const { routes } = generic(b)
     call(routes, 'POST', TASKS, {}, { id: 'T1', title: 'x', asset_id: 'A1' })
-    call(routes, 'PATCH', `${TASKS}/:id`, { id: 'T1' }, { asset_id: 'A2' })
-    expect(order(b, 'T1', 'asset')).toEqual(['A2:0'])
-    // A second asset (an item), then the field written to it: moved, nothing removed.
-    b.taskItems.push({ id: 'k3', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A3', position: 1, created_at: '2026-10-11T00:00:00Z' })
-    const moved = call(routes, 'PATCH', `${TASKS}/:id`, { id: 'T1' }, { asset_id: 'A3' })
-    expect(order(b, 'T1', 'asset')).toEqual(['A3:0', 'A2:1'])
-    expect(moved.body.asset_id).toBe('A3')
+    const added = call(routes, 'PATCH', `${TASKS}/:id`, { id: 'T1' }, { asset_id: 'A2' })
+    expect(order(b, 'T1', 'asset')).toEqual(['A1:0', 'A2:1'])
+    // The copy is the first in the stored order, so it reads A1 again.
+    expect(added.body.asset_id).toBe('A1')
+    // A third asset (an item), then the field written to it: nothing moves.
+    b.taskItems.push({ id: 'k3', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A3', position: 2, created_at: '2026-10-11T00:00:00Z' })
+    const same = structuredClone(b.taskItems)
+    const had = call(routes, 'PATCH', `${TASKS}/:id`, { id: 'T1' }, { asset_id: 'A3' })
+    expect(b.taskItems).toEqual(same)
+    expect(had.body.asset_id).toBe('A1')
+    // Cleared: the field held A1 (the copy), so A1 goes and A2, A3 stay.
     const cleared = call(routes, 'PATCH', `${TASKS}/:id`, { id: 'T1' }, { asset_id: null })
-    expect(order(b, 'T1', 'asset')).toEqual(['A2:1'])
+    expect(order(b, 'T1', 'asset')).toEqual(['A2:1', 'A3:2'])
     expect(cleared.body.asset_id).toBe('A2')
+  })
+
+  it('a POST re-sending a known task with another value (an older build\'s upsert) adds it too', () => {
+    const b = bundleOf({ taskItems: [] })
+    const { routes } = generic(b)
+    call(routes, 'POST', TASKS, {}, { id: 'T1', title: 'x', scene_id: 'S1' })
+    call(routes, 'POST', TASKS, {}, { id: 'T1', title: 'x', scene_id: 'S2' })
+    expect(order(b, 'T1', 'scene')).toEqual(['S1:0', 'S2:1'])
+    expect(b.tasks.find(t => t.id === 'T1').scene_id).toBe('S1')
+  })
+
+  it('a field naming a row the project does not have adds nothing, and the copy reads the items', () => {
+    const b = bundleOf({ taskItems: [] })
+    const { routes } = generic(b)
+    call(routes, 'POST', TASKS, {}, { id: 'T1', title: 'x', asset_id: 'A1' })
+    const r = call(routes, 'PATCH', `${TASKS}/:id`, { id: 'T1' }, { asset_id: 'NOPE' })
+    expect(order(b, 'T1', 'asset')).toEqual(['A1:0'])
+    expect(r.body.asset_id).toBe('A1')
   })
 
   it('a re-send of the same values changes no item', () => {
@@ -338,18 +394,20 @@ describe('a task written through the generic routes (0096 §7b / §7c on the des
     expect(b.taskItems).toEqual([])
   })
 
-  it('deleting a task\'s main scene hands "main" to its next scene, in the same write', () => {
+  it('deleting a task\'s first scene takes only it off; the task keeps its other scene, and the copy reads it, in the same write', () => {
     const b = bundleOf({ taskItems: [] })
     const { routes, writes } = generic(b)
-    call(routes, 'POST', TASKS, {}, { id: 'T1', title: 'x', scene_id: 'S1' })
+    call(routes, 'POST', TASKS, {}, { id: 'T1', title: 'x', scene_id: 'S1', shot_id: 'H1' })
     b.taskItems.push({ id: 'k2', task_id: 'T1', project_id: PID, entity_type: 'scene', entity_id: 'S2', position: 1, created_at: '2026-10-11T00:00:00Z' })
     const n = writes.length
-    call(routes, 'DELETE', '/api/rabbit/projects/:projectId/scenes/:id', { id: 'S1' })
+    const r = call(routes, 'DELETE', '/api/rabbit/projects/:projectId/scenes/:id', { id: 'S1' })
     expect(order(b, 'T1', 'scene')).toEqual(['S2:1'])
-    expect(b.tasks.find(t => t.id === 'T1').scene_id).toBe('S2')
+    expect(b.tasks.find(t => t.id === 'T1')).toMatchObject({ scene_id: 'S2', shot_id: null })
     expect(writes.length).toBe(n + 1)
     // The scene's shot went with it (0040's CASCADE), and nothing names either.
     expect(b.taskItems.some(i => i.entity_id === 'S1' || i.entity_id === 'H1')).toBe(false)
+    // One task was about the scene and its shot: counted once.
+    expect(r.body.unlinked).toEqual({ items: 0, tasks: 1, shots: 1 })
   })
 
   it('deleting a level takes it off every task', () => {
@@ -359,6 +417,90 @@ describe('a task written through the generic routes (0096 §7b / §7c on the des
     call(routes, 'DELETE', '/api/rabbit/projects/:projectId/levels/:id', { id: 'L1' })
     expect(b.taskItems).toEqual([])
     expect(b.tasks[0].level_id).toBeNull()
+  })
+})
+
+// VW1m (2026-10-16), her Q-M2: "The tasks stay (Recommended)". The asset
+// DELETE route in main.cjs runs afterRowRemoved after rabbitRemoveFrom (pinned
+// below); this replays that pair.
+describe('a deleted row leaves its tasks (her Q-M2)', () => {
+  const OLD = '2026-01-01T00:00:00.000Z'
+  function withTwo() {
+    const b = bundleOf({
+      tasks: [
+        { id: 'T1', project_id: PID, asset_id: 'A1', updated_at: OLD },
+        { id: 'T2', project_id: PID, asset_id: 'A1', updated_at: OLD },
+        { id: 'T3', project_id: PID, asset_id: 'A3', updated_at: OLD },
+      ],
+    })
+    items.reconcileTaskItemsOnRead(b, { projectId: PID })
+    b.taskItems.push({ id: 'k2', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A2', position: 1, created_at: '2026-10-11T00:00:00Z' })
+    return b
+  }
+  it('an asset deleted: every task stays; the one with another asset keeps it, the one with none has none', () => {
+    const b = withTwo()
+    b.assets = b.assets.filter(a => a.id !== 'A1')
+    items.afterRowRemoved(b)
+    expect(b.tasks.map(t => t.id)).toEqual(['T1', 'T2', 'T3'])
+    expect(order(b, 'T1', 'asset')).toEqual(['A2:1'])
+    expect(order(b, 'T2', 'asset')).toEqual([])
+    expect(fields(b, 'T1')).toBe('A2 - - - -')
+    expect(fields(b, 'T2')).toBe('- - - - -')
+    // The copy moved, as the cloud's FK action is an UPDATE: updated_at moves with it.
+    expect(b.tasks[0].updated_at).not.toBe(OLD)
+    expect(b.tasks[1].updated_at).not.toBe(OLD)
+  })
+  it('FAILING CONTROL: a task the deleted asset was never on is left exactly as it was', () => {
+    const b = withTwo()
+    const before = structuredClone(b.tasks[2])
+    b.assets = b.assets.filter(a => a.id !== 'A1')
+    items.afterRowRemoved(b)
+    expect(b.tasks[2]).toEqual(before)
+    expect(order(b, 'T3', 'asset')).toEqual(['A3:0'])
+  })
+  it('a task whose copy does not move keeps its updated_at (the cloud updates only a changed column)', () => {
+    const b = withTwo()
+    b.assets = b.assets.filter(a => a.id !== 'A2')
+    items.afterRowRemoved(b)
+    expect(order(b, 'T1', 'asset')).toEqual(['A1:0'])
+    expect(b.tasks[0]).toMatchObject({ asset_id: 'A1', updated_at: OLD })
+  })
+})
+
+// VW1m (2026-10-16): the readable mirror's timeline.json lists every asset a
+// task is about, in the stored order, not the single field. Lifted and run as
+// setAsideDesktop.test.js runs it.
+describe('timeline.json lists each task\'s asset_ids', () => {
+  const mirror = (bundle) => {
+    const files = {}
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('resolveProjectFolder', 'fileSlugify', 'path', 'fs', 'writeJSON', 'console',
+      `${extractFunction(MAIN_CJS, 'mirrorProjectDatabases')}\nreturn mirrorProjectDatabases;`)(
+      () => '/root', (s) => s, { join: (...p) => p.join('/') }, { existsSync: () => true, mkdirSync: () => {} },
+      (file, data) => { files[file.split('/').pop()] = data }, { error: (...a) => { throw new Error(a.join(' ')) } })
+    fn(PID, bundle)
+    return files
+  }
+  it('every asset item, in the order added; a task with none lists none; a set-aside task is not there', () => {
+    const b = bundleOf({
+      tasks: [
+        { id: 'T1', project_id: PID, asset_id: 'A2' }, { id: 'T2', project_id: PID },
+        { id: 'T3', project_id: PID, asset_id: 'A1', set_aside_at: '2026-10-01T00:00:00Z' },
+      ],
+      taskItems: [
+        { id: 'k3', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A3', position: 2, created_at: '2026-10-03T00:00:00Z' },
+        { id: 'k1', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A2', position: 0, created_at: '2026-10-01T00:00:00Z' },
+        { id: 'ks', task_id: 'T1', project_id: PID, entity_type: 'scene', entity_id: 'S1', position: 0, created_at: '2026-10-01T00:00:00Z' },
+        { id: 'k2', task_id: 'T1', project_id: PID, entity_type: 'asset', entity_id: 'A1', position: 1, created_at: '2026-10-02T00:00:00Z' },
+        { id: 'k4', task_id: 'T3', project_id: PID, entity_type: 'asset', entity_id: 'A1', position: 0, created_at: '2026-10-02T00:00:00Z' },
+      ],
+    })
+    const files = mirror(b)
+    const tasks = files['timeline.json'].tasks
+    expect(tasks.map(t => [t.id, t.asset_ids])).toEqual([['T1', ['A2', 'A1', 'A3']], ['T2', []]])
+    expect(tasks[0]).not.toHaveProperty('asset_id')
+    // tasks.json keeps every item whole, as before.
+    expect(files['tasks.json'].taskItems.map(i => i.id).sort()).toEqual(['k1', 'k2', 'k3', 'ks'])
   })
 })
 
@@ -373,6 +515,8 @@ describe('main.cjs wires the module in everywhere a task\'s items can change', (
     const start = MAIN_CJS.indexOf("expressApp.delete('/api/rabbit/projects/:projectId/assets/:id'")
     const body = MAIN_CJS.slice(start, MAIN_CJS.indexOf('res.json({ ok: true });', start) + 30)
     expect(body).toMatch(/rabbitTaskItems\.afterRowRemoved\(bundle\);\s*writeRabbitBundle/)
+    // VW1m (2026-10-16), her Q-M2: and it never removes a task.
+    expect(body).not.toMatch(/bundle\.tasks\s*=|rabbitRemoveFrom\(bundle\.tasks/)
   })
   it('every read reconciles, the empty bundle has the key, the readable mirror carries the live items, the routes are mounted', () => {
     expect(extractFunction(MAIN_CJS, 'readRabbitBundle')).toMatch(/rabbitTaskItems\.reconcileTaskItemsOnRead\(bundle, \{ projectId \}\)/)

@@ -39,8 +39,9 @@ const {
   pruneDanglingShotListItems,
   cascadeSceneOrShotDelete,
 } = require('./rabbitShotLists.cjs');
-// FX2 (0096's twin): a task's items — bundle.taskItems, each task's five
-// single fields kept equal to its main item of each kind.
+// FX2 (0096's twin): a task's items — bundle.taskItems. VW1m (0097's twin):
+// each task's five single fields are only the older builds' copy (each
+// kind's first item added); nothing in this build reads them.
 const rabbitTaskItems = require('./rabbitTaskItems.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
@@ -1485,8 +1486,10 @@ function startLocalServer(distPath) {
       // FX2 (0096's twin): a bundle from before a task's items gains them
       // from each task's single fields (deterministic ids, so a failed
       // write-back mints the same rows next read); dangling items go, as the
-      // cloud's CASCADE drops them; every task's five single fields are its
-      // main items. Converges: once in step it changes nothing.
+      // cloud's CASCADE drops them. VW1m (2026-10-16): a field set with no
+      // item for it gains that item and a read never reorders; the five
+      // single fields are only the older builds' copy (each kind's first
+      // item in the stored order). Converges: once in step it changes nothing.
       try {
         if (rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId })) dirty = true;
       } catch (e) { console.error('task items reconcile failed:', e.message); }
@@ -2030,11 +2033,23 @@ function startLocalServer(distPath) {
           taskLinks:    liveLinks,
           taskItems:    liveItems,
         });
-        // timeline.json — phases + scheduling data
+        // timeline.json — phases + scheduling data. VW1m (2026-10-16): each
+        // task lists every asset it is about (`asset_ids`, in the order they
+        // were added: position, then created_at, then id), not the single
+        // field, which is only the older builds' copy now.
+        const byAdded = (a, b) => ((Number(a.position) || 0) - (Number(b.position) || 0))
+          || ((Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0))
+          || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+        const assetIdsOf = new Map();
+        for (const i of liveItems.filter(x => x.entity_type === 'asset').sort(byAdded)) {
+          const k = String(i.task_id);
+          if (!assetIdsOf.has(k)) assetIdsOf.set(k, []);
+          if (!assetIdsOf.get(k).includes(i.entity_id)) assetIdsOf.get(k).push(i.entity_id);
+        }
         writeJSON(path.join(dbDir, 'timeline.json'), {
           phases:       livePhases,
           tasks:        liveTasks.map(t => ({
-            id: t.id, name: t.name, asset_id: t.asset_id,
+            id: t.id, name: t.name, asset_ids: assetIdsOf.get(String(t.id)) || [],
             assigned_role_slug: t.assigned_role_slug,
             status: t.status, bid_days: t.bid_days,
             start_date: t.start_date, end_date: t.end_date,
@@ -2551,9 +2566,10 @@ function startLocalServer(distPath) {
       // unasked; the stamp is dropped from every ordinary body here.
       const scheduleRow = !!(opts && opts.scheduleRow);
       // FX2 (0096's twin): `taskItems: taskItemHooks` (tasks, scenes, shots,
-      // levels, experiences). A task write runs 0096 §7b / §7c's rules on the
-      // task's items (onWrite); a hard DELETE takes every item the row ends
-      // and hands "main" to the next item (onRemoved), in the same write.
+      // levels, experiences). A task write runs 0097's add-only §7b and 0096's
+      // §7c on the task's items (onWrite); a hard DELETE takes every item the
+      // row ends and refreshes the older builds' copy (onRemoved), in the same
+      // write. The task itself always stays.
       const taskItemHooks = (opts && opts.taskItems) || null;
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
@@ -2840,8 +2856,10 @@ function startLocalServer(distPath) {
         }
       }
       rabbitRemoveFrom(bundle.assets, req.params.id);
-      // FX2 (0096's twin): the asset leaves every task's items, and a task
-      // that had it as its main asset takes its next asset as main.
+      // FX2 (0096's twin): the asset leaves every task's items, in this
+      // write. VW1m (2026-10-16), her Q-M2 "The tasks stay": no task is
+      // deleted with it; each keeps its other items (or none), and its older
+      // builds' copy is refreshed from them.
       rabbitTaskItems.afterRowRemoved(bundle);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true });
