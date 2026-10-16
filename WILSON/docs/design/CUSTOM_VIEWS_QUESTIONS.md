@@ -933,9 +933,41 @@ task window, bid versions and the database (a migration).
 - **After the views**: the views come first, with combination groups in the
   Tasks table only; the rest of "main" goes later.
 
-### Her answers, batch 13
+### Her answers, batch 13 (2026-10-16; asked in chat as multiple choice, Q-M1 with pictures; recorded verbatim)
 
-*(waiting)*
+- **Q-M1:** "Split between its assets"
+- **Q-M2:** "The tasks stay (Recommended)"
+- **Q-M3:** "Tasks, Assets, Levels, Exp."
+- **Q-M4:** "Its own session first (Recommended)"
+
+### What follows from batch 13 (say if any is wrong)
+
+- **The Budget's *By asset*, *By scene* and *By shot* views split a task's
+  days and money evenly between its items** (half each for two, a third
+  each for three); the totals add up, and rows can show fractions of a day.
+- **Deleting an asset never deletes a task**: the asset comes off the tasks
+  linked to it, which keep their other items, or none.
+- **Combination groups and *Create grouping* come to four tables**: the
+  Tasks table (grouped by asset, scene, shot, level or experience), Assets
+  (grouped by the scenes, shots, levels or experiences an asset is in),
+  Levels and Experiences (grouped by their assets). The Timeline shows the
+  Tasks table's combination groups, with no *Create grouping* there.
+- **On the cloud, assets carry no level or experience links today** (the
+  cloud adapter drops them), so Levels and Experiences could not group by
+  asset there. Her standing rule (A9: the same on the cloud or a NAS) means
+  the cloud gains those links, in the session that builds that grouping.
+- **Taking out the main item is its own session, before the views are
+  built** (VW1m, `docs/sessions/briefs/po-vw1m-no-main-item.md`): every place
+  "main" is read, measured first as FX2 did, the questions that list raises
+  (the task window's Items table without *Main*, the files under it, what a
+  bid version keeps, the Dashboard's task window, the Timeline's rows), the
+  database change, the Timeline's combination rows, the Budget's split, the
+  delete rule. Then VW1b builds the Tasks table's columns and combination
+  groups on it.
+
+**Every question this session can ask is answered (2026-10-16).** The
+design (`CUSTOM_VIEWS_DESIGN.md`) carries batches 9–13; the questions about
+taking out the main item that need the measured list first are VW1m's own.
 
 ---
 
