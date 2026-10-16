@@ -170,28 +170,34 @@ const ITEMS_CARRIED = new Set(['asset', 'scene', 'shot'])
 // level and experience links. The cloud has no level or experience column (a
 // key it does not know refuses the whole insert, PGRST204), and the tasks land
 // before the scenes and shots (BC3) while tasks_scene_fk / tasks_shot_fk are
-// not deferrable (23503); FX2's desktop writes all five keys on a task whose
-// main item changed. The task's scenes and shots arrive as its items after the
-// shots, and 0096 §7a sets the two columns from them; its asset stays on the
-// row (the assets are in first) and 0096 seeds that item. Every other key goes
-// up as it always has.
+// not deferrable (23503). VW1m (2026-10-16, her ruling: a task's items are its
+// items): WITHOUT ITS ASSET too. The five fields on a desktop row are only the
+// older builds' copy of its first item of each kind; every item, its assets
+// included, arrives as an item after the rows it names (itemsToCarry), and
+// 0097 §4 writes the cloud's copy from them. So a task whose first asset
+// failed to go up is no longer refused whole by tasks.asset_id's key: the
+// task lands, and only that asset's item fails, in the report. Every other
+// key goes up as it always has.
 export function taskRowForCloud(t) {
   const row = withoutSetAside(t)
   if (!row || typeof row !== 'object') return row
-  const { scene_id: _scene, shot_id: _shot, level_id: _level, experience_id: _experience, ...rest } = row
+  const {
+    asset_id: _asset, scene_id: _scene, shot_id: _shot, level_id: _level, experience_id: _experience, ...rest
+  } = row
   return rest
 }
 
 // The items a project's move carries (and counts): the bundle's own, plus one
-// for a scene or a shot a task row names that no item does (a bundle no Local
-// Server reconciled), so taskRowForCloud's dropping the column loses nothing.
+// for an asset, a scene or a shot a task row names that no item does (a
+// bundle no Local Server reconciled), so taskRowForCloud's dropping the
+// column loses nothing.
 export function itemsToCarry(bundle) {
   const items = Array.isArray(bundle?.taskItems) ? bundle.taskItems.filter(i => i && typeof i === 'object') : []
   const named = new Set(items.map(i => `${i.task_id}|${i.entity_type}|${i.entity_id}`))
   const extra = []
   for (const t of Array.isArray(bundle?.tasks) ? bundle.tasks : []) {
     if (!t || t.id == null) continue
-    for (const [field, kind] of [['scene_id', 'scene'], ['shot_id', 'shot']]) {
+    for (const [field, kind] of [['asset_id', 'asset'], ['scene_id', 'scene'], ['shot_id', 'shot']]) {
       const id = t[field]
       if (id == null || id === '') continue
       const key = `${t.id}|${kind}|${id}`
@@ -932,13 +938,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       }
     }
     // FX2 (0096): a task's items, after every row they can name is in — the
-    // tasks and assets (above), the scenes and shots (BC3, above). A task's
-    // FIRST asset is in already (0096's seed makes it from the task's
-    // asset_id), so the desktop's copy answers 23505 and reads as skipped;
-    // its scenes and shots, which went up without their columns
-    // (taskRowForCloud), land here and 0096 §7a sets the columns; every item
-    // keeps its id and position. Levels and experiences are not carried, so
-    // their items stay on this computer and are counted.
+    // tasks and assets (above), the scenes and shots (BC3, above). VW1m
+    // (2026-10-16): every one, its assets included, lands here (the task
+    // went up without its links, taskRowForCloud) and 0097 §4 writes the
+    // cloud's copy from them; every item keeps its id and position. An item
+    // the cloud has already (a move run again) answers 23505 and reads as
+    // skipped; one whose asset did not go up fails alone, in the report. Levels and
+    // experiences are not carried, so their items stay on this computer and
+    // are counted.
     for (const it of itemsToCarry(bundle)) {
       report.taskItems.total++
       if (!ITEMS_CARRIED.has(it?.entity_type)) { report.taskItems.leftBehind++; continue }

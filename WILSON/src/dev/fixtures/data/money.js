@@ -190,18 +190,25 @@ export const BUDGET_ACTUALS = [
 // pre-production: every task, the project's settings — the SELECTED bid and
 // the one the budget is LOCKED to (project.js), its lock stamped in the real
 // columns (F12.2), where v1 used to carry a lock it never had.
+// VW1m (2026-10-16): both stay OLDER versions, saved before a version kept
+// every item of every kind (her Q-N7, interim): each task carries its single
+// fields only (its first asset, scene and shot, as the rows do), never
+// `items`. They are the material for opening an older version (its saved
+// item goes back where the task lost it; nothing is removed), so any
+// `items` the snapshot builder learns to add is taken off here.
+const asOlderVersion = (snap) => ({ ...snap, tasks: snap.tasks.map(({ items: _items, ...t }) => t) })
 const FIXTURE_ROLE_RATES = buildRoleRates(RATE_CARD_ENTRIES.filter(e => e.rate_card_id === GENERAL_CARD_ID), [])
-const BID_V1 = snapshotFromLive({
+const BID_V1 = asOlderVersion(snapshotFromLive({
   tasks: TASKS.slice(0, 31), phases: PHASES, milestones: MILESTONES,
   project: { ...PROJECT, budget_contingency_pct: 8 }, roleRates: FIXTURE_ROLE_RATES,
   savedAt: stamp(9, 17), savedBy: M.mara,
-})
-const BID_V2 = snapshotFromLive({
+}))
+const BID_V2 = asOlderVersion(snapshotFromLive({
   tasks: TASKS, phases: PHASES, milestones: MILESTONES,
   project: PROJECT, roleRates: FIXTURE_ROLE_RATES,
   savedAt: stamp(30, 17), savedBy: M.mara,
   previous: BID_V1, previousName: 'Bid v1 (fund application)',
-})
+}))
 
 export const BUDGET_VERSIONS = [
   { id: fid('budgetVersion', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Bid v1 (fund application)', type: 'bid', is_active: false, snapshot: BID_V1, summary: 'What we sent the fund.', locked_at: null, locked_by: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(9, 17), updated_at: stamp(9, 17) },

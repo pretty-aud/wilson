@@ -16,7 +16,9 @@
 //   7 the project PATCH refuses a change to active_shot_list_id (main.cjs —
 //     that handler is lifted and replayed below)
 //   8 the scene / shot delete sweep (sweepShotListLinks; also replayed through
-//     the factory in desktopDeleteSweep.test.js)
+//     the factory in desktopDeleteSweep.test.js). VW1m (2026-10-16): it counts
+//     the tasks about the row and leaves them; the task-item hook unlinks them
+//     (electron/rabbitTaskItems.cjs)
 //   9 the read-time backfill (the pure functions, and readRabbitBundle lifted
 //     from main.cjs to prove the hook persists it exactly once)
 // …and the review-round-1 addendum (S3A_CONTRACT_R1.md), each with its own
@@ -50,6 +52,7 @@ const {
   mountRabbitShotLists, ensureShotListKeys, backfillShotListsOnRead, sweepShotListLinks,
   pruneDanglingShotListItems, cascadeSceneOrShotDelete, backfillListId, backfillItemId,
 } = require('../../../../electron/rabbitShotLists.cjs')
+const rabbitTaskItems = require('../../../../electron/rabbitTaskItems.cjs')
 const MAIN_CJS = readFileSync(new URL('../../../../electron/main.cjs', import.meta.url), 'utf-8')
 
 /** Lift `function name(...) { ... }` out of main.cjs (desktopDeleteSweep.test.js's technique). */
@@ -1192,23 +1195,49 @@ describe('rule 8 — sweepShotListLinks', () => {
     }
   }
 
-  it('a scene: its items leave every list, its tasks lose scene_id only', () => {
+  // VW1m (2026-10-16): the sweep nulled scene_id / shot_id itself; a task's
+  // scenes and shots are its items now, and the task-item hook unlinks them
+  // later in the same write (the 'with the item hook' cases below).
+  it('a scene: its items leave every list; the tasks about it are counted and left as they are', () => {
     const b = bundle()
     const before = structuredClone(b)
     expect(sweepShotListLinks(b, 'scene', 'sc-1')).toEqual({ items: 2, tasks: 1 })
     expect(b.shotListItems.map(i => i.id)).toEqual(['i3', 'i4'])
-    expect(b.tasks[0]).toMatchObject({ scene_id: null, shot_id: 'sh-1' })
-    expect(b.tasks[0].updated_at).not.toBe(T0)
-    expect(b.tasks[1]).toEqual(before.tasks[1])
+    expect(b.tasks).toEqual(before.tasks)
     expect(b.assets).toEqual(before.assets) // arrays are not FKs (0084 §6c)
     expect(b.edits).toEqual(before.edits) // D17: "Missing shot"
   })
 
-  it('a shot: its items leave, its tasks lose shot_id only', () => {
+  it('a shot: its items leave; the tasks about it are counted and left as they are', () => {
     const b = bundle()
+    const before = structuredClone(b)
     expect(sweepShotListLinks(b, 'shot', 'sh-1')).toEqual({ items: 1, tasks: 1 })
     expect(b.shotListItems.map(i => i.id)).toEqual(['i1', 'i2', 'i4'])
-    expect(b.tasks[0]).toMatchObject({ scene_id: 'sc-1', shot_id: null })
+    expect(b.tasks).toEqual(before.tasks)
+  })
+
+  it('a task is about the row through its items as well as its copy, and counts once', () => {
+    const b = bundle()
+    b.taskItems = [
+      { id: 'k1', task_id: 't1', entity_type: 'scene', entity_id: 'sc-1', position: 0 },
+      { id: 'k2', task_id: 't2', entity_type: 'scene', entity_id: 'sc-1', position: 1 }, // t2's copy names sc-2
+      { id: 'k3', task_id: 't3', entity_type: 'shot', entity_id: 'sc-1', position: 0 }, // another kind: not about it
+    ]
+    expect(sweepShotListLinks(b, 'scene', 'sc-1')).toEqual({ items: 2, tasks: 2 })
+  })
+
+  it('with the item hook: the copy is unlinked, the task stays, and its other scene becomes the copy', () => {
+    const b = { ...bundle(), project: { id: PID }, scenes: [{ id: 'sc-1' }, { id: 'sc-2' }], shots: [{ id: 'sh-1', scene_id: 'sc-1' }] }
+    rabbitTaskItems.reconcileTaskItemsOnRead(b, { projectId: PID, now: T0 })
+    b.taskItems.push({ id: 'k9', task_id: 't1', project_id: PID, entity_type: 'scene', entity_id: 'sc-2', position: 1, created_at: T0 })
+    // The factory's order: the row goes, the sweep runs, then the hook.
+    b.scenes = b.scenes.filter(r => r.id !== 'sc-1')
+    expect(sweepShotListLinks(b, 'scene', 'sc-1').tasks).toBe(1)
+    rabbitTaskItems.afterRowRemoved(b)
+    expect(b.tasks.map(t => t.id)).toEqual(['t1', 't2'])
+    expect(b.tasks[0]).toMatchObject({ scene_id: 'sc-2', shot_id: 'sh-1' })
+    expect(b.tasks[0].updated_at).not.toBe(T0)
+    expect(b.taskItems.some(i => i.entity_id === 'sc-1')).toBe(false)
   })
 
   it('FAILING CONTROL: an id nothing names changes nothing', () => {
@@ -1253,16 +1282,31 @@ describe('addendum C — cascadeSceneOrShotDelete', () => {
     }
   }
 
-  it('a scene takes its shots — and their items (the archived list\'s too) and task links — with it', () => {
+  it('a scene takes its shots — and their items (the archived list\'s too) — with it, and counts the tasks about them', () => {
     const b = bundle()
     const before = structuredClone(b)
+    // t1 is about the scene and one of its shots (counted once), t2 about its
+    // other shot; t3 about neither. VW1m: the tasks are the item hook's to
+    // unlink, after this, in the same write.
     expect(cascadeSceneOrShotDelete(b, 'scene', 'sc-1')).toEqual({ items: 3, tasks: 2, shots: 2 })
     expect(b.shots.map(s => s.id)).toEqual(['sh-2', 'sh-loose'])
     expect(b.shotListItems.map(i => i.id)).toEqual(['i3', 'i4'])
-    expect(b.tasks[0]).toMatchObject({ scene_id: null, shot_id: null }) // linked twice, counted once
+    expect(b.tasks).toEqual(before.tasks)
+    expect(b.scenes).toEqual(before.scenes) // the row itself is the factory's rabbitRemoveFrom
+  })
+
+  it('with the item hook after it: every task stays, and none names the scene or its shots', () => {
+    const b = { ...bundle(), project: { id: PID } }
+    rabbitTaskItems.reconcileTaskItemsOnRead(b, { projectId: PID, now: T0 })
+    const before = structuredClone(b)
+    b.scenes = b.scenes.filter(r => r.id !== 'sc-1')
+    cascadeSceneOrShotDelete(b, 'scene', 'sc-1')
+    rabbitTaskItems.afterRowRemoved(b)
+    expect(b.tasks.map(t => t.id)).toEqual(['t1', 't2', 't3'])
+    expect(b.tasks[0]).toMatchObject({ scene_id: null, shot_id: null })
     expect(b.tasks[1]).toMatchObject({ shot_id: null })
     expect(b.tasks[2]).toEqual(before.tasks[2])
-    expect(b.scenes).toEqual(before.scenes) // the row itself is the factory's rabbitRemoveFrom
+    expect(b.taskItems.some(i => ['sc-1', 'sh-1', 'sh-b'].includes(i.entity_id))).toBe(false)
   })
 
   it('FAILING CONTROL: an unlinked shot (scene_id null) and another scene\'s shot are never taken', () => {

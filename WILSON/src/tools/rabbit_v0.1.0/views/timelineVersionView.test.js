@@ -71,6 +71,29 @@ describe('the assignee: the version\'s own; the row\'s as it is now only when th
   })
 })
 
+// VW1m (2026-10-16), Q-N7 (batch 16; interim: a version keeps every item of
+// every kind): a viewed version groups by its OWN items — the snapshot's,
+// never the task's items as they are now — handed to the Timeline as kept
+// task_items rows; a version saved before hands its single fields, one each.
+describe('the items: the version\'s own, as saved (VW1m)', () => {
+  const row = (task, kind, entity) => ({ task_id: task, entity_type: kind, entity_id: entity })
+  it('a version saved with items hands every item of every kind as rows', () => {
+    const items = [
+      { id: 'i1', task_id: 't1', entity_type: 'asset', entity_id: 'A2', position: 0 },
+      { id: 'i2', task_id: 't1', entity_type: 'asset', entity_id: 'A1', position: 1 },
+      { id: 'i3', task_id: 't2', entity_type: 'level', entity_id: 'L1', position: 0 },
+    ]
+    const withItems = { id: 'v2', name: 'Items', snapshot: snapshotFromLive({ tasks: saved, items, phases, milestones, project, roleRates: {} }) }
+    // The task's items now (one asset, another) are never read.
+    const v = versionView(withItems, { tasks: [{ ...saved[0], asset_id: 'A9' }] })
+    expect(v.taskItems).toEqual([row('t1', 'asset', 'A1'), row('t1', 'asset', 'A2'), row('t2', 'level', 'L1')])
+  })
+  it('a version saved before hands each task\'s single fields, one item each (and none for a task with none)', () => {
+    const older = { id: 'v0', name: 'Older', snapshot: snapshotFromLive({ tasks: [{ ...saved[0], asset_id: 'A1', scene_id: 'S1' }, saved[1], saved[2]], phases, milestones, project, roleRates: {} }) }
+    expect(versionView(older, {}).taskItems).toEqual([row('t1', 'asset', 'A1'), row('t1', 'scene', 'S1')])
+  })
+})
+
 describe('the arrows: the edges between the version\'s rows, as those rows carry them now', () => {
   const edge = (id, a, b, kind = 'task') => ({ id, kind, predecessor_id: a, successor_id: b })
   it('keeps an edge only when both its ends are rows of the version — a set-aside row\'s edges included, one to a row it does not hold dropped', () => {

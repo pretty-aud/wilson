@@ -25,11 +25,6 @@ export function selectAssetsByPhase(assets, phaseId) {
   return assets.filter(a => a.phase_id === phaseId).sort(sortBySortOrder);
 }
 
-export function selectTasksByAsset(tasks, assetId) {
-  if (!tasks) return [];
-  return tasks.filter(t => t.asset_id === assetId);
-}
-
 function sortBySortOrder(a, b) {
   return (a.sort_order ?? 0) - (b.sort_order ?? 0);
 }
@@ -40,12 +35,12 @@ function sortBySortOrder(a, b) {
 // of its tasks. The user-facing `asset.status` field is independent
 // (see schema.sql) so we can warn when the user marks an asset
 // "approved" while child tasks are still in flight.
-export function selectAssetDerivedStatus(tasks, assetId) {
-  return assetStatusOfTasks(selectTasksByAsset(tasks, assetId));
-}
-
-// FX2 (0096): the same roll-up over a list already chosen — the tasks ABOUT
-// an asset (any of their items), which the provider reads from the items.
+//
+// FX2 (0096): over a list already chosen — the tasks ABOUT an asset (any of
+// their items), which the provider reads from the items (ctx's
+// selectAssetDerivedStatus). VW1m (2026-10-16): the raw selectTasksByAsset,
+// selectAssetDerivedStatus and selectAssetStatusWarning that read a task's
+// single asset_id (its main asset) are gone; nothing called them.
 export function assetStatusOfTasks(list) {
   if (!Array.isArray(list) || list.length === 0) return 'not_started';
   if (list.every(isTaskDone)) {
@@ -59,14 +54,10 @@ export function assetStatusOfTasks(list) {
 }
 
 /**
- * Returns true when the asset's user-facing status is approved/final
- * but at least one task on the asset is not yet done.
+ * True when the asset's user-facing status is approved/final but at least
+ * one task about it is not yet done. FX2 (0096): over a list already chosen
+ * (the tasks about it: ctx's selectAssetStatusWarning).
  */
-export function selectAssetStatusWarning(asset, tasks) {
-  return assetWarningOfTasks(asset, asset ? selectTasksByAsset(tasks, asset.id) : []);
-}
-
-// FX2 (0096): the same check over a list already chosen (the tasks about it).
 export function assetWarningOfTasks(asset, list) {
   if (!asset) return false;
   if (!['approved', 'final'].includes(asset.status)) return false;
@@ -105,17 +96,10 @@ export function selectProjectBudgetRollup({
 // ─── Variance ───────────────────────────────────────────────
 //
 // `variance = logged_days - bid_days`. Positive = over budget,
-// negative = under, zero = on-target.
-export function selectVarianceForAsset(tasks, assetId) {
-  const list = selectTasksByAsset(tasks, assetId);
-  let bid = 0, logged = 0;
-  for (const t of list) {
-    bid    += Number(t.bid_days || 0);
-    logged += Number(t.logged_days || 0);
-  }
-  return { bid, logged, variance: logged - bid };
-}
-
+// negative = under, zero = on-target. VW1m (2026-10-16): the project's
+// only; an asset's (selectVarianceForAsset, by a task's main asset, called
+// by no screen) is gone — the Budget's By asset tab splits a task between
+// its assets.
 export function selectVarianceForProject(tasks) {
   let bid = 0, logged = 0;
   for (const t of tasks || []) {

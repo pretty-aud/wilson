@@ -162,15 +162,29 @@ describe('applyRealtimeEvent — UPDATE (plain)', () => {
 })
 
 describe('applyRealtimeEvent — soft delete / restore', () => {
-  it('remote asset soft-delete removes the asset AND mirrors the local task cascade', () => {
-    const bundle = makeBundle()
+  // VW1m (2026-10-16), her Q-M2 ("The tasks stay"): this pinned the reverse —
+  // the asset's trash took the tasks whose MAIN asset it was (0034's hop).
+  it('remote asset soft-delete removes the asset and NO task; its task items stay (hidden while it is in the trash)', () => {
+    const bundle = makeBundle({ taskItems: [{ id: 'i1', task_id: 't1', entity_type: 'asset', entity_id: 'a1', position: 0 }] })
     const { bundle: next } = applyRealtimeEvent(bundle, {
       table: 'assets', op: 'UPDATE',
       record: { id: 'a1', deleted_at: T1, updated_at: T1 },
       oldRecord: { id: 'a1', deleted_at: null, updated_at: T0 },
     }, { pendingFields: noPending })
     expect(next.assets.map(a => a.id)).toEqual(['a2'])
-    expect(next.tasks.map(t => t.id)).toEqual(['t2']) // t1 hidden with its asset
+    expect(next.tasks).toBe(bundle.tasks)
+    expect(next.taskItems).toBe(bundle.taskItems)
+  })
+  it('VW1m: a remote asset hard DELETE takes the asset alone; its items leave by their own task_items events', () => {
+    const bundle = makeBundle({ taskItems: [{ id: 'i1', task_id: 't1', entity_type: 'asset', entity_id: 'a1', position: 0 }] })
+    const { bundle: next } = applyRealtimeEvent(bundle, { table: 'assets', op: 'DELETE', oldRecord: { id: 'a1' } }, { pendingFields: noPending })
+    expect(next.assets.map(a => a.id)).toEqual(['a2'])
+    expect(next.tasks.map(t => t.id)).toEqual(['t1', 't2'])
+    expect(next.taskItems).toBe(bundle.taskItems)
+    // CONTROL: the cascade's own event takes the item, and only it.
+    const after = applyRealtimeEvent(next, { table: 'task_items', op: 'DELETE', oldRecord: { id: 'i1', task_id: 't1' } }, { pendingFields: noPending }).bundle
+    expect(after.taskItems).toEqual([])
+    expect(after.tasks.map(t => t.id)).toEqual(['t1', 't2'])
   })
   it('remote task soft-delete also drops its dependency edges', () => {
     const bundle = makeBundle()
@@ -428,8 +442,9 @@ describe('key-date live sync (0077)', () => {
     // 🚨 THIS EXPECTATION IS THE REVERSE OF THE ONE FIRST COMMITTED, and R1 is
     // why. The generic restore contract asks for a refetch because a restored
     // parent's children were never trashed in the database, only hidden
-    // transitively — a restored asset brings back tasks, a restored task
-    // brings back edges. A key date has no children: measured on dev on
+    // transitively — a restored asset brings back its comments and versions
+    // (its tasks too, before VW1m), a restored task brings back edges. A key
+    // date has no children: measured on dev on
     // 2026-09-07, `pg_constraint` reports NO foreign key anywhere whose
     // confrelid is public.milestones. So the refetch brought back nothing and
     // cost a whole-project reload in every open window — twice in the window
@@ -455,7 +470,9 @@ describe('key-date live sync (0077)', () => {
     // The failing control for the test above. If LEAF_COLLECTIONS ever grew to
     // swallow the non-leaf tables, the assertion above would still pass and
     // every remote restore in the product would silently stop bringing back
-    // the rows it hides.
+    // the rows it hides. VW1m (2026-10-16): an asset's tasks are no longer
+    // among them (0097), but its comments and versions are (0014, 0004 see
+    // them through it), so the refetch stays.
     const start = makeBundle()
     const { effects } = applyRealtimeEvent(start, {
       table: 'assets', op: 'UPDATE',
@@ -473,8 +490,8 @@ describe('key-date live sync (0077)', () => {
     }, { pendingFields: noPending })
     expect(bundle.milestones.map(m => m.id)).toEqual(['m1'])
     // FAILING CONTROL: no other collection may move. removeWithMirror has
-    // per-table arms for assets, tasks and phases; milestones must fall to the
-    // default arm and prune only themselves.
+    // per-table arms for tasks and phases (VW1m took the assets arm out);
+    // milestones must fall to the default arm and prune only themselves.
     expect(bundle.tasks).toBe(start.tasks)
     expect(bundle.assets).toBe(start.assets)
     expect(bundle.dependencies).toBe(start.dependencies)

@@ -5,13 +5,17 @@
 //     database sends are dropped);
 //   · a task names an item once: this window's own row for the same (task,
 //     kind, entity) under another id gives way to the stored one;
-//   · an UPDATE (a reorder elsewhere) moves the position; a DELETE removes it;
-//   · the main item ctx.tasks shows follows (withItemLinks over the merge).
+//   · an UPDATE (an older app's reorder elsewhere) moves the position; a
+//     DELETE removes it;
+//   · VW1m (2026-10-16): no item is main. A reorder changes the stored order
+//     only — the older apps' copy (copyFieldsFromItems) follows it, and the
+//     task's items, as a set, do not change; an asset's delete from another
+//     window leaves its tasks and their items (realtimeMerge.test.js).
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
 import { applyRealtimeEvent, normalizeBroadcastPayload, TABLE_TO_COLLECTION } from './realtimeMerge'
-import { withItemLinks } from './taskItemsModel'
+import { copyFieldsFromItems, itemsOfTask } from './taskItemsModel'
 
 const row = (id, entity, position, extra = {}) => ({
   id, task_id: 't1', project_id: 'p1', workspace_id: 'w1', entity_type: 'asset', entity_id: entity, position,
@@ -41,12 +45,16 @@ describe('task_items on the project channel', () => {
     expect(bundle.taskItems.map(i => i.id).sort()).toEqual(['i1', 'theirs'])
   })
 
-  it('an UPDATE moves a position, and the main item ctx.tasks shows follows', () => {
+  it('an UPDATE moves a position: the stored order (and the older apps\' copy) follows; the items, as a set, do not change', () => {
     const b = base()
     b.taskItems.push(row('i2', 'A2', 1))
     const moved = applyRealtimeEvent(b, evt('UPDATE', { ...row('i2', 'A2', 0), updated_at: '2026-10-11T01:00:00Z', ...GENERATED }, row('i2', 'A2', 1))).bundle
     const moved2 = applyRealtimeEvent(moved, evt('UPDATE', { ...row('i1', 'A1', 1), updated_at: '2026-10-11T01:00:00Z' }, row('i1', 'A1', 0))).bundle
-    expect(withItemLinks(moved2.tasks, moved2.taskItems, true)[0].asset_id).toBe('A2')
+    expect(itemsOfTask(moved2.taskItems, 't1', 'asset').map(i => i.entity_id)).toEqual(['A2', 'A1'])
+    expect(copyFieldsFromItems(itemsOfTask(moved2.taskItems, 't1')).asset_id).toBe('A2')
+    expect(moved2.taskItems.map(i => i.entity_id).sort()).toEqual(['A1', 'A2'])
+    // The task row itself is untouched by an item event.
+    expect(moved2.tasks).toBe(b.tasks)
   })
 
   it('a DELETE removes the row by id', () => {

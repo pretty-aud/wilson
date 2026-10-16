@@ -322,12 +322,15 @@ export function RabbitHelpContent({ helpPage, theme }) {
     <div className="space-y-5">
       <section>
         <h3 className={T.sectionTitle}>Assets</h3>
+        {/* VW1m (2026-10-16): no first asset counts for more than another
+            (rabbitNoMainHelp.test.jsx holds these lines). */}
         <p className={T.bodyText}>
           Assets are the deliverables of a project (a shot, a key art piece,
           a marketing video). They live off the timeline — they don't have
-          their own bar — but tasks can be tagged with an asset id to
-          categorize them. Use the Assets tab to create, rename, and group
-          them by phase.
+          their own bar. A task can be about several assets, scenes and shots
+          at once: add them in the task's window, under Items. Deleting an
+          asset never deletes a task: the asset comes off its tasks, which
+          stay. Use the Assets tab to create, rename, and group them by phase.
         </p>
       </section>
     </div>
@@ -762,6 +765,16 @@ export function RabbitHelpContent({ helpPage, theme }) {
               resize it. Click any bar to open its editor.
             </p>
           </div>
+          {/* VW1m (2026-10-16): her batch 12 ruling, the combination rows. */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Grouped by asset</h4>
+            <p className={T.listItem}>
+              A task about two assets sits in one row named for both, as in
+              Lighthouse Interior, Storm Lantern, after the rows of single
+              assets; a task with none sits under No asset, last. Scenes,
+              shots, levels and experiences group the same way.
+            </p>
+          </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Zoom toolbar</h4>
             <p className={T.listItem}>
@@ -917,6 +930,14 @@ export function RabbitHelpContent({ helpPage, theme }) {
           phase-level and project-level cost summary. Edit role rates in the
           intake wizard or in the asset editor and the budget recalculates
           live.
+        </p>
+        {/* VW1m (2026-10-16): her batch 13 ruling, "Split between its assets". */}
+        <p className={`${T.bodyText} mt-3`}>
+          A task about several assets is split evenly between them in By
+          asset: half its days and money to each of two assets, a third to
+          each of three. By scene, By shot, By level and By experience split
+          the same way, and a task with none sits under No asset, so every
+          tab adds up to the project's total.
         </p>
       </section>
       {/* Post-overhaul S5d (step 9): bid versions, in the controls' own words

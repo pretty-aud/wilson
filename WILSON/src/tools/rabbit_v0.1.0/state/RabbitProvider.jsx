@@ -54,14 +54,10 @@ import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClie
 import { runIngestion } from '../intake/pipeline';
 import {
   selectAssetsByPhase,
-  selectTasksByAsset,
   selectProjectBudgetRollup,
-  selectAssetDerivedStatus,
-  selectAssetStatusWarning,
   assetStatusOfTasks,
   assetWarningOfTasks,
   selectCriticalPath,
-  selectVarianceForAsset,
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
@@ -116,7 +112,7 @@ import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // for the snapshot, the open plan and "which version is selected".
 import {
   snapshotFromLive, planOpen, readVersion, selectedVersionOf, sortVersionsNewest, previousVersionOf,
-  versionDiff,
+  versionDiff, liveItemsOnly,
 } from './budgetVersionModel';
 // Post-overhaul S5b (0090): rows the open version does not hold are SET
 // ASIDE — kept whole, hidden everywhere, brought back by a version that holds
@@ -126,12 +122,13 @@ import {
 } from './setAside';
 import { removalToastWords, rowsWords } from './versionWords';
 import { revertOwnChange } from './revertOwnChange';
-// FX2 (0096): a task's items — the one statement of their rules.
+// FX2 (0096): a task's items — the one statement of their rules. VW1m
+// (2026-10-16): no item counts for more than another (item 2 of
+// docs/sessions/handoffs/po-vw1m-2026-10-16.md is the contract).
 import {
-  LINK_FIELDS, FIELD_KIND, isItemKind,
-  itemsOfTask, linkFieldsFromItems, withItemLinks, tasksAbout, nextPosition,
-  planReorder, applyPositions, planSingleFieldWrite, linkFieldsIn, withoutLinkFields,
-  itemShapeProblem, linksInStep, mainAfterLinkWrite, KIND_LABEL,
+  LINK_FIELDS, FIELD_KIND, KIND_FIELD, ITEM_KINDS, isItemKind,
+  itemsOfTask, indexItemsByTask, copyFieldsFromItems, tasksAbout, nextPosition,
+  planLegacyFieldWrite, planSetKind, linkFieldsIn, withoutLinkFields, itemShapeProblem,
 } from './taskItemsModel';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
@@ -282,34 +279,14 @@ export function RabbitProvider({ children }) {
   // ── data ─────────────────────────────────────────────────
   const [projectsIndex, setProjectsIndex] = useState({});
   const [activeProjectId, setActiveProjectIdState] = useState(null);
-  const [bundle, setBundleState] = useState(EMPTY_BUNDLE);
-  // FX2 review round 1 (R1-1): where the backend keeps a task's items, every
-  // task row's five single links ARE its main items, in the bundle itself and
-  // not only in ctx.tasks. The item verbs change `taskItems` alone; before
-  // this, the rows kept the links they loaded with, and every reader of the
-  // raw rows saw them: the desktop's whole-row task write re-sent them (the
-  // Local Server then ran 0096 §7b's rule on them, putting back a removed
-  // item or undoing a reorder), and deleteAsset took the tasks whose LOADED
-  // asset it was. One place, every write: a write that changes the tasks or
-  // the items re-reads each task's links from its items (withItemLinks
-  // answers the same array when nothing differs). The adapter's own flag,
-  // read at the write: a load of a project whose backend has no items (a
-  // cloud before 0096, Drive) is never re-read against an empty list.
-  //
-  // Review round 2 (R2-1): ONLY the tasks whose items the write changed. Every
-  // task re-read nulled the links of a task the backend had brought back
-  // before this bundle read its items (a bid version's open reviving it, an
-  // undo after a refetch): Save then recorded no links and the next open
-  // removed the task's items. A task whose items did not change keeps the
-  // links it came with — the backend's, kept in step by 0096 — and the
-  // places that bring a task back read its items (refreshItemsOfTasks).
-  // The flag is the adapter's, read when the write is made, not inside the
-  // state updater.
-  const setBundle = useCallback((update) => {
-    const adapter = adapterRef.current;
-    const itemsOn = typeof adapter?.taskItemsAvailable === 'function' && adapter.taskItemsAvailable() === true;
-    setBundleState(prev => linksInStep(prev, typeof update === 'function' ? update(prev) : update, itemsOn));
-  }, []);
+  // VW1m (2026-10-16): the bundle as the backend gave it. FX2's wrapper here
+  // re-read every changed task's five single fields from its items (its
+  // "main" items) on each write; with no main item there is nothing to keep
+  // in step. Where the backend keeps items, the raw rows' single fields are
+  // the older apps' copy, written by the backend and read by nothing here
+  // (ctx.tasks carries none: tasksView below), and a whole-row write sends
+  // none (updateTaskFields).
+  const [bundle, setBundle] = useState(EMPTY_BUNDLE);
   const [loadingProject, setLoadingProject] = useState(false);
   const [error, setError] = useState(null);
 
@@ -331,6 +308,12 @@ export function RabbitProvider({ children }) {
   // FX2 (0096): whether this backend keeps a task's items (set each render
   // from the adapter, below the selectors; read by the mutators).
   const taskItemsOnRef = useRef(false);
+  // VW1m (2026-10-16): the tasks brought back whose items could not be read
+  // (refreshItemsOfTasks failed: offline). A bid snapshot keeps such a task
+  // in the older shape, its row's own single fields, which an open only
+  // adds from and never removes by (FX2 review round 2, R2-1: Save recorded
+  // no links and the next open removed the task's items).
+  const itemsUnreadRef = useRef(new Set());
 
   // ── Bins on the cloud, the desktop signed in (BC2) ──
   // The composite (adapters/desktopCloudBins.js): the cloud's DATA, this
@@ -1933,53 +1916,52 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, notePendingFields, clearPendingFields, ensureEntityFolderFor]);
 
-  // S5b review round 1 (R1-01): an asset is never set aside, but its tasks
-  // can be. On the cloud a task is seen THROUGH its asset (0034's
-  // tasks_select hops to it) and tasks.asset_id cascades: deleting the asset
-  // would hide its set-aside tasks for good — no version could bring them
-  // back — and the purge would destroy them, logged days and links with them,
-  // a month later. In the open version such an asset can look empty. So the
-  // delete is refused, by name, until those tasks are dealt with in a
-  // version that holds them.
-  function refuseAssetDeleteOverSetAside(ids) {
+  // VW1m (2026-10-16): whether any task — live or set aside — is about these
+  // assets: through its items, or its own single field where the backend
+  // keeps none. Read before the delete (a sweep takes the items), so the
+  // toast says the tasks stay, as the delete's question does
+  // (ProjectAssetsView): "Its tasks stay." / "Their tasks stay.".
+  function assetsHaveTasks(ids) {
+    const b = bundleRef.current;
     const want = new Set(ids.map(String));
-    const held = (bundleRef.current.setAsideTasks || []).filter(t => t.asset_id != null && want.has(String(t.asset_id)));
-    if (!held.length) return;
-    const names = held.slice(0, 4).map(t => `“${t.title || 'Untitled'}”`);
-    const more = held.length > 4 ? ` and ${held.length - 4} more` : '';
-    const n = held.length;
-    const msg = `${n === 1 ? 'A task on this asset is' : `${n} tasks on ${ids.length === 1 ? 'this asset' : 'these assets'} are`} set aside — not part of the open bid version, kept for the versions that hold ${n === 1 ? 'it' : 'them'}: ${names.join(', ')}${more}. Deleting the asset would take ${n === 1 ? 'it' : 'them'} with it for good. Edit a bid version that holds ${n === 1 ? 'it' : 'them'} and delete ${n === 1 ? 'it' : 'them'}, or move ${n === 1 ? 'it' : 'them'} to another asset, first.`;
-    setError(msg);
-    throw new Error(msg);
+    const tasks = [...(b.tasks || []), ...(b.setAsideTasks || [])];
+    if (taskItemsOnRef.current) {
+      const taskIds = new Set(tasks.map(t => String(t.id)));
+      return (b.taskItems || []).some(i => i.entity_type === 'asset' && want.has(String(i.entity_id)) && taskIds.has(String(i.task_id)));
+    }
+    return tasks.some(t => t.asset_id != null && want.has(String(t.asset_id)));
   }
 
+  // VW1m (2026-10-16), her Q-M2: "The tasks stay (Recommended)". Deleting an
+  // asset never takes a task off the screen, on any backend (it took the
+  // tasks whose MAIN asset it was: the cloud's 0034 cascade, mirrored here
+  // and in the live merge, while the desktop kept them and they came back at
+  // the next read). Where the delete removes the row (the desktop) the
+  // asset's items leave every task with it (the Local Server's sweep) and
+  // Undo puts back exactly those rows; a soft delete (the cloud, the
+  // fixtures) touches no item: they are hidden while the asset is in the
+  // trash and show again on restore (her Q-N4). S5b's refusal over a
+  // set-aside task (R1-01: "…would take it with it for good") goes with the
+  // cascade it guarded against (0097: the asset's key is SET NULL, and a
+  // task is seen through its own project).
   const deleteAsset = useCallback(async (id) => {
-    refuseAssetDeleteOverSetAside([id]);
     const oldAsset = bundleRef.current.assets.find(a => a.id === id);
-    // deleteAsset cascades locally onto tasks (see mutator). Capture
-    // those tasks too so undo restores them.
-    const removedTasks = bundleRef.current.tasks.filter(t => t.asset_id === id);
-    // FX2 (0096): on a backend whose delete removes the row (the Local
-    // Server), the asset leaves every task's items there (its sweep), and the
-    // re-insert undo puts them back with the removed tasks' own items. A soft
-    // delete touches no item (hidden with the asset, as on the cloud).
-    const goneTaskIds = new Set(removedTasks.map(t => t.id));
-    const assetItemsGone = (bundleRef.current.taskItems || [])
-      .filter(i => (i.entity_type === 'asset' && i.entity_id === id) || goneTaskIds.has(i.task_id)).map(i => ({ ...i }));
-    // Soft-aware: a supabase soft delete touches only the asset row —
-    // the children were never deleted in the DB, so undo restores the
-    // asset and reinstates the captured rows straight into local state
-    // (no re-insert mutations). Local mode keeps the re-insert path.
+    // Soft-aware: a soft delete touches only the asset row, so the undo
+    // restores it and puts the captured row back into local state. Local
+    // mode keeps the re-insert path.
     const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
     // Review round 2 (R2-6): where the delete removes the row (the Local
     // Server sweeps the asset's items in the same write), its items leave
-    // the screen with it; a soft delete keeps them, as the cloud does.
+    // the screen with it, captured for the undo.
     const sweepItems = !canSoftDelete && taskItemsOnRef.current;
+    const assetItemsGone = sweepItems
+      ? (bundleRef.current.taskItems || []).filter(i => i.entity_type === 'asset' && i.entity_id === id).map(i => ({ ...i }))
+      : [];
+    const tasksStay = assetsHaveTasks([id]);
     const result = await optimistic(
       prev => ({
         ...prev,
         assets: prev.assets.filter(a => a.id !== id),
-        tasks: prev.tasks.filter(t => t.asset_id !== id),
         ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && i.entity_id === id)) } : {}),
       }),
       () => adapterRef.current.deleteAsset(id, activeProjectId),
@@ -1989,22 +1971,16 @@ export function RabbitProvider({ children }) {
         undoOps: canSoftDelete
           ? [async () => {
               await adapterRef.current.restoreAsset(id);
-              setBundle(prev => ({
-                ...prev,
-                assets: [...prev.assets, oldAsset],
-                tasks:  [...prev.tasks, ...removedTasks],
-              }));
-              await refreshItemsOfTasks(removedTasks.map(t => t.id));
+              setBundle(prev => ({ ...prev, assets: [...prev.assets.filter(a => a.id !== id), oldAsset] }));
             }]
           : [
               () => mutationsRef.current.addAsset(oldAsset),
-              ...removedTasks.map(t => () => mutationsRef.current.addTask(taskItemsOnRef.current ? withoutLinkFields(t) : t)),
-              async () => { if (taskItemsOnRef.current) await restoreItemRows(assetItemsGone); },
+              async () => { if (assetItemsGone.length) await restoreItemRows(assetItemsGone); },
             ],
         redoOps: [() => mutationsRef.current.deleteAsset(id)],
       });
       if (token != null) {
-        showUndoToast(`Deleted asset "${oldAsset.name || 'Untitled'}"`, () => undoHistoryEntry(token));
+        showUndoToast(`Deleted asset "${oldAsset.name || 'Untitled'}"${tasksStay ? '. Its tasks stay.' : ''}`, () => undoHistoryEntry(token));
       }
     }
     return result;
@@ -2012,30 +1988,23 @@ export function RabbitProvider({ children }) {
 
   // Bulk delete — one adapter loop, ONE combined history entry, ONE
   // toast, instead of the N-toasts/N-entries a view-side loop over
-  // deleteAsset would produce.
+  // deleteAsset would produce. VW1m: as deleteAsset, no task leaves.
   const deleteAssets = useCallback(async (ids = []) => {
     if (!Array.isArray(ids) || ids.length === 0) return;
-    refuseAssetDeleteOverSetAside(ids);
     const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
-    const removed = ids
-      .map(id => ({
-        asset: bundleRef.current.assets.find(a => a.id === id),
-        tasks: bundleRef.current.tasks.filter(t => t.asset_id === id),
-      }))
-      .filter(r => r.asset);
+    const removed = ids.map(id => bundleRef.current.assets.find(a => a.id === id)).filter(Boolean);
     if (removed.length === 0) return;
-    const idSet = new Set(removed.map(r => r.asset.id));
-    // FX2 (0096): as deleteAsset — the items, for the re-insert undo.
-    const goneTaskIds = new Set(removed.flatMap(r => r.tasks.map(t => t.id)));
-    const assetItemsGone = (bundleRef.current.taskItems || [])
-      .filter(i => (i.entity_type === 'asset' && idSet.has(i.entity_id)) || goneTaskIds.has(i.task_id)).map(i => ({ ...i }));
-    // R2-6, as deleteAsset.
+    const idSet = new Set(removed.map(a => a.id));
+    // R2-6, as deleteAsset: the items a sweep takes, for the re-insert undo.
     const sweepItems = !canSoftDelete && taskItemsOnRef.current;
+    const assetItemsGone = sweepItems
+      ? (bundleRef.current.taskItems || []).filter(i => i.entity_type === 'asset' && idSet.has(i.entity_id)).map(i => ({ ...i }))
+      : [];
+    const tasksStay = assetsHaveTasks([...idSet]);
     const result = await optimistic(
       prev => ({
         ...prev,
         assets: prev.assets.filter(a => !idSet.has(a.id)),
-        tasks:  prev.tasks.filter(t => !idSet.has(t.asset_id)),
         ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && idSet.has(i.entity_id))) } : {}),
       }),
       async () => {
@@ -2043,9 +2012,9 @@ export function RabbitProvider({ children }) {
         // rows already soft-deleted server-side, then rethrow for rollback.
         const done = [];
         try {
-          for (const r of removed) {
-            await adapterRef.current.deleteAsset(r.asset.id, activeProjectId);
-            done.push(r.asset.id);
+          for (const a of removed) {
+            await adapterRef.current.deleteAsset(a.id, activeProjectId);
+            done.push(a.id);
           }
         } catch (err) {
           if (canSoftDelete) {
@@ -2058,28 +2027,20 @@ export function RabbitProvider({ children }) {
     const token = pushHistory({
       undoOps: canSoftDelete
         ? [async () => {
-            for (const r of removed) await adapterRef.current.restoreAsset(r.asset.id);
-            setBundle(prev => ({
-              ...prev,
-              assets: [...prev.assets, ...removed.map(r => r.asset)],
-              tasks:  [...prev.tasks, ...removed.flatMap(r => r.tasks)],
-            }));
-            await refreshItemsOfTasks(removed.flatMap(r => r.tasks.map(t => t.id)));
+            for (const a of removed) await adapterRef.current.restoreAsset(a.id);
+            setBundle(prev => ({ ...prev, assets: [...prev.assets.filter(a => !idSet.has(a.id)), ...removed] }));
           }]
         : [
-            ...removed.slice().reverse().flatMap(r => [
-              () => mutationsRef.current.addAsset(r.asset),
-              ...r.tasks.map(t => () => mutationsRef.current.addTask(taskItemsOnRef.current ? withoutLinkFields(t) : t)),
-            ]),
-            async () => { if (taskItemsOnRef.current) await restoreItemRows(assetItemsGone); },
+            ...removed.slice().reverse().map(a => () => mutationsRef.current.addAsset(a)),
+            async () => { if (assetItemsGone.length) await restoreItemRows(assetItemsGone); },
           ],
       redoOps: [() => mutationsRef.current.deleteAssets([...idSet])],
     });
     if (token != null) {
       showUndoToast(
         removed.length === 1
-          ? `Deleted asset "${removed[0].asset.name || 'Untitled'}"`
-          : `Deleted ${removed.length} assets`,
+          ? `Deleted asset "${removed[0].name || 'Untitled'}"${tasksStay ? '. Its tasks stay.' : ''}`
+          : `Deleted ${removed.length} assets${tasksStay ? '. Their tasks stay.' : ''}`,
         () => undoHistoryEntry(token),
       );
     }
@@ -3867,6 +3828,12 @@ export function RabbitProvider({ children }) {
       || (i.entity_type === 'shot' && childIds.has(i.entity_id));
     const taskItemsGone = (bundleRef.current.taskItems || []).filter(namesGone).map(i => ({ ...i }));
     const sceneItems = items.filter(i => i.scene_id === id).map(i => ({ ...i }));
+    // VW1m (2026-10-16): where the backend keeps items the task rows' single
+    // fields are the older apps' copy, which the backend writes and nothing
+    // here reads, so the delete leaves them alone (the items' sweep above is
+    // the whole change); where it keeps none, the fields ARE the links, nulled
+    // as before (0040's SET NULL) and put back by the undo.
+    const itemsKept = taskItemsOnRef.current;
     const sceneTaskIds = tasks.filter(t => t.scene_id === id).map(t => t.id);
     const shotRestore = childShots.map(sh => ({
       shot: sh,
@@ -3880,7 +3847,7 @@ export function RabbitProvider({ children }) {
         shots: prev.shots.filter(s => !childIds.has(s.id)),
         shotListItems: (prev.shotListItems || []).filter(i => i.scene_id !== id && !childIds.has(i.shot_id)),
         taskItems: (prev.taskItems || []).filter(i => !namesGone(i)),
-        tasks: prev.tasks.map(t => {
+        tasks: itemsKept ? prev.tasks : prev.tasks.map(t => {
           if (t.scene_id !== id && !childIds.has(t.shot_id)) return t;
           return {
             ...t,
@@ -4004,12 +3971,15 @@ export function RabbitProvider({ children }) {
     // replaceShotTakes after the shot — exact on every backend, as
     // removeBinFiles' undo does for a clip's takes.
     const takesBefore = (bundleRef.current.shotTakes || []).filter(t => t.shot_id === id).map(t => ({ ...t }));
+    // VW1m (2026-10-16): as deleteScene, the raw shot_id is nulled only where
+    // the backend keeps no items (where it does, it is the older apps' copy).
+    const itemsKept = taskItemsOnRef.current;
     const result = await optimistic(
       prev => ({
         ...prev,
         shots: prev.shots.filter(s => s.id !== id),
         shotListItems: (prev.shotListItems || []).filter(i => i.shot_id !== id),
-        tasks: prev.tasks.map(t => (t.shot_id === id ? { ...t, shot_id: null } : t)),
+        tasks: itemsKept ? prev.tasks : prev.tasks.map(t => (t.shot_id === id ? { ...t, shot_id: null } : t)),
         taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'shot' && i.entity_id === id)),
       }),
       () => adapterRef.current.deleteShot(id, activeProjectId),
@@ -4473,26 +4443,51 @@ export function RabbitProvider({ children }) {
     return finalRow;
   }, [activeProjectId]);
 
-  // FX2 (0096): where the backend keeps a task's items, a new task's single
-  // links (asset_id, scene_id, shot_id, level_id, experience_id — every
-  // creator still sends them) become its first items: the row is written
-  // without them, then one item per link, one undo step for all of it. The
-  // backend sets the row's columns from the items; ctx.tasks reads them from
-  // the items at once. Without items (a cloud before 0096, Drive), the row
-  // carries them as before. Answers the row with the links it was given.
+  // FX2 (0096): where the backend keeps a task's items, a new task's links
+  // become its items: the row is written without them, then one item per
+  // link, one undo step for all of it. VW1m (2026-10-16): the links come as
+  // the single fields (asset_id, scene_id, shot_id, level_id, experience_id:
+  // a template, intake, the one-of-each New task forms, history's recreate)
+  // and as `items` ({ asset: [ids], scene: [...], … }: a task made from a
+  // combination row or group, her batch 14 note "a new task made from a row
+  // starts with its items"), each made an item, add-only (a field naming an
+  // id the list holds is one item). Without items (a cloud before 0096,
+  // Drive) the row carries one link per kind as before: its field, else the
+  // first of its list. Answers the row as written, with no link field where
+  // items are kept (as ctx.tasks reads it).
   const addTask = useCallback(async (task) => {
-    if (!taskItemsOnRef.current || !task || typeof task !== 'object') return addTaskRow(task);
-    const links = linkFieldsIn(task);
-    const wanted = Object.keys(links).filter(f => links[f] != null && links[f] !== '');
-    if (wanted.length === 0) return addTaskRow(withoutLinkFields(task));
+    if (!task || typeof task !== 'object') return addTaskRow(task);
+    const { items: listed, ...row } = task;
+    const lists = listed && typeof listed === 'object' && !Array.isArray(listed) ? listed : {};
+    const fields = linkFieldsIn(row);
+    if (!taskItemsOnRef.current) {
+      const one = {};
+      for (const kind of ITEM_KINDS) {
+        const f = KIND_FIELD[kind];
+        const first = Array.isArray(lists[kind]) ? lists[kind].find(id => id != null && id !== '') : null;
+        if ((fields[f] == null || fields[f] === '') && first != null) one[f] = first;
+      }
+      return addTaskRow({ ...row, ...one });
+    }
+    const wanted = [];
+    for (const kind of ITEM_KINDS) {
+      const ids = [];
+      const f = KIND_FIELD[kind];
+      if (fields[f] != null && fields[f] !== '') ids.push(fields[f]);
+      for (const id of Array.isArray(lists[kind]) ? lists[kind] : []) {
+        if (id != null && id !== '' && !ids.some(x => String(x) === String(id))) ids.push(id);
+      }
+      ids.forEach((id, n) => wanted.push({ kind, id, position: n }));
+    }
+    if (wanted.length === 0) return addTaskRow(withoutLinkFields(row));
     return runBatch(async () => {
       const batch = historyRef.current.batch;
       const mark = batch ? batch.entries.length : 0;
-      const created = await addTaskRow(withoutLinkFields(task));
+      const created = await addTaskRow(withoutLinkFields(row));
       try {
-        for (const f of wanted) {
+        for (const w of wanted) {
           await mutationsRef.current.addTaskItem({
-            task_id: created.id, entity_type: FIELD_KIND[f], entity_id: links[f], position: 0,
+            task_id: created.id, entity_type: w.kind, entity_id: w.id, position: w.position,
           });
         }
       } catch (err) {
@@ -4512,7 +4507,7 @@ export function RabbitProvider({ children }) {
         }));
         throw err;
       }
-      return { ...created, ...links };
+      return withoutLinkFields(created);
     });
   }, [addTaskRow, runBatch]);
 
@@ -4555,14 +4550,17 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, notePendingFields, clearPendingFields]);
 
-  // FX2 (0096): a single link written through updateTask — the Tasks table's
-  // asset cell, a kanban drag, the Timeline's editor, a bid version's open,
-  // the agent — is 0096 §7b's rule, run as item writes so every backend gets
-  // it (the cloud has no level or experience column) and Ctrl+Z takes back
-  // exactly it: a value the task already has moves first (nothing removed);
-  // a new value replaces the main item; a cleared one removes it (the next
-  // becomes main). Fields that already say the main item change nothing
-  // (the Timeline's editor re-sends all five on every save). One undo step.
+  // VW1m (2026-10-16): where the backend keeps items, updateTask never sends
+  // a link field to it. A link field in a patch (an older caller; edit
+  // history's old lines, which have no Revert now) is an older app's write
+  // of one field, run as item writes so every backend gets the same answer
+  // (planLegacyFieldWrite, 0097 §7b), ADD-ONLY against the value the field
+  // holds for an older app (copyFieldsFromItems: the task's first item of
+  // the kind in the order they were added): the same value, or one the task
+  // already has, writes nothing; a new value is added at the end; a cleared
+  // field removes only the item it named. Nothing moves. One undo step that
+  // puts the items back exactly. FX2's R2-3 refusal ("…cannot become the
+  // task's main asset") goes: no item is main, so nothing lands on a gone one.
   const updateTask = useCallback(async (id, patch) => {
     if (!taskItemsOnRef.current || !patch || typeof patch !== 'object'
         || !LINK_FIELDS.some(f => Object.prototype.hasOwnProperty.call(patch, f))) {
@@ -4570,35 +4568,24 @@ export function RabbitProvider({ children }) {
     }
     const links = linkFieldsIn(patch);
     const rest = withoutLinkFields(patch);
-    const current = linkFieldsFromItems(itemsOfTask(bundleRef.current.taskItems || [], id));
-    const norm = (v) => (v == null || v === '' ? '' : String(v));
-    const changed = Object.keys(links).filter(f => norm(links[f]) !== norm(current[f]));
-    if (changed.length === 0) {
+    const items = bundleRef.current.taskItems || [];
+    const copy = copyFieldsFromItems(itemsOfTask(items, id));
+    const make = (base) => ({ id: uuidv4(), created_at: new Date().toISOString(), ...base });
+    const plans = Object.keys(links)
+      .map(f => planLegacyFieldWrite(items, id, FIELD_KIND[f], links[f], copy[f], make))
+      .filter(p => p.remove.length || p.insert);
+    if (plans.length === 0) {
       if (Object.keys(rest).length) return updateTaskFields(id, rest);
-      return (bundleRef.current.tasks || []).find(t => t.id === id);
-    }
-    // Review round 2 (R2-3): a write that would make a row the project no
-    // longer shows the task's main one (the Tasks table's Asset cell set to
-    // none over [A, B-in-the-trash]; the Timeline's editor; the agent) is
-    // refused here, in words, BEFORE any field is written — the cloud refuses
-    // it anyway (a task whose main asset is trashed cannot be seen), and the
-    // editor's other fields went first.
-    for (const f of changed) {
-      const kind = FIELD_KIND[f];
-      if (!linkLandsOnGone(bundleRef.current, id, kind, links[f])) continue;
-      const title = (bundleRef.current.tasks || []).find(t => t.id === id)?.title || 'This task';
-      const word = KIND_LABEL[kind].toLowerCase();
-      const msg = links[f] == null || links[f] === ''
-        ? `“${title}”: its next ${word} is no longer in the project, so it cannot become the task's main ${word}. Remove that ${word} from the task's items first, or restore it.`
-        : `“${title}”: that ${word} is no longer in the project, so it cannot become the task's main ${word}.`;
-      setError(msg);
-      throw new Error(msg);
+      return withoutLinkFields((bundleRef.current.tasks || []).find(t => t.id === id));
     }
     return runBatch(async () => {
       let result;
       if (Object.keys(rest).length) result = await updateTaskFields(id, rest);
-      for (const f of changed) await applyLinkWrite(id, FIELD_KIND[f], links[f]);
-      return result ?? (bundleRef.current.tasks || []).find(t => t.id === id);
+      for (const p of plans) {
+        for (const r of p.remove) await mutationsRef.current.removeTaskItem(r.id);
+        if (p.insert) await mutationsRef.current.addTaskItem(p.insert);
+      }
+      return result ?? withoutLinkFields((bundleRef.current.tasks || []).find(t => t.id === id));
     });
   }, [updateTaskFields, runBatch]);
 
@@ -4894,14 +4881,14 @@ export function RabbitProvider({ children }) {
   // ── A task's items (FX2, migration 0096) ─────────────────
   // The assets, scenes, shots, levels and experiences a task is about — NOT
   // the URL links above. Each kind's first item (position, created_at, id)
-  // is the task's MAIN item of that kind, and ctx.tasks reads every task's
-  // five single fields from its items (withItemLinks), so the Timeline, the
-  // Budget and every reader that groups or sums by one link see the main
-  // item, on every backend. The backends keep their own stored columns in
-  // step (0096's triggers; electron/rabbitTaskItems.cjs; the fixtures).
+  // VW1m (2026-10-16): no item of a kind counts for more than another. The
+  // screens read a task's items through the model's lookup (buildItemLookup),
+  // and ctx.tasks carries no single link field where the backend keeps items
+  // (tasksView below). The backends keep the older apps' copy in their own
+  // stored columns (0097 §7a; electron/rabbitTaskItems.cjs; the fixtures).
   function requireTaskItemsOn() {
     if (taskItemsOnRef.current) return;
-    const err = new Error("A task's items are not on this database yet (migration 0096). The task keeps its one asset, scene and shot until they are.");
+    const err = new Error("This database cannot keep several assets, scenes or shots on a task yet (migration 0096 is not on it). Each task keeps one of each until it is.");
     err.code = 'task_items_unavailable';
     setError(err.message);
     throw err;
@@ -4914,8 +4901,9 @@ export function RabbitProvider({ children }) {
   // load — a bid version's open reviving it (the backend re-made or un-hid
   // its items: 0096 §7c's seed, the restore), an undo restoring it from the
   // trash — arrives with no items in this bundle. Read the project's items
-  // and take these tasks' from the answer, so the Items table, ctx.tasks and
-  // the next edit see them. A failed read leaves the rows' own links standing.
+  // and take these tasks' from the answer, so the Items table and the next
+  // edit see them. A failed read is remembered (itemsUnreadRef): the bid
+  // snapshot then keeps those tasks' own single fields.
   async function refreshItemsOfTasks(taskIds) {
     if (!taskItemsOnRef.current) return;
     const ids = new Set((taskIds || []).filter(id => id != null).map(String));
@@ -4929,13 +4917,15 @@ export function RabbitProvider({ children }) {
       rows = await a.listTaskItems(pid);
     } catch (err) {
       console.warn('[rabbit] the items of a task brought back were not read:', err?.message || err);
+      for (const id of ids) itemsUnreadRef.current.add(id);
       return;
     }
     if (projectVisitRef.current !== visit || activeProjectIdRef.current !== pid) return;
+    for (const id of ids) itemsUnreadRef.current.delete(id);
     const theirs = (Array.isArray(rows) ? rows : []).filter(i => i && ids.has(String(i.task_id)));
     const merge = (b) => ({ ...b, taskItems: [...(b.taskItems || []).filter(i => !ids.has(String(i.task_id))), ...theirs] });
     setBundle(merge);
-    bundleRef.current = linksInStep(bundleRef.current, merge(bundleRef.current), true);
+    bundleRef.current = merge(bundleRef.current);
   }
 
   function settleItemRow(localId, stored) {
@@ -5015,60 +5005,91 @@ export function RabbitProvider({ children }) {
     }, visit);
   }, [optimistic, activeProjectId]);
 
-  // One kind of one task: the named ids first in that order, every other
-  // item of the kind after in its order, positions dense from 0 (0096 §6).
-  const reorderTaskItems = useCallback(async (taskId, kind, orderedIds) => {
+  // VW1m review round 1 (R1-1): a task's item ids of a kind whose row the
+  // project does not show: the bundle's assets, scenes and shots (every row,
+  // not the active list's), levels and experiences, as ctx.assets,
+  // ctx.allScenes, ctx.allShots, ctx.levels and ctx.experiences.
+  function hiddenItemIdsOf(taskId, kind) {
+    const b = bundleRef.current;
+    const rows = { asset: b.assets, scene: b.scenes, shot: b.shots, level: b.levels, experience: b.experiences }[kind];
+    const live = new Set((rows || []).map(r => String(r.id)));
+    return itemsOfTask(b.taskItems || [], taskId, kind).map(i => i.entity_id).filter(id => !live.has(String(id)));
+  }
+
+  // VW1m (2026-10-16): make a task's items of one kind exactly `ids` — a
+  // drop on a group or a Timeline row (her Q-D1: the row's items become the
+  // task's), a bid version's open (Q-N7). The model's planSetKind: the others
+  // go, the missing are added at the end in the order given, the ones kept
+  // never move. ONE undoable write: its sub-steps (each a registered item
+  // verb) land as one step, whose undo takes out what it added and puts back
+  // the exact rows it removed (same id, position and created_at). Added
+  // first, then removed, so a task never reads "No asset" between the two.
+  // FX2's reorderTaskItems leaves the client: her Q-N1 took the Move buttons
+  // away, and nothing else ordered a task's items.
+  // VW1m review round 1 (R1-1): an item whose row the project does not show
+  // (in the trash, or not loaded) is kept, whatever `ids` says: every screen
+  // hides it (her Q-N4: hidden, back on restore), so no caller can name it.
+  // A Tasks table or Board drop passed the group's live ids only and took an
+  // asset in the trash off its task for good; kept here, every caller is safe
+  // (a drop, a Timeline row, a version's open).
+  const setTaskItemsOfKind = useCallback(async (taskId, kind, ids) => {
     requireTaskItemsOn();
     if (!isItemKind(kind)) {
       const msg = `${kind} is not a kind of item (asset, scene, shot, level, experience)`;
       setError(msg);
       throw new Error(msg);
     }
-    const visit = projectVisitRef.current;
-    const before = itemsOfTask(bundleRef.current.taskItems || [], taskId, kind).map(i => i.id);
-    if (planReorder(bundleRef.current.taskItems || [], taskId, kind, orderedIds).length === 0) return [];
-    const result = await optimistic(
-      prev => ({
-        ...prev,
-        taskItems: applyPositions(prev.taskItems || [], planReorder(prev.taskItems || [], taskId, kind, orderedIds)),
-      }),
-      () => adapterRef.current.reorderTaskItems(activeProjectId, taskId, kind, orderedIds),
-    );
-    pushHistory({
-      undoOps: [() => mutationsRef.current.reorderTaskItems(taskId, kind, before)],
-      redoOps: [() => mutationsRef.current.reorderTaskItems(taskId, kind, orderedIds)],
-    }, visit);
-    return result;
-  }, [optimistic, activeProjectId]);
-
-  // Review round 2 (R2-3): would this single-field write leave a row the
-  // project no longer shows (the cloud: in the trash) as the task's main one?
-  function linkLandsOnGone(b, taskId, kind, value) {
-    const lands = mainAfterLinkWrite(b?.taskItems || [], taskId, kind, value);
-    if (lands == null) return false;
-    const rows = { asset: b?.assets, scene: b?.scenes, shot: b?.shots, level: b?.levels, experience: b?.experiences }[kind];
-    return !(rows || []).some(r => r && String(r.id) === String(lands));
-  }
-
-  // 0096 §7b for one kind, as item writes (updateTask's single links). The
-  // order the rule asks for is checked against the plan, never against
-  // bundleRef (which catches up only after a render).
-  async function applyLinkWrite(taskId, kind, value) {
-    const items = bundleRef.current.taskItems || [];
-    const main = itemsOfTask(items, taskId, kind)[0] || null;
     const make = (base) => ({ id: uuidv4(), created_at: new Date().toISOString(), ...base });
-    const plan = planSingleFieldWrite(items, taskId, kind, value, main ? main.entity_id : null, make);
-    for (const r of plan.remove) await mutationsRef.current.removeTaskItem(r.id);
-    if (plan.insert) await mutationsRef.current.addTaskItem(plan.insert);
-    if (plan.order) {
-      const gone = new Set(plan.remove.map(r => r.id));
-      const after = items.filter(i => !gone.has(i.id)).concat(plan.insert ? [plan.insert] : []);
-      const first = itemsOfTask(after, taskId, kind)[0] || null;
-      if (!first || first.id !== plan.order[0]) {
-        await mutationsRef.current.reorderTaskItems(taskId, kind, plan.order);
-      }
+    const want = [...(Array.isArray(ids) ? ids : []), ...hiddenItemIdsOf(taskId, kind)];
+    const plan = planSetKind(bundleRef.current.taskItems || [], taskId, kind, want, make);
+    if (!plan.remove.length && !plan.insert.length) return { added: 0, removed: 0 };
+    return runBatch(async () => {
+      for (const row of plan.insert) await mutationsRef.current.addTaskItem(row);
+      for (const row of plan.remove) await mutationsRef.current.removeTaskItem(row.id);
+      return { added: plan.insert.length, removed: plan.remove.length };
+    });
+  }, [runBatch]);
+
+  // VW1m review round 1 (R1-5): the PERSON's set — a drop on the Tasks
+  // table, the Board or a Timeline row — waits its turn in the undo queue,
+  // queued before its first await, as the version steps are (S5c R1-02):
+  // runWithUndoToast reads the step's own entry from there. Run beside an
+  // undo, it wrote into the replay, which recorded none of it (history
+  // `suspended`), and its toast was never offered. Refused in words while a
+  // replay still runs past the queue's wait (refuseWhileReplaying). The raw
+  // verb stays in mutationsRef for a version's open (already inside the
+  // queue: queued there, it would wait on itself).
+  const setTaskItemsOfKindQueued = useCallback((taskId, kind, ids) => inHistoryQueue(() => {
+    try {
+      refuseWhileReplaying();
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
-  }
+    return setTaskItemsOfKind(taskId, kind, ids);
+  }), [setTaskItemsOfKind]);
+
+  // VW1m review round 2 (R2-3): a Timeline drop — a task's items of one kind
+  // or more (`writes`: [[kind, ids], …]; by scene, its scenes and its shots)
+  // — as ONE undo step queued WHOLE, as openBudgetVersion is: the batch runs
+  // inside the queue and calls the raw verb. The Timeline ran ctx.runBatch
+  // around the queued verb, so the batch was open from the drop while its
+  // step waited its turn: an edit made in that wait landed in the drop's
+  // step, and an undo that ran in it was swallowed (undo stands down while a
+  // batch is open). Refused in words while a replay still runs, as above.
+  const setTaskItemsOfKindsQueued = useCallback((taskId, writes) => inHistoryQueue(() => {
+    try {
+      refuseWhileReplaying();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+    return runBatch(async () => {
+      const out = [];
+      for (const [kind, ids] of Array.isArray(writes) ? writes : []) out.push(await setTaskItemsOfKind(taskId, kind, ids));
+      return out;
+    });
+  }), [setTaskItemsOfKind, runBatch]);
 
   // ── Team assignments (project-scoped) ────────────────────
   // Each assignment: { id, project_id, member_id, role: 'member' | 'manager' | 'reviewer' }
@@ -6914,6 +6935,11 @@ export function RabbitProvider({ children }) {
   // (deletePhase takes only the phase and its edges, never its tasks); its
   // redo restores and writes again, so it survives the trash its undo made.
   // logged_days is never in the row (planOpen's fields).
+  // VW1m (2026-10-16): where the backend keeps items a re-made task's row
+  // goes without its single links (the cloud seeded only its asset, scene
+  // and shot from them, and dropped its level and experience); its items,
+  // every kind, are written as items by the open after it (plan.items,
+  // loadVersionIntoLive), the same on every backend.
   const REVIVE = {
     task:      { key: 'tasks',      restore: 'restoreTask',      upsert: 'upsertTask',      del: 'deleteTask' },
     phase:     { key: 'phases',     restore: 'restorePhase',     upsert: 'upsertPhase',     del: 'deletePhase' },
@@ -6927,7 +6953,9 @@ export function RabbitProvider({ children }) {
     if (typeof a[k.restore] === 'function') {
       try { await a[k.restore](row.id, pid); } catch { /* not in the trash: the write below inserts it */ }
     }
-    const wire = { project_id: pid, ...row };
+    const wire = kind === 'task' && taskItemsOnRef.current
+      ? withoutLinkFields({ project_id: pid, ...row })
+      : { project_id: pid, ...row };
     let saved;
     try {
       saved = await a[k.upsert](wire);
@@ -7167,11 +7195,41 @@ export function RabbitProvider({ children }) {
   function liveBudgetSnapshot({ roleRates, shotList, previous }) {
     const b = bundleRef.current;
     return snapshotFromLive({
-      tasks: b.tasks, phases: b.phases, milestones: b.milestones, project: b.project,
+      ...snapshotTaskRows(b), phases: b.phases, milestones: b.milestones, project: b.project,
       roleRates: roleRates || {}, shotList,
       savedAt: new Date().toISOString(), savedBy: versionWho(),
       previous: previous?.snapshot || null, previousName: previous?.name || null,
     });
+  }
+
+  /**
+   * VW1m (2026-10-16), Q-N7 (batch 16, not yet asked; interim: a version
+   * keeps every item of every kind): what snapshotFromLive reads of the
+   * tasks of a bundle — the rows, their items, and the tasks whose items
+   * this window could not read.
+   * Where the backend keeps items each row's five single fields are set to
+   * the older apps' copy its items say (copyFieldsFromItems), so a build that
+   * reads only those still finds one of each; the version's `items` beside
+   * them are what this app reads. A task brought back whose items were not
+   * read (itemsUnreadRef) and that has none here keeps its row's own fields,
+   * saved without `items`. Where the backend keeps none, the rows as stored.
+   * VW1m review round 2 (R2-1): the LIVE items only (hiddenItemIdsOf's rule,
+   * knownRowIds): one whose row is in the trash, or not loaded, is the
+   * task's, hidden while there, and no part of a bid — kept, an asset added
+   * and then deleted read "Unsaved changes" that no open could clear.
+   */
+  function snapshotTaskRows(b) {
+    if (!taskItemsOnRef.current) return { tasks: b.tasks || [], items: null };
+    const all = b.taskItems || [];
+    const allByTask = indexItemsByTask(all);
+    const unread = [...itemsUnreadRef.current].filter(id => !allByTask.has(String(id)));
+    const items = liveItemsOnly(all, knownRowIds(b));
+    const byTask = indexItemsByTask(items);
+    const skip = new Set(unread.map(String));
+    const tasks = (b.tasks || []).map(t => (t && !skip.has(String(t.id))
+      ? { ...t, ...copyFieldsFromItems(byTask.get(String(t.id)) || []) }
+      : t));
+    return { tasks, items, itemsUnknown: unread };
   }
   function shotListById(id) {
     return id ? ((bundleRef.current.shotLists || []).find(l => l.id === id) || null) : null;
@@ -7412,7 +7470,8 @@ export function RabbitProvider({ children }) {
         await mutationsRef.current.selectBudgetVersion(id);
         still();
         await mutationsRef.current.setOpenBudgetVersion(id);
-        return { id, plan };
+        // VW1m: the links it left out are said (runWithUndoToast's `note`).
+        return { id, plan, note: leftOutWords(plan) };
       } catch (err) {
         // R1-05: after a project switch the steps that landed belong to the
         // project this began on, whose undo stack is gone — Undo cannot reach
@@ -7458,6 +7517,30 @@ export function RabbitProvider({ children }) {
    */
   function refuseWhileReplaying() {
     if (historyRef.current.suspended) throw new Error('an Undo is still running — try again once it has finished');
+  }
+
+  /**
+   * The ids of the rows a bid version's links may name now (planOpen's
+   * `known`): a link to one that is gone is left out of an open, never
+   * written (the cloud's same-project keys would refuse it). VW1m: levels
+   * and experiences too, now a version keeps every kind of item.
+   */
+  function knownRowIds(b) {
+    const ids = (rows) => new Set((rows || []).map(r => String(r.id)));
+    return { scenes: ids(b.scenes), shots: ids(b.shots), assets: ids(b.assets), levels: ids(b.levels), experiences: ids(b.experiences) };
+  }
+
+  /**
+   * VW1m (2026-10-16): an open's words for the links it left out
+   * (plan.droppedLinks, counted since S5 and never said), appended to its
+   * toast by runWithUndoToast (`note`). '' when none.
+   */
+  function leftOutWords(plan) {
+    const n = Math.max(0, Number(plan?.droppedLinks) || 0);
+    if (!n) return '';
+    return n === 1
+      ? '1 link was left out: what it names is no longer in the project.'
+      : `${n} links were left out: what they name is no longer in the project.`;
   }
 
   /**
@@ -7507,11 +7590,8 @@ export function RabbitProvider({ children }) {
       setAside: { tasks: b.setAsideTasks, phases: b.setAsidePhases, milestones: b.setAsideMilestones },
       keep: opts.keep || null,
       project: b.project, roleRates: opts.roleRates || {},
-      known: {
-        scenes: new Set((b.scenes || []).map(r => String(r.id))),
-        shots: new Set((b.shots || []).map(r => String(r.id))),
-        assets: new Set((b.assets || []).map(r => String(r.id))),
-      },
+      known: knownRowIds(b),
+      items: taskItemsOnRef.current ? (b.taskItems || []) : null,
     });
     // Brought back BEFORE their patches: a patch reads the live row.
     if (countRows(plan.bringBack)) { await m.setAsideRows(false, plan.bringBack); still(); }
@@ -7519,20 +7599,28 @@ export function RabbitProvider({ children }) {
     for (const u of plan.phases.update) { await m.updatePhase(u.id, u.patch); still(); }
     for (const row of plan.tasks.create) { await reviveBudgetRow('task', row, { items: false }); still(); }
     if (plan.tasks.create.length) { await refreshItemsOfTasks(plan.tasks.create.map(r => r.id)); still(); }
-    for (const u of plan.tasks.update) {
-      // Review round 2 (R2-3): a link the version would set that makes a row
-      // the project no longer shows the task's main one (its saved "no
-      // asset" over [A, B-in-the-trash]) is left out and counted, as planOpen
-      // leaves out a link to a row that is gone: opening never stops half
-      // way for it, and the cloud would refuse it.
-      const patch = { ...u.patch };
-      if (taskItemsOnRef.current) {
-        for (const f of LINK_FIELDS) {
-          if (!Object.prototype.hasOwnProperty.call(patch, f)) continue;
-          if (linkLandsOnGone(bundleRef.current, u.id, FIELD_KIND[f], patch[f])) { delete patch[f]; plan.droppedLinks += 1; }
-        }
+    for (const u of plan.tasks.update) { await m.updateTask(u.id, u.patch); still(); }
+    // VW1m (2026-10-16), Q-N7 interim: each held task's items, after the
+    // re-made ones' were read. A version saved with them makes each kind
+    // exactly the version's (setTaskItemsOfKind): a row it names that is gone
+    // is left out and counted, unless the task still has it (an asset in the
+    // trash: hidden, never taken off by an open). A version saved before puts
+    // back its saved item where the task lost it and removes nothing. FX2's
+    // R2-3 guard goes with the main item it guarded. Review round 1 (R1-1):
+    // setTaskItemsOfKind keeps every hidden item itself, one the version never
+    // held too; `kept` here only keeps the count of what was left out true.
+    // Review round 2 (R2-1): planOpen measures the version against the
+    // task's live items (`known`), so a hidden item alone writes nothing.
+    for (const w of plan.items || []) {
+      if (w.exact) {
+        const has = new Set(itemsOfTask(bundleRef.current.taskItems || [], w.id, w.kind).map(i => String(i.entity_id)));
+        const kept = (w.gone || []).filter(id => has.has(String(id)));
+        plan.droppedLinks -= kept.length;
+        await m.setTaskItemsOfKind(w.id, w.kind, [...w.ids, ...kept]);
+      } else {
+        for (const id of w.ids) await m.addTaskItem({ task_id: w.id, entity_type: w.kind, entity_id: id });
       }
-      if (Object.keys(patch).length) { await m.updateTask(u.id, patch); still(); }
+      still();
     }
     for (const row of plan.milestones.create) { await reviveBudgetRow('milestone', row); still(); }
     for (const u of plan.milestones.update) { await m.updateMilestone(u.id, u.patch); still(); }
@@ -7569,8 +7657,9 @@ export function RabbitProvider({ children }) {
       const m = mutationsRef.current;
       const landed = landedSince();
       try {
+        let plan = null;
         if (readVersion(v).hasTimeline) {
-          await loadVersionIntoLive(v, opts, still);
+          plan = await loadVersionIntoLive(v, opts, still);
           still();
         } else if (bundleRef.current.project?.open_budget_version_id) {
           await m.setOpenBudgetVersion(null);
@@ -7581,6 +7670,8 @@ export function RabbitProvider({ children }) {
         await m.stampBudgetVersionLock(id, true);
         still();
         await m.setProjectBudgetFields({ budget_active: true, budget_active_version_id: id, budget_finalized: true });
+        // VW1m: the links its load left out are said, as an open's are.
+        return { id, plan, note: leftOutWords(plan) };
       } catch (err) {
         // S5c review round 1 (R1-01): worded as what it is, as an open's is.
         // The lock is the last write, so a stop before it leaves none.
@@ -7840,10 +7931,13 @@ export function RabbitProvider({ children }) {
       : (!read.hasTimeline ? 'no timeline captured' : null);
     const openV = versions.find(r => r.id === (b.project?.open_budget_version_id || null)) || null;
     const liveRows = { tasks: b.tasks || [], phases: b.phases || [], milestones: b.milestones || [] };
-    const liveSnap = snapshotFromLive({ ...liveRows, project: b.project, roleRates });
+    // VW1m: the same diff and plan as the open's — each task's items (Q-N7).
+    // Review round 2 (R2-1): the live items only, on both sides (`known`).
+    const known = knownRowIds(b);
+    const liveSnap = snapshotFromLive({ ...liveRows, ...snapshotTaskRows(b), project: b.project, roleRates });
     const listed = (ver) => (liveShotListId === undefined ? {} : { shotListId: ver.shot_list_id ?? null, liveShotListId });
-    const openDirty = openV ? versionDiff(openV.snapshot, liveSnap, listed(openV)).isDirty : false;
-    const matchesSome = versions.some(r => readVersion(r).hasTimeline && !versionDiff(r.snapshot, liveSnap).isDirty);
+    const openDirty = openV ? versionDiff(openV.snapshot, liveSnap, { ...listed(openV), known }).isDirty : false;
+    const matchesSome = versions.some(r => readVersion(r).hasTimeline && !versionDiff(r.snapshot, liveSnap, { known }).isDirty);
     const inNoVersion = rowsInNoVersion(liveRows, versions);
     const unsaved = openV
       ? (openDirty ? { kind: 'open', version: openV, inNoVersion, work: workOfRows(inNoVersion) } : null)
@@ -7857,6 +7951,7 @@ export function RabbitProvider({ children }) {
       plan = planOpen(v.snapshot, {
         ...live, setAside: { tasks: b.setAsideTasks, phases: b.setAsidePhases, milestones: b.setAsideMilestones },
         keep, project: b.project, roleRates,
+        known, items: taskItemsOnRef.current ? (b.taskItems || []) : null,
       });
       for (const k of SCHEDULE_KINDS) {
         const away = new Set(plan.setAside[k].map(String));
@@ -7933,7 +8028,11 @@ export function RabbitProvider({ children }) {
       offer('Stopped part way: Undo takes back what changed', { hold: true });
       throw err;
     }
-    offer(typeof words === 'function' ? words(out) : words);
+    // VW1m (2026-10-16): a step whose answer carries a `note` (an open's or
+    // a lock's links left out, leftOutWords) says it after its own words.
+    const said = typeof words === 'function' ? words(out) : words;
+    const note = typeof out?.note === 'string' ? out.note : '';
+    offer(said && note ? `${said}. ${note}` : said);
     return out;
   }, [showUndoToast, undoHistoryEntry]);
 
@@ -8041,10 +8140,10 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.unlinkTasks  = unlinkTasks;
   mutationsRef.current.addTaskLink  = addTaskLink;
   mutationsRef.current.removeTaskLink = removeTaskLink;
-  // FX2 (0096): a task's items.
-  mutationsRef.current.addTaskItem      = addTaskItem;
-  mutationsRef.current.removeTaskItem   = removeTaskItem;
-  mutationsRef.current.reorderTaskItems = reorderTaskItems;
+  // FX2 (0096): a task's items. VW1m: setTaskItemsOfKind (a drop, an open).
+  mutationsRef.current.addTaskItem        = addTaskItem;
+  mutationsRef.current.removeTaskItem     = removeTaskItem;
+  mutationsRef.current.setTaskItemsOfKind = setTaskItemsOfKind;
   mutationsRef.current.addScene       = addScene;
   mutationsRef.current.updateScene    = updateScene;
   mutationsRef.current.deleteScene    = deleteScene;
@@ -8224,10 +8323,15 @@ export function RabbitProvider({ children }) {
 
   // ── A task's items (FX2, 0096): what every screen reads ──
   // Whether this backend keeps them (the cloud answers false once a load has
-  // found no 0096; Drive has no items), and the tasks with their five single
-  // fields read from their items — the main item of each kind. Every reader
-  // that groups or sums by one link (the Timeline, the Budget) sees the main
-  // item; the relation readers list every item (tasksAbout).
+  // found no 0096; Drive has no items), and the tasks every screen reads.
+  // VW1m (2026-10-16): where items are kept, ctx.tasks carries NO single
+  // link field (asset_id, scene_id, shot_id, level_id, experience_id): those
+  // are the older apps' copy, and a reader that still read one would see
+  // "No asset" in a test instead of a hidden main item. Screens read
+  // ctx.taskItems through the model's lookup (buildItemLookup). Each row is
+  // stripped once and kept by identity (a WeakMap), so a task that did not
+  // change hands every memo the same object. Where items are not kept, the
+  // stored rows as they are (each field is the task's one item of its kind).
   const taskItemsOn = useMemo(
     () => typeof adapterRef.current?.taskItemsAvailable === 'function'
       && adapterRef.current.taskItemsAvailable() === true,
@@ -8236,15 +8340,26 @@ export function RabbitProvider({ children }) {
     [bundle, adapterMode],
   );
   taskItemsOnRef.current = taskItemsOn;
-  const tasksView = useMemo(
-    () => withItemLinks(bundle.tasks, bundle.taskItems, taskItemsOn),
-    [bundle.tasks, bundle.taskItems, taskItemsOn],
-  );
+  const strippedTasksRef = useRef(new WeakMap());
+  const tasksView = useMemo(() => {
+    if (!taskItemsOn) return bundle.tasks;
+    const memo = strippedTasksRef.current;
+    return (bundle.tasks || []).map((t) => {
+      if (!t || typeof t !== 'object') return t;
+      let out = memo.get(t);
+      if (!out) {
+        out = LINK_FIELDS.some(f => Object.prototype.hasOwnProperty.call(t, f)) ? withoutLinkFields(t) : t;
+        memo.set(t, out);
+      }
+      return out;
+    });
+  }, [bundle.tasks, taskItemsOn]);
 
   // ── Memoized selectors ──────────────────────────────────
   // FX2: a task ABOUT an asset (any of its items) counts for the asset's
-  // status and its warning — relations, never added into a total; the
-  // asset's variance is a sum, so it reads the task's MAIN asset.
+  // status and its warning — relations, never added into a total. VW1m: the
+  // asset's variance read the task's MAIN asset and no screen called it; it
+  // is gone, with the raw selectors that read tasks.asset_id.
   const memoSelectors = useMemo(() => {
     const aboutAsset = (assetId) => tasksAbout(tasksView, bundle.taskItems, 'asset', assetId, taskItemsOn);
     return {
@@ -8253,7 +8368,6 @@ export function RabbitProvider({ children }) {
       selectAssetDerivedStatus:   (assetId) => assetStatusOfTasks(aboutAsset(assetId)),
       selectAssetStatusWarning:   (asset)   => assetWarningOfTasks(asset, asset ? aboutAsset(asset.id) : []),
       selectCriticalPath:         ()        => selectCriticalPath(tasksView, bundle.dependencies),
-      selectVarianceForAsset:     (assetId) => selectVarianceForAsset(tasksView, assetId),
       selectVarianceForProject:   ()        => selectVarianceForProject(tasksView),
       selectProjectBudgetRollup:  (opts = {}) => selectProjectBudgetRollup({
         tasks:    tasksView,
@@ -8285,7 +8399,7 @@ export function RabbitProvider({ children }) {
     project:       bundle.project,
     phases:        bundle.phases,
     assets:        bundle.assets,
-    // FX2 (0096): each task's five single fields read from its items.
+    // VW1m (2026-10-16): no single link field where items are kept (tasksView).
     tasks:         tasksView,
     dependencies:  bundle.dependencies,
     taskLinks:     bundle.taskLinks,
@@ -8414,7 +8528,10 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask: deleteTaskVerb, deleteTasks: deleteTasksVerb,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
-    addTaskItem, removeTaskItem, reorderTaskItems,
+    // Review round 1 (R1-5): the person's set waits its turn in the undo queue.
+    addTaskItem, removeTaskItem, setTaskItemsOfKind: setTaskItemsOfKindQueued,
+    // Review round 2 (R2-3): a Timeline drop's sets, queued whole, one step.
+    setTaskItemsOfKinds: setTaskItemsOfKindsQueued,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
@@ -8546,7 +8663,7 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
-    addTaskItem, removeTaskItem, reorderTaskItems, tasksView, taskItemsOn,
+    addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
@@ -8593,13 +8710,12 @@ export function useRabbit() {
 }
 
 // Re-exports for direct selector use (testing, agent tools).
+// VW1m (2026-10-16): the raw selectors that read a task's single asset_id
+// (selectTasksByAsset, selectAssetDerivedStatus, selectAssetStatusWarning,
+// selectVarianceForAsset) are gone; ctx's item-aware ones stay.
 export {
   selectAssetsByPhase,
-  selectTasksByAsset,
   selectProjectBudgetRollup,
-  selectAssetDerivedStatus,
-  selectAssetStatusWarning,
   selectCriticalPath,
-  selectVarianceForAsset,
   selectVarianceForProject,
 } from './selectors';

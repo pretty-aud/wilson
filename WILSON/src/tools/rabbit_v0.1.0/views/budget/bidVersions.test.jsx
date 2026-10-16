@@ -291,6 +291,26 @@ describe('Save writes back INTO the open version (F2: "v2 mid ROM stays v2")', (
     // The discarded change never reached Bid v1.
     expect(ctx.budgetVersions.find(v => v.id === BV1).snapshot.tasks.find(t => t.id === task.id).bid_days).toBe(saved)
   })
+
+  // VW1m review round 2 (R2-1): the save row read every item a task has, a
+  // hidden one too: an asset added to a task and then deleted left
+  // "Unsaved changes" though nothing on screen differed. It reads the live
+  // items only; restoring the asset is a change again.
+  it('R2-1: an asset added and then deleted is no unsaved change; restored, it is one again', async () => {
+    await reset()
+    await run(() => ctx.createBudgetVersion({ name: 'V-r2-1', roleRates: RATES }))
+    const status = () => blockEl().querySelector('.rb-bv-open-status').textContent
+    expect(status()).not.toBe('Unsaved changes')
+    const T18 = TASK_ID(18)
+    const A3 = fid('asset', 3)
+    await run(() => ctx.addTaskItem({ task_id: T18, entity_type: 'asset', entity_id: A3 }))
+    expect(status()).toBe('Unsaved changes')
+    await run(() => ctx.deleteAsset(A3))
+    expect(status()).not.toBe('Unsaved changes')
+    await run(() => holder.adapter.restoreAsset(A3))
+    await run(() => ctx.reloadActiveProject())
+    expect(status()).toBe('Unsaved changes')
+  })
 })
 
 describe('ctx.runWithUndoToast — the Budget\'s one way back', () => {

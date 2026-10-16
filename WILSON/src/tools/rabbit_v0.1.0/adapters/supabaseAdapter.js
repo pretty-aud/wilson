@@ -60,6 +60,9 @@ import { hasLocalServer } from '../../../lib/localData';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 import { splitSetAside, isSetAside } from '../state/setAside';
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../state/shotListModel';
+// VW1m (2026-10-16): the Dashboard's items, named and ordered as every screen
+// reads them (withMyTaskItems).
+import { ITEM_KINDS, isItemKind, buildItemLookup } from '../state/taskItemsModel';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
 // Session 37: the workspace's CONFIGURED provider decides where a new body
 // goes (activeWorkspaceProvider over the cached workspace_storage row); 's3'
@@ -389,6 +392,11 @@ const TASK_COLUMNS = new Set([
   // (D9 names scene and shot only), so they keep being dropped and warned.
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'scene_id', 'shot_id',
+  // VW1m (2026-10-16, 0097): asset_id, scene_id and shot_id STAY. They are
+  // the older apps' copy of a task's items (each kind's first item in the
+  // stored order, written by 0097 §4); this app's provider no longer sends
+  // them, and an older app's write of one ADDS that item (0097 §3). A
+  // template's new task still names its asset here and 0096 §7c seeds it.
 ]);
 
 const ASSET_COLUMNS = new Set([
@@ -1971,24 +1979,105 @@ function listTaskItemsWith(client, projectId) {
     .order('task_id').order('entity_type').order('position').order('created_at').order('id'), probeTaskItems);
 }
 
+// VW1m (2026-10-16), the Dashboard (her Q-N6, interim: every item, "A, B"):
+// listMyTasks no longer embeds an asset through tasks.asset_id (the older
+// apps' copy, the first asset only). The listed tasks' items are read in one
+// request, then the rows they name, one request per kind, and each task
+// gains `items: [{ kind, id, name }]`: kinds in ITEM_KINDS order, each kind
+// in the model's display order, named as the task window names them (a shot
+// is "Scene › Shot"). Only what the caller's RLS shows is named, so an asset
+// in the trash is left out (her Q-N4: hidden, back on restore). Every read
+// tolerates what listMyTasks' own read tolerates: a database without 0096
+// answers no items; one without a kind's table names none of that kind.
+const MY_TASKS_TOLERATED = new Set(['42P01', 'PGRST205', '42703', 'PGRST204']);
+function unwrapMyTasksRead({ data, error }) {
+  if (error) {
+    if (MY_TASKS_TOLERATED.has(error.code)) return [];
+    lastError = error.message || String(error);
+    throw new Error(`[supabase] ${lastError}`);
+  }
+  return data || [];
+}
+// What each kind's name read selects: the name, and what the display order
+// reads (a scene's number; a shot's number and its scene). VW1m review round
+// 2 (R2-5): an asset's phase too, which its item carries (`phase_id`): the
+// Dashboard's Phase grouping falls back to the phase a task's assets share.
+const MY_TASK_ITEM_ROWS = Object.freeze({
+  asset:      ['assets', 'id, name, phase_id'],
+  scene:      ['scenes', 'id, name, scene_number'],
+  shot:       ['shots', 'id, name, shot_number, scene_id'],
+  level:      ['levels', 'id, name'],
+  experience: ['experiences', 'id, name'],
+});
+// VW1m review round 1 (R1-6): an `.in()` list rides the request's URL, and a
+// long one passes the gateway's limit, failing the whole Dashboard load. Each
+// in-list goes MY_TASKS_IN_CHUNK ids a request, one after another, the
+// answers joined in order.
+const MY_TASKS_IN_CHUNK = 100;
+async function readInChunks(ids, readChunk) {
+  const out = [];
+  for (let at = 0; at < ids.length; at += MY_TASKS_IN_CHUNK) {
+    out.push(...await readChunk(ids.slice(at, at + MY_TASKS_IN_CHUNK)));
+  }
+  return out;
+}
+async function withMyTaskItems(client, tasks) {
+  const taskIds = [...new Set(tasks.map(t => t?.id).filter(id => id != null))];
+  if (taskIds.length === 0) return tasks.map(t => ({ ...t, items: [] }));
+  // Paged in 0096's order (a total order, so no row straddles two pages);
+  // a task's items all come in its own chunk (R1-6).
+  const items = await readInChunks(taskIds, (chunk) => readAllPagesWith(() => client.from('task_items')
+    .select('id, task_id, entity_type, entity_id, position, created_at')
+    .in('task_id', chunk)
+    .order('task_id').order('entity_type').order('position').order('created_at').order('id'), unwrapMyTasksRead));
+  const named = {};
+  for (const i of items) {
+    if (!i || !isItemKind(i.entity_type) || i.entity_id == null) continue;
+    if (!named[i.entity_type]) named[i.entity_type] = new Set();
+    named[i.entity_type].add(String(i.entity_id));
+  }
+  const rowsOf = (kind, ids) => {
+    if (!ids || ids.size === 0) return Promise.resolve([]);
+    const [table, columns] = MY_TASK_ITEM_ROWS[kind];
+    return readInChunks([...ids], (chunk) => readAllPagesWith(() => client.from(table).select(columns)
+      .in('id', chunk).order('id'), unwrapMyTasksRead));
+  };
+  const [assets, shots, levels, experiences] = await Promise.all(
+    ['asset', 'shot', 'level', 'experience'].map(kind => rowsOf(kind, named[kind])));
+  // A shot is named under its scene and ordered by its scene's number, so
+  // the one scenes read takes the listed shots' scenes too.
+  const sceneIds = new Set(named.scene || []);
+  for (const s of shots) if (s?.scene_id != null) sceneIds.add(String(s.scene_id));
+  const scenes = await rowsOf('scene', sceneIds);
+  const lookup = buildItemLookup({ items, available: true, assets, scenes, shots, levels, experiences });
+  const assetPhase = new Map(assets.map(a => [String(a.id), a.phase_id ?? null]));
+  return tasks.map(t => ({
+    ...t,
+    items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => (kind === 'asset'
+      ? { kind, id, name: lookup.nameOf(kind, id), phase_id: assetPhase.get(String(id)) ?? null }
+      : { kind, id, name: lookup.nameOf(kind, id) }))),
+  }));
+}
+
+// VW1m (2026-10-16): this client calls no items function any more (the
+// reorder went with the Move buttons), so only the table is probed.
 function missing0096(error) {
-  if (error?.code === 'PGRST205' || error?.code === 'PGRST202') return true;
-  return (error?.code === '42P01' || error?.code === '42883')
-    && /\b(task_items|reorder_task_items)\b/.test(error.message || '');
+  if (error?.code === 'PGRST205') return true;
+  return error?.code === '42P01' && /\btask_items\b/.test(error.message || '');
 }
 
 // One error shape for every items write: `[supabase] ` + the database's
-// words, the SQLSTATE kept on `err.code`; a missing table or function
-// becomes task_items_unavailable AND records it, so the next write refuses
-// before any request.
-// FX2 review round 1 (R1-3): the two refusals an items write meets, in words.
-// `mainHidden`: 0096's trigger moved the task's main item onto a row the task
-// cannot stand on (a trashed asset hides its task, so the tasks UPDATE it
-// makes is refused). Matched on the table Postgres names; anything else keeps
-// Postgres' own words. err.code keeps the SQLSTATE either way.
+// words, the SQLSTATE kept on `err.code`; a missing table becomes
+// task_items_unavailable AND records it, so the next write refuses before
+// any request.
+// FX2 review round 1 (R1-3): the refusals an items write meets, in words,
+// matched on the table Postgres names; anything else keeps Postgres' own
+// words. err.code keeps the SQLSTATE either way. VW1m (2026-10-16): FX2's
+// third sentence went with the main item (0097 takes the asset arm out of
+// tasks_select, so the copy 0097 §4 writes can no longer hide its task); a
+// refusal on "tasks" keeps Postgres' words, as any refusal not named here.
 export const TASK_ITEMS_REFUSALS = Object.freeze({
   gate: 'You cannot change this task\'s items.',
-  mainHidden: 'WILSON could not make that the task\'s main item: it is in the trash or out of your reach. Remove it from the task first, or restore it.',
   // Review round 2 (R2-5): 0096 §7a locks the task row; a write of the task's
   // single column from another tab locks it first and then its items, so two
   // such writes can deadlock (40P01). Postgres takes one back whole.
@@ -2000,8 +2089,7 @@ function taskItemsWriteError(error) {
     return taskItemsUnavailable();
   }
   const text = String(error?.message || '');
-  const words = error?.code === '42501' && /table "tasks"/.test(text) ? TASK_ITEMS_REFUSALS.mainHidden
-    : error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
+  const words = error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
     : error?.code === '40P01' ? TASK_ITEMS_REFUSALS.collided
     : null;
   const err = new Error(words || `[supabase] ${text || String(error)}`);
@@ -2307,8 +2395,15 @@ export function supabaseAdapter() {
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
-          client.from('assets').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
-          client.from('tasks').select('*').eq('project_id', projectId).then(unwrap),
+          // VW1m review round 2 (R2-4): paged, as the scenes and shots are
+          // below. Cut at PostgREST's 1,000 rows, a feature-sized project lost
+          // its 1,001st asset (and VW1m hides an item whose row is not
+          // loaded) or task. Still strict (unwrap): a refusal fails the load.
+          // `id` closes each order, so no row straddles two pages.
+          readAllPagesWith(() => client.from('assets').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id'), unwrap),
+          readAllPagesWith(() => client.from('tasks').select('*').eq('project_id', projectId)
+            .order('id'), unwrap),
           listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           client.from('files').select('*').eq('project_id', projectId).then(unwrap),
@@ -2605,8 +2700,9 @@ export function supabaseAdapter() {
 
     // ── A task's items (FX2, migration 0096) ──────────────────
     // Not the URL links above: the assets, scenes, shots, levels and
-    // experiences a task is about. The database keeps tasks.asset_id /
-    // scene_id / shot_id equal to each kind's main item (0096 §7).
+    // experiences a task is about. VW1m (2026-10-16): a task's items are its
+    // items; tasks.asset_id / scene_id / shot_id are only the older apps'
+    // copy (0097 §4), which this client never reads or sends.
     taskItemsAvailable() {
       return !taskItemsAbsent;
     },
@@ -2649,21 +2745,10 @@ export function supabaseAdapter() {
       const { error } = await client.from('task_items').delete().eq('id', id);
       if (error) throw taskItemsWriteError(error);
     },
-    // One kind of one task, in one statement (reorder_task_items, SECURITY
-    // INVOKER): the named ids first, the rest after, dense from 0. Answers
-    // the rows that moved, in the shared shape.
-    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
-      requireTaskItems();
-      const client = await requireClient();
-      const { data, error } = await client.rpc('reorder_task_items', {
-        p_task: taskId, p_entity_type: kind, p_ids: Array.isArray(orderedIds) ? orderedIds : [],
-      });
-      if (error) throw taskItemsWriteError(error);
-      return (Array.isArray(data) ? data : []).map(r => {
-        const { asset_id: _a, scene_id: _s, shot_id: _h, level_id: _l, experience_id: _x, ...rest } = r || {};
-        return rest;
-      });
-    },
+    // VW1m (2026-10-16): no reorder here. The task window has no Move
+    // buttons (her Q-N1: it sorts instead), and the stored order only says
+    // when each item was added. reorder_task_items (0096 §6) stays in the
+    // database for the older apps that still call it.
 
     // ── Files (Storage + metadata row) ────────────────────────
     // 🚨 SESSION 42 — `opts` IS A FOURTH PARAMETER AND NOT A KEY ON `scope`.
@@ -3410,8 +3495,9 @@ export function supabaseAdapter() {
     // ── Dashboard: cross-project "my tasks" (Session 8) ───────
     // One indexed query over tasks.assignee_id / reviewer_id (0013) —
     // RLS supplies workspace scoping, trash hiding and trashed-parent
-    // hiding for free. Embeds carry the labels the Dashboard renders so
-    // no per-project bundle load is needed.
+    // hiding for free. The project embed and the items (withMyTaskItems,
+    // VW1m: every item, named) carry the labels the Dashboard renders so no
+    // per-project bundle load is needed.
     async listMyTasks() {
       const client = await requireClient();
       const { data: sess } = await client.auth.getSession();
@@ -3419,7 +3505,7 @@ export function supabaseAdapter() {
       if (!uid) return [];
       const { data, error } = await client
         .from('tasks')
-        .select('*, project:projects(id,title,status), asset:assets(id,name,phase_id)')
+        .select('*, project:projects(id,title,status)')
         .or(`assignee_id.eq.${uid},reviewer_id.eq.${uid}`);
       if (error) {
         // Environment predates migration 0013 — no assignment columns,
@@ -3437,7 +3523,7 @@ export function supabaseAdapter() {
       // hide it (it must stay readable to come back), so it is left out
       // here, on the client side of the read: a database without 0090 has no
       // such column and answers exactly as before.
-      return (data ?? []).filter(t => !isSetAside(t));
+      return withMyTaskItems(client, (data ?? []).filter(t => !isSetAside(t)));
     },
 
     // Phase labels for the Dashboard's phase grouping (assets carry

@@ -202,19 +202,21 @@ function upsertInto(rows, incoming, pendingFields, compare) {
 
 /**
  * Remove a row plus the local mirror of the cascades the views rely on —
- * the same shapes the delete mutators apply locally (deleteAsset also drops
- * its tasks; deleteTask also drops its dependency edges). In the DB the
- * children were never touched (transitive hiding via live-parent SELECT
- * policies), which is why remote restores refetch instead of reinserting.
+ * the same shapes the delete mutators apply locally (deleteTask also drops
+ * its dependency edges; deletePhase its). In the DB the children were never
+ * touched (transitive hiding via live-parent SELECT policies), which is why
+ * remote restores refetch instead of reinserting.
+ *
+ * VW1m (2026-10-16), her Q-M2 ("The tasks stay"): an asset's soft or hard
+ * delete from another window never drops a task (its arm here took the tasks
+ * whose MAIN asset it was, as 0034's cascade and asset hop did; 0097 sets
+ * the key null and sees a task through its own project). The asset alone
+ * goes, by the default arm; its task items stay, hidden while it is in the
+ * trash (her Q-N4), and a hard delete's CASCADE on them arrives as their own
+ * task_items DELETE events.
  */
 function removeWithMirror(bundle, table, id) {
   switch (table) {
-    case 'assets':
-      return {
-        ...bundle,
-        assets: bundle.assets.filter(a => a.id !== id),
-        tasks:  bundle.tasks.filter(t => t.asset_id !== id),
-      }
     case 'tasks':
       return {
         ...bundle,
@@ -358,11 +360,14 @@ function applyEventCore(bundle, evt, opts = {}) {
     }
     if (nowTrashed) return noop // trashed → still trashed (purge stamps etc.)
     if (wasTrashed) {
-      // Restore: the row returns; hidden children (tasks under a restored
-      // asset, dependency edges under a restored task) need a refetch —
-      // they were never trashed in the DB, only hidden transitively. A leaf
-      // has none, so it takes the row back and nothing else (see
-      // LEAF_COLLECTIONS).
+      // Restore: the row returns; hidden children (dependency edges under a
+      // restored task; a restored asset's comments and versions, which 0014
+      // and 0004 see through it) need a refetch — they were never trashed in
+      // the DB, only hidden transitively. A leaf has none, so it takes the
+      // row back and nothing else (see LEAF_COLLECTIONS). VW1m (2026-10-16):
+      // an asset's tasks are no longer among them (0097: a task is seen
+      // through its own project, and this merge never dropped them), and its
+      // task items never left this window (hidden while it was in the trash).
       return {
         bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) },
         effects: LEAF_COLLECTIONS.has(col) ? [] : [{ type: 'refetch' }],

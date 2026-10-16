@@ -35,6 +35,11 @@ const MAIN_CJS = readFileSync(new URL('../../../electron/main.cjs', import.meta.
 // and not a restatement of it.
 const require = createRequire(import.meta.url)
 const { cascadeSceneOrShotDelete } = require('../../../electron/rabbitShotLists.cjs')
+// VW1m (2026-10-16): a scene or shot delete unlinks its tasks through the
+// task-item hook main.cjs registers on both (the items' prune and the older
+// builds' copy), not through the shot-list sweep; the replay registers the
+// real hooks.
+const rabbitTaskItems = require('../../../electron/rabbitTaskItems.cjs')
 
 /** Lift `function name(...) { ... }` out of the source by brace matching. */
 function extractFunction(source, name) {
@@ -261,9 +266,15 @@ describe('the sweep is opt-in per entity, and main.cjs opts tasks and phases in'
 // dangling scene_id, its items and its tasks' shot_id. The fixture's L2 is
 // ARCHIVED on purpose in those cases: the freeze (addendum B) is on
 // membership writes, and a delete sweep must still reach it.
+//
+// VW1m (2026-10-16): the sweep no longer nulls a task's scene_id / shot_id
+// itself. A task's scenes and shots are its items; the item hook main.cjs
+// registers on scenes and shots takes the gone rows off them and refreshes
+// the older builds' copy (stamping updated_at where it moves), in the same
+// write. `unlinked.tasks` counts the tasks that were about the row.
 
 function s3aFixture() {
-  return {
+  const bundle = {
     project: { id: 'p1', title: 'Fixture', active_shot_list_id: 'L1' },
     scenes: [{ id: 'sc-1' }, { id: 'sc-2' }],
     shots: [{ id: 'sh-1', scene_id: 'sc-1' }, { id: 'sh-2', scene_id: 'sc-2' }],
@@ -285,16 +296,22 @@ function s3aFixture() {
     edits: [{ id: 'e1', shot_list_id: 'L1', items: [{ id: 'x1', scene_id: 'sc-1', shot_id: 'sh-1', label: 'A', notes: '' }] }],
     dependencies: [],
   }
+  // main.cjs's readRabbitBundle reconciles a task's items on every read: the
+  // fixture starts as a read leaves it (each task's fields are its items).
+  rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId: 'p1', now: '2026-01-01T00:00:00.000Z' })
+  return bundle
 }
 
 const DEL_SCENE = '/api/rabbit/projects/:projectId/scenes/:id'
 const DEL_SHOT  = '/api/rabbit/projects/:projectId/shots/:id'
 
-/** Scenes and shots exactly as main.cjs registers them. */
+/** Scenes and shots exactly as main.cjs registers them (the item hook too). */
 function registerScenesLikeMain(h) {
-  h.register('scenes', 'scenes', 'scene', { shotListLinks: 'scene' })
-  h.register('shots',  'shots',  'shot',  { shotListLinks: 'shot' })
+  const taskItemHooks = rabbitTaskItems.makeTaskItemHooks({ newId: () => 'unused' })
+  h.register('scenes', 'scenes', 'scene', { shotListLinks: 'scene', taskItems: taskItemHooks })
+  h.register('shots',  'shots',  'shot',  { shotListLinks: 'shot', taskItems: taskItemHooks })
 }
+const named = (bundle, id) => bundle.taskItems.some(i => i.entity_id === id)
 
 describe('deleting a scene on the desktop takes it out of every shot list (S3a rule 8)', () => {
   it('removes its items from EVERY list, unlinks its tasks, and leaves assets and edits alone', () => {
@@ -317,6 +334,9 @@ describe('deleting a scene on the desktop takes it out of every shot list (S3a r
     expect(bundle.tasks.find(t => t.id === 't-sh1')).toMatchObject({ scene_id: null, shot_id: null })
     expect(bundle.tasks.find(t => t.id === 't-sc1').updated_at).not.toBe('2026-01-01T00:00:00.000Z')
     expect(bundle.tasks.find(t => t.id === 't-other')).toEqual(before.tasks[2])
+    // The tasks stay (her Q-M2), and no item names the scene or its shot.
+    expect(ids(bundle.tasks)).toEqual(['t-sc1', 't-sh1', 't-other'])
+    expect(named(bundle, 'sc-1') || named(bundle, 'sh-1')).toBe(false)
     // Not foreign keys in the cloud either: untouched.
     expect(bundle.assets).toEqual(before.assets)
     expect(bundle.edits).toEqual(before.edits)
@@ -337,6 +357,7 @@ describe('deleting a scene on the desktop takes it out of every shot list (S3a r
     bundle.shots.push({ id: 'sh-b', scene_id: 'sc-1' })
     bundle.shotListItems.push({ id: 'j3', shot_list_id: 'L2', scene_id: null, shot_id: 'sh-b', position: 1 })
     bundle.tasks.push({ id: 't-b', scene_id: null, shot_id: 'sh-b', updated_at: '2026-01-01T00:00:00.000Z' })
+    rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId: 'p1' }) // as the route's read would
     const h = harness(bundle)
     registerScenesLikeMain(h)
 
@@ -346,6 +367,7 @@ describe('deleting a scene on the desktop takes it out of every shot list (S3a r
     expect(ids(bundle.shots)).toEqual(['sh-2'])
     expect(bundle.shotListItems.some(i => i.id === 'j3' || i.shot_id === 'sh-b')).toBe(false)
     expect(bundle.tasks.find(t => t.id === 't-b')).toMatchObject({ scene_id: null, shot_id: null })
+    expect(named(bundle, 'sh-b')).toBe(false)
     // The archived list is still archived: a delete sweep is not a membership
     // write, so the freeze does not stop it (and does not undo the archive).
     expect(bundle.shotLists[1].archived_at).toBe('2026-09-01T00:00:00.000Z')
@@ -406,6 +428,8 @@ describe('deleting a shot on the desktop takes it out of every shot list (S3a ru
     // The task keeps its scene; only the shot link goes.
     expect(bundle.tasks.find(t => t.id === 't-sh1')).toMatchObject({ scene_id: 'sc-1', shot_id: null })
     expect(bundle.tasks.find(t => t.id === 't-sc1')).toEqual(before.tasks[0])
+    expect(named(bundle, 'sh-1')).toBe(false)
+    expect(named(bundle, 'sc-1')).toBe(true)
     expect(bundle.edits).toEqual(before.edits) // D17: the edit keeps "Missing shot"
     expect(bundle.assets).toEqual(before.assets)
   })
@@ -422,6 +446,17 @@ describe('the shot-list sweep is opt-in, and main.cjs opts scenes and shots in',
     expect(bundle.shotListItems).toEqual(before.shotListItems) // the orphans rule 8 exists to prevent
     expect(bundle.tasks).toEqual(before.tasks)
     expect(bundle.shots).toEqual(before.shots) // …and the shots addendum C exists to take
+  })
+
+  it('VW1m CONTROL: the shot-list sweep alone leaves the tasks as they are; the item hook is what unlinks them', () => {
+    const bundle = s3aFixture()
+    const before = structuredClone(bundle)
+    const h = harness(bundle)
+    h.register('scenes', 'scenes', 'scene', { shotListLinks: 'scene' }) // no taskItems hook
+    const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' })
+    expect(res.body).toEqual({ ok: true, swept: 0, unlinked: { items: 4, tasks: 2, shots: 1 } })
+    expect(bundle.tasks).toEqual(before.tasks)
+    expect(bundle.taskItems).toEqual(before.taskItems)
   })
 
   it('main.cjs registers scenes and shots with shotListLinks', () => {

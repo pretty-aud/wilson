@@ -397,3 +397,42 @@ describe('🚨 drag feedback — the one state nothing else renders', () => {
     expect(ro.container.querySelector('select.dash-cell-select').disabled).toBe(true)
   })
 })
+
+// VW1m (2026-10-16), Q-N6's interim ("Every asset, 'A, B'"): there is no first
+// asset. The Asset column and the cards name every asset a row's `items`
+// carry (listMyTasks'), A to Z; the old `asset` embed rode tasks.asset_id and
+// is never read.
+describe('VW1m: the Asset column and the cards name every asset of the task', () => {
+  const two = () => task({
+    asset: { id: 'a9', name: 'Old first asset', phase_id: 'ph1' },
+    items: [
+      { kind: 'asset', id: 'a2', name: 'Storm Lantern' },
+      { kind: 'asset', id: 'a1', name: 'Lighthouse Interior' },
+      { kind: 'scene', id: 's1', name: 'The cove' },
+    ],
+  })
+  const assetCell = (container) => container.querySelector('td.dash-cell-title').closest('tr').querySelectorAll('td')[2]
+
+  it('the cell reads "A, B" with the whole list as its title; the old embed is not read', () => {
+    const { container } = mount({ tasks: [two()] })
+    const cell = assetCell(container)
+    expect(cell.textContent).toBe('Lighthouse Interior, Storm Lantern')
+    expect(cell.getAttribute('title')).toBe('Lighthouse Interior, Storm Lantern')
+    expect(container.textContent).not.toContain('Old first asset')
+  })
+
+  it('a task with no asset reads the dash, with no title', () => {
+    const { container } = mount({ tasks: [task({ items: [{ kind: 'scene', id: 's1', name: 'The cove' }] })] })
+    const cell = assetCell(container)
+    expect(cell.textContent).toBe('—')
+    expect(cell.getAttribute('title')).toBeNull()
+  })
+
+  it('the Board\'s and the Gallery\'s cards name every asset after the project', () => {
+    const { container, getByTitle } = mount({ tasks: [two()] })
+    fireEvent.click(getByTitle('Board'))
+    expect(container.querySelector('.dash-card-meta').textContent).toBe('Alpha · Lighthouse Interior, Storm Lantern')
+    fireEvent.click(getByTitle('Gallery'))
+    expect(container.querySelector('.dash-card-meta').textContent).toBe('Alpha · Lighthouse Interior, Storm Lantern')
+  })
+})

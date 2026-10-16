@@ -29,7 +29,7 @@ const { supabaseAdapter } = await import('../../tools/rabbit_v0.1.0/adapters/sup
 const { selectAdapter, adapterSupportsWrites, ADAPTER_MODES } = await import('../../tools/rabbit_v0.1.0/adapters')
 const { buildDevFixtures } = await import('./install')
 const { onDevWriteRefused } = await import('../devFixtures')
-const { PROJECT_ID } = await import('./data/project')
+const { PROJECT_ID, PHASE_ID } = await import('./data/project')
 const { PERMISSIONS, WORKSPACE_ID } = await import('./data/workspace')
 const { fid } = await import('./ids')
 
@@ -274,15 +274,45 @@ describe('the fixtures adapter behaves like a backend', () => {
     expect((await fx.listTasks(PROJECT_ID)).some((t) => t.id === task.id)).toBe(true)
   })
 
-  it('listMyTasks is the reviewer\'s rows with the project and asset embeds', async () => {
+  // VW1m (2026-10-16): as the cloud's — the project embed and every item,
+  // named (her Q-N6, interim), and no asset embed: that rode tasks.asset_id,
+  // the older apps' copy of the first asset only.
+  it('listMyTasks is the reviewer\'s rows with the project embed and every item, named', async () => {
     const fx = buildDevFixtures().rabbitAdapter()
     const mine = await fx.listMyTasks()
     expect(mine.length).toBeGreaterThanOrEqual(10)
     for (const t of mine) {
       expect([t.assignee_id, t.reviewer_id]).toContain(PERMISSIONS.userId)
       expect(t.project.title).toBe('Salt Hours')
-      expect(typeof t.asset.name).toBe('string')
+      expect(t).not.toHaveProperty('asset')
+      expect(t.items.length, t.title).toBeGreaterThanOrEqual(1)
+      // Review round 2 (R2-5): an asset carries its phase (the Dashboard's
+      // Phase grouping falls back to the phase a task's assets share).
+      for (const i of t.items) expect(Object.keys(i).sort()).toEqual(i.kind === 'asset' ? ['id', 'kind', 'name', 'phase_id'] : ['id', 'kind', 'name'])
     }
+    // Task 21 (Mara reviews it): its asset, then its two scenes by number.
+    expect(mine.find((t) => t.id === fid('task', 21)).items).toEqual([
+      { kind: 'asset', id: fid('asset', 8), name: 'Cliff Path', phase_id: PHASE_ID.pre },
+      { kind: 'scene', id: fid('scene', 2), name: 'Cliff path' },
+      { kind: 'scene', id: fid('scene', 6), name: 'Salt hours' },
+    ])
+  })
+
+  it('listMyTasks: a shot is named under its scene, and an asset in the trash is left out while its task stays', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const T21 = fid('task', 21)
+    await fx.addTaskItem({ task_id: T21, project_id: PROJECT_ID, entity_type: 'shot', entity_id: fid('shot', 5), position: 0 })
+    await fx.deleteAsset(fid('asset', 8))
+    const row = (await fx.listMyTasks()).find((t) => t.id === T21)
+    expect(row, 'the task stays while its asset is in the trash').toBeTruthy()
+    expect(row.items).toEqual([
+      { kind: 'scene', id: fid('scene', 2), name: 'Cliff path' },
+      { kind: 'scene', id: fid('scene', 6), name: 'Salt hours' },
+      { kind: 'shot', id: fid('shot', 5), name: 'Cliff path › The compass' },
+    ])
+    // CONTROL: restored, it is named again.
+    await fx.restoreAsset(fid('asset', 8))
+    expect((await fx.listMyTasks()).find((t) => t.id === T21).items[0]).toEqual({ kind: 'asset', id: fid('asset', 8), name: 'Cliff Path', phase_id: PHASE_ID.pre })
   })
 
   it('rate cards: the general and internal cards exist so useRateCard never has to create them', async () => {

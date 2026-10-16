@@ -4,7 +4,7 @@
 //
 // Pure filter/sort/group helpers for the Dashboard's task views — the
 // RABBIT ProjectTasksView engine adapted for CROSS-project rows (embedded
-// project/asset labels, a 'project' grouping, and a 'role' grouping that
+// project labels and every item's name, a 'project' grouping, and a 'role' grouping that
 // splits "assigned to me" from "reviewing"). Pure module: unit-tested,
 // no React.
 //
@@ -125,6 +125,40 @@ export function statusLabel(status) {
   return statusMeta(status).label
 }
 
+// A task's item names A to Z, numbers read as numbers ("Shot 2" before "Shot
+// 10"), case ignored: VW1m's display order for names (its hand-off, item 2).
+const NAME_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * VW1m (2026-10-16), Q-N6's interim ("Every asset, 'A, B'"): the names of a
+ * task's items of one kind, A to Z, joined with ', ' ('' for none). A row of
+ * listMyTasks carries every item it can read as `items: [{ kind, id, name }]`
+ * (an item in the trash is not read, her Q-N4); there is no first asset any
+ * more. The Asset column, the cards, and the read-only task window's lists.
+ */
+export function itemNamesOf(task, kind = 'asset') {
+  const mine = (Array.isArray(task?.items) ? task.items : []).filter(i => i && i.kind === kind)
+  return mine
+    .map(i => ({ id: String(i.id ?? ''), name: i.name || 'Untitled' }))
+    .sort((a, b) => NAME_ORDER.compare(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map(i => i.name)
+    .join(', ')
+}
+
+/**
+ * The ids of every asset the tasks are about (useMyTasks' live filter: an
+ * event on one of them changes a name these rows show).
+ */
+export function taskAssetIds(tasks) {
+  const out = new Set()
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    for (const i of Array.isArray(t?.items) ? t.items : []) {
+      if (i && i.kind === 'asset' && i.id != null) out.add(i.id)
+    }
+  }
+  return out
+}
+
 /** 'assigned' | 'reviewing' | null for a task relative to the user. */
 export function myRoleOnTask(task, userId) {
   if (!userId) return null
@@ -188,6 +222,25 @@ export function applyTaskSort(tasks, { sortField = 'end_date', sortDir = 'asc' }
 }
 
 /**
+ * VW1m review round 2 (R2-5): a task's phase key — the Timeline's and the
+ * Budget's rule (VW1m's hand-off, item 2): its own phase; else the phase
+ * every one of its assets is in, when they share one (listMyTasks carries
+ * each asset item's `phase_id`; an asset in the trash is not listed); else
+ * '__none__'. A task without a phase of its own sat under None here while the
+ * Timeline put it under its assets' phase.
+ */
+export function taskPhaseKey(task) {
+  if (task?.phase_id) return task.phase_id
+  let shared = null
+  for (const i of Array.isArray(task?.items) ? task.items : []) {
+    if (!i || i.kind !== 'asset') continue
+    if (!i.phase_id || (shared && shared !== i.phase_id)) return '__none__'
+    shared = i.phase_id
+  }
+  return shared || '__none__'
+}
+
+/**
  * Group into [{ key, label, tasks }]. Same shape drives the table's group
  * sections, the kanban columns and the gallery sections.
  */
@@ -200,7 +253,11 @@ export function groupTasks(tasks, groupBy, {
     if (groupBy === 'status')        key = t.status || 'waiting_to_start'
     else if (groupBy === 'priority') key = t.priority || 'medium'
     else if (groupBy === 'project')  key = t.project_id || '__none__'
-    else if (groupBy === 'phase')    key = t.asset?.phase_id || '__none__'
+    // VW1m (2026-10-16): a task's phase is its own (it was its first
+    // asset's, so a task with a phase and no asset read None here).
+    // Review round 2 (R2-5): else the phase its assets share, as on the
+    // Timeline and the Budget (taskPhaseKey).
+    else if (groupBy === 'phase')    key = taskPhaseKey(t)
     else if (groupBy === 'role')     key = myRoleOnTask(t, userId) || '__none__'
     else key = '__all__'
     if (!map[key]) map[key] = []

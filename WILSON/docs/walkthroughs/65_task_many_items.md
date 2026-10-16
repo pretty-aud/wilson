@@ -1,5 +1,7 @@
 # 65 — A TASK ABOUT SEVERAL THINGS: THE TASK WINDOW'S ITEMS (R.A.B.B.I.T. → a project → Tasks → a task's window)
 
+> **2026-10-16 (VW1m): there is no main item any more.** Your words: *"lets not have main asset be a thing. thats not needed and i dont like."* The *Main* badge and *Move up* / *Move down* are gone (the window has a *Sort* instead), the Timeline and the Tasks table group a task by its combination of items, the Budget splits it between them, and deleting an asset never deletes a task. Steps 2, 5, 6, 8, 11 and 12 below describe the old rule; walkthrough 74 (`74_no_main_item.md`) is the one to follow.
+
 1. **A task can be about several assets, scenes, shots, levels and
    experiences** (your words of 2026-10-11). The task window opens on an
    **Items** table at the top of its left column, the scene window's Assets

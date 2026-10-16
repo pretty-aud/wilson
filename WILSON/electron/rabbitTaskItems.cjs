@@ -1,20 +1,27 @@
 // ============================================================
-// RABBIT — a task's items, local-server half (FX2, 2026-10-11)
+// RABBIT — a task's items, local-server half (FX2, 2026-10-11; VW1m, 2026-10-16)
 // ============================================================
 //
-// The Local Server's twin of migration 0096 (supabase/migrations/
+// The Local Server's twin of migrations 0096 and 0097 (supabase/migrations/
 // 0096_task_items.sql): `bundle.taskItems`, one row per (task, item) —
 // `{ id, task_id, project_id, entity_type, entity_id, position, created_at,
 // created_by, updated_at }`, entity_type one of asset / scene / shot / level /
-// experience — and each task's five single fields (asset_id, scene_id,
-// shot_id, level_id, experience_id) kept equal to its MAIN item of each kind
-// (the first by position, then created_at, then id), as 0096's triggers keep
-// the cloud's three columns. NOT `taskLinks` (a task's URL links, 0000).
+// experience. NOT `taskLinks` (a task's URL links, 0000).
 //
-// The RULES are src/tools/rabbit_v0.1.0/state/taskItemsModel.js's, copied
-// here in CommonJS (this file cannot import an ES module from a synchronous
-// route); taskItemsParity.test.js runs the same cases through both and fails
-// when they part.
+// VW1m (2026-10-16, Audrey's batch 12 and 13 rulings): a task's items are its
+// items; no item of a kind counts for more than another. Each task's five
+// single fields (asset_id, scene_id, shot_id, level_id, experience_id) stay
+// as THE OLDER BUILDS' COPY only — each kind's first item in the stored order
+// (position, then created_at, then id), as 0097 §7a keeps the cloud's three
+// columns — written here (syncTaskFields) and read for meaning by nothing in
+// this app. An older build's write of one field ADDS that item and never
+// removes another, except the one a cleared field named (0097 §7b,
+// planLegacyFieldWrite); a read never reorders.
+//
+// The RULES are src/tools/rabbit_v0.1.0/state/taskItemsModel.js's (the
+// backends' half), copied here in CommonJS (this file cannot import an ES
+// module from a synchronous route); taskItemsParity.test.js runs the same
+// cases through both and fails when they part.
 //
 // Mounted from main.cjs, beside the shot lists, with the same injected
 // helpers; its write hooks ride on main.cjs's generic routes through
@@ -78,11 +85,8 @@ function itemsOfTask(items, taskId, kind) {
   });
 }
 
-function mainItemOf(items, taskId, kind) {
-  return itemsOfTask(items, taskId, kind)[0] || null;
-}
-
-function linkFieldsFromItems(taskItems) {
+// The older builds' copy: each kind's first item in the stored order, or null.
+function copyFieldsFromItems(taskItems) {
   const out = {};
   for (const kind of ITEM_KINDS) out[KIND_FIELD[kind]] = null;
   const sorted = (Array.isArray(taskItems) ? taskItems.slice() : []).sort(compareItems);
@@ -93,6 +97,19 @@ function linkFieldsFromItems(taskItems) {
   return out;
 }
 
+function nextPosition(items, taskId, kind) {
+  let max = -1;
+  for (const i of itemsOfTask(items, taskId, kind)) {
+    const p = Number(i.position) || 0;
+    if (p > max) max = p;
+  }
+  return Math.min(max + 1, MAX_ITEM_POSITION);
+}
+
+// An older build's reorder only (VW1m: this app has no Move buttons). VW1m
+// review round 1 (R1-8): this and applyPositions are this file's own, for
+// the reorder route below; the model no longer states them (no caller in
+// the app), so taskItemsParity.test.js holds them here, not against it.
 function planReorder(items, taskId, kind, orderedIds) {
   const mine = itemsOfTask(items, taskId, kind);
   const named = new Map();
@@ -114,26 +131,49 @@ function planReorder(items, taskId, kind, orderedIds) {
   return changes;
 }
 
-function planSingleFieldWrite(items, taskId, kind, value, previous, make) {
-  const none = { remove: [], insert: null, order: null };
+function applyPositions(items, changes) {
+  if (!Array.isArray(changes) || changes.length === 0) return items;
+  const pos = new Map(changes.map(c => [String(c.id), c.position]));
+  return items.map(i => (i && pos.has(String(i.id)) ? Object.assign({}, i, { position: pos.get(String(i.id)) }) : i));
+}
+
+const idOrNull = (v) => (v == null || v === '' ? null : String(v));
+
+// 0097 §7b, ADD-ONLY: the same value, nothing; cleared, the item for
+// `previous` goes (only it); a value the task has, nothing; a new value,
+// inserted at the end. Nothing ever moves.
+function planLegacyFieldWrite(items, taskId, kind, value, previous, make) {
+  const none = { remove: [], insert: null };
   if (!isItemKind(kind) || taskId == null) return none;
   const mine = itemsOfTask(items, taskId, kind);
-  const main = mine[0] || null;
-  const want = value == null || value === '' ? null : String(value);
-  const prev = previous == null || previous === '' ? null : String(previous);
+  const want = idOrNull(value);
+  const prev = idOrNull(previous);
   if (want == null) {
     if (prev == null) return none;
-    return { remove: mine.filter(i => String(i.entity_id) === prev), insert: null, order: null };
+    return { remove: mine.filter(i => String(i.entity_id) === prev), insert: null };
   }
-  if (main && String(main.entity_id) === want) return none;
-  const existing = mine.find(i => String(i.entity_id) === want);
-  if (existing) {
-    return { remove: [], insert: null, order: [existing.id].concat(mine.filter(i => i !== existing).map(i => i.id)) };
+  if (want === prev) return none;
+  if (mine.some(i => String(i.entity_id) === want)) return none;
+  return {
+    remove: [],
+    insert: make({ task_id: taskId, entity_type: kind, entity_id: value, position: nextPosition(items, taskId, kind) }),
+  };
+}
+
+// 0096 §7c and §8: one item per set field the task does not already have, at
+// position 0 (a pre-FX2 row's fields become its items once).
+function seedItemsFor(task, items, make, fields = LINK_FIELDS) {
+  if (!task || task.id == null) return [];
+  const out = [];
+  for (const f of fields) {
+    const kind = FIELD_KIND[f];
+    const v = task[f];
+    if (!kind || v == null || v === '') continue;
+    const has = (Array.isArray(items) ? items : []).some(i => i
+      && String(i.task_id) === String(task.id) && i.entity_type === kind && String(i.entity_id) === String(v));
+    if (!has) out.push(make({ task_id: task.id, entity_type: kind, entity_id: v, position: 0 }));
   }
-  const remove = prev == null ? [] : mine.filter(i => String(i.entity_id) === prev);
-  const inserted = make({ task_id: taskId, entity_type: kind, entity_id: value, position: 0 });
-  const rest = mine.filter(i => !remove.includes(i));
-  return { remove, insert: inserted, order: [inserted.id].concat(rest.map(i => i.id)) };
+  return out;
 }
 
 // FX2 review round 1 (R1-4): ids are strings, a position fits the cloud's
@@ -203,20 +243,26 @@ function taskById(bundle, id) {
   return (Array.isArray(bundle && bundle.tasks) ? bundle.tasks : []).find(t => t && String(t.id) === String(id)) || null;
 }
 
-/** Each named task's five fields set to its main items. True when one moved. */
-function syncTaskFields(bundle, taskIds) {
+/**
+ * The older builds' copy: each named task's (every task's, with no names)
+ * five fields set to its first item of each kind in the stored order. With
+ * `stampAt`, a task whose copy moved also takes it as updated_at (a row's
+ * delete is the cloud's FK action, an UPDATE, which moves it). True when one
+ * moved.
+ */
+function syncTaskFields(bundle, taskIds, stampAt) {
   if (!bundle || !Array.isArray(bundle.tasks)) return false;
   const byTask = itemsByTask(bundle.taskItems);
   const only = taskIds ? new Set([...taskIds].map(String)) : null;
   let changed = false;
   bundle.tasks = bundle.tasks.map(t => {
     if (!t || (only && !only.has(String(t.id)))) return t;
-    const fields = linkFieldsFromItems(byTask.get(String(t.id)) || []);
+    const fields = copyFieldsFromItems(byTask.get(String(t.id)) || []);
     let same = true;
     for (const f of LINK_FIELDS) if ((t[f] == null ? null : t[f]) !== fields[f]) { same = false; break; }
     if (same) return t;
     changed = true;
-    return Object.assign({}, t, fields);
+    return Object.assign({}, t, fields, stampAt ? { updated_at: stampAt } : null);
   });
   return changed;
 }
@@ -259,23 +305,17 @@ function applyPlan(bundle, plan) {
     bundle.taskItems = bundle.taskItems.filter(i => !gone.has(i.id));
   }
   if (plan.insert) bundle.taskItems.push(plan.insert);
-  if (plan.order) {
-    const first = plan.insert || bundle.taskItems.find(i => i.id === plan.order[0]);
-    if (first) {
-      const changes = planReorder(bundle.taskItems, first.task_id, first.entity_type, plan.order);
-      const pos = new Map(changes.map(c => [String(c.id), c.position]));
-      bundle.taskItems = bundle.taskItems.map(i => (pos.has(String(i.id)) ? Object.assign({}, i, { position: pos.get(String(i.id)) }) : i));
-    }
-  }
 }
 
 /**
  * A read reconciles CONSERVATIVELY (it cannot know who wrote what): the
  * dangling items go; a single field set on a task with no item for it — a
- * bundle from before FX2, or a build that wrote the field — becomes that
- * kind's MAIN item (0096's backfill and §7b's "set to a new id"), with a
- * DETERMINISTIC id; then every task's fields are its main items. Never
- * removes an item a task still names. Returns true when the bundle changed.
+ * bundle from before FX2, or a build from before FX2 that wrote the field —
+ * becomes an item (0096's backfill and §7c, seedItemsFor), with a
+ * DETERMINISTIC id; then every task's copy is its items'. VW1m (2026-10-16):
+ * a read NEVER reorders and never removes an item a task still names (FX2's
+ * "a field that disagrees moves first" arm is gone with the first item that
+ * counted for more). Returns true when the bundle changed.
  */
 function reconcileTaskItemsOnRead(bundle, opts) {
   if (!bundle || typeof bundle !== 'object') return false;
@@ -286,25 +326,21 @@ function reconcileTaskItemsOnRead(bundle, opts) {
   if (!Array.isArray(bundle.taskItems)) { bundle.taskItems = []; dirty = true; }
   if (pruneDanglingTaskItems(bundle).size > 0) dirty = true;
   const known = knownIdsByKind(bundle);
-  let byTask = itemsByTask(bundle.taskItems);
+  const byTask = itemsByTask(bundle.taskItems);
   for (const t of Array.isArray(bundle.tasks) ? bundle.tasks : []) {
     if (!t || t.id == null) continue;
-    for (const f of LINK_FIELDS) {
-      const kind = FIELD_KIND[f];
-      const v = t[f];
-      if (v == null || v === '') continue;
-      if (!known[kind].has(String(v))) continue;
-      const mine = (byTask.get(String(t.id)) || []).filter(i => i.entity_type === kind).sort(compareItems);
-      if (mine.length && String(mine[0].entity_id) === String(v)) continue;
-      const make = (base) => ({
-        id: stableItemId(projectId, t.id, kind, v),
-        project_id: projectId,
-        created_at: now, created_by: null, updated_at: now,
-        ...base,
-      });
-      applyPlan(bundle, planSingleFieldWrite(bundle.taskItems, t.id, kind, v, null, make));
-      // A backfill (a bundle from before FX2: once, then written back).
-      byTask = itemsByTask(bundle.taskItems);
+    const make = (base) => ({
+      id: stableItemId(projectId, t.id, base.entity_type, base.entity_id),
+      project_id: projectId,
+      created_at: now, created_by: null, updated_at: now,
+      ...base,
+    });
+    // A field naming a row the bundle does not have makes no item (the copy
+    // then reads nothing for it).
+    const seeds = seedItemsFor(t, byTask.get(String(t.id)) || [], make)
+      .filter(i => known[i.entity_type].has(String(i.entity_id)));
+    if (seeds.length) {
+      for (const i of seeds) bundle.taskItems.push(i);
       dirty = true;
     }
   }
@@ -315,9 +351,10 @@ function reconcileTaskItemsOnRead(bundle, opts) {
 /**
  * A task row was written through main.cjs's generic routes (`before` is the
  * stored row before the write, null for a new task; `after` the row as
- * stored). Each single field the write CHANGED goes through 0096 §7b's rule
- * against the main item it replaces; a new task's set fields become its first
- * items (§7c). Then the task's fields are its main items.
+ * stored). Each single field the write CHANGED is an older build's write of
+ * one field (this app sends none): 0097 §7b's add-only rule against the value
+ * the field held before; a new task's set fields become its items (§7c). Then
+ * the task's copy is its items'.
  */
 function applyTaskWrite(bundle, before, after, opts) {
   if (!bundle || !after || after.id == null) return;
@@ -331,26 +368,27 @@ function applyTaskWrite(bundle, before, after, opts) {
   });
   for (const f of LINK_FIELDS) {
     const kind = FIELD_KIND[f];
-    const was = before ? (before[f] == null ? null : before[f]) : null;
-    const is = after[f] == null || after[f] === '' ? null : after[f];
-    if (before && String(was) === String(is)) continue;
+    const was = before ? idOrNull(before[f]) : null;
+    const is = idOrNull(after[f]);
+    if (before && was === is) continue;
     if (!before && is == null) continue;
     if (is != null && !entityExists(bundle, kind, is)) continue;
-    const main = mainItemOf(bundle.taskItems, after.id, kind);
-    applyPlan(bundle, planSingleFieldWrite(bundle.taskItems, after.id, kind, is, main ? main.entity_id : was, make));
+    applyPlan(bundle, planLegacyFieldWrite(bundle.taskItems, after.id, kind, after[f], was, make));
   }
   syncTaskFields(bundle, [after.id]);
 }
 
 /**
  * A row left the bundle (a task, or an asset / scene / shot / level /
- * experience): every item it ends goes, and the tasks that had one take
- * their next items as main — the cloud's CASCADE and SET NULL in one write.
+ * experience): every item it ends goes, and the tasks that had one take a
+ * fresh copy (stamped, as the cloud's FK action is an UPDATE) — the cloud's
+ * CASCADE and §7a in one write. A task is never removed here: her Q-M2
+ * (2026-10-16), "The tasks stay".
  */
 function afterRowRemoved(bundle) {
   if (!bundle || !Array.isArray(bundle.taskItems)) return;
   const touched = pruneDanglingTaskItems(bundle);
-  if (touched.size) syncTaskFields(bundle, touched);
+  if (touched.size) syncTaskFields(bundle, touched, new Date().toISOString());
 }
 
 /** The hooks main.cjs's generic routes call (`taskItems: taskItemHooks`). */
@@ -448,8 +486,11 @@ function mountRabbitTaskItems(expressApp, deps) {
     res.json(row);
   });
 
-  // reorder_task_items' twin. Registered BEFORE the :itemId route below so
-  // "reorder" is never read as an id.
+  // reorder_task_items' twin, kept for older builds (VW1m, 2026-10-16: this
+  // app sends none; the stored order is only the order the items were added,
+  // so a reorder moves the older builds' copy and the Date added sort,
+  // nothing else). Registered BEFORE the :itemId route below so "reorder" is
+  // never read as an id.
   expressApp.post(`${P}/reorder`, (req, res) => {
     const bundle = load(req, res);
     if (!bundle) return;
@@ -461,15 +502,11 @@ function mountRabbitTaskItems(expressApp, deps) {
     if (new Set(ids).size !== ids.length) return fail(res, 400, 'task_item_invalid', 'an item is named twice');
     const changes = planReorder(bundle.taskItems, body.task_id, body.entity_type, ids);
     if (changes.length === 0) return res.json([]);
-    const pos = new Map(changes.map(c => [String(c.id), c.position]));
     const now = new Date().toISOString();
-    const moved = [];
-    bundle.taskItems = bundle.taskItems.map(i => {
-      if (!pos.has(String(i.id))) return i;
-      const next = Object.assign({}, i, { position: pos.get(String(i.id)), updated_at: now });
-      moved.push(next);
-      return next;
-    });
+    const movedIds = new Set(changes.map(c => String(c.id)));
+    bundle.taskItems = applyPositions(bundle.taskItems, changes)
+      .map(i => (movedIds.has(String(i.id)) ? Object.assign({}, i, { updated_at: now }) : i));
+    const moved = bundle.taskItems.filter(i => movedIds.has(String(i.id)));
     syncTaskFields(bundle, [body.task_id]);
     writeRabbitBundle(req.params.projectId, bundle);
     res.json(moved);
@@ -491,8 +528,8 @@ function mountRabbitTaskItems(expressApp, deps) {
 
 module.exports = {
   ITEM_KINDS, KIND_FIELD, LINK_FIELDS, FIELD_KIND,
-  compareItems, itemsOfTask, mainItemOf, linkFieldsFromItems,
-  planReorder, planSingleFieldWrite, itemShapeProblem, stableItemId,
+  compareItems, itemsOfTask, copyFieldsFromItems, nextPosition,
+  planReorder, applyPositions, planLegacyFieldWrite, seedItemsFor, itemShapeProblem, stableItemId,
   syncTaskFields, pruneDanglingTaskItems, reconcileTaskItemsOnRead,
   applyTaskWrite, afterRowRemoved, makeTaskItemHooks,
   mountRabbitTaskItems,

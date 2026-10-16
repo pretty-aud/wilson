@@ -12,6 +12,8 @@
 //   update → { col: { old, new }, ... }  (audit-noise columns excluded)
 // =============================================================================
 
+import { LINK_FIELDS } from '../state/taskItemsModel'
+
 // The action's colour is the drawer's CSS (`.rb-hist-action[data-action]` on
 // the success / ink-2 / danger tokens); P1-66 deleted the `color` hexes this
 // table carried and nothing read.
@@ -61,20 +63,46 @@ function displayValue(v) {
   return String(v)
 }
 
+// VW1m (2026-10-16), Q-N8 (batch 16, not yet asked; interim: no history of
+// a task's items). Review round 1 (R1-2): a task's single link columns
+// (asset_id, scene_id, shot_id, level_id, experience_id) are the older apps'
+// copy of its items, which the cloud still writes whenever a kind's first
+// item changes (0097 section 7a) and 0012's capture records as a task edit.
+// Read in words, removing the first of two assets said "Asset: Lighthouse
+// -> Lantern", a swap that never happened. They show no line, old or new; an
+// entry with nothing else to say is not shown (historyEntryShown). They have
+// no Revert (editHistoryRevert.js). Another table's field of the same name
+// keeps its line.
+const TASK_LINK_COLUMNS = new Set(LINK_FIELDS)
+const isTaskLinkColumn = (entry, k) => entry?.entity_type === 'tasks' && TASK_LINK_COLUMNS.has(k)
+
 /**
  * Per-field change lines for an 'update' row:
  * [{ field, from, to }] sorted by field name. Empty for create/delete.
+ * A task's link columns have no line (R1-2).
  */
 export function diffLines(entry) {
   if (!entry || entry.action !== 'update' || !entry.diff) return []
   return Object.keys(entry.diff)
-    .filter(k => !HIDDEN_FIELDS.has(k))
+    .filter(k => !HIDDEN_FIELDS.has(k) && !isTaskLinkColumn(entry, k))
     .sort()
     .map(k => ({
       field: k,
       from: displayValue(entry.diff[k]?.old),
       to:   displayValue(entry.diff[k]?.new),
     }))
+}
+
+/**
+ * Whether the drawer shows a history row at all (R1-2): every row but a
+ * task's 'update' whose only changes were its link columns, which would read
+ * as an empty edit. A soft delete or restore among them still shows (its
+ * badge says it).
+ */
+export function historyEntryShown(entry) {
+  if (!entry || entry.action !== 'update' || !entry.diff || entry.entity_type !== 'tasks') return true
+  if (!Object.keys(entry.diff).some(k => TASK_LINK_COLUMNS.has(k))) return true
+  return diffLines(entry).length > 0 || softDeleteTransition(entry) != null
 }
 
 /**

@@ -3,15 +3,23 @@
 // statement of a task's items' rules, which the provider runs before the
 // echo, the fixtures run as the fake cloud, and electron/rabbitTaskItems.cjs
 // copies (taskItemsParity.test.js holds the copy to this file).
+//
+// VW1m (2026-10-16), Audrey's batch 12 to 14 rulings: a task's items are its
+// items, no item of a kind counts for more than another; an older app's write
+// of one field adds and never moves; screens read the LIVE items in one
+// display order through buildItemLookup (item 2 of
+// docs/sessions/handoffs/po-vw1m-2026-10-16.md).
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import * as model from './taskItemsModel'
 import {
   ITEM_KINDS, KIND_FIELD, LINK_FIELDS, FIELD_KIND, COLUMN_KINDS,
-  compareItems, itemsOfTask, mainItemOf, linkFieldsFromItems, withItemLinks,
-  tasksAbout, taskCountsByEntity, nextPosition, planReorder, applyPositions,
-  planSingleFieldWrite, seedItemsFor, linkFieldsIn, withoutLinkFields, itemShapeProblem,
-  indexItemsByTask, linksInStep, tasksWithChangedItems, mainAfterLinkWrite,
+  NO_KIND_LABEL, ITEM_SORTS, ITEM_SORT_LABEL,
+  compareItems, itemsOfTask, copyFieldsFromItems,
+  tasksAbout, taskCountsByEntity, nextPosition,
+  planLegacyFieldWrite, planSetKind, seedItemsFor, linkFieldsIn, withoutLinkFields, itemShapeProblem,
+  indexItemsByTask, buildItemLookup, sortItemsForDisplay,
 } from './taskItemsModel'
 
 const T = 'task-1'
@@ -26,6 +34,21 @@ describe('the five kinds and their fields', () => {
     expect(LINK_FIELDS).toEqual(['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id'])
     for (const k of ITEM_KINDS) expect(FIELD_KIND[KIND_FIELD[k]]).toBe(k)
     expect(COLUMN_KINDS).toEqual(['asset', 'scene', 'shot'])
+  })
+  it('says the empty combination of every kind in plain words', () => {
+    expect(NO_KIND_LABEL).toEqual({
+      asset: 'No asset', scene: 'No scene', shot: 'No shot', level: 'No level', experience: 'No experience',
+    })
+  })
+  it('offers her three sorts (Q-N1), Type first, each with its words', () => {
+    expect(ITEM_SORTS).toEqual(['type', 'name', 'date'])
+    expect(ITEM_SORT_LABEL).toEqual({ type: 'Type', name: 'A to Z', date: 'Date added' })
+  })
+  it('VW1m: no item counts for more than another, so the rules that picked one are gone', () => {
+    for (const gone of ['mainItemOf', 'linkFieldsFromItems', 'withItemLinks', 'withItemLinksFor', 'linksInStep',
+      'tasksWithChangedItems', 'mainAfterLinkWrite', 'planSingleFieldWrite']) {
+      expect(model, gone).not.toHaveProperty(gone)
+    }
   })
 })
 
@@ -48,91 +71,31 @@ describe("0096's order: position, then created_at, then id", () => {
   })
 })
 
-describe('a task\'s items and its main item of each kind', () => {
+describe('a task\'s items and the older apps\' copy', () => {
   const items = [
     it_('s2', 'scene', 'S2', 1), it_('a2', 'asset', 'A2', 1), it_('a1', 'asset', 'A1', 0),
     it_('s1', 'scene', 'S1', 0), it_('l1', 'level', 'L1', 0), it_('other', 'asset', 'AX', 0, undefined, 'task-2'),
   ]
-  it('lists a task\'s items, kinds in order, each kind in 0096\'s order; another task\'s are not its', () => {
+  it('lists a task\'s items, kinds in order, each kind in the stored order; another task\'s are not its', () => {
     expect(itemsOfTask(items, T).map(i => i.id)).toEqual(['a1', 'a2', 's1', 's2', 'l1'])
     expect(itemsOfTask(items, T, 'scene').map(i => i.id)).toEqual(['s1', 's2'])
     expect(itemsOfTask(items, null)).toEqual([])
   })
-  it('the main item of a kind is the first; none is null', () => {
-    expect(mainItemOf(items, T, 'asset').entity_id).toBe('A1')
-    expect(mainItemOf(items, T, 'shot')).toBeNull()
-  })
-  it('reads the five single fields from the main items', () => {
-    expect(linkFieldsFromItems(itemsOfTask(items, T))).toEqual({
+  it('the copy is each kind\'s first item in the stored order, null for a kind with none', () => {
+    expect(copyFieldsFromItems(itemsOfTask(items, T))).toEqual({
       asset_id: 'A1', scene_id: 'S1', shot_id: null, level_id: 'L1', experience_id: null,
     })
+    expect(copyFieldsFromItems([])).toEqual({ asset_id: null, scene_id: null, shot_id: null, level_id: null, experience_id: null })
+    expect(copyFieldsFromItems(undefined).asset_id).toBeNull()
+  })
+  it('FAILING CONTROL: the copy reads the stored order, never the order the rows arrive in', () => {
+    const late = [it_('a9', 'asset', 'A9', 3), it_('a0', 'asset', 'A0', 0)]
+    expect(copyFieldsFromItems(late).asset_id).toBe('A0')
   })
   it('indexes the items by task, each list sorted', () => {
     const byTask = indexItemsByTask(items)
     expect(byTask.get(T).map(i => i.id)).toEqual(['a1', 'a2', 's1', 's2', 'l1'])
     expect(byTask.get('task-2').map(i => i.id)).toEqual(['other'])
-  })
-})
-
-describe('withItemLinks — what ctx.tasks shows', () => {
-  const tasks = [
-    { id: T, title: 'One', asset_id: 'STALE', scene_id: null, shot_id: null },
-    { id: 'task-2', title: 'Two', asset_id: 'AX', scene_id: null, shot_id: null, level_id: null, experience_id: null },
-  ]
-  const items = [it_('a1', 'asset', 'A1', 0), it_('l1', 'level', 'L1', 0), it_('other', 'asset', 'AX', 0, undefined, 'task-2')]
-  it('sets each task\'s five fields from its items, the level and experience included (the cloud has no column for them)', () => {
-    const out = withItemLinks(tasks, items, true)
-    expect(out[0]).toMatchObject({ id: T, title: 'One', asset_id: 'A1', level_id: 'L1', experience_id: null })
-  })
-  it('hands back the SAME task object where the fields already agree, and the same array when none moved', () => {
-    const out = withItemLinks(tasks, items, true)
-    expect(out[1]).toBe(tasks[1])
-    const settled = withItemLinks(out, items, true)
-    expect(settled).toBe(out)
-  })
-  it('with no items on the backend (available false), the stored fields are the truth, untouched', () => {
-    expect(withItemLinks(tasks, items, false)).toBe(tasks)
-  })
-  it('a task with no item of a kind reads null for that kind — never the stale stored value', () => {
-    expect(withItemLinks([{ id: 'lonely', asset_id: 'A9' }], [], true)[0].asset_id).toBeNull()
-  })
-})
-
-// Review round 2, R2-1 and R2-3: the provider's bundle rule and the gone-row
-// rule, pure.
-describe('linksInStep — only the tasks whose items changed read their links from them', () => {
-  const a1 = it_('a1', 'asset', 'A1', 0)
-  const a2 = it_('a2', 'asset', 'A2', 1)
-  const prev = { tasks: [{ id: T, asset_id: 'A1' }, { id: 'back', asset_id: 'AB', scene_id: 'SB' }], taskItems: [a1, a2] }
-  it('a task brought back with no items read keeps its row\'s links', () => {
-    const next = { ...prev, tasks: [...prev.tasks, { id: 'new', asset_id: 'AN' }] }
-    expect(linksInStep(prev, next, true)).toBe(next)
-  })
-  it('a task whose items changed reads them (a removed main hands over; the last removed reads null)', () => {
-    const once = linksInStep(prev, { ...prev, taskItems: [a2] }, true)
-    expect(once.tasks[0].asset_id).toBe('A2')
-    expect(once.tasks[1]).toBe(prev.tasks[1])
-    const twice = linksInStep(once, { ...once, taskItems: [] }, true)
-    expect(twice.tasks[0].asset_id).toBeNull()
-  })
-  it('without items on the backend, nothing is touched', () => {
-    const next = { ...prev, taskItems: [] }
-    expect(linksInStep(prev, next, false)).toBe(next)
-  })
-  it('tasksWithChangedItems names the tasks of rows added, removed and replaced', () => {
-    const b2 = { ...a2, position: 0 }
-    expect([...tasksWithChangedItems([a1, a2], [a1, b2, it_('x', 'scene', 'S', 0, undefined, 'other')])].sort()).toEqual(['other', T])
-    expect([...tasksWithChangedItems([a1, a2], [a1, a2])]).toEqual([])
-  })
-})
-
-describe('mainAfterLinkWrite — the row a single-field write leaves as main', () => {
-  const items = [it_('a1', 'asset', 'A1', 0), it_('a2', 'asset', 'A2', 1)]
-  it('a value is the main; a clear hands main to the next, or to none', () => {
-    expect(mainAfterLinkWrite(items, T, 'asset', 'A9')).toBe('A9')
-    expect(mainAfterLinkWrite(items, T, 'asset', null)).toBe('A2')
-    expect(mainAfterLinkWrite(items.slice(0, 1), T, 'asset', '')).toBeNull()
-    expect(mainAfterLinkWrite(items, T, 'scene', null)).toBeNull()
   })
 })
 
@@ -142,7 +105,7 @@ describe('tasksAbout and taskCountsByEntity — the relation readers', () => {
     it_('i1', 'scene', 'S1', 0, undefined, 'a'), it_('i2', 'scene', 'S2', 1, undefined, 'a'),
     it_('i3', 'scene', 'S2', 0, undefined, 'b'), it_('i4', 'scene', 'S2', 0, undefined, 'gone-task'),
   ]
-  it('lists every task that names the thing, main or not', () => {
+  it('lists every task that names the thing, wherever it sits in the task\'s list', () => {
     expect(tasksAbout(tasks, items, 'scene', 'S2', true).map(t => t.id)).toEqual(['a', 'b'])
   })
   it('without items, the single field decides, as before 0096', () => {
@@ -158,60 +121,72 @@ describe('tasksAbout and taskCountsByEntity — the relation readers', () => {
   })
 })
 
-describe('planReorder — reorder_task_items (0096 §6)', () => {
-  const items = [it_('a', 'asset', 'A', 0), it_('b', 'asset', 'B', 1), it_('c', 'asset', 'C', 2), it_('s', 'scene', 'S', 0)]
-  it('puts the named ids first, in the order given, and the rest after in their order, dense from 0', () => {
-    const changes = planReorder(items, T, 'asset', ['c'])
-    expect(applyPositions(items, changes).filter(i => i.entity_type === 'asset').sort(compareItems).map(i => `${i.id}:${i.position}`))
-      .toEqual(['c:0', 'a:1', 'b:2'])
-  })
-  it('answers only the rows that move', () => {
-    expect(planReorder(items, T, 'asset', ['a', 'b', 'c'])).toEqual([])
-    expect(planReorder(items, T, 'asset', ['b', 'a'])).toEqual([{ id: 'b', position: 0 }, { id: 'a', position: 1 }])
-  })
-  it('ignores an id of another kind or task, and never touches another kind', () => {
-    const changes = planReorder(items, T, 'asset', ['s', 'b'])
-    expect(changes.find(c => c.id === 's')).toBeUndefined()
-    expect(changes[0]).toEqual({ id: 'b', position: 0 })
-  })
-  it('makes a tie dense', () => {
-    const tied = [it_('x', 'asset', 'X', 0, '2026-10-11T10:00:00Z'), it_('y', 'asset', 'Y', 0, '2026-10-11T11:00:00Z')]
-    expect(planReorder(tied, T, 'asset', [])).toEqual([{ id: 'y', position: 1 }])
-  })
-})
-
-describe('planSingleFieldWrite — 0096 §7b, what writing a single field does', () => {
+describe('planLegacyFieldWrite — 0097 §7b, an older app\'s write of one field, ADD-ONLY', () => {
   const items = [it_('a1', 'asset', 'A1', 0), it_('a2', 'asset', 'A2', 1)]
-  it('the main item already: nothing', () => {
-    expect(planSingleFieldWrite(items, T, 'asset', 'A1', 'A1', make)).toEqual({ remove: [], insert: null, order: null })
+  const none = { remove: [], insert: null }
+  it('the same value: nothing', () => {
+    expect(planLegacyFieldWrite(items, T, 'asset', 'A1', 'A1', make)).toEqual(none)
   })
-  it('another item of the task: it MOVES first and nothing is removed (a bid version\'s open)', () => {
-    const plan = planSingleFieldWrite(items, T, 'asset', 'A2', 'A1', make)
+  it('a value the task already has: nothing, and nothing MOVES (FX2 moved it first)', () => {
+    expect(planLegacyFieldWrite(items, T, 'asset', 'A2', 'A1', make)).toEqual(none)
+  })
+  it('a new value: inserted at the END, and the item it was written over STAYS', () => {
+    const plan = planLegacyFieldWrite(items, T, 'asset', 'A3', 'A1', make)
     expect(plan.remove).toEqual([])
+    expect(plan.insert).toMatchObject({ task_id: T, entity_type: 'asset', entity_id: 'A3', position: 2 })
+  })
+  it('A, then B: the task keeps A and gains B', () => {
+    let list = []
+    const one = planLegacyFieldWrite(list, T, 'asset', 'A', null, make)
+    list = [...list, one.insert]
+    const two = planLegacyFieldWrite(list, T, 'asset', 'B', 'A', make)
+    expect(two.remove).toEqual([])
+    list = [...list, two.insert]
+    expect(itemsOfTask(list, T, 'asset').map(i => `${i.entity_id}:${i.position}`)).toEqual(['A:0', 'B:1'])
+  })
+  it('cleared: only the item the cleared field named goes, never the others', () => {
+    const plan = planLegacyFieldWrite(items, T, 'asset', null, 'A2', make)
+    expect(plan.remove.map(i => i.id)).toEqual(['a2'])
     expect(plan.insert).toBeNull()
-    expect(plan.order).toEqual(['a2', 'a1'])
+    expect(planLegacyFieldWrite(items, T, 'asset', '', 'A1', make).remove.map(i => i.id)).toEqual(['a1'])
   })
-  it('a new id: it REPLACES the item it was written over, first', () => {
-    const plan = planSingleFieldWrite(items, T, 'asset', 'A3', 'A1', make)
-    expect(plan.remove.map(i => i.id)).toEqual(['a1'])
-    expect(plan.insert).toMatchObject({ task_id: T, entity_type: 'asset', entity_id: 'A3', position: 0 })
-    expect(plan.order).toEqual([plan.insert.id, 'a2'])
+  it('cleared when the cleared value is already gone (a scene\'s cascade ran first), or was never set: nothing', () => {
+    expect(planLegacyFieldWrite(items, T, 'asset', '', 'A9', make).remove).toEqual([])
+    expect(planLegacyFieldWrite(items, T, 'asset', null, null, make)).toEqual(none)
   })
-  it('cleared: the item for the value cleared goes, and nothing else (the next becomes main)', () => {
-    const plan = planSingleFieldWrite(items, T, 'asset', null, 'A1', make)
-    expect(plan.remove.map(i => i.id)).toEqual(['a1'])
-    expect(plan.insert).toBeNull()
-  })
-  it('cleared when the cleared value is already gone (a scene\'s cascade ran first): nothing goes', () => {
-    expect(planSingleFieldWrite(items, T, 'asset', '', 'A9', make).remove).toEqual([])
-  })
-  it('a first item on a task with none of that kind: inserted, first', () => {
-    const plan = planSingleFieldWrite(items, T, 'scene', 'S1', null, make)
+  it('a first item on a task with none of that kind: inserted at 0; another task\'s items are not counted', () => {
+    const plan = planLegacyFieldWrite([...items, it_('o', 'scene', 'S9', 7, undefined, 'task-2')], T, 'scene', 'S1', null, make)
     expect(plan.insert).toMatchObject({ entity_type: 'scene', entity_id: 'S1', position: 0 })
     expect(plan.remove).toEqual([])
   })
-  it('an unknown kind changes nothing', () => {
-    expect(planSingleFieldWrite(items, T, 'phase', 'P', null, make)).toEqual({ remove: [], insert: null, order: null })
+  it('an unknown kind or no task changes nothing', () => {
+    expect(planLegacyFieldWrite(items, T, 'phase', 'P', null, make)).toEqual(none)
+    expect(planLegacyFieldWrite(items, null, 'asset', 'A3', null, make)).toEqual(none)
+  })
+})
+
+describe('planSetKind — a kind made exactly the ids wanted (a drop on a row or group, a version\'s open)', () => {
+  const items = [it_('a1', 'asset', 'A1', 0), it_('a2', 'asset', 'A2', 1), it_('s1', 'scene', 'S1', 0)]
+  it('removes the others and inserts the missing at the end, in the order given; the kept ones never move', () => {
+    const plan = planSetKind(items, T, 'asset', ['A3', 'A2', 'A4'], make)
+    expect(plan.remove.map(i => i.id)).toEqual(['a1'])
+    expect(plan.insert.map(i => `${i.entity_id}:${i.position}`)).toEqual(['A3:2', 'A4:3'])
+    expect(plan.insert[0]).toMatchObject({ task_id: T, entity_type: 'asset' })
+  })
+  it('the same set: nothing; an empty set: every item of the kind goes, no other kind', () => {
+    expect(planSetKind(items, T, 'asset', ['A2', 'A1'], make)).toEqual({ remove: [], insert: [] })
+    const plan = planSetKind(items, T, 'asset', [], make)
+    expect(plan.remove.map(i => i.id)).toEqual(['a1', 'a2'])
+    expect(plan.insert).toEqual([])
+  })
+  it('an id named twice, or empty, is read once or not at all', () => {
+    const plan = planSetKind(items, T, 'scene', ['S2', 'S2', '', null, 'S1'], make)
+    expect(plan.remove).toEqual([])
+    expect(plan.insert.map(i => `${i.entity_id}:${i.position}`)).toEqual(['S2:1'])
+  })
+  it('an unknown kind or no task changes nothing', () => {
+    expect(planSetKind(items, T, 'phase', ['P'], make)).toEqual({ remove: [], insert: [] })
+    expect(planSetKind(items, null, 'asset', ['A1'], make)).toEqual({ remove: [], insert: [] })
   })
 })
 
@@ -223,6 +198,165 @@ describe('seedItemsFor — 0096 §7c and the backfill', () => {
   it('reads only the fields asked for (the cloud\'s three)', () => {
     const seeded = seedItemsFor({ id: T, asset_id: 'A1', level_id: 'L1' }, [], make, ['asset_id', 'scene_id', 'shot_id'])
     expect(seeded.map(i => i.entity_type)).toEqual(['asset'])
+  })
+})
+
+// ── The screens' half: buildItemLookup and sortItemsForDisplay ──────────────
+const ROWS = {
+  assets: [
+    { id: 'as-lh', name: 'Lighthouse Interior' }, { id: 'as-sl', name: 'storm Lantern' },
+    { id: 'as-10', name: 'Prop 10' }, { id: 'as-2', name: 'Prop 2' }, { id: 'as-x', name: '' },
+    { id: 'as-twin-b', name: 'Twin' }, { id: 'as-twin-a', name: 'twin' },
+  ],
+  scenes: [
+    { id: 'sc-3', name: 'Cliff', scene_number: 3 }, { id: 'sc-1', name: 'Harbour', scene_number: 1 },
+    { id: 'sc-10', name: 'Attic', scene_number: 10 }, { id: 'sc-none', name: 'Aardvark', scene_number: null },
+    { id: 'sc-1b', name: 'Beach', scene_number: 1 },
+  ],
+  shots: [
+    { id: 'sh-3-1', name: 'Wide', scene_id: 'sc-3', shot_number: 1 },
+    { id: 'sh-1-2', name: 'Close', scene_id: 'sc-1', shot_number: 2 },
+    { id: 'sh-1-10', name: 'Insert', scene_id: 'sc-1', shot_number: 10 },
+    { id: 'sh-loose', name: 'Pickup', scene_id: null, shot_number: 1 },
+    { id: 'sh-1-2b', name: 'Another', scene_id: 'sc-1', shot_number: 2 },
+  ],
+  levels: [{ id: 'lv-1', name: 'Docks' }],
+  experiences: [{ id: 'xp-1', name: 'Tour' }],
+}
+
+describe('buildItemLookup — a task\'s LIVE items, in one display order', () => {
+  const items = [
+    it_('i1', 'asset', 'as-sl', 0), it_('i2', 'asset', 'as-lh', 1), it_('i3', 'asset', 'as-gone', 2),
+    it_('i4', 'scene', 'sc-3', 0), it_('i5', 'scene', 'sc-1', 1),
+    it_('i6', 'shot', 'sh-1-10', 0), it_('i7', 'shot', 'sh-3-1', 1), it_('i8', 'shot', 'sh-1-2', 2),
+    it_('i9', 'level', 'lv-1', 0), it_('i10', 'asset', 'as-sl', 5), // a second copy of one (task, kind, entity)
+    it_('o1', 'asset', 'as-2', 0, undefined, 'task-2'),
+  ]
+  const lookup = buildItemLookup({ items, available: true, ...ROWS })
+  const task = { id: T, asset_id: 'as-10', scene_id: 'sc-10' }
+
+  it('idsOf: every live item of the kind, by name A to Z, each once; the task\'s own fields are not read', () => {
+    expect(lookup.idsOf(task, 'asset')).toEqual(['as-lh', 'as-sl'])
+    expect(lookup.idsOf(task, 'level')).toEqual(['lv-1'])
+    expect(lookup.idsOf(task, 'experience')).toEqual([])
+    expect(lookup.idsOf({ id: 'task-2' }, 'asset')).toEqual(['as-2'])
+  })
+  it('isLive: a row in the list given for its kind; an item whose row is in the trash or not loaded is hidden', () => {
+    expect(lookup.isLive('asset', 'as-lh')).toBe(true)
+    expect(lookup.isLive('asset', 'as-gone')).toBe(false)
+    expect(lookup.isLive('scene', 'as-lh')).toBe(false) // another kind's row
+    expect(lookup.isLive('shot', null)).toBe(false)
+    // The row comes back (restored, or loaded): the same item shows again.
+    const back = buildItemLookup({ items, available: true, ...ROWS, assets: [...ROWS.assets, { id: 'as-gone', name: 'Back' }] })
+    expect(back.idsOf(task, 'asset')).toEqual(['as-gone', 'as-lh', 'as-sl'])
+  })
+  it('scenes read by their number, then name; a scene with no number last', () => {
+    const l = buildItemLookup({ items: [
+      it_('a', 'scene', 'sc-10', 0), it_('b', 'scene', 'sc-none', 1), it_('c', 'scene', 'sc-1b', 2),
+      it_('d', 'scene', 'sc-3', 3), it_('e', 'scene', 'sc-1', 4),
+    ], ...ROWS })
+    expect(l.idsOf({ id: T }, 'scene')).toEqual(['sc-1b', 'sc-1', 'sc-3', 'sc-10', 'sc-none'])
+  })
+  it('shots read by their scene\'s number, then their own, then name; a shot with no scene last', () => {
+    const l = buildItemLookup({ items: [
+      it_('a', 'shot', 'sh-loose', 0), it_('b', 'shot', 'sh-3-1', 1), it_('c', 'shot', 'sh-1-10', 2),
+      it_('d', 'shot', 'sh-1-2', 3), it_('e', 'shot', 'sh-1-2b', 4),
+    ], ...ROWS })
+    expect(l.idsOf({ id: T }, 'shot')).toEqual(['sh-1-2b', 'sh-1-2', 'sh-1-10', 'sh-3-1', 'sh-loose'])
+  })
+  it('names: a row\'s own name or "Untitled <kind>"; a shot as "Scene › Shot", as the task window says it', () => {
+    expect(lookup.nameOf('asset', 'as-lh')).toBe('Lighthouse Interior')
+    expect(lookup.nameOf('asset', 'as-x')).toBe('Untitled asset')
+    expect(lookup.nameOf('shot', 'sh-1-2')).toBe('Harbour › Close')
+    expect(lookup.nameOf('shot', 'sh-loose')).toBe('Pickup')
+    expect(lookup.nameOf('asset', 'as-gone')).toBeNull()
+    const untitled = buildItemLookup({ shots: [{ id: 'h', scene_id: 's' }], scenes: [{ id: 's' }] })
+    expect(untitled.nameOf('shot', 'h')).toBe('Untitled scene › Untitled shot')
+    expect(untitled.nameOf('scene', 's')).toBe('Untitled scene')
+  })
+  it('names compare numbers as numbers and ignore case; a tie on the name falls to the id', () => {
+    const l = buildItemLookup({ items: [
+      it_('a', 'asset', 'as-10', 0), it_('b', 'asset', 'as-2', 1), it_('c', 'asset', 'as-twin-b', 2), it_('d', 'asset', 'as-twin-a', 3),
+    ], ...ROWS })
+    expect(l.idsOf({ id: T }, 'asset')).toEqual(['as-2', 'as-10', 'as-twin-a', 'as-twin-b'])
+  })
+  it('orderOf: the display order as a comparator, rows not shown last', () => {
+    expect(['as-sl', 'as-gone', 'as-lh'].sort(lookup.orderOf('asset'))).toEqual(['as-lh', 'as-sl', 'as-gone'])
+    expect(['sc-3', 'sc-1'].sort(lookup.orderOf('scene'))).toEqual(['sc-1', 'sc-3'])
+  })
+  it('combinationOf: the key is the sorted ids, the ids and the label in the display order', () => {
+    expect(lookup.combinationOf(task, 'asset')).toEqual({
+      key: 'as-lh|as-sl', ids: ['as-lh', 'as-sl'], label: 'Lighthouse Interior, storm Lantern',
+    })
+    expect(lookup.combinationOf(task, 'scene')).toEqual({ key: 'sc-1|sc-3', ids: ['sc-1', 'sc-3'], label: 'Harbour, Cliff' })
+    expect(lookup.combinationOf(task, 'shot')).toEqual({
+      key: 'sh-1-10|sh-1-2|sh-3-1', ids: ['sh-1-2', 'sh-1-10', 'sh-3-1'], label: 'Harbour › Close, Harbour › Insert, Cliff › Wide',
+    })
+    expect(lookup.combinationOf(task, 'experience')).toEqual({ key: '', ids: [], label: '' })
+  })
+  it('FAILING CONTROL: the same set added in another order is the same combination', () => {
+    const other = buildItemLookup({ items: [it_('x', 'asset', 'as-lh', 0, undefined, 'task-9'), it_('y', 'asset', 'as-sl', 1, undefined, 'task-9')], ...ROWS })
+    expect(other.combinationOf({ id: 'task-9' }, 'asset')).toEqual(lookup.combinationOf(task, 'asset'))
+    expect(other.combinationOf({ id: 'task-9' }, 'asset').key).not.toBe(lookup.combinationOf({ id: 'task-2' }, 'asset').key)
+  })
+  it('an unknown kind, or no task, reads nothing', () => {
+    expect(lookup.idsOf(task, 'phase')).toEqual([])
+    expect(lookup.idsOf(null, 'asset')).toEqual([])
+    expect(lookup.combinationOf({}, 'asset')).toEqual({ key: '', ids: [], label: '' })
+  })
+})
+
+describe('buildItemLookup where the backend keeps no items (available false)', () => {
+  const lookup = buildItemLookup({ items: [it_('i1', 'asset', 'as-lh', 0)], available: false, ...ROWS })
+  it('the task\'s own single field is its one item, so every screen has one reading path', () => {
+    const task = { id: T, asset_id: 'as-sl', scene_id: 'sc-1', shot_id: '', level_id: null }
+    expect(lookup.idsOf(task, 'asset')).toEqual(['as-sl'])
+    expect(lookup.combinationOf(task, 'scene')).toEqual({ key: 'sc-1', ids: ['sc-1'], label: 'Harbour' })
+    expect(lookup.idsOf(task, 'shot')).toEqual([])
+    expect(lookup.idsOf(task, 'level')).toEqual([])
+  })
+  it('still only when live: a field naming a row not shown reads nothing', () => {
+    expect(lookup.idsOf({ id: T, asset_id: 'as-gone' }, 'asset')).toEqual([])
+  })
+  it('FAILING CONTROL: the items given are not read (a stale list cannot speak for the fields)', () => {
+    expect(lookup.idsOf({ id: T }, 'asset')).toEqual([])
+  })
+})
+
+describe('sortItemsForDisplay — her Q-N1 sorts for the task window', () => {
+  const lookup = buildItemLookup({ ...ROWS })
+  const rows = [
+    it_('r1', 'scene', 'sc-3', 0, '2026-10-11T10:00:00Z'),
+    it_('r2', 'asset', 'as-sl', 0, '2026-10-11T09:00:00Z'),
+    it_('r3', 'asset', 'as-lh', 1, '2026-10-11T11:00:00Z'),
+    it_('r4', 'level', 'lv-1', 0, '2026-10-11T08:00:00Z'),
+    it_('r5', 'shot', 'sh-1-2', 0, '2026-10-11T10:30:00Z'),
+  ]
+  it('Type: kinds in order, each in the display order', () => {
+    expect(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id)).toEqual(['r3', 'r2', 'r1', 'r5', 'r4'])
+  })
+  it('A to Z: one list by name, whatever the kind', () => {
+    // Cliff, Docks, Harbour › Close, Lighthouse Interior, storm Lantern
+    expect(sortItemsForDisplay(rows, 'name', lookup).map(i => i.id)).toEqual(['r1', 'r4', 'r5', 'r3', 'r2'])
+  })
+  it('A to Z: a tie on the name falls to the kind', () => {
+    const l = buildItemLookup({ assets: [{ id: 'a', name: 'Dock' }], levels: [{ id: 'l', name: 'dock' }] })
+    const tied = [it_('x', 'level', 'l', 0), it_('y', 'asset', 'a', 0)]
+    expect(sortItemsForDisplay(tied, 'name', l).map(i => i.id)).toEqual(['y', 'x'])
+  })
+  it('Date added: one list by when each was added, newest last', () => {
+    expect(sortItemsForDisplay(rows, 'date', lookup).map(i => i.id)).toEqual(['r4', 'r2', 'r1', 'r5', 'r3'])
+  })
+  it('Date added: a kind keeps its stored order; with every time equal it is the stored order itemsOfTask reads', () => {
+    const same = [it_('b', 'scene', 'sc-1', 1), it_('a', 'asset', 'as-lh', 1), it_('c', 'asset', 'as-sl', 0), it_('d', 'scene', 'sc-3', 0)]
+    expect(sortItemsForDisplay(same, 'date', lookup).map(i => i.id)).toEqual(itemsOfTask(same, T).map(i => i.id))
+    expect(sortItemsForDisplay(same, 'date', lookup).map(i => i.id)).toEqual(['c', 'a', 'd', 'b'])
+  })
+  it('anything else reads as Type; the list given is never changed', () => {
+    const before = rows.map(i => i.id)
+    expect(sortItemsForDisplay(rows, 'nonsense', lookup).map(i => i.id)).toEqual(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id))
+    expect(rows.map(i => i.id)).toEqual(before)
+    expect(sortItemsForDisplay(null, 'type', lookup)).toEqual([])
   })
 })
 

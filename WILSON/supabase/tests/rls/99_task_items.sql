@@ -13,20 +13,23 @@
 --     money arm (0062: a restated body that drops an arm is an escalation, so
 --     each arm is proved).
 --   * The seed (§7c): a new task's single columns become its first items.
---   * task_items → tasks (§7a): the task's column of the item's kind is the
---     main item — after an insert, a reorder and a delete; a level's or an
---     experience's item never touches the task; a column of a kind the task
---     has no item for (a pre-0096 link to another project's asset) is left.
---   * tasks → task_items (§7b): a new id REPLACES the main item; an id the
---     task already has MOVES first and nothing is removed; a cleared column
---     removes that item and the next one becomes main; a re-sent row changes
---     nothing; another project's asset is refused (asset_id is same-project
---     now).
---   * Cascades (§2): deleting a scene the task has two of hands "main" to the
---     other (as a project MEMBER under scenes_delete); a secondary asset's
---     delete leaves the task; the MAIN asset's delete takes the task, other
---     items and all (0034's rule kept); a level's delete and a task's delete
---     take their items.
+--   * task_items → tasks (§7a, restated by 0097 §4 as the older apps' copy):
+--     the task's column of the item's kind is the first item of that kind in
+--     the stored order — after an insert, a reorder and a delete; a level's
+--     or an experience's item never touches the task; a column of a kind the
+--     task has no item for (a pre-0096 link to another project's asset) is
+--     left.
+--   * tasks → task_items (§7b, ADD-ONLY since 0097 §3; VW1m, 2026-10-16,
+--     Audrey: "lets not have main asset be a thing"): a new id is ADDED at
+--     the end of its kind and nothing is removed; an id the task already has
+--     moves nothing; a cleared column removes only that item and the column
+--     reads the next; a re-sent row changes nothing; another project's asset
+--     is refused (asset_id is same-project now).
+--   * Cascades (§2): deleting the scene the copy reads (as a project MEMBER
+--     under scenes_delete) hands the copy to the other; an asset's delete
+--     takes only its item and leaves the task, its first asset's included
+--     (0097 §1: ON DELETE SET NULL; Audrey 2026-10-16, "The tasks stay");
+--     a level's delete and a task's delete take their items.
 --   * The trash: a trashed task's items are hidden and cannot be written; a
 --     restore brings them back.
 --   * The gate (§4): a reviewer and a seatless member of a staffed project
@@ -382,7 +385,7 @@ SELECT lives_ok(
 SELECT is(
   (SELECT asset_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b01'),
   '99990000-0000-0000-0000-0000000000a1'::uuid,
-  'the second asset leaves the main one: asset_id is still A1 (§7a)');
+  'the second asset leaves the copy on the first: asset_id is still A1 (§7a)');
 
 -- 23
 SELECT lives_ok(
@@ -396,7 +399,7 @@ SELECT lives_ok(
 SELECT is(
   (SELECT asset_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b01'),
   '99990000-0000-0000-0000-0000000000a2'::uuid,
-  'the reorder made A2 the main asset: asset_id followed (§7a)');
+  'the reorder made A2 the first in the stored order: the copy followed (§7a)');
 
 -- 25
 SELECT is(
@@ -408,13 +411,13 @@ SELECT is(
 -- 26
 SELECT lives_ok(
   $$DELETE FROM public.task_items WHERE id = '99990000-0000-0000-0000-000000000112'$$,
-  'a member removes the main asset item');
+  'a member removes the asset item the copy reads');
 
 -- 27
 SELECT is(
   (SELECT asset_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b01'),
   '99990000-0000-0000-0000-0000000000a1'::uuid,
-  'removing the main asset hands "main" to the next: asset_id is A1 again (§7a)');
+  'removing it hands the copy to the next: asset_id is A1 again (§7a)');
 
 -- 28
 SELECT lives_ok(
@@ -455,7 +458,9 @@ SELECT ok(
 
 
 -- ═════════════════════════════════════════════════════════════════════════
--- tasks → task_items (§7b): older clients and every single-column writer
+-- tasks → task_items (§7b): older clients and every single-column writer.
+-- ADD-ONLY since 0097 §3 (VW1m, 2026-10-16): until 0097 a new id replaced
+-- the first item and a known id moved first; both probes are flipped here.
 -- ═════════════════════════════════════════════════════════════════════════
 
 -- 34
@@ -468,34 +473,33 @@ SELECT lives_ok(
 SELECT is(
   (SELECT string_agg(right(entity_id::text, 2) || ':' || position, ',' ORDER BY position, created_at, id)
      FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b01' AND entity_type = 'asset'),
-  'a2:0',
-  'a NEW id replaces the main asset item, at its place (§7b)');
+  'a1:1,a2:2',
+  'a NEW id is ADDED at the end of its kind; nothing is removed or moved (§7b, 0097 §3)');
 
 -- 36
 SELECT is(
   (SELECT asset_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b01'),
-  '99990000-0000-0000-0000-0000000000a2'::uuid,
-  'and asset_id says the new main item (§7b)');
+  '99990000-0000-0000-0000-0000000000a1'::uuid,
+  'and asset_id still reads the first item in the stored order, the older apps'' copy (§7b, 0097 §3)');
 
 -- 37
 SELECT lives_ok(
-  $$INSERT INTO public.task_items (task_id, project_id, entity_type, entity_id, position)
-    VALUES ('99990000-0000-0000-0000-000000000b01', 'aaaa1111-0000-0000-0000-000000000001',
-            'asset', '99990000-0000-0000-0000-0000000000a1', 1)$$,
-  'a member adds A1 back as the second asset');
-
--- 38
-SELECT lives_ok(
-  $$UPDATE public.tasks SET asset_id = '99990000-0000-0000-0000-0000000000a1'
+  $$UPDATE public.tasks SET asset_id = '99990000-0000-0000-0000-0000000000a2'
      WHERE id = '99990000-0000-0000-0000-000000000b01'$$,
   'a member writes asset_id to the task''s SECOND asset (what opening an older bid version does)');
 
--- 39
+-- 38
 SELECT is(
   (SELECT string_agg(right(entity_id::text, 2) || ':' || position, ',' ORDER BY position, created_at, id)
      FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b01' AND entity_type = 'asset'),
-  'a1:0,a2:1',
-  'an id the task already has MOVES first and nothing is removed (§7b)');
+  'a1:1,a2:2',
+  'an id the task already has moves NOTHING and nothing is removed (§7b, 0097 §3)');
+
+-- 39
+SELECT is(
+  (SELECT asset_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b01'),
+  '99990000-0000-0000-0000-0000000000a1'::uuid,
+  'and the copy still reads A1, not the id written (§7b, 0097 §3)');
 
 -- 40
 SELECT lives_ok(
@@ -506,27 +510,27 @@ SELECT lives_ok(
 SELECT is(
   (SELECT asset_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b01'),
   '99990000-0000-0000-0000-0000000000a2'::uuid,
-  'a cleared column removes that item and the next one is main: asset_id is A2, not NULL (§7b)');
+  'a cleared column removes the item it named and the copy reads the next: asset_id is A2, not NULL (§7b)');
 
 -- 42
 SELECT is(
   (SELECT string_agg(right(entity_id::text, 2) || ':' || position, ',' ORDER BY position, created_at, id)
      FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b01' AND entity_type = 'asset'),
-  'a2:1',
-  'only the cleared item went (§7b)');
+  'a2:2',
+  'only the cleared item went, and nothing moved (§7b)');
 
 -- 43
 SELECT lives_ok(
   $$UPDATE public.tasks SET scene_id = '99990000-0000-0000-0000-0000000000c2'
      WHERE id = '99990000-0000-0000-0000-000000000b03'$$,
-  'a member moves a task from SC1 to SC2 by its scene_id');
+  'a member writes SC2 over T3''s scene_id (SC1)');
 
 -- 44
 SELECT is(
   (SELECT string_agg(entity_type || ':' || right(entity_id::text, 2) || ':' || position, ',' ORDER BY entity_type, position, id)
      FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b03'),
-  'scene:c2:0,shot:d1:0',
-  'the scene item was replaced; the shot item is untouched (§7b)');
+  'scene:c1:0,scene:c2:1,shot:d1:0',
+  'SC2 is added after SC1, SC1 is kept; the shot item is untouched (§7b, 0097 §3)');
 
 -- 45
 SELECT lives_ok(
@@ -538,7 +542,7 @@ SELECT lives_ok(
 SELECT is(
   (SELECT string_agg(entity_type || ':' || right(entity_id::text, 2) || ':' || position, ',' ORDER BY entity_type, position, id)
      FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b03'),
-  'scene:c2:0,shot:d1:0',
+  'scene:c1:0,scene:c2:1,shot:d1:0',
   'a re-send of the same values changes no item (§7b)');
 
 
@@ -619,30 +623,32 @@ SELECT set_config('request.jwt.claims', json_build_object(
 )::text, true);
 SET LOCAL ROLE authenticated;
 
--- 54
+-- 54 (0097: an older app's write ADDED SC2 at #43, so T3 already holds SC1
+-- and SC2; the reorder puts SC2 first, where the copy reads it)
 SELECT lives_ok(
-  $$INSERT INTO public.task_items (id, task_id, project_id, entity_type, entity_id, position)
-    VALUES ('99990000-0000-0000-0000-000000000131', '99990000-0000-0000-0000-000000000b03',
-            'aaaa1111-0000-0000-0000-000000000001', 'scene', '99990000-0000-0000-0000-0000000000c1', 1)$$,
-  'a member adds SC1 back to T3 as its second scene');
+  $$SELECT count(*) FROM public.reorder_task_items('99990000-0000-0000-0000-000000000b03', 'scene',
+      ARRAY[(SELECT id FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b03'
+               AND entity_type = 'scene' AND entity_id = '99990000-0000-0000-0000-0000000000c2')]::uuid[])$$,
+  'a member reorders T3''s scenes, SC2 first');
 
 -- 55
 SELECT ok(
   (SELECT workspace_id = '11111111-1111-1111-1111-111111111111'
           AND created_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
-     FROM public.task_items WHERE id = '99990000-0000-0000-0000-000000000131'),
-  'an item is stamped with its project''s workspace and its maker (§3)');
+     FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b03'
+      AND entity_type = 'scene' AND entity_id = '99990000-0000-0000-0000-0000000000c2'),
+  'an item is stamped with its project''s workspace and its maker, the one the member''s column write added too (§3)');
 
 -- 56
 SELECT lives_ok(
   $$DELETE FROM public.scenes WHERE id = '99990000-0000-0000-0000-0000000000c2'$$,
-  'a member deletes SC2, T3''s main scene');
+  'a member deletes SC2, the scene T3''s copy reads');
 
 -- 57
 SELECT is(
   (SELECT scene_id FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b03'),
   '99990000-0000-0000-0000-0000000000c1'::uuid,
-  'the deleted main scene hands "main" to the next scene, whichever cascade runs first (§7a, §7b)');
+  'the deleted scene hands the copy to the next scene, whichever cascade runs first (§7a, §7b)');
 
 -- 58
 SELECT is(
@@ -661,20 +667,23 @@ SELECT is(
      FROM public.task_items i JOIN public.tasks t ON t.id = i.task_id
     WHERE i.task_id = '99990000-0000-0000-0000-000000000b04'),
   'a4@a4',
-  'deleting a SECONDARY asset takes its item and leaves the task and its main asset (§2, §7a)');
+  'deleting a task''s SECOND asset takes its item and leaves the task and the copy on its first (§2, §7a)');
 
--- 60
+-- 60 (flipped by 0097 §1: until 0097 the first asset's delete took the task)
 DELETE FROM public.assets WHERE id = '99990000-0000-0000-0000-0000000000a6';
 SELECT is(
   (SELECT count(*)::int FROM public.tasks WHERE id = '99990000-0000-0000-0000-000000000b05'),
-  0,
-  'deleting a task''s MAIN asset still takes the task, its other asset and all (0034''s rule; §7a never re-points to escape it)');
+  1,
+  'deleting a task''s FIRST asset leaves the task (0097 §1: ON DELETE SET NULL; Audrey 2026-10-16, "The tasks stay")');
 
 -- 61
 SELECT is(
-  (SELECT count(*)::int FROM public.task_items WHERE task_id = '99990000-0000-0000-0000-000000000b05'),
-  0,
-  'and the task''s items went with it (§2)');
+  (SELECT string_agg(right(i.entity_id::text, 2), ',') || '@' || COALESCE(right(t.asset_id::text, 2), '-')
+     FROM public.task_items i JOIN public.tasks t ON t.id = i.task_id
+    WHERE i.task_id = '99990000-0000-0000-0000-000000000b05'
+    GROUP BY t.asset_id),
+  'a7@a7',
+  'it keeps its other asset, and the copy moved to it, whichever cascade ran first (§2, §7a, §7b)');
 
 -- 62
 DELETE FROM public.levels WHERE id = '99990000-0000-0000-0000-0000000000e1';
@@ -995,12 +1004,12 @@ SELECT is(
      JOIN LATERAL (SELECT k.kind,
                           (SELECT i.entity_id FROM public.task_items i
                             WHERE i.task_id = t.id AND i.entity_type = k.kind
-                            ORDER BY i.position, i.created_at, i.id LIMIT 1) AS main,
+                            ORDER BY i.position, i.created_at, i.id LIMIT 1) AS first_item,
                           CASE k.kind WHEN 'asset' THEN t.asset_id WHEN 'scene' THEN t.scene_id ELSE t.shot_id END AS col
                      FROM (VALUES ('asset'), ('scene'), ('shot')) AS k(kind)) m ON true
-    WHERE t.id::text LIKE '99990000-%' AND m.main IS NOT NULL AND m.col IS DISTINCT FROM m.main),
+    WHERE t.id::text LIKE '99990000-%' AND m.first_item IS NOT NULL AND m.col IS DISTINCT FROM m.first_item),
   0,
-  'after everything above, every fixture task''s single column of a kind it has items for IS its main item');
+  'after everything above, every fixture task''s single column of a kind it has items for IS its first item in the stored order (the older apps'' copy, 0097 §4)');
 
 -- 97
 SELECT is(
@@ -1018,7 +1027,7 @@ SELECT is(
 -- 98 (review round 1, R1-5)
 SELECT ok(
   position('FOR NO KEY UPDATE' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_task_items_sync_task()'::regprocedure)) > 0,
-  'fn_task_items_sync_task locks the task row before it reads the main item (two concurrent writers of one task''s items)');
+  'fn_task_items_sync_task locks the task row before it reads the first item (two concurrent writers of one task''s items; kept by 0097 §4)');
 
 SELECT * FROM finish();
 ROLLBACK;

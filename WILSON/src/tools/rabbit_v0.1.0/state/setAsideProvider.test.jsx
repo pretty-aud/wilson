@@ -105,6 +105,7 @@ afterEach(() => { cleanup(); ctx = null; fx = null })
 
 const task = (n) => ctx.tasks.find(t => t.id === TASK_ID(n))
 const aside = (n) => ctx.setAsideTasks.find(t => t.id === TASK_ID(n))
+const itemIds = (n, kind) => (ctx.taskItems || []).filter(i => i.task_id === TASK_ID(n) && i.entity_type === kind).map(i => i.entity_id)
 const run = (fn) => act(async () => { await fn() })
 const bidding = () => run(() => ctx.resetToBidding())
 const open = (id, opts = {}) => run(() => ctx.openBudgetVersion(id, { roleRates: RATES, ...opts }))
@@ -125,10 +126,18 @@ describe('constraints 1, 3 and 7 — set aside, hidden, and back whole', () => {
   it('opening Bid v2 brings back the SAME row — id, logged days, comment, link, file and edge all on it', async () => {
     await bidding()
     const before = structuredClone(task(40))
+    // VW1m (2026-10-16): its scene and shot are its items (ctx.tasks carries
+    // no single link field where items are kept).
+    const scenesBefore = itemIds(40, 'scene')
+    const shotsBefore = itemIds(40, 'shot')
     await open(BV1)
     await open(BV2)
-    expect(before.scene_id).toBeTruthy()
-    expect(task(40)).toMatchObject({ id: T40, title: before.title, logged_days: 1.5, scene_id: before.scene_id, shot_id: before.shot_id })
+    expect(scenesBefore).toEqual([fx.store.scenes[0].id])
+    expect(shotsBefore).toHaveLength(1)
+    expect(task(40)).toMatchObject({ id: T40, title: before.title, logged_days: 1.5 })
+    expect(task(40)).not.toHaveProperty('scene_id')
+    expect(itemIds(40, 'scene')).toEqual(scenesBefore)
+    expect(itemIds(40, 'shot')).toEqual(shotsBefore)
     expect(ctx.setAsideTasks).toEqual([])
     expect(ctx.dependencies.some(d => d.id === 'd-t40')).toBe(true)
     expect(ctx.comments.some(c => c.id === 'c-t40')).toBe(true)
@@ -243,17 +252,31 @@ describe('constraint 6 — under a lock', () => {
 })
 
 describe('review round 1 (S5b) — the corrections, each with its control', () => {
-  it('R1-01: an asset whose task is set aside cannot be deleted (the cloud would bury the task with it); an asset with none can', async () => {
+  // VW1m (2026-10-16), her Q-M2 ("The tasks stay"): R1-01 refused this delete
+  // because the cloud's cascade would have buried the set-aside task with its
+  // main asset. With no main asset and no cascade (0097), the asset deletes
+  // and the set-aside task stays, its item kept (hidden while the asset is in
+  // the trash), back whole when a version that holds it is opened.
+  it('VW1m (was R1-01): an asset whose task is set aside deletes, and the set-aside task stays — back whole on Bid v2', async () => {
     await bidding()
     const asset8 = fx.store.tasks.find(t => t.id === T40).asset_id
+    expect(itemIds(40, 'asset')).toEqual([asset8])
     await open(BV1)
-    await expect(ctx.deleteAsset(asset8)).rejects.toThrow(/set aside — not part of the open bid version.*“Insurance certificate”/)
-    expect(ctx.assets.some(a => a.id === asset8)).toBe(true)
-    await expect(ctx.deleteAssets([asset8])).rejects.toThrow(/set aside/)
-    // CONTROL: back on Bid v2 nothing on asset 8 is set aside, and it deletes.
-    await open(BV2)
+    expect(aside(40)).toBeTruthy()
     await run(() => ctx.deleteAsset(asset8))
     expect(ctx.assets.some(a => a.id === asset8)).toBe(false)
+    expect(aside(40)).toBeTruthy()
+    expect(fx.store.tasks.find(t => t.id === T40).deleted_at ?? null).toBeNull()
+    // The soft delete touched no item: the task still names the asset.
+    expect(itemIds(40, 'asset')).toEqual([asset8])
+    await open(BV2)
+    expect(task(40)).toBeTruthy()
+    expect(ctx.setAsideTasks).toEqual([])
+    // CONTROL: undo of the delete brings the asset back, its task still on it.
+    await run(() => ctx.undo())
+    await run(() => ctx.undo())
+    expect(ctx.assets.some(a => a.id === asset8)).toBe(true)
+    expect(itemIds(40, 'asset')).toEqual([asset8])
   })
   it('R1-01: a set-aside write the backend did not fully make stops, says so, and reads the project again', async () => {
     await bidding()
