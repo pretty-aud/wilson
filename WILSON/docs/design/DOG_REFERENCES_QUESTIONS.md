@@ -329,18 +329,49 @@ the AI, as today?**
 *Why:* a few dozen words that ground every slide, and today's decks already rely
 on them.
 
-### Her answers, batch 4
+### Her answers, batch 4 (2026-10-16; asked in chat as multiple choice; recorded verbatim)
 
-*(not yet asked)*
+- **Q13:** "Both still apply (Recommended)"
+- **Q14** (typed): "its what the check box did before, allow using images/videos from a project or uploaded in the outline like before"
+- **Q15** (typed): "core files are just for defining the project core files arent just for the dog tool. so the marks made on the dog tool card is just to mark the ones we want to use. files can be core files. notes and items arent"
+- **Q17:** "Yes, always (Recommended)"
+
+### What follows from batch 4 (say if any is wrong)
+
+1. **In Single page, the full deck text and the theme setting still apply**, as
+   today; a line under the single page box says so.
+2. **The two media boxes do what they did before**: *Use visual assets* (the old
+   *Use uploaded assets*, with the line "to place media in the deck") places
+   your uploaded pictures and videos; *Use project assets* places the project's.
+   Which of the project's is Q19 in batch 5: your "like before" and your Q2
+   ("choosing the project should select what files and items he user can choose
+   from") can be read two ways, so it is asked rather than guessed.
+3. **D.O.G. no longer changes a file's Core mark.** Core belongs to the file and
+   is set where it always is, the *Core file* box in R.A.B.B.I.T.'s Files table;
+   D.O.G. shows it, and *All Core files* ticks those. The ticks on D.O.G.'s card
+   only say which things this deck uses. Today's "File roles · click to toggle"
+   chips, which wrote the file's Core mark from D.O.G., are gone.
+4. **Only files are Core.** Items and notes have no mark. The AI is still told
+   which of the chosen files are Core (they define the project) and which are
+   not, as today.
+5. **The project's title and description always go** once a project is chosen.
 
 ---
 
-## Batch 5 — remembering
+## Batch 5 — left for tomorrow (2026-10-16)
+
+Her words, mid-session: "keep coding im going to sleep. leave questions for
+tomorrow". So these four are not yet asked. **The build follows the recommended
+pick of each, provisionally**, and each is written so that a different answer is
+one change, not a rebuild. Ask them first thing.
+
+
+---
 
 **Q12. D.O.G. keeps its pages and uploads while WILSON is open and loses them when
 it closes. Should the chosen references be remembered longer?**
 
-- **Same as uploads** *(Recommended)*: kept while WILSON is open, gone when it
+- **Same as uploads** *(Recommended; built provisionally)*: kept while WILSON is open, gone when it
   closes. Nothing about your private notes is written to this computer.
 - **Per project, this computer**: reopening D.O.G. on the same project brings the
   same references back, on this computer only.
@@ -350,9 +381,44 @@ it closes. Should the chosen references be remembered longer?**
 *Why:* the deck itself is not remembered either, and a list of your notes' titles
 left on a shared computer is a small leak of something private.
 
+**Q19. *Use project assets* places "images/videos from a project … like
+before". Before, that meant the pictures and videos filed on the project itself
+(not under a scene or shot), which D.O.G. took on its own. Now that you tick what
+D.O.G. reads, which of the project's pictures and videos can it place?**
+
+- **The ones you tick** *(Recommended; built provisionally)*: the pictures and
+  videos among your chosen references, from anywhere in the project. You see
+  every one in the card.
+- **The project's own, as before**: every picture and video filed on the
+  project itself, ticked or not, exactly as before.
+- **Both**: the project's own, plus any you tick from scenes, shots and other
+  items.
+
+*Why:* your Q2 makes the project the place you choose from, not a set that goes
+on its own; a picture you did not tick turning up on a slide would be the one
+surprise left.
+
+**Q20. The three cards, top to bottom, would read *1 Project documentation*
+(the project and your uploads), *2 References*, *3 Generate outline* (the one
+Single page / Full deck card). Keep those names?**
+
+- **Those names** *(Recommended; built provisionally)*.
+- **1 Project & uploads, 2 References, 3 Deck request**.
+- **1 Sources, 2 References, 3 Outline**.
+
+*Why:* *Project documentation* is today's title minus the part that moved;
+*Generate outline* covers a page and a deck.
+
+**Q21. When D.O.G. opens, which side is the switch on?**
+
+- **Single page** *(Recommended; built provisionally)*: as today.
+- **Full deck**.
+
+*Why:* today's starting point; one less change to notice.
+
 ### Her answers, batch 5
 
-*(not yet asked)*
+*(not yet asked: left for tomorrow at her request)*
 
 ---
 
