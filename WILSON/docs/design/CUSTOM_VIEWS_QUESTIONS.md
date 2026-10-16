@@ -797,7 +797,68 @@ grouped by Asset, Scene, Shot, Level or Experience).
 - **In the toolbar**, beside the Group dropdown.
 - **In the Group card** of the Views dropdown.
 
-### Her answers, batch 11
+### Her answers, batch 11 (2026-10-16; asked in chat as multiple choice, Q-A3, Q-D1 and Q-D3 with pictures; recorded verbatim)
+
+- **Q-A3:** "sorry i forgot we added the bar that appears. just to confirm that bar with those three buttons should only appear on a view that has unsaved edits"
+- **Q-D1:** "option 1 but what do you mean by main one about the asset?"
+- **Q-D2:** "Saved for the project"
+- **Q-D3:** "In the toolbar"
+
+### What follows from batch 11 (say if any is wrong)
+
+- **Confirmed: the bar under the toolbar, with *Reset*, *Save as new view*
+  and *Save*, appears only while the view on screen has unsaved edits**, and
+  is gone otherwise (Q3c, Q-A3). It is the *Save view* button her Q-A2 asked
+  for: there is no separate *Save view* button, and the Views button shows
+  only the view's name (no *edited* word, no dot). The room Q-A1's *New*
+  menu frees goes to the Views button's name and to Q-D3's *Create
+  grouping* button.
+- **Dragging a task into a combination group makes that group's items the
+  task's items** (Q-D1): any others come off (the undo toast puts them
+  back); dragging it into "No asset" takes them all off. Which item becomes
+  its main one is batch 12's first question.
+- **A combination is the set of items, in no order**: "Lighthouse Interior,
+  Storm Lantern" is one group whichever of the two is main; its name lists
+  the items A to Z.
+- **A grouping made with *Create grouping* is saved for the project**
+  (Q-D2): every view of the Tasks table grouped by that kind shows it, even
+  while empty, for everyone. Like views (her Q2), it is created by anyone who
+  can edit the project; reviewers do not see *Create grouping* (Q-F).
+- ***Create grouping* sits in the toolbar** beside the Group dropdown (Q-D3),
+  shown only while the table is grouped by Asset, Scene, Shot, Level or
+  Experience; it opens a window with a check box for each item of that kind
+  (with a search box) and a name made from the ticked items.
+
+---
+
+## Batch 12 — the main item after a drag, and removing a grouping
+
+**What "main" means** (her question, twice: "what do you mean by main one
+about the asset?"). When a task has several assets, a few places can show
+the task only once: the Timeline grouped by asset puts each task's bar in one
+row, and the Budget's *By asset* tab counts a task's days and money under one
+asset (counting them under every asset would add the money twice). For those
+places WILSON uses one asset per task, its **main** asset: the first in the
+task's list (the task's window marks it *Main*, and you change it by moving
+another asset to the top there). With the combination groups, the Tasks
+table no longer uses it; the Timeline and the Budget still do.
+
+**Q-D4. After a drag changes a task's assets, which is its main asset?**
+- **Keep the old main one if it is still there** *(Recommended)*: if the
+  task's main asset is in the new group, it stays main (the Timeline and
+  the Budget do not move the task); otherwise the group's first (A to Z)
+  becomes main.
+- **Always the group's first** (A to Z).
+
+**Q-D5. Removing a grouping made with *Create grouping*.**
+- **From the group's own menu** *(Recommended)*: the group's header has a
+  *…* with *Remove grouping* (it asks first). Tasks keep their items; a
+  group that still holds tasks stays, as any combination with tasks does.
+- **It goes by itself** when it is empty and nobody has dragged a task into
+  it for the visit.
+- **It cannot be removed.**
+
+### Her answers, batch 12
 
 *(waiting)*
 
