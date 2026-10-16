@@ -474,7 +474,8 @@ function stripGroup(src, strip) {
     const parts = (frag?.type === 'JSXFragment' ? frag.children : []).filter(isContent)
     const status = parts[0]
     const statusOk = status?.type === 'JSXExpressionContainer'
-      && /^statusInTabBar && \(?\s*<span className="rb-ctx-status-group/.test(src.slice(status.expression.start, status.expression.end))
+      // FX11: the wrapper holds the faces alone (no pill, no adapter dot).
+      && /^statusInTabBar && \(?\s*<span className="rb-tabbar-status"/.test(src.slice(status.expression.start, status.expression.end))
     if (frag?.type !== 'JSXFragment' || parts.length !== 3 || !statusOk || parts.slice(1).some((p) => p.type !== 'JSXElement')) {
       problems.push(`the ${strip.prop} is not exactly the status group then two elements`)
     }
@@ -649,7 +650,7 @@ describe('each tool draws Help, then Settings, at the right end of its own strip
     // R.A.B.B.I.T.'s slot: anything beyond the status group and the two buttons.
     const slot = (inner) => `const x = <ViewTabs rightSlot={(<>${inner}</>)} />`
     const rabbitPair = '<IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} /><IconButton size="sm" Icon={SettingsIcon} title="R.A.B.B.I.T. settings" onClick={() => setSettingsOpen(true)} />'
-    const status = '{statusInTabBar && (<span className="rb-ctx-status-group rb-tabbar-status" />)}'
+    const status = '{statusInTabBar && (<span className="rb-tabbar-status" />)}'
     expect(stripProblems(slot(`${status}${rabbitPair}{exportButton}`), rabbit)).toEqual(expect.arrayContaining(['the rightSlot is not exactly the status group then two elements']))
     expect(stripProblems(slot(`${status}${rabbitPair}`), rabbit).filter((p) => p.includes('rightSlot'))).toEqual([])
   })

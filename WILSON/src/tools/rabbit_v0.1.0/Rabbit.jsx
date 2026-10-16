@@ -14,11 +14,13 @@
 //   └────────────────────────────────────────────────────┘
 //
 // The old title + adapter pill + refresh-index header has been
-// removed entirely. Adapter health is a single red or green dot.
-// Since B1 (2026-09-23, Q10) it and the realtime presence pill dock in
-// ProjectContextBar's two named slots instead of floating over the
-// view body's bottom-left corner. Refreshing the projects index is no longer a
-// manual user action — the Summary view refreshes on demand.
+// removed entirely. Since FX11 (2026-10-16) the connection is ONE dot
+// in the bottom-left corner of every tab, just above the orange bar
+// (components/ConnectionDot.jsx: the database AND where the files are
+// kept); the project bar keeps the project's name and status on the
+// left and the faces of who else has it open, then Switch, on the
+// right. Refreshing the projects index is no longer a manual user
+// action — the Summary view refreshes on demand.
 //
 // As of WILSON v0.6.x the header no longer hosts a project
 // picker — picking and creating projects happens exclusively
@@ -42,6 +44,7 @@ import { canSeeMoneyHere } from '../../permissions/projectRoleMatrix'
 import { isOwnAvatarUrl } from '../../components/TeamMembers/useWorkspaceMembers'
 import ViewTabs, { RABBIT_VIEW_PANEL_ID } from './components/ViewTabs'
 import ProjectContextBar from './components/ProjectContextBar'
+import ConnectionDot from './components/ConnectionDot'
 import IngestionToast from './components/IngestionToast'
 import IntakeWizardView from './views/IntakeWizardView'
 import ProjectSummaryView from './views/ProjectSummaryView'
@@ -63,8 +66,6 @@ import { leaveTab } from './state/leaveGuard'
 import { IconButton } from '../../ui/IconButton'
 import { Button } from '../../ui/Button'
 import { EmptyState } from '../../ui/EmptyState'
-import { StatusDot } from '../../ui/StatusDot'
-import { StatusBadge } from '../../ui/StatusBadge'
 import './rabbitShell.css'
 
 export default function Rabbit({ currentPage } = {}) {
@@ -163,8 +164,6 @@ export default function Rabbit({ currentPage } = {}) {
   // The WILSON nav strip's "Tool settings" item, and the counter it bumped
   // to open them from the shell, are gone (post-overhaul S2a, Audrey's C6).
 
-  const adapterMode = ctx?.adapterMode
-  const adapterStatus = ctx?.adapterStatus
   const activeProjectId = ctx?.activeProjectId
 
   // Tell the agent system this tool is in the foreground whenever
@@ -192,15 +191,23 @@ export default function Rabbit({ currentPage } = {}) {
     goToView('intake')
   }
 
-  // ── The adapter dot and the presence pill (Q10, B1 2026-09-23) ──
-  // They used to be absolutely positioned over the view body's bottom-left
-  // corner, where they covered content on every view but Bins (V1-08: Tasks'
-  // last row, Timeline's task label, Summary's "Project Files"). Q10 moves
-  // them into ProjectContextBar's two named slots. Summary draws no context
-  // bar — its gallery IS the project picker, and the bar would state the
-  // project a fourth time on one scroll (review R23) — so on Summary they
-  // dock at the tab bar's right end, beside settings and help. Hidden on no
-  // view (C1).
+  // ── The faces, and the connection dot (FX11, 2026-10-16) ──
+  // Audrey: "the project bar has three green dots and its confusing. remove
+  // the live and additional green dot. just leave the icons that appear for
+  // users" — and the project bar keeps "the project status there on that bar
+  // next to project name. leave to the right the switch dropdown". So the
+  // bar's right holds the faces of who else has the project open, then
+  // Switch; the LIVE / Sync pill and the adapter dot are gone from it, and
+  // from Summary's tab bar, where the faces alone dock (Summary draws no
+  // context bar — its gallery IS the project picker, review R23).
+  //
+  // The connection is ONE dot, drawn here once for every tab, in the shell's
+  // bottom-left corner just above the orange bar ("move the live dot to the
+  // bottom left corner of the window right above the orange bar"). It sits in
+  // the 24px gutter square, where no tab draws text (measured at 1280 and
+  // 1440, FX11 hand-off §2); the Bins rail's counter, which did, moved up.
+  // B1 took the old corner overlays out because they covered content (V1-08:
+  // a pill and five faces); one 8px dot in the gutter does not.
   //
   // The roster the presence avatars need is fetched HERE, once for the life of
   // the shell. The strip is rendered under two different parents (the context
@@ -217,9 +224,8 @@ export default function Rabbit({ currentPage } = {}) {
     }
     return out
   }, [rosterMembers])
-  const adapterDot = <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
   const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} />
-  // On Summary the pair shares the tab strip's one row with eleven tabs (twelve
+  // On Summary the faces share the tab strip's one row with eleven tabs (twelve
   // since S4a's Files), so the strip shows three faces and "+N" for the rest (R2 finding 3: five
   // faces at 1024 pushed the last tab out of view). The bar shows five.
   const presenceCompact = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} max={3} />
@@ -236,10 +242,7 @@ export default function Rabbit({ currentPage } = {}) {
         rightSlot={(
           <>
             {statusInTabBar && (
-              <span className="rb-ctx-status-group rb-tabbar-status" data-slot="status">
-                <span className="contents" data-slot="presence">{presenceCompact}</span>
-                <span className="contents" data-slot="adapter">{adapterDot}</span>
-              </span>
+              <span className="rb-tabbar-status" data-slot="presence">{presenceCompact}</span>
             )}
             {/* Help, then Settings at the far right: one order, one title
                 pattern and one place in all three tools (post-overhaul S2a,
@@ -252,7 +255,7 @@ export default function Rabbit({ currentPage } = {}) {
 
       {/* ── Project context bar ── */}
       {activeView !== 'summary' && (
-        <ProjectContextBar adapterSlot={adapterDot} presenceSlot={presence} />
+        <ProjectContextBar presenceSlot={presence} />
       )}
 
       {/* ── View body ── */}
@@ -288,6 +291,11 @@ export default function Rabbit({ currentPage } = {}) {
           </div>
         )}
       </div>
+
+      {/* ── The connection dot (FX11): once, every tab, the bottom-left
+          corner just above the orange bar. It asks only while R.A.B.B.I.T.
+          is the page on screen. ── */}
+      <ConnectionDot active={currentPage === 'rabbit'} />
 
       {/* ── Settings slide-out (shared across all tabs) ── */}
       {settingsOpen && (
@@ -326,59 +334,28 @@ export default function Rabbit({ currentPage } = {}) {
   )
 }
 
-// ─── Adapter status dot ───
-// A coloured circle: red when offline, green when online, dim grey while
-// the adapter isn't configured. Hovering reveals the adapter mode and
-// status. Docked in a slot since B1 (Q10); it no longer positions itself.
-// Since B1's restyle it is the kit's StatusDot: one 8px dot from the
-// status tones, no glow (§3.3 deletes the status-dot glow). The adapter's
-// "offline" is a fault, so it takes the danger tone explicitly — the kit's
-// own `offline` key is presence semantics (a person away), which is neutral.
-const ADAPTER_TONE = { unconfigured: 'neutral', online: 'success', offline: 'danger' }
-
-function AdapterStatusDot({ mode, status }) {
-  const configured = !!mode
-  const online = !!status?.online
-  const state = !configured ? 'unconfigured' : (online ? 'online' : 'offline')
-  const label = configured
-    ? `${(mode || '').replace('_', ' ')} — ${online ? 'online' : 'offline'}`
-    : 'adapter not configured'
-  return <StatusDot tone={ADAPTER_TONE[state]} label={label} data-state={state} />
-}
-
-// ─── Realtime presence strip ───
-// Docked beside the adapter dot: a LIVE/SYNC pill plus up to five
-// initial chips for who else has this project open (Session 7
-// presence, cloud mode only — hidden when realtime is off).
+// ─── Realtime presence: the faces ───
+// Up to five faces (three on Summary's tab bar) of who else has this project
+// open (Session 7 presence, cloud mode only — nothing while realtime is off
+// or nobody else is here). The LIVE / Sync pill that stood before them went
+// in FX11: whether live updates are on is one of the connection dot's words
+// now ("Live updates: on"), not a third green mark on the bar.
 function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {}, max = 5 }) {
   // Session 8: presence meta only carries { user_id, label } — the roster is
   // joined in so chips can show real avatars where members uploaded one. The
   // shell fetches the roster and passes the map in (see Rabbit's comment).
   if (!realtimeStatus || realtimeStatus === 'off') return null
-  // The pill is the kit's StatusBadge, which sets its word at the Label
-  // step (uppercase, tracked) itself — so the words here are sentence case.
-  const pill = {
-    live:       { label: 'Live',       tone: 'success' },
-    connecting: { label: 'Sync',       tone: 'neutral' },
-    error:      { label: 'Sync error', tone: 'danger'  },
-  }[realtimeStatus] || { label: realtimeStatus, tone: 'neutral' }
   const list = Array.isArray(users) ? users : []
+  if (list.length === 0) return null
   const shown = list.slice(0, max)
   const overflow = list.length - shown.length
   const initials = (label) => (label || '?')
     .split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
+  // The faces' names in words (FX11): each face is a picture or two initials
+  // with the name only in its hover title, so the group carries the names.
+  const names = list.map(u => u.label || 'Member').join(', ')
   return (
-    <div className="rb-presence flex-shrink-0">
-      <StatusBadge
-        tone={pill.tone}
-        label={pill.label}
-        data-status={realtimeStatus}
-        title={realtimeStatus === 'live'
-          ? 'Live sync connected — edits from teammates appear instantly'
-          : realtimeStatus === 'error'
-            ? 'Live sync error — changes still save; the view refreshes on reconnect'
-            : 'Connecting live sync…'}
-      />
+    <div className="rb-presence flex-shrink-0" role="group" aria-label={`Also on this project: ${names}`}>
       {shown.map(u => {
         const avatar = avatarByUserId[u.user_id]
         return isOwnAvatarUrl(avatar) ? (

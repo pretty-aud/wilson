@@ -249,7 +249,7 @@ function validateVersioned(row, noun) {
 // `browser` (BC3): answer the bins as the cloud does in a browser — the
 // capability object above with `resolveFiles` false, and no `online` on any
 // clip row (the provider marks them from the capability object).
-export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }, { browser = false } = {}) {
+export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }, { browser = false, connection = null } = {}) {
   const by = userId
   const binsCaps = browser ? FIXTURES_BROWSER_BINS_CAPABILITIES : FIXTURES_BINS_CAPABILITIES
   // A clip row as this backend hands it out: answered for (online) where the
@@ -548,6 +548,13 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     async status() {
       return { online: true, lastSyncAt: new Date(), error: null }
+    },
+
+    // FX11: the connection dot's question, answered in memory — there is no
+    // database and no storage to ask. `connection` is store.connectionFixtureMode
+    // (`?connection=files-down|offline`); the default answers both parts.
+    async connectionProbe() {
+      return { database: connection !== 'offline', files: connection === null }
     },
 
     // ── Projects ─────────────────────────────────────────────────────────────
