@@ -23,6 +23,14 @@
 // Costs come from `useRateCard()` — entries are flattened into a
 // `{ role_slug → day_rate }` map. Tasks whose assigned_role_slug
 // is missing fall back to 0 day rate.
+//
+// VW1m (2026-10-16), Audrey's batches 12 and 13: a task has no main item.
+// The reports that group by an item (By asset, By scene, By shot, By level,
+// By experience, and Custom grouped by one) split each task's days and money
+// evenly between its live items of that kind; By asset has a No asset row;
+// every report's rows add exactly to its total as shown; By phase reads a
+// task's own phase. The money gate is untouched: the split is arithmetic over
+// the rows this page already holds, never who may see them.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -59,6 +67,9 @@ import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list is
 // counted under "No scene in the active list" / "No shot in the active list", never dropped, and says where it points.
 import { activeIdsOf, linksInActive, notAssignedTitle, NO_SCENE_GROUP, NO_SHOT_GROUP } from './scenes/linkHomes'
+// VW1m (2026-10-16): a task's items, read the one way every screen reads
+// them (the reports' even split, Audrey's batch 13).
+import { buildItemLookup, NO_KIND_LABEL } from '../state/taskItemsModel'
 import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 // Post-overhaul S5c: bid versions as living documents on the Summary — the
 // block (S3c's "Based on shot list" moved into its save row), its questions,
@@ -134,6 +145,27 @@ export default function BudgetView({ pageActive = false } = {}) {
   const levels       = ctx?.levels       || []
   const experiences  = ctx?.experiences  || []
   const loading = ctx?.loadingProject
+
+  // VW1m (2026-10-16): no task has a main item any more (Audrey, batch 12:
+  // "lets not have main asset be a thing"). The reports read a task's items
+  // through the model's one lookup, as the Timeline does: its LIVE items (a
+  // row the project shows; one in the trash is left out until it is back,
+  // her Q-N4), every scene and shot of the project live whether or not the
+  // active list holds it (the reports then say where it points). Where the
+  // backend keeps no items, the task's own single fields are its items.
+  const taskItems = ctx?.taskItems
+  const taskItemsAvailable = ctx?.taskItemsAvailable === true
+  const allScenes = ctx?.allScenes
+  const allShots = ctx?.allShots
+  const itemLookup = useMemo(() => buildItemLookup({
+    items: taskItems,
+    available: taskItemsAvailable,
+    assets,
+    scenes: allScenes || scenes,
+    shots: allShots || shots,
+    levels,
+    experiences,
+  }), [taskItems, taskItemsAvailable, assets, allScenes, scenes, allShots, shots, levels, experiences])
 
   const projectTeam = ctx?.projectTeam || []
   const syncProjectTeam = ctx?.syncProjectTeam
@@ -289,25 +321,25 @@ export default function BudgetView({ pageActive = false } = {}) {
           />
         )}
         {tab === 'by_phase' && (
-          <ByPhaseTab phases={phases} assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByPhaseTab phases={phases} assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} lookup={itemLookup} />
         )}
         {tab === 'by_role'  && (
           <ByRoleTab tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_asset' && (
-          <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} lookup={itemLookup} />
         )}
         {tab === 'by_scene' && (
-          <BySceneTab scenes={scenes} shots={shots} sceneById={sceneById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <BySceneTab scenes={scenes} shots={shots} sceneById={sceneById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} lookup={itemLookup} />
         )}
         {tab === 'by_shot' && (
-          <ByShotTab shots={shots} scenes={scenes} sceneById={sceneById} shotById={shotById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByShotTab shots={shots} scenes={scenes} sceneById={sceneById} shotById={shotById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} lookup={itemLookup} />
         )}
         {tab === 'by_level' && (
-          <ByLevelTab levels={levels} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByLevelTab levels={levels} tasks={tasks} budget={budget} roleRates={roleRates} lookup={itemLookup} />
         )}
         {tab === 'by_experience' && (
-          <ByExperienceTab experiences={experiences} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByExperienceTab experiences={experiences} tasks={tasks} budget={budget} roleRates={roleRates} lookup={itemLookup} />
         )}
         {tab === 'custom'   && (
           <CustomTab
@@ -324,6 +356,7 @@ export default function BudgetView({ pageActive = false } = {}) {
             experiences={experiences}
             budget={budget}
             roleRates={roleRates}
+            lookup={itemLookup}
           />
         )}
         {tab === 'crew' && (
@@ -377,31 +410,196 @@ export default function BudgetView({ pageActive = false } = {}) {
 }
 
 // ─── Cost helpers ───────────────────────────────��───────────
-function computeRowCost(taskList, roleRates) {
+// VW1m (2026-10-16), Audrey's batch 13 (Q-M1, "Split between its assets"): a
+// report's row no longer holds whole tasks. It holds ENTRIES, `{ task, share
+// }`, the part of each task's days and money the row counts. A report that
+// groups by an item (By asset, By scene, By shot, By level, By experience,
+// and the Custom tab grouped by one of the five) splits each task evenly
+// between its live items of that kind, half each for two, a third each for
+// three (sharesOf); every other report holds each task whole (share 1). Bid,
+// logged, variance and cost are each multiplied by the share.
+function computeRowCost(entries, roleRates) {
   let cost = 0
-  for (const t of taskList) {
+  for (const { task: t, share } of entries) {
     const days = Number(t.bid_days || 0)
     const slug = t.assigned_role_slug
     const rate = slug ? Number(roleRates[slug] || 0) : 0
-    cost += days * rate
+    cost += days * rate * share
   }
   return cost
 }
 
-function aggregateTasks(taskList, roleRates) {
+function aggregateTasks(entries, roleRates) {
   let bid = 0, logged = 0
-  for (const t of taskList) {
-    bid    += Number(t.bid_days || 0)
-    logged += Number(t.logged_days || 0)
+  for (const { task: t, share } of entries) {
+    bid    += Number(t.bid_days || 0) * share
+    logged += Number(t.logged_days || 0) * share
   }
   return {
     bid,
     logged,
     variance: logged - bid,
-    cost: computeRowCost(taskList, roleRates),
-    taskCount: taskList.length,
+    cost: computeRowCost(entries, roleRates),
+    // A task counts once in every row it touches (VW1m), so a split row
+    // counts the tasks it holds a part of; the Custom tab's footer keeps the
+    // true number of tasks.
+    taskCount: entries.length,
   }
 }
+
+/** Every task whole: the entries a report's own total is made of. */
+function wholeTasks(tasks) {
+  return tasks.map(task => ({ task, share: 1 }))
+}
+
+/**
+ * VW1m (2026-10-16): a report's groups. `place(task, add)` names the rows a
+ * task touches, calling `add(key, share, row)` once for each (`row`, the
+ * row's words, is kept from the first call for its key). Two shares of one
+ * task in one row are one entry: a task on two scenes outside the active list
+ * is one task under "No scene in the active list", counted once.
+ * → [{ ...row, entries }], in the order the keys were first met.
+ */
+function groupShares(tasks, place) {
+  const groups = new Map()
+  for (const task of tasks) {
+    place(task, (key, share, row) => {
+      let g = groups.get(key)
+      if (!g) { g = { row, entries: new Map() }; groups.set(key, g) }
+      const e = g.entries.get(task)
+      if (e) e.share += share
+      else g.entries.set(task, { task, share })
+    })
+  }
+  return [...groups.values()].map(g => ({ ...g.row, entries: [...g.entries.values()] }))
+}
+
+/**
+ * VW1m (2026-10-16): a task's even split between its LIVE items of `kind`
+ * (the lookup leaves out an item in the trash or not loaded, her Q-N4):
+ * `[{ id, share }]`, each share 1/n; with none, `[{ id: null, share: 1 }]`,
+ * the report's "No …" row.
+ */
+function sharesOf(task, kind, lookup) {
+  const ids = lookup.idsOf(task, kind)
+  if (ids.length === 0) return [{ id: null, share: 1 }]
+  return ids.map(id => ({ id, share: 1 / ids.length }))
+}
+
+/**
+ * VW1m (2026-10-16): the lookup a report reads when its caller hands it none
+ * (a direct render, as the tests and listRemovalKeepsTasks do): each task's
+ * own single fields as its one item each, as buildItemLookup reads them where
+ * the backend keeps no items. A scene or shot outside the active list is still
+ * a row of the project, found through the provider's lookups over every row
+ * (`sceneById` / `shotById`), so it is live and counted under "No … in the
+ * active list", never hidden. BudgetView itself always hands the ctx's lookup.
+ */
+function fieldLookup({ tasks = [], assets, scenes, shots, sceneById = null, shotById = null, levels, experiences }) {
+  const withLinked = (rows, find, field) => {
+    const out = [...(rows || [])]
+    const have = new Set(out.map(r => r.id))
+    if (typeof find !== 'function') return out
+    for (const t of tasks) {
+      const id = t?.[field]
+      if (id == null || have.has(id)) continue
+      const row = find(id)
+      if (row) { out.push(row); have.add(id) }
+    }
+    return out
+  }
+  return buildItemLookup({
+    available: false,
+    assets,
+    scenes: withLinked(scenes, sceneById, 'scene_id'),
+    shots: withLinked(shots, shotById, 'shot_id'),
+    levels,
+    experiences,
+  })
+}
+
+/**
+ * VW1m (2026-10-16): a task's phase, the Timeline's rule (the hand-off's item
+ * 2): its own phase when the project has it; else the one phase every live
+ * asset of the task is in; else none (Unphased). Before, By phase and the
+ * Custom tab read only the task's main asset's phase, so a task with a phase
+ * of its own and no asset was Unphased here and under its phase on the
+ * Timeline. `phaseById` / `assetById` are Maps keyed by id as text.
+ */
+function phaseOfTask(task, lookup, phaseById, assetById) {
+  const own = task.phase_id != null ? phaseById.get(String(task.phase_id)) : null
+  if (own) return own
+  let shared = null
+  for (const id of lookup.idsOf(task, 'asset')) {
+    const pid = assetById.get(String(id))?.phase_id
+    const phase = pid != null ? phaseById.get(String(pid)) : null
+    if (!phase || (shared && shared !== phase)) return null
+    shared = phase
+  }
+  return shared
+}
+
+const byIdText = (rows) => new Map((rows || []).map(r => [String(r.id), r]))
+
+// ─── Rows that add up (VW1m, 2026-10-16) ──────────────────────────────────
+// Tesler's law: a split puts thirds of a day and of a currency unit into rows
+// that show tenths and whole units, and three rows of 0.3 under one task of
+// 1.0 would not add up. The Budget absorbs it: each figure is rounded so the
+// rows a report shows add EXACTLY to the total it shows. Largest remainder:
+// every row to the shown precision, rounded down, then the units left over to
+// the rows with the largest fractional parts (the earlier row on a tie, so a
+// sorted column stays sorted). Days show in tenths (formatTenths, the one
+// days rounding), money in whole units (CurrencyDisplay's).
+const DAY_FIGURES = { scale: 10, shown: (v) => Number(formatTenths(v)) }
+const MONEY_FIGURES = { scale: 1, shown: (v) => Math.sign(v) * Math.round(Math.abs(v)) }
+
+/** `values` to `figures`' precision, adding exactly to `total` shown the same way. */
+function roundToTotal(values, total, { scale, shown }) {
+  const exact = values.map(v => (Number(v) || 0) * scale)
+  if (exact.length === 0) return []
+  // The nudge keeps a sum like 2.9999999999999996 tenths from rounding down
+  // to 2 on floating-point noise; the leftover step would mend it anyway.
+  const units = exact.map(x => Math.floor(x + 1e-9))
+  const order = exact.map((_, i) => i)
+    .sort((a, b) => ((exact[b] - units[b]) - (exact[a] - units[a])) || (a - b))
+  let left = Math.round(shown(Number(total) || 0) * scale) - units.reduce((a, u) => a + u, 0)
+  for (let k = 0; left !== 0; k++) {
+    const step = left > 0 ? 1 : -1
+    const i = step > 0 ? order[k % order.length] : order[order.length - 1 - (k % order.length)]
+    units[i] += step
+    left -= step
+  }
+  return units.map(u => u / scale)
+}
+
+/**
+ * A report's rows as shown: Bid, Logged and Cost rounded to add up to the
+ * totals of the tasks the report covers (`tasks`, each whole), and each row's
+ * Variance its Logged less its Bid as shown, so every row reads true on its
+ * own and the column adds up too.
+ */
+function shownRows(rows, tasks, roleRates) {
+  const total = aggregateTasks(wholeTasks(tasks), roleRates)
+  const bid = roundToTotal(rows.map(r => r.bid), total.bid, DAY_FIGURES)
+  const logged = roundToTotal(rows.map(r => r.logged), total.logged, DAY_FIGURES)
+  const cost = roundToTotal(rows.map(r => r.cost), total.cost, MONEY_FIGURES)
+  const tenths = (v) => Math.round(v * DAY_FIGURES.scale)
+  return rows.map((r, i) => ({
+    ...r,
+    bid: bid[i],
+    logged: logged[i],
+    variance: (tenths(logged[i]) - tenths(bid[i])) / DAY_FIGURES.scale,
+    cost: cost[i],
+  }))
+}
+
+/** The groups as a report's rows: their sums, in `order`, rounded to add up. */
+function reportRows(groups, tasks, roleRates, order) {
+  const rows = groups.map(({ entries, ...row }) => ({ ...aggregateTasks(entries, roleRates), ...row }))
+  return shownRows(rows.sort(order), tasks, roleRates)
+}
+
+const bySortOrder = (a, b) => a.sortOrder - b.sortOrder
 
 // ─── Summary tab ────────────────────────────────────────────
 // Post-overhaul S5c (F11): top to bottom — the "Budget active — in
@@ -1035,25 +1233,11 @@ function InlinePct({ value, onChange, disabled }) {
 }
 
 // ─── By Phase tab ───────────────────────────────���───────────
-function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
-    const groups = {}
-    for (const t of tasks) {
-      const asset = assetById[t.asset_id]
-      const phaseId = asset?.phase_id || '__unphased__'
-      if (!groups[phaseId]) groups[phaseId] = []
-      groups[phaseId].push(t)
-    }
-    const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
-    return Object.entries(groups)
-      .map(([phaseId, list]) => ({
-        ...aggregateTasks(list, roleRates),
-        name: phaseId === '__unphased__' ? 'Unphased' : (phaseById[phaseId]?.name || 'Unknown phase'),
-        sortOrder: phaseId === '__unphased__' ? 9999 : (phaseById[phaseId]?.sort_order ?? 0),
-      }))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [phases, assets, tasks, roleRates])
+function ByPhaseTab({ phases, assets, tasks, budget, roleRates, lookup = null }) {
+  const rows = useMemo(
+    () => byPhaseRows({ phases, assets, tasks, roleRates, lookup }),
+    [phases, assets, tasks, roleRates, lookup],
+  )
 
   if (rows.length === 0) return <Empty title="No tasks yet" body="Nothing to roll up." />
 
@@ -1064,21 +1248,31 @@ function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
   )
 }
 
-// ─── By Role tab ───────────────────────────���────────────────
+/**
+ * By phase: a row per phase with tasks, in the phases' order, then Unphased.
+ * VW1m (2026-10-16): a task sits whole under its own phase (phaseOfTask, the
+ * Timeline's rule), no longer under its main asset's.
+ */
+export function byPhaseRows({ phases, assets, tasks, roleRates, lookup = null }) {
+  const items = lookup || fieldLookup({ tasks, assets })
+  const phaseById = byIdText(phases)
+  const assetById = byIdText(assets)
+  const groups = groupShares(tasks, (t, add) => {
+    const phase = phaseOfTask(t, items, phaseById, assetById)
+    if (phase) add(String(phase.id), 1, { name: phase.name || 'Unknown phase', sortOrder: phase.sort_order ?? 0 })
+    else add('__unphased__', 1, { name: 'Unphased', sortOrder: 9999 })
+  })
+  return reportRows(groups, tasks, roleRates, bySortOrder)
+}
+
+// ─── By Role tab ────────────────────────────────────────────
 function ByRoleTab({ tasks, budget, roleRates }) {
   const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
+    const groups = groupShares(tasks, (t, add) => {
       const role = t.assigned_role_slug || t.assigned_position || 'unassigned'
-      if (!groups[role]) groups[role] = []
-      groups[role].push(t)
-    }
-    return Object.entries(groups)
-      .map(([role, list]) => ({
-        ...aggregateTasks(list, roleRates),
-        name: role,
-      }))
-      .sort((a, b) => b.bid - a.bid)
+      add(role, 1, { name: role })
+    })
+    return reportRows(groups, tasks, roleRates, (a, b) => b.bid - a.bid)
   }, [tasks, roleRates])
 
   if (rows.length === 0) return <Empty title="No roles assigned yet" />
@@ -1090,22 +1284,12 @@ function ByRoleTab({ tasks, budget, roleRates }) {
   )
 }
 
-// ─── By Asset tab ───────────��───────────────────────────────
-function ByAssetTab({ assets, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      if (!groups[t.asset_id]) groups[t.asset_id] = []
-      groups[t.asset_id].push(t)
-    }
-    return assets
-      .map(a => ({
-        ...aggregateTasks(groups[a.id] || [], roleRates),
-        name: a.name,
-      }))
-      .filter(r => r.taskCount > 0 || r.bid > 0)
-      .sort((a, b) => b.bid - a.bid)
-  }, [assets, tasks, roleRates])
+// ─── By Asset tab ───────────────────────────────────────────
+function ByAssetTab({ assets, tasks, budget, roleRates, lookup = null }) {
+  const rows = useMemo(
+    () => byAssetRows({ assets, tasks, roleRates, lookup }),
+    [assets, tasks, roleRates, lookup],
+  )
 
   if (rows.length === 0) return <Empty title="No assets carry any task hours yet" />
 
@@ -1116,6 +1300,26 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
   )
 }
 
+// A "No …" row sits under the others, as the Timeline's does.
+const noneLast = (order) => (a, b) => (Number(!!a.none) - Number(!!b.none)) || order(a, b)
+
+/**
+ * By asset: a row per asset with tasks, the most bid days first, then No
+ * asset. VW1m (2026-10-16): each task split evenly between its live assets
+ * (her Q-M1), and the tasks with none under No asset, so the report adds up
+ * to the project's total (before, a task with no asset was in no row).
+ */
+export function byAssetRows({ assets, tasks, roleRates, lookup = null }) {
+  const items = lookup || fieldLookup({ tasks, assets })
+  const groups = groupShares(tasks, (t, add) => {
+    for (const { id, share } of sharesOf(t, 'asset', items)) {
+      if (id == null) add('__none__', share, { name: NO_KIND_LABEL.asset, none: true })
+      else add(String(id), share, { name: items.nameOf('asset', id) })
+    }
+  })
+  return reportRows(groups, tasks, roleRates, noneLast((a, b) => b.bid - a.bid))
+}
+
 // ─── By Scene / By Shot: the rows (pure; exported for their tests) ──────
 // Post-overhaul S3c. The groups are the ACTIVE list's scenes and shots
 // (D10) and nothing else. Audrey's rule of 2026-10-02
@@ -1124,69 +1328,71 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
 // is counted under "No scene in the active list" / "No shot in the active list" (never dropped, never "Unknown"),
 // its stored link kept, and that row's tooltip says what its tasks point at
 // (`sceneById` / `shotById`, the provider's lookups over EVERY row; `homeOf`
-// for the lists). A scene's or shot's own row names its list in its tooltip.
+// for the lists). A scene's or shot's own row says in its tooltip which list
+// holds it.
+//
+// VW1m (2026-10-16): a task is split evenly between its live scenes (or
+// shots), each share placed through linksInActive one item at a time: a
+// scene the active list holds takes its share in its own row, one it does
+// not hold sends its share to "No scene in the active list", whose tooltip
+// names it. A task on Harbour (active) and Lighthouse (not) is half under
+// Harbour and half under "No scene in the active list".
 
 /** By scene: a row per active scene with tasks, then "No scene in the active list". */
-export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = null, tasks, roleRates }) {
+export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = null, tasks, roleRates, lookup = null }) {
+  const items = lookup || fieldLookup({ tasks, scenes, shots, sceneById })
   const active = activeIdsOf(scenes, shots)
-  const groups = {}
+  const byId = new Map(scenes.map(s => [s.id, s]))
   const outside = []
-  for (const t of tasks) {
-    const { sceneId, outside: o } = linksInActive({ scene_id: t.scene_id }, { active, sceneById, homeOf })
-    const key = sceneId || '__unscened__'
-    if (!groups[key]) groups[key] = []
-    groups[key].push(t)
-    outside.push(...o)
-  }
-  const byId = Object.fromEntries(scenes.map(s => [s.id, s]))
-  return Object.entries(groups)
-    .map(([sceneId, list]) => {
-      const scene = sceneId === '__unscened__' ? null : byId[sceneId]
+  const groups = groupShares(tasks, (t, add) => {
+    for (const { id, share } of sharesOf(t, 'scene', items)) {
+      const { sceneId, outside: o } = linksInActive({ scene_id: id }, { active, sceneById, homeOf })
+      outside.push(...o)
+      const scene = sceneId ? byId.get(sceneId) : null
       const name = scene ? (scene.name || 'Untitled scene') : NO_SCENE_GROUP
-      return {
-        ...aggregateTasks(list, roleRates),
+      add(scene ? sceneId : '__unscened__', share, {
         name,
-        title: scene ? (homeOf ? homeOf(scene.id).title(name) : undefined) : notAssignedTitle(outside),
+        title: scene && homeOf ? homeOf(scene.id).title(name) : undefined,
         sortOrder: scene ? (scene.scene_number ?? 0) : 9999,
-      }
-    })
-    .sort((a, b) => a.sortOrder - b.sortOrder)
+        none: !scene,
+      })
+    }
+  })
+  for (const g of groups) if (g.none) g.title = notAssignedTitle(outside)
+  return reportRows(groups, tasks, roleRates, bySortOrder)
 }
 
 /** By shot: a row per active shot with tasks ("Scene › Shot"), then "No shot in the active list". */
-export function byShotRows({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, roleRates }) {
+export function byShotRows({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, roleRates, lookup = null }) {
+  const items = lookup || fieldLookup({ tasks, scenes, shots, sceneById, shotById })
   const active = activeIdsOf(scenes, shots)
-  const groups = {}
+  const shotOf = new Map(shots.map(s => [s.id, s]))
+  const sceneOf = new Map(scenes.map(s => [s.id, s]))
   const outside = []
-  for (const t of tasks) {
-    const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById, homeOf })
-    const key = shotId || '__unshot__'
-    if (!groups[key]) groups[key] = []
-    groups[key].push(t)
-    outside.push(...o)
-  }
-  const shotOf = Object.fromEntries(shots.map(s => [s.id, s]))
-  const sceneOf = Object.fromEntries(scenes.map(s => [s.id, s]))
-  return Object.entries(groups)
-    .map(([shotId, list]) => {
-      const shot = shotId === '__unshot__' ? null : shotOf[shotId]
-      const parentScene = shot?.scene_id ? (sceneOf[shot.scene_id] || sceneById?.(shot.scene_id) || null) : null
+  const groups = groupShares(tasks, (t, add) => {
+    for (const { id, share } of sharesOf(t, 'shot', items)) {
+      const { shotId, outside: o } = linksInActive({ shot_id: id }, { active, shotById, homeOf })
+      outside.push(...o)
+      const shot = shotId ? shotOf.get(shotId) : null
+      const parentScene = shot?.scene_id ? (sceneOf.get(shot.scene_id) || sceneById?.(shot.scene_id) || null) : null
       const name = shot ? `${parentScene ? `${parentScene.name} › ` : ''}${shot.name || 'Untitled shot'}` : NO_SHOT_GROUP
-      return {
-        ...aggregateTasks(list, roleRates),
+      add(shot ? shotId : '__unshot__', share, {
         name,
-        title: shot ? (homeOf ? homeOf(shot.id).title(name) : undefined) : notAssignedTitle(outside),
+        title: shot && homeOf ? homeOf(shot.id).title(name) : undefined,
         sortOrder: shot ? (shot.shot_number ?? 0) : 9999,
-      }
-    })
-    .sort((a, b) => a.sortOrder - b.sortOrder)
+        none: !shot,
+      })
+    }
+  })
+  for (const g of groups) if (g.none) g.title = notAssignedTitle(outside)
+  return reportRows(groups, tasks, roleRates, bySortOrder)
 }
 
 // ─── By Scene tab (conditional — visible when scenes_enabled) ──
-function BySceneTab({ scenes, shots, sceneById = null, homeOf = null, tasks, budget, roleRates }) {
+function BySceneTab({ scenes, shots, sceneById = null, homeOf = null, tasks, budget, roleRates, lookup = null }) {
   const rows = useMemo(
-    () => bySceneRows({ scenes, shots, sceneById, homeOf, tasks, roleRates }),
-    [scenes, shots, sceneById, homeOf, tasks, roleRates],
+    () => bySceneRows({ scenes, shots, sceneById, homeOf, tasks, roleRates, lookup }),
+    [scenes, shots, sceneById, homeOf, tasks, roleRates, lookup],
   )
 
   if (rows.length === 0) return <Empty title="No tasks linked to scenes yet" />
@@ -1199,10 +1405,10 @@ function BySceneTab({ scenes, shots, sceneById = null, homeOf = null, tasks, bud
 }
 
 // ─── By Shot tab (conditional — visible when scenes_enabled) ──
-function ByShotTab({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, budget, roleRates }) {
+function ByShotTab({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, budget, roleRates, lookup = null }) {
   const rows = useMemo(
-    () => byShotRows({ shots, scenes, sceneById, shotById, homeOf, tasks, roleRates }),
-    [shots, scenes, sceneById, shotById, homeOf, tasks, roleRates],
+    () => byShotRows({ shots, scenes, sceneById, shotById, homeOf, tasks, roleRates, lookup }),
+    [shots, scenes, sceneById, shotById, homeOf, tasks, roleRates, lookup],
   )
 
   if (rows.length === 0) return <Empty title="No tasks linked to shots yet" />
@@ -1214,24 +1420,35 @@ function ByShotTab({ shots, scenes, sceneById = null, shotById = null, homeOf = 
   )
 }
 
-// ─── By Level tab (conditional — visible when levels_enabled) ──
-function ByLevelTab({ levels, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      const levelId = t.level_id || '__unleveled__'
-      if (!groups[levelId]) groups[levelId] = []
-      groups[levelId].push(t)
+/**
+ * By level / By experience: a row per level (or experience) with tasks, in
+ * the list's order, then No level / No experience. VW1m (2026-10-16): split
+ * as By asset is, since every report that groups by an item counts alike; a
+ * level no longer in the project is left out (her Q-N4), never "Unknown
+ * level".
+ */
+export function byItemListRows({ kind, list, tasks, roleRates, lookup = null }) {
+  const items = lookup || fieldLookup({
+    tasks,
+    levels: kind === 'level' ? list : [],
+    experiences: kind === 'experience' ? list : [],
+  })
+  const rowById = byIdText(list)
+  const groups = groupShares(tasks, (t, add) => {
+    for (const { id, share } of sharesOf(t, kind, items)) {
+      if (id == null) add('__none__', share, { name: NO_KIND_LABEL[kind], sortOrder: 9999 })
+      else add(String(id), share, { name: items.nameOf(kind, id), sortOrder: rowById.get(String(id))?.sort_order ?? 0 })
     }
-    const levelById = Object.fromEntries(levels.map(l => [l.id, l]))
-    return Object.entries(groups)
-      .map(([levelId, list]) => ({
-        ...aggregateTasks(list, roleRates),
-        name: levelId === '__unleveled__' ? 'No level' : (levelById[levelId]?.name || 'Unknown level'),
-        sortOrder: levelId === '__unleveled__' ? 9999 : (levelById[levelId]?.sort_order ?? 0),
-      }))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [levels, tasks, roleRates])
+  })
+  return reportRows(groups, tasks, roleRates, bySortOrder)
+}
+
+// ─── By Level tab (conditional — visible when levels_enabled) ──
+function ByLevelTab({ levels, tasks, budget, roleRates, lookup = null }) {
+  const rows = useMemo(
+    () => byItemListRows({ kind: 'level', list: levels, tasks, roleRates, lookup }),
+    [levels, tasks, roleRates, lookup],
+  )
 
   if (rows.length === 0) return <Empty title="No tasks linked to levels yet" />
 
@@ -1243,23 +1460,11 @@ function ByLevelTab({ levels, tasks, budget, roleRates }) {
 }
 
 // ─── By Experience tab (conditional — visible when experiences_enabled) ──
-function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      const expId = t.experience_id || '__unexperienced__'
-      if (!groups[expId]) groups[expId] = []
-      groups[expId].push(t)
-    }
-    const expById = Object.fromEntries(experiences.map(e => [e.id, e]))
-    return Object.entries(groups)
-      .map(([expId, list]) => ({
-        ...aggregateTasks(list, roleRates),
-        name: expId === '__unexperienced__' ? 'No experience' : (expById[expId]?.name || 'Unknown experience'),
-        sortOrder: expId === '__unexperienced__' ? 9999 : (expById[expId]?.sort_order ?? 0),
-      }))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [experiences, tasks, roleRates])
+function ByExperienceTab({ experiences, tasks, budget, roleRates, lookup = null }) {
+  const rows = useMemo(
+    () => byItemListRows({ kind: 'experience', list: experiences, tasks, roleRates, lookup }),
+    [experiences, tasks, roleRates, lookup],
+  )
 
   if (rows.length === 0) return <Empty title="No tasks linked to experiences yet" />
 
@@ -1270,8 +1475,92 @@ function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
   )
 }
 
+/**
+ * The Custom tab's groups, the most bid days first. VW1m (2026-10-16):
+ * grouped by asset, scene, shot, level or experience, a task is split evenly
+ * between its live items of that kind as the reports above split it, a task
+ * with none under No asset, No level… ("Unknown asset" is gone); grouped by
+ * phase, a task sits under its own phase (phaseOfTask). `tasks` are the
+ * filtered tasks, and the rows add up to their totals.
+ */
+export function customRows({
+  groupBy, tasks, phases = [], assets = [], scenes = [], shots = [],
+  sceneById: findScene = null, shotById: findShot = null, homeOf = null,
+  levels = [], experiences = [], roleRates, lookup = null,
+}) {
+  const items = lookup || fieldLookup({ tasks, assets, scenes, shots, sceneById: findScene, shotById: findShot, levels, experiences })
+  const phaseById = byIdText(phases)
+  const assetById = byIdText(assets)
+  const sceneById = new Map(scenes.map(s => [s.id, s]))
+  const shotById = new Map(shots.map(s => [s.id, s]))
+  // Post-overhaul S3c: as the two reports above — the active list's scenes
+  // and shots, a task linked outside it under "No scene in the active list" / "No shot in the active list" with
+  // what it points at in that row's tooltip (Audrey's rule of 2026-10-02),
+  // a group's tooltip naming its list.
+  const active = activeIdsOf(scenes, shots)
+  const outside = []
+  const groups = groupShares(tasks, (t, add) => {
+    switch (groupBy) {
+      case 'phase': {
+        const phase = phaseOfTask(t, items, phaseById, assetById)
+        if (phase) add(String(phase.id), 1, { name: phase.name || 'Unknown phase' })
+        else add('__unphased__', 1, { name: 'Unphased' })
+        break
+      }
+      case 'role': {
+        const role = t.assigned_role_slug || t.assigned_position || 'unassigned'
+        add(role, 1, { name: role })
+        break
+      }
+      case 'asset':
+      case 'level':
+      case 'experience':
+        for (const { id, share } of sharesOf(t, groupBy, items)) {
+          if (id == null) add('__none__', share, { name: NO_KIND_LABEL[groupBy], none: true })
+          else add(String(id), share, { name: items.nameOf(groupBy, id) })
+        }
+        break
+      case 'scene':
+        for (const { id, share } of sharesOf(t, 'scene', items)) {
+          const { sceneId, outside: o } = linksInActive({ scene_id: id }, { active, sceneById: findScene, homeOf })
+          outside.push(...o)
+          const sc = sceneId ? sceneById.get(sceneId) : null
+          const name = sc ? (sc.name || 'Untitled scene') : NO_SCENE_GROUP
+          add(sc ? sceneId : '__none__', share, { name, title: sc && homeOf ? homeOf(sc.id).title(name) : undefined, none: !sc })
+        }
+        break
+      case 'shot':
+        for (const { id, share } of sharesOf(t, 'shot', items)) {
+          const { shotId, outside: o } = linksInActive({ shot_id: id }, { active, shotById: findShot, homeOf })
+          outside.push(...o)
+          const sh = shotId ? shotById.get(shotId) : null
+          if (!sh) { add('__none__', share, { name: NO_SHOT_GROUP, none: true }); continue }
+          const sc = sh.scene_id ? (sceneById.get(sh.scene_id) || findScene?.(sh.scene_id) || null) : null
+          const name = sc ? `${sc.name} › ${sh.name || 'Untitled shot'}` : (sh.name || 'Untitled shot')
+          add(shotId, share, { name, title: homeOf ? homeOf(sh.id).title(name) : undefined })
+        }
+        break
+      case 'status': {
+        const status = t.status || 'unset'
+        add(status, 1, { name: status })
+        break
+      }
+      case 'priority': {
+        const priority = t.priority || 'medium'
+        add(priority, 1, { name: priority })
+        break
+      }
+      default:
+        add('all', 1, { name: 'All' })
+    }
+  })
+  // "No scene in the active list" / "No shot in the active list": what its tasks point at outside the active list.
+  for (const g of groups) if (g.none) g.title = notAssignedTitle(outside)
+  return reportRows(groups, tasks, roleRates, (a, b) => b.bid - a.bid)
+}
+
 // ─── Custom tab ───────────────────────────────────────────
-function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: findScene = null, shotById: findShot = null, homeOf = null, levels, experiences, budget, roleRates }) {
+function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: findScene = null, shotById: findShot = null, homeOf = null, levels, experiences, budget, roleRates, lookup = null }) {
   const storageKey = `rabbit-budget-custom-${project.id}`
 
   const [prefs, setPrefs] = useState(() => {
@@ -1286,80 +1575,37 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
     try { localStorage.setItem(storageKey, JSON.stringify(prefs)) } catch { /* ignore */ }
   }, [storageKey, prefs])
 
+  const items = useMemo(
+    () => lookup || fieldLookup({ tasks, assets, scenes, shots, sceneById: findScene, shotById: findShot, levels, experiences }),
+    [lookup, tasks, assets, scenes, shots, findScene, findShot, levels, experiences],
+  )
+
+  // VW1m (2026-10-16): the Phase filter reads a task's own phase
+  // (phaseOfTask, the Timeline's rule) and keeps or drops the whole task.
   const filteredTasks = useMemo(() => {
-    const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+    const phaseById = byIdText(phases)
+    const assetById = byIdText(assets)
     return tasks.filter(t => {
       if (prefs.statusFilter !== '__all__' && t.status !== prefs.statusFilter) return false
       if (prefs.phaseFilter !== '__all__') {
-        const a = assetById[t.asset_id]
-        const pid = a?.phase_id || '__unphased__'
-        if (pid !== prefs.phaseFilter) return false
+        const phase = phaseOfTask(t, items, phaseById, assetById)
+        if ((phase ? String(phase.id) : '__unphased__') !== String(prefs.phaseFilter)) return false
       }
       return true
     })
-  }, [tasks, assets, prefs.statusFilter, prefs.phaseFilter])
+  }, [tasks, phases, assets, items, prefs.statusFilter, prefs.phaseFilter])
 
-  const rows = useMemo(() => {
-    const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
-    const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
-    const sceneById = Object.fromEntries((scenes || []).map(s => [s.id, s]))
-    const shotById  = Object.fromEntries((shots || []).map(s => [s.id, s]))
-    const levelById = Object.fromEntries((levels || []).map(l => [l.id, l]))
-    const expById   = Object.fromEntries((experiences || []).map(e => [e.id, e]))
-    // Post-overhaul S3c: as the two reports above — the active list's scenes
-    // and shots, a task linked outside it under "No scene in the active list" / "No shot in the active list" with
-    // what it points at in that row's tooltip (Audrey's rule of 2026-10-02),
-    // a group's tooltip naming its list.
-    const active = activeIdsOf(scenes, shots)
-    const outside = []
-    const groups = {}
-    for (const t of filteredTasks) {
-      let key, label, title
-      switch (prefs.groupBy) {
-        case 'phase': {
-          const a = assetById[t.asset_id]
-          key = a?.phase_id || '__unphased__'
-          label = key === '__unphased__' ? 'Unphased' : (phaseById[key]?.name || 'Unknown phase')
-          break
-        }
-        case 'role':       key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
-        case 'asset':      key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
-        case 'scene': {
-          const { sceneId, outside: o } = linksInActive({ scene_id: t.scene_id }, { active, sceneById: findScene, homeOf })
-          outside.push(...o)
-          key = sceneId || '__none__'
-          const sc = sceneId ? sceneById[sceneId] : null
-          label = sc ? (sc.name || 'Untitled scene') : NO_SCENE_GROUP
-          if (sc && homeOf) title = homeOf(sc.id).title(label)
-          break
-        }
-        case 'shot': {
-          const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById: findShot, homeOf })
-          outside.push(...o)
-          key = shotId || '__none__'
-          if (!shotId) { label = NO_SHOT_GROUP } else {
-            const sh = shotById[shotId]; const sc = sh?.scene_id ? (sceneById[sh.scene_id] || findScene?.(sh.scene_id) || null) : null
-            label = sc ? `${sc.name} › ${sh.name || 'Untitled shot'}` : (sh.name || 'Untitled shot')
-            if (homeOf) title = homeOf(sh.id).title(label)
-          }
-          break
-        }
-        case 'level':      key = t.level_id || '__none__'; label = key === '__none__' ? 'No level' : (levelById[key]?.name || 'Unknown level'); break
-        case 'experience': key = t.experience_id || '__none__'; label = key === '__none__' ? 'No experience' : (expById[key]?.name || 'Unknown experience'); break
-        case 'status':     key = t.status || 'unset'; label = key; break
-        case 'priority':   key = t.priority || 'medium'; label = key; break
-        default:           key = 'all'; label = 'All'
-      }
-      if (!groups[key]) groups[key] = { key, label, title, tasks: [] }
-      groups[key].tasks.push(t)
-    }
-    // "No scene in the active list" / "No shot in the active list": what its tasks point at outside the active list.
-    if (groups.__none__ && (prefs.groupBy === 'scene' || prefs.groupBy === 'shot')) groups.__none__.title = notAssignedTitle(outside)
-    return Object.values(groups)
-      .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label, title: g.title }))
-      .sort((a, b) => b.bid - a.bid)
-  }, [filteredTasks, assets, phases, scenes, shots, findScene, findShot, homeOf, levels, experiences, prefs.groupBy, roleRates])
+  const rows = useMemo(
+    () => customRows({
+      groupBy: prefs.groupBy, tasks: filteredTasks, phases, assets, scenes: scenes || [], shots: shots || [],
+      sceneById: findScene, shotById: findShot, homeOf, levels: levels || [], experiences: experiences || [], roleRates, lookup: items,
+    }),
+    [prefs.groupBy, filteredTasks, phases, assets, scenes, shots, findScene, findShot, homeOf, levels, experiences, roleRates, items],
+  )
 
+  // VW1m (2026-10-16): the rows are rounded to add up (shownRows), so their
+  // sums are the filtered tasks' totals as shown. The footer's Tasks is the
+  // true number of filtered tasks: a split task is in several rows' counts.
   const totalCost = rows.reduce((acc, r) => acc + r.cost, 0)
   const totalBid  = rows.reduce((acc, r) => acc + r.bid, 0)
 
