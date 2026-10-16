@@ -24,6 +24,7 @@
 
 import { isLegalFile } from '../../rabbit_v0.1.0/fileTags';
 import { dogTypeForRow } from '../../rabbit_v0.1.0/deckAttachments';
+import { humanizeStatus } from '../../../ui/StatusDot';
 
 // ── Kinds ───────────────────────────────────────────────────────────────────
 
@@ -366,6 +367,8 @@ export function keysKeptOnProjectChange(chosen) {
 // ── What a reference sends ──────────────────────────────────────────────────
 
 const words = (s) => text(s).replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+// A status or a scene's type in the words R.A.B.B.I.T. shows for it.
+const shown = (s) => (text(s) ? humanizeStatus(text(s)) : '');
 const dates = (a, b) => (a && b ? `${a} to ${b}` : a ? `from ${a}` : b ? `until ${b}` : '');
 
 function lines(pairs) {
@@ -387,7 +390,7 @@ export function itemWords(entry, pool) {
     case 'asset':
       body = lines([
         ['Type', text(r.type_label) || words(r.type)],
-        ['Status', words(r.status)],
+        ['Status', shown(r.status)],
         ['Dates', dates(r.start_date, r.end_date)],
         ['Description', text(r.description)],
       ]);
@@ -395,8 +398,8 @@ export function itemWords(entry, pool) {
     case 'scene':
       body = lines([
         ['Scene number', r.scene_number ?? ''],
-        ['Status', words(r.status)],
-        ['Type', text(r.type)],
+        ['Status', shown(r.status)],
+        ['Type', shown(r.type)],
         ['Time of day', words(r.time_of_day)],
         ['Dates', dates(r.start_date, r.end_date)],
         ['Description', text(r.description)],
@@ -406,7 +409,7 @@ export function itemWords(entry, pool) {
     case 'shot':
       body = lines([
         ['Shot number', r.shot_number ?? ''],
-        ['Status', words(r.status)],
+        ['Status', shown(r.status)],
         ['Framing', text(r.framing)],
         ['Camera movement', text(r.camera_movement)],
         ['Frame count', r.frame_count ? r.frame_count : ''],
@@ -417,7 +420,7 @@ export function itemWords(entry, pool) {
     case 'level':
     case 'experience':
       body = lines([
-        ['Status', words(r.status)],
+        ['Status', shown(r.status)],
         ['Dates', dates(r.start_date, r.end_date)],
         ['Description', text(r.description)],
         ['Notes', text(r.notes)],
@@ -425,7 +428,7 @@ export function itemWords(entry, pool) {
       break;
     case 'task': {
       body = lines([
-        ['Status', words(r.status)],
+        ['Status', shown(r.status)],
         ['Priority', words(r.priority)],
         ['Dates', dates(r.start_date, r.end_date)],
         ['Role', text(r.assigned_position)],
@@ -550,33 +553,122 @@ export function legacyFileEntry(poolFile) {
 }
 
 // ── Size: the meter (Q8) ────────────────────────────────────────────────────
+//
+// Design review round 1 (HIGH): a PDF is billed by its PAGES, not its bytes —
+// about 1,500 to 3,000 text tokens a page plus the page as a picture (the AI
+// provider's PDF page; research §2.4). A 180 KB, 40-page treatment and a
+// 24 MB, 12-page scanned lookbook would each be wrong by an order of
+// magnitude on bytes. So a PDF is counted by its pages when its body is in
+// hand (an upload, or a chosen file once read at Preview or Generate), and
+// until then it is NOT counted: the meter says how many PDFs it has not
+// counted rather than showing a number it cannot stand behind.
 
 /** The estimate's ceiling: under the 232,275-token deck that worked (2026-08-03). */
 export const REFERENCE_TOKEN_LIMIT = 200000;
 export const IMAGE_TOKEN_ESTIMATE = 4000;
+/** One PDF page: text (1,500 to 3,000) plus the page as a picture. */
+export const PDF_PAGE_TOKENS = 4500;
+/** Past this a request may be refused (the provider's per-request page cap). */
+export const PDF_PAGE_LIMIT = 100;
 
 export const textTokens = (s) => Math.ceil(String(s || '').length / 4);
 
-/** A file's estimate from its kind and size, before its body is read. */
-export function fileTokens(dogType, bytes) {
+/**
+ * A file's estimate from its kind and size, before its body is read; `null`
+ * for a PDF whose pages are not known (not counted, and said).
+ */
+export function fileTokens(dogType, bytes, pages = null) {
   const n = Math.max(0, Number(bytes) || 0);
   if (dogType === 'video') return 0;            // never sent to the AI
   if (dogType === 'image') return IMAGE_TOKEN_ESTIMATE;
-  if (dogType === 'pdf') return Math.ceil(n / 20);
+  if (dogType === 'pdf') return pages ? pages * PDF_PAGE_TOKENS : null;
   return Math.ceil(n / 4);
 }
 
-/** An upload's estimate, from what is in memory (base64 for binaries). */
-export function uploadTokens(entry) {
+/** An upload's estimate, from what is in memory; `pages` for a PDF. */
+export function uploadTokens(entry, pages = null) {
   if (!entry) return 0;
   const c = String(entry.content || '');
   if (entry.type === 'text') return textTokens(c);
-  return fileTokens(entry.type, Math.floor((c.length * 3) / 4));
+  return fileTokens(entry.type, Math.floor((c.length * 3) / 4), pages);
 }
 
-/** The bar: fraction of the limit, and whether it is past it (warn, never block). */
-export function meterState(tokens, limit = REFERENCE_TOKEN_LIMIT) {
+/**
+ * The pages of a PDF, from its bytes as a binary string, when they can be
+ * read without decompressing: the page tree's /Count (the root's is the
+ * largest), else the number of /Type /Page objects. `null` when neither is
+ * in the clear (a PDF 1.5 file keeps its objects in compressed object
+ * streams; countPdfPages looks inside those).
+ */
+export function pdfPagesFromBinary(bin) {
+  const src = String(bin || '');
+  let count = 0;
+  const pagesDict = /<<((?:(?!<<|>>)[\s\S])*?\/Type\s*\/Pages\b(?:(?!<<|>>)[\s\S])*?)>>/g;
+  for (const m of src.matchAll(pagesDict)) {
+    const c = /\/Count\s+(\d+)/.exec(m[1]);
+    if (c) count = Math.max(count, Number(c[1]));
+  }
+  if (count > 0) return count;
+  const pages = (src.match(/\/Type\s*\/Page(?![A-Za-z])/g) || []).length;
+  return pages > 0 ? pages : null;
+}
+
+function binaryToBytes(bin) {
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+  return out;
+}
+
+function bytesToBinary(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return s;
+}
+
+/**
+ * A PDF's page count from its base64 body, or `null` when it cannot be told.
+ * Reads the clear text first; failing that, inflates the compressed object
+ * streams (/Type /ObjStm, FlateDecode) with the platform's own
+ * DecompressionStream and reads them. Never throws.
+ */
+export async function countPdfPages(base64) {
+  let bin;
+  try { bin = atob(String(base64 || '')); } catch { return null; }
+  const direct = pdfPagesFromBinary(bin);
+  if (direct) return direct;
+  if (typeof DecompressionStream !== 'function') return null;
+  const streams = /<<((?:(?!stream\b)[\s\S]){0,2000}?)>>\s*stream\r?\n/g;
+  let count = 0;
+  let pageObjects = 0;
+  for (const m of bin.matchAll(streams)) {
+    const dict = m[1];
+    if (!/\/Type\s*\/ObjStm/.test(dict) || !/\/FlateDecode/.test(dict)) continue;
+    const start = m.index + m[0].length;
+    const end = bin.indexOf('endstream', start);
+    if (end < 0) continue;
+    let stop = end;
+    while (stop > start && (bin[stop - 1] === '\n' || bin[stop - 1] === '\r')) stop--;
+    try {
+      const ds = new DecompressionStream('deflate');
+      const body = new Blob([binaryToBytes(bin.slice(start, stop))]).stream().pipeThrough(ds);
+      const inner = bytesToBinary(new Uint8Array(await new Response(body).arrayBuffer()));
+      const pagesDict = /\/Type\s*\/Pages\b[\s\S]*?\/Count\s+(\d+)|\/Count\s+(\d+)[\s\S]*?\/Type\s*\/Pages\b/g;
+      for (const p of inner.matchAll(pagesDict)) count = Math.max(count, Number(p[1] || p[2]));
+      pageObjects += (inner.match(/\/Type\s*\/Page(?![A-Za-z])/g) || []).length;
+    } catch {
+      // One stream that does not inflate is not the whole file.
+    }
+  }
+  if (count > 0) return count;
+  return pageObjects > 0 ? pageObjects : null;
+}
+
+/**
+ * The bar: fraction of the limit, whether it is past it (warn, never block),
+ * and how many PDFs it has not counted yet.
+ */
+export function meterState(tokens, limit = REFERENCE_TOKEN_LIMIT, uncounted = 0) {
   const t = Math.max(0, Math.round(tokens || 0));
   const ratio = limit > 0 ? t / limit : 0;
-  return { tokens: t, limit, ratio, percent: Math.round(ratio * 100), over: t > limit };
+  return { tokens: t, limit, ratio, percent: Math.round(ratio * 100), over: t > limit, uncounted: Math.max(0, uncounted | 0) };
 }

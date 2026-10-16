@@ -508,6 +508,288 @@
     .dog-check { transition: none; }
   }
 
+  /* ═══ REFERENCES (DG1) ═══════════════════════════════════════════════════
+     The second card and its "Add references" window (docs/design/
+     DOG_REFERENCES_DESIGN.md §2.2–§2.3). The kit's Card, Dialog, Button,
+     IconButton, Badge, StatusDot and EmptyState; these rules only lay them
+     out. No new ink: the meter fills in the third ink and turns to the
+     warning ink past the limit (Audrey's Q8: it warns, never blocks); the
+     orange stays the step titles' alone. */
+  .dog-refs-count { margin-right: 8px; }
+  .dog-refs-contract { margin-bottom: 0; }
+  .dog-refs-notice { display: flex; align-items: baseline; gap: 8px; margin-bottom: 0; }
+  .dog-refs-dismiss {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: var(--color-ink-2);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .dog-refs-group-label { display: block; margin-bottom: 4px; }
+  .dog-refs-rows,
+  .dog-refs-pick-list,
+  .dog-refs-pick-nested,
+  .dog-refs-rail ul { list-style: none; margin: 0; padding: 0; }
+  .dog-refs-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 0 0 0 8px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-refs-row[data-unavailable='true'] .dog-refs-name { color: var(--color-ink-3); text-decoration: line-through; }
+  .dog-refs-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .dog-refs-row .dog-refs-name { flex: 1; }
+  .dog-refs-core { flex: none; }
+  /* A PDF over the provider's page cap, once its pages are known. */
+  .dog-refs-warn {
+    flex: none;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-warning);
+  }
+  /* Remove sits apart from Preview at the row's end (design review round 1,
+     finding 17: the two small targets were side by side). */
+  .dog-refs-row .dog-refs-remove { margin-left: 8px; }
+  .dog-refs-gone,
+  .dog-refs-sub {
+    flex: none;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  .dog-refs-meter { display: flex; flex-direction: column; gap: 4px; }
+  .dog-refs-meter-track {
+    position: relative;
+    height: 6px;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+  }
+  .dog-refs-meter-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background-color: var(--color-ink-3);
+  }
+  .dog-refs-meter[data-over='true'] .dog-refs-meter-fill { background-color: var(--color-warning); }
+  .dog-refs-meter-words {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-refs-meter[data-over='true'] .dog-refs-meter-words { color: var(--color-warning); }
+
+  .dog-refs-preview-busy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-refs-preview-line {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-refs-preview-image { display: block; max-width: 100%; max-height: 320px; object-fit: contain; }
+  .dog-refs-preview-text {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+
+  /* The window: search across the top, then the rail, the list and, on
+     demand, the preview, side by side (Q10). */
+  .dog-refs-search { position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .dog-refs-search .ui-input { padding-left: 28px; }
+  .dog-refs-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  .dog-refs-layout {
+    display: grid;
+    grid-template-columns: 184px minmax(0, 1fr);
+    gap: 16px;
+    height: min(56vh, 480px);
+  }
+  .dog-refs-layout[data-preview='true'] { grid-template-columns: 184px minmax(0, 1fr) 272px; }
+  .dog-refs-rail { overflow-y: auto; border-right: 1px solid var(--color-rule); padding-right: 8px; }
+  .dog-refs-rail-head { display: block; margin: 8px 0 4px; }
+  .dog-refs-rail-head:first-child { margin-top: 0; }
+  .dog-refs-rail-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    text-align: left;
+    cursor: pointer;
+  }
+  .dog-refs-rail-item[aria-current='true'] { background-color: var(--color-paper-recessed); color: var(--color-ink); }
+  .dog-refs-rail-item:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .dog-refs-rail-count { font-variant-numeric: tabular-nums; color: var(--color-ink-3); }
+  @media (hover: hover) {
+    .dog-refs-rail-item:not(:disabled):hover,
+    .dog-refs-pick-main:hover,
+    .dog-refs-pick-open:hover { background-color: var(--color-hover); }
+  }
+  .dog-refs-list { overflow-y: auto; min-width: 0; }
+  .dog-refs-list > * + * { margin-top: 12px; }
+  .dog-refs-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .dog-refs-pick-row[data-depth='1'] { padding-left: 24px; }
+  .dog-refs-pick-main,
+  .dog-refs-pick-open {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 32px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .dog-refs-pick-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .dog-refs-pick-check:disabled { cursor: not-allowed; }
+  .dog-refs-pick-open { padding-left: 0; }
+  .dog-refs-open-glyph { width: var(--icon-sm); height: var(--icon-sm); margin-left: auto; color: var(--color-ink-3); }
+  .dog-refs-pick-files {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    padding: 0 8px;
+    min-height: 28px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+    cursor: pointer;
+  }
+  .dog-refs-pick-files svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .dog-refs-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .dog-refs-quick-dates { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .dog-refs-quick-date {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
+  .dog-refs-quick-date .ui-input { width: 136px; }
+  .dog-refs-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .dog-refs-path-step {
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    cursor: pointer;
+  }
+  .dog-refs-path-step[aria-current='true'] { color: var(--color-ink); font-weight: 600; }
+  .dog-refs-path-sep { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .dog-refs-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    overflow-y: auto;
+    padding-left: 16px;
+    border-left: 1px solid var(--color-rule);
+  }
+  .dog-refs-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dog-refs-foot { display: flex; align-items: center; gap: 16px; width: 100%; }
+  .dog-refs-foot .dog-refs-meter { flex: 1; }
+  .dog-refs-foot-count {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+
+  /* The one Single page / Full deck card (DG1, Audrey's brief): the switch
+     names BOTH sides; the side that is on reads in the ink, the other in the
+     third ink. The words are pointer shortcuts to their side, hidden from a
+     screen reader, which hears the switch's own name, "Full deck"; the Switch
+     keeps `dog-full-deck`, so Enter still generates from it. */
+  .dog-mode { display: flex; align-items: center; gap: 8px; }
+  .dog-mode-side {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--color-ink-3);
+    cursor: pointer;
+  }
+  .dog-mode-side[data-active='true'] { color: var(--color-ink); }
+  .dog-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+  .dog-check-row { display: inline-flex; align-items: center; gap: 6px; }
+  .dog-check-hint {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .dog-applied-line {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
   /* ═══ THE OUTPUT PANEL ═════════════════════════════════════════════════ */
 
   .dog-tabbar {

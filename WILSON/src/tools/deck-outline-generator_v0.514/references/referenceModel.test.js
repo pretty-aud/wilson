@@ -12,8 +12,9 @@ import {
   keysKeptOnProjectChange, itemWords, noteWords, referencesText,
   fileEntry, legacyFileEntry, legacyPoolFiles, bareAssetName, coreLabel,
   fileTokens, uploadTokens, textTokens, meterState, REFERENCE_TOKEN_LIMIT,
-  refKey, kindOfKey,
+  refKey, kindOfKey, pdfPagesFromBinary, countPdfPages, PDF_PAGE_TOKENS,
 } from './referenceModel';
+import { deflateSync } from 'node:zlib';
 
 const P = '11111111-2222-3333-4444-555555555555';
 const file = (over = {}) => ({
@@ -329,19 +330,54 @@ describe('files as D.O.G.\'s own source entries', () => {
 });
 
 describe('the meter (Q8): it warns, it never blocks', () => {
-  it('estimates by kind', () => {
+  it('estimates by kind; a PDF by its pages, never its bytes', () => {
     expect(fileTokens('video', 9e9)).toBe(0);
     expect(fileTokens('image', 10)).toBe(4000);
-    expect(fileTokens('pdf', 400000)).toBe(20000);
+    // Design review round 1 (HIGH): bytes are not pages.
+    expect(fileTokens('pdf', 180000, 40)).toBe(40 * PDF_PAGE_TOKENS);
+    expect(fileTokens('pdf', 24e6, 12)).toBe(12 * PDF_PAGE_TOKENS);
+    expect(fileTokens('pdf', 400000)).toBeNull();
     expect(fileTokens('text', 4000)).toBe(1000);
     expect(textTokens('abcd')).toBe(1);
     expect(uploadTokens({ type: 'text', content: 'x'.repeat(40) })).toBe(10);
-    expect(uploadTokens({ type: 'pdf', content: 'A'.repeat(800) })).toBe(30);
+    expect(uploadTokens({ type: 'pdf', content: 'A'.repeat(800) })).toBeNull();
+    expect(uploadTokens({ type: 'pdf', content: 'A'.repeat(800) }, 3)).toBe(3 * PDF_PAGE_TOKENS);
   });
 
-  it('says past the limit, at the limit it is not past', () => {
+  it('says past the limit, at the limit it is not past, and what it has not counted', () => {
     expect(meterState(REFERENCE_TOKEN_LIMIT).over).toBe(false);
     expect(meterState(REFERENCE_TOKEN_LIMIT + 1).over).toBe(true);
     expect(meterState(50000).percent).toBe(25);
+    expect(meterState(10, undefined, 2).uncounted).toBe(2);
+  });
+});
+
+describe("a PDF's pages", () => {
+  it("reads the page tree's count, the root's being the largest", () => {
+    const pdf = '%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n'
+      + '2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 12 >> endobj\n'
+      + '3 0 obj << /Type /Pages /Parent 2 0 R /Kids [5 0 R] /Count 5 >> endobj\n';
+    expect(pdfPagesFromBinary(pdf)).toBe(12);
+  });
+
+  it('counts page objects when there is no count, never the /Pages node itself', () => {
+    const pdf = '<< /Type /Page /Parent 2 0 R >> << /Type /Page >> << /Type/Page >> << /Type /Pages /Kids [] >>';
+    expect(pdfPagesFromBinary(pdf)).toBe(3);
+    expect(pdfPagesFromBinary('%PDF-1.7 nothing here')).toBeNull();
+  });
+
+  it('looks inside a compressed object stream (PDF 1.5 and later)', async () => {
+    const inner = '2 0 3 40 << /Type /Pages /Kids [3 0 R] /Count 7 >> << /Type /Page /Parent 2 0 R >>';
+    const z = deflateSync(Buffer.from(inner, 'latin1'));
+    const head = Buffer.from(`%PDF-1.7\n9 0 obj\n<< /Type /ObjStm /N 2 /First 8 /Filter /FlateDecode /Length ${z.length} >>\nstream\n`, 'latin1');
+    const tail = Buffer.from('\nendstream\nendobj\n%%EOF', 'latin1');
+    const whole = Buffer.concat([head, z, tail]);
+    expect(pdfPagesFromBinary(whole.toString('latin1'))).toBeNull();
+    expect(await countPdfPages(whole.toString('base64'))).toBe(7);
+  });
+
+  it('says it cannot tell rather than guessing, and never throws', async () => {
+    expect(await countPdfPages(Buffer.from('%PDF-1.7 opaque').toString('base64'))).toBeNull();
+    expect(await countPdfPages('%%% not base64 %%%')).toBeNull();
   });
 });

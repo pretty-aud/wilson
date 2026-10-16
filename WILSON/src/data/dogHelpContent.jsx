@@ -155,9 +155,9 @@ export function DogHelpContent({ helpPage, theme }) {
       <section>
         <h3 className={T.sectionTitle}>Basic workflow</h3>
         <div className={T.bodyList2}>
-          <p><span className={T.accentStrong}>1. Upload documents:</span> Add up to 5 source files (PDFs, markdown, text, or images) that contain your project information.</p>
-          <p><span className={T.accentStrong}>2. Set deck context:</span> Provide guidelines about the overall tone, style, and objectives for your presentation.</p>
-          <p><span className={T.accentStrong}>3. Choose mode:</span> Toggle "Full deck" to generate an entire presentation, or leave it off to generate individual slides.</p>
+          <p><span className={T.accentStrong}>1. Choose sources:</span> Upload documents (up to 20 files: PDFs, markdown, text, images or videos), and in References tick what else the deck reads: the project’s items and files, and your own notes. Only what you choose goes to the AI, with the project’s title and description.</p>
+          <p><span className={T.accentStrong}>2. Set deck context:</span> On the "Full deck" side, provide guidelines about the overall tone, style, and objectives for your presentation. They guide single pages too.</p>
+          <p><span className={T.accentStrong}>3. Choose mode:</span> Switch to "Full deck" to generate an entire presentation, or to "Single page" to generate individual slides.</p>
           <p><span className={T.accentStrong}>4. For single pages:</span> Select a layout type, optionally set a page number, and describe what content you want on the slide.</p>
           <p><span className={T.accentStrong}>5. Generate & review:</span> Generated outlines appear in the output panel. Use the visualizer to preview layouts with theme colors, or edit the raw markdown.</p>
           <p><span className={T.accentStrong}>6. Refine output:</span> Use the Edit Output bar to regenerate pages with revision notes, change layouts, and undo/redo changes.</p>
@@ -525,7 +525,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>How it works</h4>
             <ul className={T.list}>
-              <li>• <span className={T.em}>Enable:</span> Check "Theme generator" next to Deck Context & Guidelines</li>
+              <li>• <span className={T.em}>Enable:</span> Check "Theme generator" next to Deck Context & Guidelines, on the "Full deck" side; the setting applies to single pages too</li>
               <li>• <span className={T.em}>Auto-generation:</span> When enabled, themes are generated automatically after each deck or page generation</li>
               <li>• <span className={T.em}>Context-aware:</span> Haiku reads your deck context, slide titles, and file content to create relevant palettes</li>
               <li>• <span className={T.em}>3 themes per batch:</span> Each generation produces 3 new color themes</li>
@@ -644,8 +644,8 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>How to enable</h4>
             <ul className={T.listLoose}>
-              <li>• <span className={T.em}>Use uploaded assets:</span> Check this box in Section 1 (next to Theme generator) to include images and videos you uploaded via the file upload area</li>
-              <li>• <span className={T.em}>Use project assets:</span> Check this box to include visual assets stored in the currently selected project</li>
+              <li>• <span className={T.em}>Use visual assets:</span> Check this box under the Single page / Full deck switch to place the images and videos you uploaded</li>
+              <li>• <span className={T.em}>Use project assets:</span> Check this box to place the images and videos among your chosen references</li>
               <li>• <span className={T.em}>Both can be enabled simultaneously</span> — the system combines assets from both sources</li>
               <li>• <span className={T.em}>Non-destructive:</span> Unchecking both boxes returns the system to its default behavior with no side effects</li>
             </ul>
@@ -838,7 +838,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <li>• <span className={T.accent}>Use --- separators</span> in column layouts — The AI separates column content with --- dividers. Each section becomes one column.</li>
           <li>• <span className={T.accent}>Match image count to columns</span> — For the best visual balance in column layouts, request one image per column (e.g., 3 images for three columns).</li>
           <li>• <span className={T.accent}>Control image sizes with text length</span> — In column layouts, adding more bullet points causes images to shrink dynamically. Use shorter text for larger images.</li>
-          <li>• <span className={T.accent}>Place your own images</span> — Enable "Use uploaded assets" or "Use project assets" to have the AI embed your images directly into slide frames.</li>
+          <li>• <span className={T.accent}>Place your own images</span> — Enable "Use visual assets" or "Use project assets" to have the AI embed your images directly into slide frames.</li>
           <li>• <span className={T.accent}>Name image files descriptively</span> — "product_hero.jpg" gives the AI much better context for placement than "IMG_4521.jpg".</li>
           <li>• <span className={T.accent}>Set an export folder</span> — Use the Browse button in the export modal to save files directly to a specific folder instead of the browser's downloads.</li>
           <li>• <span className={T.accent}>Include contact info</span> in your Deck Context prompt — emails and contact details from both source documents and the deck context are included in OUTRO slides.</li>
