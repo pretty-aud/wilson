@@ -858,7 +858,82 @@ table no longer uses it; the Timeline and the Budget still do.
   it for the visit.
 - **It cannot be removed.**
 
-### Her answers, batch 12
+### Her answers, batch 12 (2026-10-16; asked in chat as multiple choice, Q-D4 with pictures; recorded verbatim)
+
+- **Q-D4:** "lets not have main asset be a thing. thats not needed and i dont like. instead lets do the same as the grouping option. make the grouping a group in the timeline as well. do not add a new group button in timeline view though. creating of a grouping should only be in the other tabs (assets, tasks, levels, etc.)"
+- **Q-D5:** "From the group's menu (Recommended)"
+
+### What follows from batch 12 (say if any is wrong)
+
+- **There is no main asset (or main scene, shot, level, experience) any
+  more, anywhere she sees it.** A task's items are its items, with no first
+  one that counts for more. This reverses FX2's "main item" (her FX2 brief
+  never ruled on it; FX2's question 7 was still open).
+- **The Timeline groups the same way as the Tasks table**: grouped by asset
+  (or scene, shot, level, experience), a task's bar sits in the row of its
+  combination ("Lighthouse Interior, Storm Lantern"); the project's saved
+  groupings (Q-D2) show there as rows too. **The Timeline has no *Create
+  grouping* button**; groupings are created only in the other tabs.
+- **A grouping made with *Create grouping* is removed from its group's
+  *…* menu** (*Remove grouping*, which asks first); tasks keep their items,
+  and a group that still holds tasks stays, as any combination with tasks
+  does (Q-D5).
+- **Taking "main" out reaches past the views.** Today the main item also
+  decides: where a task's days and money count in the Budget's *By asset*,
+  *By scene* and *By shot* tabs; what deleting an asset does (the tasks whose
+  main asset it is are deleted with it, migration 0034's rule); which files
+  the task's window shows under its Items table; what a bid version
+  remembers; the asset the Dashboard's task window shows; and the database
+  keeps each task's main asset, scene and shot in its own columns, kept in
+  step by migration 0096's triggers. Batch 13 asks the decisions that change
+  what she sees, and when the work happens.
+
+---
+
+## Batch 13 — taking out the main item: the Budget, deleting, which tabs, and when
+
+**Q-M1. The Budget's *By asset* tab** (and *By scene*, *By shot*): with no
+main asset, how does it count a task that has several assets?
+- **Under its combination** *(Recommended)*: one row per combination, like
+  the grouping: "Lighthouse Interior, Storm Lantern" is a row holding that
+  task's days and money; every row adds up to the project's total.
+- **Split between its assets**: half its days and money to each of two
+  assets, a third to each of three; the totals add up, but rows show
+  fractions of a day.
+- **Under each asset**: the task's days and money appear under every one of
+  its assets; the rows add up to more than the project's total.
+
+**Q-M2. Deleting an asset that tasks are linked to.** Today the tasks whose
+main asset it is are deleted with it. With no main asset:
+- **The tasks stay** *(Recommended)*: the asset comes off its tasks; they
+  keep their other assets, or none.
+- **A task goes only if it was its one asset**: a task linked to that asset
+  alone is deleted with it; the others lose it and stay.
+- **Ask each time**: the delete question lists the tasks and lets you choose.
+
+**Q-M3. Which tables get combination groups and *Create grouping*?** (Her
+words: "creating of a grouping should only be in the other tabs (assets,
+tasks, levels, etc.)".)
+- **The Tasks table** *(Recommended)*: grouped by asset, scene, shot, level or
+  experience, with *Create grouping*; the Timeline shows the same groups;
+  the other tables keep grouping by their own fields (type, phase, status).
+- **Tasks and Assets**: Assets also groups by the scenes, shots, levels and
+  experiences an asset is in, with combination groups and *Create grouping*.
+- **Tasks, Assets, Levels and Experiences**: Levels and Experiences also
+  group by their assets.
+
+**Q-M4. When does taking out the main item happen?** It touches the
+Timeline (the file the plan calls unsafe to edit), the Budget, deleting, the
+task window, bid versions and the database (a migration).
+- **Its own session first** *(Recommended)*: one session takes the main item
+  out everywhere, with its own measured list of every place it is read (as
+  FX2 had) and the questions that list raises, before the views are built,
+  because the Tasks table's columns and grouping stand on it.
+- **Inside the next session**, with the Tasks table's item columns.
+- **After the views**: the views come first, with combination groups in the
+  Tasks table only; the rest of "main" goes later.
+
+### Her answers, batch 13
 
 *(waiting)*
 
