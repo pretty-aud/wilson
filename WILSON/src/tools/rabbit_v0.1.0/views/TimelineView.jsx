@@ -616,6 +616,11 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     }),
     [view, taskItems, taskItemsOn, assets, allScenes, allShots, levels, experiences]
   )
+  // VW1m review round 1 (R1-3): while a version is viewed, its saved ids
+  // (live or since gone), so a link to a row the project no longer has says
+  // so in the task's tooltip again, as S5d made it; the live Timeline hands
+  // none over.
+  const savedIdsOf = useMemo(() => (view ? savedIdsReader(versionTaskItems(view)) : null), [view])
 
   const schedule = useMemo(
     () => buildSchedule({ phases, assets, tasks, dependencies, itemLookup }),
@@ -636,10 +641,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
       sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds,
       teamAssignments, teamMembers: tm?.members || [],
       scenes, shots, levels, experiences,
-      sceneById, shotById, homeOf, itemLookup,
+      sceneById, shotById, homeOf, itemLookup, savedIdsOf,
     }),
     [groupBy, phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds,
-     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf, itemLookup]
+     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf, itemLookup, savedIdsOf]
   )
   // VW1m (2026-10-16): each group's header row by the id its drop target,
   // its drop zone and its tasks' rows carry (phaseHint): what a drop on it
@@ -700,6 +705,14 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
       if (!same(next, storedIdsOf(taskId, kind))) writes.push([kind, next])
     }
     if (writes.length === 0) return
+    // Review round 1 (R1-4): where the backend keeps no items (a cloud
+    // before 0096) setTaskItemsOfKind refuses (requireTaskItemsOn), and a
+    // task has one item of a kind at most, its own field: the drop writes
+    // the fields, in one patch, as the Tasks table's drop does.
+    if (!taskItemsOn) {
+      ctx.updateTask(taskId, Object.fromEntries(writes.map(([kind, ids]) => [KIND_FIELD[kind], ids[0] ?? null]))).catch(() => {})
+      return
+    }
     ctx.runBatch(async () => {
       for (const [kind, ids] of writes) await ctx.setTaskItemsOfKind(taskId, kind, ids)
     }).catch(() => {})
@@ -4959,10 +4972,13 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
   // second sentence two of them carried is the body. Nothing is deleted
   // until the answer, exactly as before; an editor with no id to delete
   // closes as it always did.
+  // VW1m review round 1 (R1-7), her Q-M2 ("The tasks stay"): the asset's
+  // body says its tasks stay, in the Assets tab's words (it said what the
+  // cascade VW1m took out did to them).
   const [askDelete, setAskDelete] = useState(null)
   const DELETE_ASK = {
     milestone: { id: editor.milestoneId, title: 'Delete this milestone?', body: null, label: 'Delete milestone' },
-    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Tasks linked to it will lose their asset reference.', label: 'Delete asset' },
+    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Its tasks stay.', label: 'Delete asset' },
     phase:     { id: editor.phaseId,     title: 'Delete this phase?', body: 'Tasks linked to it will become orphans.', label: 'Delete phase' },
     task:      { id: editor.taskId,      title: 'Delete this task?', body: null, label: 'Delete task' },
   }
@@ -6632,6 +6648,34 @@ function itemIdsOf(lookup, task, kind) {
   return id == null || id === '' ? [] : [id]
 }
 
+// VW1m review round 1 (R1-3): a task row's words when a link of `kind` names
+// a row the project no longer has (post-overhaul S5d: a viewed bid version
+// points at the rows of its day), else undefined. Read from the single field
+// with no lookup, as S5d read it; through the lookup, which reads live items
+// only, from `savedIdsOf` — a viewed version's saved ids, which the Timeline
+// hands over while viewing and only then (live, an item in the trash is
+// hidden without a word, her Q-N4).
+function goneLinkTip(kind, word, rowById, itemLookup, savedIdsOf) {
+  return (t) => {
+    const ids = itemLookup ? (savedIdsOf ? savedIdsOf(t, kind) : []) : itemIdsOf(null, t, kind)
+    return ids.some(id => !rowById[id]) ? `${word}: no longer in the project` : undefined
+  }
+}
+
+// R1-3: a viewed version's saved item ids, every one (live or since gone),
+// by task and kind, from its task_items-shaped rows (versionTaskItems).
+function savedIdsReader(items) {
+  const byTask = new Map()
+  for (const i of items || []) {
+    if (!i || i.task_id == null) continue
+    const k = String(i.task_id)
+    if (!byTask.has(k)) byTask.set(k, {})
+    const kinds = byTask.get(k)
+    ;(kinds[i.entity_type] || (kinds[i.entity_type] = [])).push(i.entity_id)
+  }
+  return (task, kind) => byTask.get(String(task?.id))?.[kind] || []
+}
+
 // A combination's key, the model's: its ids sorted, joined with '|'.
 const combinationKey = (ids) => ids.map(String).sort().join('|')
 // Combination rows read A to Z by their names, numbers as numbers.
@@ -6895,25 +6939,27 @@ function buildSchedule({ phases, assets, tasks, dependencies, itemLookup = null 
 // group-by-scene's resolution of another list's rows to account, and
 // timelineCombinationRows.test.jsx (VW1m). `itemLookup` (VW1m, optional): the
 // model's buildItemLookup over the task items; without it each builder reads
-// a task's single fields, as before.
+// a task's single fields, as before. `savedIdsOf` (review round 1, R1-3,
+// optional): while a version is viewed, its saved ids of a kind for a task
+// (savedIdsReader), so a link to a row the project no longer has is said.
 export function buildRowsByGrouping({
   groupBy, phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null,
   teamAssignments = [], teamMembers = [],
   scenes = [], shots = [], levels = [], experiences = [],
   sceneById = null, shotById = null, homeOf = null,
-  itemLookup = null,
+  itemLookup = null, savedIdsOf = null,
 }) {
   switch (groupBy) {
     case 'team':
       return buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder, collapsedSet, teamAssignments, teamMembers })
     case 'asset':
-      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup })
+      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf })
     case 'scene':
-      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf, itemLookup })
+      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf, itemLookup, savedIdsOf })
     case 'level':
-      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet, itemLookup })
+      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf })
     case 'experience':
-      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet, itemLookup })
+      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf })
     case 'phase':
     default:
       return buildRows({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup })
@@ -7220,7 +7266,7 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
 
 // ── buildRowsByAsset ────────────────────────────────────────
 // Asset → Tasks (flat — no phase wrappers)
-function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null }) {
+function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
@@ -7241,13 +7287,15 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
   // the project no longer has reads under No asset, and — read from the
   // single field, with no lookup — its row says so (post-overhaul S5d: a
   // viewed bid version points at the assets of its day). Through the
-  // lookup such an asset is not live and is left out (her Q-N4).
+  // lookup such an asset is not live and is left out (her Q-N4); review
+  // round 1 (R1-3): a viewed version's task says so again, on whichever row
+  // it sits (goneLinkTip).
   const {
     one: tasksByAsset,      // { assetId: Task[] }
     many: assetCombos,      // [{ key, ids, label, tasks }]
     none: noAssetTasks,
   } = bucketByCombination(tasks, 'asset', assetById, itemLookup, a => a.name || 'Untitled asset')
-  const goneTip = (t) => (!itemLookup && t.asset_id ? 'Asset: no longer in the project' : undefined)
+  const goneTip = goneLinkTip('asset', 'Asset', assetById, itemLookup, savedIdsOf)
 
   // Sort assets by start_date then name
   const sortedAssets = assets.slice().sort((a, b) => {
@@ -7285,6 +7333,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
       rows.push({
         key: `tk-${t.id}`, kind: 'task',
         label: t.title || 'Untitled task', task: t,
+        tooltip: goneTip(t),
         phaseHint: asset.id, depth: 1,
         start: sched?.start, end: sched?.end,
       })
@@ -7304,7 +7353,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
   // VW1m (2026-10-16): each combination of two or more assets that holds a
   // task, after the single rows, A to Z by its name.
   for (const combo of assetCombos) {
-    pushCombinationRows(rows, combo, { prefix: 'as', items: { asset: combo.ids }, collapsedSet, sortTasks, schedule })
+    pushCombinationRows(rows, combo, { prefix: 'as', items: { asset: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf: goneTip })
   }
 
   // Tasks with no asset (last; VW1m: it only groups, and a drop on it or a
@@ -7372,7 +7421,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
 // as before; combinations follow them, A to Z. Each link is resolved alone
 // (linksInActive with one field), so every one outside the active list is
 // named in the task's tooltip, as before.
-function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null, itemLookup = null }) {
+function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null, itemLookup = null, savedIdsOf = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const tip = (row) => (homeOf ? homeOf(row.id).title(row.name || null) : undefined)
@@ -7423,16 +7472,21 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
   }
   const sceneName = (id) => sceneRowById[id]?.name || 'Untitled scene'
   const shotName = (id) => shotRowById[id]?.name || 'Untitled shot'
+  // Review round 1 (R1-3): a viewed version's links are its saved ids, gone
+  // ones too, so one to a scene or shot the project no longer has is named in
+  // the task's tooltip ("Shot: no longer in the project", S5d) and the task
+  // reads as not assigned; live, the lookup's live items alone (her Q-N4).
+  const linksOf = (t, kind) => (itemLookup && savedIdsOf ? savedIdsOf(t, kind) : itemIdsOf(itemLookup, t, kind))
   for (const t of tasks) {
     const outside = []
     const inScenes = []
-    for (const id of itemIdsOf(itemLookup, t, 'scene')) {
+    for (const id of linksOf(t, 'scene')) {
       const { sceneId, outside: o } = linksInActive({ scene_id: id }, { active, sceneById, shotById, homeOf })
       if (sceneId) inScenes.push(sceneId)
       outside.push(...o)
     }
     const inShots = []
-    for (const id of itemIdsOf(itemLookup, t, 'shot')) {
+    for (const id of linksOf(t, 'shot')) {
       const { shotId, outside: o } = linksInActive({ shot_id: id }, { active, sceneById, shotById, homeOf })
       if (shotId && sceneOfShot.has(shotId)) inShots.push(shotId)
       outside.push(...o)
@@ -7589,7 +7643,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
 }
 
 // ── buildRowsByLevel ────────────────────────────────────────
-function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null }) {
+function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const levelById = Object.fromEntries(levels.map(l => [l.id, l]))
@@ -7597,6 +7651,9 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
   // VW1m (2026-10-16): by the task's combination of levels, as by asset.
   const { one: tasksByLevel, many: levelCombos, none: noLevel } =
     bucketByCombination(tasks, 'level', levelById, itemLookup, l => l.name || 'Untitled level')
+  // Post-overhaul S5d: a level the project no longer has, said (R1-3: a
+  // viewed version's too, on whichever row its task sits).
+  const goneTip = goneLinkTip('level', 'Level', levelById, itemLookup, savedIdsOf)
 
   function sortTasks(list) {
     return list.slice().sort((a, b) => {
@@ -7645,6 +7702,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
       rows.push({
         key: `tk-${t.id}`, kind: 'task',
         label: t.title || 'Untitled task', task: t,
+        tooltip: goneTip(t),
         phaseHint: level.id, depth: 1,
         start: sched?.start, end: sched?.end,
       })
@@ -7661,7 +7719,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
   }
 
   for (const combo of levelCombos) {
-    pushCombinationRows(rows, combo, { prefix: 'lv', items: { level: combo.ids }, collapsedSet, sortTasks, schedule })
+    pushCombinationRows(rows, combo, { prefix: 'lv', items: { level: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf: goneTip })
   }
 
   if (noLevel.length > 0) {
@@ -7679,9 +7737,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
-          // Post-overhaul S5d: a level the project no longer has, said
-          // (read from the single field, with no lookup: VW1m).
-          tooltip: !itemLookup && t.level_id ? 'Level: no longer in the project' : undefined,
+          tooltip: goneTip(t),
           phaseHint: '__nolevel__', depth: 1,
           start: sched?.start, end: sched?.end,
         })
@@ -7700,7 +7756,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
 }
 
 // ── buildRowsByExperience ───────────────────────────────────
-function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null }) {
+function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const expById = Object.fromEntries(experiences.map(e => [e.id, e]))
@@ -7708,6 +7764,9 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
   // VW1m (2026-10-16): by the task's combination of experiences, as by asset.
   const { one: tasksByExp, many: expCombos, none: noExp } =
     bucketByCombination(tasks, 'experience', expById, itemLookup, e => e.name || 'Untitled experience')
+  // Post-overhaul S5d: an experience the project no longer has, said (R1-3:
+  // a viewed version's too, on whichever row its task sits).
+  const goneTip = goneLinkTip('experience', 'Experience', expById, itemLookup, savedIdsOf)
 
   function sortTasks(list) {
     return list.slice().sort((a, b) => {
@@ -7756,6 +7815,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
       rows.push({
         key: `tk-${t.id}`, kind: 'task',
         label: t.title || 'Untitled task', task: t,
+        tooltip: goneTip(t),
         phaseHint: exp.id, depth: 1,
         start: sched?.start, end: sched?.end,
       })
@@ -7772,7 +7832,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
   }
 
   for (const combo of expCombos) {
-    pushCombinationRows(rows, combo, { prefix: 'xp', items: { experience: combo.ids }, collapsedSet, sortTasks, schedule })
+    pushCombinationRows(rows, combo, { prefix: 'xp', items: { experience: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf: goneTip })
   }
 
   if (noExp.length > 0) {
@@ -7790,9 +7850,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
-          // Post-overhaul S5d: an experience the project no longer has, said
-          // (read from the single field, with no lookup: VW1m).
-          tooltip: !itemLookup && t.experience_id ? 'Experience: no longer in the project' : undefined,
+          tooltip: goneTip(t),
           phaseHint: '__noexp__', depth: 1,
           start: sched?.start, end: sched?.end,
         })

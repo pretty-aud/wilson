@@ -5005,6 +5005,17 @@ export function RabbitProvider({ children }) {
     }, visit);
   }, [optimistic, activeProjectId]);
 
+  // VW1m review round 1 (R1-1): a task's item ids of a kind whose row the
+  // project does not show: the bundle's assets, scenes and shots (every row,
+  // not the active list's), levels and experiences, as ctx.assets,
+  // ctx.allScenes, ctx.allShots, ctx.levels and ctx.experiences.
+  function hiddenItemIdsOf(taskId, kind) {
+    const b = bundleRef.current;
+    const rows = { asset: b.assets, scene: b.scenes, shot: b.shots, level: b.levels, experience: b.experiences }[kind];
+    const live = new Set((rows || []).map(r => String(r.id)));
+    return itemsOfTask(b.taskItems || [], taskId, kind).map(i => i.entity_id).filter(id => !live.has(String(id)));
+  }
+
   // VW1m (2026-10-16): make a task's items of one kind exactly `ids` — a
   // drop on a group or a Timeline row (her Q-D1: the row's items become the
   // task's), a bid version's open (Q-N7). The model's planSetKind: the others
@@ -5015,6 +5026,12 @@ export function RabbitProvider({ children }) {
   // first, then removed, so a task never reads "No asset" between the two.
   // FX2's reorderTaskItems leaves the client: her Q-N1 took the Move buttons
   // away, and nothing else ordered a task's items.
+  // VW1m review round 1 (R1-1): an item whose row the project does not show
+  // (in the trash, or not loaded) is kept, whatever `ids` says: every screen
+  // hides it (her Q-N4: hidden, back on restore), so no caller can name it.
+  // A Tasks table or Board drop passed the group's live ids only and took an
+  // asset in the trash off its task for good; kept here, every caller is safe
+  // (a drop, a Timeline row, a version's open).
   const setTaskItemsOfKind = useCallback(async (taskId, kind, ids) => {
     requireTaskItemsOn();
     if (!isItemKind(kind)) {
@@ -5023,7 +5040,8 @@ export function RabbitProvider({ children }) {
       throw new Error(msg);
     }
     const make = (base) => ({ id: uuidv4(), created_at: new Date().toISOString(), ...base });
-    const plan = planSetKind(bundleRef.current.taskItems || [], taskId, kind, ids, make);
+    const want = [...(Array.isArray(ids) ? ids : []), ...hiddenItemIdsOf(taskId, kind)];
+    const plan = planSetKind(bundleRef.current.taskItems || [], taskId, kind, want, make);
     if (!plan.remove.length && !plan.insert.length) return { added: 0, removed: 0 };
     return runBatch(async () => {
       for (const row of plan.insert) await mutationsRef.current.addTaskItem(row);
@@ -5031,6 +5049,25 @@ export function RabbitProvider({ children }) {
       return { added: plan.insert.length, removed: plan.remove.length };
     });
   }, [runBatch]);
+
+  // VW1m review round 1 (R1-5): the PERSON's set — a drop on the Tasks
+  // table, the Board or a Timeline row — waits its turn in the undo queue,
+  // queued before its first await, as the version steps are (S5c R1-02):
+  // runWithUndoToast reads the step's own entry from there. Run beside an
+  // undo, it wrote into the replay, which recorded none of it (history
+  // `suspended`), and its toast was never offered. Refused in words while a
+  // replay still runs past the queue's wait (refuseWhileReplaying). The raw
+  // verb stays in mutationsRef for a version's open (already inside the
+  // queue: queued there, it would wait on itself).
+  const setTaskItemsOfKindQueued = useCallback((taskId, kind, ids) => inHistoryQueue(() => {
+    try {
+      refuseWhileReplaying();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+    return setTaskItemsOfKind(taskId, kind, ids);
+  }), [setTaskItemsOfKind]);
 
   // ── Team assignments (project-scoped) ────────────────────
   // Each assignment: { id, project_id, member_id, role: 'member' | 'manager' | 'reviewer' }
@@ -7541,7 +7578,9 @@ export function RabbitProvider({ children }) {
     // is left out and counted, unless the task still has it (an asset in the
     // trash: hidden, never taken off by an open). A version saved before puts
     // back its saved item where the task lost it and removes nothing. FX2's
-    // R2-3 guard goes with the main item it guarded.
+    // R2-3 guard goes with the main item it guarded. Review round 1 (R1-1):
+    // setTaskItemsOfKind keeps every hidden item itself, one the version never
+    // held too; `kept` here only keeps the count of what was left out true.
     for (const w of plan.items || []) {
       if (w.exact) {
         const has = new Set(itemsOfTask(bundleRef.current.taskItems || [], w.id, w.kind).map(i => String(i.entity_id)));
@@ -8457,7 +8496,8 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask: deleteTaskVerb, deleteTasks: deleteTasksVerb,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
-    addTaskItem, removeTaskItem, setTaskItemsOfKind,
+    // Review round 1 (R1-5): the person's set waits its turn in the undo queue.
+    addTaskItem, removeTaskItem, setTaskItemsOfKind: setTaskItemsOfKindQueued,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
@@ -8589,7 +8629,7 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
-    addTaskItem, removeTaskItem, setTaskItemsOfKind, tasksView, taskItemsOn,
+    addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, tasksView, taskItemsOn,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,

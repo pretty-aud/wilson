@@ -106,7 +106,10 @@ function nextPosition(items, taskId, kind) {
   return Math.min(max + 1, MAX_ITEM_POSITION);
 }
 
-// An older build's reorder only (VW1m: this app has no Move buttons).
+// An older build's reorder only (VW1m: this app has no Move buttons). VW1m
+// review round 1 (R1-8): this and applyPositions are this file's own, for
+// the reorder route below; the model no longer states them (no caller in
+// the app), so taskItemsParity.test.js holds them here, not against it.
 function planReorder(items, taskId, kind, orderedIds) {
   const mine = itemsOfTask(items, taskId, kind);
   const named = new Map();

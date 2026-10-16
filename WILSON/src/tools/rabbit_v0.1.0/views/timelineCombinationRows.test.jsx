@@ -405,6 +405,31 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     await dropOn('On S1 and Cliff', gutterRow('S2'))
     expect(rabbit.current.setTaskItemsOfKind.mock.calls).toEqual([['g', 'scene', ['S2', 'S3']]])
   })
+  // VW1m review round 1 (R1-4): where the backend keeps no items (a cloud
+  // before 0096) the provider's setTaskItemsOfKind refuses
+  // (requireTaskItemsOn), and a task has one item of a kind at most, its own
+  // field: a drop writes that field, as the Tasks table's drop does.
+  it('R1-4: where the backend keeps no items, a drop writes the task\'s field (one updateTask), never setTaskItemsOfKind', async () => {
+    const tasks = [{ id: 't2', title: 'Model the lantern', asset_id: 'B' }, { id: 't3', title: 'Boards', asset_id: null }]
+    rabbit.current = ctxFor({ tasks, taskItems: [], taskItemsAvailable: false })
+    mount()
+    groupBy('Group by asset')
+    await dropOn('Model the lantern', gutterRow('C'))
+    expect(rabbit.current.updateTask).toHaveBeenLastCalledWith('t2', { asset_id: 'C' })
+    await dropOn('Boards', gutterRow('A'))
+    expect(rabbit.current.updateTask).toHaveBeenLastCalledWith('t3', { asset_id: 'A' })
+    await dropOn('Model the lantern', gutterRow('__noasset__'))
+    expect(rabbit.current.updateTask).toHaveBeenLastCalledWith('t2', { asset_id: null })
+    expect(rabbit.current.updateTask).toHaveBeenCalledTimes(3)
+    expect(rabbit.current.setTaskItemsOfKind).not.toHaveBeenCalled()
+    cleanup()
+    rabbit.current = ctxFor({ tasks: [{ id: 'a', title: 'On X1', scene_id: 'S1', shot_id: 'X1' }], taskItems: [], taskItemsAvailable: false })
+    mount()
+    groupBy('Group by scene')
+    await dropOn('On X1', gutterRow('S2'))
+    expect(rabbit.current.updateTask.mock.calls).toEqual([['a', { scene_id: 'S2', shot_id: null }]])
+    expect(rabbit.current.setTaskItemsOfKind).not.toHaveBeenCalled()
+  })
   it('by phase: the phase, as before; by team: nothing to drag (only a bar\'s dates move)', async () => {
     rabbit.current = ctxFor({ tasks: [{ id: 't9', title: 'Phased', phase_id: 'P1', start_date: '2026-10-02', end_date: '2026-10-04' }], taskItems: [] })
     mount()
@@ -509,5 +534,36 @@ describe('a viewed bid version groups by its own snapshot\'s items (VW1m, Q-N7 i
     })
     expect(under(rows, 'grp-as-A|B')).toEqual(['v1'])
     expect(under(rows, 'grp-as-C')).toEqual(['v2'])
+  })
+
+  // VW1m review round 1 (R1-3): post-overhaul S5d said where a viewed
+  // version's link names a row the project no longer has; read through the
+  // lookup (live items only) it went quiet. While a version is viewed the
+  // Timeline hands the builders its saved ids (`savedIdsOf`), and only then:
+  // live, an item in the trash is hidden without a word (her Q-N4).
+  it('R1-3: a viewed version\'s link to an asset, level, experience or shot no longer in the project says so again; live, nothing is said', () => {
+    const view = { tasks: [
+      { id: 'g1', title: 'Gone', asset_id: 'aZ', items: { asset: ['aZ'], scene: [], shot: ['hZ'], level: ['lZ'], experience: ['xZ'] } },
+      { id: 'g2', title: 'Half gone', asset_id: 'A', items: { asset: ['A', 'aZ'], scene: [], shot: [], level: ['L1', 'lZ'], experience: [] } },
+      { id: 'g3', title: 'Here', asset_id: 'A', items: { asset: ['A'], scene: [], shot: ['X1'], level: ['L1'], experience: ['E1'] } },
+    ] }
+    const levels = [{ id: 'L1', name: 'Dock' }]
+    const experiences = [{ id: 'E1', name: 'Tour' }]
+    const itemLookup = buildItemLookup({ items: versionTaskItems(view), available: true, assets, scenes: [S1, S2, S3], shots: [X1, X2, Y1], levels, experiences })
+    const savedIdsOf = (t, kind) => view.tasks.find(x => x.id === t.id)?.items?.[kind] || []
+    const base = {
+      phases: [], assets, tasks: view.tasks, schedule, levels, experiences, scenes: [S1, S2], shots: [X1, X2, Y1],
+      sceneById: (id) => everyRow[id] || null, shotById: (id) => everyRow[id] || null, itemLookup,
+    }
+    const tip = (groupBy, id, over = { savedIdsOf }) => row(buildRowsByGrouping({ ...base, groupBy, ...over }), `tk-${id}`).tooltip
+    for (const [groupBy, word] of [['asset', 'Asset'], ['level', 'Level'], ['experience', 'Experience'], ['scene', 'Shot']]) {
+      expect(tip(groupBy, 'g1'), groupBy).toBe(`${word}: no longer in the project`)
+      expect(tip(groupBy, 'g3'), groupBy).toBeUndefined()
+      // CONTROL: the live Timeline hands no saved ids.
+      expect(tip(groupBy, 'g1', {}), groupBy).toBeUndefined()
+    }
+    // A task with a live item beside the gone one says it too, under its live row.
+    expect(tip('asset', 'g2')).toBe('Asset: no longer in the project')
+    expect(tip('level', 'g2')).toBe('Level: no longer in the project')
   })
 })

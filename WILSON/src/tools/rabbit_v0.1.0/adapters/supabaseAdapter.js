@@ -2007,14 +2007,27 @@ const MY_TASK_ITEM_ROWS = Object.freeze({
   level:      ['levels', 'id, name'],
   experience: ['experiences', 'id, name'],
 });
+// VW1m review round 1 (R1-6): an `.in()` list rides the request's URL, and a
+// long one passes the gateway's limit, failing the whole Dashboard load. Each
+// in-list goes MY_TASKS_IN_CHUNK ids a request, one after another, the
+// answers joined in order.
+const MY_TASKS_IN_CHUNK = 100;
+async function readInChunks(ids, readChunk) {
+  const out = [];
+  for (let at = 0; at < ids.length; at += MY_TASKS_IN_CHUNK) {
+    out.push(...await readChunk(ids.slice(at, at + MY_TASKS_IN_CHUNK)));
+  }
+  return out;
+}
 async function withMyTaskItems(client, tasks) {
   const taskIds = [...new Set(tasks.map(t => t?.id).filter(id => id != null))];
   if (taskIds.length === 0) return tasks.map(t => ({ ...t, items: [] }));
-  // Paged in 0096's order (a total order, so no row straddles two pages).
-  const items = await readAllPagesWith(() => client.from('task_items')
+  // Paged in 0096's order (a total order, so no row straddles two pages);
+  // a task's items all come in its own chunk (R1-6).
+  const items = await readInChunks(taskIds, (chunk) => readAllPagesWith(() => client.from('task_items')
     .select('id, task_id, entity_type, entity_id, position, created_at')
-    .in('task_id', taskIds)
-    .order('task_id').order('entity_type').order('position').order('created_at').order('id'), unwrapMyTasksRead);
+    .in('task_id', chunk)
+    .order('task_id').order('entity_type').order('position').order('created_at').order('id'), unwrapMyTasksRead));
   const named = {};
   for (const i of items) {
     if (!i || !isItemKind(i.entity_type) || i.entity_id == null) continue;
@@ -2024,8 +2037,8 @@ async function withMyTaskItems(client, tasks) {
   const rowsOf = (kind, ids) => {
     if (!ids || ids.size === 0) return Promise.resolve([]);
     const [table, columns] = MY_TASK_ITEM_ROWS[kind];
-    return readAllPagesWith(() => client.from(table).select(columns)
-      .in('id', [...ids]).order('id'), unwrapMyTasksRead);
+    return readInChunks([...ids], (chunk) => readAllPagesWith(() => client.from(table).select(columns)
+      .in('id', chunk).order('id'), unwrapMyTasksRead));
   };
   const [assets, shots, levels, experiences] = await Promise.all(
     ['asset', 'shot', 'level', 'experience'].map(kind => rowsOf(kind, named[kind])));

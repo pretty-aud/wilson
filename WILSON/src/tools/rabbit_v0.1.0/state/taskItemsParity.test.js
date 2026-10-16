@@ -44,8 +44,13 @@ const maker = () => { let n = 0; return (base) => ({ id: `made-${++n}`, project_
 const SHARED = [
   'ITEM_KINDS', 'KIND_FIELD', 'LINK_FIELDS', 'FIELD_KIND',
   'compareItems', 'itemsOfTask', 'copyFieldsFromItems', 'nextPosition',
-  'planReorder', 'applyPositions', 'planLegacyFieldWrite', 'seedItemsFor', 'itemShapeProblem',
+  'planLegacyFieldWrite', 'seedItemsFor', 'itemShapeProblem',
 ]
+// VW1m review round 1 (R1-8): the twin's own rules, which the model no
+// longer states — an older build's reorder, answered by the desktop's route
+// (rabbitTaskItems.routes.test.js) and nothing in this app since its Move
+// buttons went (her Q-N1).
+const TWIN_OWN = ['planReorder', 'applyPositions']
 
 describe('the CommonJS copy says what the model says', () => {
   it('the same kinds and fields', () => {
@@ -103,17 +108,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(next).toBe(8)
     expect(assets.length).not.toBe(next)
     expect(assets[assets.length - 1].position + 1).not.toBe(next)
-  })
-
-  it('the same reorder for every kind and a spread of named lists, and the same positions applied', () => {
-    const lists = [[], ['a3'], ['a2', 'a1'], ['a3', 'a2', 'a1'], ['s2'], ['h1'], ['nope', 'a2'], ['s1', 'a1'], ['m1', 'a0']]
-    for (const kind of esm.ITEM_KINDS) for (const ids of lists) {
-      const changes = esm.planReorder(ITEMS, T, kind, ids)
-      expect(cjs.planReorder(ITEMS, T, kind, ids), `${kind} ${ids}`).toEqual(changes)
-      expect(cjs.applyPositions(ITEMS, changes), `${kind} ${ids} applied`).toEqual(esm.applyPositions(ITEMS, changes))
-    }
-    expect(cjs.applyPositions(ITEMS, [])).toBe(ITEMS)
-    expect(esm.applyPositions(ITEMS, [])).toBe(ITEMS)
   })
 
   it('the same older app\'s write of one field for every kind: no-op, has it, add, clear, first item, unknown kind', () => {
@@ -178,10 +172,41 @@ describe('the CommonJS copy says what the model says', () => {
     }
     const bundleLevel = ['stableItemId', 'syncTaskFields', 'pruneDanglingTaskItems', 'reconcileTaskItemsOnRead',
       'applyTaskWrite', 'afterRowRemoved', 'makeTaskItemHooks', 'mountRabbitTaskItems']
-    expect(Object.keys(cjs).filter(k => !SHARED.includes(k) && !bundleLevel.includes(k))).toEqual([])
+    expect(Object.keys(cjs).filter(k => !SHARED.includes(k) && !bundleLevel.includes(k) && !TWIN_OWN.includes(k))).toEqual([])
     for (const gone of ['mainItemOf', 'linkFieldsFromItems', 'planSingleFieldWrite', 'mainAfterLinkWrite']) {
       expect(cjs, gone).not.toHaveProperty(gone)
       expect(esm, gone).not.toHaveProperty(gone)
     }
+  })
+  it('R1-8: the reorder is the twin\'s own: the model no longer states it, the twin still does', () => {
+    for (const own of TWIN_OWN) {
+      expect(cjs, own).toHaveProperty(own)
+      expect(esm, own).not.toHaveProperty(own)
+    }
+  })
+})
+
+// VW1m review round 1 (R1-8): the twin's own reorder (0096 section 6's
+// reorder_task_items, for an older build), held here now the model has none.
+describe('the twin\'s planReorder: an older build\'s reorder only', () => {
+  const items = [row('a', 'asset', 'A', 0), row('b', 'asset', 'B', 1), row('c', 'asset', 'C', 2), row('s', 'scene', 'S', 0)]
+  it('puts the named ids first, in the order given, and the rest after in their order, dense from 0', () => {
+    const changes = cjs.planReorder(items, T, 'asset', ['c'])
+    expect(cjs.applyPositions(items, changes).filter(i => i.entity_type === 'asset').sort(cjs.compareItems).map(i => `${i.id}:${i.position}`))
+      .toEqual(['c:0', 'a:1', 'b:2'])
+  })
+  it('answers only the rows that move', () => {
+    expect(cjs.planReorder(items, T, 'asset', ['a', 'b', 'c'])).toEqual([])
+    expect(cjs.planReorder(items, T, 'asset', ['b', 'a'])).toEqual([{ id: 'b', position: 0 }, { id: 'a', position: 1 }])
+  })
+  it('ignores an id of another kind or task, and never touches another kind', () => {
+    const changes = cjs.planReorder(items, T, 'asset', ['s', 'b'])
+    expect(changes.find(c => c.id === 's')).toBeUndefined()
+    expect(changes[0]).toEqual({ id: 'b', position: 0 })
+  })
+  it('makes a tie dense; no change applied hands back the same list', () => {
+    const tied = [row('x', 'asset', 'X', 0, '2026-10-11T10:00:00Z'), row('y', 'asset', 'Y', 0, '2026-10-11T11:00:00Z')]
+    expect(cjs.planReorder(tied, T, 'asset', [])).toEqual([{ id: 'y', position: 1 }])
+    expect(cjs.applyPositions(ITEMS, [])).toBe(ITEMS)
   })
 })

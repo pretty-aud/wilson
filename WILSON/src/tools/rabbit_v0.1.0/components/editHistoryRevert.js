@@ -55,7 +55,8 @@ const EXCLUDED_FIELDS = new Set([
 ])
 
 // VW1m (2026-10-16), Q-N8 (batch 16, not yet asked; interim: no history of
-// a task's items, only the old lines in words): a task's single link
+// a task's items; review round 1, R1-2: their lines are not shown at all,
+// editHistoryFormat.js): a task's single link
 // columns are the older apps' copy of its items (the first of each kind in
 // the order added), so an edit's line for one is not a change to put back —
 // its Revert swapped the task's first asset. They never ride an inverse

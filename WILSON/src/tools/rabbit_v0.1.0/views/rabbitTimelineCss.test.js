@@ -499,11 +499,19 @@ describe('W9: no native confirm is left, and each question asks on the kit Dialo
     expect(code.timeline).toMatch(/title="Remove this dependency\?"/)
   })
   it('the task editor\'s four delete questions keep the old confirms\' words (the question as the title, the second sentence as the body)', () => {
-    for (const words of ['Delete this milestone?', 'Delete this asset?', 'Tasks linked to it will lose their asset reference.',
+    for (const words of ['Delete this milestone?', 'Delete this asset?',
       'Delete this phase?', 'Tasks linked to it will become orphans.', 'Delete this task?']) {
       expect(source.timeline, words).toContain(`'${words}'`)
     }
     expect(code.timeline).toMatch(/<Dialog\s+width="confirm"\s+title=\{askDelete\.title\}/)
+  })
+  // VW1m review round 1 (R1-7), her Q-M2 ("The tasks stay"): the asset's
+  // question says its tasks stay, in the Assets tab's words; it said they
+  // would lose their asset reference.
+  it('R1-7: the asset editor\'s delete question says its tasks stay, as the Assets tab does', () => {
+    expect(code.timeline).toMatch(/title: 'Delete this asset\?', body: 'Its tasks stay\.'/)
+    expect(source.timeline).not.toContain('lose their asset reference')
+    expect(read('ProjectAssetsView.jsx')).toContain("' Its tasks stay.'")
   })
   it('CONTROL: a bare or a window confirm is counted; a method named confirm on another object is not', () => {
     expect(nativeConfirms("if (confirm('x')) go()")).toBe(1)

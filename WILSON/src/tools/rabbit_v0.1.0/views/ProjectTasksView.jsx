@@ -2003,11 +2003,15 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrit
       onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       {guard.modal}
 
-      {/* ── Column header ── */}
+      {/* ── Column header ──
+          VW1m review round 1 (P-1): a combination's name is cut short in
+          the head ("Lighthouse Interior, Sea Spray C…"); its title names it
+          whole on hover, as the Timeline's row and the cards do (the text
+          itself is the head's name, whole, for a screen reader). */}
       <div className="rb-task-col-head">
         <div className="rb-task-col-title">
           {kanbanGroup === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
-          <span className="rb-task-group-label">{group.label}</span>
+          <span className="rb-task-group-label" title={group.label}>{group.label}</span>
           <span className="rb-task-group-count">{group.tasks.length}</span>
         </div>
         <GatedAction allowed={canWrite}>

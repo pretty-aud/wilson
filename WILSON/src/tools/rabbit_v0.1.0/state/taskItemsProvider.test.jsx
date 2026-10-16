@@ -202,6 +202,55 @@ describe('setTaskItemsOfKind — a drop on a group or a row, a version\'s open',
     expect(del).not.toHaveBeenCalled()
     expect(ctx.canUndo).toBe(could)
   })
+
+  // VW1m review round 1 (R1-1): a drop on the Tasks table or the Board passes
+  // the group's LIVE ids only; an item whose row is in the trash is hidden
+  // from every screen (her Q-N4: back on restore), so no caller can name it
+  // and the set must never take it off.
+  it('R1-1: an item whose row is in the trash is kept: a drop on another asset leaves it, and it shows again on restore', async () => {
+    await mount(fx.rabbitAdapter())
+    await run(() => ctx.deleteAsset(A(12)))
+    expect(ctx.assets.some(a => a.id === A(12))).toBe(false)
+    // What a drop on Harbour Wall's group passes: its one live id.
+    await run(() => ctx.setTaskItemsOfKind(T18, 'asset', [A(3)]))
+    expect(sorted(kinds(T18, 'asset'))).toEqual(sorted([A(3), A(12)]))
+    expect(sorted(storeKinds(T18, 'asset'))).toEqual(sorted([A(3), A(12)]))
+    await run(() => holder.adapter.restoreAsset(A(12)))
+    await run(() => ctx.reloadActiveProject())
+    expect(ctx.assets.some(a => a.id === A(12))).toBe(true)
+    expect(sorted(kinds(T18, 'asset'))).toEqual(sorted([A(3), A(12)]))
+  })
+  it('R1-1 CONTROL: a live item the ids leave out still goes', async () => {
+    await mount(fx.rabbitAdapter())
+    await run(() => ctx.setTaskItemsOfKind(T18, 'asset', [A(3)]))
+    expect(kinds(T18, 'asset')).toEqual([A(3)])
+  })
+
+  // VW1m review round 1 (R1-5): runWithUndoToast asks its step to queue in
+  // the undo queue before its first await, as the version steps do. A drop
+  // made while an undo still ran wrote beside it: the replay (history
+  // `suspended`) recorded none of its step, and no toast was offered.
+  it('R1-5: a drop made while an undo is running waits its turn: its step is recorded, its toast offered, and its Undo takes it back', async () => {
+    await mount(fx.rabbitAdapter())
+    await run(() => ctx.addTaskItem({ task_id: T5, entity_type: 'asset', entity_id: A(12) }))
+    let release
+    const gate = new Promise((r) => { release = r })
+    const del = holder.adapter.deleteTaskItem.bind(holder.adapter)
+    vi.spyOn(holder.adapter, 'deleteTaskItem').mockImplementationOnce(async (...args) => { await gate; return del(...args) })
+    let undoing = null
+    let dropping = null
+    // The undo of the add is held open: its delete waits on the gate.
+    await act(async () => { undoing = ctx.undo() })
+    await act(async () => {
+      dropping = ctx.runWithUndoToast(() => ctx.setTaskItemsOfKind(T18, 'asset', [A(3)]), 'Moved "Glass and rain rig test" to Harbour Wall')
+    })
+    await act(async () => { release(); await undoing; await dropping })
+    expect(kinds(T5, 'asset')).not.toContain(A(12))
+    expect(kinds(T18, 'asset')).toEqual([A(3)])
+    expect(ctx.undoToast?.message).toBe('Moved "Glass and rain rig test" to Harbour Wall')
+    await run(() => ctx.undo())
+    expect(kinds(T18, 'asset')).toEqual([A(7), A(12)])
+  })
 })
 
 describe('addTask — a new task\'s links become its items', () => {
@@ -491,6 +540,21 @@ describe('a bid version keeps every item of every kind', () => {
     expect(out.plan.droppedLinks).toBe(0)
     expect(out.note).toBe('')
     expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12)])
+  })
+
+  // VW1m review round 1 (R1-1): the provider keeps a hidden item on every
+  // set, so an open keeps one the version never held too.
+  it('R1-1: an asset in the trash the version never held is kept by an open (hidden, back on restore)', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-hidden', roleRates: {} }) })
+    await run(() => ctx.addTaskItem({ task_id: T18, entity_type: 'asset', entity_id: A(3) }))
+    await run(() => ctx.deleteAsset(A(3)))
+    let out
+    await run(async () => { out = await ctx.openBudgetVersion(v.id, { roleRates: {} }) })
+    expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12), A(3)])
+    expect(out.plan.droppedLinks).toBe(0)
   })
 
   it('Edit this version revives a trashed task: its items are read, Save records them, the next open keeps them', async () => {

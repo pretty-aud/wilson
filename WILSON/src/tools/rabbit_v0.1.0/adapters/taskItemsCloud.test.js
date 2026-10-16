@@ -288,6 +288,28 @@ describe('listMyTasks: every item of every task, named (VW1m)', () => {
     globalThis.__testSupabase = answering(ROWS, { task_items: { code: '42501', message: 'permission denied for table task_items' } })
     await expect(supabaseAdapter().listMyTasks()).rejects.toThrow(/permission denied/)
   })
+
+  // VW1m review round 1 (R1-6): every listed task's id went in one
+  // `.in('task_id', …)` and every named row's in one `.in('id', …)`; a long
+  // list passes the gateway's URL limit and the whole Dashboard load fails.
+  // Each in-list goes 100 ids a request, the answers joined.
+  it('R1-6: 250 tasks: no request carries more than 100 ids, and every task still gets its item', async () => {
+    const many = Array.from({ length: 250 }, (_, n) => ({ id: `t${n}`, project_id: 'p1', title: `Task ${n}`, assignee_id: 'u1', project: PROJECT }))
+    globalThis.__testSupabase = answering({
+      ...ROWS,
+      tasks: many,
+      task_items: many.map((t, n) => item(`k${n}`, t.id, 'asset', `a${n}`)),
+      assets: many.map((_, n) => ({ id: `a${n}`, name: `Asset ${n}` })),
+    })
+    const rows = await supabaseAdapter().listMyTasks()
+    const ins = calls.filter(c => c.ops).flatMap(c => c.ops.filter(o => o[0] === 'in'))
+    expect(ins.length).toBeGreaterThan(0)
+    expect(Math.max(...ins.map(([, , ids]) => ids.length))).toBeLessThanOrEqual(100)
+    expect(readsOf('task_items')).toHaveLength(3)
+    expect(readsOf('assets')).toHaveLength(3)
+    expect(rows).toHaveLength(250)
+    expect(rows.filter((r, n) => r.items.length === 1 && r.items[0].id === `a${n}` && r.items[0].name === `Asset ${n}`)).toHaveLength(250)
+  })
 })
 
 describe('the allowlist', () => {

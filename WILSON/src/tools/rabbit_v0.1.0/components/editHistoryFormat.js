@@ -12,7 +12,7 @@
 //   update → { col: { old, new }, ... }  (audit-noise columns excluded)
 // =============================================================================
 
-import { FIELD_KIND, KIND_LABEL } from '../state/taskItemsModel'
+import { LINK_FIELDS } from '../state/taskItemsModel'
 
 // The action's colour is the drawer's CSS (`.rb-hist-action[data-action]` on
 // the success / ink-2 / danger tokens); P1-66 deleted the `color` hexes this
@@ -64,50 +64,45 @@ function displayValue(v) {
 }
 
 // VW1m (2026-10-16), Q-N8 (batch 16, not yet asked; interim: no history of
-// a task's items): a task's single link columns (asset_id, scene_id,
-// shot_id, level_id, experience_id) are the older apps' copy of its items —
-// the first of each kind in the order added — and their lines read in words:
-// the kind ("Asset"), and the item's name where the project still shows it
-// ("Lighthouse Interior → Storm Lantern"), else that it is no longer in the
-// project. They have no Revert (editHistoryRevert.js).
-function linkValue(kind, v, nameOf) {
-  if (v === null || v === undefined || v === '') return '—'
-  if (typeof nameOf !== 'function') return String(v)
-  const name = nameOf(kind, v)
-  if (name) return name
-  const word = KIND_LABEL[kind].toLowerCase()
-  return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word} no longer in the project`
-}
+// a task's items). Review round 1 (R1-2): a task's single link columns
+// (asset_id, scene_id, shot_id, level_id, experience_id) are the older apps'
+// copy of its items, which the cloud still writes whenever a kind's first
+// item changes (0097 section 7a) and 0012's capture records as a task edit.
+// Read in words, removing the first of two assets said "Asset: Lighthouse
+// -> Lantern", a swap that never happened. They show no line, old or new; an
+// entry with nothing else to say is not shown (historyEntryShown). They have
+// no Revert (editHistoryRevert.js). Another table's field of the same name
+// keeps its line.
+const TASK_LINK_COLUMNS = new Set(LINK_FIELDS)
+const isTaskLinkColumn = (entry, k) => entry?.entity_type === 'tasks' && TASK_LINK_COLUMNS.has(k)
 
 /**
  * Per-field change lines for an 'update' row:
  * [{ field, from, to }] sorted by field name. Empty for create/delete.
- * A task's link line also carries `label`, the kind in words, and names
- * its items through `nameOf(kind, id)` (the drawer passes the project's
- * lookup, buildItemLookup's nameOf).
+ * A task's link columns have no line (R1-2).
  */
-export function diffLines(entry, { nameOf = null } = {}) {
+export function diffLines(entry) {
   if (!entry || entry.action !== 'update' || !entry.diff) return []
-  const isTask = entry.entity_type === 'tasks'
   return Object.keys(entry.diff)
-    .filter(k => !HIDDEN_FIELDS.has(k))
+    .filter(k => !HIDDEN_FIELDS.has(k) && !isTaskLinkColumn(entry, k))
     .sort()
-    .map(k => {
-      const kind = isTask ? FIELD_KIND[k] : null
-      if (kind) {
-        return {
-          field: k,
-          label: KIND_LABEL[kind],
-          from: linkValue(kind, entry.diff[k]?.old, nameOf),
-          to:   linkValue(kind, entry.diff[k]?.new, nameOf),
-        }
-      }
-      return {
-        field: k,
-        from: displayValue(entry.diff[k]?.old),
-        to:   displayValue(entry.diff[k]?.new),
-      }
-    })
+    .map(k => ({
+      field: k,
+      from: displayValue(entry.diff[k]?.old),
+      to:   displayValue(entry.diff[k]?.new),
+    }))
+}
+
+/**
+ * Whether the drawer shows a history row at all (R1-2): every row but a
+ * task's 'update' whose only changes were its link columns, which would read
+ * as an empty edit. A soft delete or restore among them still shows (its
+ * badge says it).
+ */
+export function historyEntryShown(entry) {
+  if (!entry || entry.action !== 'update' || !entry.diff || entry.entity_type !== 'tasks') return true
+  if (!Object.keys(entry.diff).some(k => TASK_LINK_COLUMNS.has(k))) return true
+  return diffLines(entry).length > 0 || softDeleteTransition(entry) != null
 }
 
 /**

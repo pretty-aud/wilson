@@ -214,43 +214,10 @@ export function nextPosition(items, taskId, kind) {
   return Math.min(max + 1, MAX_ITEM_POSITION)
 }
 
-/**
- * reorder_task_items (0096 §6): the named ids first, in the order given;
- * every other item of that kind after, in its current order; positions dense
- * from 0. An id of another task or kind is ignored. Returns the changes,
- * `[{ id, position }]`, for the rows whose position moves.
- *
- * VW1m (2026-10-16): the backends' answer to an older app's reorder only.
- * This app has no Move buttons (her Q-N1); a reorder changes the stored
- * order, so the *Date added* sort and the older apps' copy, nothing else.
- */
-export function planReorder(items, taskId, kind, orderedIds) {
-  const mine = itemsOfTask(items, taskId, kind)
-  const named = new Map()
-  ;(Array.isArray(orderedIds) ? orderedIds : []).forEach((id, n) => {
-    if (id != null && !named.has(String(id))) named.set(String(id), n)
-  })
-  const ranked = mine.slice().sort((a, b) => {
-    const na = named.has(String(a.id)) ? named.get(String(a.id)) : null
-    const nb = named.has(String(b.id)) ? named.get(String(b.id)) : null
-    if (na != null && nb != null) return na - nb
-    if (na != null) return -1
-    if (nb != null) return 1
-    return compareItems(a, b)
-  })
-  const changes = []
-  ranked.forEach((row, n) => {
-    if ((Number(row.position) || 0) !== n) changes.push({ id: row.id, position: n })
-  })
-  return changes
-}
-
-/** The items with `changes` (`[{ id, position }]`) applied. */
-export function applyPositions(items, changes) {
-  if (!Array.isArray(changes) || changes.length === 0) return items
-  const pos = new Map(changes.map(c => [String(c.id), c.position]))
-  return items.map(i => (i && pos.has(String(i.id)) ? { ...i, position: pos.get(String(i.id)) } : i))
-}
+// VW1m review round 1 (R1-8): reorder_task_items (0096 section 6), an older
+// app's reorder, is answered by the backends only: the desktop's route runs
+// the twin's own planReorder / applyPositions (electron/rabbitTaskItems.cjs).
+// This app has no Move buttons (her Q-N1), so the model states neither.
 
 const idOrNull = (v) => (v == null || v === '' ? null : String(v))
 

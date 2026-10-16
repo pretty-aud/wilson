@@ -151,6 +151,20 @@ describe('VW1m: grouped by asset, one group per combination of a task\'s live as
     expect(columns().at(-1)).toEqual(['No asset', '0'])
   })
 
+  // VW1m review round 1 (P-1, from the pictures): a combination's name is cut
+  // short in its column head ("Lighthouse Interior, Sea Spray C…") with no
+  // way to read the rest; the head names it whole on hover, as the Timeline's
+  // combination row and the cards do.
+  it('P-1: a Board column head carries its whole name as its title', () => {
+    page()
+    board()
+    groupBy('asset')
+    const label = (name) => column(name).querySelector('.rb-task-group-label')
+    expect(label('Lighthouse Interior, Storm Lantern').getAttribute('title')).toBe('Lighthouse Interior, Storm Lantern')
+    expect(label('Harbour Wall').getAttribute('title')).toBe('Harbour Wall')
+    expect(label('No asset').getAttribute('title')).toBe('No asset')
+  })
+
   it('combinations order by their names A to Z, numbers as numbers', () => {
     const assets = [
       { id: 'b1', name: 'Shot 2' }, { id: 'b2', name: 'Shot 10' }, { id: 'b3', name: 'alpha' }, { id: 'b4', name: 'Beta' },

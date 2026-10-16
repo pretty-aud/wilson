@@ -158,7 +158,8 @@ describe('buildRevertPlan — create / delete entries', () => {
 })
 
 // VW1m (2026-10-16), Q-N8 (batch 16; interim: no history of a task's items,
-// the old lines in words without Revert). A task's link columns are the
+// the old lines without Revert; review round 1, R1-2: not shown at all,
+// editHistoryDrawerLinks.test.jsx). A task's link columns are the
 // older apps' copy of its items: their Revert swapped the task's first asset.
 describe('a task\'s link lines (VW1m, Q-N8 interim)', () => {
   const task = { entity_type: 'tasks', entity_id: 't1', action: 'update' }

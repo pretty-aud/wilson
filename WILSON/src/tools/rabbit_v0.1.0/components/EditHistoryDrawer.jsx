@@ -22,7 +22,7 @@
 // pickers (z-[60]) too, which close when History is opened.
 // =============================================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, RotateCcw, X } from 'lucide-react'
 import { Drawer } from '../../../ui/Drawer'
 import { IconButton } from '../../../ui/IconButton'
@@ -33,24 +33,16 @@ import { useRabbit } from '../state/RabbitProvider'
 import { usePermissions } from '../../../permissions/usePermissions'
 import {
   ENTITY_LABELS, entryActionMeta, ACTION_META, RESTORE_META,
-  diffLines, snapshotSummary, formatHistoryTimestamp, actorName,
+  diffLines, snapshotSummary, formatHistoryTimestamp, actorName, historyEntryShown,
 } from './editHistoryFormat'
 import { canRevertEntry, revertActionLabel } from './editHistoryRevert'
-import { buildItemLookup } from '../state/taskItemsModel'
 // UI overhaul B3: the turning icons and the action badge's colours are
 // named variants in the Timeline lane's sheet.
 import '../views/rabbitTimeline.css'
 
 export default function EditHistoryDrawer({ entityType, entityId, entityLabel, onClose }) {
-  const ctx = useRabbit()
-  const { getAdapter, adapterMode, revertHistoryEntry } = ctx
+  const { getAdapter, adapterMode, revertHistoryEntry } = useRabbit()
   const { can } = usePermissions()
-  // VW1m (2026-10-16), Q-N8 interim: a task's link lines name its items,
-  // through the model's lookup over the rows the project shows.
-  const { assets, allScenes, scenes, allShots, shots, levels, experiences } = ctx
-  const nameOf = useMemo(() => buildItemLookup({
-    assets, scenes: allScenes || scenes, shots: allShots || shots, levels, experiences,
-  }).nameOf, [assets, allScenes, scenes, allShots, shots, levels, experiences])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
@@ -83,6 +75,12 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
   const mayRevert = cloudMode
     && typeof revertHistoryEntry === 'function'
     && can('rabbit.history.revert')
+
+  // VW1m review round 1 (R1-2), Q-N8 interim: a task's entry whose only
+  // changes were its link columns (the older apps' copy, which the cloud
+  // writes when a kind's first item changes) says nothing true, and is left
+  // out (historyEntryShown); the 100-row note still counts what was read.
+  const shown = entries.filter(historyEntryShown)
 
   const handleRevert = useCallback(async (entry) => {
     if (revertingId != null) return
@@ -135,16 +133,15 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
           <Banner tone="danger">Could not load history: {error}</Banner>
         ) : loading && entries.length === 0 ? (
           <Loading label="Loading history" />
-        ) : entries.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyState compact title="No recorded changes in the last 90 days." />
         ) : (
           <>
             {revertError && <Banner tone="danger">Revert failed: {revertError}</Banner>}
-            {entries.map(entry => (
+            {shown.map(entry => (
               <HistoryEntry
                 key={entry.id}
                 entry={entry}
-                nameOf={nameOf}
                 onRevert={mayRevert && canRevertEntry(entry) ? handleRevert : null}
                 reverting={revertingId === entry.id}
                 disabled={revertingId != null}
@@ -163,10 +160,10 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
   )
 }
 
-function HistoryEntry({ entry, nameOf, onRevert, reverting, disabled }) {
+function HistoryEntry({ entry, onRevert, reverting, disabled }) {
   // entryActionMeta classifies soft-delete transitions as Deleted / Restored.
   const meta = entryActionMeta(entry) || { label: entry.action }
-  const lines = diffLines(entry, { nameOf })
+  const lines = diffLines(entry)
   const summary = entry.action !== 'update' ? snapshotSummary(entry) : null
 
   return (
@@ -202,7 +199,7 @@ function HistoryEntry({ entry, nameOf, onRevert, reverting, disabled }) {
         <div className="flex flex-col gap-1">
           {lines.map(l => (
             <div key={l.field} className="text-dense flex items-baseline gap-1.5 min-w-0">
-              <span className="flex-shrink-0 rb-hist-field">{l.label || l.field}:</span>
+              <span className="flex-shrink-0 rb-hist-field">{l.field}:</span>
               <span className="truncate rb-hist-from" title={l.from}>
                 {l.from}
               </span>

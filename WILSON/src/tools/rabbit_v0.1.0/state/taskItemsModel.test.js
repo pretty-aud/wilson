@@ -17,7 +17,7 @@ import {
   ITEM_KINDS, KIND_FIELD, LINK_FIELDS, FIELD_KIND, COLUMN_KINDS,
   NO_KIND_LABEL, ITEM_SORTS, ITEM_SORT_LABEL,
   compareItems, itemsOfTask, copyFieldsFromItems,
-  tasksAbout, taskCountsByEntity, nextPosition, planReorder, applyPositions,
+  tasksAbout, taskCountsByEntity, nextPosition,
   planLegacyFieldWrite, planSetKind, seedItemsFor, linkFieldsIn, withoutLinkFields, itemShapeProblem,
   indexItemsByTask, buildItemLookup, sortItemsForDisplay,
 } from './taskItemsModel'
@@ -118,28 +118,6 @@ describe('tasksAbout and taskCountsByEntity — the relation readers', () => {
   it('counts a task once per thing it names, and only tasks that are on the screen', () => {
     expect(taskCountsByEntity(tasks, items, 'scene', true)).toEqual({ S1: 1, S2: 2 })
     expect(taskCountsByEntity(tasks, items, 'scene', false)).toEqual({ S1: 1, S2: 1 })
-  })
-})
-
-describe('planReorder — reorder_task_items (0096 §6), an older app\'s reorder only', () => {
-  const items = [it_('a', 'asset', 'A', 0), it_('b', 'asset', 'B', 1), it_('c', 'asset', 'C', 2), it_('s', 'scene', 'S', 0)]
-  it('puts the named ids first, in the order given, and the rest after in their order, dense from 0', () => {
-    const changes = planReorder(items, T, 'asset', ['c'])
-    expect(applyPositions(items, changes).filter(i => i.entity_type === 'asset').sort(compareItems).map(i => `${i.id}:${i.position}`))
-      .toEqual(['c:0', 'a:1', 'b:2'])
-  })
-  it('answers only the rows that move', () => {
-    expect(planReorder(items, T, 'asset', ['a', 'b', 'c'])).toEqual([])
-    expect(planReorder(items, T, 'asset', ['b', 'a'])).toEqual([{ id: 'b', position: 0 }, { id: 'a', position: 1 }])
-  })
-  it('ignores an id of another kind or task, and never touches another kind', () => {
-    const changes = planReorder(items, T, 'asset', ['s', 'b'])
-    expect(changes.find(c => c.id === 's')).toBeUndefined()
-    expect(changes[0]).toEqual({ id: 'b', position: 0 })
-  })
-  it('makes a tie dense', () => {
-    const tied = [it_('x', 'asset', 'X', 0, '2026-10-11T10:00:00Z'), it_('y', 'asset', 'Y', 0, '2026-10-11T11:00:00Z')]
-    expect(planReorder(tied, T, 'asset', [])).toEqual([{ id: 'y', position: 1 }])
   })
 })
 
