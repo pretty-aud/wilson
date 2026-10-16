@@ -74,7 +74,7 @@ INSERT INTO public.assets (id, project_id, name)
 VALUES ('aaaa1111-0000-0000-0000-00000000a701',
         'aaaa1111-0000-0000-0000-000000000701', 'Purge Asset');
 
--- ── probes 1-6: asset soft delete — RPC-only, hidden, transitive, stamped ─
+-- ── probes 1-6: asset soft delete — RPC-only, hidden, its task kept, stamped
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   '11111111-1111-1111-1111-111111111111'
@@ -100,10 +100,14 @@ SELECT is(
   0, 'soft-deleted asset disappears from SELECT'
 );
 
+-- 0097 (VW1m, 2026-10-16; Audrey: "The tasks stay", and an asset in the
+-- trash is "Hidden, back on restore" by the client): tasks_select no longer
+-- hops through the asset, so the task stays visible. Until 0097 this probe
+-- pinned the opposite ("hidden transitively").
 SELECT is(
   (SELECT count(*)::int FROM public.tasks
     WHERE id = 'aaaa1111-0000-0000-0000-00000000cc01'),
-  0, 'tasks under a soft-deleted asset are hidden transitively'
+  1, 'a task whose asset is in the trash stays visible (0097: the task hops to its project, not its asset)'
 );
 
 -- Physical checks run as the test runner.
@@ -134,9 +138,12 @@ SELECT tests.login_as(
 UPDATE public.assets SET deleted_at = NULL
  WHERE id = 'aaaa1111-0000-0000-0000-00000000aa01';
 
+-- 0097: these two counted the asset's TASK to prove the asset was still in
+-- the trash and then back; the task no longer hides with its asset, so they
+-- count the asset itself.
 SELECT is(
-  (SELECT count(*)::int FROM public.tasks
-    WHERE id = 'aaaa1111-0000-0000-0000-00000000cc01'),
+  (SELECT count(*)::int FROM public.assets
+    WHERE id = 'aaaa1111-0000-0000-0000-00000000aa01'),
   0, 'plain UPDATE restore is a silent no-op — row stays hidden'
 );
 
@@ -146,9 +153,9 @@ SELECT ok(
 );
 
 SELECT is(
-  (SELECT count(*)::int FROM public.tasks
-    WHERE id = 'aaaa1111-0000-0000-0000-00000000cc01'),
-  1, 'restore surfaces the subtree again'
+  (SELECT count(*)::int FROM public.assets
+    WHERE id = 'aaaa1111-0000-0000-0000-00000000aa01'),
+  1, 'restore surfaces the row again'
 );
 
 SELECT set_config('request.jwt.claims', '{}', true);
