@@ -519,3 +519,22 @@ Everything below landed in commit `ef17d94a`.
 | EmptyState `description` (never shown) | `body` |
 | The folder path had no loop guard | Guarded as `folderTrail` |
 | Tests that could not fail | `useReferences.test.jsx`, behavioural, with failing controls; the round-trip test asserts what it names; an order-independent Switch pin |
+
+## 12. Code review round 2 (2026-10-16)
+
+The second code reviewer attacked the corrections above (nine findings, none
+HIGH); everything landed in commit `131bf12a`, each with a test that fails
+without it.
+
+| Finding | Done |
+|---|---|
+| A video-only upload stopped generating (a regression against "leave that how it was") | The stop applies only when references were chosen and nothing of them, nor any upload, is readable |
+| A pool read in flight across a project change could land and grey the returning references | The read sequence moves on with the project |
+| Nothing tested the notes' inline-only transport at its consumer | One pure rule, `sendsInline`, tested; the component pinned to it |
+| A folders failure blocked the files | Its own error; the files list at the top level |
+| `/Count 12 0 R`, zero or an absurd count read as a number | Unknown instead |
+| A PDF counted twice on its first preview | Once, however many reads ask |
+| "32 MB: … over 32 MB" at the boundary | Sizes round up |
+| The items block could be served from the AI file-id cache | Never cached |
+| The download size counted bodies already read | Leaves them out |
+
