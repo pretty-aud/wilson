@@ -128,6 +128,25 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(screen.getByText(`No ${p.nouns} yet`)).toBeTruthy()
   })
 
+  // VW1m (2026-10-16): a task counts under every level (or experience) it is
+  // about, not only its first: OUTSTANDING P1-26's tasks half, the fixtures'
+  // task 18 that names "Cliff Path" second. Where items are kept the screen
+  // reads them (ctx.tasks carries no link field there); each task's stale
+  // copy below is a CONTROL the old count read. The Assets count is VW1b's.
+  it('VW1m: the Tasks count reads every item — a task about two counts under both, and the stale copy is not read', () => {
+    const [first, second] = p.ids
+    const kind = p.link.replace(/_id$/, '')
+    const ti = (id, task, entity, position) => ({ id, task_id: task, entity_type: kind, entity_id: entity, position })
+    mount(p.View, {
+      taskItemsAvailable: true,
+      tasks: [{ id: 't1', [p.link]: first }, { id: 't2', [p.link]: first }],
+      taskItems: [ti('i1', 't1', first, 0), ti('i2', 't1', second, 1), ti('i3', 't2', second, 0)],
+    })
+    // t1 is about both; t2 only the second (its copy says the first).
+    expect(row(p.names[0]).children[4].textContent).toBe('1')
+    expect(row(p.names[1]).children[4].textContent).toBe('2')
+  })
+
   it('a row\'s status change calls its own update method with { status }', () => {
     const { ctx } = mount(p.View)
     p.names.forEach((name, i) => {

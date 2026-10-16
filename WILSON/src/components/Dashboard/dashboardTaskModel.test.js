@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   TASK_STATUSES, PRIORITIES,
   applyTaskFilters, applyTaskSort, groupTasks, buildGroupPatch,
-  myRoleOnTask, resolveGroupLabel,
+  myRoleOnTask, resolveGroupLabel, itemNamesOf, taskAssetIds,
 } from './dashboardTaskModel'
 
 const ME = 'user-me'
@@ -114,11 +114,21 @@ describe('groupTasks', () => {
     expect(groups.find(g => g.key === 'reviewing').tasks.map(t => t.id)).toEqual(['t2'])
   })
 
-  it('phase grouping reads the embedded asset phase', () => {
-    const tasks = [mk({ id: 't1' }), mk({ id: 't2', asset: { id: 'a2', name: 'B', phase_id: null } })]
-    const groups = groupTasks(tasks, 'phase', { phasesById: { ph1: { name: 'Previz' } } })
-    expect(groups.find(g => g.key === 'ph1').label).toBe('Previz')
-    expect(groups.find(g => g.key === '__none__').tasks.map(t => t.id)).toEqual(['t2'])
+  // VW1m (2026-10-16): a task's phase is its own. It used to be its first
+  // asset's (`t.asset.phase_id`), so a task with a phase and no asset read
+  // None, and one whose asset sat in another phase was filed there.
+  it('phase grouping reads the task\'s own phase, never an asset\'s', () => {
+    const tasks = [
+      mk({ id: 't1', phase_id: 'ph1' }),
+      mk({ id: 't2', phase_id: null }),
+      // CONTROL: the asset's phase (the old reading) says ph1; its own says ph2.
+      mk({ id: 't3', phase_id: 'ph2', asset: { id: 'a1', name: 'Asset', phase_id: 'ph1' } }),
+      mk({ id: 't4', phase_id: 'ph2', asset: undefined, items: [] }),
+    ]
+    const groups = groupTasks(tasks, 'phase', { phasesById: { ph1: { name: 'Previz' }, ph2: { name: 'Shoot' } } })
+    expect(groups.map(g => [g.label, g.tasks.map(t => t.id)])).toEqual([
+      ['Previz', ['t1']], ['Shoot', ['t3', 't4']], ['None', ['t2']],
+    ])
   })
 })
 
@@ -138,5 +148,49 @@ describe('resolveGroupLabel', () => {
   it('labels the sentinel per group mode', () => {
     expect(resolveGroupLabel('role', '__none__')).toBe('Other')
     expect(resolveGroupLabel('phase', '__none__')).toBe('None')
+  })
+})
+
+// VW1m (2026-10-16), Q-N6's interim ("Every asset, 'A, B'"): a row of
+// listMyTasks carries every item it can read as `items: [{ kind, id, name }]`;
+// the Asset column, the cards and the window name them all, A to Z. There is
+// no first asset any more: the old `asset` embed rode tasks.asset_id.
+describe('itemNamesOf: every item of a kind, by name A to Z', () => {
+  const row = mk({
+    asset: { id: 'a9', name: 'Old first asset', phase_id: 'ph1' },
+    items: [
+      { kind: 'asset', id: 'a2', name: 'Storm Lantern' },
+      { kind: 'scene', id: 's1', name: 'The cove' },
+      { kind: 'asset', id: 'a1', name: 'lighthouse Interior' },
+      { kind: 'shot', id: 'h10', name: 'Shot 10' },
+      { kind: 'shot', id: 'h2', name: 'Shot 2' },
+      { kind: 'asset', id: 'a3', name: '' },
+    ],
+  })
+  it('names every asset, case ignored, an unnamed one Untitled, joined with a comma', () => {
+    expect(itemNamesOf(row, 'asset')).toBe('lighthouse Interior, Storm Lantern, Untitled')
+    expect(itemNamesOf(row)).toBe('lighthouse Interior, Storm Lantern, Untitled')
+  })
+  it('each kind on its own, numbers read as numbers', () => {
+    expect(itemNamesOf(row, 'scene')).toBe('The cove')
+    expect(itemNamesOf(row, 'shot')).toBe('Shot 2, Shot 10')
+    expect(itemNamesOf(row, 'level')).toBe('')
+  })
+  it('CONTROL: the old embedded asset alone names nothing; a row with no items names nothing', () => {
+    expect(itemNamesOf(mk(), 'asset')).toBe('')
+    expect(itemNamesOf(mk({ items: null }), 'asset')).toBe('')
+    expect(itemNamesOf(null, 'asset')).toBe('')
+  })
+})
+
+describe('taskAssetIds: every asset the tasks are about (the live filter in useMyTasks)', () => {
+  it('reads the items of every task, assets only, never the old embed', () => {
+    const tasks = [
+      mk({ items: [{ kind: 'asset', id: 'a1', name: 'A' }, { kind: 'asset', id: 'a2', name: 'B' }, { kind: 'scene', id: 's1', name: 'S' }] }),
+      mk({ items: [{ kind: 'asset', id: 'a2', name: 'B' }] }),
+      mk({ asset: { id: 'a9', name: 'Old', phase_id: null } }),
+    ]
+    expect([...taskAssetIds(tasks)].sort()).toEqual(['a1', 'a2'])
+    expect(taskAssetIds(null).size).toBe(0)
   })
 })

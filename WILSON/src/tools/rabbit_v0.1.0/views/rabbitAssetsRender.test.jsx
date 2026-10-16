@@ -214,6 +214,38 @@ describe('ProjectAssetsView — the page on the kit', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
+  // VW1m (2026-10-16), her Q-M2 ("The tasks stay"): deleting an asset never
+  // deletes a task, and the question says so whenever an asset it asks about
+  // has one; an asset with no task has nothing to say.
+  it('VW1m: the bulk question says the tasks stay — "Their" for several, "Its" for one, nothing for assets with no task', () => {
+    page()
+    const ask = (...names) => {
+      for (const n of names) fireEvent.click(screen.getByRole('button', { name: `Select ${n}` }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      const text = screen.getByRole('dialog', { name: 'Delete assets' }).querySelector('.rb-asset-confirm').textContent
+      fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete assets' })).getByRole('button', { name: 'Cancel' }))
+      for (const n of names) fireEvent.click(screen.getByRole('button', { name: `Select ${n}` }))
+      return text
+    }
+    expect(ask('Mara', 'Festival DCP')).toBe('Delete 2 assets? Their tasks stay.')
+    expect(ask('Cliff Path')).toBe('Delete 1 asset? Its tasks stay.')
+    expect(ask('Festival DCP')).toBe('Delete 1 asset?')
+  })
+
+  it('VW1m: an asset counts as having tasks by every item, not a task\'s first (the copy is never read where items are kept)', () => {
+    page({
+      tasks: [{ id: 't1', status: 'in_progress', asset_id: 'a1' }],
+      taskItemsAvailable: true,
+      taskItems: [
+        { id: 'i1', task_id: 't1', entity_type: 'asset', entity_id: 'a1', position: 0 },
+        { id: 'i2', task_id: 't1', entity_type: 'asset', entity_id: 'a3', position: 1 },
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Select Festival DCP' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete assets' }).querySelector('.rb-asset-confirm').textContent).toBe('Delete 1 asset? Its tasks stay.')
+  })
+
   it('saving a view asks on the kit Dialog, and the view lands in the Views menu', () => {
     page()
     fireEvent.click(screen.getByRole('button', { name: 'Views' }))

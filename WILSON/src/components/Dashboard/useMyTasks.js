@@ -5,8 +5,8 @@
 // Cross-project "my tasks" state for the Dashboard. The RABBIT provider's
 // bundle only ever holds the OPEN project, so this hook owns its own task
 // list: one indexed adapter query (tasks where I'm assignee or reviewer,
-// with project/asset embeds for labels) plus the phase + roster lookups the
-// views and TaskDetailPopup need.
+// with the project embed and every item's name for labels, VW1m) plus the
+// phase + roster lookups the views and TaskDetailPopup need.
 //
 // Liveness rides the Session 8 workspace channel via
 // rabbit.subscribeWorkspaceEvents — relevant events debounce into a refetch
@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions/usePermissions'
+import { taskAssetIds } from './dashboardTaskModel'
 
 export function useMyTasks() {
   const rabbit = useRabbit()
@@ -88,11 +89,12 @@ export function useMyTasks() {
   useEffect(() => { loadRef.current = load }, [load])
   const userIdRef = useRef(userId)
   useEffect(() => { userIdRef.current = userId }, [userId])
-  // Asset + project id sets for the relevance filter below.
+  // Asset + project id sets for the relevance filter below. VW1m
+  // (2026-10-16): every asset a task is about (its items), not its first one.
   const myIdsRef = useRef({ assetIds: new Set(), projectIds: new Set() })
   useEffect(() => {
     myIdsRef.current = {
-      assetIds: new Set(tasks.map(t => t.asset_id).filter(Boolean)),
+      assetIds: taskAssetIds(tasks),
       projectIds: new Set(tasks.map(t => t.project_id).filter(Boolean)),
     }
   }, [tasks])
@@ -114,11 +116,13 @@ export function useMyTasks() {
       } else if (evt.table === 'projects') {
         relevant = true // rename/trash/restore changes labels or row visibility
       } else if (evt.table === 'assets') {
-        // Transitive-hide path (review finding C1): trashing/restoring an
-        // asset hides/reveals its tasks without touching any tasks row. A
-        // restore's asset id can't be matched (its tasks aren't in our list
-        // while hidden), so any deleted_at TRANSITION reloads; otherwise
-        // only assets hosting our tasks matter (name/phase label changes).
+        // VW1m (2026-10-16, 0097): trashing an asset no longer hides its
+        // tasks (review finding C1's transitive hide is gone); it hides the
+        // asset from its tasks' items (her Q-N4) and a restore brings it
+        // back, without touching any tasks row. A restored asset's id can't
+        // be matched (it was not among our items while in the trash), so any
+        // deleted_at TRANSITION reloads; otherwise only the assets our tasks
+        // are about matter (a name change).
         const deletedChanged =
           (evt.record?.deleted_at ?? null) !== (evt.oldRecord?.deleted_at ?? null)
         const id = evt.record?.id ?? evt.oldRecord?.id

@@ -25,6 +25,17 @@
 // • Fitts's Law — larger touch targets, prominent primary actions
 // • Law of Prägnanz — clean shapes, minimal decoration
 // • Law of Similarity — consistent card/row treatment across views
+//
+// VW1m (2026-10-16, Audrey: "lets not have main asset be a thing. thats not
+// needed and i dont like"): a task's items are its items. Grouped by asset,
+// scene, shot, level or experience, a task sits in the group of its
+// COMBINATION (her Q-D: "there should be a group called Asset A, Asset B,
+// Asset C"), the Law of Common Region: a group is the region of the tasks
+// that share exactly those items. A drop makes the group's items the task's
+// (Q-D1), with the shell's undo toast (Ctrl+Z is not bound on this tab).
+// *Asset is X* means the task has X; the Asset cell names every asset and
+// opens the task's window (Q-N5's interim, until VW1b's picker). Every
+// reading goes through the model's one path, buildItemLookup.
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import {
@@ -59,6 +70,7 @@ import {
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
+import { KIND_FIELD, NO_KIND_LABEL, buildItemLookup, isItemKind } from '../state/taskItemsModel'
 import './rabbitTasks.css'
 
 // ── Constants ──
@@ -69,6 +81,10 @@ const TASK_STATUSES = [
 
 const PRIORITIES = ['low','medium','high','urgent']
 
+// VW1m (2026-10-16): grouping by Asset makes one group per combination of a
+// task's assets (her Q-D). Scene, Shot, Level and Experience join this list
+// with their columns (her Q11; VW1b): the grouping code already takes any
+// item kind.
 const GROUPABLE_FIELDS = [
   { value: '',        label: 'No grouping' },
   { value: 'status',  label: 'Status' },
@@ -77,6 +93,90 @@ const GROUPABLE_FIELDS = [
   { value: 'priority',label: 'Priority' },
   { value: 'assignee',label: 'Assignee' },
 ]
+
+// A combination group's names A to Z, numbers read as numbers ("Shot 2"
+// before "Shot 10"), case ignored: the order item 2 of VW1m's hand-off gives
+// the labels themselves.
+const LABEL_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * VW1m (2026-10-16), her Q-D: the groups of the tasks grouped by an item
+ * kind, one per COMBINATION (the set of a task's live items of that kind), so
+ * a task is in exactly one group and the groups' counts add up to the tasks.
+ * Ordered as today: the single items in the project's own order (`rows`),
+ * then the combinations (and a single item `rows` does not hold, a scene
+ * outside the active shot list) by name A to Z, then "No asset" (or "No
+ * scene", …) last. `everySingle` is the Board's (her Q-I: "the Board shows
+ * every column"): a column for every single item even when empty, and its
+ * "No …" column always, as it had before. Each group carries its `ids`: a
+ * drop or a new task there takes exactly those.
+ */
+function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false) {
+  const byKey = new Map()
+  for (const t of tasks) {
+    const c = lookup.combinationOf(t, kind)
+    const key = c.key === '' ? '__none__' : c.key
+    if (!byKey.has(key)) byKey.set(key, { key, ids: c.ids, label: c.label || NO_KIND_LABEL[kind], tasks: [] })
+    byKey.get(key).tasks.push(t)
+  }
+  const out = []
+  const placed = new Set()
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || r.id == null || !lookup.isLive(kind, r.id)) continue
+    const key = String(r.id)
+    if (placed.has(key)) continue
+    const g = byKey.get(key)
+    if (!g && !everySingle) continue
+    out.push(g || { key, ids: [r.id], label: lookup.nameOf(kind, r.id), tasks: [] })
+    placed.add(key)
+  }
+  const rest = [...byKey.values()].filter(g => g.key !== '__none__' && !placed.has(g.key))
+  rest.sort((a, b) => LABEL_ORDER.compare(a.label, b.label) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  out.push(...rest)
+  if (byKey.has('__none__')) out.push(byKey.get('__none__'))
+  else if (everySingle) out.push({ key: '__none__', ids: [], label: NO_KIND_LABEL[kind], tasks: [] })
+  return out
+}
+
+/**
+ * A task's live items of a kind by name, in the display order, joined with
+ * ', ' ('' for none): the Asset cell's words and a Board card's.
+ */
+function itemNamesOf(lookup, task, kind) {
+  return lookup.idsOf(task, kind).map(id => lookup.nameOf(kind, id)).join(', ')
+}
+
+/**
+ * VW1m (2026-10-16), her Q-D1: a task dropped on a combination group takes
+ * exactly that group's items of the kind ("No …": none), one undoable write
+ * (ctx.setTaskItemsOfKind). Ctrl+Z is not bound on this tab, so the step
+ * goes through the shell's undo toast (ctx.runWithUndoToast), whose words
+ * are also the polite live region's sentence (the kit toast stack). A drop
+ * on the group the task is already in writes nothing.
+ */
+function dropOnItemGroup(ctx, taskId, kind, group) {
+  if (!ctx?.setTaskItemsOfKind || group.tasks.some(t => t.id === taskId)) return
+  const task = (ctx.tasks || []).find(t => t.id === taskId)
+  const step = ctx.runWithUndoToast || ((run) => run())
+  // The provider records the error in its state; the toast is the way back.
+  Promise.resolve(step(
+    () => ctx.setTaskItemsOfKind(taskId, kind, group.ids),
+    `Moved "${task?.title || 'Untitled task'}" to ${group.label}`,
+  )).catch(() => {})
+}
+
+/**
+ * The seed a new task made from a group takes. Grouped by an item kind, the
+ * group's items: one asset as the popup's own Asset choice (as today), any
+ * other group's items carried as they are (NewTaskPopup shows them read-only
+ * and passes them as `items`).
+ */
+function itemGroupDefaults(kind, group) {
+  const ids = group.ids || []
+  if (ids.length === 0) return {}
+  if (kind === 'asset' && ids.length === 1) return { asset_id: ids[0] }
+  return { items: { [kind]: ids } }
+}
 
 const SORTABLE_FIELDS = [
   { value: 'title',      label: 'Title' },
@@ -162,9 +262,25 @@ export default function ProjectTasksView() {
   const teamAssignments = ctx?.teamAssignments || []
 
   // Lookups
-  const assetById = useMemo(() => {
-    const m = {}; for (const a of assets) m[a.id] = a; return m
-  }, [assets])
+  // VW1m (2026-10-16): a task's items, read one way (the model's
+  // buildItemLookup): its LIVE items only (a row in the trash, or not
+  // loaded, is hidden, her Q-N4), each kind in the display order. Where the
+  // backend keeps no items the task's own field is its one item.
+  const itemLookup = useMemo(() => buildItemLookup({
+    items: ctx?.taskItems,
+    available: ctx?.taskItemsAvailable === true,
+    assets,
+    scenes: ctx?.allScenes || ctx?.scenes,
+    shots: ctx?.allShots || ctx?.shots,
+    levels: ctx?.levels,
+    experiences: ctx?.experiences,
+  }), [ctx?.taskItems, ctx?.taskItemsAvailable, assets, ctx?.allScenes, ctx?.scenes, ctx?.allShots, ctx?.shots, ctx?.levels, ctx?.experiences])
+  // The single items of each kind in the project's own order: a grouping's
+  // first groups (the active shot list's scenes and shots, as every tab but
+  // Scenes shows them).
+  const kindRows = useMemo(() => ({
+    asset: assets, scene: ctx?.scenes, shot: ctx?.shots, level: ctx?.levels, experience: ctx?.experiences,
+  }), [assets, ctx?.scenes, ctx?.shots, ctx?.levels, ctx?.experiences])
 
   const phaseById = useMemo(() => {
     const m = {}; for (const p of phases) m[p.id] = p; return m
@@ -210,7 +326,8 @@ export default function ProjectTasksView() {
   // Task detail popup
   const [detailTaskId, setDetailTaskId] = useState(null)
   // Session 23: null = closed. An object = the popup is open, seeded with the
-  // defaults its trigger passed (group add-rows supply phase_id/asset_id/etc).
+  // defaults its trigger passed (group add-rows supply phase_id, the group's
+  // items, etc.).
   // Nothing is written until Confirm & Create.
   const [newTaskDraft, setNewTaskDraft] = useState(null)
 
@@ -273,6 +390,22 @@ export default function ProjectTasksView() {
     // Complex filters
     for (const f of filters) {
       if (!f.field) continue
+      // VW1m (2026-10-16): *Asset is X* means the task has X among its live
+      // assets, *is not X* that none of them is X, *is empty* that it has
+      // none. A filter saved in this browser takes the new meaning.
+      if (f.field === 'asset_id') {
+        result = result.filter(t => {
+          const ids = itemLookup.idsOf(t, 'asset').map(String)
+          switch (f.op) {
+            case 'is':           return ids.includes(String(f.value))
+            case 'is_not':       return !ids.includes(String(f.value))
+            case 'is_empty':     return ids.length === 0
+            case 'is_not_empty': return ids.length > 0
+            default: return true
+          }
+        })
+        continue
+      }
       result = result.filter(t => {
         const val = t[f.field]
         switch (f.op) {
@@ -287,7 +420,7 @@ export default function ProjectTasksView() {
       })
     }
     return result
-  }, [search, filters])
+  }, [search, filters, itemLookup])
 
   // ── Sorting ──
   const applySort = useCallback((taskList) => {
@@ -352,11 +485,13 @@ export default function ProjectTasksView() {
   const groups = useMemo(() => {
     const g = groupBy
     if (!g) return null
+    // VW1m: an item kind groups by combination (itemGroupsOf), never by a
+    // task's first item.
+    if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g])
     const map = {}
     for (const t of processed) {
       let key
       if (g === 'status')   key = t.status || 'waiting_to_start'
-      else if (g === 'asset')    key = t.asset_id || '__none__'
       else if (g === 'phase')    key = t.phase_id || '__none__'
       else if (g === 'priority') key = t.priority || 'medium'
       else if (g === 'assignee') key = t.assignee_id || '__none__'
@@ -388,9 +523,6 @@ export default function ProjectTasksView() {
       }
       orderedKeys = phaseOrder
       if (map.__none__) orderedKeys.push('__none__')
-    } else if (g === 'asset') {
-      orderedKeys = assets.map(a => a.id).filter(id => map[id])
-      if (map.__none__) orderedKeys.push('__none__')
     } else if (g === 'assignee') {
       orderedKeys = projectMembers.map(m => m.id).filter(id => map[id])
       if (map.__none__) orderedKeys.push('__none__')
@@ -404,16 +536,18 @@ export default function ProjectTasksView() {
       label: resolveGroupLabel(g, key),
       tasks: map[key] || [],
     }))
-  }, [processed, groupBy, phases, assets, projectMembers, phaseById, assetById, memberById, sortField, sortDir])
+  }, [processed, groupBy, phases, projectMembers, phaseById, memberById, sortField, sortDir, itemLookup, kindRows])
 
   // Kanban groups
   const kanbanGroups = useMemo(() => {
     const g = kanbanGroup
+    // VW1m: a column per single item even when empty (her Q-I), a column per
+    // combination that holds tasks, and "No …".
+    if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g], true)
     const map = {}
     for (const t of processed) {
       let key
       if (g === 'status')   key = t.status || 'waiting_to_start'
-      else if (g === 'asset')    key = t.asset_id || '__none__'
       else if (g === 'phase')    key = t.phase_id || '__none__'
       else if (g === 'priority') key = t.priority || 'medium'
       else if (g === 'assignee') key = t.assignee_id || '__none__'
@@ -427,9 +561,6 @@ export default function ProjectTasksView() {
     else if (g === 'phase') {
       orderedKeys = phases.map(p => p.id)
       orderedKeys.push('__none__')
-    } else if (g === 'asset') {
-      orderedKeys = assets.map(a => a.id)
-      orderedKeys.push('__none__')
     } else if (g === 'assignee') {
       orderedKeys = projectMembers.map(m => m.id)
       orderedKeys.push('__none__')
@@ -441,11 +572,10 @@ export default function ProjectTasksView() {
       label: resolveGroupLabel(g, key),
       tasks: map[key] || [],
     }))
-  }, [processed, kanbanGroup, phases, assets, projectMembers, phaseById, assetById, memberById])
+  }, [processed, kanbanGroup, phases, projectMembers, phaseById, memberById, itemLookup, kindRows])
 
   function resolveGroupLabel(field, key) {
     if (key === '__none__') return 'Unassigned'
-    if (field === 'asset')    return assetById[key]?.name || key
     if (field === 'phase')    return phaseById[key]?.name || key
     if (field === 'assignee') return memberById[key]?.name || key
     return optionLabel(field, key)
@@ -460,9 +590,9 @@ export default function ProjectTasksView() {
   //
   // Every add affordance routes through here — the toolbar, the table
   // add-rows, the per-group rows and both kanban adds — so the group defaults
-  // those triggers pass (phase_id when grouped by phase, asset_id when grouped
-  // by asset, and so on) become the popup's seed values rather than being
-  // written blind.
+  // those triggers pass (phase_id when grouped by phase, the group's items
+  // when grouped by an item kind, and so on) become the popup's seed values
+  // rather than being written blind.
   function handleAddTask(defaults = {}) {
     if (!ctx?.addTask) return
     setNewTaskDraft(defaults || {})
@@ -730,12 +860,10 @@ export default function ProjectTasksView() {
             hasAnyTask={tasks.length > 0}
             groups={groups}
             groupBy={groupBy}
-            assets={assets}
+            itemLookup={itemLookup}
             phases={phases}
             members={projectMembers}
-            assetById={assetById}
             phaseById={phaseById}
-            memberById={memberById}
             collapsedGroups={collapsedGroups}
             toggleGroup={toggleGroup}
             ctx={ctx}
@@ -751,11 +879,7 @@ export default function ProjectTasksView() {
           <KanbanBoard
             groups={kanbanGroups}
             kanbanGroup={kanbanGroup}
-            assets={assets}
-            phases={phases}
-            members={projectMembers}
-            assetById={assetById}
-            phaseById={phaseById}
+            itemLookup={itemLookup}
             memberById={memberById}
             ctx={ctx}
             canWrite={canWrite}
@@ -817,6 +941,7 @@ export default function ProjectTasksView() {
           defaults={newTaskDraft}
           phases={phases}
           assets={assets}
+          itemLookup={itemLookup}
           members={projectMembers}
           onCreated={() => setNewTaskDraft(null)}
           onClose={() => setNewTaskDraft(null)}
@@ -991,7 +1116,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // Electron's 1024px floor, a scrollbar of up to 18px allowed for at 1280)
 // rather than wrapping a date mid-token (V1-06) or starving the title. A row's buttons sit in the title cell, right after its
 // words (FX8, the kit's RowTitle): there is no actions column.
-function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
+function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title' },
     { key: 'status',      label: 'Status',   width: 'var(--rb-task-col-status)' },
@@ -1071,7 +1196,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
   }
 
   const rowProps = {
-    columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite,
+    columns, itemLookup, phases, members, ctx, canWrite,
   }
   const taskRow = (t, drop) => (
     <TaskRow key={t.id} task={t} {...rowProps} drop={drop}
@@ -1243,10 +1368,14 @@ function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
 }
 
 // ── Drag helpers ──
+// VW1m (2026-10-16): grouped by an item kind, a drop where the backend keeps
+// items is dropOnItemGroup's; where it keeps none (a cloud before 0096) a
+// task has at most one item of a kind, its own field, and a group is one item
+// or none, so the drop writes that field as it always did.
 function buildGroupPatch(groupBy, targetKey) {
   const val = targetKey === '__none__' ? null : targetKey
   if (groupBy === 'status')   return { status: val || 'waiting_to_start' }
-  if (groupBy === 'asset')    return { asset_id: val }
+  if (isItemKind(groupBy))    return { [KIND_FIELD[groupBy]]: val }
   if (groupBy === 'phase')    return { phase_id: val }
   if (groupBy === 'priority') return { priority: val || 'medium' }
   if (groupBy === 'assignee') return { assignee_id: val }
@@ -1264,9 +1393,9 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
   const dragCountRef = useRef(0)
 
   function groupDefaults() {
+    if (isItemKind(groupBy)) return itemGroupDefaults(groupBy, group)
     const d = {}
     if (groupBy === 'status')   d.status      = group.key
-    if (groupBy === 'asset')    d.asset_id    = group.key === '__none__' ? undefined : group.key
     if (groupBy === 'phase')    d.phase_id    = group.key === '__none__' ? undefined : group.key
     if (groupBy === 'priority') d.priority    = group.key
     if (groupBy === 'assignee') d.assignee_id = group.key === '__none__' ? undefined : group.key
@@ -1284,6 +1413,11 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
     // Session 29 — dropping a task on another group commits a real update.
     // The card's own draggable is gated below; this catches the drop itself.
     if (!canWrite) return
+    // VW1m: the group's items become the task's (her Q-D1).
+    if (taskId && isItemKind(groupBy) && ctx?.taskItemsAvailable === true) {
+      dropOnItemGroup(ctx, taskId, groupBy, group)
+      return
+    }
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(groupBy, group.key)
     // Phase 7: a drop into a done-status group warns first, then lands.
@@ -1600,7 +1734,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 }
 
 // ── Single task row ──
-function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
+function TaskRow({ task, columns, itemLookup, phases, members, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
   const guard = useDependencyStatusGuard(ctx)
   const removal = useRemovalAsk(ctx)
   const writeReason = useWriteReason()
@@ -1682,19 +1816,24 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
             </select>
           </span>
         )
-      case 'asset_id':
+      case 'asset_id': {
+        // VW1m (2026-10-16), Q-N5's interim (until VW1b's picker): every live
+        // asset by name, cut short by the cell, the whole list its title and
+        // its accessible name. One asset choice here would replace the
+        // others, so the cell is no select: it opens the task's window, as
+        // the row's Open does, where the Items table adds and removes them.
+        // Opening is a read, so a seat that may not write keeps it.
+        const names = itemNamesOf(itemLookup, task, 'asset')
         return (
-          <span className="rb-task-cell-editor">
-            <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-              disabled={!canWrite}
-              aria-label="Asset"
-              className="rb-task-cell-select"
-              data-empty={task.asset_id ? 'false' : 'true'}>
-              <option value="">—</option>
-              {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
-            </select>
-          </span>
+          <button type="button" onClick={onDetailClick}
+            className="rb-task-cell-text"
+            data-empty={names ? 'false' : 'true'}
+            title={names || NO_KIND_LABEL.asset}
+            aria-label={names || NO_KIND_LABEL.asset}>
+            {names || '—'}
+          </button>
         )
+      }
       case 'phase_id':
         return (
           <span className="rb-task-cell-editor">
@@ -1800,20 +1939,19 @@ function AddRow({ span, canWrite, onAdd, drop }) {
 // • Prägnanz — clean cards, no excess decoration
 // • Fitts's Law — generous add-task targets, large enough card touch areas
 //
-function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
+function KanbanBoard({ groups, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   return (
     <div className="rb-task-board">
       {groups.map(g => (
         <KanbanColumn key={g.key} group={g} kanbanGroup={kanbanGroup}
-          assets={assets} phases={phases} members={members}
-          assetById={assetById} phaseById={phaseById} memberById={memberById}
+          itemLookup={itemLookup} memberById={memberById}
           ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} />
       ))}
     </div>
   )
 }
 
-function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
+function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   const [addTitle, setAddTitle] = useState('')
   const guard = useDependencyStatusGuard(ctx)
   const [dragOver, setDragOver] = useState(false)
@@ -1821,9 +1959,9 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
   const dragCountRef = useRef(0)
 
   function groupDefaults() {
+    if (isItemKind(kanbanGroup)) return itemGroupDefaults(kanbanGroup, group)
     const d = {}
     if (kanbanGroup === 'status')   d.status      = group.key
-    if (kanbanGroup === 'asset')    d.asset_id    = group.key === '__none__' ? undefined : group.key
     if (kanbanGroup === 'phase')    d.phase_id    = group.key === '__none__' ? undefined : group.key
     if (kanbanGroup === 'priority') d.priority    = group.key
     if (kanbanGroup === 'assignee') d.assignee_id = group.key === '__none__' ? undefined : group.key
@@ -1848,6 +1986,11 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
     // Session 29 — dropping a task on another group commits a real update.
     // The card's own draggable is gated below; this catches the drop itself.
     if (!canWrite) return
+    // VW1m: the column's items become the card's (her Q-D1).
+    if (taskId && isItemKind(kanbanGroup) && ctx?.taskItemsAvailable === true) {
+      dropOnItemGroup(ctx, taskId, kanbanGroup, group)
+      return
+    }
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(kanbanGroup, group.key)
     // Phase 7: a card dropped into a done-status column warns first, then lands.
@@ -1876,7 +2019,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
       <div className="rb-task-col-list">
         {group.tasks.map(t => (
           <KanbanCard key={t.id} task={t}
-            assetById={assetById} phaseById={phaseById} memberById={memberById}
+            itemLookup={itemLookup} memberById={memberById}
             ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)} />
         ))}
 
@@ -1900,10 +2043,12 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
   )
 }
 
-function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onDetailClick }) {
+function KanbanCard({ task, itemLookup, memberById, ctx, canWrite, onDetailClick }) {
   const removal = useRemovalAsk(ctx)
   const assignee = task.assignee_id ? memberById[task.assignee_id] : null
-  const asset    = task.asset_id    ? assetById[task.asset_id]     : null
+  // VW1m (2026-10-16): every live asset by name, cut short by the card, the
+  // whole list on hover (it was the first asset only).
+  const assetNames = itemNamesOf(itemLookup, task, 'asset')
   const status   = task.status   || 'waiting_to_start'
   const priority = task.priority || 'medium'
 
@@ -1944,10 +2089,10 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
       </div>
 
       {/* Asset + Assignee */}
-      {(asset || assignee) && (
+      {(assetNames || assignee) && (
         <div className="rb-task-card-people">
-          {asset ? (
-            <span className="rb-task-card-asset">{asset.name}</span>
+          {assetNames ? (
+            <span className="rb-task-card-asset" title={assetNames}>{assetNames}</span>
           ) : <span />}
           {assignee ? (
             <span className="rb-task-card-assignee">{assignee.name}</span>

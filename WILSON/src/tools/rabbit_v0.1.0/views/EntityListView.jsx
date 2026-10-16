@@ -28,15 +28,16 @@
 //
 // ── The `entity` config ──
 //   type           entityType for RelationsPanel, NewTaskSidePopup and the
-//                  thumbnail IPC ('level' | 'experience')
+//                  thumbnail IPC ('level' | 'experience'); the item kind
+//                  the Tasks count reads (VW1m)
 //   noun, nouns, Noun
 //                  the words: "New level", "No levels yet", "Level name",
 //                  the default name "Level 3"
 //   Icon           the lucide glyph (Gamepad2 | Sparkles)
 //   collection     the ctx list, and the thumbnail route's segment
 //                  ('levels': ctx.levels, /projects/:id/levels/:id/thumbnail)
-//   linkKey        an asset's / task's link to a row ('level_id'): the two
-//                  counts, and the key ctx.addTask links a new task by
+//   linkKey        an asset's / task's link to a row ('level_id'): the
+//                  Assets count, and the key ctx.addTask links a new task by
 //   addMethod, updateMethod, deleteMethod
 //                  the ctx writers ('addLevel', 'updateLevel', 'deleteLevel')
 //   savedViewsKey  the saved views' localStorage key
@@ -78,6 +79,7 @@ import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 // (addFilesToEntity), which nothing did before.
 import FileManager from '../components/FileManager'
 import { addFilesToEntity } from '../components/entityFiles'
+import { taskCountsByEntity } from '../state/taskItemsModel'
 
 // ── Status config ──
 const STATUSES = [
@@ -210,15 +212,14 @@ export default function EntityListView({ entity }) {
     return map
   }, [assets, entity.linkKey])
 
-  const taskCountById = useMemo(() => {
-    const map = {}
-    for (const t of tasks) {
-      const id = t[entity.linkKey]
-      if (!id) continue
-      map[id] = (map[id] || 0) + 1
-    }
-    return map
-  }, [tasks, entity.linkKey])
+  // VW1m (2026-10-16): a task counts under every level (or experience) it is
+  // about, not only its first (OUTSTANDING P1-26, the tasks half): the
+  // model's count, the one the Assets table and the windows' Tasks (n) read.
+  // Where the backend keeps no items, the task's own field, as before.
+  const taskCountById = useMemo(
+    () => taskCountsByEntity(tasks, ctx?.taskItems, entity.type, ctx?.taskItemsAvailable === true),
+    [tasks, ctx?.taskItems, ctx?.taskItemsAvailable, entity.type],
+  )
 
   // ── CRUD handlers ──
   const handleDelete = useCallback(async (id) => {

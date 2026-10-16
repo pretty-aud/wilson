@@ -982,12 +982,22 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
           )}
         >
           <p className="rb-asset-confirm">
-            {`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?`}
+            {`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?${tasksStayWords(selected, taskCountByAsset)}`}
           </p>
         </Dialog>
       )}
     </div>
   )
+}
+
+// VW1m (2026-10-16), her Q-M2 ("The tasks stay"): deleting an asset never
+// deletes a task, it only comes off them, and the question says so when any
+// asset asked about has a task ("Its tasks stay." for one asset, "Their
+// tasks stay." for several). An asset with no task has nothing to say.
+function tasksStayWords(ids, taskCountByAsset) {
+  const list = [...ids]
+  if (!list.some(id => (taskCountByAsset?.[id] || 0) > 0)) return ''
+  return list.length === 1 ? ' Its tasks stay.' : ' Their tasks stay.'
 }
 
 // ── A group's header, in the table and the gallery alike ──
