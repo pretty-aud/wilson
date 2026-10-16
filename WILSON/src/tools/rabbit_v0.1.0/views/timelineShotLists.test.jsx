@@ -345,6 +345,11 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
         { id: 'i3', shot_list_id: 'L2', scene_id: 'B' }, { id: 'i4', shot_list_id: 'L2', shot_id: 'b1' },
       ],
       project: { id: 'p1', scenes_enabled: true, active_shot_list_id: 'L1' },
+      // VW1m (2026-10-16): the Timeline reads a task's items through the
+      // model's lookup over every row the project shows (the provider's
+      // allScenes / allShots), so a scene outside the active list is still
+      // the task's, and named.
+      allScenes: [sceneA, sceneB],
       allShots: [a1, b1],
     })
     mount(true)
@@ -353,7 +358,8 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     expect(labels).toContain('No scene in the active list')
     expect(labels).not.toContain('Lighthouse')
     const row = [...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === 'Light B')?.parentElement
-    expect(row?.getAttribute('title')).toBe('Scene “Lighthouse”: in Pickups · v1, not in the active list\nClick to edit · drag to move to another phase')
+    // VW1m: a drop on another row of any grouping but team's moves it there.
+    expect(row?.getAttribute('title')).toBe('Scene “Lighthouse”: in Pickups · v1, not in the active list\nClick to edit · drag to move to another row')
   })
   it('no active list: no label', () => {
     rabbit.current = ctxFor({ activeShotList: null })
