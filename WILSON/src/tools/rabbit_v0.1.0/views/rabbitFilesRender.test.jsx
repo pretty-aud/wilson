@@ -216,10 +216,10 @@ describe('ProjectsPage — an upload goes to the file store (Track C / C3), neve
     // D.O.G. still reads a LEGACY row's size by `size` (B4c review round
     // one): those arrays are read, never written, since C3. A STORED row's
     // size is `size_bytes`, which the local route records from the body.
-    const dog = read('../../deck-outline-generator_v0.514/DeckOutlineGenerator.jsx')
-    expect(dog).toMatch(/size: doc\.size \|\| 0/)
-    expect(dog).toMatch(/size: asset\.size \|\| 0/)
-    expect(dog).toMatch(/const size = row\.size_bytes \?\? 0;/)
+    // DG1: the readers moved to D.O.G.'s reference model, unchanged.
+    const dog = read('../../deck-outline-generator_v0.514/references/referenceModel.js')
+    expect(dog).toMatch(/size: f\.size \|\| 0,/)
+    expect(dog).toMatch(/size: row\.size_bytes \?\? 0,/)
 
     const stored = []
     const adapter = {

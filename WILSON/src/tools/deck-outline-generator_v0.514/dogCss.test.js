@@ -78,7 +78,8 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
   })
   it('the words are written in sentence case, on the screen and to a screen reader alike', () => {
     const src = read('./DeckOutlineGenerator.jsx')
-    for (const w of ['Theme generator', 'Use uploaded assets', 'Use project assets']) {
+    // DG1: "Use uploaded assets" reads "Use visual assets" (Audrey's brief).
+    for (const w of ['Theme generator', 'Use visual assets', 'Use project assets']) {
       expect(src).toContain(`aria-label="${w}"`)
       expect(src).toContain(`<span className="dog-check-label">${w}</span>`)
     }
@@ -94,11 +95,12 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
     const OLD = /"(Theme Generator|Use Uploaded Assets|Use Project Assets|Generate Image Prompts|Full Deck)"/
     expect(help).not.toMatch(OLD)
     expect(page).not.toMatch(OLD)
-    for (const q of ['"Theme generator"', '"Use uploaded assets"', '"Use project assets"', '"Generate image prompts"', '"Full deck"']) expect(help, q).toContain(q)
+    for (const q of ['"Theme generator"', '"Use visual assets"', '"Use project assets"', '"Generate image prompts"', '"Full deck"', '"Single page"']) expect(help, q).toContain(q)
+    expect(help).not.toMatch(/Use uploaded assets/)
     // CONTROL: the export dialog's own label is the one Help quotes, and so
     // is the mode Switch's.
     expect(read('./modals/HistoryModal.jsx')).toContain("'Generate image prompts'")
-    expect(read('./DeckOutlineGenerator.jsx')).toContain('label="Full deck"')
+    expect(read('./DeckOutlineGenerator.jsx')).toContain('aria-label="Full deck"')
     expect('Toggle "Full Deck" to generate').toMatch(OLD)
   })
 })

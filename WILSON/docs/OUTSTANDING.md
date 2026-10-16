@@ -1836,6 +1836,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul VW1m (2026-10-16; `po/vw1m-no-main-item` into `feat/post-overhaul-edit-versioning`) — no main item (Audrey: "lets not have main asset be a thing. thats not needed and i dont like."): every place a task's main item was read measured first (289), her batch 14 answered (batches 15-16 to interim choices), migration 0097 and suite 100 on wilson-dev (deleting an asset never deletes a task; an older app's single write adds), the Timeline's combination rows, the Budget's even split, the task window's Sort and Files per item, the Tasks table and Board by combination, the Dashboard, bid versions keeping every item; walkthrough 74; two review rounds | **one entry under Broken features:** *the Dashboard shows a task's assets as of its last load* (INFERRED); dated notes on *the desktop's browser storage* (the Items sort is kept there too), *grouping Tasks by Phase or Assignee* (its Asset half fixed) and P1-26 (its Tasks half fixed) | **two:** *on the desktop, a deleted asset's tasks come back when the project is read again* (no backend deletes or hides a task with its asset now: 0097, the provider, the live merge) and **S5b-07** (*an asset whose task is set aside cannot be deleted*: the refusal went with its reason). Comment markers: 4 → 4. |
+| Post-overhaul DG1 (2026-10-16; `po/dg1-dog-references` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s references (Audrey: "a robust way to choose ... items in the rabbit tool ... files or personal notes"; "lets make the Full Deck and Single Page interfaces one"): research, her answers (batches 1 to 4 verbatim; 5 and 6 left for tomorrow at her request, built on the recommended picks), the design reviewed twice, the build reviewed twice. | DG1-01 (the cloud lists a project's first 1,000 files only), DG1-02 (on the Local Server an item's own files are not linked to it), DG1-03 (the AI's file store keeps what D.O.G. sends) | — |
 | Post-overhaul FX11 (2026-10-16; `po/fx11-connection-dot` into `feat/post-overhaul-edit-versioning`) — one connection dot in the bottom-left corner of every R.A.B.B.I.T. tab, just above the orange bar (Audrey: "this green dot should clarify that the system is connected to the storage solution not just the databases on supabase"): green when the database AND where the files are kept answer (a real, bounded, abortable probe of each: Petal cloud's bucket, a company bucket through storage-presign, the desktop's new `GET /api/rabbit/connection` for the Local Server and a NAS), amber when only the database does, red offline, a diamond and a square besides the colour, the words on hover and on a press (a toggletip), a change announced once; the project bar keeps the name and status left and the faces then Switch right (no LIVE, no adapter dot); the Dashboard's Live badge gone; the Bins counter 24px up (walkthrough 73); two review rounds on Opus, every finding fixed | **nothing.** Every finding of the two rounds was fixed in the session; the trade the corner makes (its cell sits over the left of a list's very bottom row) is the walkthrough's known limit, by her placement, not a fault | nothing |
 | Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
 | Post-overhaul FX10 (2026-10-13; `po/fx10-date-fields` into `feat/post-overhaul-edit-versioning`) — the date fields (Audrey: "the calendar icon is covering the dates when it has all the space to space them out"): every date and the empty `mm / dd / yyyy` whole, the calendar icon clear and spaced, in the desktop app and in Firefox (her screenshot's), by one kit rule — a date field's floor, the date's room plus its own padding (FX10-KR-1) — with the Tasks, Assets and Shots date columns widened and four windows' rows reshaped; display only, no migration; walkthrough 71; two review rounds | **three entries under Broken features:** *under a minimum font size the tables' dates are cut again* (MEASURED, round 1's R1-07: FX10's floor and the tables' columns are px); *the project control panel's 24 fields have no accessible name* (MEASURED; older than FX10; round 1's R1-12 named the dates); *in the smallest desktop window, an open task form leaves a shot's take notes no room* (MEASURED by the measuring script's neighbours pass; older than FX10). Round 2's R2-03, the desktop app's table dates losing the keyboard's focus at their calendar glyph (older than FX10), was fixed, not entered | nothing. Comment markers: 4 → 4. |
@@ -3355,3 +3356,37 @@ S4b-11 are untouched and still hers.
   history, with names and notes in the diff. Would settle it: read
   `edit_history` for a private project's task as a workspace manager who
   did not create it. Owner: a session on private projects.
+
+## Post-overhaul DG1 (`po/dg1-dog-references`) — left open (2026-10-16)
+
+- **DG1-01 · The cloud lists a project's first 1,000 files, and D.O.G.'s quick
+  choices inherit the cut.** PRE-EXISTING (the Files tab reads the same way).
+  `supabaseAdapter.listFiles` is `select('*').eq('project_id', …)` with no
+  paging, and PostgREST answers 1,000 rows by default (the codebase pages
+  folders and bins for exactly this). Past 1,000 files in one project, D.O.G.'s
+  *All Core files*, a folder's tick and the rail's count reach only the first
+  thousand, silently. Would settle it: a project with 1,001 files, *All Core
+  files* with the last one Core. Fix: read through `readAllPages` as
+  `listFoldersWith` does (one shared read; the Files tab gains it too).
+  Owner: a files session.
+- **DG1-02 · On the Local Server, a scene's, shot's, level's or experience's own
+  files are not linked to it.** PRE-EXISTING (stated in `deckAttachments.js`):
+  the Express upload route writes `phase_id`, `asset_id` and `task_id` and
+  drops `scene_id`, `shot_id`, `level_id` and `experience_id`, and the entity
+  file managers write the managed store, which `listFiles` never returns. So
+  D.O.G.'s *Add references* shows no files under such an item on the desktop
+  (it says so, and the files table's files are under Files). Fix: teach the
+  route the four columns, and list the managed store (with a download route)
+  for references. Owner: Track B (the desktop server).
+- **DG1-03 · The AI's file store keeps every PDF and picture D.O.G. sends, and
+  nothing deletes them.** PRE-EXISTING (S19's `ai-files`, the 546 fix): a PDF or
+  picture (an upload or, since DG1, a chosen reference) and any text source over
+  256 KB go to the AI provider's Files API under the one organisation key and are
+  referenced by id; `src/cloud/aiFiles.js` has no delete and `ai-files` relays
+  uploads only. DG1 keeps the chosen notes out of it (they always travel in the
+  request) and says so in the References card's hover, but pre-release material
+  chosen as a reference now joins the uploads there. Would settle it: list the
+  key's stored files after a deck is made. Fix: a DELETE route in `ai-files`
+  and a sweep when a D.O.G. session ends or after N hours (an Edge Function
+  change, so staging and prod need Audrey). Owner: a security or AI session.
+
