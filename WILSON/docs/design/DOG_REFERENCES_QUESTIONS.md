@@ -187,9 +187,25 @@ big?**
 quietly when generating; a count says nothing about size (one PDF can outweigh
 fifty scenes).
 
-### Her answers, batch 2
+### Her answers, batch 2 (2026-10-16; asked in chat as multiple choice; recorded verbatim)
 
-*(not yet asked)*
+- **Q5:** "Any of your own notes (Recommended)"
+- **Q6:** "Never offer them (Recommended)"
+- **Q7:** "Notes say why (Recommended)"
+- **Q8:** "Meter, then warn"
+
+### What follows from batch 2 (say if any is wrong)
+
+1. **Notes:** any of your own, with or without a project chosen. Who can read a
+   note does not change, and no database change is needed.
+2. **Legal and money files never appear in D.O.G.'s picker**, for anyone, as
+   today.
+3. **On the Local Server** items and files work as on the cloud; the Notes group
+   stays and says that notes need the cloud.
+4. **The limit warns rather than stops.** A meter shows how full the chosen set
+   is; past the limit it turns amber, says the deck may be slow, cost more or
+   fail, and Generate still works. Where the limit sits is set in the design,
+   from the measured 232,275-token deck that worked.
 
 ---
 
