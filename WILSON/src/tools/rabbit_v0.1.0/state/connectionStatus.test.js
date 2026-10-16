@@ -257,9 +257,9 @@ describe('probeConnection: the cloud on Petal cloud', () => {
 
 describe('probeConnection: the company\'s own bucket, and a NAS', () => {
   const s3 = { mode: 'byos', provider: 's3' }
-  it('asks the bucket for one object through the presign function — with the token and the signal, never getSession — and a 404 is the bucket answering', async () => {
+  it('asks the bucket about one of the project\'s own files through the presign function — a HEAD, with the token and the signal, never getSession', async () => {
     const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
-    const fetch = fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(404) : res(200, [])))
+    const fetch = fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(200) : res(200, [])))
     const r = await probeConnection('cloud', cloudDeps({ fetch, presign, storageChoice: () => s3, bucketKey: () => ({ path: `projects/${PID}/files/x/1-c.mov`, real: true }) }))
     expect(presign).toHaveBeenCalledTimes(1)
     const [op, key, opts] = presign.mock.calls[0]
@@ -267,6 +267,38 @@ describe('probeConnection: the company\'s own bucket, and a NAS', () => {
     expect(opts.signal).toBeInstanceOf(AbortSignal)
     expect(fetch.calls.find((c) => c.url.startsWith('https://bucket.example')).init.method).toBe('HEAD')
     expect(r.files).toEqual({ ok: true, place: FILES_PLACE.s3 })
+  })
+  it('R2-2: the project\'s real file answered 404 is the bucket (or the object) gone — "not found", amber, never connected', async () => {
+    const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
+    const fetch = fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(404) : res(200, [])))
+    const r = await probeConnection('cloud', cloudDeps({ fetch, presign, storageChoice: () => s3, bucketKey: () => ({ path: `projects/${PID}/files/x/1-c.mov`, real: true }) }))
+    expect(r.files).toEqual({ ok: false, why: 'missing', place: FILES_PLACE.s3 })
+    const v = connectionView({ kind: 'cloud', result: r, projectOpen: true })
+    expect(v.state).toBe('files')
+    expect(v.words).toMatch(/Files: your company's own bucket, not found/)
+  })
+  it('R2-2: the key nobody writes is asked with a GET, and the bucket\'s error code decides: NoSuchKey answers, AccessDenied proves neither way, a credential code refuses, NoSuchBucket is gone', async () => {
+    const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
+    const synthetic = { path: `projects/${PID}/connection-check/wilson-connection-check`, real: false }
+    const xml = (status, code) => fakeFetch((url) => (url.startsWith('https://bucket.example')
+      ? { status, ok: false, text: async () => `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>${code}</Code><Message>m</Message></Error>` }
+      : res(200, [])))
+    const at = async (status, code) => (await probeConnection('cloud', cloudDeps({ fetch: xml(status, code), presign, storageChoice: () => s3, bucketKey: () => synthetic }))).files
+    expect(await at(404, 'NoSuchKey')).toEqual({ ok: true, place: FILES_PLACE.s3 })
+    expect(await at(403, 'AccessDenied')).toEqual({ ok: null, why: 'no-file', place: FILES_PLACE.s3 })
+    for (const code of ['InvalidAccessKeyId', 'SignatureDoesNotMatch', 'ExpiredToken']) {
+      expect(await at(403, code)).toEqual({ ok: false, why: 'refused', code, place: FILES_PLACE.s3 })
+    }
+    expect(await at(404, 'NoSuchBucket')).toEqual({ ok: false, why: 'missing', code: 'NoSuchBucket', place: FILES_PLACE.s3 })
+    expect(presign.mock.calls.every(([op]) => op === 'get')).toBe(true)
+    const first = xml(404, 'NoSuchKey')
+    await probeConnection('cloud', cloudDeps({ fetch: first, presign, storageChoice: () => s3, bucketKey: () => synthetic }))
+    expect(first.calls.find((c) => c.url.startsWith('https://bucket.example')).init.method).toBe('GET')
+    // A browser that cannot reach the bucket (no CORS on the error, the
+    // endpoint down) throws before any code: unreachable, amber.
+    const blocked = fakeFetch((url) => (url.startsWith('https://bucket.example') ? new TypeError('Failed to fetch') : res(200, [])))
+    expect((await probeConnection('cloud', cloudDeps({ fetch: blocked, presign, storageChoice: () => s3, bucketKey: () => synthetic }))).files)
+      .toEqual({ ok: false, why: 'unreachable' })
   })
   it('a bucket that refuses (403) is not connected; a presign refusal is "not answering for you"; a presign that failed otherwise is "not answering"', async () => {
     const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
@@ -286,11 +318,15 @@ describe('probeConnection: the company\'s own bucket, and a NAS', () => {
     const bucket = (status) => fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(status) : res(200, [])))
     const at403 = await probeConnection('cloud', cloudDeps({ fetch: bucket(403), presign, storageChoice: () => s3, bucketKey: () => synthetic }))
     expect(at403.files).toEqual({ ok: null, why: 'no-file', place: FILES_PLACE.s3 })
-    const v = connectionView({ kind: 'cloud', result: at403 })
+    const v = connectionView({ kind: 'cloud', result: at403, projectOpen: true })
     expect(v.state).toBe('unchecked')
     expect(v.tone).toBe('neutral')
     expect(isSettled(v.state)).toBe(false)
-    expect(v.words).toBe("Database: connected · Files: your company's own bucket, checked once this project has a file there")
+    expect(v.words).toBe("Database: connected · Files: your company's own bucket, checked once this project has a file there · Live updates: off")
+    // R2-8: on the gallery no project is open: "a project", not "this project".
+    const gallery = connectionView({ kind: 'cloud', result: at403, projectOpen: false })
+    expect(gallery.words).toBe("Database: connected · Files: your company's own bucket, checked once a project has a file there")
+    expect(gallery.summary).toBe('The database is connected; the files are checked once a project has a file there')
     const at404 = await probeConnection('cloud', cloudDeps({ fetch: bucket(404), presign, storageChoice: () => s3, bucketKey: () => synthetic }))
     expect(at404.files).toEqual({ ok: true, place: FILES_PLACE.s3 })
     // A real file answered 403 IS the bucket refusing: amber.
@@ -316,18 +352,21 @@ describe('probeConnection: the company\'s own bucket, and a NAS', () => {
     expect(presign).not.toHaveBeenCalled()
     expect(r.files.place).toBe(FILES_PLACE.petal)
   })
-  it('a NAS: a browser cannot reach one (amber, said so); the desktop asks its own route and reads the files root only when it is the company\'s', async () => {
+  it('R2-13: a NAS company on the cloud backend cannot save there (the upload path refuses), so it is amber in words, never green — a browser "not reachable", the desktop "only in Local Server mode"', async () => {
     const nas = { mode: 'byos', provider: 'network' }
     const fetch = fakeFetch(() => res(200, []))
+    const localFetch = fakeFetch(() => res(200, { data: { ok: true }, files: { ok: true, kind: 'workspace' } }))
     const browser = await probeConnection('cloud', cloudDeps({ fetch, storageChoice: () => nas }))
     expect(browser.files).toEqual({ ok: false, why: 'not-here', place: FILES_PLACE.network })
-    const route = (files) => fakeFetch((url) => (url === LOCAL_CONNECTION_ROUTE ? res(200, { data: { ok: true }, files }) : res(404)))
-    const up = await probeConnection('cloud', cloudDeps({ fetch, desktop: true, localFetch: route({ ok: true, kind: 'workspace' }), storageChoice: () => nas }))
-    expect(up.files).toEqual({ ok: true, place: FILES_PLACE.network })
-    const down = await probeConnection('cloud', cloudDeps({ fetch, desktop: true, localFetch: route({ ok: false, why: 'timeout', kind: 'workspace' }), storageChoice: () => nas }))
-    expect(down.files).toEqual({ ok: false, why: 'timeout', place: FILES_PLACE.network })
-    const notYet = await probeConnection('cloud', cloudDeps({ fetch, desktop: true, localFetch: route({ ok: true, kind: 'machine' }), storageChoice: () => nas }))
-    expect(notYet.files).toEqual({ ok: false, why: 'not-set', place: FILES_PLACE.network })
+    const desktop = await probeConnection('cloud', cloudDeps({ fetch, desktop: true, localFetch, storageChoice: () => nas }))
+    expect(desktop.files).toEqual({ ok: false, why: 'local-only', place: FILES_PLACE.network })
+    expect(localFetch).not.toHaveBeenCalled()
+    const v = connectionView({ kind: 'cloud', result: desktop })
+    expect(v.state).toBe('files')
+    expect(v.words).toBe("Database: connected · Files: your company's server or NAS, reached only in the desktop app's Local Server mode")
+    // The refusal it mirrors.
+    const adapter = readFileSync(join(here, '../adapters/supabaseAdapter.js'), 'utf8')
+    expect(adapter).toMatch(/activeProvider === WORKSPACE_PROVIDERS\.NETWORK && !moneyGated[\s\S]{0,200}throw new Error/)
   })
 })
 

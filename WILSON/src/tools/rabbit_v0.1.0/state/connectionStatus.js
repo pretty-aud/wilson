@@ -41,9 +41,12 @@
 //    inferred from the database: on Petal cloud, a HEAD of one of the open
 //    project's files (else a list of one object of the files bucket); a
 //    company bucket is asked about one object through the presign function
-//    (a real file of the project where there is one: R1-1); the Local Server
-//    and a NAS are asked by the desktop's own GET /api/rabbit/connection
-//    (electron/connectionProbe.cjs), which stats the files root.
+//    (a real file of the project where there is one: R1-1, R2-2); in Local
+//    Server mode the Local Server and its files root (a NAS where the
+//    company set one) are asked by the desktop's own GET
+//    /api/rabbit/connection (electron/connectionProbe.cjs), which stats it.
+//    A NAS company on the cloud backend cannot save there at all (the upload
+//    path refuses), so that is amber in words, not a probe (R2-13).
 // =============================================================================
 
 import { activeWorkspaceProvider, WORKSPACE_PROVIDERS } from '../storage/index.js'
@@ -189,9 +192,10 @@ export function bucketProbeKey({ files = [], projectId = null, projectIds = [] }
 }
 
 /**
- * A Petal cloud file of the open project to read one byte of, or null
- * (review round 1, R1-8: listing proves the storage API and its metadata, a
- * read proves the object store behind it). Never a money or Legal body.
+ * A Petal cloud file of the open project for the storage service to look up,
+ * or null (review round 1, R1-8: a list proves the storage API and its
+ * metadata; a HEAD of one object asks for that object). Never a money or
+ * Legal body.
  */
 export function petalProbePath({ files = [], projectId = null } = {}) {
   return projectId ? (readableFileOf(files, 'supabase', projectId)?.storage_path || null) : null
@@ -250,9 +254,11 @@ async function cloudFiles(deps, signal) {
     const place = FILES_PLACE.petal
     const object = deps.petalPath?.()
     if (object) {
-      // One of the open project's own files, asked about with the HEAD
+      // One of the open project's own files, asked about with the request
       // supabase-js's exists() sends (storage-js `HEAD /object/<bucket>/<path>`,
-      // the same two headers as the list, so no new CORS question): the
+      // the same two headers as the list, so no new CORS question; storage-js
+      // sends the path raw and this encodes each segment, which is the same
+      // URL for every name the uploader writes, [A-Za-z0-9._-]): the
       // storage service looks the object up rather than only listing. Any
       // answer about the object under 500 (a 400 / 404 "not found" included)
       // is the store answering; 401 / 403 is it refusing you; 5xx is the
@@ -278,32 +284,72 @@ async function cloudFiles(deps, signal) {
     if (!key) return { ok: null, why: 'no-project', place }
     let signed
     try {
-      signed = await deps.presign('head', key.path, { token, signal })
+      // A real file is asked about with a HEAD (nothing downloaded); the key
+      // nobody writes with a GET, whose small error body says why (below).
+      signed = await deps.presign(key.real ? 'head' : 'get', key.path, { token, signal })
     } catch (err) {
       if (signal.aborted) throw err
       return { ok: false, why: err?.status === 401 || err?.status === 403 ? 'refused' : 'error', place }
     }
     if (!signed?.url) return { ok: false, why: 'error', place }
-    const res = await deps.fetch(signed.url, { method: 'HEAD', signal, cache: 'no-store' })
-    // A key nobody writes, answered 403: a bucket key without ListBucket says
-    // that for a missing object, so it proves neither way (R1-1). Unchecked
-    // (grey, never announced) until the project has a file in the bucket.
-    if (!key.real && res?.status === 403) return { ok: null, why: 'no-file', place }
-    return { ...answerOfResponse(res, { missingIsAnswer: true }), place }
+    if (key.real) {
+      // The file exists, so a 404 is the bucket (or the object) gone — every
+      // open of it fails, so it is never "connected" (review round 2, R2-2:
+      // the handbook's Test connection reads a 404 as a bucket fault too);
+      // a 403 is the bucket refusing.
+      const res = await deps.fetch(signed.url, { method: 'HEAD', signal, cache: 'no-store' })
+      if (res?.status === 404) return { ok: false, why: 'missing', place }
+      return { ...answerOfResponse(res), place }
+    }
+    const res = await deps.fetch(signed.url, { method: 'GET', signal, cache: 'no-store' })
+    return { ...bucketCodeAnswer(res?.ok ? 'present' : await errorCodeOf(res), res), place }
   }
 
   if (provider === WORKSPACE_PROVIDERS.NETWORK) {
-    const place = FILES_PLACE.network
-    // A browser cannot reach a NAS at all (NETWORK_STORAGE_DESIGN §4a2b).
-    if (!deps.desktop) return { ok: false, why: 'not-here', place }
-    const local = await localAnswer(deps, signal)
-    if (!local.files) return { ok: false, why: local.why || 'error', place }
-    // The desktop learns the company's root at sign-in (App.jsx); until then
-    // its files root is something else, and that is not the NAS.
-    if (local.files.kind !== 'workspace') return { ok: false, why: 'not-set', place }
-    return { ...local.files.answer, place }
+    // The cloud backend cannot save to a NAS: supabaseAdapter.uploadFile
+    // refuses every upload of a `network` workspace ("add files from the
+    // desktop app in Local Server mode"). So in this mode the files neither
+    // open nor save here, whatever the NAS itself would answer — amber, and
+    // the words say where they are reached (review round 2, R2-13). A
+    // browser cannot reach a NAS at all (NETWORK_STORAGE_DESIGN §4a2b).
+    return { ok: false, why: deps.desktop ? 'local-only' : 'not-here', place: FILES_PLACE.network }
   }
   return { ok: false, why: 'unknown' }
+}
+
+// S3's error body (an XML <Error><Code>…</Code>…), read where the bucket's
+// CORS rule lets the page see it; null when it cannot be read.
+async function errorCodeOf(res) {
+  if (!res || typeof res.text !== 'function') return null
+  try {
+    const text = await res.text()
+    return /<Code>\s*([A-Za-z]+)\s*<\/Code>/.exec(text)?.[1] || null
+  } catch { return null }
+}
+
+const REFUSING_CODES = new Set(['InvalidAccessKeyId', 'SignatureDoesNotMatch', 'AccountProblem', 'InvalidToken', 'ExpiredToken', 'TokenRefreshRequired', 'AllAccessDisabled'])
+
+/**
+ * What a GET of the key nobody writes says about the bucket (R1-1, R2-2):
+ *   NoSuchKey                → it answered (the key may list): connected
+ *   AccessDenied             → a key without s3:ListBucket (the handbook's own
+ *                              setup) says that for a missing object, AND a
+ *                              key that may not read says it too: unchecked
+ *   a credential code        → the bucket refusing WILSON's key: amber
+ *   NoSuchBucket             → the bucket is gone: amber
+ * No readable code (a bucket whose CORS rule hides error bodies): a 404 is it
+ * answering, a 403 unchecked, anything else read by status. A browser that
+ * cannot reach the bucket at all (no CORS on the error, the endpoint down)
+ * throws before here: unreachable, amber.
+ */
+export function bucketCodeAnswer(code, res) {
+  if (code === 'present' || code === 'NoSuchKey') return { ok: true }
+  if (code === 'AccessDenied') return { ok: null, why: 'no-file' }
+  if (code && REFUSING_CODES.has(code)) return { ok: false, why: 'refused', code }
+  if (code === 'NoSuchBucket') return { ok: false, why: 'missing', code }
+  if (res?.status === 404) return { ok: true }
+  if (res?.status === 403) return { ok: null, why: 'no-file' }
+  return answerOfResponse(res)
 }
 
 // The desktop's own answer: { data: { ok }, files: { ok, kind, why } }.
@@ -384,7 +430,7 @@ const STATE_TONE = Object.freeze({
   connected: 'success', files: 'warning', offline: 'danger', checking: 'neutral', unchecked: 'neutral', none: 'neutral',
 })
 
-function statusWord(answer) {
+function statusWord(answer, { projectOpen = false } = {}) {
   if (!answer) return 'checking'
   if (answer.ok === true) return 'connected'
   switch (answer.why) {
@@ -392,12 +438,13 @@ function statusWord(answer) {
     case 'signed-out':  return 'not signed in'
     case 'no-network':  return 'no network'
     case 'not-here':    return 'not reachable from a browser'
-    case 'not-set':     return 'not set on this computer yet'
+    case 'local-only':  return "reached only in the desktop app's Local Server mode"
     case 'unknown':     return 'not known (the storage setting could not be read)'
     case 'unavailable': return 'not available (the demo folder is missing)'
     case 'missing':     return 'not found'
     case 'no-project':  return 'checked once there is a project'
-    case 'no-file':     return 'checked once this project has a file there'
+    // R2-8: on the gallery no project is open, so not "this project".
+    case 'no-file':     return projectOpen ? 'checked once this project has a file there' : 'checked once a project has a file there'
     default:            return 'not answering'
   }
 }
@@ -431,7 +478,7 @@ export function connectionView({ kind, result = null, realtimeStatus = 'off', pr
   const dbPlace = kind === 'local' ? 'the Local Server' : kind === 'drive' ? FILES_PLACE.drive : null
   const parts = [
     `Database: ${dbPlace ? `${dbPlace}, ` : ''}${statusWord(database)}`,
-    `Files: ${files?.place ? `${files.place}, ` : ''}${statusWord(files)}`,
+    `Files: ${files?.place ? `${files.place}, ` : ''}${statusWord(files, { projectOpen })}`,
   ]
   if (kind === 'local' || kind === 'drive') parts.push('Live updates: off')
   else if (projectOpen) parts.push(`Live updates: ${LIVE_WORD[realtimeStatus] || 'off'}`)
@@ -453,7 +500,7 @@ export function connectionView({ kind, result = null, realtimeStatus = 'off', pr
           : 'Offline: the database is not answering',
     checking: 'Checking the connection',
     unchecked: files?.why === 'no-file'
-      ? 'The database is connected; the files are checked once this project has a file there'
+      ? `The database is connected; the files are checked once ${projectOpen ? 'this project has' : 'a project has'} a file there`
       : 'The database is connected; the files are checked once there is a project',
   }[state]
   return { state, tone: STATE_TONE[state], words: parts.join(' · '), summary }

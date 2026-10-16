@@ -228,6 +228,7 @@ try {
           count: dots, onTop, box: box(dot), mark: box(dotMark), tone: dotMark.dataset.tone, state: dot.dataset.state,
           color: getComputedStyle(dotMark).backgroundColor, name: dot.querySelector('.rb-conn-cell')?.getAttribute('aria-label') ?? null, title: dot.querySelector('.rb-conn-cell')?.getAttribute('title') ?? null,
           markTitle: dotMark.getAttribute('title'), button: dot.querySelector('.rb-conn-cell')?.tagName || null,
+          target: box(dot.querySelector('.rb-conn-cell')),
           shape: { radius: getComputedStyle(dotMark).borderRadius, transform: getComputedStyle(dotMark).transform },
           live: live ? { role: live.getAttribute('role'), ariaLive: live.getAttribute('aria-live'), text: live.textContent } : null,
           gapToFoot: footBox ? px(footBox.y - dotMark.getBoundingClientRect().bottom) : null,
@@ -265,7 +266,11 @@ try {
     const hits = m.corner.textUnder.filter((t) => t.x < d.right + 4 && t.right > d.x - 4 && t.y < d.bottom + 4 && t.bottom > d.y - 4);
     if (hits.length) fail(`text under or touching the dot: ${JSON.stringify(hits)}`);
     if (!m.dot.title || !/Database/.test(m.dot.title) || !/Files/.test(m.dot.title)) fail(`the dot's words do not say each part: ${m.dot.title}`);
-    if (m.dot.name !== `Connection: ${m.dot.title}`) fail(`the button's name is not the words: ${m.dot.name}`);
+    // One sentence: a title that differs from the name is read again as the
+    // description (review round 2, R2-7).
+    if (m.dot.name !== m.dot.title) fail(`the button's name is not its title: ${m.dot.name}`);
+    // WCAG 2.5.8: the whole 24 x 24 is the button (R2-6).
+    if (!m.dot.target || m.dot.target.w < 24 || m.dot.target.h < 24) fail(`the dot's target is ${m.dot.target?.w} x ${m.dot.target?.h}, under 24 x 24`);
     if (m.dot.markTitle !== m.dot.title) fail("the dot's own title would mask the button's");
     if (m.dot.button !== 'BUTTON') fail('the cell is not a button (no keyboard way to the words)');
     // Never colour alone: green a circle, amber a diamond, red a square.

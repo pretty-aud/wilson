@@ -41,27 +41,35 @@
      it lists the store instead);
    - **your company's own bucket:** it asks the bucket about one of the
      open project's files there, through WILSON's signing service, as
-     opening a file does. On the gallery, or before the project has a file
-     in the bucket, there is nothing real to ask about: a bucket set up the
-     way the handbook says (it never lets WILSON list) cannot say "missing"
-     apart from "refused", so the dot stays grey and says *checked once this
-     project has a file there* rather than guess;
-   - **your company's server or NAS:** the desktop app checks the folder;
-     a browser cannot reach a NAS at all, so in a browser the dot is amber
-     and says *not reachable from a browser*;
+     opening a file does; if the bucket no longer has it, amber, *not
+     found*. On the gallery, or before the project has a file in the
+     bucket, it asks about a name nobody uses and reads the bucket's
+     answer: "no such file" is the bucket answering (green); a key the
+     bucket refuses is amber; but a bucket set up the way the handbook says
+     (it never lets WILSON list) answers "access denied" whether a file is
+     missing or WILSON may not read it, and that cannot tell the two apart,
+     so the dot stays grey and says *checked once a project has a file
+     there* rather than guess;
+   - **your company's server or NAS:** in the desktop app's Local Server
+     mode, the desktop checks the folder. Signed in to the cloud, WILSON
+     cannot save to a NAS at all (it asks you to add files in Local Server
+     mode), so the dot is amber and says *reached only in the desktop app's
+     Local Server mode*; in a browser, *not reachable from a browser*;
    - **the Local Server:** the desktop app checks its own data folder
      (the database) and the folder project files go to (the open demo
      folder, your company's NAS, or this computer).
    It always asks the store a new file would go to right now. The Bins tab
    keeps its own words for each footage share, as before.
 5. **It asks again every minute while R.A.B.B.I.T. is on screen**, at once
-   when the computer comes back online, when you sign in, when you open
-   another project and when your sign-in is renewed. Each question gives up
-   after 6 seconds (the dot then says *not answering*), and nothing waits
-   on it: the page never stops for the dot. It does not ask while another
-   page is on screen or the window is hidden, and coming back to the window
-   after a long time away it waits for your sign-in to renew before it asks
-   (rather than flash red for a second).
+   when the computer comes back online, when you sign in or out, when your
+   sign-in is renewed and when another project has opened. Each question
+   gives up after 6 seconds (the dot then says *not answering*), and
+   nothing waits on it: the page never stops for the dot. It does not ask
+   while another page is on screen or the window is hidden, and coming
+   back to the window after a long time away (or after the computer slept)
+   it waits up to two minutes for your sign-in to renew before it asks,
+   rather than flash red for a second; if the sign-in never renews, the red
+   it then shows is true.
 6. **The Bins tab: the counter moved up.** "18 files in 7 bins" and the
    drop hint under it sit 24px higher at the foot of the bins list, so the
    dot sits clear beneath them. Nothing else on the tab moved.
@@ -112,11 +120,12 @@ None. All five of your answers are built as given.
 
 ## Known limits
 
-- In a browser, a company that keeps its files on its own server or NAS
-  always shows amber ("not reachable from a browser"): that is true, a
-  browser cannot reach a NAS, but it is a standing amber, not a fault.
-- A company with its own bucket: grey on the gallery and in a project with
-  no file in the bucket yet (item 4).
+- A company that keeps its files on its own server or NAS always shows
+  amber in a browser, and in the desktop app signed in to the cloud: both
+  are true (neither can save there), but it is a standing amber, not a
+  fault. Its Local Server mode shows green when the NAS answers.
+- A company with its own bucket set up the handbook's way: grey on the
+  gallery and in a project with no file in the bucket yet (item 4).
 - The dot's square covers the left edge of whichever row is at the very
   bottom of a table or the Timeline (part of a row's select box, a phase's
   arrow, the start of the Timeline's scrollbar); scroll up a little and

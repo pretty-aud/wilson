@@ -64,10 +64,15 @@
      green); in its own bounded cell it reads as the window's (Common
      Region), and a row's icon scrolling through the corner — the
      Timeline's phase chevrons at 6px, Tasks' milestone diamonds at 12px —
-     passes under the cell instead of beside the dot. Its edge is the third
-     ink, not the rule (review round 1, R1-6: the rule's 1.51:1 and the
-     raised paper's 1.08:1 did not set it apart at the end of Tasks, where
-     the dot read as "+ New task"'s bullet). z-index 25: above every tab's
+     passes under the cell instead of beside the dot. Its edge is the ink at
+     28% — about 2.2:1 on the paper, twice the rule's alpha: review round 1
+     (R1-6) found the rule's 1.51:1 and the raised paper's 1.08:1 did not
+     set it apart at the end of Tasks, where the dot read as "+ New task"'s
+     bullet; round 2 (R2-11) found the third ink (5:1) the brightest resting
+     edge in the tool and the app's own hover edge for a card, so the corner
+     read as a card being pointed at. The edges are a pseudo-element, not
+     borders, so the button under them keeps the whole 24 x 24 (R2-6: WCAG
+     2.5.8; with borders it was 23 x 23). z-index 25: above every tab's
      sticky layer — the Timeline's label column is 20, and at 10 it hid the
      dot there (measured, fx11-shots.mjs --check reads what the browser
      paints at the dot's centre) — and under every menu and popover (30 and
@@ -80,9 +85,15 @@
     width: var(--spacing-gutter);
     height: var(--spacing-gutter);
     background-color: var(--color-paper-raised);
-    border-top: 1px solid var(--color-ink-3);
-    border-right: 1px solid var(--color-ink-3);
     z-index: 25;
+  }
+  .rb-conn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-top: 1px solid color-mix(in srgb, var(--color-ink) 28%, transparent);
+    border-right: 1px solid color-mix(in srgb, var(--color-ink) 28%, transparent);
+    pointer-events: none;
   }
   /* The whole cell is the button (the toggletip, R1-4): the hover box, the
      press target and the focus stop; the app's one focus ring, drawn inside

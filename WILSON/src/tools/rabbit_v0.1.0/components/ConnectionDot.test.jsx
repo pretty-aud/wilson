@@ -87,7 +87,9 @@ describe('the three colours, and the words', () => {
     await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
     const cell = cellOf(container)
     expect(cell.getAttribute('type')).toBe('button')
-    expect(cell.getAttribute('aria-label')).toBe('Connection: Database: connected · Files: Petal cloud, connected · Live updates: on')
+    // R2-7: the name and the title are one sentence (a different title is
+    // read again as the description).
+    expect(cell.getAttribute('aria-label')).toBe('Database: connected · Files: Petal cloud, connected · Live updates: on')
     expect(cell.getAttribute('title')).toBe('Database: connected · Files: Petal cloud, connected · Live updates: on')
     // The kit's dot: the tone, out of the accessibility tree, the same title
     // (an empty one would mask the button's).
@@ -126,6 +128,7 @@ describe('the toggletip: the words on a press, for the keyboard too (R1-4)', () 
     await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
     const cell = cellOf(container)
     expect(cell.getAttribute('aria-expanded')).toBe('false')
+    expect(cell.hasAttribute('aria-controls')).toBe(false) // R2: only while the words are open
     expect(container.querySelector('[data-testid="connection-dot-words"]')).toBeNull()
     fireEvent.click(cell)
     const words = container.querySelector('[data-testid="connection-dot-words"]')
@@ -140,6 +143,38 @@ describe('the toggletip: the words on a press, for the keyboard too (R1-4)', () 
     fireEvent.click(cell)
     fireEvent.blur(cell)
     expect(container.querySelector('[data-testid="connection-dot-words"]')).toBeNull()
+  })
+  it('R2-5: a click focuses the button (Safari and Firefox on macOS do not), and the words close on a press elsewhere or Escape anywhere', async () => {
+    const { container } = render(<ConnectionDot />)
+    await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
+    const cell = cellOf(container)
+    fireEvent.click(cell)
+    expect(document.activeElement).toBe(cell)
+    expect(container.querySelector('[data-testid="connection-dot-words"]')).not.toBeNull()
+    // A press inside the words does not count as elsewhere.
+    fireEvent.pointerDown(container.querySelector('[data-testid="connection-dot-words"]'))
+    expect(container.querySelector('[data-testid="connection-dot-words"]')).not.toBeNull()
+    fireEvent.pointerDown(document.body)
+    expect(container.querySelector('[data-testid="connection-dot-words"]')).toBeNull()
+    fireEvent.click(cell)
+    // Escape pressed with the focus elsewhere (a click that did not focus).
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(container.querySelector('[data-testid="connection-dot-words"]')).toBeNull()
+  })
+  it('M4: Escape on the open words stops there — the views\' own Escape (a Bins selection) does not also fire', async () => {
+    const { container } = render(<ConnectionDot />)
+    const cell = cellOf(container)
+    const seen = vi.fn()
+    document.addEventListener('keydown', seen)
+    try {
+      fireEvent.click(cell)
+      fireEvent.keyDown(cell, { key: 'Escape' })
+      expect(container.querySelector('[data-testid="connection-dot-words"]')).toBeNull()
+      expect(seen).not.toHaveBeenCalled()
+      // Closed, Escape is the page's again.
+      fireEvent.keyDown(cell, { key: 'Escape' })
+      expect(seen).toHaveBeenCalledTimes(1)
+    } finally { document.removeEventListener('keydown', seen) }
   })
   it('the cell is reachable by Tab (a real button, no tabindex games)', async () => {
     const { container } = render(<ConnectionDot />)
@@ -265,6 +300,19 @@ describe('when it asks', () => {
     rerender(<ConnectionDot />)
     await waitFor(() => expect(probe).toHaveBeenCalledTimes(2))
   })
+  it('R2-9: another project is asked about once it has loaded, not while the previous project\'s files are still in hand', async () => {
+    const { rerender } = render(<ConnectionDot />)
+    await waitFor(() => expect(probe).toHaveBeenCalledTimes(1))
+    ctx.value = { ...ctx.value, activeProjectId: 'p2', loadingProject: true }
+    rerender(<ConnectionDot />)
+    await settle()
+    expect(probe).toHaveBeenCalledTimes(1)
+    ctx.value = { ...ctx.value, loadingProject: false, files: [{ project_id: 'p2', storage_provider: 's3', storage_path: 'projects/p2/files/x/1.mov' }] }
+    rerender(<ConnectionDot />)
+    await waitFor(() => expect(probe).toHaveBeenCalledTimes(2))
+    await settle()
+    expect(probe).toHaveBeenCalledTimes(2) // the load and its bucket file: one probe
+  })
   it('the fixtures are not asked about the network: the browser going offline leaves them as they are', async () => {
     const { container } = render(<ConnectionDot />)
     await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
@@ -298,33 +346,146 @@ describe('the cloud: the token comes from the auth event, never getSession', () 
     }
     expect(auth.getSession).not.toHaveBeenCalled()
   })
-  it('R1-2: an expired token is not used — the dot keeps what it said — and TOKEN_REFRESHED asks at once with the new one', async () => {
+  it('R1-2 / R2-1: back after 90 minutes away, the expired token is not used — the dot keeps what it said, says nothing — and TOKEN_REFRESHED asks at once with the new one', async () => {
     const fetchFn = vi.fn(async () => ok())
     vi.stubGlobal('fetch', fetchFn)
     ctx.value = cloudCtx()
     const { container } = render(<ConnectionDot />)
-    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 'old', expires_at: later(3600) }) })
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { user: { id: 'u' }, access_token: 'old', expires_at: later(3600) }) })
     await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
-    // An hour away: the page comes back with the old token past its expiry.
-    await act(async () => { auth.listeners[0]('TOKEN_REFRESHED', { access_token: 'old', expires_at: later(-30) }) })
+    // 90 minutes hidden: auth-js comes back with the same session, expired
+    // half an hour ago (its SIGNED_IN on the return), before its refresh.
+    await act(async () => { auth.listeners[0]('SIGNED_IN', { user: { id: 'u' }, access_token: 'old', expires_at: later(-1800) }) })
     fetchFn.mockClear()
     await act(async () => { window.dispatchEvent(new Event('online')) })
     await settle()
     expect(fetchFn).not.toHaveBeenCalled()
     expect(dotOf(container).dataset.state).toBe('connected')
     expect(liveOf(container).textContent).toBe('')
-    await act(async () => { auth.listeners[0]('TOKEN_REFRESHED', { access_token: 'new', expires_at: later(3600) }) })
+    await act(async () => { auth.listeners[0]('TOKEN_REFRESHED', { user: { id: 'u' }, access_token: 'new', expires_at: later(3600) }) })
     await waitFor(() => expect(fetchFn).toHaveBeenCalled())
     for (const [, init] of fetchFn.mock.calls) expect(init.headers.authorization).toBe('Bearer new')
+    expect(liveOf(container).textContent).toBe('')
   })
-  it('R1-2: a token still expired 2 minutes on is used (the refresh failed; the red is then true)', async () => {
-    const fetchFn = vi.fn(async () => ({ status: 401, ok: false, json: async () => ({}) }))
+  it('M3: a token expiring within 30 s is not used either', async () => {
+    const fetchFn = vi.fn(async () => ok())
     vi.stubGlobal('fetch', fetchFn)
     ctx.value = cloudCtx()
+    render(<ConnectionDot />)
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 'soon', expires_at: later(10) }) })
+    await settle()
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+  it('R2-1: a token still unusable 2 minutes after the dot first met it is used (the refresh failed; the red is then true)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    try {
+      const fetchFn = vi.fn(async () => ({ status: 401, ok: false, json: async () => ({}) }))
+      vi.stubGlobal('fetch', fetchFn)
+      ctx.value = cloudCtx()
+      const { container } = render(<ConnectionDot />)
+      await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 'dead', expires_at: later(-86400) }) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(10) })
+      expect(fetchFn).not.toHaveBeenCalled()
+      // The minute tick at 1:00 still waits; at 2:00 the grace is over.
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(fetchFn).not.toHaveBeenCalled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(fetchFn).toHaveBeenCalled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(10) })
+      expect(dotOf(container).dataset.state).toBe('offline')
+      expect(cellOf(container).getAttribute('title')).toMatch(/^Database: not answering for you/)
+    } finally { vi.useRealTimers() }
+  })
+  it('R2-3: the SIGNED_IN auth-js sends on every return to the window (the same session) asks nothing', async () => {
+    const fetchFn = vi.fn(async () => ok())
+    vi.stubGlobal('fetch', fetchFn)
+    ctx.value = cloudCtx()
+    render(<ConnectionDot />)
+    const session = { user: { id: 'u', app_metadata: { workspace_id: 'w' } }, access_token: 't', expires_at: later(3600) }
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', session) })
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled())
+    await settle()
+    fetchFn.mockClear()
+    await act(async () => { auth.listeners[0]('SIGNED_IN', session) })
+    await settle()
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+  it('R2-4: one probe at a cloud boot even as the provider\'s own status flips the adapter from offline to online', async () => {
+    const fetchFn = vi.fn(async () => ok())
+    vi.stubGlobal('fetch', fetchFn)
+    ctx.value = cloudCtx({ adapterStatus: { online: false, lastSyncAt: null, error: null } })
+    const { rerender } = render(<ConnectionDot />)
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 't', expires_at: later(3600) }) })
+    ctx.value = { ...ctx.value, adapterStatus: { online: true, lastSyncAt: new Date(), error: null } }
+    rerender(<ConnectionDot />)
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled())
+    await settle()
+    expect(fetchFn.mock.calls.filter(([u]) => String(u).includes('/rest/v1/projects'))).toHaveLength(1)
+  })
+  it('R2-4: the flip landing while the first probe is still out asks nothing more either', async () => {
+    let release
+    const gate = new Promise((r) => { release = r })
+    const fetchFn = vi.fn(async (url) => { if (String(url).includes('/rest/v1/projects')) await gate; return ok() })
+    vi.stubGlobal('fetch', fetchFn)
+    ctx.value = cloudCtx({ adapterStatus: { online: false, lastSyncAt: null, error: null } })
+    const { container, rerender } = render(<ConnectionDot />)
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 't', expires_at: later(3600) }) })
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled())
+    ctx.value = { ...ctx.value, adapterStatus: { online: true, lastSyncAt: new Date(), error: null } }
+    rerender(<ConnectionDot />)
+    await settle()
+    await act(async () => { release() })
+    await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
+    await settle()
+    expect(fetchFn.mock.calls.filter(([u]) => String(u).includes('/rest/v1/projects'))).toHaveLength(1)
+  })
+  it('M1 / M2: the upload path\'s choice outranks the dot\'s remembered one, and another workspace forgets the dot\'s', async () => {
+    presign.fn = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
+    const fetchFn = vi.fn(async (url) => {
+      const u = String(url)
+      if (u.includes('workspace_storage')) return ok([{ mode: 'central', provider: 'petal' }])
+      if (u.startsWith('https://bucket.example')) return { status: 404, ok: false }
+      return ok()
+    })
+    vi.stubGlobal('fetch', fetchFn)
+    ctx.value = cloudCtx({ activeProjectId: PID, projectsIndex: { [PID]: { id: PID } } })
     const { container } = render(<ConnectionDot />)
-    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 'dead', expires_at: later(-300) }) })
-    await waitFor(() => expect(dotOf(container).dataset.state).toBe('offline'))
-    expect(cellOf(container).getAttribute('title')).toMatch(/^Database: not answering for you/)
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { user: { id: 'u', app_metadata: { workspace_id: 'w1' } }, access_token: 't', expires_at: later(3600) }) })
+    await waitFor(() => expect(cellOf(container).getAttribute('title')).toMatch(/Files: Petal cloud, connected/))
+    const reads = () => fetchFn.mock.calls.filter(([u]) => String(u).includes('workspace_storage')).length
+    expect(reads()).toBe(1)
+    // M2: the same token refreshed in another workspace reads the choice again.
+    await act(async () => { auth.listeners[0]('TOKEN_REFRESHED', { user: { id: 'u', app_metadata: { workspace_id: 'w2' } }, access_token: 't2', expires_at: later(3600) }) })
+    await waitFor(() => expect(reads()).toBe(2))
+    // M1: the upload path now holds S3: that is the store asked about.
+    held.row = { mode: 'byos', provider: 's3' }
+    await act(async () => { window.dispatchEvent(new Event('online')) })
+    await waitFor(() => expect(presign.fn).toHaveBeenCalled())
+    await waitFor(() => expect(cellOf(container).getAttribute('title')).toMatch(/your company's own bucket/))
+    expect(reads()).toBe(2)
+  })
+  it('R2-10: leaving the cloud forgets the token; coming back asks nothing until a fresh session arrives', async () => {
+    const fetchFn = vi.fn(async () => ok())
+    vi.stubGlobal('fetch', fetchFn)
+    ctx.value = cloudCtx()
+    const { rerender } = render(<ConnectionDot />)
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 'old', expires_at: later(3600) }) })
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled())
+    ctx.value = fixturesCtx()
+    rerender(<ConnectionDot />)
+    await settle()
+    expect(auth.listeners).toHaveLength(0)
+    fetchFn.mockClear()
+    ctx.value = cloudCtx()
+    const { container } = { container: document.body }
+    rerender(<ConnectionDot />)
+    await settle()
+    expect(fetchFn).not.toHaveBeenCalled()
+    // Waiting for the session, not a red "not signed in".
+    expect(dotOf(container).dataset.state).toBe('checking')
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 'fresh', expires_at: later(3600) }) })
+    await waitFor(() => expect(fetchFn).toHaveBeenCalled())
+    for (const [, init] of fetchFn.mock.calls) expect(init.headers.authorization).toBe('Bearer fresh')
   })
   it('R1-3: the store asked about is the upload path\'s cached choice; the dot reads none of its own then', async () => {
     held.row = { mode: 'byos', provider: 's3' }

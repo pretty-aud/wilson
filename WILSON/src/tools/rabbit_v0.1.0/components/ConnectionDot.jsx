@@ -20,12 +20,15 @@
 // mounted) and the window is visible: on arriving, when the last answer is
 // older than CONNECTION_FRESH_MS; then every CONNECTION_EVERY_MS; and at once
 // on the events that can change the answer — the browser going online, a
-// sign-in, a sign-out or a refreshed token, the adapter going on- or offline,
-// another project opened, the open project's first file in a company bucket.
-// One probe at a time; an event during a probe asks once more after it. Quiet
-// when nothing changes: an answer equal to the last one is not stored, so
-// nothing re-renders and nothing is announced; a refetch of the projects
-// list (a new adapterStatus object, same `online`) asks nothing (R1-7).
+// token arriving or going, a refreshed token, another account or workspace,
+// the adapter's `online` disagreeing with what the dot last measured, another
+// project opened (once it has loaded), the open project's first file in a
+// company bucket. One probe at a time; an event during a probe asks once more
+// after it. Quiet when nothing changes: an answer equal to the last one is
+// not stored, so nothing re-renders and nothing is announced; a refetch of
+// the projects list (a new adapterStatus object, same `online`) asks nothing
+// (R1-7); nor does the SIGNED_IN auth-js sends on every return to the window
+// (R2-3), nor the adapter's own boot status agreeing with the dot (R2-4).
 //
 // ── The token (connectionStatus.js rule 3) ──────────────────────────────────
 // The cloud checks are plain fetches with the access token the auth EVENTS
@@ -35,14 +38,18 @@
 // the first event (INITIAL_SESSION), so a cold start reads "checking", never a
 // red "not signed in" that is only the session not read yet.
 //
-// A token past (or within 30 s of) its expiry is not used for 2 minutes after
-// it expired (review round 1, R1-2): auth-js stops refreshing while the page
-// is hidden, so a window shown after an hour away holds an expired token
-// until its refresh lands — a probe then would read the database's 401 as a
-// red, announced, and a green announced again a second later. The dot keeps
-// what it last said and asks when TOKEN_REFRESHED brings the new one. A token
-// still expired after 2 minutes is asked with (the refresh failed; the red
-// is then true).
+// A token past (or within 30 s of) its expiry is not used for 2 minutes from
+// the moment the dot first finds it so (review rounds 1 and 2, R1-2 / R2-1):
+// auth-js stops refreshing while the page is hidden, so a window shown after
+// an hour — or a day — away holds an expired token until its refresh lands;
+// a probe then would read the database's 401 as a red, announced, and a green
+// announced again a second later. The dot keeps what it last said and asks
+// when TOKEN_REFRESHED brings the new one. A token still unusable 2 minutes
+// after the dot first met it is asked with (the refresh failed; the red is
+// then true). The grace counts from that first meeting, not from the token's
+// expiry, which can be long past by the time the window is seen again.
+// Leaving the cloud forgets the token: coming back waits for a fresh one
+// (R2-10).
 //
 // ── The look, and the keyboard ──────────────────────────────────────────────
 // A cell of its own in the 24px gutter square at the shell's bottom-left
@@ -79,14 +86,14 @@ import '../rabbitShell.css'
 
 const sameAnswers = (a, b) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b)
 
-// R1-2: how near its expiry a token is not used, and for how long after.
+// R1-2 / R2-1: how near its expiry a token is not used, and for how long
+// from the moment the dot first finds it so (header).
 const TOKEN_MARGIN_MS = 30_000
 const TOKEN_GRACE_MS = 120_000
-function tokenUnusable(expiresAt, now = Date.now()) {
-  if (!expiresAt) return false
-  const left = expiresAt * 1000 - now
-  return left < TOKEN_MARGIN_MS && left > -TOKEN_GRACE_MS
+function tokenNearExpiry(expiresAt, now = Date.now()) {
+  return !!expiresAt && expiresAt * 1000 - now < TOKEN_MARGIN_MS
 }
+const NO_TOKEN = Object.freeze({ token: null, expiresAt: null, user: null, workspace: null, staleSince: null })
 
 /** The dot's state: { view, announcement }. */
 function useConnection({ active = true } = {}) {
@@ -105,7 +112,7 @@ function useConnection({ active = true } = {}) {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
   const [tokenReady, setTokenReady] = useState(false)
   const [nudge, setNudge] = useState(0)
-  const tokenRef = useRef({ token: null, expiresAt: null, workspace: null })
+  const tokenRef = useRef({ ...NO_TOKEN })
   const readyRef = useRef(false)
   const choiceRef = useRef({ row: undefined, at: 0 })
   const lastRef = useRef({ at: 0, kind: null })
@@ -120,17 +127,31 @@ function useConnection({ active = true } = {}) {
     if (kind !== 'cloud') return undefined
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       const was = tokenRef.current
+      const token = session?.access_token || null
+      const user = session?.user?.id ?? null
       const workspace = session?.user?.app_metadata?.workspace_id ?? null
-      tokenRef.current = { token: session?.access_token || null, expiresAt: session?.expires_at || null, workspace }
+      // The same token again (auth-js's SIGNED_IN on every return to the
+      // window) keeps when the dot first found it stale; a new one starts clean.
+      tokenRef.current = { token, expiresAt: session?.expires_at || null, user, workspace, staleSince: token === was.token ? was.staleSince : null }
+      const otherOwner = user !== was.user || workspace !== was.workspace
       // Another account or workspace: its storage choice is its own (R1-3).
-      if (event === 'SIGNED_OUT' || workspace !== was.workspace) choiceRef.current = { row: undefined, at: 0 }
+      if (event === 'SIGNED_OUT' || otherOwner) choiceRef.current = { row: undefined, at: 0 }
       // The first event starts the schedule (tokenReady); every later one
-      // that can change the answer asks at once — a sign-in or sign-out, and
-      // a refreshed token (R1-2: the one a hidden page was waiting for).
+      // that can change the answer asks at once — a token arriving or going,
+      // a refreshed one (R1-2: the one a hidden page was waiting for), another
+      // account or workspace. Not SIGNED_IN as such: auth-js sends it on
+      // every return to a visible window with the same session (R2-3).
       if (!readyRef.current) { readyRef.current = true; setTokenReady(true); return }
-      if (!!was.token !== !!tokenRef.current.token || event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') setNudge((n) => n + 1)
+      if (!!was.token !== !!token || event === 'TOKEN_REFRESHED' || otherOwner) setNudge((n) => n + 1)
     })
-    return () => data?.subscription?.unsubscribe?.()
+    return () => {
+      data?.subscription?.unsubscribe?.()
+      // Leaving the cloud forgets the token: coming back waits for a fresh
+      // INITIAL_SESSION rather than asking with this one (R2-10).
+      tokenRef.current = { ...NO_TOKEN }
+      readyRef.current = false
+      setTokenReady(false)
+    }
   }, [kind])
 
   useEffect(() => {
@@ -151,7 +172,14 @@ function useConnection({ active = true } = {}) {
   const probeNow = useCallback(async () => {
     const s = live.current
     if (!s.kind || s.kind === 'pending' || !s.active || !s.visible) return
-    if (s.kind === 'cloud' && (!s.tokenReady || tokenUnusable(tokenRef.current.expiresAt))) return
+    if (s.kind === 'cloud') {
+      if (!s.tokenReady) return
+      const t = tokenRef.current
+      if (tokenNearExpiry(t.expiresAt)) {
+        if (t.staleSince == null) t.staleSince = Date.now()
+        if (Date.now() - t.staleSince < TOKEN_GRACE_MS) return
+      }
+    }
     if (flightRef.current) { againRef.current = true; return }
     const ctl = new AbortController()
     flightRef.current = ctl
@@ -198,18 +226,44 @@ function useConnection({ active = true } = {}) {
     return () => clearInterval(id)
   }, [active, visible, kind, tokenReady, probeNow])
 
-  // The events that can change the answer ask at once. Keyed on the adapter's
-  // `online`, not its status object, which every projects refetch replaces.
-  const adapterOnline = ctx?.adapterStatus?.online
-  const asked = useRef(false)
+  // The events that can change the answer ask at once (each effect skips its
+  // own first run: the schedule above asks on arrival).
+  const asked = useRef({ nudge: false, online: false, project: false })
   useEffect(() => {
-    if (!asked.current) { asked.current = true; return }
+    if (!asked.current.nudge) { asked.current.nudge = true; return }
     probeNow()
-  }, [nudge, adapterOnline, projectId, bucketFileThere, probeNow])
+  }, [nudge, probeNow])
+
+  // The adapter's `online` — not its status object, which every projects
+  // refetch replaces (R1-7) — and only when it disagrees with what the dot
+  // measured or is measuring: the provider's own boot status() flips
+  // false → true just after the dot's first probe, and that is not news (R2-4).
+  const adapterOnline = ctx?.adapterStatus?.online
+  const measured = result?.kind === kind ? result : null
+  const measuredRef = useRef(null)
+  measuredRef.current = measured
+  useEffect(() => {
+    if (!asked.current.online) { asked.current.online = true; return }
+    if (flightRef.current) return
+    const dbOk = measuredRef.current?.database?.ok
+    if (typeof adapterOnline === 'boolean' && (dbOk === true) === adapterOnline && dbOk != null) return
+    probeNow()
+  }, [adapterOnline, probeNow])
+
+  // Another project, once it has loaded (R2-9: asked while the previous
+  // project's files are still in the bundle, a company bucket read "no file
+  // here" and flashed grey), and the open project's first file in a company
+  // bucket arriving (R1-1). One effect, so a load that brings the file asks once.
+  const loading = !!ctx?.loadingProject
+  useEffect(() => {
+    if (!asked.current.project) { asked.current.project = true; return }
+    if (loading) return
+    probeNow()
+  }, [projectId, loading, bucketFileThere, probeNow])
 
   const view = connectionView({
     kind,
-    result: result?.kind === kind ? result : null,
+    result: measured,
     realtimeStatus: ctx?.realtimeStatus,
     projectOpen: !!projectId,
     browserOffline,
@@ -235,17 +289,36 @@ export default function ConnectionDot({ active = true } = {}) {
   const { view, announcement } = useConnection({ active })
   const [open, setOpen] = useState(false)
   const captionId = useId()
+  const rootRef = useRef(null)
   const parts = view.words.split(' · ')
+
+  // Open words close on a press anywhere else, and on Escape, even where a
+  // click did not focus the button (Safari and Firefox on macOS do not focus
+  // a clicked button, so leaving it and its own Escape never fire: R2-5).
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (!rootRef.current?.contains(e.target)) setOpen(false) }
+    const escape = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away, true)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', away, true)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [open])
+
   return (
-    <div className="rb-conn" data-testid="connection-dot" data-state={view.state}>
+    <div className="rb-conn" data-testid="connection-dot" data-state={view.state} ref={rootRef}>
+      {/* The name and the title are the one sentence (R2-7: a title that
+          differs from the name is read again as the description). */}
       <button
         type="button"
         className="rb-conn-cell"
-        aria-label={`Connection: ${view.words}`}
+        aria-label={view.words}
         title={view.words}
         aria-expanded={open}
         aria-controls={open ? captionId : undefined}
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => { e.currentTarget.focus(); setOpen((o) => !o) }}
         onKeyDown={(e) => { if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false) } }}
         onBlur={() => setOpen(false)}
       >
