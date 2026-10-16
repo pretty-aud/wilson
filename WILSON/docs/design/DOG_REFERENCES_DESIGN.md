@@ -337,8 +337,9 @@ the estimate against it; past it, amber and the warning, never a block.
    name, no id goes to browser storage. The chosen set lives in the screen's
    memory and goes when WILSON closes.
 6. **A file is read at Generate or at a Preview the person asks for**, never
-   at the choosing. On the cloud each read, a preview's included, is recorded in
-   the file's activity like any download, and the preview says so; a picture
+   at the choosing. On both backends each read, a preview's included, is
+   recorded in the file's activity like any download, and the preview says so
+   (a PDF is read at Preview so its pages can be counted before Generate); a picture
    over 8 MB is described, not fetched, to preview it. A note's text is read
    when it is ticked (its owner's own, recording nothing), so the meter can
    count it.
@@ -371,9 +372,11 @@ the estimate against it; past it, amber and the warning, never a block.
 
 - Every call stays on `ai-proxy` through `callAI`; no new call is added.
 - **Every reply is read with `textFromMessage`** (the brief's rule), in all
-  eight of D.O.G.'s calls; a D.O.G. test pins it. Measured today: each call joins
-  every text block of the reply; with no tools in D.O.G.'s calls a reply has one
-  text block after its thinking, so the read is the same text.
+  eight of D.O.G.'s calls. `textFromMessage` returns the reply's LAST text block
+  (before DG1 each call joined every text block). D.O.G.'s calls use no tools,
+  so a reply holds one text block after its thinking and the read is the same
+  text; a call that ever adds a server tool must revisit this (code review
+  round 1, finding 2).
 - The export formats (`DECKOUTLINE.md`, `VIS_DECKOUTLINE.md`, `IMG_PROMPTS.md`,
   the placed asset files) do not change.
 - The theme generator never sees a reference: it reads the deck text, the page
@@ -442,6 +445,23 @@ their own modules and the component changes as little as it can.
 11. A kind shows in the rail when the project holds at least one (FX2's
     picker's second arm); a kind switched off in R.A.B.B.I.T. but holding
     rows still shows.
+12. Videos can be chosen, for placement only: their row says *placed only, not
+    read*, they do not count as a source for Generate, and one over 100 MB is
+    not read at all (it is named instead).
+13. The window opens on Files when a project is chosen (on Your notes without
+    one).
+14. The single page line reads *"Also applied here, from Full deck: your
+    context (“…”) and the theme generator (on; set it under Full deck)."*
+15. Beside the date tools: *"N without a date are not included"*.
+16. Your notes always travel in the request itself, never in the AI's file
+    store; PDFs and pictures go through the AI's file store, which keeps them
+    (the pre-existing transport since S19), and the contract line's hover says
+    so. Deleting what the file store keeps is not part of DG1 (it is an Edge
+    Function change; `OUTSTANDING.md`).
+17. **Remove all**, with one **Undo** in the notice; at most 200 rows drawn per
+    list, then *"type in the search to narrow"*.
+18. The AI's per-file caps are said on each file's row (a PDF over 100 pages or
+    32 MB, a picture over 10 MB): warnings, never blocks, as Q8.
 
 ---
 
@@ -472,3 +492,30 @@ Nineteen findings; every one is answered in the sections above and in the build
 | 17 | LOW | Forgiveness on a project change; Remove beside Preview | Set aside and brought back; Remove apart |
 | 18 | LOW | "to place media in the deck" as label or explanation | Q23 |
 | 19 | LOW | The meter's unit; the theme generator | Plain words; §7 says the theme generator never sees a reference |
+
+---
+
+## 11. Design review round 2 and code review round 1 (2026-10-16)
+
+Two more Fable reviewers, read-only: the second design round attacked round
+1's corrections (15 findings, 4 HIGH); the first code round read the whole
+product diff (7 findings, none HIGH, and the tests that could not fail).
+Everything below landed in commit `ef17d94a`.
+
+| Finding | Done |
+|---|---|
+| HIGH: a chosen PDF's pages could not be learned before Generate | Preview reads the PDF and counts its pages; its row then warns past 100 pages |
+| HIGH: the page counter was wrong on an incremental save (1 for 120), a nested root (24 for 12) and bookmarks (300 for 12) | The root's /Count, bound to its own dictionary; the linearization hint; the compressed streams always read; page objects never the answer; the three shapes are tests |
+| HIGH: nothing bounded the bytes Generate downloads | The AI's caps said per row; videos over 100 MB not read; the download size in the meter past 25 MB |
+| HIGH (both reviews): a restored or adopted reference previewed as "no longer available" | Preview lists first when the screen has not |
+| A failed list greyed every reference | Greyed only by a list that succeeded; a failed one stops Generate with its own sentence |
+| Signed out decided from one failed list | Only when every read failed for want of a session; notes-only wording |
+| A video-only choice enabled Generate | Videos do not count as a source; marked *placed only, not read* |
+| A long items block (and a note in it) could reach the AI's file store | Notes travel in their own block, inline-only |
+| The folded card hid the meter's warning | The header says *over the limit* or *N PDFs not counted* |
+| The preview silent about the desktop's download record; Drive's wording; the switch's "off"; the meter's valuenow past 100; the notes that stay; the Q13 line's control; one-ended date ranges; Remove all; huge lists; same-named files; a .jpg with no type | All done (§9 items 12 to 18) |
+| `textFromMessage` keeps the last text block | Stated in §7; kept, as the brief rules |
+| Upload PDFs counted O(n²) | Each counted once |
+| EmptyState `description` (never shown) | `body` |
+| The folder path had no loop guard | Guarded as `folderTrail` |
+| Tests that could not fail | `useReferences.test.jsx`, behavioural, with failing controls; the round-trip test asserts what it names; an order-independent Switch pin |

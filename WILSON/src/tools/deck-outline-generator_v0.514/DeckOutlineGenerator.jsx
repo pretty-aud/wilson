@@ -266,9 +266,8 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
    */
   const resolveSources = useCallback(async () => {
     const { files: refFiles, referencesSource, notesSource, unreadable } = await resolveReferences({ includeVideo: useProjectAssets });
-    setRefsWarning(unreadable.length
-      ? `Not sent, because ${unreadable.length === 1 ? 'it' : 'they'} could not be read: ${unreadable.join(', ')}.`
-      : '');
+    // Each entry names the file and why ("brief.pdf (could not be read)").
+    setRefsWarning(unreadable.length ? `Not sent: ${unreadable.join(', ')}.` : '');
     const media = refFiles.filter(f => f.type === 'image' || f.type === 'video');
     setReferenceMedia(media);
     const files = [

@@ -254,7 +254,7 @@ describe('choosing a project downloads nothing (DG1, Audrey\'s Q2)', () => {
 
   it('a chosen reference that cannot be read is named, never dropped in silence', () => {
     expect(HOOK).toMatch(/unreadable\.push\(/)
-    expect(SRC).toMatch(/Not sent, because/)
+    expect(SRC).toMatch(/Not sent: \$\{unreadable\.join/)
   })
 })
 
