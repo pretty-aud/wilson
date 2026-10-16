@@ -3339,6 +3339,26 @@ D.O.G.'s `isCore` defaults **true** while `files.is_core_definer` defaults
 **false**, so a naive 1:1 mapping would flip every previously-unmarked file
 from CORE to REF and change generation output.
 
+**References (post-overhaul DG1, 2026-10-16) — supersedes the paragraph
+above.** Choosing a project no longer sends its attachments: it sends only the
+project's title and description, and the person ticks what else the deck
+reads in the **References** card (`references/`: `referenceModel.js` pure,
+`useReferences.js` the I/O, `ReferencesCard.jsx`, `ReferencesPicker.jsx`) —
+R.A.B.B.I.T. items (assets, scenes, shots, levels, experiences, tasks, phases,
+milestones), files, and the person's own Dashboard notes (read through
+`src/components/Dashboard/noteText.js`, the Notes page's own editor, never
+`body_preview`). Bodies are read only at Generate or a Preview
+(`resolveForGeneration`, which lists the pool again through the same gate
+first), cached per file; Legal and money files and trashed rows are never
+offered (`isDeckReferenceFile`), nor a file D.O.G. cannot read
+(`readableType`: PDF, text, JPEG/PNG/GIF/WebP, video for placement). Nothing
+chosen is written to the computer. The items' and notes' words travel as one
+text source through `buildSourceParts`. A meter estimates the size (a PDF by
+its pages) and warns past 200,000 tokens; it never blocks. The two Core
+polarities moved with the readers into `referenceModel.js`, unchanged; D.O.G.
+no longer writes a file's Core mark (R.A.B.B.I.T.'s Files table does). Design:
+`docs/design/DOG_REFERENCES_DESIGN.md`; walkthrough 75.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
