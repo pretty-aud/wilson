@@ -10,7 +10,8 @@
 //
 // Header carries the workspace presence strip ("who's online"), fed by the
 // Session 8 workspace channel and rendered with real avatars where members
-// have uploaded one.
+// have uploaded one. Its Live badge went in post-overhaul FX11 (Audrey,
+// 2026-10-16, on the badge: "remove there too"); the faces stay.
 //
 // ── The overhaul ────────────────────────────────────────────────────────────
 //
@@ -40,7 +41,7 @@ import { useWorkspaceMembers, isOwnAvatarUrl } from '../TeamMembers/useWorkspace
 import ProfileSection from '../settings/ProfileSection'
 import DashboardTasksView from './DashboardTasksView'
 import NotesView from './NotesView'
-import { StatusBadge, Tabs, Toolbar } from '../../ui'
+import { Tabs, Toolbar } from '../../ui'
 import './dashboard.css'
 
 const TABS = [
@@ -154,21 +155,21 @@ function WorkspacePresenceStrip({ status, users }) {
     })
   }, [users, wm.members])
 
-  if (status !== 'live' && resolved.length === 0) return null
+  // The faces only while the workspace channel is live (FX11 review round 1,
+  // R1-11): with no badge beside them, a list left over from a channel error
+  // would say people are online when nothing is listening.
+  if (status !== 'live' || resolved.length === 0) return null
 
   const overflow = Math.max(0, (users?.length || 0) - resolved.length)
 
   return (
     <span className="dash-presence">
-      {/* Was 9px #ea580c on an orange tint at 1.81:1 — the smallest and
-          lowest-contrast text on the surface, and a fourth orange for its
-          border. It is a status, so it is the one status component, at the
-          11px floor, drawing its colour from the semantic source (D5). */}
-      {status === 'live' && (
-        <StatusBadge status="online" label="Live" title="Workspace live sync active" />
-      )}
+      {/* FX11: no Live badge before the faces (Audrey: "remove there too");
+          whether live updates are on is the R.A.B.B.I.T. connection dot's
+          word now. The names in words for a screen reader, as the faces
+          carry them only in their hover titles. */}
       {resolved.length > 0 && (
-        <span className="dash-avatars">
+        <span className="dash-avatars" role="group" aria-label={`Online now: ${resolved.map(u => u.label).join(', ')}${overflow > 0 ? ` and ${overflow} more` : ''}`}>
           {resolved.map(u => (
             isOwnAvatarUrl(u.avatar_url) ? (
               <img

@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, fixtureVariant, binsFixtureMode } from './store'
+import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, fixtureVariant, binsFixtureMode, connectionFixtureMode } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
@@ -29,14 +29,16 @@ import { BUILTIN } from '../../lib/aiModels'
 // (store.applyWorkspaceManagerVariant).
 // `bins: 'browser'` (BC3, `?bins=browser`) makes the bins answer as the cloud
 // does in a browser: no row reachable (store.binsFixtureMode).
-export function buildDevFixtures({ variant = null, bins = null } = {}) {
+// `connection: 'files-down' | 'offline'` (FX11, `?connection=…`) is what the
+// connection dot hears: amber, then red (store.connectionFixtureMode).
+export function buildDevFixtures({ variant = null, bins = null, connection = null } = {}) {
   const store = createStore()
   if (variant === 'game') applyGameVariant(store)
   if (variant === 'member') applyMemberVariant(store, PERMISSIONS.userId)
   if (variant === 'manager') applyWorkspaceManagerVariant(store, PERMISSIONS.userId)
   const appRole = variant === 'member' ? 'user' : variant === 'manager' ? 'manager' : PERMISSIONS.role
   const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
-  const binsOptions = { browser: bins === 'browser' }
+  const adapterOptions = { browser: bins === 'browser', connection }
   let rabbitAdapter = null
   const gatewayDoors = createGatewayDoorsStub(store, identity)
 
@@ -63,7 +65,7 @@ export function buildDevFixtures({ variant = null, bins = null } = {}) {
 
     /** One adapter per session — the provider's adapterRef holds it. */
     rabbitAdapter() {
-      if (!rabbitAdapter) rabbitAdapter = createRabbitFixturesAdapter(store, identity, binsOptions)
+      if (!rabbitAdapter) rabbitAdapter = createRabbitFixturesAdapter(store, identity, adapterOptions)
       return rabbitAdapter
     },
 
@@ -117,4 +119,4 @@ export function buildDevFixtures({ variant = null, bins = null } = {}) {
   }
 }
 
-installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode() }))
+installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode(), connection: connectionFixtureMode() }))

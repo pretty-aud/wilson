@@ -255,13 +255,22 @@ function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 // retargets its own disk splits the company's storage worse than a visible
 // failure does.
 function resolveConfiguredRootDir() {
+  return configuredRoot().root;
+}
+
+// The same answer with WHICH root it is (post-overhaul FX11): the connection
+// dot names the place — the demo folder, the company's NAS, this computer —
+// and electron/connectionProbe.cjs asks the root it names. One order, here.
+function configuredRoot() {
   // Demo sprint (2026-09-10): an open local demo folder outranks everything —
   // it is an explicit, per-machine choice and the Storage card shows it —
   // and its projects/ subfolder is the files root, COMPUTED from the folder
   // rather than stored, so a copied folder still resolves.
   const demoProjects = localDemoProjectsDir();
-  if (demoProjects) return demoProjects;
-  return workspaceRootDir || readFilesConfig().defaultRootDir || null;
+  if (demoProjects) return { root: demoProjects, kind: 'demo' };
+  if (workspaceRootDir) return { root: workspaceRootDir, kind: 'workspace' };
+  const machine = readFilesConfig().defaultRootDir;
+  return machine ? { root: machine, kind: 'machine' } : { root: null, kind: null };
 }
 
 // Session 35 (TPN-NET-015): the ONE decision about whether a candidate
@@ -4527,6 +4536,19 @@ function startLocalServer(distPath) {
     require('./localMedia.cjs').mountLocalMedia(expressApp, {
       getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
       log: (line) => console.info(line),
+    });
+
+    // ── The connection dot's question (post-overhaul FX11) — electron/connectionProbe.cjs ──
+    // GET /api/rabbit/connection: the data folder and the files root, each
+    // asked with one bounded, single-flight async stat. With no root set,
+    // project files fall back to app data (getRabbitFilesDir, under the data
+    // folder), so the data folder is the files root asked.
+    require('./connectionProbe.cjs').mountConnectionProbe(expressApp, {
+      getDataDir: getRabbitDataDir,
+      getFilesRoot: () => {
+        const at = configuredRoot();
+        return at.root ? at : { root: getRabbitDataDir(), kind: 'app' };
+      },
     });
 
     // ── Streamed project-file upload (demo 2026-09-11) — electron/projectFileStream.cjs ──
