@@ -1121,12 +1121,16 @@ task's first asset, and adding a second asset is not an unsaved change.
 swapped the first asset back.
 - **Record each item added and removed, in words** ("Added asset Storm
   Lantern") *(Recommended)*: a database change.
-- **No history of items** *(interim)*: the old lines read in words with
-  names and lose their *Revert*; nothing new is recorded.
+- **No history of items** *(interim)*: a task's asset, scene and shot
+  lines leave its history drawer (they only ever recorded the first item
+  changing, which means nothing now); nothing new is shown.
 
 *Interim for Q-N8 is the second choice only because the first is a database
-change; both share the old lines' words and losing their Revert, which is
-built now.*
+change. Review round 1 (2026-10-16) found that the database still writes
+the older apps' copy of a task's first asset, scene and shot, and the
+drawer read each change of it as a swap that never happened ("Asset:
+Lighthouse → Lantern"); so those lines are hidden, old and new, until her
+answer.*
 
 ---
 
