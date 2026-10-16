@@ -971,6 +971,69 @@ taking out the main item that need the measured list first are VW1m's own.
 
 ---
 
+## Batch 14 onward — taking out the main item (VW1m, 2026-10-16)
+
+VW1m measured every place WILSON reads a task's main item first (289
+places; the hand-off `docs/sessions/handoffs/po-vw1m-2026-10-16.md`, item
+1). Most of them her answers of batches 12 and 13 already decide. These are
+the ones they do not reach, in plain words, asked four at a time.
+
+## Batch 14 — the task's window: its items, its files, an asset in the trash
+
+**Q-N1. The order of a task's items in its window, and *Move up* / *Move
+down*.** Today each kind lists its items in the order you put them, and the
+two buttons exist to choose which one is *main* (the first). With no main,
+the order changes nothing anywhere else.
+- **A fixed order, no *Move* buttons** *(Recommended)*: each kind lists its
+  items A to Z (scenes and shots by their number), the same order the group
+  names use ("Lighthouse Interior, Storm Lantern") and the Tasks table's
+  cells will use; each row keeps only *Remove*.
+- **Your own order, the buttons kept**: *Move up* / *Move down* only arrange
+  this list (and the cell's order); group names still read A to Z.
+- **The order they were added**, no buttons.
+
+*Why my pick:* the same task reads the same way in its window, its cell and
+its group, and every row loses two buttons that no longer do anything you
+can see (Hick's law).
+
+**Q-N2. The files under the Items table.** Today the left column shows the
+files of the task's first asset only (and of its first shot or scene, which
+is broken: it lists none of the shot's files).
+- **A Files section for each item** *(Recommended)*: one folding section per
+  asset, scene, shot, level and experience the task is about, each listing
+  that item's files; the first open, the others closed.
+- **One *Task files* section**: only the files added from this task's
+  window, whichever item they belong to.
+- **Assets only**: a section per asset; scenes, shots, levels and
+  experiences show no files here.
+
+**Q-N3. Where a file added in the task's window is filed.** Today: in the
+first asset's folder (`ASSETS/<asset>`), named after the task.
+- **The folder of the section you add it in** *(Recommended)*: added in the
+  *Storm Lantern* section, it is filed under `ASSETS/Storm Lantern`, named
+  after the task, as today. If that asset is deleted later, the file goes to
+  the trash with its folder, as today.
+- **A folder of the task's own**: a new `TASKS/<task>` folder (a new
+  category in the Files tab); the file stays when an asset is deleted.
+- **A copy in every item's folder.**
+
+**Q-N4. A task whose asset is in the trash.** Deleting an asset puts it in
+the trash for 30 days on the cloud (on the computer it is removed at once,
+with Undo). Today a task whose first asset is in the trash disappears with
+it. By your ruling the task now stays; what does it show for the asset in
+the trash? (The same for a scene, shot, level or experience in the trash.)
+- **Hidden while it is in the trash, back on restore** *(Recommended)*: the
+  task shows its other items (or sits under *No asset*); the Timeline, the
+  groups and the Budget's split leave the trashed asset out; restoring the
+  asset puts it back on its tasks; emptying the trash takes it off for good.
+  The cloud and the computer then look the same.
+- **Shown in the task's window, marked *In the trash***: greyed in the
+  Items table; the Timeline, the groups and the split still leave it out.
+- **Taken off its tasks at once, for good**: restoring the asset does not
+  put it back.
+
+---
+
 ## Not asked, because nothing you see depends on it
 
 - Where the cloud keeps the views (a table per project, readable only by the
