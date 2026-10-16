@@ -620,7 +620,8 @@
   /* The window: search across the top, then the rail, the list and, on
      demand, the preview, side by side (Q10). */
   .dog-refs-search { position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .dog-refs-search .ui-input { padding-left: 28px; }
+  /* Its own class, so the rule can never reach a date field (FX10's floor). */
+  .ui-input.dog-refs-search-input { padding-left: 28px; }
   .dog-refs-search-icon {
     position: absolute;
     left: 8px;
@@ -729,7 +730,6 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-2);
   }
-  .dog-refs-quick-date .ui-input { width: 136px; }
   .dog-refs-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .dog-refs-path-step {
     padding: 0 4px;

@@ -370,7 +370,7 @@ export default function ReferencesPicker({ refs, projectTitle, extraTokens = 0, 
     >
       <div className="dog-refs-search">
         <Search className="dog-refs-search-icon" aria-hidden="true" />
-        <input type="text" className="ui-input" data-size="md" data-surface="dark" value={query}
+        <input type="text" className="ui-input dog-refs-search-input" data-size="md" data-surface="dark" value={query}
           onChange={e => setQuery(e.target.value)} placeholder="Search items, files and notes"
           aria-label="Search items, files and notes" />
         {poolBusy && <Spinner />}
