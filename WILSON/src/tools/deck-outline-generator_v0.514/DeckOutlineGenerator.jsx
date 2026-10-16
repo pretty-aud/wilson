@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, Badge, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments';
@@ -197,9 +197,6 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // and said (amber, beside the theme generator's message).
   const [refsWarning, setRefsWarning] = useState('');
 
-  // The uploads. The references join them at generation (resolveSources).
-  const allFiles = uploadedFiles;
-
   /**
    * The media the slides may place (Audrey's Q14: the two boxes "allow using
    * images/videos from a project or uploaded in the outline like before").
@@ -268,14 +265,19 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
    * read is left out and named in the amber line; the rest go.
    */
   const resolveSources = useCallback(async () => {
-    const { files: refFiles, referencesSource, unreadable } = await resolveReferences({ includeVideo: useProjectAssets });
+    const { files: refFiles, referencesSource, notesSource, unreadable } = await resolveReferences({ includeVideo: useProjectAssets });
     setRefsWarning(unreadable.length
       ? `Not sent, because ${unreadable.length === 1 ? 'it' : 'they'} could not be read: ${unreadable.join(', ')}.`
       : '');
     const media = refFiles.filter(f => f.type === 'image' || f.type === 'video');
     setReferenceMedia(media);
-    const files = [...uploadedFiles, ...refFiles, ...(referencesSource ? [referencesSource] : [])];
-    if (!files.length) {
+    const files = [
+      ...uploadedFiles, ...refFiles,
+      ...(referencesSource ? [referencesSource] : []),
+      ...(notesSource ? [notesSource] : []),
+    ];
+    // A video is only placed, so a deck needs something else to read.
+    if (!files.some(f => f.type !== 'video')) {
       // Everything chosen turned out unreadable: the project's text alone
       // does not start a deck (design §4), so say so instead.
       throw Object.assign(new Error('nothing readable'), { code: 'DOG_NOTHING_READABLE' });
@@ -290,16 +292,18 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // An uploaded PDF's pages, counted once from its body in memory: the meter
   // counts a PDF by its pages, never its bytes (design review round 1, HIGH).
   const [uploadPdfPages, setUploadPdfPages] = useState(() => new Map());
+  // Each upload is counted ONCE: an id is marked when its count starts, so a
+  // result landing (which changes uploadPdfPages) never restarts the others
+  // (code review round 1, finding 3). A late result for a removed upload is
+  // harmless: nothing reads its id.
+  const pdfCounting = useRef(new Set());
   useEffect(() => {
-    let live = true;
     for (const f of uploadedFiles) {
-      if (f.type !== 'pdf' || uploadPdfPages.has(f.id)) continue;
-      countPdfPages(f.content).then(n => {
-        if (live) setUploadPdfPages(m => (m.has(f.id) ? m : new Map(m).set(f.id, n)));
-      });
+      if (f.type !== 'pdf' || pdfCounting.current.has(f.id)) continue;
+      pdfCounting.current.add(f.id);
+      countPdfPages(f.content).then(n => setUploadPdfPages(m => new Map(m).set(f.id, n)));
     }
-    return () => { live = false; };
-  }, [uploadedFiles, uploadPdfPages]);
+  }, [uploadedFiles]);
 
   // What else goes with the references, for the meter: the uploads, the deck
   // text, the page request and the project's own words. An uploaded PDF whose
@@ -679,14 +683,15 @@ Generate 3 color themes for this deck.`;
   const appliedFromFullDeck = useMemo(() => {
     const ctx = systemPrompt.trim().replace(/\s+/g, ' ');
     const quoted = ctx ? `your context (\u201C${ctx.length > 60 ? `${ctx.slice(0, 60).trimEnd()}\u2026` : ctx}\u201D) and ` : '';
-    return `Also applied here, from Full deck: ${quoted}the theme generator (${enableThemeGen ? 'on' : 'off'}).`;
+    return `Also applied here, from Full deck: ${quoted}the theme generator (${enableThemeGen ? 'on' : 'off'}; set it under Full deck).`;
   }, [systemPrompt, enableThemeGen]);
 
   // A deck needs a source: an upload, or a chosen reference that can still be
   // read. DG1: references alone are enough ("pull from files, from databases,
   // and from notes"); before, only a file could start a deck.
   const hasFileContent = useMemo(() => (
-    uploadedFiles.length > 0 || refs.chosenList.some(s => !refs.unavailable.has(s.key))
+    uploadedFiles.length > 0
+    || refs.chosenList.some(s => !refs.unavailable.has(s.key) && s.dogType !== 'video')
   ), [uploadedFiles, refs.chosenList, refs.unavailable]);
 
   const handleFileUpload = useCallback(async (e) => {
@@ -1041,7 +1046,7 @@ ${alreadyPlacedContext}`;
   // Cached per file so a re-generation, and every call of the continuation
   // loop, reuse the same id instead of re-uploading. Keyed on a content
   // fingerprint rather than the record's `id` because project documents and
-  // picker uploads mint ids differently, and `allFiles` is rebuilt by useMemo
+  // picker uploads mint ids differently, and the source list is rebuilt
   // on every render — an identity-keyed cache would miss constantly.
   const aiFileIdCache = useRef(new Map());
 
@@ -1111,7 +1116,9 @@ ${alreadyPlacedContext}`;
         });
       } else if (fileData.type === 'text') {
         const body = String(fileData.content || '');
-        if (body.length > INLINE_TEXT_LIMIT) {
+        // The notes travel in the request itself, never in the AI's file
+        // store, which keeps what it is given (DG1).
+        if (body.length > INLINE_TEXT_LIMIT && !fileData.inlineOnly) {
           const fileId = await ensureAIFileId(fileData);
           usedFileRefs = true;
           contentParts.push({ type: 'document', source: { type: 'file', file_id: fileId } });
@@ -1130,6 +1137,8 @@ ${alreadyPlacedContext}`;
   const sourceUploadMessage = useCallback((err) => (
     err?.code === 'DOG_NOTHING_READABLE'
       ? 'Nothing you chose could be read, so nothing was generated. Remove what is greyed in References, choose something else, or upload a document.'
+      : err?.code === 'DOG_LIST_FAILED'
+      ? 'The project could not be listed just now, so nothing was generated and nothing you chose was dropped. Try again.'
       : err?.status === 546
       ? 'WILSON could not pass your source documents through to the AI. This is a limit in WILSON’s AI relay, not in your work.'
       : `Could not prepare your source documents: ${err?.message || 'the upload failed'}`
@@ -4149,10 +4158,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="dog-mode">
                 <span className="dog-mode-side" data-active={!fullDeckMode} aria-hidden="true"
                   onClick={() => setFullDeckMode(false)}>Single page</span>
+                <span id="dog-mode-desc" hidden>Off is Single page.</span>
                 <Switch
                   className="dog-full-deck"
                   checked={fullDeckMode}
                   aria-label="Full deck"
+                  aria-describedby="dog-mode-desc"
                   onChange={setFullDeckMode}
                   onKeyDown={(e) => {
                     if (e.key === 'ArrowLeft') { e.preventDefault(); setFullDeckMode(false); }

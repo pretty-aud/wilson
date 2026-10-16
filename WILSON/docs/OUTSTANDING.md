@@ -1835,6 +1835,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul DG1 (2026-10-16; `po/dg1-dog-references` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s references (Audrey: "a robust way to choose ... items in the rabbit tool ... files or personal notes"; "lets make the Full Deck and Single Page interfaces one"): research, her answers (batches 1 to 4 verbatim; 5 and 6 left for tomorrow at her request, built on the recommended picks), the design reviewed twice, the build reviewed twice. | DG1-01 (the cloud lists a project's first 1,000 files only), DG1-02 (on the Local Server an item's own files are not linked to it) | — |
 | Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
 | Post-overhaul FX10 (2026-10-13; `po/fx10-date-fields` into `feat/post-overhaul-edit-versioning`) — the date fields (Audrey: "the calendar icon is covering the dates when it has all the space to space them out"): every date and the empty `mm / dd / yyyy` whole, the calendar icon clear and spaced, in the desktop app and in Firefox (her screenshot's), by one kit rule — a date field's floor, the date's room plus its own padding (FX10-KR-1) — with the Tasks, Assets and Shots date columns widened and four windows' rows reshaped; display only, no migration; walkthrough 71; two review rounds | **three entries under Broken features:** *under a minimum font size the tables' dates are cut again* (MEASURED, round 1's R1-07: FX10's floor and the tables' columns are px); *the project control panel's 24 fields have no accessible name* (MEASURED; older than FX10; round 1's R1-12 named the dates); *in the smallest desktop window, an open task form leaves a shot's take notes no room* (MEASURED by the measuring script's neighbours pass; older than FX10). Round 2's R2-03, the desktop app's table dates losing the keyboard's focus at their calendar glyph (older than FX10), was fixed, not entered | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX9 (2026-10-12; `po/fx9-reach-test-race` into `feat/post-overhaul-edit-versioning`) — the gateway's reach-proof test holds the gateway's syncs instead of racing them (`gateway/test/runtime.test.mjs` only; no product code): the race measured (the sync a `check_reach_now` asks for when its reach check lands, 17 ms after it idle; not the 10 s heartbeat), the window read whole in one assertion, two planted door faults caught, 200 loaded runs with no reach failure; one review round (opus) | **nothing under Broken features.** A dated FX9 line on FX3's gateway-load entry (two 5 s time-outs at a heavier load, one echo-probe miss in 200 runs with its cause not established; not FX9's code) | **one entry:** *The gateway's reach-proof test races the gateway's own sync, and fails CI now and then* — the test holds the syncs (`54472510`) |
@@ -3357,3 +3358,26 @@ S4b-11 are untouched and still hers.
   history, with names and notes in the diff. Would settle it: read
   `edit_history` for a private project's task as a workspace manager who
   did not create it. Owner: a session on private projects.
+
+## Post-overhaul DG1 (`po/dg1-dog-references`) — left open (2026-10-16)
+
+- **DG1-01 · The cloud lists a project's first 1,000 files, and D.O.G.'s quick
+  choices inherit the cut.** PRE-EXISTING (the Files tab reads the same way).
+  `supabaseAdapter.listFiles` is `select('*').eq('project_id', …)` with no
+  paging, and PostgREST answers 1,000 rows by default (the codebase pages
+  folders and bins for exactly this). Past 1,000 files in one project, D.O.G.'s
+  *All Core files*, a folder's tick and the rail's count reach only the first
+  thousand, silently. Would settle it: a project with 1,001 files, *All Core
+  files* with the last one Core. Fix: read through `readAllPages` as
+  `listFoldersWith` does (one shared read; the Files tab gains it too).
+  Owner: a files session.
+- **DG1-02 · On the Local Server, a scene's, shot's, level's or experience's own
+  files are not linked to it.** PRE-EXISTING (stated in `deckAttachments.js`):
+  the Express upload route writes `phase_id`, `asset_id` and `task_id` and
+  drops `scene_id`, `shot_id`, `level_id` and `experience_id`, and the entity
+  file managers write the managed store, which `listFiles` never returns. So
+  D.O.G.'s *Add references* shows no files under such an item on the desktop
+  (it says so, and the files table's files are under Files). Fix: teach the
+  route the four columns, and list the managed store (with a download route)
+  for references. Owner: Track B (the desktop server).
+

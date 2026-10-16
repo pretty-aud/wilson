@@ -13,6 +13,7 @@ import {
   fileEntry, legacyFileEntry, legacyPoolFiles, bareAssetName, coreLabel,
   fileTokens, uploadTokens, textTokens, meterState, REFERENCE_TOKEN_LIMIT,
   refKey, kindOfKey, pdfPagesFromBinary, countPdfPages, PDF_PAGE_TOKENS, readableType,
+  notesText, sizeWarning, noteKeysDatedBetween as notesBetween,
 } from './referenceModel';
 import { deflateSync } from 'node:zlib';
 
@@ -271,7 +272,8 @@ describe('quick choices (Q2, Q18)', () => {
     expect(fileKeysAddedBetween(pool, day, day)).toEqual(['file:frame']);
     expect(fileKeysAddedBetween(pool, localDay('2026-10-16T09:00:00Z'), localDay('2026-10-10T09:00:00Z')).sort())
       .toEqual(['file:brief', 'file:frame', 'file:treat']);
-    expect(fileKeysAddedBetween(pool, null, '2026-10-16')).toEqual([]);
+    // Review round 2: a range may be open at one end (everything up to a day).
+    expect(fileKeysAddedBetween(pool, null, '2026-10-16').sort()).toEqual(['file:brief', 'file:frame', 'file:treat']);
   });
 
   it('picks notes by the date each note carries', () => {
@@ -390,9 +392,9 @@ describe("a PDF's pages", () => {
     expect(pdfPagesFromBinary(pdf)).toBe(12);
   });
 
-  it('counts page objects when there is no count, never the /Pages node itself', () => {
-    const pdf = '<< /Type /Page /Parent 2 0 R >> << /Type /Page >> << /Type/Page >> << /Type /Pages /Kids [] >>';
-    expect(pdfPagesFromBinary(pdf)).toBe(3);
+  it('a page object is not an answer: with no page-tree root the count is unknown', () => {
+    const pdf = '<< /Type /Page /Parent 2 0 R >> << /Type /Page >> << /Type/Page >> << /Type /Pages /Parent 9 0 R /Kids [] /Count 3 >>';
+    expect(pdfPagesFromBinary(pdf)).toBeNull();
     expect(pdfPagesFromBinary('%PDF-1.7 nothing here')).toBeNull();
   });
 
@@ -409,5 +411,75 @@ describe("a PDF's pages", () => {
   it('says it cannot tell rather than guessing, and never throws', async () => {
     expect(await countPdfPages(Buffer.from('%PDF-1.7 opaque').toString('base64'))).toBeNull();
     expect(await countPdfPages('%%% not base64 %%%')).toBeNull();
+  });
+});
+
+describe('a PDF\'s pages, on the shapes real files take (design review round 2)', () => {
+  const z = (text) => deflateSync(Buffer.from(text, 'latin1'));
+  const objStm = (inner) => {
+    const body = z(inner);
+    return Buffer.concat([
+      Buffer.from(`7 0 obj\n<< /Type /ObjStm /N 3 /First 12 /Filter /FlateDecode /Length ${body.length} >>\nstream\n`, 'latin1'),
+      body,
+      Buffer.from('\nendstream\nendobj\n', 'latin1'),
+    ]);
+  };
+
+  it('an incremental save left ONE page in the clear; the tree is compressed: 120, not 1', async () => {
+    const whole = Buffer.concat([
+      Buffer.from('%PDF-1.7\n', 'latin1'),
+      objStm('1 0 2 60 << /Type /Catalog /Pages 2 0 R >> << /Type /Pages /Kids [3 0 R] /Count 120 >>'),
+      Buffer.from('3 0 obj\n<< /Type /Page /Parent 2 0 R /Annots [9 0 R] >>\nendobj\n%%EOF', 'latin1'),
+    ]);
+    expect(await countPdfPages(whole.toString('base64'))).toBe(120);
+  });
+
+  it('a root with nested dictionaries before its /Count, and stale page objects: 12, not 24', async () => {
+    const stale = Array.from({ length: 24 }, (_, i) => `${10 + i} 0 obj << /Type /Page /Parent 2 0 R >> endobj\n`).join('');
+    const pdf = '%PDF-1.4\n2 0 obj << /Type /Pages /Resources << /Font << /F1 5 0 R >> /ProcSet [/PDF /Text] >> /Kids [3 0 R] /Count 12 >> endobj\n' + stale;
+    expect(pdfPagesFromBinary(pdf)).toBe(12);
+    expect(await countPdfPages(Buffer.from(pdf, 'latin1').toString('base64'))).toBe(12);
+  });
+
+  it("the bookmarks' /Count never stands in for the page tree's: 12, not 300", async () => {
+    const whole = Buffer.concat([
+      Buffer.from('%PDF-1.7\n', 'latin1'),
+      objStm('4 0 2 40 << /Type /Outlines /First 8 0 R /Count 300 >> << /Type /Pages /Kids [3 0 R] /Count 12 >>'),
+    ]);
+    expect(await countPdfPages(whole.toString('base64'))).toBe(12);
+  });
+
+  it('a linearized file states its pages in its first dictionary', () => {
+    const pdf = '%PDF-1.7\n1 0 obj << /Linearized 1 /L 99999 /H [ 600 150 ] /O 4 /E 5000 /N 7 /T 99000 >> endobj\n';
+    expect(pdfPagesFromBinary(pdf)).toBe(7);
+  });
+});
+
+describe('a picture whose type is blank, open-ended dates, size warnings, the notes block', () => {
+  it('a .jpg with no type is a picture by its name, not text to grey', () => {
+    const p = buildPool({ lists: { files: [file({ id: 'j', name: 'still.jpg', mime_type: '' })] } });
+    expect(p.files[0]).toMatchObject({ dogType: 'image', readable: true });
+  });
+
+  it('a date range may be open at either end, and not both', () => {
+    const pool = project();
+    expect(fileKeysAddedBetween(pool, '2026-10-12', '').sort()).toEqual(['file:brief', 'file:frame']);
+    expect(fileKeysAddedBetween(pool, '', '2026-10-11')).toEqual(['file:treat']);
+    expect(fileKeysAddedBetween(pool, '', '')).toEqual([]);
+    expect(notesBetween(pool, '2026-09-01', '')).toEqual(['note:n1']);
+  });
+
+  it("says when a file is over the AI's caps, and nothing otherwise", () => {
+    expect(sizeWarning('pdf', 1e6, 140)).toMatch(/^140 pages: the AI may refuse a PDF over 100$/);
+    expect(sizeWarning('pdf', 40 * 1024 * 1024, 10)).toMatch(/^40 MB: the AI may refuse a PDF over 32 MB$/);
+    expect(sizeWarning('image', 12 * 1024 * 1024)).toMatch(/^12 MB: the AI may refuse a picture over 10 MB$/);
+    expect(sizeWarning('video', 300 * 1024 * 1024)).toMatch(/^300 MB: too large to place in a slide$/);
+    expect(sizeWarning('pdf', 1e6, 12)).toBeNull();
+    expect(sizeWarning('text', 9e9)).toBeNull();
+  });
+
+  it('the notes travel in their own block', () => {
+    expect(notesText([])).toBe('');
+    expect(notesText(['[Note] A'])).toMatch(/^CHOSEN NOTES\n/);
   });
 });

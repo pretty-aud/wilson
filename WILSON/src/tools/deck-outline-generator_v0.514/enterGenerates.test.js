@@ -132,7 +132,11 @@ describe('DeckOutlineGenerator calls it first, with its own page, and App tells 
   it('DeckOutlineGenerator gives the class to the Full deck switch and to nothing else', () => {
     const dog = blankJsComments(read('./DeckOutlineGenerator.jsx'))
     // DG1: both sides are written beside it; its own name is "Full deck".
-    expect(dog).toMatch(/<Switch\s+className="dog-full-deck"\s+checked=\{fullDeckMode\}\s+aria-label="Full deck"/)
+    // The Switch tag, whatever the order of its props (code review round 1).
+    const tag = (dog.match(/<Switch\b[^>]*className="dog-full-deck"[^>]*>/) || [''])[0]
+    expect(tag, 'no Switch carries dog-full-deck').not.toBe('')
+    expect(tag).toMatch(/checked=\{fullDeckMode\}/)
+    expect(tag).toMatch(/aria-label="Full deck"/)
     expect(dog.match(/dog-full-deck/g)).toHaveLength(1)
   })
 })

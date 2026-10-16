@@ -516,6 +516,15 @@
      warning ink past the limit (Audrey's Q8: it warns, never blocks); the
      orange stays the step titles' alone. */
   .dog-refs-count { margin-right: 8px; }
+  /* Folded, the header still says when the meter needs a look. */
+  .dog-refs-head-warn { color: var(--color-warning); }
+  .dog-refs-actions { display: flex; align-items: center; gap: 8px; }
+  .dog-refs-more {
+    padding: 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
   .dog-refs-contract { margin-bottom: 0; }
   .dog-refs-notice { display: flex; align-items: baseline; gap: 8px; margin-bottom: 0; }
   .dog-refs-dismiss {

@@ -17,7 +17,7 @@ import {
   Sparkles, ListChecks, CalendarRange, Flag, FileText, Image as ImageIcon, Video, StickyNote,
 } from 'lucide-react';
 import { Card, Button, IconButton, Badge, Dialog, Spinner } from '../../../ui';
-import { KIND_LABEL, meterState, PDF_PAGE_LIMIT } from './referenceModel';
+import { KIND_LABEL, meterState, sizeWarning } from './referenceModel';
 
 export const KIND_GLYPH = {
   asset: Boxes, scene: Film, shot: Clapperboard, level: Gamepad2, experience: Sparkles,
@@ -34,32 +34,33 @@ export function rowLabel(s) {
   return s.kind === 'file' || s.kind === 'note' ? s.name : `${KIND_LABEL[s.kind]} · ${s.name}`;
 }
 
-/** The warning a PDF's row carries once its pages are known. */
-export function pdfWarning(pages) {
-  return pages && pages > PDF_PAGE_LIMIT
-    ? `${pages} pages: the AI may refuse a PDF over ${PDF_PAGE_LIMIT}`
-    : null;
+const mbOf = (bytes) => `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
+
+/** The meter's sentence, for the bar, the folded header and screen readers. */
+export function meterSentence(m, bytes = 0) {
+  const pct = m.tokens > 0 && m.percent === 0 ? 'Less than 1%' : `About ${m.percent}%`;
+  const head = m.over
+    ? 'Past what D.O.G. can read for one deck: generating may be slow, cost more, or fail.'
+    : `${pct} of what D.O.G. can read for one deck`;
+  const extra = [];
+  if (m.uncounted) extra.push(`${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted until read`);
+  // What Generate will download, once it matters (review round 2, finding 3).
+  if (bytes > 25 * 1024 * 1024) extra.push(`about ${mbOf(bytes)} to download`);
+  return [head, ...extra].join(' · ');
 }
 
 /** The bar, in the card and in the window's footer. */
-export function ReferencesMeter({ tokens, uncounted = 0 }) {
+export function ReferencesMeter({ tokens, uncounted = 0, bytes = 0 }) {
   const m = meterState(tokens, undefined, uncounted);
-  const fill = Math.min(100, m.percent);
-  const rest = m.uncounted
-    ? ` · ${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted until read`
-    : '';
+  const sentence = meterSentence(m, bytes);
   return (
     <div className="dog-refs-meter" data-over={m.over}
       title={`An estimate: about ${m.tokens.toLocaleString()} of ${m.limit.toLocaleString()} tokens`}>
       <div className="dog-refs-meter-track" role="meter" aria-label="How much of what D.O.G. can read for one deck"
-        aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(m.percent, 999)}>
-        <span className="dog-refs-meter-fill" style={{ width: `${fill}%` }} />
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(m.percent, 100)} aria-valuetext={sentence}>
+        <span className="dog-refs-meter-fill" style={{ width: `${Math.min(100, m.percent)}%` }} />
       </div>
-      <p className="dog-refs-meter-words">
-        {m.over
-          ? `Past what D.O.G. can read for one deck: generating may be slow, cost more, or fail.${rest}`
-          : `${m.tokens > 0 && m.percent === 0 ? 'Less than 1%' : `About ${m.percent}%`} of what D.O.G. can read for one deck${rest}`}
-      </p>
+      <p className="dog-refs-meter-words">{sentence}</p>
     </div>
   );
 }
@@ -96,7 +97,7 @@ export function PreviewBody({ preview }) {
 export function previewSubtitle(data) {
   if (!data) return null;
   return data.tokens == null
-    ? 'What D.O.G. sends for it · counted once it is read'
+    ? 'What D.O.G. sends for it · its size could not be counted'
     : `What D.O.G. sends for it · about ${data.tokens.toLocaleString()} tokens`;
 }
 
@@ -133,6 +134,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   const [collapsed, setCollapsed] = useState(false);
   const rows = refs.chosenList;
   const count = rows.length;
+  const m = meterState(refs.chosenTokens + extraTokens, undefined, refs.chosenUncounted + extraUncounted);
+  // Folded, the card still says when the meter needs a look (review round 2, 9).
+  const headWarn = m.over ? 'over the limit' : m.uncounted ? `${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted` : '';
 
   return (
     <Card pad={false} className="dog-card dog-refs">
@@ -147,7 +151,10 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
           References
         </h2>
         <div className="ui-panel-actions">
-          <span className="dog-card-note dog-refs-count">{count ? `${count} chosen` : 'None chosen'}</span>
+          <span className="dog-card-note dog-refs-count">
+            {count ? `${count} chosen` : 'None chosen'}
+            {headWarn && <span className="dog-refs-head-warn">{` · ${headWarn}`}</span>}
+          </span>
           {collapsed
             ? <ChevronRight className="dog-chevron" aria-hidden="true" />
             : <ChevronDown className="dog-chevron" aria-hidden="true" />}
@@ -159,12 +166,17 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
           {refs.notice && (
             <p className="dog-details-note dog-refs-notice" role="status">
               {refs.notice}
+              {refs.undoable && (
+                <button type="button" className="dog-refs-dismiss" onClick={refs.undoRemoveAll}>Undo</button>
+              )}
               <button type="button" className="dog-refs-dismiss" onClick={refs.clearNotice}>Dismiss</button>
             </p>
           )}
-          {/* Design review round 1, finding 3: the sentence names everything
-              that goes, so it is true; the meter beside it counts the same. */}
-          <p className="ui-field-hint dog-refs-contract">
+          {/* The sentence names everything that goes, so it is true; the
+              meter beside it counts the same. PDFs and pictures are stored in
+              the AI's file store to be read (the hover says so). */}
+          <p className="ui-field-hint dog-refs-contract"
+            title="PDFs and pictures are placed in the AI's file store to be read. Your notes always travel in the request itself.">
             What goes to the AI: your uploads, what is listed here, and the project&rsquo;s title and description, with what you write below.
           </p>
           {!projectChosen && (
@@ -184,12 +196,13 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
                     const Glyph = s.kind === 'file' ? fileGlyph(s.dogType) : KIND_GLYPH[s.kind];
                     const gone = refs.unavailable.has(s.key);
                     const label = rowLabel(s);
-                    const warn = s.dogType === 'pdf' ? pdfWarning(refs.pdfPages?.get(s.id)) : null;
+                    const warn = s.kind === 'file' ? sizeWarning(s.dogType, s.size, refs.pdfPages?.get(s.id) || null) : null;
                     return (
                       <li key={s.key} className="dog-refs-row" data-unavailable={gone || undefined}>
                         <Glyph className="dog-file-icon" aria-hidden="true" />
-                        <span className="dog-refs-name" title={label}>{label}</span>
+                        <span className="dog-refs-name" title={s.trail ? `${s.trail} › ${label}` : label}>{label}</span>
                         {s.isCore && <Badge className="dog-refs-core">Core</Badge>}
+                        {!gone && s.dogType === 'video' && <span className="dog-refs-sub">placed only, not read</span>}
                         {gone && <span className="dog-refs-gone">No longer available; it will not be sent</span>}
                         {!gone && warn && <span className="dog-refs-warn">{warn}</span>}
                         <IconButton size="sm" icon={Eye} title={`Preview ${s.name}`} disabled={gone}
@@ -204,13 +217,17 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
             );
           })}
 
-          <ReferencesMeter tokens={refs.chosenTokens + extraTokens} uncounted={refs.chosenUncounted + extraUncounted} />
+          <ReferencesMeter tokens={refs.chosenTokens + extraTokens} uncounted={refs.chosenUncounted + extraUncounted}
+            bytes={refs.chosenBytes} />
 
-          <div>
+          <div className="dog-refs-actions">
             <Button variant="secondary" onClick={onAdd}>
               <Plus aria-hidden="true" />
               Add references
             </Button>
+            {count > 1 && (
+              <Button variant="ghost" onClick={refs.removeAll}>Remove all</Button>
+            )}
           </div>
         </div>
       )}

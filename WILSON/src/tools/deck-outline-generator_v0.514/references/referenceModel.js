@@ -142,6 +142,16 @@ export function readableType(mime, name, dogType) {
 
 export const UNREADABLE_REASON = 'D.O.G. cannot read this kind of file';
 
+/**
+ * A stored row's kind: deckAttachments' own rule, except that a picture
+ * whose type the operating system left blank is still a picture by its name
+ * (a `.jpg` with no type would otherwise be read as text and greyed).
+ */
+function storedDogType(row) {
+  const t = dogTypeForRow(row);
+  return t === 'text' && !row?.mime_type && AI_PICTURE_EXT.test(row?.name || '') ? 'image' : t;
+}
+
 // ── The pool ────────────────────────────────────────────────────────────────
 
 const live = (rows) => (Array.isArray(rows) ? rows : []).filter(r => r && !r.deleted_at && !r.set_aside_at);
@@ -229,7 +239,7 @@ function fileEntity(row) {
  * @param {Array}  [args.notes]   the person's own notes (listNotes), or null
  * @param {object} [args.errors]  { [kind|'files'|'notes']: message }
  */
-export function buildPool({ lists = {}, project = null, notes = null, errors = {} } = {}) {
+export function buildPool({ lists = {}, project = null, notes = null, errors = {}, meta = null } = {}) {
   const byId = {};
   for (const kind of ITEM_KINDS) {
     byId[kind] = new Map(live(lists[KIND_SOURCE[kind]]).map(r => [r.id, r]));
@@ -264,8 +274,8 @@ export function buildPool({ lists = {}, project = null, notes = null, errors = {
       isCore: row.is_core_definer === true,
       mime: row.mime_type || '',
       size: row.size_bytes ?? 0,
-      dogType: dogTypeForRow(row),
-      readable: !!readableType(row.mime_type, row.name, dogTypeForRow(row)),
+      dogType: storedDogType(row),
+      readable: !!readableType(row.mime_type, row.name, storedDogType(row)),
       entity: fileEntity(row),
       source: 'stored',
       row,
@@ -288,6 +298,7 @@ export function buildPool({ lists = {}, project = null, notes = null, errors = {
     })),
     taskItems: Array.isArray(lists.taskItems) ? lists.taskItems : [],
     errors: { ...errors },
+    meta: meta || { attempted: 0, failed: 0 },
   };
 }
 
@@ -375,10 +386,17 @@ export function coreFileKeys(pool) {
   return (pool?.files || []).filter(f => f.readable && f.isCore).map(f => f.key);
 }
 
+/** A range with either end open: from the start, or to today and after. */
+function openRange(fromDay, toDay) {
+  const a = fromDay || '0000-01-01';
+  const b = toDay || '9999-12-31';
+  return a <= b ? [a, b] : [b, a];
+}
+
 /** Files ADDED between two days, inclusive (by the day they were uploaded). */
 export function fileKeysAddedBetween(pool, fromDay, toDay) {
-  if (!fromDay || !toDay) return [];
-  const [a, b] = fromDay <= toDay ? [fromDay, toDay] : [toDay, fromDay];
+  if (!fromDay && !toDay) return [];
+  const [a, b] = openRange(fromDay, toDay);
   return (pool?.files || []).filter(f => {
     if (!f.readable) return false;
     const day = localDay(f.uploadedAt);
@@ -388,8 +406,8 @@ export function fileKeysAddedBetween(pool, fromDay, toDay) {
 
 /** Notes DATED between two days, inclusive (by the date each note carries). */
 export function noteKeysDatedBetween(pool, fromDay, toDay) {
-  if (!fromDay || !toDay) return [];
-  const [a, b] = fromDay <= toDay ? [fromDay, toDay] : [toDay, fromDay];
+  if (!fromDay && !toDay) return [];
+  const [a, b] = openRange(fromDay, toDay);
   return (pool?.notes || []).filter(n => n.noteDate && n.noteDate.slice(0, 10) >= a && n.noteDate.slice(0, 10) <= b)
     .map(n => n.key);
 }
@@ -525,19 +543,36 @@ export function noteWords(entry, noteText) {
   return [head, ...meta, '', text(noteText)].join('\n');
 }
 
-export const REFERENCES_SOURCE_NAME = 'Chosen references (items and notes)';
+export const REFERENCES_SOURCE_NAME = 'Chosen references (items)';
+export const NOTES_SOURCE_NAME = 'Chosen notes';
 
 /**
- * The one text block the chosen items and notes travel in. It is passed to
- * buildSourceParts as one more text source, so the 256 KB rule that moves a
- * large text to the AI's file store applies to it with no new transport.
+ * The text block the chosen ITEMS travel in: one more text source for
+ * buildSourceParts, so the 256 KB rule that moves a large text to the AI's
+ * file store applies to it with no new transport.
  */
-export function referencesText(itemParagraphs, noteParagraphs) {
-  const parts = [...itemParagraphs, ...noteParagraphs].filter(Boolean);
+export function referencesText(itemParagraphs) {
+  const parts = (itemParagraphs || []).filter(Boolean);
   if (!parts.length) return '';
   return [
     'CHOSEN REFERENCES',
-    'Items from the project and the person’s own notes, chosen for this deck. Use them as source material, as you use the files.',
+    'Items from the project, chosen for this deck. Use them as source material, as you use the files.',
+    '',
+    parts.join('\n\n'),
+  ].join('\n');
+}
+
+/**
+ * The text block the chosen NOTES travel in. Marked inline-only where it is
+ * built, so it always goes in the prompt and is never stored in the AI's
+ * file store, whatever its length.
+ */
+export function notesText(noteParagraphs) {
+  const parts = (noteParagraphs || []).filter(Boolean);
+  if (!parts.length) return '';
+  return [
+    'CHOSEN NOTES',
+    'The person\u2019s own notes, chosen for this deck. Use them as source material, as you use the files.',
     '',
     parts.join('\n\n'),
   ].join('\n');
@@ -607,6 +642,29 @@ export const IMAGE_TOKEN_ESTIMATE = 4000;
 export const PDF_PAGE_TOKENS = 4500;
 /** Past this a request may be refused (the provider's per-request page cap). */
 export const PDF_PAGE_LIMIT = 100;
+/** The provider's request and picture caps (its PDF and vision pages). */
+export const PDF_BYTE_LIMIT = 32 * 1024 * 1024;
+export const IMAGE_BYTE_LIMIT = 10 * 1024 * 1024;
+/** A video is only placed, never sent; past this it is not read into memory. */
+export const VIDEO_PLACE_LIMIT = 100 * 1024 * 1024;
+
+const mb = (n) => `${Math.round(n / (1024 * 1024))} MB`;
+
+/**
+ * The warning a file's row carries, from what is known of it: a PDF over the
+ * page or byte cap, a picture over the picture cap, a video too large to
+ * place. `null` when none applies. Warnings, never blocks (Q8).
+ */
+export function sizeWarning(dogType, bytes, pages = null) {
+  const n = Number(bytes) || 0;
+  if (dogType === 'pdf') {
+    if (pages && pages > PDF_PAGE_LIMIT) return `${pages} pages: the AI may refuse a PDF over ${PDF_PAGE_LIMIT}`;
+    if (n > PDF_BYTE_LIMIT) return `${mb(n)}: the AI may refuse a PDF over ${mb(PDF_BYTE_LIMIT)}`;
+  }
+  if (dogType === 'image' && n > IMAGE_BYTE_LIMIT) return `${mb(n)}: the AI may refuse a picture over ${mb(IMAGE_BYTE_LIMIT)}`;
+  if (dogType === 'video' && n > VIDEO_PLACE_LIMIT) return `${mb(n)}: too large to place in a slide`;
+  return null;
+}
 
 export const textTokens = (s) => Math.ceil(String(s || '').length / 4);
 
@@ -631,23 +689,90 @@ export function uploadTokens(entry, pages = null) {
 }
 
 /**
- * The pages of a PDF, from its bytes as a binary string, when they can be
- * read without decompressing: the page tree's /Count (the root's is the
- * largest), else the number of /Type /Page objects. `null` when neither is
- * in the clear (a PDF 1.5 file keeps its objects in compressed object
- * streams; countPdfPages looks inside those).
+ * The text of the dictionary that encloses position `at` (between its own
+ * `<<` and `>>`, nested dictionaries included), or null. Bounded both ways:
+ * a page-tree node is a few hundred bytes, never megabytes.
+ */
+function enclosingDict(src, at) {
+  const BOUND = 65536;
+  let depth = 0;
+  let start = -1;
+  for (let i = at; i > 0 && at - i < BOUND; i--) {
+    if (src[i] === '>' && src[i - 1] === '>') { depth++; i--; continue; }
+    if (src[i] === '<' && src[i - 1] === '<') {
+      if (depth === 0) { start = i - 1; break; }
+      depth--; i--;
+    }
+  }
+  if (start < 0) return null;
+  depth = 0;
+  for (let i = start; i < src.length - 1 && i - start < BOUND; i++) {
+    if (src[i] === '<' && src[i + 1] === '<') { depth++; i++; continue; }
+    if (src[i] === '>' && src[i + 1] === '>') {
+      depth--; i++;
+      if (depth === 0) return src.slice(start + 2, i - 1);
+    }
+  }
+  return null;
+}
+
+/** A dictionary's own entries: its nested dictionaries left out. */
+function ownEntries(dict) {
+  let out = '';
+  let depth = 0;
+  for (let i = 0; i < dict.length; i++) {
+    if (dict[i] === '<' && dict[i + 1] === '<') { depth++; i++; continue; }
+    if (dict[i] === '>' && dict[i + 1] === '>') { depth--; i++; continue; }
+    if (depth === 0) out += dict[i];
+  }
+  return out;
+}
+
+/**
+ * The /Count of every page-tree ROOT in this text: a dictionary whose own
+ * /Type is /Pages and which has no /Parent. Bound to that dictionary, so the
+ * bookmarks' /Count (/Outlines) or a branch's never stands in for it
+ * (design review round 2, finding 2).
+ */
+function pageRootCounts(src) {
+  const counts = [];
+  const re = /\/Type\s*\/Pages\b/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const dict = enclosingDict(src, m.index);
+    if (!dict) continue;
+    const own = ownEntries(dict);
+    if (!/\/Type\s*\/Pages\b/.test(own) || /\/Parent\b/.test(own)) continue;
+    const c = /\/Count\s+(\d+)/.exec(own);
+    if (c) counts.push(Number(c[1]));
+  }
+  return counts;
+}
+
+/** The page count a linearized PDF states in its first dictionary (/N). */
+function linearizedPages(src) {
+  const head = src.slice(0, 4096);
+  const at = head.search(/\/Linearized\b/);
+  if (at < 0) return null;
+  const dict = enclosingDict(head, at);
+  const n = dict && /\/N\s+(\d+)/.exec(ownEntries(dict));
+  return n ? Number(n[1]) : null;
+}
+
+/**
+ * The pages of a PDF from its bytes as a binary string, from what is in the
+ * clear: the linearization hint's /N and every page-tree root's /Count; the
+ * largest, so a later revision that added pages is not undercounted (an
+ * undercount hides the very PDF the AI would refuse). `null` when neither is
+ * in the clear. A count of /Type /Page objects is never the answer: stale
+ * revisions inflate it and a compressed tree hides it.
  */
 export function pdfPagesFromBinary(bin) {
   const src = String(bin || '');
-  let count = 0;
-  const pagesDict = /<<((?:(?!<<|>>)[\s\S])*?\/Type\s*\/Pages\b(?:(?!<<|>>)[\s\S])*?)>>/g;
-  for (const m of src.matchAll(pagesDict)) {
-    const c = /\/Count\s+(\d+)/.exec(m[1]);
-    if (c) count = Math.max(count, Number(c[1]));
-  }
-  if (count > 0) return count;
-  const pages = (src.match(/\/Type\s*\/Page(?![A-Za-z])/g) || []).length;
-  return pages > 0 ? pages : null;
+  const found = pageRootCounts(src);
+  const lin = linearizedPages(src);
+  if (lin) found.push(lin);
+  return found.length ? Math.max(...found) : null;
 }
 
 function binaryToBytes(bin) {
@@ -664,40 +789,39 @@ function bytesToBinary(u8) {
 
 /**
  * A PDF's page count from its base64 body, or `null` when it cannot be told.
- * Reads the clear text first; failing that, inflates the compressed object
- * streams (/Type /ObjStm, FlateDecode) with the platform's own
- * DecompressionStream and reads them. Never throws.
+ * Reads the clear text AND, always, the compressed object streams (/Type
+ * /ObjStm, FlateDecode, inflated with the platform's own DecompressionStream):
+ * a clear count is never taken as the whole answer, because an incremental
+ * save leaves objects in the clear while the tree sits compressed (review
+ * round 2, finding 2). Never throws.
  */
 export async function countPdfPages(base64) {
   let bin;
   try { bin = atob(String(base64 || '')); } catch { return null; }
-  const direct = pdfPagesFromBinary(bin);
-  if (direct) return direct;
-  if (typeof DecompressionStream !== 'function') return null;
-  const streams = /<<((?:(?!stream\b)[\s\S]){0,2000}?)>>\s*stream\r?\n/g;
-  let count = 0;
-  let pageObjects = 0;
-  for (const m of bin.matchAll(streams)) {
-    const dict = m[1];
-    if (!/\/Type\s*\/ObjStm/.test(dict) || !/\/FlateDecode/.test(dict)) continue;
-    const start = m.index + m[0].length;
-    const end = bin.indexOf('endstream', start);
-    if (end < 0) continue;
-    let stop = end;
-    while (stop > start && (bin[stop - 1] === '\n' || bin[stop - 1] === '\r')) stop--;
-    try {
-      const ds = new DecompressionStream('deflate');
-      const body = new Blob([binaryToBytes(bin.slice(start, stop))]).stream().pipeThrough(ds);
-      const inner = bytesToBinary(new Uint8Array(await new Response(body).arrayBuffer()));
-      const pagesDict = /\/Type\s*\/Pages\b[\s\S]*?\/Count\s+(\d+)|\/Count\s+(\d+)[\s\S]*?\/Type\s*\/Pages\b/g;
-      for (const p of inner.matchAll(pagesDict)) count = Math.max(count, Number(p[1] || p[2]));
-      pageObjects += (inner.match(/\/Type\s*\/Page(?![A-Za-z])/g) || []).length;
-    } catch {
-      // One stream that does not inflate is not the whole file.
+  const found = pageRootCounts(bin);
+  const lin = linearizedPages(bin);
+  if (lin) found.push(lin);
+  if (typeof DecompressionStream === 'function') {
+    const streams = /<<((?:(?!stream\b)[\s\S]){0,2000}?)>>\s*stream\r?\n/g;
+    for (const m of bin.matchAll(streams)) {
+      const dict = m[1];
+      if (!/\/Type\s*\/ObjStm/.test(dict) || !/\/FlateDecode/.test(dict)) continue;
+      const start = m.index + m[0].length;
+      const end = bin.indexOf('endstream', start);
+      if (end < 0) continue;
+      let stop = end;
+      while (stop > start && (bin[stop - 1] === '\n' || bin[stop - 1] === '\r')) stop--;
+      try {
+        const ds = new DecompressionStream('deflate');
+        const body = new Blob([binaryToBytes(bin.slice(start, stop))]).stream().pipeThrough(ds);
+        const inner = bytesToBinary(new Uint8Array(await new Response(body).arrayBuffer()));
+        found.push(...pageRootCounts(inner));
+      } catch {
+        // One stream that does not inflate is not the whole file.
+      }
     }
   }
-  if (count > 0) return count;
-  return pageObjects > 0 ? pageObjects : null;
+  return found.length ? Math.max(...found) : null;
 }
 
 /**

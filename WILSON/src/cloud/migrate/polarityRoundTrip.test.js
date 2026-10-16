@@ -131,12 +131,15 @@ describe('§6 #31 trap (b): migrating a legacy project changes nothing D.O.G. as
     const adapter = recordingAdapter(project)
     await runAttachmentMigration({ adapter, detectKind })
 
-    const visible = adapter.rows.filter(isDeckAttachmentRow)
+    // D.O.G. offers what the reference model offers (DG1); R.A.B.B.I.T.'s
+    // own contract is checked last.
+    const visible = offered(adapter.rows)
     expect(visible).toHaveLength(before.length)
     expect(visible.map(r => r.name).sort())
       .toEqual(before.map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')).sort())
     // Named, so a regression says WHICH file went missing.
     expect(visible.map(r => r.name)).toContain('legacy.pdf')
+    expect(adapter.rows.filter(isDeckAttachmentRow)).toHaveLength(before.length)
   })
 
   it('empties the legacy arrays only for what actually moved', async () => {
