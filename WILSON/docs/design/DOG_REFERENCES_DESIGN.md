@@ -38,7 +38,7 @@ colour, no new typeface.
 | R18 | Full deck and Single page are one card; the switch reads *Single page* on its other side; Full deck shows the full deck box and the theme generator; Single page shows page number, layout and the single page box; the two media boxes show in both; examples and subtitles stay. | her brief |
 | R19 | Uploads stay exactly as they are. | her brief |
 | P12 | **Provisional (Q12):** the chosen set is kept while WILSON is open, never written to the computer. | recommended pick |
-| P19 | **Provisional (Q19):** *Use project assets* places the pictures and videos among the chosen references. | recommended pick |
+| P19 | **Provisional (Q19):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") can also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out, so the conflict is put to her first (Q19). | recommended pick |
 | P20 | **Provisional (Q20):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | recommended pick |
 | P21 | **Provisional (Q21):** D.O.G. opens on *Single page*, as today. | recommended pick |
 
@@ -125,8 +125,9 @@ Top to bottom, D.O.G.'s middle column holds three input cards and the output.
 - **Header**: step 2, *References*, the count ("6 chosen", or "None chosen"),
   and the chevron. It folds like the other cards (R3); folded, the header still
   shows the count, so a folded card never hides that references are going.
-- **The contract line** (the research's pattern 2): *"Only what is listed here
-  goes to the AI, with the project's title and description."*
+- **The contract line** (the research's pattern 2), true as written (review
+  round 1, finding 3): *"What goes to the AI: your uploads, what is listed
+  here, and the project's title and description, with what you write below."*
 - **The chosen rows**, grouped under *Items (n)*, *Files (n)*, *Notes (n)*, each
   row: the kind's glyph, the name, and at its end **Preview** (the eye) and
   **Remove** (×). Names only (R6). An item reads with its kind and number where
@@ -138,18 +139,24 @@ Top to bottom, D.O.G.'s middle column holds three input cards and the output.
   gate, the backend switched) stays in the list, greyed, with *"No longer
   available; it will not be sent"*, until removed (the research's pattern 8). It
   is never sent.
-- **The meter**: one bar and *"About 24% of what one deck reads"*, counting
-  everything that will be sent (the project's text, the deck text, the uploads
-  and the references). At 100% and past it the bar turns amber and the line reads
-  *"Past what one deck reads: generating may be slow, cost more, or fail."*;
-  Generate stays enabled (R10). The estimate in tokens is the bar's title text.
+- **The meter**: one bar and *"About 24% of what D.O.G. can read for one
+  deck"* (*"Less than 1%"* below one), counting everything that will be sent
+  (the project's text, the deck text, the uploads and the references). A PDF is
+  counted by its pages once its body is in hand (an upload; a chosen file once
+  read at Preview or Generate); until then it is not guessed, and the line adds
+  *"· 2 PDFs not counted until read"*. Past 100% the bar turns amber and the
+  line reads *"Past what D.O.G. can read for one deck: generating may be slow,
+  cost more, or fail."*; Generate stays enabled (R10). The hover says it is an
+  estimate, in tokens. A PDF over 100 pages says so on its row.
 - **Add references** opens the window. With no project chosen the card says
   *"Choose a project to reference its items and files. Your notes can be
   referenced without one."* and the button still opens the window on Notes (R7).
-- **Changing project** removes the old project's items and files from the list,
-  keeps the notes (they are not a project's), and says so in one line under the
-  header: *"3 references from Salt Hours were removed."* No dialog (flow): it is
-  a list, not work.
+- **Changing project** sets the old project's items and files aside, keeps the
+  notes (they are not a project's), and says so in one line under the header:
+  *"3 references from Salt Hours are set aside; they come back when you choose
+  Salt Hours again."* Choosing it again brings them back (*"… are back."*). No
+  dialog (flow), and nothing lost (review round 1, finding 17). Remove sits
+  apart from Preview at the row's end.
 
 ### 2.3 The window, *Add references* (R12)
 
@@ -192,10 +199,14 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
 
 - **The switch**, first in the card: *Single page*, the switch, *Full deck*.
   Both words always show; the side that is on reads in the full ink and the
-  other in the dim ink, and the knob sits on that side. Clicking either word
-  chooses that side; the switch toggles. The switch keeps its `dog-full-deck`
-  class, so Enter keeps generating from it (`enterGenerates.js`). It opens on
-  *Single page* (P21).
+  other in the dim ink, and the knob sits on that side. The switch's own name
+  is *Full deck* (`aria-label`; checked is Full deck, unchecked is Single
+  page), so a screen reader hears which side is on; the two words are pointer
+  shortcuts to their side, hidden from it and not in the tab order. Space and
+  Enter work as on every switch, Left and Right choose a side, and the switch
+  keeps its `dog-full-deck` class, so Enter keeps generating from it
+  (`enterGenerates.js`; review round 1, finding 4). It opens on *Single page*
+  (P21).
 - **The two media boxes**, under the switch, in both modes:
   - **Use visual assets** with *"to place media in the deck"* after it in the
     hint ink (R15): your uploaded pictures and videos, as *Use uploaded assets*
@@ -238,7 +249,7 @@ bundle again). Each kind is read on its own and a failure stays in its own row.
 | Scene | always | number, name, status, type, time of day, start and end, description, notes | thumbnail |
 | Shot | always | number, name, its scene's number and name, status, framing, camera movement, frame count, description, notes | thumbnail |
 | Level, experience | always | name, status, start and end, description, notes | thumbnail |
-| Phase | always | name, start and end, description | |
+| Phase | not deleted, not set aside (0090) | name, start and end, description | |
 | Milestone | not deleted, not set aside | title, date, its phase's name, description | |
 | File | not deleted, not money, not Legal (R8) | its body, as today: text inline, PDF and pictures through the AI's file store, video never (placement only) | |
 | Legacy attachment (the old arrays, Local Server) | always | its body, as today | |
@@ -294,7 +305,7 @@ rules and the house's four characters to a token:
 | Source | Estimate |
 |---|---|
 | Words (items, notes, text files, the deck text, the project text) | characters ÷ 4 |
-| PDF | bytes ÷ 20 (about 1,500 to 3,000 text tokens a page plus the page as a picture) |
+| PDF | pages × 4,500 (1,500 to 3,000 text tokens a page plus the page as a picture), the pages read from the body's page tree, or from inside its compressed object streams; not counted, and said, until the body is in hand |
 | Picture | 4,000 each (the newest models cap a picture at 4,784) |
 | Video | 0 (never sent) |
 
@@ -307,8 +318,10 @@ the estimate against it; past it, amber and the warning, never a block.
 ## 5. Privacy: what leaves, and what can be chosen
 
 1. **Nothing a person may not read is listed.** On the cloud every list is the
-   person's own read under the database's rules: a private project's items only
-   for its creator and members (0072), files without money files for anyone
+   person's own read under the database's rules: a private project only for
+   its creator and the workspace's admins (0072; its files live on the
+   creator's computer, so on an admin's they cannot be read and grey at
+   Generate), files without money files for anyone
    without money access, Legal files only for admins and managers (0088, 0092),
    notes only their owner's (0017: owner only, no admin bypass).
 2. **Nothing a person may read is sent unless they ticked it**, except the
@@ -323,10 +336,18 @@ the estimate against it; past it, amber and the warning, never a block.
 5. **Nothing chosen is written to the computer** (P12): no note title, no file
    name, no id goes to browser storage. The chosen set lives in the screen's
    memory and goes when WILSON closes.
-6. **Reading happens at Generate or Preview**, never at the choosing, so a
-   download record means a body was really used.
-7. **A reference that becomes unreadable** after it was chosen is not sent: the
-   read at Generate fails for it, and the card greys it (§2.2).
+6. **A file is read at Generate or at a Preview the person asks for**, never
+   at the choosing. On the cloud each read, a preview's included, is recorded in
+   the file's activity like any download, and the preview says so; a picture
+   over 8 MB is described, not fetched, to preview it. A note's text is read
+   when it is ticked (its owner's own, recording nothing), so the meter can
+   count it.
+7. **At Generate the pool is listed again through the same gate**; a reference
+   missing from the fresh list (deleted, trashed: a trashed file's blob still
+   downloads, so the list is the test, not the download) is not sent and is
+   greyed in the card. A greyed reference does not count as a source, and when
+   nothing chosen can be read and nothing is uploaded, D.O.G. says so instead
+   of generating from the project's text alone.
 8. **The Local Server** is one person on one computer: everything in its bundle
    may be listed, except Legal and money files (the same rule), and there are no
    notes.
@@ -338,9 +359,10 @@ the estimate against it; past it, amber and the warning, never a block.
 | Backend | Items | Files | Notes | Generate |
 |---|---|---|---|---|
 | Cloud | yes | yes | yours | signed in, as today |
-| Local Server (signed in for the AI) | yes, from one `loadProject` | yes | *"Notes need the cloud"* | as today |
+| Local Server (signed in for the AI) | yes, from one `loadProject`; a scene's, shot's, level's or experience's own files are not linked to it there (the route drops those links; entity file managers write the managed store), and the window says so | yes, the files table's | *"Notes need the cloud"* | as today |
 | Signed out | listed if the backend can | listed if the backend can | none | refused by the AI relay, as today |
-| Google Drive | each kind *"Could not be listed"* (its reads refuse) | listed | none | as today |
+| Google Drive | each kind *"could not be listed"*: some reads refuse, the rest do not exist, and both say so (hover: *"This storage cannot list them."*) | listed | none | as today |
+| A teammate's private project (a workspace admin) | listed (0072) | listed; bodies live on the creator's computer, so they grey at Generate | yours | as today |
 | Dev fixtures | yes | listed; reading a body is refused, as for every fixture download | the four test notes | as today |
 
 ---
@@ -354,6 +376,9 @@ the estimate against it; past it, amber and the warning, never a block.
   text block after its thinking, so the read is the same text.
 - The export formats (`DECKOUTLINE.md`, `VIS_DECKOUTLINE.md`, `IMG_PROMPTS.md`,
   the placed asset files) do not change.
+- The theme generator never sees a reference: it reads the deck text, the page
+  titles and the uploads, as before, so a deck made from references alone takes
+  its colours from the deck text.
 
 ---
 
@@ -403,3 +428,47 @@ their own modules and the component changes as little as it can.
 5. The limit is 200,000 estimated tokens.
 6. A reference that becomes unreadable stays in the list, greyed, until removed.
 7. Quick choices only tick; they never untick.
+8. An item sends more than the four fields her Q1 and Q3 options named (name,
+   status, description, notes): also its type, dates, scene number, time of
+   day, framing, camera movement, frame count, a task's priority, role and
+   what it is about, a milestone's phase. Shared project data, no privacy
+   change. Asked as Q22.
+9. *"to place media in the deck"* is shown as the box's hint; her quote may
+   have been her explanation rather than label text. Asked as Q23.
+10. The cloud's file list has no paging (PostgREST's 1,000-row default, as for
+    the Files tab today): past 1,000 files in one project, *All Core files*
+    and a folder's tick reach only the first thousand. Stated, not fixed
+    here (`docs/OUTSTANDING.md`).
+11. A kind shows in the rail when the project holds at least one (FX2's
+    picker's second arm); a kind switched off in R.A.B.B.I.T. but holding
+    rows still shows.
+
+---
+
+## 10. Design review round 1 (2026-10-16): the findings and what was done
+
+A Fable reviewer read this design, her verbatim answers and the code, read-only.
+Nineteen findings; every one is answered in the sections above and in the build
+(commit `66305319`).
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | HIGH | A PDF estimated by bytes is wrong by an order of magnitude either way | Counted by pages (page tree, or compressed object streams through the platform's DecompressionStream); not guessed before the body is in hand; said in the meter; over 100 pages flagged (§2.2, §4) |
+| 2 | MEDIUM | P19 departs from "like before" | Kept provisional; the conflict with Q2 put to her first (§1, Q19) |
+| 3 | MEDIUM | The contract line was false (uploads go too) | Rewritten to name everything that goes (§2.2) |
+| 4 | MEDIUM | The two-sided switch's name and keys | Name *Full deck*, words pointer-only and hidden from a screen reader, Left/Right choose, Enter unchanged (§2.4) |
+| 5 | MEDIUM | Local Server: an item's own files are not linked to it | Stated in §6 and in the window |
+| 6 | MEDIUM | Adapter error text in the rail; signed-out state | One plain line when signed out; *"could not be listed"* with the storage's words on hover |
+| 7 | MEDIUM/LOW | Previews download and are recorded | Said in §5.6 and in the preview; pictures over 8 MB described, not fetched |
+| 8 | LOW | "The read fails" was the wrong mechanism | §5.7: the fresh, gated list is the test; nothing-readable stops generation |
+| 9 | LOW | Set-aside phases | §3 row fixed (the code already filtered) |
+| 10 | LOW | 0072 misstated | §5.1 and a §6 row |
+| 11 | LOW | Google Drive kinds hidden in silence | A missing read says it cannot list them |
+| 12 | LOW | Item fields beyond her list | §9 item 8, Q22 |
+| 13 | LOW | Notes read at tick | Said in §5.6 |
+| 14 | LOW | Date tools: undated files and notes | Counted beside the tools |
+| 15 | LOW | No paging past 1,000 files | §9 item 10, `OUTSTANDING.md` |
+| 16 | LOW | Switched-off kinds | §9 item 11 (FX2's rule) |
+| 17 | LOW | Forgiveness on a project change; Remove beside Preview | Set aside and brought back; Remove apart |
+| 18 | LOW | "to place media in the deck" as label or explanation | Q23 |
+| 19 | LOW | The meter's unit; the theme generator | Plain words; §7 says the theme generator never sees a reference |

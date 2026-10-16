@@ -396,7 +396,11 @@ D.O.G. reads, which of the project's pictures and videos can it place?**
 
 *Why:* your Q2 makes the project the place you choose from, not a set that goes
 on its own; a picture you did not tick turning up on a slide would be the one
-surprise left.
+surprise left. **The two answers pull apart** (design review round 1, finding 2):
+"like before" placed the project's pictures without a tick, and a placed picture
+is also sent to the AI to look at, which your Q2 ("choosing the project should
+select what files and items he user can choose from") rules out. Whichever you
+pick, the other answer bends.
 
 **Q20. The three cards, top to bottom, would read *1 Project documentation*
 (the project and your uploads), *2 References*, *3 Generate outline* (the one
@@ -419,6 +423,37 @@ Single page / Full deck card). Keep those names?**
 ### Her answers, batch 5
 
 *(not yet asked: left for tomorrow at her request)*
+
+---
+
+## Batch 6 — two things the design review found (left for tomorrow too)
+
+**Q22. An item sends its name, status, description and notes, as your answers
+said, and also its type, dates and production fields (a scene's number and
+time of day, a shot's framing, camera movement and frame count, a task's
+priority, role and what it is about, a milestone's phase). Keep the extra
+fields?**
+
+- **Keep them** *(Recommended; built provisionally)*: they are what a slide
+  about a scene or a schedule is made of, and they are the project's own data.
+- **Only the four**: name, status, description and notes.
+
+*Why:* a shot list slide needs framing and frame counts; nothing here is
+private beyond the project.
+
+**Q23. Your words: change *Use uploaded assets* to saying "use visual assets"
+to place media in the deck. Is "to place media in the deck" part of what the
+box says, or your explanation of it?**
+
+- **Shown beside the box** *(Recommended; built provisionally)*: *Use visual
+  assets* with "to place media in the deck" after it, in the hint ink.
+- **The label only**: *Use visual assets*, nothing after it.
+
+*Why:* the short line says what the box does at the moment of choosing.
+
+### Her answers, batch 6
+
+*(not yet asked: left for tomorrow)*
 
 ---
 
