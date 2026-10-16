@@ -295,11 +295,14 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
 
   function adoptRows(rows) {
     const p = buildPool({ lists: { files: rows || [] } });
-    if (!p.files.length) return;
-    setChosen(cur => new Set([...cur, ...p.files.map(f => f.key)]));
+    // Only what D.O.G. can read: a .docx added at project creation is a
+    // project file, not a reference.
+    const usable = p.files.filter(f => f.readable);
+    if (!usable.length) return;
+    setChosen(cur => new Set([...cur, ...usable.map(f => f.key)]));
     setSnapshots(cur => {
       const next = new Map(cur);
-      for (const f of p.files) next.set(f.key, snapshotOf(f, p));
+      for (const f of usable) next.set(f.key, snapshotOf(f, p));
       return next;
     });
   }

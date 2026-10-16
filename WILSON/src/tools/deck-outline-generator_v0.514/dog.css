@@ -675,6 +675,10 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .dog-refs-pick-row[data-depth='1'] { padding-left: 24px; }
+  /* A file D.O.G. cannot read: listed so the Files tab's folders still add
+     up, greyed, never choosable (its reason beside the name). */
+  .dog-refs-pick-row[data-unusable='true'] .dog-refs-name { color: var(--color-ink-3); }
+  .dog-refs-pick-main:disabled { cursor: not-allowed; }
   .dog-refs-pick-main,
   .dog-refs-pick-open {
     display: flex;

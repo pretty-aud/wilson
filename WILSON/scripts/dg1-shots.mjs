@@ -10,6 +10,11 @@
  *   dog    D.O.G. at rest; a project chosen (the first one in the list); the
  *          Full deck switch on; the switch off again with a layout chosen.
  *   notes  The Dashboard's Notes tab: the list, then the first note open.
+ *   refs   DG1 as built (walkthrough 75): the three cards; the Add references
+ *          window on Files, on Scenes with a scene ticked and previewed, on
+ *          Notes with one ticked; the card with what was chosen; Full deck
+ *          and Single page; a deck asked for from files the test data
+ *          refuses to read.
  *
  * For each state it prints, and writes as `po-dg1-measure-<part>-<W>x<H>.json`
  * into --out, what the screen says: every field label, hint, placeholder and
@@ -35,7 +40,7 @@ const VALUED = ['--out', '--size', '--part'];
 const PORT = args.find((a, i) => !a.startsWith('-') && !VALUED.includes(args[i - 1])) || '5300';
 const OUT = flag('--out');
 const SHOTS = !args.includes('--no-shots');
-const ALL = ['dog', 'notes'];
+const ALL = ['dog', 'notes', 'refs'];
 if (!OUT) {
   console.error(`usage: dg1-shots.mjs <port> --out <dir> [--size WxH] [--part ${ALL.join('|')}|all] [--no-shots]`);
   process.exit(1);
@@ -140,6 +145,92 @@ async function partDog(browser) {
   }
 }
 
+// The references, as built (walkthrough 75). Salt Hours chosen; the window
+// on Files, then Scenes with "The storm" ticked and previewed, then Notes with
+// one ticked; the card with what was chosen; the switch on each side; and a
+// deck asked for from a file alone, which the test data cannot read.
+async function partRefs(browser) {
+  const { ctx, page } = await fresh(browser, '/dog');
+  const dialog = () => page.locator('.ui-dialog.dog-refs-dialog');
+  try {
+    await page.waitForSelector('.dog-project-select', { timeout: 15000 });
+    const options = await page.$$eval('.dog-project-select option', (os) => os.map((o) => ({ value: o.value, label: o.textContent.trim() })));
+    const first = options.find((o) => o.value);
+    if (!first) throw new Error('the project dropdown lists no project');
+    await page.selectOption('.dog-project-select', first.value);
+    await page.waitForSelector('.dog-refs');
+    report.refsCards = await page.evaluate(readDog);
+    await shot(page, 'refs', 1, 'cards');
+
+    await page.getByRole('button', { name: 'Add references' }).click();
+    await dialog().waitFor();
+    await page.waitForSelector('.dog-refs-rail-item');
+    await page.waitForFunction(() => !document.querySelector('.dog-refs-list .dog-refs-preview-busy'));
+    report.refsRail = await page.$$eval('.dog-refs-rail-item', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
+    await shot(page, 'refs', 2, 'window-files');
+
+    await dialog().locator('.dog-refs-rail-item', { hasText: 'Scenes' }).click();
+    await dialog().getByRole('checkbox', { name: 'The storm' }).click();
+    await dialog().getByRole('button', { name: 'Preview The storm' }).click();
+    await page.waitForSelector('.dog-refs-preview .dog-refs-preview-text');
+    report.refsPreview = await page.$eval('.dog-refs-preview', (e) => e.innerText);
+    await shot(page, 'refs', 3, 'window-scene-preview');
+
+    await dialog().locator('.dog-refs-rail-item', { hasText: 'Your notes' }).click();
+    const note = dialog().getByRole('checkbox').first();
+    await note.click();
+    await page.waitForTimeout(300);
+    await shot(page, 'refs', 4, 'window-notes');
+
+    await dialog().getByRole('button', { name: 'Done' }).click();
+    await dialog().waitFor({ state: 'detached' });
+    await page.evaluate(() => document.querySelector('.dog-refs')?.scrollIntoView({ block: 'start' }));
+    report.refsChosen = await page.$$eval('.dog-refs-row .dog-refs-name', (ns) => ns.map((n) => n.textContent.trim()));
+    report.refsMeter = await page.$eval('.dog-refs-meter-words', (e) => e.textContent.trim());
+    await shot(page, 'refs', 5, 'card-chosen');
+
+    await page.click('.dog-full-deck [role=switch]');
+    await page.evaluate(() => document.querySelector('.dog-s2')?.scrollIntoView({ block: 'start' }));
+    report.refsFullDeck = await page.evaluate(readDog);
+    await shot(page, 'refs', 6, 'full-deck');
+
+    await page.click('.dog-full-deck [role=switch]');
+    const layouts = await page.$$eval('.dog-s2 select option', (os) => os.map((o) => o.value).filter(Boolean));
+    await page.selectOption('.dog-s2 select', layouts[0]);
+    await page.evaluate(() => document.querySelector('.dog-s2')?.scrollIntoView({ block: 'start' }));
+    report.refsSinglePage = await page.evaluate(readDog);
+    report.refsApplied = await page.$eval('.dog-applied-line', (e) => e.textContent.trim());
+    await shot(page, 'refs', 7, 'single-page');
+  } finally {
+    await ctx.close();
+  }
+
+  // A deck asked for from files the test data refuses to read (every fixture
+  // download is refused), with nothing uploaded.
+  const second = await fresh(browser, '/dog');
+  try {
+    const p = second.page;
+    await p.waitForSelector('.dog-project-select');
+    const opts = await p.$$eval('.dog-project-select option', (os) => os.map((o) => o.value).filter(Boolean));
+    await p.selectOption('.dog-project-select', opts[0]);
+    await p.getByRole('button', { name: 'Add references' }).click();
+    const dlg = p.locator('.ui-dialog.dog-refs-dialog');
+    await dlg.waitFor();
+    await p.waitForSelector('.dog-refs-quick');
+    await dlg.getByRole('button', { name: /^All Core files/ }).click();
+    await dlg.getByRole('button', { name: 'Done' }).click();
+    await dlg.waitFor({ state: 'detached' });
+    await p.click('.dog-full-deck [role=switch]');
+    await p.getByRole('button', { name: 'Generate full deck outline' }).click();
+    await p.waitForSelector('.ui-banner', { timeout: 15000 });
+    report.refsNothingReadable = await p.$$eval('.ui-banner', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
+    await p.evaluate(() => document.querySelector('.dog-main')?.scrollTo(0, 0));
+    await shot(p, 'refs', 8, 'nothing-readable');
+  } finally {
+    await second.ctx.close();
+  }
+}
+
 async function partNotes(browser) {
   const { ctx, page } = await fresh(browser, '/dashboard');
   try {
@@ -174,6 +265,7 @@ for (const part of PARTS) {
   try {
     if (part === 'dog') await partDog(browser);
     if (part === 'notes') await partNotes(browser);
+    if (part === 'refs') await partRefs(browser);
   } catch (err) {
     failed++;
     console.error(`✗ ${part}: ${err?.message || err}`);

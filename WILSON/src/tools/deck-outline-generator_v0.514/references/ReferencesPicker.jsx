@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Minus, Eye, X, ChevronRight, ChevronDown, Folder, Search } from 'lucide-react';
 import { Dialog, Button, IconButton, Badge, EmptyState, Spinner, StatusDot } from '../../../ui';
 import {
-  KIND_LABEL_PLURAL, shownKinds, childFolders, filesInFolder, fileKeysUnderFolder,
+  UNREADABLE_REASON, KIND_LABEL_PLURAL, shownKinds, childFolders, filesInFolder, fileKeysUnderFolder,
   tickState, folderTrail, filesOfItem, coreFileKeys, fileKeysAddedBetween,
   noteKeysDatedBetween, localDay,
 } from './referenceModel';
@@ -35,11 +35,13 @@ function CheckBox({ state }) {
 /** One choosable row: the tick and the words are one target (Fitts). */
 function PickRow({ entry, checked, onToggle, onPreview, sub, warn = null, trailing = null, nested = null, depth = 0 }) {
   const Glyph = entry.kind === 'file' ? fileGlyph(entry.dogType) : KIND_GLYPH[entry.kind];
+  const unusable = entry.kind === 'file' && entry.readable === false;
   return (
     <li className="dog-refs-pick-item">
-      <div className="dog-refs-pick-row" data-depth={depth || undefined}>
+      <div className="dog-refs-pick-row" data-depth={depth || undefined} data-unusable={unusable || undefined}>
         <button type="button" role="checkbox" aria-checked={checked} aria-label={entry.name}
-          className="dog-refs-pick-main" onClick={onToggle}>
+          className="dog-refs-pick-main" onClick={onToggle} disabled={unusable}
+          title={unusable ? UNREADABLE_REASON : undefined}>
           <CheckBox state={checked ? 'all' : 'none'} />
           <Glyph className="dog-file-icon" aria-hidden="true" />
           {entry.status && <StatusDot status={entry.status} />}
@@ -47,9 +49,10 @@ function PickRow({ entry, checked, onToggle, onPreview, sub, warn = null, traili
           {entry.kind === 'file' && entry.isCore && <Badge className="dog-refs-core">Core</Badge>}
           {sub && <span className="dog-refs-sub">{sub}</span>}
           {warn && <span className="dog-refs-warn">{warn}</span>}
+          {unusable && <span className="dog-refs-sub">{UNREADABLE_REASON}</span>}
         </button>
         {trailing}
-        <IconButton size="sm" icon={Eye} title={`Preview ${entry.name}`} onClick={onPreview} />
+        <IconButton size="sm" icon={Eye} title={`Preview ${entry.name}`} onClick={onPreview} disabled={unusable} />
       </div>
       {nested}
     </li>

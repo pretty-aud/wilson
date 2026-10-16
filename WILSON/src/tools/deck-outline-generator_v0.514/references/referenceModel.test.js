@@ -12,7 +12,7 @@ import {
   keysKeptOnProjectChange, itemWords, noteWords, referencesText,
   fileEntry, legacyFileEntry, legacyPoolFiles, bareAssetName, coreLabel,
   fileTokens, uploadTokens, textTokens, meterState, REFERENCE_TOKEN_LIMIT,
-  refKey, kindOfKey, pdfPagesFromBinary, countPdfPages, PDF_PAGE_TOKENS,
+  refKey, kindOfKey, pdfPagesFromBinary, countPdfPages, PDF_PAGE_TOKENS, readableType,
 } from './referenceModel';
 import { deflateSync } from 'node:zlib';
 
@@ -218,6 +218,36 @@ describe('folders (Q11)', () => {
   it('puts a file whose folder it cannot see at the top level', () => {
     const p = buildPool({ lists: { folders: [], files: [file({ id: 'x', folder_id: 'hidden' })] } });
     expect(filesInFolder(p, null).map(f => f.id)).toEqual(['x']);
+  });
+});
+
+describe("what D.O.G. can read (the upload button's kinds)", () => {
+  it('takes PDFs, text, the four pictures the AI looks at, and videos to place', () => {
+    expect(readableType('application/pdf', 'a.pdf', 'pdf')).toBe('pdf');
+    expect(readableType('text/plain', 'a.txt', 'text')).toBe('text');
+    expect(readableType('', 'brief.md', 'text')).toBe('text');
+    expect(readableType('image/jpeg', 'a.jpg', 'image')).toBe('image');
+    expect(readableType('image/webp', 'a.webp', 'image')).toBe('image');
+    expect(readableType('video/mp4', 'a.mp4', 'video')).toBe('video');
+  });
+
+  it('🚨 refuses what the AI would reject or read as garbage', () => {
+    expect(readableType('image/vnd.adobe.photoshop', 'prop.psd', 'image')).toBeNull();
+    expect(readableType('image/tiff', 'scan.tif', 'image')).toBeNull();
+    expect(readableType('image/svg+xml', 'logo.svg', 'image')).toBeNull();
+    expect(readableType('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'notes.docx', 'text')).toBeNull();
+    expect(readableType('application/zip', 'plates.zip', 'text')).toBeNull();
+  });
+
+  it('lists such a file, greyed, and lets no tick, folder or quick choice reach it', () => {
+    const psd = file({ id: 'psd', name: 'prop.psd', mime_type: 'image/vnd.adobe.photoshop', folder_id: 'f1', is_core_definer: true });
+    const pdf = file({ id: 'pdf', name: 'brief.pdf', folder_id: 'f1', is_core_definer: true });
+    const p = buildPool({ lists: { folders: [{ id: 'f1', parent_id: null, label: 'DOCS', path: 'DOCS' }], files: [psd, pdf] } });
+    expect(p.files.map(f => [f.id, f.readable])).toEqual([['psd', false], ['pdf', true]]);
+    expect(coreFileKeys(p)).toEqual(['file:pdf']);
+    expect(fileKeysUnderFolder(p, 'f1')).toEqual(['file:pdf']);
+    expect(fileKeysAddedBetween(p, '2000-01-01', '2100-01-01')).toEqual(['file:pdf']);
+    expect(poolIndex(p).has('file:psd')).toBe(false);
   });
 });
 

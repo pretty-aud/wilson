@@ -108,6 +108,40 @@ export function isDeckReferenceFile(row) {
   return true;
 }
 
+// ── Which files D.O.G. can use ──────────────────────────────────────────────
+
+/**
+ * The picture types the AI looks at (the provider's vision page: JPEG, PNG,
+ * GIF, WebP). A Photoshop file, a TIFF, an HEIC or an SVG is a picture to a
+ * person and a refused request to the AI: sent as an image block, it fails
+ * the whole generation.
+ */
+const AI_PICTURE_MIME = /^image\/(jpeg|png|gif|webp)$/i;
+const AI_PICTURE_EXT = /\.(jpe?g|png|gif|webp)$/i;
+/** Text D.O.G. can send as it is (its upload button takes .md and .txt). */
+const TEXT_MIME = /^(text\/|application\/(json|xml)$)/i;
+const TEXT_EXT = /\.(md|markdown|txt|text|csv|tsv|json|fountain|srt|vtt|xml|html?)$/i;
+
+/**
+ * What D.O.G. can do with a file of this type and name: 'pdf', 'text' and
+ * 'image' go to the AI, 'video' is only placed in slides; `null` means D.O.G.
+ * cannot read it (a Word or Excel file, an archive, a Photoshop file, a
+ * camera raw): such a file is listed, greyed with the reason, and no tick,
+ * folder or quick choice can choose it. The upload button's own kinds, so the
+ * two ways in agree (design review: "All Core files" ticked a .psd).
+ */
+export function readableType(mime, name, dogType) {
+  const m = String(mime || '');
+  const n = String(name || '');
+  if (dogType === 'pdf') return 'pdf';
+  if (dogType === 'video') return 'video';
+  if (dogType === 'image') return (/^image\//i.test(m) ? AI_PICTURE_MIME.test(m) : AI_PICTURE_EXT.test(n)) ? 'image' : null;
+  if (TEXT_MIME.test(m) || TEXT_EXT.test(n)) return 'text';
+  return null;
+}
+
+export const UNREADABLE_REASON = 'D.O.G. cannot read this kind of file';
+
 // ── The pool ────────────────────────────────────────────────────────────────
 
 const live = (rows) => (Array.isArray(rows) ? rows : []).filter(r => r && !r.deleted_at && !r.set_aside_at);
@@ -154,6 +188,7 @@ export function legacyPoolFiles(project) {
         mime: f.type || '',
         size: f.size || 0,
         dogType: legacyDogType(f, category),
+        readable: !!readableType(f.type, name, legacyDogType(f, category)),
         entity: null,
         source: 'legacy',
         category,
@@ -230,6 +265,7 @@ export function buildPool({ lists = {}, project = null, notes = null, errors = {
       mime: row.mime_type || '',
       size: row.size_bytes ?? 0,
       dogType: dogTypeForRow(row),
+      readable: !!readableType(row.mime_type, row.name, dogTypeForRow(row)),
       entity: fileEntity(row),
       source: 'stored',
       row,
@@ -260,12 +296,12 @@ export function shownKinds(pool) {
   return ITEM_KINDS.filter(k => ALWAYS_SHOWN.has(k) || (pool?.items?.[k]?.length || 0) > 0 || pool?.errors?.[k]);
 }
 
-/** Every pool entry by key (items, files, notes). */
+/** Every pool entry by key (items, files, notes): what can be CHOSEN. */
 export function poolIndex(pool) {
   const map = new Map();
   if (!pool) return map;
   for (const kind of ITEM_KINDS) for (const e of pool.items[kind] || []) map.set(e.key, e);
-  for (const f of pool.files || []) map.set(f.key, f);
+  for (const f of pool.files || []) if (f.readable) map.set(f.key, f);
   for (const n of pool.notes || []) map.set(n.key, n);
   return map;
 }
@@ -303,7 +339,7 @@ export function fileKeysUnderFolder(pool, folderId) {
       if (f.parentId && ids.has(f.parentId) && !ids.has(f.id)) { ids.add(f.id); grew = true; }
     }
   }
-  return (pool?.files || []).filter(f => f.folderId && ids.has(f.folderId)).map(f => f.key);
+  return (pool?.files || []).filter(f => f.readable && f.folderId && ids.has(f.folderId)).map(f => f.key);
 }
 
 /** 'all' | 'some' | 'none' for a set of keys against the chosen set. */
@@ -336,7 +372,7 @@ export function localDay(iso) {
 }
 
 export function coreFileKeys(pool) {
-  return (pool?.files || []).filter(f => f.isCore).map(f => f.key);
+  return (pool?.files || []).filter(f => f.readable && f.isCore).map(f => f.key);
 }
 
 /** Files ADDED between two days, inclusive (by the day they were uploaded). */
@@ -344,6 +380,7 @@ export function fileKeysAddedBetween(pool, fromDay, toDay) {
   if (!fromDay || !toDay) return [];
   const [a, b] = fromDay <= toDay ? [fromDay, toDay] : [toDay, fromDay];
   return (pool?.files || []).filter(f => {
+    if (!f.readable) return false;
     const day = localDay(f.uploadedAt);
     return day && day >= a && day <= b;
   }).map(f => f.key);
