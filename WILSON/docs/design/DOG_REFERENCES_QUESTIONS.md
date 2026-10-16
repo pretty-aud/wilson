@@ -256,9 +256,24 @@ date, and for what?**
 *Why:* "from today" most often means "what I just added"; a note already carries
 its own date, which is how the Notes page sorts and groups.
 
-### Her answers, batch 3
+### Her answers, batch 3 (2026-10-16; asked in chat as multiple choice; recorded verbatim)
 
-*(not yet asked)*
+- **Q9:** "Its own card (Recommended)"
+- **Q10:** "A window with ticks (Recommended)"
+- **Q11:** "Yes, a folder's tick (Recommended)"
+- **Q18:** "Day added; notes by date (Recommended)"
+
+### What follows from batch 3 (say if any is wrong)
+
+1. **The references card is its own card**, between the project and uploads card
+   and the Single page / Full deck card, and folds away.
+2. **Adding references opens a window**: one search, Items, Files and Notes down
+   the left, tick boxes to choose many, the quick choices (all Core files,
+   today's, a range of dates), and a Preview on each row.
+3. **A folder's tick chooses everything in it that D.O.G. can read**; any file can
+   be unticked after.
+4. **The date tools** pick files by the day they were uploaded and your notes by
+   the date each note carries; items have no date tool.
 
 ---
 
