@@ -283,8 +283,10 @@ export function localServerAdapter() {
     deleteTaskLink: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/task-links/${id}`, { method: 'DELETE' }),
 
     // ── A task's items (FX2, 0096's twin: electron/rabbitTaskItems.cjs) ──
-    // Not the URL links above. The server keeps each task's five single
-    // fields equal to its main item of each kind, as 0096's triggers do.
+    // Not the URL links above. VW1m (2026-10-16): a task's items are its
+    // items; the server keeps each task's five single fields only as the
+    // older builds' copy (each kind's first item in the stored order, as
+    // 0097 §4 keeps the cloud's three), which this client never reads.
     taskItemsAvailable: () => true,
     listTaskItems: async (projectId) =>
       sortTaskItems(await jfetch(`${BASE}/projects/${projectId}/task-items`)),
@@ -297,14 +299,9 @@ export function localServerAdapter() {
     }),
     deleteTaskItem: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/task-items/${id}`, { method: 'DELETE' }),
-    // reorder_task_items' twin: the named ids first, the rest after, dense
-    // from 0; answers the rows that moved.
-    reorderTaskItems: (projectId, taskId, kind, orderedIds) =>
-      jfetch(`${BASE}/projects/${projectId}/task-items/reorder`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ task_id: taskId, entity_type: kind, ids: Array.isArray(orderedIds) ? orderedIds : [] }),
-      }),
+    // VW1m (2026-10-16): no reorder call (her Q-N1: the task window sorts,
+    // it has no Move buttons). The server keeps its /task-items/reorder route
+    // for the older builds that share a project file on the NAS.
 
     // ── Files ─────────────────────────────────────────────────
     // Demo 2026-09-11 (Audrey: "[localServer] HTTP 413" adding a file to a

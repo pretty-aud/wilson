@@ -420,11 +420,12 @@ describe('set-aside desktop rows arrive live on the cloud', () => {
 })
 
 // FX2 (0096): a task's items move with the project — after the rows they name,
-// keeping their ids and positions. A task's FIRST asset is already in the
-// cloud (0096 seeds it from the task's column), so its desktop copy answers
-// 23505 and reads as skipped; a level's item stays (levels are not carried).
+// keeping their ids and positions; a level's item stays (levels are not
+// carried). VW1m (2026-10-16): EVERY item goes up as an item, the assets
+// included, and the task row carries no link field at all; an item the cloud
+// already holds (a move run again) answers 23505 and reads as skipped.
 describe("a task's items move with the project (FX2)", () => {
-  it('lands asset items after the tasks and assets, skips a seeded one, fails a refused one, leaves level items behind', async () => {
+  it('lands asset items after the tasks and assets, skips one already there, fails a refused one, leaves level items behind', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
       if (url === '/api/rabbit/projects/p1') {
@@ -455,10 +456,63 @@ describe("a task's items move with the project (FX2)", () => {
     expect(report.errors.map(e => [e.scope, e.id])).toEqual([['task_item', 'i3']])
   })
 
+  // VW1m (2026-10-16): the row's asset_id was the older builds' copy of the
+  // first asset, and tasks.asset_id's key refused the whole task when that
+  // asset had not gone up. Now the task lands, and only that asset's item
+  // fails. The fake refuses exactly what the cloud's keys refuse.
+  it('VW1m: a task whose first asset failed no longer fails whole; that asset\'s item fails alone and the next lands', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.assets = [{ id: 'a1', project_id: 'p1', name: 'A1' }, { id: 'a2', project_id: 'p1', name: 'A2' }]
+        b.tasks[0] = { ...b.tasks[0], asset_id: 'a1' }
+        b.taskItems = [
+          { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 },
+          { id: 'i2', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a2', position: 1 },
+        ]
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    const landed = (t, id) => (fake.state.inserts[t] || []).some(r => r.id === id)
+    fake.state.failWith = (table, row) => {
+      if (table === 'assets' && row.id === 'a1') return { code: '23514', message: 'new row for relation "assets" violates check constraint "assets_status_check"' }
+      if (table === 'tasks' && row.asset_id && !landed('assets', row.asset_id)) return { code: '23503', message: 'insert or update on table "tasks" violates foreign key constraint "tasks_asset_id_fkey"' }
+      if (table === 'task_items' && row.entity_type === 'asset' && !landed('assets', row.entity_id)) return { code: '23503', message: 'insert or update on table "task_items" violates foreign key constraint "task_items_asset_fk"' }
+      return null
+    }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.assets).toMatchObject({ inserted: 1, failed: 1 })
+    expect(report.tasks).toMatchObject({ total: 3, inserted: 3, failed: 0 })
+    expect(fake.state.inserts.tasks.find(t => t.id === 't1')).not.toHaveProperty('asset_id')
+    expect(report.taskItems).toMatchObject({ total: 2, inserted: 1, failed: 1 })
+    expect(fake.state.inserts.task_items.map(i => `${i.task_id}:${i.entity_id}`)).toEqual(['t1:a2'])
+    expect(report.errors.filter(e => e.scope === 'task' || e.scope === 'task_item').map(e => [e.scope, e.id])).toEqual([['task_item', 'i1']])
+  })
+
+  it('VW1m: an asset a task row names and no item does (a bundle no Local Server reconciled) is carried as an item', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.assets = [{ id: 'a1', project_id: 'p1', name: 'A1' }]
+        b.tasks[1] = { ...b.tasks[1], asset_id: 'a1' }
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    const report = await runMigration({ workspaceId: 'ws1' })
+    for (const t of fake.state.inserts.tasks) expect(t, t.id).not.toHaveProperty('asset_id')
+    expect(fake.state.inserts.task_items).toEqual([{ task_id: 't2', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 }])
+    expect(report.taskItems).toMatchObject({ total: 1, inserted: 1, failed: 0 })
+  })
+
   // Review round 1, R1-2: the tasks land before the scenes and shots (BC3),
   // tasks_scene_fk / tasks_shot_fk are not deferrable, and the cloud has no
-  // level or experience column; FX2's desktop writes all five keys on a task
-  // whose main item changed. The fake refuses exactly what the cloud does.
+  // level or experience column; FX2's desktop wrote all five keys on a task.
+  // The fake refuses exactly what the cloud does. VW1m: the asset goes the
+  // same way (above).
   it('R1-2: a task goes up without its scene, shot, level and experience links; its scene and shot land as items after the shots', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
@@ -491,7 +545,7 @@ describe("a task's items move with the project (FX2)", () => {
     expect(report.errors.filter(e => e.scope === 'task' || e.scope === 'task_item')).toEqual([])
     expect(fake.state.inserts.tasks).toHaveLength(3)
     for (const t of fake.state.inserts.tasks) {
-      for (const f of ['scene_id', 'shot_id', 'level_id', 'experience_id']) expect(t, `${t.id}.${f}`).not.toHaveProperty(f)
+      for (const f of ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']) expect(t, `${t.id}.${f}`).not.toHaveProperty(f)
     }
     expect(fake.state.inserts.task_items.map(i => `${i.task_id}:${i.entity_type}:${i.entity_id}`))
       .toEqual(['t1:scene:s1', 't1:shot:h1', 't2:scene:s1'])

@@ -850,3 +850,18 @@ describe('task_items: a task’s items (FX2, migration 0096)', () => {
     expect(warn.mock.calls[0][0]).toContain('public.task_items')
   })
 })
+
+describe('tasks keeps the older apps\' copy of its items (VW1m, migration 0097)', () => {
+  // Audrey (2026-10-16): "lets not have main asset be a thing". The columns
+  // stay all the same: they are the copy older apps read and write (each
+  // kind's first item, 0097 §4; an older app's write of one ADDS that item,
+  // §3), and a template's new task still names its asset there (§5 seeds it).
+  // Dropping them from the allowlist would turn every older write into a
+  // warning and a lost link.
+  it('asset_id, scene_id and shot_id are still columns a write may name', () => {
+    for (const c of ['asset_id', 'scene_id', 'shot_id']) expect(COLUMN_ALLOWLIST.tasks.has(c), c).toBe(true)
+    const template = { id: 't1', project_id: 'p1', title: 'Model', asset_id: 'a1', scene_id: null, shot_id: null }
+    expect(toColumns('tasks', template)).toEqual(template)
+    expect(warn).not.toHaveBeenCalled()
+  })
+})

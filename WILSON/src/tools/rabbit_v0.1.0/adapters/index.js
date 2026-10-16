@@ -116,6 +116,36 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {(link: object) => Promise<object>}                    upsertTaskLink
  * @property {(id: string) => Promise<void>}                        deleteTaskLink
  *
+ * @property {() => boolean}                                        taskItemsAvailable
+ * @property {(projectId: string) => Promise<object[]>}             listTaskItems
+ * @property {(item: object) => Promise<object>}                    addTaskItem
+ * @property {(id: string, projectId?: string) => Promise<void>}    deleteTaskItem
+ *   A task's items (FX2, migration 0096; VW1m, 0097): the assets, scenes,
+ *   shots, levels and experiences it is about, one row each `{ id, task_id,
+ *   project_id, entity_type, entity_id, position, created_at, … }` — NOT the
+ *   URL links above. A task's items are its items: no item of a kind counts
+ *   for more than another, and the stored order (position, created_at, id)
+ *   only says when each was added. Every backend keeps the task's single
+ *   fields (asset_id, scene_id, shot_id on the cloud; the five on the
+ *   desktop's rows) as the OLDER APPS' COPY only, each kind's first item in
+ *   the stored order: this app never reads or sends them where items are
+ *   kept, and an older app's write of one ADDS that item, never removing
+ *   another (0097 §3; the desktop's and the fixtures' twins).
+ *   - taskItemsAvailable(): whether this backend keeps items. False on a
+ *     cloud without 0096 (loadProject's read is the probe) and on a Drive
+ *     bundle exported before FX2; the provider then reads each task's own
+ *     single field as its one item.
+ *   - addTaskItem adds one, or answers the stored row when the task already
+ *     names it (ON CONFLICT DO NOTHING, then a read); deleteTaskItem removes
+ *     one by id (projectId is the Local Server's URL; the cloud ignores it).
+ *     A cloud without 0096 refuses both with code `task_items_unavailable`
+ *     before any request.
+ *   - No reorder (her Q-N1: the task window sorts; it has no Move buttons).
+ *     The cloud's reorder_task_items and the Local Server's /reorder route
+ *     stay for the older apps that call them.
+ *   - google_drive: listTaskItems and the bundle's taskItems answer what the
+ *     export holds; the two writes throw readOnly().
+ *
  * @property {(projectId: string, scope: UploadScope, file: File) => Promise<object>} uploadFile
  * @property {(projectId: string) => Promise<object[]>}             listFiles
  * @property {(file: object) => Promise<Blob>}                      downloadFile
@@ -190,9 +220,13 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {(projectIds: string[]) => Promise<object[]>}           listProjectMembersByProjects
  *   Supabase-only (Session 8 Dashboard): listMyTasks returns every task
  *   where the signed-in user is assignee or reviewer, across all visible
- *   projects, with project/asset embeds for labels. local_server and
- *   google_drive do not implement them (feature-detect) — the Dashboard
- *   shows an empty state outside cloud mode.
+ *   projects, with a `project` embed for labels and, since VW1m
+ *   (2026-10-16), `items: [{ kind, id, name }]` — every item the caller can
+ *   see (an asset in the trash is left out), kinds in the model's ITEM_KINDS
+ *   order, each kind in its display order (no `asset` embed: that rode the
+ *   older apps' copy, the first asset only). A database without 0096 answers
+ *   `items: []`. local_server and google_drive do not implement them
+ *   (feature-detect) — the Dashboard shows an empty state outside cloud mode.
  *
  * @property {() => Promise<object[]>}                               listNotes
  * @property {(id: string) => Promise<object|null>}                  getNote
