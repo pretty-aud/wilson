@@ -39,8 +39,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import Collaboration from '@tiptap/extension-collaboration'
 import {
   Plus, Trash2, Bold, Underline as UnderlineIcon, Heading1, Heading2,
   List, Link2, Link2Off, CloudOff, StickyNote, Settings2, X, Check,
@@ -48,6 +46,10 @@ import {
 } from 'lucide-react'
 import { useNotes } from './useNotes'
 import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
+// DG1: the extension list lives in noteText.js, so D.O.G.'s note reader and
+// this editor are one definition (a note read for a deck is read exactly as
+// it is shown here).
+import { noteEditorExtensions } from './noteText'
 import {
   Badge, Banner, Button, Dialog, EmptyState, IconButton, Input, Loading,
   Select,
@@ -501,16 +503,9 @@ function NoteEditor({ note, nb, onDelete }) {
   useEffect(() => { nbRef.current = nb }, [nb])
 
   const editor = useEditor({
-    extensions: [
-      // v3: 'history' became 'undoRedo' — it MUST be off with Collaboration
-      // (which ships its own Yjs undo manager). Underline + Link are part
-      // of the v3 StarterKit.
-      StarterKit.configure({
-        undoRedo: false,
-        link: { openOnClick: false },
-      }),
-      Collaboration.configure({ document: ydoc }),
-    ],
+    // v3 traps (undoRedo off with Collaboration; Underline and Link in the
+    // StarterKit) are stated with the list, in noteText.js.
+    extensions: noteEditorExtensions(ydoc),
     editable: true,
     shouldRerenderOnTransaction: true, // toolbar active-states need it
   }, [ydoc])

@@ -268,6 +268,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/angry-mendel-551c9d/WILSON --port 5299 --strictPort"
       ],
       "port": 5299
+    },
+    {
+      "_comment": "DG1 (D.O.G. references, research first): this worktree's dev server on the bundle's port 5300, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment (vw1-worktree's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. D.O.G. at /dog; R.A.B.B.I.T., Salt Hours; ?fixtures=game turns Levels and Experiences on (docs/design/DOG_REFERENCES_RESEARCH.md).",
+      "name": "dg1-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/festive-cori-52d885/WILSON --port 5300 --strictPort"
+      ],
+      "port": 5300
     }
   ]
 }

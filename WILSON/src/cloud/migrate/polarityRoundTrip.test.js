@@ -34,35 +34,16 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
 import { runAttachmentMigration } from './runAttachmentMigration'
 import { isDeckAttachmentRow } from '../../tools/rabbit_v0.1.0/deckAttachments'
+import { legacyPoolFiles, legacyFileEntry, buildPool } from '../../tools/deck-outline-generator_v0.514/references/referenceModel'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const COMPONENT = readFileSync(
-  join(HERE, '../../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx'),
-  'utf8').replace(/\r\n/g, '\n')
-
-/**
- * Lift the legacy-array reader's BODY out of the component and make it
- * callable. Not a copy: if the reader changes, this changes with it, which is
- * the only way a "before" that lives in the same file as the "after" means
- * anything.
- */
-function legacyReader(src) {
-  const start = src.search(/const legacyProjectFiles = useMemo\(\(\) => \{/)
-  expect(start, 'legacyProjectFiles reader not found in the component').toBeGreaterThan(-1)
-  const open = src.indexOf('{', src.indexOf('=> {', start))
-  let depth = 0, i = open
-  for (; i < src.length; i++) {
-    if (src[i] === '{') depth++
-    else if (src[i] === '}') { depth--; if (depth === 0) break }
-  }
-  // eslint-disable-next-line no-new-func
-  return new Function('selectedProject', src.slice(open + 1, i))
-}
+// DG1 (2026-10-16): D.O.G.'s legacy-array reader is
+// references/referenceModel.js's `legacyPoolFiles` (with `legacyFileEntry`,
+// the entry generation sends), and what D.O.G. offers from the files table is
+// `buildPool`'s files. Imported, not copied: if a reader changes, this does.
+const legacyReader = (project) => legacyPoolFiles(project).map(legacyFileEntry)
+const offered = (rows) => buildPool({ lists: { files: rows } }).files
 
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64')
 
@@ -126,7 +107,7 @@ const namesBy = (entries, core) => entries
 
 describe('§6 #31 trap (b): migrating a legacy project changes nothing D.O.G. asks', () => {
   it('moves not one file between CORE and REFERENCE', async () => {
-    const before = legacyReader(COMPONENT)(fixture())
+    const before = legacyReader(fixture())
 
     const project = fixture()
     const adapter = recordingAdapter(project)
@@ -135,29 +116,32 @@ describe('§6 #31 trap (b): migrating a legacy project changes nothing D.O.G. as
 
     // D.O.G.'s stored-row reader, in the two lines that matter:
     //   const isCore = row.is_core_definer === true;
-    const after = adapter.rows
-      .filter(isDeckAttachmentRow)
-      .map(row => ({ name: row.name, isCore: row.is_core_definer === true }))
+    const after = offered(adapter.rows)
 
     expect(namesBy(after, true)).toEqual(namesBy(before, true))
     expect(namesBy(after, false)).toEqual(namesBy(before, false))
   })
 
-  it('🚨 loses no file at all — every legacy entry is still a deck attachment', async () => {
+  it('🚨 loses no file at all — every legacy entry is still offered, and still a deck attachment', async () => {
     // The half that failed first. A migrated row that no longer satisfies
     // isDeckAttachmentRow is invisible to generation while looking perfectly
     // healthy everywhere else, so the count is asserted as well as the split.
-    const before = legacyReader(COMPONENT)(fixture())
+    const before = legacyReader(fixture())
     const project = fixture()
     const adapter = recordingAdapter(project)
     await runAttachmentMigration({ adapter, detectKind })
 
-    const visible = adapter.rows.filter(isDeckAttachmentRow)
+    // D.O.G. offers what the reference model offers (DG1); R.A.B.B.I.T.'s
+    // own contract is checked last.
+    const visible = offered(adapter.rows)
     expect(visible).toHaveLength(before.length)
     expect(visible.map(r => r.name).sort())
       .toEqual(before.map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')).sort())
     // Named, so a regression says WHICH file went missing.
     expect(visible.map(r => r.name)).toContain('legacy.pdf')
+    expect(adapter.rows.filter(isDeckAttachmentRow)).toHaveLength(before.length)
+    // And each one can be chosen, not only listed (code review round 2).
+    expect(visible.every(f => f.readable)).toBe(true)
   })
 
   it('empties the legacy arrays only for what actually moved', async () => {
