@@ -27,7 +27,7 @@ import { enterIsDogs } from './enterGenerates';
 import { useReferences } from './references/useReferences';
 import ReferencesCard, { useReferencePreview, ReferencePreviewDialog } from './references/ReferencesCard';
 import ReferencesPicker from './references/ReferencesPicker';
-import { bareAssetName, textTokens, uploadTokens, countPdfPages } from './references/referenceModel';
+import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } from './references/referenceModel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // What a deck reads (post-overhaul DG1, 2026-10-16).
@@ -275,8 +275,11 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
       ...(referencesSource ? [referencesSource] : []),
       ...(notesSource ? [notesSource] : []),
     ];
-    // A video is only placed, so a deck needs something else to read.
-    if (!files.some(f => f.type !== 'video')) {
+    // References chosen and nothing of them readable, and no upload: stop.
+    // Uploads alone behave as before DG1 (a video upload is placed, the
+    // deck generates), as "leave that how it was" asks.
+    const refsReadable = refFiles.some(f => f.type !== 'video') || !!referencesSource || !!notesSource;
+    if (!uploadedFiles.length && !refsReadable) {
       // Everything chosen turned out unreadable: the project's text alone
       // does not start a deck (design §4), so say so instead.
       throw Object.assign(new Error('nothing readable'), { code: 'DOG_NOTHING_READABLE' });
@@ -1058,8 +1061,11 @@ ${alreadyPlacedContext}`;
   }, []);
 
   const ensureAIFileId = useCallback(async (fileData) => {
-    const key = fileFingerprint(fileData);
-    const cached = aiFileIdCache.current.get(key);
+    // DG1: the references text is rebuilt every generation and opens with a
+    // fixed header, so a fingerprint of its ends could match an edited
+    // block: it is never cached.
+    const key = fileData.source === 'references' ? null : fileFingerprint(fileData);
+    const cached = key && aiFileIdCache.current.get(key);
     if (cached) return cached;
 
     // Text is read with readAsText, so its `content` is plain text; pdf/image
@@ -1076,7 +1082,7 @@ ${alreadyPlacedContext}`;
       filename: fileData.file?.name || 'document',
       mediaType,
     });
-    aiFileIdCache.current.set(key, uploaded.id);
+    if (key) aiFileIdCache.current.set(key, uploaded.id);
     return uploaded.id;
   }, [fileFingerprint]);
 
@@ -1116,8 +1122,8 @@ ${alreadyPlacedContext}`;
       } else if (fileData.type === 'text') {
         const body = String(fileData.content || '');
         // The notes travel in the request itself, never in the AI's file
-        // store, which keeps what it is given (DG1).
-        if (body.length > INLINE_TEXT_LIMIT && !fileData.inlineOnly) {
+        // store, which keeps what it is given (DG1): sendsInline says so.
+        if (!sendsInline(fileData, INLINE_TEXT_LIMIT)) {
           const fileId = await ensureAIFileId(fileData);
           usedFileRefs = true;
           contentParts.push({ type: 'document', source: { type: 'file', file_id: fileId } });

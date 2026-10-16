@@ -98,7 +98,8 @@ export async function readPoolLists(adapter, adapterMode, projectId) {
   await Promise.all(Object.entries(ADAPTER_READS).map(async ([key, fn]) => {
     const fail = (why) => {
       lists[key] = null;
-      if (key === 'files' || key === 'folders') errors.files = errors.files || why;
+      if (key === 'files') errors.files = why;
+      else if (key === 'folders') errors.folders = why;
       else if (KIND_OF_SOURCE[key]) errors[KIND_OF_SOURCE[key]] = why;
       // task_items failing only costs a task its "About" line.
     };
@@ -151,6 +152,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
   const [undoable, setUndoable] = useState(null); // { keys, snaps } after Remove all
   const [noteTexts, setNoteTexts] = useState(() => new Map()); // note id -> text
   const [pdfPages, setPdfPages] = useState(() => new Map());   // file id -> pages | null
+  const [readIds, setReadIds] = useState(() => new Set());     // bodies already read this session
   const poolSeq = useRef(0);
   const poolPromise = useRef(null);
   const bodyCache = useRef(new Map()); // file id -> { sig, content }
@@ -173,6 +175,10 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     const prev = projectRef.current;
     projectRef.current = { id: projectId, title: project?.title || '' };
     if (prev.id === projectId) return;
+    // The old project's read, if one is in flight, must never land here.
+    poolSeq.current++;
+    poolPromise.current = null;
+    setPoolBusy(false);
     setPool(null);
     setUnavailable(new Set());
     setUndoable(null);
@@ -265,7 +271,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       key: entry.key, kind: entry.kind, id: entry.id, name: entry.name,
       trail: entry.kind === 'file' ? folderTrail(p, entry.folderId).join(' › ') : '',
       isCore: entry.kind === 'file' ? !!entry.isCore : false,
-      dogType: entry.dogType || null, size: entry.size || 0, tokens,
+      dogType: entry.dogType || null, size: entry.size || 0, tokens, source: entry.source || null,
       noteId: entry.kind === 'note' ? entry.id : null,
     };
   }, []);
@@ -278,10 +284,15 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     return noteTextFromState(row.ydoc_state);
   }, [getAdapter]);
 
-  const notePages = useCallback(async (fileId, base64) => {
-    const n = await countPdfPages(base64);
-    setPdfPages(cur => new Map(cur).set(fileId, n));
-    return n;
+  const pageCounts = useRef(new Map()); // file id -> Promise<pages | null>
+  const notePages = useCallback((fileId, base64) => {
+    if (!pageCounts.current.has(fileId)) {
+      pageCounts.current.set(fileId, countPdfPages(base64).then((n) => {
+        setPdfPages(cur => new Map(cur).set(fileId, n));
+        return n;
+      }));
+    }
+    return pageCounts.current.get(fileId);
   }, []);
 
   const tick = useCallback((keys) => {
@@ -393,7 +404,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       const s = snapshots.get(k);
       if (!s || unavailable.has(k)) continue;
       if (s.kind === 'note') { tokens += textTokens(noteTexts.get(s.noteId) || '') + 20; continue; }
-      if (s.kind === 'file' && s.dogType !== 'video') bytes += s.size || 0;
+      if (s.kind === 'file' && s.dogType !== 'video' && s.source !== 'legacy' && !readIds.has(s.id)) bytes += s.size || 0;
       if (s.kind === 'file' && s.dogType === 'pdf') {
         const pages = pdfPages.get(s.id);
         if (pages) tokens += fileTokens('pdf', s.size, pages); else uncounted++;
@@ -402,7 +413,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       tokens += s.tokens || 0;
     }
     return { tokens, uncounted, bytes };
-  }, [chosen, snapshots, unavailable, noteTexts, pdfPages]);
+  }, [chosen, snapshots, unavailable, noteTexts, pdfPages, readIds]);
 
   // ── Reading a body ────────────────────────────────────────────────────────
   const readBody = useCallback(async (entry) => {
@@ -414,6 +425,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     const blob = await adapter.downloadFile(entry.row);
     const content = await blobToDogContent(blob, entry.dogType);
     bodyCache.current.set(entry.id, { sig, content });
+    setReadIds(cur => (cur.has(entry.id) ? cur : new Set(cur).add(entry.id)));
     if (entry.dogType === 'pdf') notePages(entry.id, content);
     return content;
   }, [getAdapter, notePages]);
@@ -459,7 +471,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     }
     const content = entry.source === 'legacy' ? legacyFileEntry(entry).content : await readBody(entry);
     if (entry.dogType === 'pdf') {
-      const pages = pdfPages.get(entry.id) ?? await notePages(entry.id, content);
+      const pages = await notePages(entry.id, content);
       return {
         title: entry.name,
         line: `Sent whole, as a PDF the AI reads page by page${pages ? ` (${pages} page${pages === 1 ? '' : 's'})` : '; its pages could not be counted'}${entry.isCore ? '; marked Core in the Files tab' : ''}.${recorded}`,

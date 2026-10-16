@@ -116,7 +116,7 @@ export function isDeckReferenceFile(row) {
  * person and a refused request to the AI: sent as an image block, it fails
  * the whole generation.
  */
-const AI_PICTURE_MIME = /^image\/(jpeg|png|gif|webp)$/i;
+const AI_PICTURE_MIME = /^image\/(jpeg|jpg|pjpeg|png|gif|webp)$/i;
 const AI_PICTURE_EXT = /\.(jpe?g|png|gif|webp)$/i;
 /** Text D.O.G. can send as it is (its upload button takes .md and .txt). */
 const TEXT_MIME = /^(text\/|application\/(json|xml)$)/i;
@@ -604,7 +604,8 @@ export function fileEntry(poolFile, content) {
     file: { name: `${coreLabel(poolFile.isCore)} ${poolFile.name}`, size: poolFile.size || 0 },
     content,
     type: t,
-    mediaType: poolFile.mime
+    // The provider names JPEG one way; some systems write jpg or pjpeg.
+    mediaType: (/^image\/(jpg|pjpeg)$/i.test(poolFile.mime || '') ? 'image/jpeg' : poolFile.mime)
       || (t === 'pdf' ? 'application/pdf' : t === 'text' ? 'text/plain' : t === 'video' ? 'video/mp4' : 'image/png'),
     isCore: poolFile.isCore,
     source: poolFile.source,
@@ -622,6 +623,18 @@ export function legacyFileEntry(poolFile) {
     try { content = atob(base64); } catch { /* already text */ }
   }
   return fileEntry(poolFile, content);
+}
+
+/**
+ * Does this source travel in the request itself (true) or through the AI's
+ * file store (false)? PDFs and pictures always go through the store; text
+ * goes inline up to `limit`, past it through the store, EXCEPT a source
+ * marked inline-only (the chosen notes), which never reaches the store.
+ */
+export function sendsInline(fileData, limit) {
+  if (!fileData || fileData.type !== 'text') return false;
+  if (fileData.inlineOnly) return true;
+  return String(fileData.content || '').length <= limit;
 }
 
 // ── Size: the meter (Q8) ────────────────────────────────────────────────────
@@ -648,7 +661,8 @@ export const IMAGE_BYTE_LIMIT = 10 * 1024 * 1024;
 /** A video is only placed, never sent; past this it is not read into memory. */
 export const VIDEO_PLACE_LIMIT = 100 * 1024 * 1024;
 
-const mb = (n) => `${Math.round(n / (1024 * 1024))} MB`;
+// Rounded UP, so a 32.4 MB file never reads "32 MB: … over 32 MB".
+const mb = (n) => `${Math.ceil(n / (1024 * 1024))} MB`;
 
 /**
  * The warning a file's row carries, from what is known of it: a PDF over the
@@ -734,6 +748,14 @@ function ownEntries(dict) {
  * bookmarks' /Count (/Outlines) or a branch's never stands in for it
  * (design review round 2, finding 2).
  */
+/** A page count from its text, or null when it is not a sane, direct number. */
+function saneCount(own, key) {
+  const m = new RegExp(`\\/${key}\\s+(\\d+)\\b(?!\\s+\\d+\\s+R)`).exec(own);
+  if (!m || m[1].length > 6) return null;
+  const n = Number(m[1]);
+  return n > 0 && n <= 100000 ? n : null;
+}
+
 function pageRootCounts(src) {
   const counts = [];
   const re = /\/Type\s*\/Pages\b/g;
@@ -743,8 +765,8 @@ function pageRootCounts(src) {
     if (!dict) continue;
     const own = ownEntries(dict);
     if (!/\/Type\s*\/Pages\b/.test(own) || /\/Parent\b/.test(own)) continue;
-    const c = /\/Count\s+(\d+)/.exec(own);
-    if (c) counts.push(Number(c[1]));
+    const c = saneCount(own, 'Count');
+    if (c) counts.push(c);
   }
   return counts;
 }
@@ -755,8 +777,7 @@ function linearizedPages(src) {
   const at = head.search(/\/Linearized\b/);
   if (at < 0) return null;
   const dict = enclosingDict(head, at);
-  const n = dict && /\/N\s+(\d+)/.exec(ownEntries(dict));
-  return n ? Number(n[1]) : null;
+  return dict ? saneCount(ownEntries(dict), 'N') : null;
 }
 
 /**

@@ -247,6 +247,9 @@ export default function ReferencesPicker({ refs, projectTitle, extraTokens = 0, 
             </React.Fragment>
           ))}
         </div>
+        {pool.errors?.folders && (
+          <p className="dog-details-note" title={pool.errors.folders}>The folders could not be listed just now, so every file is shown here.</p>
+        )}
         {folders.length === 0 && files.length === 0 && <EmptyState compact title="Nothing in this folder" />}
         <ul className="dog-refs-pick-list">
           {folders.map(f => {

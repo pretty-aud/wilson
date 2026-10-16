@@ -38,6 +38,7 @@ const fileRow = (over = {}) => ({
 function makeAdapter(files) {
   const adapter = {
     failFiles: false,
+    failFolders: false,
     listAssets: async () => [],
     listTasks: async () => [],
     listScenes: async (pid) => (pid === P1 ? [{ id: 'sc1', project_id: P1, name: 'The storm', status: 'in_progress' }] : []),
@@ -46,7 +47,7 @@ function makeAdapter(files) {
     listExperiences: async () => [],
     listPhases: async () => [],
     listMilestones: async () => [],
-    listFolders: async () => [],
+    listFolders: async () => { if (adapter.failFolders) throw new Error('folders down'); return []; },
     listTaskItems: async () => [],
     listFiles: vi.fn(async (pid) => {
       if (adapter.failFiles) throw new Error('network down');
@@ -180,5 +181,40 @@ describe('useReferences: what travels how', () => {
     expect(now(hook).undoable).toBe(true);
     act(() => now(hook).undoRemoveAll());
     expect([...now(hook).chosen].sort()).toEqual(['file:f1', 'scene:sc1']);
+  });
+});
+
+describe('useReferences: code review round 2', () => {
+  it('a folders-only failure still lists the files, and the deck is made from them', async () => {
+    const { hook, adapter } = setup();
+    adapter.failFolders = true;
+    await act(async () => { await now(hook).loadPool(); });
+    expect(now(hook).pool.errors.files).toBeUndefined();
+    expect(now(hook).pool.errors.folders).toBe('folders down');
+    act(() => now(hook).tick(['file:f1']));
+    let out;
+    await act(async () => { out = await now(hook).resolveForGeneration(); });
+    expect(out.files.map(f => f.content)).toEqual(['BODY']);
+  });
+
+  it('files stored for a project not yet chosen wait for it, then are chosen', async () => {
+    const { hook, props } = setup([fileRow({ id: 'f9', project_id: P2 })]);
+    act(() => now(hook).adoptUploadedFiles([fileRow({ id: 'f9', project_id: P2 })]));
+    expect(now(hook).chosen.size).toBe(0);
+    hook.rerender({ ...props, projectId: P2, project: { id: P2, title: 'Lighthouse' } });
+    await waitFor(() => expect(now(hook).chosen.has('file:f9')).toBe(true));
+  });
+
+  it("a read in flight when the project changes never lands on the new project", async () => {
+    const { hook, adapter, props } = setup();
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    adapter.listFiles.mockImplementationOnce(async () => { await gate; return [fileRow({ id: 'f1' })]; });
+    let pending;
+    act(() => { pending = now(hook).loadPool(); });
+    hook.rerender({ ...props, projectId: P2, project: { id: P2, title: 'Lighthouse' } });
+    await act(async () => { release(); await pending; });
+    expect(now(hook).pool).toBeNull();
+    expect(now(hook).unavailable.size).toBe(0);
   });
 });

@@ -140,6 +140,8 @@ describe('§6 #31 trap (b): migrating a legacy project changes nothing D.O.G. as
     // Named, so a regression says WHICH file went missing.
     expect(visible.map(r => r.name)).toContain('legacy.pdf')
     expect(adapter.rows.filter(isDeckAttachmentRow)).toHaveLength(before.length)
+    // And each one can be chosen, not only listed (code review round 2).
+    expect(visible.every(f => f.readable)).toBe(true)
   })
 
   it('empties the legacy arrays only for what actually moved', async () => {

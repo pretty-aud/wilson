@@ -13,7 +13,7 @@ import {
   fileEntry, legacyFileEntry, legacyPoolFiles, bareAssetName, coreLabel,
   fileTokens, uploadTokens, textTokens, meterState, REFERENCE_TOKEN_LIMIT,
   refKey, kindOfKey, pdfPagesFromBinary, countPdfPages, PDF_PAGE_TOKENS, readableType,
-  notesText, sizeWarning, noteKeysDatedBetween as notesBetween,
+  notesText, sizeWarning, noteKeysDatedBetween as notesBetween, sendsInline,
 } from './referenceModel';
 import { deflateSync } from 'node:zlib';
 
@@ -481,5 +481,34 @@ describe('a picture whose type is blank, open-ended dates, size warnings, the no
   it('the notes travel in their own block', () => {
     expect(notesText([])).toBe('');
     expect(notesText(['[Note] A'])).toMatch(/^CHOSEN NOTES\n/);
+  });
+});
+
+describe('code review round 2', () => {
+  it('a /Count that is an indirect reference, zero or absurd is unknown, not a number', () => {
+    expect(pdfPagesFromBinary('<< /Type /Pages /Kids [3 0 R] /Count 12 0 R >>')).toBeNull();
+    expect(pdfPagesFromBinary('<< /Type /Pages /Kids [] /Count 0 >>')).toBeNull();
+    expect(pdfPagesFromBinary('<< /Type /Pages /Kids [3 0 R] /Count 999999999999999999999 >>')).toBeNull();
+    expect(pdfPagesFromBinary('<< /Type /Pages /Kids [3 0 R] /Count 12 >>')).toBe(12);
+  });
+
+  it('a size at the cap never contradicts it', () => {
+    expect(sizeWarning('pdf', 32.4 * 1024 * 1024)).toBe('33 MB: the AI may refuse a PDF over 32 MB');
+    expect(sizeWarning('image', 10.3 * 1024 * 1024)).toBe('11 MB: the AI may refuse a picture over 10 MB');
+  });
+
+  it('🚨 the notes stay in the request whatever their length; other text past the limit does not', () => {
+    const long = 'x'.repeat(300 * 1024);
+    expect(sendsInline({ type: 'text', content: long, inlineOnly: true }, 256 * 1024)).toBe(true);
+    expect(sendsInline({ type: 'text', content: long }, 256 * 1024)).toBe(false);
+    expect(sendsInline({ type: 'text', content: 'short' }, 256 * 1024)).toBe(true);
+    expect(sendsInline({ type: 'pdf', content: 'JVBER', inlineOnly: true }, 256 * 1024)).toBe(false);
+  });
+
+  it('JPEG under the names some systems write is a picture the AI looks at', () => {
+    expect(readableType('image/jpg', 'a.jpg', 'image')).toBe('image');
+    expect(readableType('image/pjpeg', 'a.jpg', 'image')).toBe('image');
+    const p = buildPool({ lists: { files: [file({ id: 'j', name: 'a.jpg', mime_type: 'image/jpg' })] } });
+    expect(fileEntry(p.files[0], 'B64').mediaType).toBe('image/jpeg');
   });
 });

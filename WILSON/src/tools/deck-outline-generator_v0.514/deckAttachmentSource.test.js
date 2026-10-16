@@ -252,6 +252,12 @@ describe('choosing a project downloads nothing (DG1, Audrey\'s Q2)', () => {
     expect(HOOK).toMatch(/const resolveForGeneration = useCallback\(async/)
   })
 
+  it('🚨 buildSourceParts sends text through the one transport rule (the notes stay inline)', () => {
+    // sendsInline is tested in the model; this holds the component to it.
+    expect(SRC).toMatch(/if \(!sendsInline\(fileData, INLINE_TEXT_LIMIT\)\) \{/)
+    expect(SRC).not.toMatch(/body\.length > INLINE_TEXT_LIMIT/)
+  })
+
   it('a chosen reference that cannot be read is named, never dropped in silence', () => {
     expect(HOOK).toMatch(/unreadable\.push\(/)
     expect(SRC).toMatch(/Not sent: \$\{unreadable\.join/)
