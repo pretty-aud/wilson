@@ -714,7 +714,90 @@ to the columns in front of it?
   column (after the tick box), and you can place the picture or the number
   anywhere after it.
 
-### Her answers, batch 10
+### Her answers, batch 10 (2026-10-16; asked in chat as multiple choice, Q-A1, Q-A2, Q-D and Q-J with pictures; recorded verbatim)
+
+- **Q-A1:** "One 'New' button with a menu"
+- **Q-A2:** "add a button that only appears when their is edits made. the button should say "save view". if the view has no edits made just hide the button overall"
+- **Q-D:** "no what i want is make a group for the assets grouped together. example: so asset A, Asset B, Asset C if they have the a shared task. there should be a group called  Asset A, Asset B, Asset C. so dragging is just moving it around. when in grouping. create a button called create grouping. so if the user wants to create a grouping give them a button that allows them to do this with a window with boolean check boxes for each item.
+
+  same for scene, shot, level and experience groups."
+- **Q-J:** "Stay in front (Recommended)"
+
+### What follows from batch 10 (say if any is wrong)
+
+- **The Tasks toolbar's Phase, Key date and New task become one *New*
+  button with a menu** (Task, Phase, Key date) (Q-A1); the room it frees
+  (about 196px) goes to a longer Views button and to Q-A2's *Save view*
+  button.
+- **Unsaved changes show as a *Save view* button** that appears only while
+  the view has edits and is hidden otherwise (Q-A2): no *edited* word and no
+  dot on the Views button. How it fits with the bar under the toolbar is
+  batch 11's first question.
+- **Grouping the Tasks table by Asset (or Scene, Shot, Level, Experience)
+  makes one group per combination of items** (Q-D): a task linked to Asset
+  A, Asset B and Asset C sits in the group "Asset A, Asset B, Asset C"; a
+  task linked to Asset A alone sits in "Asset A". This replaces "once, under
+  its main one" (her Q11a) for the Tasks table and the Board; the Timeline
+  and the Budget still place a task under its main item (FX2's rule), as
+  they do today. Dragging moves a task between groups. A *Create grouping*
+  button opens a window with a check box for each item, to make a group for
+  a combination. Batch 11 asks the details.
+- **The columns in front of the name stay in front** (Q-J): Assets'
+  picture; Scenes' expand arrow, picture and number; Shots' picture and
+  number. A view can hide them but not move them.
+
+---
+
+## Batch 11 — the *Save view* button and the combination groups
+
+**Q-A3. The *Save view* button and the bar under the toolbar** (her Q3c
+chose a bar with *Reset*, *Save as new view* and *Save*; her Q-A2 asks for a
+*Save view* button that appears only with edits).
+- **The button does the saving; the bar only gives news** *(Recommended)*:
+  while there are edits, *Save view* appears right after the Views button;
+  clicking it saves the change into the view for everyone; its small arrow
+  offers *Save as new view* and *Reset changes* (on *All*, which cannot
+  change, the button reads *Save as new view*). The slim bar under the
+  toolbar appears only with news: a teammate changed or deleted the view, or
+  a save failed. A reviewer sees *Reset changes* in the button's place (they
+  cannot save, her Q3a).
+- **Both, as chosen before plus the button**: the *Save view* button and the
+  bar with its words and *Reset*, *Save as new view*, *Save*.
+- **The button only, no bar**: the news (a teammate's change, a failed save)
+  shows as a short message that fades.
+
+*Why my pick:* one place to save, beside the view's name (law of
+proximity), and the bar's words only when something happened that you need
+to know.
+
+**Q-D1. Dragging a task into another group** (grouped by asset).
+- **Its assets become the group's** *(Recommended)*: dragging a task into
+  the group "Asset A, Asset B, Asset C" makes A, B and C its assets (any
+  others come off; Undo puts them back); dragging it into "No asset" takes
+  them all off. Its main asset becomes the first of the group's.
+- **The group's assets are added**: the task keeps its other assets too, so
+  it lands in the group of its new, larger combination (not always where you
+  dropped it).
+- **No dragging between these groups.**
+
+**Q-D2. A grouping made with *Create grouping*** (a group for a combination
+no task has yet, to drag tasks into).
+- **Part of the view** *(Recommended)*: it belongs to the view's grouping
+  like a filter: kept for everyone when you save the view, gone if you
+  reset; it shows even while empty, so you can drag tasks into it.
+- **Only for the moment**: it lasts while WILSON is open; once a task is in
+  it, it shows like any other group.
+- **Saved for the project**: every view grouped by that kind shows it.
+
+**Q-D3. Where the *Create grouping* button sits** (only while the table is
+grouped by Asset, Scene, Shot, Level or Experience).
+- **After the last group** *(Recommended)*: a "+ Create grouping" row at the
+  end of the groups, where the eye finishes reading them; on the Board, at
+  the end of the columns.
+- **In the toolbar**, beside the Group dropdown.
+- **In the Group card** of the Views dropdown.
+
+### Her answers, batch 11
 
 *(waiting)*
 
