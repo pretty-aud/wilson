@@ -46,11 +46,11 @@ the Desktop kit's `00_HOW_TO_APPLY.md`, after 0096.
 
 | # | Do | You should see |
 |---|----|----------------|
-| 1 | Hover **Glass and rain rig test** and click its **View task details** | **Items (4)** (`po-vw1m-01-task-window`): *Assets*: Lighthouse Interior and Sea Spray Comp, with no *Main* on either; *Scenes*: The storm; *Shots*: The storm › Rain on the glass. Hovering a row shows only **Remove**. Under the table, one folding **Files** section per item: *Asset: Lighthouse Interior* open, then *Asset: Sea Spray Comp*, *Scene: The storm* and *Shot: The storm › Rain on the glass*, closed. |
+| 1 | Hover **Glass and rain rig test** and click its page icon (**Open Glass and rain rig test**) | **Items (4)** (`po-vw1m-01-task-window`): *Assets*: Lighthouse Interior and Sea Spray Comp, with no *Main* on either; *Scenes*: The storm; *Shots*: The storm › Rain on the glass. Hovering a row shows only **Remove**. Under the table, one folding **Files** section per item: *Asset: Lighthouse Interior* open, then *Asset: Sea Spray Comp*, *Scene: The storm* and *Shot: The storm › Rain on the glass*, closed. |
 | 2 | Open **Scene: The storm** | Its own file, *SC04_lighting_plan.pdf* (the scene's and the shot's sections used to list nothing). |
 | 3 | Click the **Sort** button (the up-and-down arrows) in the Items head | *Sort items by*: **Type** (ticked), **A to Z**, **Date added** (`po-vw1m-02-sort-menu`). |
 | 4 | Choose **A to Z** | One list, no kind headings, each row keeping its kind's icon (`po-vw1m-02b-sort-a-to-z`); the Files sections follow the same order. **Date added** lists them in the order they were linked to the task (`-02c`). Close the window and open it again: the sort you chose is kept on this computer. |
-| 5 | Click **+**, add **Lamp Room** | It joins the list in the sort's place; no item is ever "first". |
+| 5 | Click **+**, add **Storm Lantern** | It joins the assets in the sort's place (after Sea Spray Comp, A to Z); no item is ever "first", and the open Files section stays open. |
 
 **B. The Tasks table and the Board** (**Tasks**)
 
@@ -58,7 +58,7 @@ the Desktop kit's `00_HOW_TO_APPLY.md`, after 0096.
 |---|----|----------------|
 | 6 | **Group: Asset** | One group per single asset in the Assets tab's order, then **Lighthouse Interior, Sea Spray Comp (1)** holding Glass and rain rig test, and *No asset* last when a task has none (`po-vw1m-03-tasks-by-asset`, `-03b`, `-03c`). Each task is in exactly one group, and the counts add up to the tasks. |
 | 7 | The **Asset** cell of Glass and rain rig test | Both names, *Lighthouse Interior, Sea Spray Comp* (cut short with the list on hover). Clicking it opens the task's window. |
-| 8 | Drag **Wall texture pass** into the **Lighthouse Interior, Sea Spray Comp** group | It moves there: its assets are now exactly those two (your Q-D1). The **Undo** in the toast puts its asset back. |
+| 8 | Drag **Set build** into the **Lighthouse Interior, Sea Spray Comp** group | It moves there: its assets are now exactly those two (your Q-D1). The toast says *Moved "Set build" to Lighthouse Interior, Sea Spray Comp*, and its **Undo** puts it back under Lighthouse Interior. |
 | 9 | **Board**, grouped by Asset | A column for every single asset (even empty ones), the **Lighthouse Interior, Sea Spray Comp** column, *No asset* (`po-vw1m-04-board-by-asset`, `-04b`). The card names both assets. |
 | 10 | **Filter: Asset is Sea Spray Comp** | Every task that has Sea Spray Comp, including Glass and rain rig test. |
 
@@ -68,7 +68,7 @@ the Desktop kit's `00_HOW_TO_APPLY.md`, after 0096.
 |---|----|----------------|
 | 11 | **Group by asset** (the boxes icon) | Every asset's own row with its bar, as before; then **Lighthouse Interior, Sea Spray Comp**, with no bar, holding Glass and rain rig test once (`po-vw1m-05-timeline-by-asset`); *No asset* last (`-05c`). Clicking the combined row's header opens nothing. |
 | 12 | Drag a task's bar from one asset's row onto another's | The task's assets become that row's (Ctrl+Z on the Timeline puts them back). Dropping it on the combined row gives it both. |
-| 13 | **+ New task** under **Lighthouse Interior**'s row | The new task starts on Lighthouse Interior (it used to start on the project's first asset and first phase, whichever row you clicked). |
+| 13 | **New task…** under **Lighthouse Interior**'s row | The new task starts on Lighthouse Interior (it used to start on the project's first asset and first phase, whichever row you clicked). |
 | 14 | `/rabbit?fixtures=game`, **Group by level** | Harbour Approach, Lamp Room, Café at Dusk and Cliff Path each with their bars; **Cliff Path, Lamp Room** holding Glass and rain rig test; *No level* last (`po-vw1m-07-timeline-by-level-game`). |
 
 **D. The Budget** (**Budget**)
@@ -122,6 +122,7 @@ the Desktop kit's `00_HOW_TO_APPLY.md`, after 0096.
 - **The sort is kept per computer**; on the desktop app the browser storage
   it uses most likely starts empty at every launch (an existing entry in
   `docs/OUTSTANDING.md`).
+- **A viewed bid version** says *Asset: no longer in the project* for an asset that is only in the trash (it cannot tell the two apart from what it can see).
 - **The help** says how the Timeline and the Budget show a task with several
   items; the custom views (VW1b onward) will add the rest.
 
