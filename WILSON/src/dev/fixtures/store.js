@@ -127,6 +127,16 @@ export function binsFixtureMode(search = typeof location === 'undefined' ? '' : 
   return new URLSearchParams(search).get('bins') === 'browser' ? 'browser' : null
 }
 
+// FX11: what R.A.B.B.I.T.'s connection dot hears from the fake cloud.
+// `?connection=files-down` — the database answers and the files' storage does
+// not (amber); `?connection=offline` — neither answers (red). The default:
+// both answer (green). The fixtures' realtime and data are untouched, as a
+// project already open stays open when the network goes.
+export function connectionFixtureMode(search = typeof location === 'undefined' ? '' : location.search) {
+  const v = new URLSearchParams(search).get('connection')
+  return v === 'files-down' || v === 'offline' ? v : null
+}
+
 export function createStore() {
   const progress = {}
   progress[COURSE.id] = clone(PROGRESS)
