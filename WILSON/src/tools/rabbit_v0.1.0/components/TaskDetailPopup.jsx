@@ -5,18 +5,26 @@
 // Two-column layout:
 //   LEFT  — the task's ITEMS (FX2, 0096: the assets, scenes, shots, levels
 //           and experiences it is about, the scene window's Assets table in
-//           the same parts), then the files of its main asset, shot and scene
+//           the same parts), then a folding Files section per item (VW1m)
 //   RIGHT — task properties, description, notes
 //
 // The header + status accent bar spans the full width of both
 // columns. Relation dropdowns for scene/shot/level/experience
 // only appear when the corresponding database is toggled on.
+//
+// VW1m (2026-10-16), her rulings (docs/design/CUSTOM_VIEWS_QUESTIONS.md,
+// batches 12 and 14): no item counts for more than another, so the files
+// column no longer shows one asset's, one shot's and one scene's files. Her
+// Q-N2 ("A section per item"): ONE folding Files section per LIVE item, in
+// the Items table's Sort, the first open and the others closed (Chunking,
+// progressive disclosure: one item's files at a time). Her Q-N3 ("Folder of
+// its section"): each section is its own item's FileManager, so a file added
+// there is filed in that item's folder, named after the task as before.
 
 import { useState, useEffect, useMemo } from 'react'
 import {
   Trash2, DollarSign,
-  ChevronDown, ChevronRight, Film, Clapperboard,
-  Gamepad2, Sparkles, Boxes, FolderOpen,
+  ChevronDown, ChevronRight, FolderOpen,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 // Phase 7 (Track A A2, 2026-09-06): the status dropdown warns about
@@ -32,8 +40,11 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
-// FX2 (0096): the Items table, in the scene window's relation parts.
-import { TaskItemsTable } from './RelationsPanel'
+// FX2 (0096): the Items table, in the scene window's relation parts. VW1m:
+// with the one reading of the task's items it and the Files sections share,
+// and its Sort, which the Files sections follow.
+import { TaskItemsTable, useTaskItemsView, useTaskItemSort, ITEM_GLYPH } from './RelationsPanel'
+import { ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, isItemKind, sortItemsForDisplay } from '../state/taskItemsModel'
 import { useRemovalAsk } from './RemovalQuestion'
 import { Dialog, Button, Field, EmptyState, StatusBanner, StatusDot, statusMeta, Switch } from '../../../ui'
 // Post-overhaul S3c, step 1: which shot list holds a linked scene or shot,
@@ -43,7 +54,9 @@ import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard renders this popup over its own task table, and the two must
 // not disagree about which priorities are marked.
-import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
+// VW1m (2026-10-16): and a task's item names of one kind, "A, B", A to Z,
+// read from a Dashboard row's items, as the Dashboard's own column reads them.
+import { priorityTone, itemNamesOf } from '../../../components/Dashboard/dashboardTaskModel'
 import '../views/rabbitTasks.css'
 
 // ── Constants ──
@@ -58,6 +71,8 @@ const PRIORITIES = ['low','medium','high','urgent']
 // tone from priorityTone(), its word sentence case (Q2).
 const PRIORITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' }
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
+// How a read-out link is changed where the window cannot (the Dashboard's).
+const RELINK_WORDS = 'Open the project in R.A.B.B.I.T. to re-link this task'
 
 // ═════════════════════════════════════════════════════
 // MAIN EXPORT
@@ -148,8 +163,19 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
     if (!editingFileName) setFileNameOverride(task?.title || '')
   }, [task?.title])
 
-  // Collapsible left-column sections
-  const [collapsed, setCollapsed] = useState({})
+  // VW1m (2026-10-16): the task's LIVE items (her Q-N4: a trashed one is
+  // hidden), read as the Items table reads them, and the table's Sort (her
+  // Q-N1, remembered on that computer), which the Files sections follow.
+  const itemView = useTaskItemsView(task, ctx)
+  const [itemSort, setItemSort] = useTaskItemSort()
+  const fileItems = useMemo(
+    () => sortItemsForDisplay(itemView.live, itemSort, itemView.lookup),
+    [itemView.live, itemSort, itemView.lookup],
+  )
+
+  // The Files sections' folds, by item ("kind:id"): only the ones a person
+  // has folded or opened; any other is open when it is the first (her Q-N2).
+  const [filesOpen, setFilesOpen] = useState({})
 
   // Post-overhaul S3c, step 1: the Scene and Shot pickers offer the ACTIVE
   // list's rows (D10), and every row of the project once "All lists" is on.
@@ -160,20 +186,18 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // since B4c, so an Escape there is the player's alone and this popup needs
   // no guard (B2 §4: `filesLayerOpen` is gone). Its notes editor marks its
   // own Escape (K4's mark, B4).
-  function toggleCollapse(key) {
-    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
-  }
 
   if (!task) return null
 
-  const linkedAsset = task.asset_id ? assets.find(a => a.id === task.asset_id) : null
   // Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE list's
   // (D10), so a task linked to a scene or shot only ANOTHER list holds lost
   // its files column and read "—" in its pickers. The link is found among
   // every row (the provider's lookups); the pickers keep the row chosen
   // whatever the switch says; and the list that holds it is printed under
   // the Shot field (LinkHome) — Audrey: tasks "need to clearly indicate"
-  // which shot version they are assigned to.
+  // which shot version they are assigned to. (VW1m: the files column reads
+  // the items, as the lookup above reads them; these two serve the Placement
+  // pickers where the backend keeps no items.)
   const linkedScene = task.scene_id ? (ctx?.sceneById?.(task.scene_id) || scenes.find(s => s.id === task.scene_id) || null) : null
   const linkedShot = task.shot_id ? (ctx?.shotById?.(task.shot_id) || shots.find(s => s.id === task.shot_id) || null) : null
   const allScenes = ctx?.allScenes || scenes
@@ -206,7 +230,25 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // Dashboard's cross-project window (no project bundle) — the window is as
   // it was.
   const itemsHere = ctx?.taskItemsAvailable === true && Array.isArray(ctx?.taskItems)
-  const hasLeftColumn = itemsHere || linkedAsset || linkedShot || scenesOn || levelsOn || experiencesOn
+  // VW1m (2026-10-16): the column, and its no-files hint below, read the
+  // task's LIVE items (a trashed one is hidden, her Q-N4).
+  const hasLeftColumn = itemsHere || fileItems.length > 0 || scenesOn || levelsOn || experiencesOn
+  // VW1m (2026-10-16): the Dashboard's window (across projects, no project
+  // bundle, no items kept) has rows that carry their items, named
+  // (listMyTasks: `items: [{ kind, id, name }]`). Her Q-N6, interim: "the
+  // window lists all of the task's items" — read out by kind, A to Z
+  // (itemNamesOf, the Dashboard's own column's words), EVERY asset in the
+  // Asset field ("A, B"), never one of them. A row from before them reads
+  // its one embedded asset, as it did.
+  const rowItems = Array.isArray(task.items) ? task.items.filter(i => i && isItemKind(i.kind)) : null
+  const countOf = (kind) => (rowItems ? rowItems.filter(i => i.kind === kind).length : 0)
+  const assetReadout = rowItems ? (itemNamesOf(task, 'asset') || '—')
+    : task.asset_id && !assets.some(a => a.id === task.asset_id) ? (task.asset?.name || 'Linked asset')
+    : null
+  const readoutKinds = rowItems ? ITEM_KINDS.filter(kind => kind !== 'asset' && countOf(kind) > 0) : []
+  // The readouts' hover: the whole list where it may be cut short, then how
+  // to change it.
+  const readoutTitle = (names, n) => (n > 1 ? `${names}. ${RELINK_WORDS}` : RELINK_WORDS)
 
   return (
     <>
@@ -256,100 +298,77 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
             <div className="rb-task-detail-side">
             <div className="rb-task-detail-files">
               {itemsHere && (
-                <TaskItemsTable task={task} ctx={ctx} canWrite={canWrite} writeReason={writeReason} />
-              )}
-              {/* Asset files */}
-              {linkedAsset && (
-                <CollapsibleSection
-                  icon={Boxes}
-                  label={`Asset: ${linkedAsset.name || 'Untitled'}`}
-                  collapsed={collapsed.asset}
-                  onToggle={() => toggleCollapse('asset')}
-                >
-                  <FileNameEditor
-                    fileNameOverride={fileNameOverride}
-                    editingFileName={editingFileName}
-                    fileNameDraft={fileNameDraft}
-                    setEditingFileName={setEditingFileName}
-                    setFileNameDraft={setFileNameDraft}
-                    setFileNameOverride={setFileNameOverride}
-                  />
-                  <FileManager
-                    files={ctx?.managedFiles || []}
-                    assetId={linkedAsset.id}
-                    assetName={linkedAsset.name}
-                    projectId={ctx?.activeProjectId}
-                    project={project}
-                    mode="readonly"
-                    taskTitle={fileNameOverride || null}
-                    taskId={task.id}
-                    onFileAdded={() => ctx?.refreshManagedFiles?.()}
-                  />
-                </CollapsibleSection>
+                <TaskItemsTable task={task} ctx={ctx} sort={itemSort} onSort={setItemSort}
+                  canWrite={canWrite} writeReason={writeReason} />
               )}
 
-              {/* Shot files */}
-              {linkedShot && (
-                <CollapsibleSection
-                  icon={Clapperboard}
-                  label={`Shot: ${linkedShot.name || 'Untitled'}`}
-                  collapsed={collapsed.shot}
-                  onToggle={() => toggleCollapse('shot')}
-                >
-                  <FileNameEditor
-                    fileNameOverride={fileNameOverride}
-                    editingFileName={editingFileName}
-                    fileNameDraft={fileNameDraft}
-                    setEditingFileName={setEditingFileName}
-                    setFileNameDraft={setFileNameDraft}
-                    setFileNameOverride={setFileNameOverride}
-                  />
-                  <FileManager
-                    files={ctx?.managedFiles || []}
-                    assetId={linkedShot.id}
-                    assetName={linkedShot.name}
-                    projectId={ctx?.activeProjectId}
-                    project={project}
-                    mode="readonly"
-                    taskTitle={fileNameOverride || null}
-                    taskId={task.id}
-                    onFileAdded={() => ctx?.refreshManagedFiles?.()}
-                  />
-                </CollapsibleSection>
+              {/* VW1m (2026-10-16): the name a file added here takes, ONCE
+                  over every section (it was repeated inside each, one value
+                  shown three times): it names the upload whichever item's
+                  section it is added in. */}
+              {fileItems.length > 0 && (
+                <FileNameEditor
+                  fileNameOverride={fileNameOverride}
+                  editingFileName={editingFileName}
+                  fileNameDraft={fileNameDraft}
+                  setEditingFileName={setEditingFileName}
+                  setFileNameDraft={setFileNameDraft}
+                  setFileNameOverride={setFileNameOverride}
+                />
               )}
 
-              {/* Scene relation */}
-              {scenesOn && linkedScene && !linkedShot && (
-                <CollapsibleSection
-                  icon={Film}
-                  label={`Scene: ${linkedScene.name || 'Untitled'}`}
-                  collapsed={collapsed.scene_files}
-                  onToggle={() => toggleCollapse('scene_files')}
-                >
-                  <FileNameEditor
-                    fileNameOverride={fileNameOverride}
-                    editingFileName={editingFileName}
-                    fileNameDraft={fileNameDraft}
-                    setEditingFileName={setEditingFileName}
-                    setFileNameDraft={setFileNameDraft}
-                    setFileNameOverride={setFileNameOverride}
-                  />
-                  <FileManager
-                    files={ctx?.managedFiles || []}
-                    assetId={linkedScene.id}
-                    assetName={linkedScene.name}
-                    projectId={ctx?.activeProjectId}
-                    project={project}
-                    mode="readonly"
-                    taskTitle={fileNameOverride || null}
-                    taskId={task.id}
-                    onFileAdded={() => ctx?.refreshManagedFiles?.()}
-                  />
-                </CollapsibleSection>
-              )}
+              {/* VW1m (2026-10-16), her Q-N2: a Files section per live
+                  item, "<Kind>: <name>", in the Items table's Sort, the
+                  first open. Her Q-N3: each section is its own item's
+                  FileManager — an asset's by assetId, a scene's by sceneId,
+                  a shot's by shotId, a level's by levelId, an experience's
+                  by experienceId — so it lists that item's files and files
+                  an upload in that item's folder (the cloud's
+                  uploadContainerFor and the desktop's managed-files route
+                  file by each). The Shot and Scene sections passed their id
+                  as an asset's before: they listed none of their files, and
+                  a desktop upload landed in ASSETS/Untitled-Asset/. The
+                  names are the rows' own (a folder's fallback), as their
+                  own windows pass them. */}
+              {fileItems.map((item, n) => {
+                const kind = item.entity_type
+                const id = item.entity_id
+                const key = `${kind}:${id}`
+                const open = filesOpen[key] ?? n === 0
+                const row = itemView.rows[kind]?.get(id) || null
+                return (
+                  <CollapsibleSection
+                    key={key}
+                    icon={ITEM_GLYPH[kind]}
+                    label={`${KIND_LABEL[kind]}: ${itemView.lookup.nameOf(kind, id) || 'Untitled'}`}
+                    collapsed={!open}
+                    onToggle={() => setFilesOpen(prev => ({ ...prev, [key]: !open }))}
+                  >
+                    <FileManager
+                      files={ctx?.managedFiles || []}
+                      assetId={kind === 'asset' ? id : undefined}
+                      assetName={kind === 'asset' ? row?.name : undefined}
+                      sceneId={kind === 'scene' ? id : undefined}
+                      sceneName={kind === 'scene' ? (row?.name || 'Untitled-Scene') : undefined}
+                      shotId={kind === 'shot' ? id : undefined}
+                      shotName={kind === 'shot' ? (row?.name || 'Untitled-Shot') : undefined}
+                      levelId={kind === 'level' ? id : undefined}
+                      levelName={kind === 'level' ? (row?.name || 'Untitled-Level') : undefined}
+                      experienceId={kind === 'experience' ? id : undefined}
+                      experienceName={kind === 'experience' ? (row?.name || 'Untitled-Experience') : undefined}
+                      projectId={ctx?.activeProjectId}
+                      project={project}
+                      mode="readonly"
+                      taskTitle={fileNameOverride || null}
+                      taskId={task.id}
+                      onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                    />
+                  </CollapsibleSection>
+                )
+              })}
 
               {/* No relations hint */}
-              {!linkedAsset && !linkedShot && !(scenesOn && linkedScene) && (
+              {fileItems.length === 0 && (
                 <EmptyState
                   compact
                   Icon={FolderOpen}
@@ -397,17 +416,17 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
             <PropertyGroup title="Placement">
               {!itemsHere && (<>
-              <Field label="Asset">
-                {task.asset_id && !assets.some(a => a.id === task.asset_id) ? (
-                  // Current asset not in ctx.assets (the Dashboard's
+              <Field label={countOf('asset') > 1 ? KIND_LABEL_PLURAL.asset : KIND_LABEL.asset}>
+                {assetReadout != null ? (
+                  // The task's asset is not in ctx.assets (the Dashboard's
                   // cross-project reuse keeps the list empty so the
-                  // FileManager column can't mount): show the embedded name
-                  // read-only. A select here would render blank and its
-                  // only option would write asset_id = NULL into a
-                  // NOT NULL column (Session 8 review finding).
-                  <div className="rb-task-readout"
-                    title="Open the project in R.A.B.B.I.T. to re-link this task">
-                    {task.asset?.name || 'Linked asset'}
+                  // FileManager column can't mount): its name read-only. A
+                  // select here would render blank and its only option
+                  // would write asset_id = NULL into a NOT NULL column
+                  // (Session 8 review finding). VW1m (2026-10-16): every
+                  // asset's name from the row's items ("A, B"), never one.
+                  <div className="rb-task-readout" title={readoutTitle(assetReadout, countOf('asset'))}>
+                    {assetReadout}
                   </div>
                 ) : (
                   <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
@@ -427,7 +446,17 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
                 </select>
               </Field>
-              {!itemsHere && (<>
+              {/* VW1m (2026-10-16): the Dashboard's window reads out the
+                  task's other items by kind (her Q-N6, interim), where a
+                  project's window has its pickers. */}
+              {!itemsHere && readoutKinds.map(kind => (
+                <Field key={kind} label={countOf(kind) > 1 ? KIND_LABEL_PLURAL[kind] : KIND_LABEL[kind]}>
+                  <div className="rb-task-readout" title={readoutTitle(itemNamesOf(task, kind), countOf(kind))}>
+                    {itemNamesOf(task, kind)}
+                  </div>
+                </Field>
+              ))}
+              {!itemsHere && !rowItems && (<>
 
               {/* ── Conditional relation fields ── */}
               {scenesOn && (
