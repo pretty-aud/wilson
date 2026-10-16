@@ -130,6 +130,25 @@ describe('groupTasks', () => {
       ['Previz', ['t1']], ['Shoot', ['t3', 't4']], ['None', ['t2']],
     ])
   })
+
+  // VW1m review round 2 (R2-5): the Timeline's and the Budget's rule — its
+  // own phase, else the phase every one of its assets is in, else none. The
+  // Dashboard read the task's own phase only, so a task without one sat
+  // under None here and under its assets' phase there.
+  it('R2-5: a task without a phase of its own goes under the phase its assets share; assets in two phases, or none, read None', () => {
+    const asset = (id, phase_id) => ({ kind: 'asset', id, name: id.toUpperCase(), phase_id })
+    const tasks = [
+      mk({ id: 'shared', phase_id: null, items: [asset('a1', 'ph2'), asset('a2', 'ph2'), { kind: 'scene', id: 's1', name: 'S' }] }),
+      mk({ id: 'split', phase_id: null, items: [asset('a1', 'ph1'), asset('a3', 'ph2')] }),
+      mk({ id: 'unphased', phase_id: null, items: [asset('a1', 'ph2'), asset('a4', null)] }),
+      // Its own phase wins over its assets'.
+      mk({ id: 'own', phase_id: 'ph1', items: [asset('a1', 'ph2')] }),
+    ]
+    const groups = groupTasks(tasks, 'phase', { phasesById: { ph1: { name: 'Previz' }, ph2: { name: 'Shoot' } } })
+    expect(groups.map(g => [g.label, g.tasks.map(t => t.id)])).toEqual([
+      ['Previz', ['own']], ['Shoot', ['shared']], ['None', ['split', 'unphased']],
+    ])
+  })
 })
 
 describe('buildGroupPatch', () => {

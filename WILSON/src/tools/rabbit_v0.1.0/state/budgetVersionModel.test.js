@@ -10,6 +10,7 @@ import {
   bidTotals, projectBudgetSettings, scheduleSpan, snapshotFromLive, readVersion,
   varianceAgainst, versionDelta, versionDiff, planOpen, planIsEmpty,
   sortVersionsNewest, selectedVersionOf, previousVersionOf, deltaWords, SNAPSHOT_KIND,
+  knownIdsOf, liveItemsOnly,
 } from './budgetVersionModel'
 import { selectProjectBudgetRollup } from './selectors'
 
@@ -378,10 +379,29 @@ describe('a task\'s items in a bid version (VW1m, Q-N7 interim)', () => {
     expect(plan.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A2'], gone: ['A-gone'], exact: true }])
     expect(plan.droppedLinks).toBe(1)
     // The task still has the trashed asset: it is kept, nothing counted.
+    // VW1m review round 2 (R2-1): kept by the provider's set (R1-1), never
+    // named in `ids`: the plan reads the task's live items only.
     const has = [...items, it2('i9', 't1', 'asset', 'A-gone', 2)]
     const kept = planOpen(saved, { tasks, phases, milestones, project, roleRates, known, items: has })
-    expect(kept.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A-gone', 'A2'], gone: [], exact: true }])
+    expect(kept.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A2'], gone: [], exact: true }])
     expect(kept.droppedLinks).toBe(0)
+  })
+
+  // VW1m review round 2 (R2-1): an item whose row the project does not show
+  // (in the trash) is hidden from its task; counted, an asset added and then
+  // deleted read "Unsaved changes" that no open could clear.
+  it('R2-1: with `known`, a hidden item on either side is no change, and an open it alone tells apart writes nothing', () => {
+    const saved = withItems()
+    const trashed = [...items, it2('i9', 't1', 'asset', 'A-trash', 2)]
+    expect(versionDiff(saved, withItems({ items: trashed }), { known }).isDirty).toBe(false)
+    expect(versionDiff(withItems({ items: trashed }), saved, { known }).isDirty).toBe(false)
+    expect(planIsEmpty(planOpen(saved, { tasks, phases, milestones, project, roleRates, known, items: trashed }))).toBe(true)
+    expect(liveItemsOnly(trashed, known).map(i => i.id)).toEqual(['i1', 'i2', 'i3', 'i4'])
+    expect(liveItemsOnly(trashed, knownIdsOf({ assets: [{ id: 'A1' }], scenes: [{ id: 'S1' }], levels: [{ id: 'L1' }] })).map(i => i.id)).toEqual(['i2', 'i3', 'i4'])
+    // CONTROL: once the asset is back (known), it is a change.
+    const back = { ...known, assets: new Set([...known.assets, 'A-trash']) }
+    expect(versionDiff(saved, withItems({ items: trashed }), { known: back }).tasks.changed).toBe(1)
+    expect(planOpen(saved, { tasks, phases, milestones, project, roleRates, known: back, items: trashed }).items).toEqual([{ id: 't1', kind: 'asset', ids: ['A1', 'A2'], gone: [], exact: true }])
   })
   it('planOpen, a version saved before: its saved item goes back where the task lost it; nothing is removed', () => {
     const older = snapshotFromLive({ tasks: [{ ...tasks[0], asset_id: 'A3', scene_id: 'S1' }, { ...tasks[1], level_id: 'L1', experience_id: 'X-gone' }], phases, milestones, project, roleRates })

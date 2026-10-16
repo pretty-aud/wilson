@@ -1999,9 +1999,11 @@ function unwrapMyTasksRead({ data, error }) {
   return data || [];
 }
 // What each kind's name read selects: the name, and what the display order
-// reads (a scene's number; a shot's number and its scene).
+// reads (a scene's number; a shot's number and its scene). VW1m review round
+// 2 (R2-5): an asset's phase too, which its item carries (`phase_id`): the
+// Dashboard's Phase grouping falls back to the phase a task's assets share.
 const MY_TASK_ITEM_ROWS = Object.freeze({
-  asset:      ['assets', 'id, name'],
+  asset:      ['assets', 'id, name, phase_id'],
   scene:      ['scenes', 'id, name, scene_number'],
   shot:       ['shots', 'id, name, shot_number, scene_id'],
   level:      ['levels', 'id, name'],
@@ -2048,9 +2050,12 @@ async function withMyTaskItems(client, tasks) {
   for (const s of shots) if (s?.scene_id != null) sceneIds.add(String(s.scene_id));
   const scenes = await rowsOf('scene', sceneIds);
   const lookup = buildItemLookup({ items, available: true, assets, scenes, shots, levels, experiences });
+  const assetPhase = new Map(assets.map(a => [String(a.id), a.phase_id ?? null]));
   return tasks.map(t => ({
     ...t,
-    items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => ({ kind, id, name: lookup.nameOf(kind, id) }))),
+    items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => (kind === 'asset'
+      ? { kind, id, name: lookup.nameOf(kind, id), phase_id: assetPhase.get(String(id)) ?? null }
+      : { kind, id, name: lookup.nameOf(kind, id) }))),
   }));
 }
 
@@ -2390,8 +2395,15 @@ export function supabaseAdapter() {
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
-          client.from('assets').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
-          client.from('tasks').select('*').eq('project_id', projectId).then(unwrap),
+          // VW1m review round 2 (R2-4): paged, as the scenes and shots are
+          // below. Cut at PostgREST's 1,000 rows, a feature-sized project lost
+          // its 1,001st asset (and VW1m hides an item whose row is not
+          // loaded) or task. Still strict (unwrap): a refusal fails the load.
+          // `id` closes each order, so no row straddles two pages.
+          readAllPagesWith(() => client.from('assets').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id'), unwrap),
+          readAllPagesWith(() => client.from('tasks').select('*').eq('project_id', projectId)
+            .order('id'), unwrap),
           listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           client.from('files').select('*').eq('project_id', projectId).then(unwrap),

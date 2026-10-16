@@ -112,7 +112,7 @@ import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // for the snapshot, the open plan and "which version is selected".
 import {
   snapshotFromLive, planOpen, readVersion, selectedVersionOf, sortVersionsNewest, previousVersionOf,
-  versionDiff,
+  versionDiff, liveItemsOnly,
 } from './budgetVersionModel';
 // Post-overhaul S5b (0090): rows the open version does not hold are SET
 // ASIDE — kept whole, hidden everywhere, brought back by a version that holds
@@ -5069,6 +5069,28 @@ export function RabbitProvider({ children }) {
     return setTaskItemsOfKind(taskId, kind, ids);
   }), [setTaskItemsOfKind]);
 
+  // VW1m review round 2 (R2-3): a Timeline drop — a task's items of one kind
+  // or more (`writes`: [[kind, ids], …]; by scene, its scenes and its shots)
+  // — as ONE undo step queued WHOLE, as openBudgetVersion is: the batch runs
+  // inside the queue and calls the raw verb. The Timeline ran ctx.runBatch
+  // around the queued verb, so the batch was open from the drop while its
+  // step waited its turn: an edit made in that wait landed in the drop's
+  // step, and an undo that ran in it was swallowed (undo stands down while a
+  // batch is open). Refused in words while a replay still runs, as above.
+  const setTaskItemsOfKindsQueued = useCallback((taskId, writes) => inHistoryQueue(() => {
+    try {
+      refuseWhileReplaying();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+    return runBatch(async () => {
+      const out = [];
+      for (const [kind, ids] of Array.isArray(writes) ? writes : []) out.push(await setTaskItemsOfKind(taskId, kind, ids));
+      return out;
+    });
+  }), [setTaskItemsOfKind, runBatch]);
+
   // ── Team assignments (project-scoped) ────────────────────
   // Each assignment: { id, project_id, member_id, role: 'member' | 'manager' | 'reviewer' }
   const addTeamAssignment = useCallback(async (assignment) => {
@@ -7191,12 +7213,18 @@ export function RabbitProvider({ children }) {
    * them are what this app reads. A task brought back whose items were not
    * read (itemsUnreadRef) and that has none here keeps its row's own fields,
    * saved without `items`. Where the backend keeps none, the rows as stored.
+   * VW1m review round 2 (R2-1): the LIVE items only (hiddenItemIdsOf's rule,
+   * knownRowIds): one whose row is in the trash, or not loaded, is the
+   * task's, hidden while there, and no part of a bid — kept, an asset added
+   * and then deleted read "Unsaved changes" that no open could clear.
    */
   function snapshotTaskRows(b) {
     if (!taskItemsOnRef.current) return { tasks: b.tasks || [], items: null };
-    const items = b.taskItems || [];
+    const all = b.taskItems || [];
+    const allByTask = indexItemsByTask(all);
+    const unread = [...itemsUnreadRef.current].filter(id => !allByTask.has(String(id)));
+    const items = liveItemsOnly(all, knownRowIds(b));
     const byTask = indexItemsByTask(items);
-    const unread = [...itemsUnreadRef.current].filter(id => !byTask.has(String(id)));
     const skip = new Set(unread.map(String));
     const tasks = (b.tasks || []).map(t => (t && !skip.has(String(t.id))
       ? { ...t, ...copyFieldsFromItems(byTask.get(String(t.id)) || []) }
@@ -7581,6 +7609,8 @@ export function RabbitProvider({ children }) {
     // R2-3 guard goes with the main item it guarded. Review round 1 (R1-1):
     // setTaskItemsOfKind keeps every hidden item itself, one the version never
     // held too; `kept` here only keeps the count of what was left out true.
+    // Review round 2 (R2-1): planOpen measures the version against the
+    // task's live items (`known`), so a hidden item alone writes nothing.
     for (const w of plan.items || []) {
       if (w.exact) {
         const has = new Set(itemsOfTask(bundleRef.current.taskItems || [], w.id, w.kind).map(i => String(i.entity_id)));
@@ -7902,10 +7932,12 @@ export function RabbitProvider({ children }) {
     const openV = versions.find(r => r.id === (b.project?.open_budget_version_id || null)) || null;
     const liveRows = { tasks: b.tasks || [], phases: b.phases || [], milestones: b.milestones || [] };
     // VW1m: the same diff and plan as the open's — each task's items (Q-N7).
+    // Review round 2 (R2-1): the live items only, on both sides (`known`).
+    const known = knownRowIds(b);
     const liveSnap = snapshotFromLive({ ...liveRows, ...snapshotTaskRows(b), project: b.project, roleRates });
     const listed = (ver) => (liveShotListId === undefined ? {} : { shotListId: ver.shot_list_id ?? null, liveShotListId });
-    const openDirty = openV ? versionDiff(openV.snapshot, liveSnap, listed(openV)).isDirty : false;
-    const matchesSome = versions.some(r => readVersion(r).hasTimeline && !versionDiff(r.snapshot, liveSnap).isDirty);
+    const openDirty = openV ? versionDiff(openV.snapshot, liveSnap, { ...listed(openV), known }).isDirty : false;
+    const matchesSome = versions.some(r => readVersion(r).hasTimeline && !versionDiff(r.snapshot, liveSnap, { known }).isDirty);
     const inNoVersion = rowsInNoVersion(liveRows, versions);
     const unsaved = openV
       ? (openDirty ? { kind: 'open', version: openV, inNoVersion, work: workOfRows(inNoVersion) } : null)
@@ -7919,7 +7951,7 @@ export function RabbitProvider({ children }) {
       plan = planOpen(v.snapshot, {
         ...live, setAside: { tasks: b.setAsideTasks, phases: b.setAsidePhases, milestones: b.setAsideMilestones },
         keep, project: b.project, roleRates,
-        known: knownRowIds(b), items: taskItemsOnRef.current ? (b.taskItems || []) : null,
+        known, items: taskItemsOnRef.current ? (b.taskItems || []) : null,
       });
       for (const k of SCHEDULE_KINDS) {
         const away = new Set(plan.setAside[k].map(String));
@@ -8498,6 +8530,8 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     // Review round 1 (R1-5): the person's set waits its turn in the undo queue.
     addTaskItem, removeTaskItem, setTaskItemsOfKind: setTaskItemsOfKindQueued,
+    // Review round 2 (R2-3): a Timeline drop's sets, queued whole, one step.
+    setTaskItemsOfKinds: setTaskItemsOfKindsQueued,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
@@ -8629,7 +8663,7 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
-    addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, tasksView, taskItemsOn,
+    addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,

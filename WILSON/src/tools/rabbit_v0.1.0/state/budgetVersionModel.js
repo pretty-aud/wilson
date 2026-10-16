@@ -129,6 +129,32 @@ function sameSet(a, b) {
   return sa.size === sb.size && [...sa].every(x => sb.has(x))
 }
 
+// VW1m review round 2 (R2-1): which items the project shows. `known` is
+// planOpen's ({ scenes, shots, assets, levels, experiences }: Sets of the ids
+// that exist now; knownIdsOf), the rows the provider's hiddenItemIdsOf reads.
+// An item whose row is not among them is HIDDEN (in the trash, or not loaded:
+// her Q-N4): no screen shows it and no open writes it (the provider's set
+// keeps it), so a snapshot keeps the live items only and every compare reads
+// the live items of both sides. Counted, a task with an asset added and then
+// deleted read "Unsaved changes" for good. No `known`: every id is live.
+const KNOWN_KEY = { asset: 'assets', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences' }
+const isShown = (known, kind, id) => {
+  const set = known?.[KNOWN_KEY[kind]]
+  return !(set instanceof Set) || set.has(String(id))
+}
+
+/** VW1m review round 2 (R2-1): `known` from the project's rows, as the provider's knownRowIds builds it (scenes and shots: every row, not the active list's). */
+export function knownIdsOf({ assets, scenes, shots, levels, experiences } = {}) {
+  const ids = (rows) => new Set((rows || []).filter(r => r && r.id != null).map(r => String(r.id)))
+  return { scenes: ids(scenes), shots: ids(shots), assets: ids(assets), levels: ids(levels), experiences: ids(experiences) }
+}
+
+/** VW1m review round 2 (R2-1): the task_items rows whose row the project shows (`known`); every row without `known`. */
+export function liveItemsOnly(items, known) {
+  if (!Array.isArray(items) || !known) return items
+  return items.filter(i => i && ITEM_FIELD[i.entity_type] && isShown(known, i.entity_type, i.entity_id))
+}
+
 /**
  * VW1m (2026-10-16), Q-N7 interim: whether a task's links differ between a
  * version's row (`saved`) and the live one (or between two versions, F8).
@@ -139,15 +165,18 @@ function sameSet(a, b) {
  *                            no change, as opening it removes nothing;
  *   the live one does not  → (a backend that keeps no items) the three
  *                            single fields, as before.
+ * Review round 2 (R2-1): with `known`, an item whose row the project does
+ * not show is no change on either side (hidden: no open could show it).
  */
-function taskLinksChanged(saved, live) {
+function taskLinksChanged(saved, live, known = null) {
   const s = itemsOfRow(saved)
   const l = itemsOfRow(live)
+  const shown = (items, kind) => idsIn(items, kind).filter(id => isShown(known, kind, id))
   if (l) {
-    if (s) return ITEM_KINDS.some(k => !sameSet(idsIn(s, k), idsIn(l, k)))
+    if (s) return ITEM_KINDS.some(k => !sameSet(shown(s, k), shown(l, k)))
     return ITEM_KINDS.some(k => {
       const v = norm(ITEM_FIELD[k], saved?.[ITEM_FIELD[k]])
-      return v != null && !idsIn(l, k).includes(String(v))
+      return v != null && isShown(known, k, v) && !shown(l, k).includes(String(v))
     })
   }
   return LEGACY_LINKS.some(f => norm(f, saved?.[f]) !== norm(f, live?.[f]))
@@ -224,8 +253,9 @@ const totalBidDaysOf = (tasks) => (tasks || []).reduce((s, t) => s + num(t?.bid_
  *
  * VW1m (2026-10-16), Q-N7 interim: `items` — the project's task_items rows,
  * where the backend keeps them (null where it keeps none) — gives each task
- * its `items: { asset: [ids], scene, shot, level, experience }`, every item
- * the task has (one in the trash too: it is the task's, hidden while there).
+ * its `items: { asset: [ids], scene, shot, level, experience }`. Review round
+ * 2 (R2-1): the callers pass the LIVE items only (liveItemsOnly): one in the
+ * trash is the task's, hidden while there, and no part of a bid.
  * `itemsUnknown` — ids of tasks whose items the caller could not read — keeps
  * those in the older shape (their own single fields), which an open never
  * removes by. The single fields are taken from the rows as given: the
@@ -433,10 +463,12 @@ export function versionDelta(prev, next, prevName = null) {
  * `shotListId`, when given, compares the list the version is based on.
  * VW1m (2026-10-16), Q-N7 interim: a task's links compare as taskLinksChanged
  * says — any item added or removed is an unsaved change, its order never.
+ * Review round 2 (R2-1): `known` (knownIdsOf) — only the items the project
+ * shows are compared, the version's and the live ones.
  */
-export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {}) {
+export function versionDiff(snapshot, live, { shotListId, liveShotListId, known = null } = {}) {
   const s = snapshot || {}
-  const tasks = rowsDelta(s.tasks, live?.tasks, TASK_SCHEDULE, taskLinksChanged)
+  const tasks = rowsDelta(s.tasks, live?.tasks, TASK_SCHEDULE, (a, b) => taskLinksChanged(a, b, known))
   const phases = rowsDelta(s.phases, live?.phases, PHASE_SCHEDULE)
   const milestones = rowsDelta(s.milestones, live?.milestones, MILESTONE_SCHEDULE)
   const rates = ratesChanged(s.roleRates, live?.roleRates, rolesOf(s.tasks, live?.tasks))
@@ -501,6 +533,10 @@ export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {})
  *               re-made task gets an entry for every kind.
  *   exact false (a version saved before) → each of `ids` (its saved single
  *               item, where the task lost it) is added; nothing is removed.
+ * Review round 2 (R2-1): the version's items are measured against the task's
+ * LIVE items (a row `known` names): a hidden one (in the trash) is never
+ * written, never counted and never a difference — the provider's set keeps
+ * it (R1-1) — so an open a hidden item alone told apart wrote nothing.
  */
 export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], setAside = null, keep = null, project = null, roleRates = {}, known = null, items = null } = {}) {
   const s = snapshot || {}
@@ -566,20 +602,26 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], s
     for (const row of snapRows || []) {
       if (!row || row.id == null) continue
       const isNew = remade.has(String(row.id))
-      const now = isNew ? noItems() : (have.get(String(row.id)) || noItems())
+      const has = isNew ? noItems() : (have.get(String(row.id)) || noItems())
       const saved = itemsOfRow(row)
       for (const kind of ITEM_KINDS) {
         const f = ITEM_FIELD[kind]
         if (saved) {
+          // R2-1: the live items only; a hidden one the task has is kept by
+          // the set, so it is neither in `ids` nor counted in `gone`.
+          const now = has[kind].filter(id => !isGone(f, id))
           const ids = []
           const gone = []
-          for (const id of idsIn(saved, kind)) (now[kind].includes(id) || !isGone(f, id) ? ids : gone).push(id)
+          for (const id of idsIn(saved, kind)) {
+            if (!isGone(f, id)) ids.push(id)
+            else if (!has[kind].includes(id)) gone.push(id)
+          }
           plan.droppedLinks += gone.length
-          if (isNew || !sameSet(ids, now[kind])) plan.items.push({ id: row.id, kind, ids, gone, exact: true })
+          if (isNew || !sameSet(ids, now)) plan.items.push({ id: row.id, kind, ids, gone, exact: true })
           continue
         }
         const v = norm(f, row[f])
-        if (v == null || now[kind].includes(String(v))) continue
+        if (v == null || has[kind].includes(String(v))) continue
         if (isGone(f, v)) { plan.droppedLinks += 1; continue }
         plan.items.push({ id: row.id, kind, ids: [String(v)], gone: [], exact: false })
       }

@@ -133,6 +133,66 @@ describe('supabaseAdapter.loadProject — bundle key coverage', () => {
   })
 })
 
+// VW1m review round 2 (R2-4): PostgREST answers at most max_rows (1,000,
+// supabase/config.toml) rows a call and says nothing about the rest. The
+// assets and the tasks were read in one call, so a 1,001st asset was never
+// loaded — and VW1m hides an item whose row is not loaded (not live). They
+// are read page by page now, as the scenes and shots already were.
+describe('R2-4: assets and tasks are read page by page', () => {
+  // A table that answers as PostgREST does: a range's rows, never more than
+  // max_rows in one answer, and the first max_rows when no range is asked.
+  function pagedTable(rows, calls) {
+    let from = 0
+    let to = null
+    const b = {
+      select: () => b,
+      eq: () => b,
+      order: () => b,
+      range: (f, t) => { from = f; to = t; return b },
+      then: (resolve, reject) => {
+        calls.push([from, to])
+        const end = Math.min(to == null ? rows.length : to + 1, from + 1000)
+        return Promise.resolve({ data: rows.slice(from, end), error: null }).then(resolve, reject)
+      },
+    }
+    return b
+  }
+  function clientWith(tables) {
+    const rest = makeClient({ projects: { data: { id: 'p1', title: 'Project One' }, error: null } })
+    return { ...rest, from: (table) => (tables[table] ? tables[table]() : rest.from(table)) }
+  }
+
+  it('1,001 assets and 1,001 tasks: every one is loaded', async () => {
+    const assets = Array.from({ length: 1001 }, (_, i) => ({ id: `a${String(i).padStart(4, '0')}`, project_id: 'p1', sort_order: i }))
+    const tasks = Array.from({ length: 1001 }, (_, i) => ({ id: `t${String(i).padStart(4, '0')}`, project_id: 'p1', title: `Task ${i}` }))
+    const calls = { assets: [], tasks: [] }
+    globalThis.__testSupabase = clientWith({
+      assets: () => pagedTable(assets, calls.assets),
+      tasks: () => pagedTable(tasks, calls.tasks),
+    })
+    resetSupabaseAdapter()
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.assets).toHaveLength(1001)
+    expect(bundle.assets[1000].id).toBe('a1000')
+    expect(bundle.tasks).toHaveLength(1001)
+    expect(bundle.tasks.map(t => t.id)).toContain('t1000')
+    // Two pages each: the second short, which ends the read.
+    expect(calls.assets).toEqual([[0, 999], [1000, 1999]])
+    expect(calls.tasks).toEqual([[0, 999], [1000, 1999]])
+  })
+
+  it('CONTROL: a refused read still fails the load (the tolerance each read had: none)', async () => {
+    globalThis.__testSupabase = clientWith({
+      assets: () => {
+        const b = { select: () => b, eq: () => b, order: () => b, range: () => b, then: (resolve, reject) => Promise.resolve({ data: null, error: { message: 'permission denied for table assets' } }).then(resolve, reject) }
+        return b
+      },
+    })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().loadProject('p1')).rejects.toThrow('permission denied for table assets')
+  })
+})
+
 describe('the folder tree rides the same load (Session 26, 0041)', () => {
   it('carries folders through with their rows', async () => {
     globalThis.__testSupabase = makeClient({

@@ -133,8 +133,17 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
           <Banner tone="danger">Could not load history: {error}</Banner>
         ) : loading && entries.length === 0 ? (
           <Loading label="Loading history" />
-        ) : shown.length === 0 ? (
+        ) : entries.length === 0 ? (
           <EmptyState compact title="No recorded changes in the last 90 days." />
+        ) : shown.length === 0 ? (
+          // VW1m review round 2 (R2-6): entries were read, and every one only
+          // changed the links (R1-2): said as that, not as no history, and
+          // with the 100-row note when the read was cut there.
+          <>
+            <EmptyState compact title="No changes to show."
+              body="The entries recorded here only changed the links that older versions of the app read." />
+            {entries.length >= 100 && <LatestNote />}
+          </>
         ) : (
           <>
             {revertError && <Banner tone="danger">Revert failed: {revertError}</Banner>}
@@ -147,16 +156,22 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
                 disabled={revertingId != null}
               />
             ))}
-            {entries.length >= 100 && (
-              <div className="text-caption px-3 py-2 text-center rb-hist-more">
-                Showing the latest 100 changes — older entries exist within
-                the retention window.
-              </div>
-            )}
+            {entries.length >= 100 && <LatestNote />}
           </>
         )}
       </div>
     </Drawer>
+  )
+}
+
+// The read stops at 100 rows (listEditHistory). Counted on what was READ,
+// shown or not (R2-6): worded so it is true when some are left out.
+function LatestNote() {
+  return (
+    <div className="text-caption px-3 py-2 text-center rb-hist-more">
+      Only the latest 100 changes are read — older entries exist within the
+      retention window.
+    </div>
   )
 }
 

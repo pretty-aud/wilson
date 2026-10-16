@@ -65,7 +65,7 @@ import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
-  HoverActions, RowTitle, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus,
+  HoverActions, RowTitle, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus, Banner,
 } from '../../../ui'
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
@@ -153,16 +153,20 @@ function itemNamesOf(lookup, task, kind) {
  * goes through the shell's undo toast (ctx.runWithUndoToast), whose words
  * are also the polite live region's sentence (the kit toast stack). A drop
  * on the group the task is already in writes nothing.
+ * VW1m review round 2 (R2-2): a drop refused or failed is said (`onFail`,
+ * the tab's Banner). It was swallowed: the provider's ctx.error is shown on
+ * the Scenes tab only, so a refusal left the card where it was, unexplained.
  */
-function dropOnItemGroup(ctx, taskId, kind, group) {
+function dropOnItemGroup(ctx, taskId, kind, group, onFail) {
   if (!ctx?.setTaskItemsOfKind || group.tasks.some(t => t.id === taskId)) return
   const task = (ctx.tasks || []).find(t => t.id === taskId)
+  const title = task?.title || 'Untitled task'
   const step = ctx.runWithUndoToast || ((run) => run())
-  // The provider records the error in its state; the toast is the way back.
+  // The toast is the way back from what landed; the refusal is said here.
   Promise.resolve(step(
     () => ctx.setTaskItemsOfKind(taskId, kind, group.ids),
-    `Moved "${task?.title || 'Untitled task'}" to ${group.label}`,
-  )).catch(() => {})
+    `Moved "${title}" to ${group.label}`,
+  )).catch((err) => onFail?.(`Could not move “${title}”: ${err?.message || err}`))
 }
 
 /**
@@ -311,6 +315,10 @@ export default function ProjectTasksView() {
   const [groupBy, setGroupBy]       = useState('')
   const [kanbanGroup, setKanbanGroup] = useState('status')
   const [showFilterPanel, setShowFilterPanel] = useState(false)
+  // VW1m review round 2 (R2-2): a refused or failed drop's sentence, said in
+  // the kit Banner above the table or the Board until dismissed (or the next
+  // failure replaces it).
+  const [dropFailure, setDropFailure] = useState(null)
 
   // Saved views
   const [savedViews, setSavedViews] = useState(() => {
@@ -852,6 +860,16 @@ export default function ProjectTasksView() {
         />
       )}
 
+      {/* ── A drop that did not land, said (review round 2, R2-2) ── */}
+      {dropFailure && (
+        <Banner
+          tone="danger"
+          action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setDropFailure(null)} />}
+        >
+          {dropFailure}
+        </Banner>
+      )}
+
       {/* ── Body ── */}
       <div className="rb-task-body" id={BODY_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Board'}>
         {viewMode === 'table' ? (
@@ -874,6 +892,7 @@ export default function ProjectTasksView() {
             milestones={allMilestones}
             sortField={sortField}
             sortDir={sortDir}
+            onDropFail={setDropFailure}
           />
         ) : (
           <KanbanBoard
@@ -885,6 +904,7 @@ export default function ProjectTasksView() {
             canWrite={canWrite}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
+            onDropFail={setDropFailure}
           />
         )}
       </div>
@@ -1116,7 +1136,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // Electron's 1024px floor, a scrollbar of up to 18px allowed for at 1280)
 // rather than wrapping a date mid-token (V1-06) or starving the title. A row's buttons sit in the title cell, right after its
 // words (FX8, the kit's RowTitle): there is no actions column.
-function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
+function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir, onDropFail }) {
   const columns = [
     { key: 'title',       label: 'Title' },
     { key: 'status',      label: 'Status',   width: 'var(--rb-task-col-status)' },
@@ -1222,7 +1242,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, pha
             phaseById={phaseById}
             collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
             ctx={ctx} canWrite={canWrite} onAddTask={onAddTask}
-            renderTask={taskRow} />
+            renderTask={taskRow} onDropFail={onDropFail} />
         ))}
       </>
     )
@@ -1387,7 +1407,7 @@ function buildGroupPatch(groupBy, targetKey) {
 // rows that share one set of drag handlers: entering any row of the group
 // counts, leaving the last one un-counts (the same counter as before, over
 // several elements instead of one wrapper).
-function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, canWrite, onAddTask, renderTask }) {
+function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, canWrite, onAddTask, renderTask, onDropFail }) {
   const [dragOver, setDragOver] = useState(false)
   const guard = useDependencyStatusGuard(ctx)
   const dragCountRef = useRef(0)
@@ -1415,7 +1435,7 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
     if (!canWrite) return
     // VW1m: the group's items become the task's (her Q-D1).
     if (taskId && isItemKind(groupBy) && ctx?.taskItemsAvailable === true) {
-      dropOnItemGroup(ctx, taskId, groupBy, group)
+      dropOnItemGroup(ctx, taskId, groupBy, group, onDropFail)
       return
     }
     if (!taskId || !ctx?.updateTask) return
@@ -1939,19 +1959,19 @@ function AddRow({ span, canWrite, onAdd, drop }) {
 // • Prägnanz — clean cards, no excess decoration
 // • Fitts's Law — generous add-task targets, large enough card touch areas
 //
-function KanbanBoard({ groups, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
+function KanbanBoard({ groups, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
   return (
     <div className="rb-task-board">
       {groups.map(g => (
         <KanbanColumn key={g.key} group={g} kanbanGroup={kanbanGroup}
           itemLookup={itemLookup} memberById={memberById}
-          ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} />
+          ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} onDropFail={onDropFail} />
       ))}
     </div>
   )
 }
 
-function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
+function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
   const [addTitle, setAddTitle] = useState('')
   const guard = useDependencyStatusGuard(ctx)
   const [dragOver, setDragOver] = useState(false)
@@ -1988,7 +2008,7 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrit
     if (!canWrite) return
     // VW1m: the column's items become the card's (her Q-D1).
     if (taskId && isItemKind(kanbanGroup) && ctx?.taskItemsAvailable === true) {
-      dropOnItemGroup(ctx, taskId, kanbanGroup, group)
+      dropOnItemGroup(ctx, taskId, kanbanGroup, group, onDropFail)
       return
     }
     if (!taskId || !ctx?.updateTask) return

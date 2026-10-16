@@ -508,8 +508,10 @@ describe('W9: no native confirm is left, and each question asks on the kit Dialo
   // VW1m review round 1 (R1-7), her Q-M2 ("The tasks stay"): the asset's
   // question says its tasks stay, in the Assets tab's words; it said they
   // would lose their asset reference.
+  // Review round 2 (R2-7): and only when the asset has a task (the render
+  // test is timelineCombinationRows.test.jsx's).
   it('R1-7: the asset editor\'s delete question says its tasks stay, as the Assets tab does', () => {
-    expect(code.timeline).toMatch(/title: 'Delete this asset\?', body: 'Its tasks stay\.'/)
+    expect(code.timeline).toMatch(/title: 'Delete this asset\?', body: assetTasksStay \? 'Its tasks stay\.' : null/)
     expect(source.timeline).not.toContain('lose their asset reference')
     expect(read('ProjectAssetsView.jsx')).toContain("' Its tasks stay.'")
   })

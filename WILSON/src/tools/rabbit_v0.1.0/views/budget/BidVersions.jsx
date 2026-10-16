@@ -41,6 +41,7 @@ import CurrencyDisplay, { formatMoney, formatTenths } from '../../components/Cur
 import { showDate } from '../../dates'
 import {
   readVersion, snapshotFromLive, versionDiff, varianceAgainst, sortVersionsNewest, selectedVersionOf, deltaWords,
+  knownIdsOf, liveItemsOnly,
 } from '../../state/budgetVersionModel'
 import { sortShotLists, formatShotListLabel } from '../../state/shotListModel'
 import { versionDate, versionSavedAt, basedOnWords } from './VersionQuestions'
@@ -124,6 +125,15 @@ export function useBidVersionState(ctx, roleRates, { liveShotListId, ratesPendin
   // added or removed is an unsaved change, their order never) where the
   // backend keeps them; ctx.tasks then carries no single link field.
   const items = ctx?.taskItemsAvailable === true ? (ctx?.taskItems || []) : null
+  // Review round 2 (R2-1): only the items the project shows count, the
+  // version's and the live ones (the provider's rule: the asset, every scene,
+  // every shot, the level, the experience): one in the trash is hidden from
+  // its task, so counted it read "Unsaved changes" that no open could clear.
+  const assets = ctx?.assets
+  const scenes = ctx?.allScenes || ctx?.scenes
+  const shots = ctx?.allShots || ctx?.shots
+  const levels = ctx?.levels
+  const experiences = ctx?.experiences
   return useMemo(() => {
     const list = versions || []
     const locked = project?.budget_active === true
@@ -132,8 +142,9 @@ export function useBidVersionState(ctx, roleRates, { liveShotListId, ratesPendin
     const open = openId ? (list.find(v => v.id === openId) || null) : null
     let diff = null
     if (open && !ratesPending) {
-      const live = snapshotFromLive({ tasks: tasks || [], items, phases: phases || [], milestones: milestones || [], project, roleRates: roleRates || {} })
-      diff = versionDiff(open.snapshot, live, liveShotListId === undefined ? {} : { shotListId: open.shot_list_id ?? null, liveShotListId })
+      const known = items ? knownIdsOf({ assets, scenes, shots, levels, experiences }) : null
+      const live = snapshotFromLive({ tasks: tasks || [], items: liveItemsOnly(items, known), phases: phases || [], milestones: milestones || [], project, roleRates: roleRates || {} })
+      diff = versionDiff(open.snapshot, live, { ...(liveShotListId === undefined ? {} : { shotListId: open.shot_list_id ?? null, liveShotListId }), known })
     }
     return {
       versions: sortVersionsNewest(list),
@@ -146,7 +157,7 @@ export function useBidVersionState(ctx, roleRates, { liveShotListId, ratesPendin
       diff,
       pending: ratesPending || null,
     }
-  }, [versions, project, tasks, items, phases, milestones, roleRates, liveShotListId, ratesPending])
+  }, [versions, project, tasks, items, assets, scenes, shots, levels, experiences, phases, milestones, roleRates, liveShotListId, ratesPending])
 }
 
 /**

@@ -222,6 +222,25 @@ export function applyTaskSort(tasks, { sortField = 'end_date', sortDir = 'asc' }
 }
 
 /**
+ * VW1m review round 2 (R2-5): a task's phase key — the Timeline's and the
+ * Budget's rule (VW1m's hand-off, item 2): its own phase; else the phase
+ * every one of its assets is in, when they share one (listMyTasks carries
+ * each asset item's `phase_id`; an asset in the trash is not listed); else
+ * '__none__'. A task without a phase of its own sat under None here while the
+ * Timeline put it under its assets' phase.
+ */
+export function taskPhaseKey(task) {
+  if (task?.phase_id) return task.phase_id
+  let shared = null
+  for (const i of Array.isArray(task?.items) ? task.items : []) {
+    if (!i || i.kind !== 'asset') continue
+    if (!i.phase_id || (shared && shared !== i.phase_id)) return '__none__'
+    shared = i.phase_id
+  }
+  return shared || '__none__'
+}
+
+/**
  * Group into [{ key, label, tasks }]. Same shape drives the table's group
  * sections, the kanban columns and the gallery sections.
  */
@@ -236,7 +255,9 @@ export function groupTasks(tasks, groupBy, {
     else if (groupBy === 'project')  key = t.project_id || '__none__'
     // VW1m (2026-10-16): a task's phase is its own (it was its first
     // asset's, so a task with a phase and no asset read None here).
-    else if (groupBy === 'phase')    key = t.phase_id || '__none__'
+    // Review round 2 (R2-5): else the phase its assets share, as on the
+    // Timeline and the Budget (taskPhaseKey).
+    else if (groupBy === 'phase')    key = taskPhaseKey(t)
     else if (groupBy === 'role')     key = myRoleOnTask(t, userId) || '__none__'
     else key = '__all__'
     if (!map[key]) map[key] = []

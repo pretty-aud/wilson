@@ -197,7 +197,9 @@ describe('listMyTasks: every item of every task, named (VW1m)', () => {
       item('i6', 't2', 'scene', 's2'), item('i7', 't2', 'level', 'l1'),
     ],
     // 'trashed' is an asset in the trash: RLS does not answer it.
-    assets: [{ id: 'a1', name: 'Lighthouse Interior' }, { id: 'a2', name: 'Storm Lantern' }],
+    // Review round 2 (R2-5): each asset's phase rides along (the Dashboard's
+    // Phase grouping falls back to the phase a task's assets share).
+    assets: [{ id: 'a1', name: 'Lighthouse Interior', phase_id: 'ph2' }, { id: 'a2', name: 'Storm Lantern', phase_id: null }],
     shots: [{ id: 'h1', name: 'The door', shot_number: 10, scene_id: 's1' }, { id: 'h2', name: 'Rain on the glass', shot_number: 10, scene_id: 's4' }],
     scenes: [{ id: 's1', name: 'Lighthouse, dawn', scene_number: 1 }, { id: 's2', name: 'Cliff path', scene_number: 2 }, { id: 's4', name: 'The storm', scene_number: 4 }],
     levels: [{ id: 'l1', name: 'Lamp Room' }],
@@ -230,6 +232,8 @@ describe('listMyTasks: every item of every task, named (VW1m)', () => {
     for (const table of ['assets', 'scenes', 'shots', 'levels']) expect(readsOf(table), table).toHaveLength(1)
     expect(readsOf('experiences')).toHaveLength(0) // none is named
     expect(readsOf('assets')[0].ops.find(o => o[0] === 'in')[2].slice().sort()).toEqual(['a1', 'a2', 'trashed'])
+    // Review round 2 (R2-5): the asset read takes each asset's phase too.
+    expect(readsOf('assets')[0].ops.find(o => o[0] === 'select')[1]).toBe('id, name, phase_id')
     // A shot is named under its scene, so the one scenes read takes the
     // listed shots' scenes too.
     expect(readsOf('scenes')[0].ops.find(o => o[0] === 'in')[2].slice().sort()).toEqual(['s1', 's2', 's4'])
@@ -242,9 +246,10 @@ describe('listMyTasks: every item of every task, named (VW1m)', () => {
     expect(rows[0]).not.toHaveProperty('asset')
     expect(rows[0].project).toEqual(PROJECT)
     expect(rows[0].items).toEqual([
-      // A to Z, not the stored order (Storm Lantern was added first).
-      { kind: 'asset', id: 'a1', name: 'Lighthouse Interior' },
-      { kind: 'asset', id: 'a2', name: 'Storm Lantern' },
+      // A to Z, not the stored order (Storm Lantern was added first). An
+      // asset carries its phase (R2-5), null when it has none.
+      { kind: 'asset', id: 'a1', name: 'Lighthouse Interior', phase_id: 'ph2' },
+      { kind: 'asset', id: 'a2', name: 'Storm Lantern', phase_id: null },
       // By their scene's number, then their own.
       { kind: 'shot', id: 'h1', name: 'Lighthouse, dawn › The door' },
       { kind: 'shot', id: 'h2', name: 'The storm › Rain on the glass' },

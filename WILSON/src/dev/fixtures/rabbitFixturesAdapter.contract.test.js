@@ -29,7 +29,7 @@ const { supabaseAdapter } = await import('../../tools/rabbit_v0.1.0/adapters/sup
 const { selectAdapter, adapterSupportsWrites, ADAPTER_MODES } = await import('../../tools/rabbit_v0.1.0/adapters')
 const { buildDevFixtures } = await import('./install')
 const { onDevWriteRefused } = await import('../devFixtures')
-const { PROJECT_ID } = await import('./data/project')
+const { PROJECT_ID, PHASE_ID } = await import('./data/project')
 const { PERMISSIONS, WORKSPACE_ID } = await import('./data/workspace')
 const { fid } = await import('./ids')
 
@@ -286,11 +286,13 @@ describe('the fixtures adapter behaves like a backend', () => {
       expect(t.project.title).toBe('Salt Hours')
       expect(t).not.toHaveProperty('asset')
       expect(t.items.length, t.title).toBeGreaterThanOrEqual(1)
-      for (const i of t.items) expect(Object.keys(i).sort()).toEqual(['id', 'kind', 'name'])
+      // Review round 2 (R2-5): an asset carries its phase (the Dashboard's
+      // Phase grouping falls back to the phase a task's assets share).
+      for (const i of t.items) expect(Object.keys(i).sort()).toEqual(i.kind === 'asset' ? ['id', 'kind', 'name', 'phase_id'] : ['id', 'kind', 'name'])
     }
     // Task 21 (Mara reviews it): its asset, then its two scenes by number.
     expect(mine.find((t) => t.id === fid('task', 21)).items).toEqual([
-      { kind: 'asset', id: fid('asset', 8), name: 'Cliff Path' },
+      { kind: 'asset', id: fid('asset', 8), name: 'Cliff Path', phase_id: PHASE_ID.pre },
       { kind: 'scene', id: fid('scene', 2), name: 'Cliff path' },
       { kind: 'scene', id: fid('scene', 6), name: 'Salt hours' },
     ])
@@ -310,7 +312,7 @@ describe('the fixtures adapter behaves like a backend', () => {
     ])
     // CONTROL: restored, it is named again.
     await fx.restoreAsset(fid('asset', 8))
-    expect((await fx.listMyTasks()).find((t) => t.id === T21).items[0]).toEqual({ kind: 'asset', id: fid('asset', 8), name: 'Cliff Path' })
+    expect((await fx.listMyTasks()).find((t) => t.id === T21).items[0]).toEqual({ kind: 'asset', id: fid('asset', 8), name: 'Cliff Path', phase_id: PHASE_ID.pre })
   })
 
   it('rate cards: the general and internal cards exist so useRateCard never has to create them', async () => {

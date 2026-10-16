@@ -879,21 +879,27 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // `items: [{ kind, id, name }]` (kinds in ITEM_KINDS order, each in the
     // display order, an asset in the trash left out as RLS leaves it out),
     // and no asset embed: that rode the older apps' copy, the first asset.
+    // Review round 2 (R2-5): an asset's item carries its `phase_id`, as the
+    // cloud's (the Dashboard's Phase grouping reads it).
     async listMyTasks() {
       const mine = live(store.tasks).filter(t => !isSetAside(t))
         .filter(t => t.assignee_id === by || t.reviewer_id === by)
       const ids = new Set(mine.map(t => t.id))
+      const assets = live(store.assets)
       const lookup = buildItemLookup({
         items: store.taskItems.filter(i => ids.has(i.task_id)),
-        assets: live(store.assets), scenes: store.scenes, shots: store.shots,
+        assets, scenes: store.scenes, shots: store.shots,
         levels: store.levels, experiences: store.experiences,
       })
+      const assetPhase = new Map(assets.map(a => [String(a.id), a.phase_id ?? null]))
       return clone(mine.map(t => {
         const p = projectOf(t.project_id)
         return {
           ...t,
           project: p ? { id: p.id, title: p.title, status: p.status } : null,
-          items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => ({ kind, id, name: lookup.nameOf(kind, id) }))),
+          items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => (kind === 'asset'
+            ? { kind, id, name: lookup.nameOf(kind, id), phase_id: assetPhase.get(String(id)) ?? null }
+            : { kind, id, name: lookup.nameOf(kind, id) }))),
         }
       }))
     },

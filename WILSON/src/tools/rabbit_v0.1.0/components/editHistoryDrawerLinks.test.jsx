@@ -45,11 +45,14 @@ function mount(entries, entityType = 'tasks') {
   return render(<EditHistoryDrawer entityType={entityType} entityId="t1" entityLabel="Rig test" onClose={() => {}} />)
 }
 const entriesShown = () => document.querySelectorAll('.rb-hist-entry').length
+const NOTHING_SHOWN = 'No changes to show.'
+const ONLY_LINKS = 'The entries recorded here only changed the links that older versions of the app read.'
 
 describe('EditHistoryDrawer — a task\'s link columns show nothing (VW1m review round 1, R1-2)', () => {
   it('R1-2: an entry whose only change was a link column is not shown: no line, no names, no Revert', async () => {
     mount([linkOnly])
-    await waitFor(() => expect(screen.getByText('No recorded changes in the last 90 days.')).toBeTruthy())
+    // Review round 2 (R2-6): said as what it is, not as no history at all.
+    await waitFor(() => expect(screen.getByText(NOTHING_SHOWN)).toBeTruthy())
     expect(entriesShown()).toBe(0)
     expect(screen.queryByText('Asset:')).toBeNull()
     expect(screen.queryByText('asset_id:')).toBeNull()
@@ -74,5 +77,32 @@ describe('EditHistoryDrawer — a task\'s link columns show nothing (VW1m review
     expect(entriesShown()).toBe(1)
     expect(screen.getByText('a1')).toBeTruthy()
     expect(screen.getByText('a2')).toBeTruthy()
+  })
+})
+
+// VW1m review round 2 (R2-6): with entries that are all link-only, the drawer
+// said "No recorded changes in the last 90 days." though entries exist, and
+// its "latest 100" note showed only when something was shown — so a task
+// whose latest 100 entries were all link-only never said older ones exist.
+describe('EditHistoryDrawer — what it read, when it shows nothing (VW1m review round 2, R2-6)', () => {
+  it('R2-6: entries that only changed the links say so, not "No recorded changes"', async () => {
+    mount([linkOnly])
+    await waitFor(() => expect(screen.getByText(NOTHING_SHOWN)).toBeTruthy())
+    expect(screen.getByText(ONLY_LINKS)).toBeTruthy()
+    expect(screen.queryByText('No recorded changes in the last 90 days.')).toBeNull()
+  })
+
+  it('R2-6: 100 link-only entries read: the latest-100 note shows', async () => {
+    mount(Array.from({ length: 100 }, (_, i) => ({ ...linkOnly, id: `h${i}` })))
+    await waitFor(() => expect(screen.getByText(/latest 100 changes/)).toBeTruthy())
+    expect(screen.getByText(/Only the latest 100 changes are read/)).toBeTruthy()
+    expect(screen.getByText(NOTHING_SHOWN)).toBeTruthy()
+  })
+
+  it('R2-6 CONTROL: no entries at all still read "No recorded changes", with no note', async () => {
+    mount([])
+    await waitFor(() => expect(screen.getByText('No recorded changes in the last 90 days.')).toBeTruthy())
+    expect(screen.queryByText(ONLY_LINKS)).toBeNull()
+    expect(screen.queryByText(/latest 100/)).toBeNull()
   })
 })

@@ -176,6 +176,17 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // The Files sections' folds, by item ("kind:id"): only the ones a person
   // has folded or opened; any other is open when it is the first (her Q-N2).
   const [filesOpen, setFilesOpen] = useState({})
+  // VW1m review round 2 (R2-8): "the first" is the one that was first when
+  // the window opened (or the person last chose a Sort), remembered once. Read
+  // afresh at each render, an item added that sorted first closed the open
+  // section and opened the new one. Set during render: React renders again
+  // at once, before anything is shown.
+  const firstFileKey = fileItems.length ? `${fileItems[0].entity_type}:${fileItems[0].entity_id}` : null
+  const [defaultOpen, setDefaultOpen] = useState({ taskId: null, sort: null, key: null })
+  if (defaultOpen.taskId !== (task?.id ?? null) || defaultOpen.sort !== itemSort || (defaultOpen.key == null && firstFileKey != null)) {
+    setDefaultOpen({ taskId: task?.id ?? null, sort: itemSort, key: firstFileKey })
+  }
+  const defaultOpenKey = defaultOpen.taskId === (task?.id ?? null) && defaultOpen.sort === itemSort ? (defaultOpen.key ?? firstFileKey) : firstFileKey
 
   // Post-overhaul S3c, step 1: the Scene and Shot pickers offer the ACTIVE
   // list's rows (D10), and every row of the project once "All lists" is on.
@@ -330,11 +341,11 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   a desktop upload landed in ASSETS/Untitled-Asset/. The
                   names are the rows' own (a folder's fallback), as their
                   own windows pass them. */}
-              {fileItems.map((item, n) => {
+              {fileItems.map((item) => {
                 const kind = item.entity_type
                 const id = item.entity_id
                 const key = `${kind}:${id}`
-                const open = filesOpen[key] ?? n === 0
+                const open = filesOpen[key] ?? key === defaultOpenKey
                 const row = itemView.rows[kind]?.get(id) || null
                 return (
                   <CollapsibleSection

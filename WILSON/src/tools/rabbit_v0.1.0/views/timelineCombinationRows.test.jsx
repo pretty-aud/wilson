@@ -18,8 +18,9 @@
 //     bar's drag;
 //   * a new task from a row starts with the row's items and, grouped by
 //     phase, its phase — never the project's first asset or first phase;
-//   * a drop on a row gives the task that row's items (setTaskItemsOfKind),
-//     keeping the items the Timeline does not show.
+//   * a drop on a row gives the task that row's items (setTaskItemsOfKinds,
+//     every kind in one step queued whole: review round 2, R2-3), keeping
+//     the items the Timeline does not show.
 // =============================================================================
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
@@ -281,6 +282,8 @@ const ctxFor = (over = {}) => ({
   updatePhase: vi.fn(async () => ({})),
   updateAsset: vi.fn(async () => ({})),
   setTaskItemsOfKind: vi.fn(async () => {}),
+  // Review round 2 (R2-3): a Timeline drop's sets, queued whole as one step.
+  setTaskItemsOfKinds: vi.fn(async () => []),
   runBatch: vi.fn(async (fn) => fn()),
   ...over,
 })
@@ -378,12 +381,12 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     mount()
     groupBy('Group by asset')
     await dropOn('Model the lantern', gutterRow('grp-as-A|B'))
-    expect(rabbit.current.setTaskItemsOfKind).toHaveBeenLastCalledWith('t2', 'asset', ['A', 'B'])
+    expect(rabbit.current.setTaskItemsOfKinds).toHaveBeenLastCalledWith('t2', [['asset', ['A', 'B']]])
     await dropOn('Model the lantern', gutterRow('__noasset__'))
-    expect(rabbit.current.setTaskItemsOfKind).toHaveBeenLastCalledWith('t2', 'asset', [])
-    const calls = rabbit.current.setTaskItemsOfKind.mock.calls.length
+    expect(rabbit.current.setTaskItemsOfKinds).toHaveBeenLastCalledWith('t2', [['asset', []]])
+    const calls = rabbit.current.setTaskItemsOfKinds.mock.calls.length
     await dropOn('Light the interior', gutterRow('grp-as-A|B'))
-    expect(rabbit.current.setTaskItemsOfKind.mock.calls.length).toBe(calls)
+    expect(rabbit.current.setTaskItemsOfKinds.mock.calls.length).toBe(calls)
     // Never a phase write by an asset's id (the defect: phase_id = the row's id).
     expect(rabbit.current.updateTask).not.toHaveBeenCalled()
   })
@@ -392,18 +395,18 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     mount()
     groupBy('Group by asset')
     await dropOn('Trashed partner', gutterRow('B'))
-    expect(rabbit.current.setTaskItemsOfKind).toHaveBeenLastCalledWith('t6', 'asset', ['B', 'Z'])
+    expect(rabbit.current.setTaskItemsOfKinds).toHaveBeenLastCalledWith('t6', [['asset', ['B', 'Z']]])
   })
   it('by scene: onto a scene, its scene and no shot of the active list, in one undo step; a scene outside the active list is kept', async () => {
     rabbit.current = ctxFor({ tasks: sceneTasks, taskItems: sceneItems })
     mount()
     groupBy('Group by scene')
     await dropOn('On X1', gutterRow('S2'))
-    expect(rabbit.current.runBatch).toHaveBeenCalledTimes(1)
-    expect(rabbit.current.setTaskItemsOfKind.mock.calls).toEqual([['a', 'scene', ['S2']], ['a', 'shot', []]])
-    rabbit.current.setTaskItemsOfKind.mockClear()
+    // One call: both kinds in one step, queued whole (review round 2, R2-3).
+    expect(rabbit.current.setTaskItemsOfKinds.mock.calls).toEqual([['a', [['scene', ['S2']], ['shot', []]]]])
+    rabbit.current.setTaskItemsOfKinds.mockClear()
     await dropOn('On S1 and Cliff', gutterRow('S2'))
-    expect(rabbit.current.setTaskItemsOfKind.mock.calls).toEqual([['g', 'scene', ['S2', 'S3']]])
+    expect(rabbit.current.setTaskItemsOfKinds.mock.calls).toEqual([['g', [['scene', ['S2', 'S3']]]]])
   })
   // VW1m review round 1 (R1-4): where the backend keeps no items (a cloud
   // before 0096) the provider's setTaskItemsOfKind refuses
@@ -422,6 +425,7 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     expect(rabbit.current.updateTask).toHaveBeenLastCalledWith('t2', { asset_id: null })
     expect(rabbit.current.updateTask).toHaveBeenCalledTimes(3)
     expect(rabbit.current.setTaskItemsOfKind).not.toHaveBeenCalled()
+    expect(rabbit.current.setTaskItemsOfKinds).not.toHaveBeenCalled()
     cleanup()
     rabbit.current = ctxFor({ tasks: [{ id: 'a', title: 'On X1', scene_id: 'S1', shot_id: 'X1' }], taskItems: [], taskItemsAvailable: false })
     mount()
@@ -429,6 +433,7 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     await dropOn('On X1', gutterRow('S2'))
     expect(rabbit.current.updateTask.mock.calls).toEqual([['a', { scene_id: 'S2', shot_id: null }]])
     expect(rabbit.current.setTaskItemsOfKind).not.toHaveBeenCalled()
+    expect(rabbit.current.setTaskItemsOfKinds).not.toHaveBeenCalled()
   })
   it('by phase: the phase, as before; by team: nothing to drag (only a bar\'s dates move)', async () => {
     rabbit.current = ctxFor({ tasks: [{ id: 't9', title: 'Phased', phase_id: 'P1', start_date: '2026-10-02', end_date: '2026-10-04' }], taskItems: [] })
@@ -436,6 +441,7 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     await dropOn('Phased', gutterRow('P2'))
     expect(rabbit.current.updateTask).toHaveBeenLastCalledWith('t9', { phase_id: 'P2' })
     expect(rabbit.current.setTaskItemsOfKind).not.toHaveBeenCalled()
+    expect(rabbit.current.setTaskItemsOfKinds).not.toHaveBeenCalled()
     groupBy('Group by team member')
     rabbit.current.updateTask.mockClear()
     const target = gutterRow('__unassigned__')
@@ -444,6 +450,7 @@ describe('a drop on a row gives the task that row\'s items (VW1m)', () => {
     await dropOn('Phased', target)
     expect(rabbit.current.updateTask).not.toHaveBeenCalled()
     expect(rabbit.current.setTaskItemsOfKind).not.toHaveBeenCalled()
+    expect(rabbit.current.setTaskItemsOfKinds).not.toHaveBeenCalled()
   })
 })
 
@@ -565,5 +572,44 @@ describe('a viewed bid version groups by its own snapshot\'s items (VW1m, Q-N7 i
     // A task with a live item beside the gone one says it too, under its live row.
     expect(tip('asset', 'g2')).toBe('Asset: no longer in the project')
     expect(tip('level', 'g2')).toBe('Level: no longer in the project')
+  })
+})
+
+// VW1m review round 2 (R2-7): the asset editor's delete question said "Its
+// tasks stay." for an asset with no task. The Assets tab says it only when
+// the asset has a task (tasksStayWords); the Timeline now counts the same way.
+describe('R2-7: the asset editor\'s delete question names its tasks only when it has some', () => {
+  const clickLabel = (text) => fireEvent.click([...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === text).parentElement)
+  const askFor = (assetName) => {
+    groupBy('Group by asset')
+    clickLabel(assetName)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    return screen.getByRole('dialog', { name: 'Delete this asset?' }).textContent
+  }
+  it('Dock with no task: no sentence about tasks', () => {
+    rabbit.current = ctxFor({ taskItems: assetItems.filter(i => i.entity_id !== 'C') })
+    mount()
+    expect(askFor('Dock')).not.toContain('Its tasks stay.')
+  })
+  it('CONTROL: Dock with a task (Dress the dock): "Its tasks stay."', () => {
+    rabbit.current = ctxFor()
+    mount()
+    expect(askFor('Dock')).toContain('Its tasks stay.')
+  })
+})
+
+// VW1m review round 2 (R2-9): the new-task row's title said "…to this
+// phase" in every grouping; in the asset, scene, shot, level and experience
+// groupings (and by team) the row is not a phase.
+describe('R2-9: the new-task row names what it adds to', () => {
+  it('grouped by asset or scene: "to this row"; CONTROL: grouped by phase, "to this phase"', () => {
+    rabbit.current = ctxFor()
+    mount()
+    expect(dropZone('P2').getAttribute('title')).toBe('Click to add a new task to this phase')
+    groupBy('Group by asset')
+    expect(dropZone('C').getAttribute('title')).toBe('Click to add a new task to this row')
+    expect(dropZone('grp-as-A|B').getAttribute('title')).toBe('Click to add a new task to this row')
+    groupBy('Group by scene')
+    expect(dropZone('S2').getAttribute('title')).toBe('Click to add a new task to this row')
   })
 })

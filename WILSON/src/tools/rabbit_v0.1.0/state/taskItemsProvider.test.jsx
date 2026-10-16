@@ -557,6 +557,56 @@ describe('a bid version keeps every item of every kind', () => {
     expect(out.plan.droppedLinks).toBe(0)
   })
 
+  // VW1m review round 2 (R2-1): the compare read every item a task has, a
+  // hidden one too, so an asset added and then deleted left the open version
+  // "unsaved" though nothing on screen differed, and no open could clear it
+  // (an open keeps a hidden item, R1-1). A snapshot and every compare read
+  // the task's LIVE items only, on both sides.
+  const unsavedNow = (v) => ctx.previewOpenBudgetVersion(v.id, { roleRates: {} }).unsaved
+  it('R2-1: an asset added and then deleted is no unsaved change: the version reads saved, and still after its open', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-r2-1', roleRates: {} }) })
+    expect(unsavedNow(v)).toBeNull()
+    await run(() => ctx.addTaskItem({ task_id: T18, entity_type: 'asset', entity_id: A(3) }))
+    expect(unsavedNow(v)?.kind).toBe('open')
+    await run(() => ctx.deleteAsset(A(3)))
+    expect(unsavedNow(v)).toBeNull()
+    await run(() => ctx.openBudgetVersion(v.id, { roleRates: {} }))
+    expect(unsavedNow(v)).toBeNull()
+    // The open still keeps the hidden item (R1-1).
+    expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12), A(3)])
+  })
+  it('R2-1 CONTROL: restoring that asset is a change the person can see: the version reads unsaved', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-r2-1c', roleRates: {} }) })
+    await run(() => ctx.addTaskItem({ task_id: T18, entity_type: 'asset', entity_id: A(3) }))
+    await run(() => ctx.deleteAsset(A(3)))
+    await run(() => holder.adapter.restoreAsset(A(3)))
+    await run(() => ctx.reloadActiveProject())
+    expect(ctx.assets.some(a => a.id === A(3))).toBe(true)
+    expect(unsavedNow(v)?.kind).toBe('open')
+  })
+  it('R2-1: a version saved with an asset now in the trash reads saved (no open could show it), and unsaved once it is back off the task', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-r2-1s', roleRates: {} }) })
+    await run(() => ctx.deleteAsset(A(12)))
+    expect(unsavedNow(v)).toBeNull()
+    let out
+    await run(async () => { out = await ctx.openBudgetVersion(v.id, { roleRates: {} }) })
+    expect(out.plan.droppedLinks).toBe(0)
+    expect(unsavedNow(v)).toBeNull()
+    expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12)])
+    // A live change still counts.
+    await run(() => ctx.setTaskItemsOfKind(T18, 'asset', []))
+    expect(unsavedNow(v)?.kind).toBe('open')
+  })
+
   it('Edit this version revives a trashed task: its items are read, Save records them, the next open keeps them', async () => {
     freeBudget()
     await mount(fx.rabbitAdapter())

@@ -95,7 +95,7 @@ import { activeIdsOf, linksInActive, NO_SCENE_GROUP } from './scenes/linkHomes'
 // the grouping a group in the timeline as well". A task's items are read one
 // way (buildItemLookup), and grouped by asset, scene, shot, level or
 // experience a task sits in the row of its combination of them.
-import { ITEM_KINDS, KIND_FIELD, NO_KIND_LABEL, buildItemLookup, itemsOfTask } from '../state/taskItemsModel'
+import { ITEM_KINDS, KIND_FIELD, NO_KIND_LABEL, buildItemLookup, itemsOfTask, tasksAbout } from '../state/taskItemsModel'
 // Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
@@ -691,9 +691,17 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // not show are kept. It wrote the row's id into phase_id. Grouped by team
   // there is nothing to take (the bar's drop changes its dates only), so the
   // pane is given no handler.
+  // VW1m review round 2 (R2-2): a drop refused or failed says why, in this
+  // tab's "Not saved" strip, as a dependency's failed write does. It was
+  // swallowed: the provider's ctx.error is shown on the Scenes tab only.
+  const onMoveError = (taskId) => (err) => {
+    const why = err?.message || String(err)
+    const title = liveTasks.find(t => t.id === taskId)?.title || 'Untitled task'
+    setDepError({ message: `Could not move “${title}”: ${why}`, detail: why })
+  }
   const moveTaskToRow = groupBy === 'team' ? undefined : (taskId, rowId) => {
     if (groupBy === 'phase') {
-      ctx.updateTask(taskId, { phase_id: rowId || null }).catch(() => {})
+      ctx.updateTask(taskId, { phase_id: rowId || null }).then(undefined, onMoveError(taskId))
       return
     }
     const want = rowId != null ? groupRowById.get(rowId)?.items : null
@@ -710,12 +718,13 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     // task has one item of a kind at most, its own field: the drop writes
     // the fields, in one patch, as the Tasks table's drop does.
     if (!taskItemsOn) {
-      ctx.updateTask(taskId, Object.fromEntries(writes.map(([kind, ids]) => [KIND_FIELD[kind], ids[0] ?? null]))).catch(() => {})
+      ctx.updateTask(taskId, Object.fromEntries(writes.map(([kind, ids]) => [KIND_FIELD[kind], ids[0] ?? null]))).then(undefined, onMoveError(taskId))
       return
     }
-    ctx.runBatch(async () => {
-      for (const [kind, ids] of writes) await ctx.setTaskItemsOfKind(taskId, kind, ids)
-    }).catch(() => {})
+    // Review round 2 (R2-3): every kind in ONE step queued whole
+    // (ctx.setTaskItemsOfKinds). ctx.runBatch around the queued verb opened
+    // the batch at the drop, before the step's turn came.
+    Promise.resolve(ctx.setTaskItemsOfKinds(taskId, writes)).then(undefined, onMoveError(taskId))
   }
   // The group-by-scene header's read-only "Shot list: Title · vN" (D18; S5
   // owns any selector here).
@@ -1282,6 +1291,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         todayDays={todayDays}
         dependencies={dependencies}
         phases={phases}
+        groupBy={groupBy}
         onCreateTaskFromDates={(startDate, endDate, rowId) =>
           openNewTask({
             ...prefillFromRow(rowId),
@@ -2507,6 +2517,8 @@ export function DetailPane({
   canWrite = true, writeReason = null,
   milestones = [],
   onEditMilestone,
+  // VW1m review round 2 (R2-9): what the new-task row's title names.
+  groupBy = 'phase',
 }) {
   // When weekends are hidden in day view Sat/Sun day columns are masked
   // out: their day-pixel width collapses to 0 (a prefix sum, so X positions
@@ -2516,6 +2528,12 @@ export function DetailPane({
   // days with the same one; the pane built its own and was the only part of
   // the Timeline that knew which columns were hidden. No mask: weekends shown.
   const hideWeekends = !!dayMask
+  // VW1m review round 2 (R2-9): grouped by asset, scene, shot, level,
+  // experience or team the new-task row adds to a row, not a phase (its
+  // title said "this phase" in every grouping).
+  const newTaskRowTitle = groupBy === 'phase'
+    ? 'Click to add a new task to this phase'
+    : 'Click to add a new task to this row'
 
   // Helper: convert a day-offset to its visible X coordinate honoring
   // the weekend mask. Used everywhere a bar would otherwise just
@@ -3061,7 +3079,7 @@ export function DetailPane({
                     // disabled ink, so the two still differ.)
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
-                  title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
+                  title={canWrite ? newTaskRowTitle : writeReason || undefined}
                 >
                   {/* The icon is a glyph (the 3:1 floor), the LABEL text
                       (4.5:1): their inks are the sheet's, `.rb-tl-dz-icon`
@@ -4974,11 +4992,15 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
   // closes as it always did.
   // VW1m review round 1 (R1-7), her Q-M2 ("The tasks stay"): the asset's
   // body says its tasks stay, in the Assets tab's words (it said what the
-  // cascade VW1m took out did to them).
+  // cascade VW1m took out did to them). Review round 2 (R2-7): only when the
+  // asset has a task, counted as the Assets tab counts (tasksStayWords: its
+  // tasks through ctx.taskItems); an asset with none has nothing to say.
   const [askDelete, setAskDelete] = useState(null)
+  const assetTasksStay = editor.mode === 'asset' && editor.assetId != null
+    && tasksAbout(ctx?.tasks, ctx?.taskItems, 'asset', editor.assetId, ctx?.taskItemsAvailable === true).length > 0
   const DELETE_ASK = {
     milestone: { id: editor.milestoneId, title: 'Delete this milestone?', body: null, label: 'Delete milestone' },
-    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Its tasks stay.', label: 'Delete asset' },
+    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: assetTasksStay ? 'Its tasks stay.' : null, label: 'Delete asset' },
     phase:     { id: editor.phaseId,     title: 'Delete this phase?', body: 'Tasks linked to it will become orphans.', label: 'Delete phase' },
     task:      { id: editor.taskId,      title: 'Delete this task?', body: null, label: 'Delete task' },
   }

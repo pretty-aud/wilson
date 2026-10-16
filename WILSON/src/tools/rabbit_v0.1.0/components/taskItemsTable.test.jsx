@@ -387,6 +387,23 @@ describe('the Files sections under the table', () => {
     expect(filesHandedTo()).toEqual([{ shotId: 'h10', shotName: 'Rain on the glass', taskId: 't1', mode: 'readonly' }])
   })
 
+  // VW1m review round 2 (R2-8): the open section was "the first", whatever
+  // the first was at each render, so an item added that sorts first closed
+  // the section the person was looking at and opened the new one. The one
+  // open by default is the one that was first when the window opened (and
+  // again when the person picks another Sort, as above).
+  it('R2-8: an item added that sorts first leaves the open section open, and the new one closed', () => {
+    const two = [item('i1', 'asset', 'a1', 0), item('i3', 'scene', 's4', 0)]
+    const r = open(ctxOf({ taskItems: two }))
+    expect(sectionLabels()).toEqual(['Asset: Sea Spray Comp', 'Scene: The storm'])
+    expect(sectionOpen()).toEqual(['true', 'false'])
+    // Lighthouse Interior is added: A to Z it sorts before Sea Spray Comp.
+    const ctx = ctxOf({ taskItems: [...two, item('i2', 'asset', 'a2', 1)] })
+    r.rerender(<TaskDetailPopup taskId="t1" ctx={ctx} onClose={vi.fn()} />)
+    expect(sectionLabels()).toEqual(['Asset: Lighthouse Interior', 'Asset: Sea Spray Comp', 'Scene: The storm'])
+    expect(sectionOpen()).toEqual(['false', 'true', 'false'])
+  })
+
   it('no live item: no section, and the hint says what to add', () => {
     open(ctxOf({ taskItems: [item('i9', 'asset', 'trashed', 0)] }))
     expect(sectionLabels()).toEqual([])
