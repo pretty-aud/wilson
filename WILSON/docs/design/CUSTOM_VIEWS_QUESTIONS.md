@@ -1032,6 +1032,102 @@ the trash? (The same for a scene, shot, level or experience in the trash.)
 - **Taken off its tasks at once, for good**: restoring the asset does not
   put it back.
 
+### Her answers, batch 14 (2026-10-16; asked in chat as multiple choice, Q-N1 and Q-N2 with pictures; recorded verbatim)
+
+- **Q-N1:** "allow user to sort select order by date of creation/upload, alphabetical, type"
+- **Q-N2:** "A section per item (Recommended)"
+- **Q-N3:** "Folder of its section (Recommended)"
+- **Q-N4:** "Hidden, back on restore (Recommended)"
+
+Then, before batch 15 could be asked: *"i am going to bed continue
+working"*. Batches 15 and 16 below are prepared and not yet asked; each has
+an **interim choice** the build uses until she answers, chosen to be the
+cheapest to change and never a database change her answer could take back.
+
+### What follows from batch 14 (say if any is wrong)
+
+- **No *Move up* / *Move down*.** The task's window gets a *Sort* choice for
+  its Items: by **date**, **A to Z**, or by **type** (Q-N1). What "date" and
+  "type" mean is batch 15's Q-N1a and Q-N1b; until then (interim) *date* is
+  when the item was added to the task, *type* keeps today's sections by kind
+  (assets, then scenes, shots, levels, experiences; A to Z inside each), and
+  *type* is where the window starts. Group names still read A to Z (her
+  batch 11). The choice is remembered for you on that computer.
+- **A Files section for each item** (Q-N2): one folding section per asset,
+  scene, shot, level and experience the task is about, the first open; the
+  shot's and scene's sections show their own files (they were broken).
+- **A file added in a section is filed in that item's folder** (Q-N3),
+  named after the task, as today.
+- **An item in the trash is hidden from its tasks and comes back on
+  restore** (Q-N4): the task's window, the Timeline, the groups and the
+  Budget's split leave it out; emptying the trash takes it off for good.
+- **Already decided from her rulings, written in the chat before batch 14**
+  (she did not object before bed; say if any is wrong): the Timeline's single
+  rows stay as today and the combination rows follow them, *No …* last;
+  dragging a bar onto a row gives the task that row's items; a new task made
+  from a row starts with its items and phase (fixing today's first-asset
+  default); the Tasks table and the Board group by combination now; the
+  Budget splits By level and By experience too, gains a *No asset* row, and
+  its rows add exactly to the total; a task's phase is its own everywhere;
+  deleting an asset says *Its tasks stay.*; *Asset is X* means the task has
+  X; an older build that writes one asset adds it, never removes one.
+
+## Batch 15 — your sort, and the editors that set one asset (prepared, not yet asked)
+
+**Q-N1a. Sorting a task's items "by date": which date?**
+- **When the item was added to this task** *(Recommended; interim)*: the
+  newest link last.
+- **When the item itself was made in the project** (the asset's, scene's or
+  shot's own creation date).
+
+**Q-N1b. Sorting a task's items "by type": which type?**
+- **By kind** *(Recommended; interim)*: assets, then scenes, shots, levels,
+  experiences, each kind its own section, as the window shows today.
+- **By the asset's own type** (Character, Prop, Environment, …), with
+  scenes, shots, levels and experiences after the assets.
+
+**Q-N5. The editors that set one asset** (until VW1b's tick-list cell):
+the Tasks table's *Asset* cell, and the one-of-each pickers of *New task*,
+the Timeline's new-task window and the scene, shot, level and experience
+windows' *New task*.
+- **The cell shows every asset by name; a click opens the task's window at
+  its Items; the *New task* forms keep one of each kind** *(Recommended;
+  interim)*: more are added in the task's window. A task made from a
+  combination row or group carries all of its items.
+- **The cell is a one-asset choice that makes that asset the task's only
+  asset** (the others come off; Undo puts them back).
+- **The cell adds the chosen asset** to the task's others.
+
+**Q-N6. The Dashboard (your tasks across projects).** Its *Asset* column,
+its cards and its read-only task window show one asset, the first.
+- **Every asset, "A, B"**, and the window lists all of the task's items
+  *(Recommended; interim)*.
+- **No asset column** on the Dashboard.
+
+## Batch 16 — bid versions and the history (prepared, not yet asked)
+
+**Q-N7. What a bid version keeps about a task's items.** Today it keeps the
+first asset, scene, shot, level and experience only; opening it swaps the
+task's first asset, and adding a second asset is not an unsaved change.
+- **Every item of every kind** *(Recommended; interim)*: any item added or
+  removed is an unsaved change; opening a version gives each task exactly
+  the version's items; opening an older version (saved before this change)
+  puts its saved item back where the task lost it and removes nothing.
+- **No items at all**: versions keep the schedule and the money; a task's
+  items are never part of a bid.
+
+**Q-N8. A task's history of its items.** Today the history drawer shows
+*asset_id: <id> → <id>* only when the first asset changed, and *Revert*
+swapped the first asset back.
+- **Record each item added and removed, in words** ("Added asset Storm
+  Lantern") *(Recommended)*: a database change.
+- **No history of items** *(interim)*: the old lines read in words with
+  names and lose their *Revert*; nothing new is recorded.
+
+*Interim for Q-N8 is the second choice only because the first is a database
+change; both share the old lines' words and losing their Revert, which is
+built now.*
+
 ---
 
 ## Not asked, because nothing you see depends on it
