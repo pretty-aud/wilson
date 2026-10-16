@@ -120,6 +120,10 @@ export function useBidVersionState(ctx, roleRates, { liveShotListId, ratesPendin
   const tasks = ctx?.tasks
   const phases = ctx?.phases
   const milestones = ctx?.milestones
+  // VW1m (2026-10-16), Q-N7 interim: a task's items are part of a bid (any
+  // added or removed is an unsaved change, their order never) where the
+  // backend keeps them; ctx.tasks then carries no single link field.
+  const items = ctx?.taskItemsAvailable === true ? (ctx?.taskItems || []) : null
   return useMemo(() => {
     const list = versions || []
     const locked = project?.budget_active === true
@@ -128,7 +132,7 @@ export function useBidVersionState(ctx, roleRates, { liveShotListId, ratesPendin
     const open = openId ? (list.find(v => v.id === openId) || null) : null
     let diff = null
     if (open && !ratesPending) {
-      const live = snapshotFromLive({ tasks: tasks || [], phases: phases || [], milestones: milestones || [], project, roleRates: roleRates || {} })
+      const live = snapshotFromLive({ tasks: tasks || [], items, phases: phases || [], milestones: milestones || [], project, roleRates: roleRates || {} })
       diff = versionDiff(open.snapshot, live, liveShotListId === undefined ? {} : { shotListId: open.shot_list_id ?? null, liveShotListId })
     }
     return {
@@ -142,7 +146,7 @@ export function useBidVersionState(ctx, roleRates, { liveShotListId, ratesPendin
       diff,
       pending: ratesPending || null,
     }
-  }, [versions, project, tasks, phases, milestones, roleRates, liveShotListId, ratesPending])
+  }, [versions, project, tasks, items, phases, milestones, roleRates, liveShotListId, ratesPending])
 }
 
 /**

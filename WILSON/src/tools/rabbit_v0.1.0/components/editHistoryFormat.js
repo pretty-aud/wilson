@@ -12,6 +12,8 @@
 //   update → { col: { old, new }, ... }  (audit-noise columns excluded)
 // =============================================================================
 
+import { FIELD_KIND, KIND_LABEL } from '../state/taskItemsModel'
+
 // The action's colour is the drawer's CSS (`.rb-hist-action[data-action]` on
 // the success / ink-2 / danger tokens); P1-66 deleted the `color` hexes this
 // table carried and nothing read.
@@ -61,20 +63,51 @@ function displayValue(v) {
   return String(v)
 }
 
+// VW1m (2026-10-16), Q-N8 (batch 16, not yet asked; interim: no history of
+// a task's items): a task's single link columns (asset_id, scene_id,
+// shot_id, level_id, experience_id) are the older apps' copy of its items —
+// the first of each kind in the order added — and their lines read in words:
+// the kind ("Asset"), and the item's name where the project still shows it
+// ("Lighthouse Interior → Storm Lantern"), else that it is no longer in the
+// project. They have no Revert (editHistoryRevert.js).
+function linkValue(kind, v, nameOf) {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof nameOf !== 'function') return String(v)
+  const name = nameOf(kind, v)
+  if (name) return name
+  const word = KIND_LABEL[kind].toLowerCase()
+  return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word} no longer in the project`
+}
+
 /**
  * Per-field change lines for an 'update' row:
  * [{ field, from, to }] sorted by field name. Empty for create/delete.
+ * A task's link line also carries `label`, the kind in words, and names
+ * its items through `nameOf(kind, id)` (the drawer passes the project's
+ * lookup, buildItemLookup's nameOf).
  */
-export function diffLines(entry) {
+export function diffLines(entry, { nameOf = null } = {}) {
   if (!entry || entry.action !== 'update' || !entry.diff) return []
+  const isTask = entry.entity_type === 'tasks'
   return Object.keys(entry.diff)
     .filter(k => !HIDDEN_FIELDS.has(k))
     .sort()
-    .map(k => ({
-      field: k,
-      from: displayValue(entry.diff[k]?.old),
-      to:   displayValue(entry.diff[k]?.new),
-    }))
+    .map(k => {
+      const kind = isTask ? FIELD_KIND[k] : null
+      if (kind) {
+        return {
+          field: k,
+          label: KIND_LABEL[kind],
+          from: linkValue(kind, entry.diff[k]?.old, nameOf),
+          to:   linkValue(kind, entry.diff[k]?.new, nameOf),
+        }
+      }
+      return {
+        field: k,
+        from: displayValue(entry.diff[k]?.old),
+        to:   displayValue(entry.diff[k]?.new),
+      }
+    })
 }
 
 /**

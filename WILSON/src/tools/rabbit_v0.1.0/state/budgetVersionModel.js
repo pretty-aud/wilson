@@ -48,10 +48,31 @@ const TASK_FIELDS = [
   'scene_id', 'shot_id', 'asset_id', 'level_id', 'experience_id',
   'assigned_user_id', 'assignee_id', 'priority',
 ]
+// VW1m (2026-10-16): a task's links are compared and written apart from its
+// other schedule fields (taskLinksChanged; planOpen's `items`), so the
+// schedule proper no longer names them.
 const TASK_SCHEDULE = [
   'phase_id', 'start_date', 'end_date', 'bid_days', 'assigned_role_slug',
-  'assigned_position', 'status', 'scene_id', 'shot_id', 'asset_id',
+  'assigned_position', 'status',
 ]
+
+// VW1m (2026-10-16), Q-N7 (batch 16, not yet asked; its interim choice is
+// "every item of every kind"): a version keeps each task's ITEMS —
+// `items: { asset: [ids], scene, shot, level, experience }`, each list's ids
+// sorted — beside the five single
+// fields above, which then hold the older apps' copy (each kind's first item
+// in the order added) so a build that reads only those still finds one. The
+// kinds and their fields are taskItemsModel's ITEM_KINDS and KIND_FIELD,
+// said again here because this file imports dates.js and nothing else
+// (src/dev/devFixtures.test.js pins that: the fixtures build their bids with
+// it). A task row saved without `items` is the older shape: a version saved
+// before this change, or by a backend that keeps no items.
+const ITEM_FIELD = { asset: 'asset_id', scene: 'scene_id', shot: 'shot_id', level: 'level_id', experience: 'experience_id' }
+const ITEM_KINDS = Object.keys(ITEM_FIELD)
+const TASK_LINK_FIELDS = new Set(Object.values(ITEM_FIELD))
+// The three links a version compared and wrote back before (the cloud's
+// three columns): still the rule where no side keeps items.
+const LEGACY_LINKS = ['scene_id', 'shot_id', 'asset_id']
 const PHASE_FIELDS = ['id', 'name', 'parent_phase_id', 'start_date', 'end_date', 'sort_order', 'color', 'description']
 const PHASE_SCHEDULE = ['parent_phase_id', 'start_date', 'end_date']
 const MILESTONE_FIELDS = ['id', 'title', 'date', 'color', 'description', 'phase_id']
@@ -76,6 +97,60 @@ function pick(row, fields) {
   const out = {}
   for (const f of fields) out[f] = norm(f, row?.[f])
   return out
+}
+
+const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+const noItems = () => Object.fromEntries(ITEM_KINDS.map(k => [k, []]))
+
+/** VW1m: task_items rows → Map(taskId → { asset: [ids], … }), each list once per id and sorted. */
+function itemIdsByTask(items) {
+  const out = new Map()
+  for (const i of Array.isArray(items) ? items : []) {
+    if (!i || i.task_id == null || !ITEM_FIELD[i.entity_type] || i.entity_id == null || i.entity_id === '') continue
+    const key = String(i.task_id)
+    let rec = out.get(key)
+    if (!rec) { rec = noItems(); out.set(key, rec) }
+    const id = String(i.entity_id)
+    if (!rec[i.entity_type].includes(id)) rec[i.entity_type].push(id)
+  }
+  for (const rec of out.values()) for (const k of ITEM_KINDS) rec[k].sort(byCodeUnit)
+  return out
+}
+
+/** A version's (or a live snapshot's) task items, or null for a row of the older shape. */
+function itemsOfRow(row) {
+  const s = row?.items
+  return s && typeof s === 'object' && !Array.isArray(s) ? s : null
+}
+const idsIn = (items, kind) => (Array.isArray(items?.[kind]) ? items[kind].filter(v => v != null && v !== '').map(String) : [])
+function sameSet(a, b) {
+  const sa = new Set(a)
+  const sb = new Set(b)
+  return sa.size === sb.size && [...sa].every(x => sb.has(x))
+}
+
+/**
+ * VW1m (2026-10-16), Q-N7 interim: whether a task's links differ between a
+ * version's row (`saved`) and the live one (or between two versions, F8).
+ *   both carry items       → any kind's SET differs (the order is never a
+ *                            change: no item counts for more than another);
+ *   only the live one does → (a version saved before) a saved single item
+ *                            the task no longer has; an item added since is
+ *                            no change, as opening it removes nothing;
+ *   the live one does not  → (a backend that keeps no items) the three
+ *                            single fields, as before.
+ */
+function taskLinksChanged(saved, live) {
+  const s = itemsOfRow(saved)
+  const l = itemsOfRow(live)
+  if (l) {
+    if (s) return ITEM_KINDS.some(k => !sameSet(idsIn(s, k), idsIn(l, k)))
+    return ITEM_KINDS.some(k => {
+      const v = norm(ITEM_FIELD[k], saved?.[ITEM_FIELD[k]])
+      return v != null && !idsIn(l, k).includes(String(v))
+    })
+  }
+  return LEGACY_LINKS.some(f => norm(f, saved?.[f]) !== norm(f, live?.[f]))
 }
 
 /**
@@ -146,12 +221,28 @@ const totalBidDaysOf = (tasks) => (tasks || []).reduce((s, t) => s + num(t?.bid_
  * The live rows as a version's snapshot (the shape every new or re-saved
  * version carries from S5 on). `previous` is the snapshot of the version
  * before this one by created_at, for F8's automatic line (null for the first).
+ *
+ * VW1m (2026-10-16), Q-N7 interim: `items` — the project's task_items rows,
+ * where the backend keeps them (null where it keeps none) — gives each task
+ * its `items: { asset: [ids], scene, shot, level, experience }`, every item
+ * the task has (one in the trash too: it is the task's, hidden while there).
+ * `itemsUnknown` — ids of tasks whose items the caller could not read — keeps
+ * those in the older shape (their own single fields), which an open never
+ * removes by. The single fields are taken from the rows as given: the
+ * provider passes the older apps' copy in them.
  */
 export function snapshotFromLive({
-  tasks = [], phases = [], milestones = [], project = null, roleRates = {},
+  tasks = [], items = null, itemsUnknown = null, phases = [], milestones = [], project = null, roleRates = {},
   shotList = null, savedAt = new Date().toISOString(), savedBy = null,
   previous = null, previousName = null,
 }) {
+  const byTask = Array.isArray(items) ? itemIdsByTask(items) : null
+  const unknown = new Set([...(itemsUnknown || [])].map(String))
+  const taskRow = (t) => {
+    const row = pick(t, TASK_FIELDS)
+    if (byTask && t?.id != null && !unknown.has(String(t.id))) row.items = byTask.get(String(t.id)) || noItems()
+    return row
+  }
   const settings = projectBudgetSettings(project)
   const totals = bidTotals({ tasks, roleRates, ...settings })
   // A trashed key date is not part of the schedule — not in the version, and
@@ -162,7 +253,7 @@ export function snapshotFromLive({
     kind: SNAPSHOT_KIND,
     saved_at: savedAt,
     saved_by: savedBy,
-    tasks: (tasks || []).map(t => pick(t, TASK_FIELDS)),
+    tasks: (tasks || []).map(taskRow),
     phases: (phases || []).map(p => pick(p, PHASE_FIELDS)),
     milestones: liveMilestones.map(m => pick(m, MILESTONE_FIELDS)),
     roleRates: { ...roleRates },
@@ -266,7 +357,8 @@ function changedFields(a, b, fields) {
   return out
 }
 
-function rowsDelta(before, after, fields) {
+// `linksChanged(beforeRow, afterRow)`, for tasks: VW1m's link comparison.
+function rowsDelta(before, after, fields, linksChanged = null) {
   const a = byId(before)
   const b = byId(after)
   let added = 0
@@ -275,7 +367,7 @@ function rowsDelta(before, after, fields) {
   for (const id of b.keys()) if (!a.has(id)) added += 1
   for (const [id, row] of a) {
     if (!b.has(id)) { removed += 1; continue }
-    if (changedFields(row, b.get(id), fields).length) changed += 1
+    if (changedFields(row, b.get(id), fields).length || (linksChanged && linksChanged(row, b.get(id)))) changed += 1
   }
   return { added, removed, changed }
 }
@@ -313,7 +405,7 @@ const fromTo = (a, b) => (num(a, null) === num(b, null) ? null : { from: num(a, 
 export function versionDelta(prev, next, prevName = null) {
   const p = readVersion({ snapshot: prev })
   const n = readVersion({ snapshot: next })
-  const tasks = rowsDelta(prev?.tasks, next?.tasks, TASK_SCHEDULE)
+  const tasks = rowsDelta(prev?.tasks, next?.tasks, TASK_SCHEDULE, taskLinksChanged)
   // Like with like (review round 1, R1-09; varianceAgainst's rule): an OLD
   // version that never stored the agency fee is compared before agency,
   // or an unchanged schedule would read "+" the whole fee.
@@ -339,10 +431,12 @@ export function versionDelta(prev, next, prevName = null) {
  * phases and key dates compare their SCHEDULE fields (never a title, never
  * logged days); the rates, margin, contingency and agency compare as numbers;
  * `shotListId`, when given, compares the list the version is based on.
+ * VW1m (2026-10-16), Q-N7 interim: a task's links compare as taskLinksChanged
+ * says — any item added or removed is an unsaved change, its order never.
  */
 export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {}) {
   const s = snapshot || {}
-  const tasks = rowsDelta(s.tasks, live?.tasks, TASK_SCHEDULE)
+  const tasks = rowsDelta(s.tasks, live?.tasks, TASK_SCHEDULE, taskLinksChanged)
   const phases = rowsDelta(s.phases, live?.phases, PHASE_SCHEDULE)
   const milestones = rowsDelta(s.milestones, live?.milestones, MILESTONE_SCHEDULE)
   const rates = ratesChanged(s.roleRates, live?.roleRates, rolesOf(s.tasks, live?.tasks))
@@ -387,22 +481,38 @@ export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {})
  * what makes a held row come BACK instead of being re-made: without it every
  * set-aside row the version holds would read as lost.
  *
- * `known` ({ scenes, shots, assets }: Sets of the ids that exist now) keeps a
- * link to a row that has gone out of the writes: a patch leaves that link as
- * it is, a recreated row is written without it. The cloud's same-project FKs
- * would refuse it, and opening must not stop half way for a deleted shot. A
- * phase link is known when the live project or the version holds the phase
- * (the version's phases are all present once the plan has run).
+ * `known` ({ scenes, shots, assets, levels, experiences }: Sets of the ids
+ * that exist now) keeps a link to a row that has gone out of the writes: a
+ * patch leaves that link as it is, a recreated row is written without it.
+ * The cloud's same-project FKs would refuse it, and opening must not stop
+ * half way for a deleted shot. A phase link is known when the live project
+ * or the version holds the phase (the version's phases are all present once
+ * the plan has run). `droppedLinks` counts the links left out.
+ *
+ * VW1m (2026-10-16), Q-N7 interim: `items` — the live task_items rows where
+ * the backend keeps them, else null (then a task's links are its single
+ * fields, patched and re-made as before). With them, a task's links are never
+ * in its patch or its re-made row; they are `items: [{ id, kind, ids, gone,
+ * exact }]`, one per held task and kind to write:
+ *   exact true  (a version saved with items) → the kind becomes exactly
+ *               `ids` (the provider's setTaskItemsOfKind). An id whose row is
+ *               gone is left out and counted, in `gone`, unless the task still
+ *               has it (an asset in the trash stays the task's, hidden). A
+ *               re-made task gets an entry for every kind.
+ *   exact false (a version saved before) → each of `ids` (its saved single
+ *               item, where the task lost it) is added; nothing is removed.
  */
-export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], setAside = null, keep = null, project = null, roleRates = {}, known = null } = {}) {
+export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], setAside = null, keep = null, project = null, roleRates = {}, known = null, items = null } = {}) {
   const s = snapshot || {}
   const plan = {
     phases: { update: [], create: [] }, tasks: { update: [], create: [] }, milestones: { update: [], create: [] },
     bringBack: { tasks: [], phases: [], milestones: [] },
     setAside: { tasks: [], phases: [], milestones: [] },
+    items: [],
     settings: null, rates: [], droppedLinks: 0,
   }
   const aside = setAside || {}
+  const itemsOn = Array.isArray(items)
   const phaseIds = new Set([...(phases || []), ...(s.phases || [])].filter(Boolean).map(p => String(p.id)))
   const linkKnown = {
     phase_id: phaseIds,
@@ -410,6 +520,8 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], s
     scene_id: known?.scenes || null,
     shot_id: known?.shots || null,
     asset_id: known?.assets || null,
+    level_id: known?.levels || null,
+    experience_id: known?.experiences || null,
   }
   const isGone = (f, v) => v != null && linkKnown[f] instanceof Set && !linkKnown[f].has(String(v))
 
@@ -446,8 +558,41 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], s
     }
   }
 
+  // VW1m: each held task's items (after planRows: a task it re-makes has no
+  // items here yet, so every kind is written for it).
+  const planTaskItems = (snapRows, liveItems) => {
+    const have = itemIdsByTask(liveItems)
+    const remade = new Set(plan.tasks.create.map(r => String(r.id)))
+    for (const row of snapRows || []) {
+      if (!row || row.id == null) continue
+      const isNew = remade.has(String(row.id))
+      const now = isNew ? noItems() : (have.get(String(row.id)) || noItems())
+      const saved = itemsOfRow(row)
+      for (const kind of ITEM_KINDS) {
+        const f = ITEM_FIELD[kind]
+        if (saved) {
+          const ids = []
+          const gone = []
+          for (const id of idsIn(saved, kind)) (now[kind].includes(id) || !isGone(f, id) ? ids : gone).push(id)
+          plan.droppedLinks += gone.length
+          if (isNew || !sameSet(ids, now[kind])) plan.items.push({ id: row.id, kind, ids, gone, exact: true })
+          continue
+        }
+        const v = norm(f, row[f])
+        if (v == null || now[kind].includes(String(v))) continue
+        if (isGone(f, v)) { plan.droppedLinks += 1; continue }
+        plan.items.push({ id: row.id, kind, ids: [String(v)], gone: [], exact: false })
+      }
+    }
+  }
+
   planRows('phases', sortParentsFirst(s.phases), phases, PHASE_SCHEDULE, PHASE_FIELDS, plan.phases)
-  planRows('tasks', s.tasks, tasks, TASK_SCHEDULE, TASK_FIELDS, plan.tasks)
+  if (itemsOn) {
+    planRows('tasks', s.tasks, tasks, TASK_SCHEDULE, TASK_FIELDS.filter(f => !TASK_LINK_FIELDS.has(f)), plan.tasks)
+    planTaskItems(s.tasks, items)
+  } else {
+    planRows('tasks', s.tasks, tasks, [...TASK_SCHEDULE, ...LEGACY_LINKS], TASK_FIELDS, plan.tasks)
+  }
   planRows('milestones', s.milestones, milestones, MILESTONE_SCHEDULE, MILESTONE_FIELDS, plan.milestones)
 
   // Live rows the version does not hold leave the live schedule (ruling (a)),
@@ -536,6 +681,7 @@ export function planIsEmpty(plan) {
     && !plan.tasks.update.length && !plan.tasks.create.length
     && !plan.milestones.update.length && !plan.milestones.create.length
     && none(plan.bringBack) && none(plan.setAside)
+    && !(plan.items || []).length
     && !plan.settings && !plan.rates.length
   )
 }

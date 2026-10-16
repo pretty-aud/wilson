@@ -22,7 +22,7 @@
 // pickers (z-[60]) too, which close when History is opened.
 // =============================================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, RotateCcw, X } from 'lucide-react'
 import { Drawer } from '../../../ui/Drawer'
 import { IconButton } from '../../../ui/IconButton'
@@ -36,13 +36,21 @@ import {
   diffLines, snapshotSummary, formatHistoryTimestamp, actorName,
 } from './editHistoryFormat'
 import { canRevertEntry, revertActionLabel } from './editHistoryRevert'
+import { buildItemLookup } from '../state/taskItemsModel'
 // UI overhaul B3: the turning icons and the action badge's colours are
 // named variants in the Timeline lane's sheet.
 import '../views/rabbitTimeline.css'
 
 export default function EditHistoryDrawer({ entityType, entityId, entityLabel, onClose }) {
-  const { getAdapter, adapterMode, revertHistoryEntry } = useRabbit()
+  const ctx = useRabbit()
+  const { getAdapter, adapterMode, revertHistoryEntry } = ctx
   const { can } = usePermissions()
+  // VW1m (2026-10-16), Q-N8 interim: a task's link lines name its items,
+  // through the model's lookup over the rows the project shows.
+  const { assets, allScenes, scenes, allShots, shots, levels, experiences } = ctx
+  const nameOf = useMemo(() => buildItemLookup({
+    assets, scenes: allScenes || scenes, shots: allShots || shots, levels, experiences,
+  }).nameOf, [assets, allScenes, scenes, allShots, shots, levels, experiences])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
@@ -136,6 +144,7 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
               <HistoryEntry
                 key={entry.id}
                 entry={entry}
+                nameOf={nameOf}
                 onRevert={mayRevert && canRevertEntry(entry) ? handleRevert : null}
                 reverting={revertingId === entry.id}
                 disabled={revertingId != null}
@@ -154,10 +163,10 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
   )
 }
 
-function HistoryEntry({ entry, onRevert, reverting, disabled }) {
+function HistoryEntry({ entry, nameOf, onRevert, reverting, disabled }) {
   // entryActionMeta classifies soft-delete transitions as Deleted / Restored.
   const meta = entryActionMeta(entry) || { label: entry.action }
-  const lines = diffLines(entry)
+  const lines = diffLines(entry, { nameOf })
   const summary = entry.action !== 'update' ? snapshotSummary(entry) : null
 
   return (
@@ -193,7 +202,7 @@ function HistoryEntry({ entry, onRevert, reverting, disabled }) {
         <div className="flex flex-col gap-1">
           {lines.map(l => (
             <div key={l.field} className="text-dense flex items-baseline gap-1.5 min-w-0">
-              <span className="flex-shrink-0 rb-hist-field">{l.field}:</span>
+              <span className="flex-shrink-0 rb-hist-field">{l.label || l.field}:</span>
               <span className="truncate rb-hist-from" title={l.from}>
                 {l.from}
               </span>

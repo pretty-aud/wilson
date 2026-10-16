@@ -22,6 +22,7 @@
 // =============================================================================
 
 import { softDeleteTransition } from './editHistoryFormat'
+import { LINK_FIELDS } from '../state/taskItemsModel'
 
 // entity_type → mutator capability. Every listed table supports:
 //   patch (update mutator), trash + restore (0014 RPCs), recreate (add* /
@@ -52,6 +53,16 @@ const EXCLUDED_FIELDS = new Set([
   'deleted_at', 'deleted_by',
   'active_shot_list_id',
 ])
+
+// VW1m (2026-10-16), Q-N8 (batch 16, not yet asked; interim: no history of
+// a task's items, only the old lines in words): a task's single link
+// columns are the older apps' copy of its items (the first of each kind in
+// the order added), so an edit's line for one is not a change to put back —
+// its Revert swapped the task's first asset. They never ride an inverse
+// patch: a link-only entry plans as a noop (no Revert button) and a mixed
+// one reverts its other fields. A recreate keeps them: addTask writes them
+// as the re-made task's items.
+const TASK_LINK_FIELDS = new Set(LINK_FIELDS)
 
 /**
  * Plan the revert for one history entry.
@@ -98,6 +109,7 @@ export function buildRevertPlan(entry) {
     const forwardPatch = {}
     for (const k of Object.keys(diff)) {
       if (EXCLUDED_FIELDS.has(k)) continue
+      if (table === 'tasks' && TASK_LINK_FIELDS.has(k)) continue
       const cell = diff[k]
       if (!cell || typeof cell !== 'object' || !('old' in cell)) continue
       patch[k] = cell.old

@@ -306,6 +306,93 @@ describe('scheduleSpan', () => {
   })
 })
 
+// VW1m (2026-10-16), Q-N7 (batch 16; its interim choice, built until she
+// answers: a version keeps every item of every kind). Any item added or
+// removed is an unsaved change, the order never; opening a version saved with
+// items gives each task exactly its items (a row that is gone left out and
+// counted); opening an older one puts its saved item back where the task lost
+// it and removes nothing.
+describe('a task\'s items in a bid version (VW1m, Q-N7 interim)', () => {
+  const it2 = (id, task, kind, entity, position = 0) => ({ id, task_id: task, entity_type: kind, entity_id: entity, position, created_at: '2026-10-16T00:00:00Z' })
+  const items = [
+    it2('i1', 't1', 'asset', 'A2', 0), it2('i2', 't1', 'asset', 'A1', 1), it2('i3', 't1', 'scene', 'S1'),
+    it2('i4', 't2', 'level', 'L1'),
+  ]
+  const withItems = (over = {}) => snapshotFromLive({ tasks, items, phases, milestones, project, roleRates, ...over })
+  const known = { assets: new Set(['A1', 'A2', 'A3']), scenes: new Set(['S1']), shots: new Set(), levels: new Set(['L1']), experiences: new Set() }
+
+  it('snapshotFromLive: each task keeps every item of every kind, ids sorted; a task with none keeps empty lists', () => {
+    const s = withItems()
+    expect(s.tasks[0].items).toEqual({ asset: ['A1', 'A2'], scene: ['S1'], shot: [], level: [], experience: [] })
+    expect(s.tasks[1].items).toEqual({ asset: [], scene: [], shot: [], level: ['L1'], experience: [] })
+    // The single fields ride beside them, as the caller gave them (the provider gives the older apps' copy).
+    expect(withItems({ tasks: [{ ...tasks[0], asset_id: 'A2' }, tasks[1]] }).tasks[0].asset_id).toBe('A2')
+    // CONTROL: without items (a backend that keeps none) no task carries them.
+    for (const t of live().tasks) expect(t).not.toHaveProperty('items')
+  })
+  it('snapshotFromLive: a task whose items were not read keeps the older shape (its own fields)', () => {
+    const s = withItems({ tasks: [{ ...tasks[0], asset_id: 'A9' }, tasks[1]], itemsUnknown: ['t1'] })
+    expect(s.tasks[0]).not.toHaveProperty('items')
+    expect(s.tasks[0].asset_id).toBe('A9')
+    expect(s.tasks[1].items.level).toEqual(['L1'])
+  })
+
+  it('versionDiff: an item added or removed is an unsaved change; the order they were added never is', () => {
+    const saved = withItems()
+    const reordered = [it2('i2', 't1', 'asset', 'A1', 0), it2('i1', 't1', 'asset', 'A2', 1), it2('i3', 't1', 'scene', 'S1'), it2('i4', 't2', 'level', 'L1')]
+    expect(versionDiff(saved, withItems({ items: reordered })).isDirty).toBe(false)
+    expect(versionDiff(saved, withItems({ items: [...items, it2('i5', 't2', 'experience', 'X1')] })).tasks.changed).toBe(1)
+    expect(versionDiff(saved, withItems({ items: items.filter(i => i.id !== 'i2') })).tasks.changed).toBe(1)
+    // CONTROL: the same rows are clean.
+    expect(versionDiff(saved, withItems()).isDirty).toBe(false)
+  })
+  it('versionDiff, a version saved before: a task reads changed only when its saved single item is missing from its items', () => {
+    const older = snapshotFromLive({ tasks: [{ ...tasks[0], asset_id: 'A2', scene_id: 'S1' }, tasks[1]], phases, milestones, project, roleRates })
+    expect(versionDiff(older, withItems()).isDirty).toBe(false) // A2 is still one of t1's two assets
+    expect(versionDiff(older, withItems({ items: [...items, it2('i6', 't1', 'shot', 'H1')] })).isDirty).toBe(false) // an item added since is no change
+    // CONTROL: once the saved asset is gone from the task's items, it is.
+    expect(versionDiff(older, withItems({ items: items.filter(i => i.entity_id !== 'A2') })).tasks.changed).toBe(1)
+  })
+
+  it('planOpen, a version saved with items: each kind that differs is set exactly; links never ride a patch or a re-made row', () => {
+    const saved = withItems({ items: [it2('i1', 't1', 'asset', 'A2'), it2('i7', 't1', 'asset', 'A3'), it2('i3', 't1', 'scene', 'S1'), it2('i4', 't2', 'level', 'L1')] })
+    const plan = planOpen(saved, { tasks, phases, milestones, project, roleRates, known, items })
+    expect(plan.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A2', 'A3'], gone: [], exact: true }])
+    expect(plan.droppedLinks).toBe(0)
+    expect(planIsEmpty(plan)).toBe(false)
+    // CONTROL: the same items plan nothing.
+    expect(planIsEmpty(planOpen(withItems(), { tasks, phases, milestones, project, roleRates, known, items }))).toBe(true)
+    // A re-made task: every kind is written as items, none rides its row.
+    const lost = planOpen(saved, { tasks: [tasks[1]], phases, milestones, project, roleRates, known, items: items.filter(i => i.task_id !== 't1') })
+    expect(lost.tasks.create[0]).not.toHaveProperty('asset_id')
+    expect(lost.items.filter(w => w.id === 't1').map(w => [w.kind, w.ids])).toEqual([
+      ['asset', ['A2', 'A3']], ['scene', ['S1']], ['shot', []], ['level', []], ['experience', []],
+    ])
+    for (const u of planOpen(saved, { tasks: tasks.map(t => ({ ...t, asset_id: 'A1' })), phases, milestones, project, roleRates, known, items }).tasks.update) {
+      expect(Object.keys(u.patch)).not.toContain('asset_id')
+    }
+  })
+  it('planOpen: a saved item whose row is gone is left out and counted — unless the task still has it (an asset in the trash)', () => {
+    const saved = withItems({ items: [it2('i1', 't1', 'asset', 'A2'), it2('i8', 't1', 'asset', 'A-gone'), it2('i3', 't1', 'scene', 'S1'), it2('i4', 't2', 'level', 'L1')] })
+    const plan = planOpen(saved, { tasks, phases, milestones, project, roleRates, known, items })
+    expect(plan.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A2'], gone: ['A-gone'], exact: true }])
+    expect(plan.droppedLinks).toBe(1)
+    // The task still has the trashed asset: it is kept, nothing counted.
+    const has = [...items, it2('i9', 't1', 'asset', 'A-gone', 2)]
+    const kept = planOpen(saved, { tasks, phases, milestones, project, roleRates, known, items: has })
+    expect(kept.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A-gone', 'A2'], gone: [], exact: true }])
+    expect(kept.droppedLinks).toBe(0)
+  })
+  it('planOpen, a version saved before: its saved item goes back where the task lost it; nothing is removed', () => {
+    const older = snapshotFromLive({ tasks: [{ ...tasks[0], asset_id: 'A3', scene_id: 'S1' }, { ...tasks[1], level_id: 'L1', experience_id: 'X-gone' }], phases, milestones, project, roleRates })
+    const plan = planOpen(older, { tasks, phases, milestones, project, roleRates, known, items })
+    // A3 is added beside A1 and A2; S1 and L1 are already there; X-gone is gone.
+    expect(plan.items).toEqual([{ id: 't1', kind: 'asset', ids: ['A3'], gone: [], exact: false }])
+    expect(plan.droppedLinks).toBe(1)
+    expect(plan.items.some(w => w.exact)).toBe(false)
+  })
+})
+
 // Post-overhaul S5c review round 1 (R1-03): a rate-card role that no task
 // bids with made every version read "unsaved" for good, counted as a rate
 // changed in the automatic line, and was written as a project rate by every

@@ -66,6 +66,32 @@ describe('diffLines', () => {
     expect(diffLines(null)).toEqual([])
     expect(diffLines({ action: 'update' })).toEqual([])
   })
+
+  // VW1m (2026-10-16), Q-N8 (batch 16; interim: the old link lines read in
+  // words, named, without Revert — editHistoryRevert.test.js has the Revert).
+  it('VW1m: a task\'s link lines read in words, each item named where the project shows it', () => {
+    const names = { 'asset:a1': 'Lighthouse Interior', 'asset:a2': 'Storm Lantern', 'level:l1': 'Harbour' }
+    const nameOf = (kind, id) => names[`${kind}:${id}`] || null
+    const entry = {
+      action: 'update', entity_type: 'tasks',
+      diff: {
+        asset_id: { old: 'a1', new: 'a2' },
+        level_id: { old: null, new: 'l1' },
+        experience_id: { old: 'x-gone', new: null },
+        title: { old: 'A', new: 'B' },
+      },
+    }
+    expect(diffLines(entry, { nameOf })).toEqual([
+      { field: 'asset_id', label: 'Asset', from: 'Lighthouse Interior', to: 'Storm Lantern' },
+      { field: 'experience_id', label: 'Experience', from: 'an experience no longer in the project', to: '—' },
+      { field: 'level_id', label: 'Level', from: '—', to: 'Harbour' },
+      { field: 'title', from: 'A', to: 'B' },
+    ])
+  })
+  it('VW1m CONTROL: another entity\'s field of the same name keeps its raw line', () => {
+    const entry = { action: 'update', entity_type: 'files', diff: { asset_id: { old: 'a1', new: 'a2' } } }
+    expect(diffLines(entry, { nameOf: () => 'Named' })).toEqual([{ field: 'asset_id', from: 'a1', to: 'a2' }])
+  })
 })
 
 describe('soft delete / restore relabel (migration 0014)', () => {
