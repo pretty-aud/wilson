@@ -87,11 +87,25 @@ and the window loads `http://127.0.0.1:<that port>`; a browser keeps
 empty store. What lives there today and would reset: the Scenes tab's
 remembered shot list (`rabbit_scene_viewed_lists`), the unsaved edit copies
 (`rabbit_edit_drafts`), Budget's and Team's saved views, the Timeline's
-settings and collapsed phases, the holidays. (The five tables' saved views
+settings and collapsed phases, the holidays, and (since VW1m, 2026-10-16) the
+task window's Sort for its items. (The five tables' saved views
 move into the project with VW1.) Would settle it: change one of them in the
 packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
 protocol or a remembered port), or these stores moved into the machine's
 settings file.
+
+### The Dashboard shows a task's assets as of its last load
+**INFERRED (VW1m, 2026-10-16; from the code, not measured on the cloud).**
+The Dashboard's *My tasks* names every asset of a task (VW1m), read when the
+list loads. It reloads on the workspace channel's task, project, asset and
+member events (`useMyTasks.js`); a task's items are broadcast on the
+project's channel only (0096 §9), so a second asset added to one of my tasks
+in another window shows on the Dashboard at its next load, not at once (the
+first asset does show at once: the older apps' copy on `tasks` changes and
+its event reloads the list). Would settle it: two browsers on the cloud, add
+a second asset to a task assigned to the other. Fix shape: `task_items` on
+the workspace channel (a migration restating `fn_workspace_realtime_broadcast`),
+or the Dashboard joining each of its projects' channels.
 
 ### The Tasks CSV export leaves out the asset and the bid, and writes statuses as stored
 **INFERRED (VW1's research, 2026-10-13; from the code).**
@@ -108,14 +122,15 @@ mounts; a project switch from the context bar keeps the tab mounted, so the
 menu lists the previous project's views and the next save writes them under
 the new project. Ruled for later (VW1's Q19, Q21).
 
-### Grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list
+### Grouping Tasks by Phase or Assignee drops a task whose value is not in the project's list
 **INFERRED (VW1's research, 2026-10-13; from the code, not measured).** The
 Tasks table's `groups` builds one group per asset, phase or project member
 plus *Unassigned*; a task assigned to someone not staffed on the project (or
 pointing at a phase or asset the project no longer lists) lands in no group
 and vanishes from the grouped table while the count still includes it.
 Would settle it: assign a fixture task to a person outside the project,
-group by Assignee.
+group by Assignee. *(2026-10-16, VW1m: grouping by Asset no longer drops
+one: a task sits in the group of its combination of assets, or in No asset.)*
 
 ### The Assets table sorts the provider's own array in place
 **INFERRED (VW1's research, 2026-10-13; from the code).** With no filter or
@@ -258,21 +273,6 @@ the count is 0 for every scene, on every backend. Fix shape: count each
 asset once for each id in its `scene_ids` (and decide whether an asset linked
 only to one of the scene's shots counts too). Found in passing by FX2, which
 changed only the TASKS count beside it.
-
-### On the desktop, a deleted asset's tasks come back when the project is read again
-**INFERRED (FX2, 2026-10-12; read from `electron/main.cjs` and
-`RabbitProvider.jsx`, not seen in the desktop app).** The provider's
-`deleteAsset` takes the asset's tasks off the screen with it on every
-backend, as the cloud's `ON DELETE CASCADE` deletes them (0034). The Local
-Server's asset DELETE route removes the asset and its managed files only: the
-tasks stay in the bundle, and the next read of the project shows them again.
-Before FX2 they came back pointing at an asset that no longer exists; since
-FX2 the asset leaves their items, so each comes back under its next asset, or
-under no asset if that was its only one. Settle it by deleting an asset that
-has tasks in the desktop app and opening the project again. Fix shape: the
-route removes the tasks whose `asset_id` is the asset (with their
-dependencies and items, as the generic task DELETE does), and the provider's
-undo, which re-inserts them on the desktop, is unchanged.
 
 ### The Tasks table's Bid days field hides a figure's first characters behind the browser's arrows
 **MEASURED (FX1, 2026-10-12).** Playwright on the dev fixtures at
@@ -1835,6 +1835,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul VW1m (2026-10-16; `po/vw1m-no-main-item` into `feat/post-overhaul-edit-versioning`) — no main item (Audrey: "lets not have main asset be a thing. thats not needed and i dont like."): every place a task's main item was read measured first (289), her batch 14 answered (batches 15-16 to interim choices), migration 0097 and suite 100 on wilson-dev (deleting an asset never deletes a task; an older app's single write adds), the Timeline's combination rows, the Budget's even split, the task window's Sort and Files per item, the Tasks table and Board by combination, the Dashboard, bid versions keeping every item; walkthrough 74; two review rounds | **one entry under Broken features:** *the Dashboard shows a task's assets as of its last load* (INFERRED); dated notes on *the desktop's browser storage* (the Items sort is kept there too), *grouping Tasks by Phase or Assignee* (its Asset half fixed) and P1-26 (its Tasks half fixed) | **two:** *on the desktop, a deleted asset's tasks come back when the project is read again* (no backend deletes or hides a task with its asset now: 0097, the provider, the live merge) and **S5b-07** (*an asset whose task is set aside cannot be deleted*: the refusal went with its reason). Comment markers: 4 → 4. |
 | Post-overhaul FX11 (2026-10-16; `po/fx11-connection-dot` into `feat/post-overhaul-edit-versioning`) — one connection dot in the bottom-left corner of every R.A.B.B.I.T. tab, just above the orange bar (Audrey: "this green dot should clarify that the system is connected to the storage solution not just the databases on supabase"): green when the database AND where the files are kept answer (a real, bounded, abortable probe of each: Petal cloud's bucket, a company bucket through storage-presign, the desktop's new `GET /api/rabbit/connection` for the Local Server and a NAS), amber when only the database does, red offline, a diamond and a square besides the colour, the words on hover and on a press (a toggletip), a change announced once; the project bar keeps the name and status left and the faces then Switch right (no LIVE, no adapter dot); the Dashboard's Live badge gone; the Bins counter 24px up (walkthrough 73); two review rounds on Opus, every finding fixed | **nothing.** Every finding of the two rounds was fixed in the session; the trade the corner makes (its cell sits over the left of a list's very bottom row) is the walkthrough's known limit, by her placement, not a fault | nothing |
 | Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
 | Post-overhaul FX10 (2026-10-13; `po/fx10-date-fields` into `feat/post-overhaul-edit-versioning`) — the date fields (Audrey: "the calendar icon is covering the dates when it has all the space to space them out"): every date and the empty `mm / dd / yyyy` whole, the calendar icon clear and spaced, in the desktop app and in Firefox (her screenshot's), by one kit rule — a date field's floor, the date's room plus its own padding (FX10-KR-1) — with the Tasks, Assets and Shots date columns widened and four windows' rows reshaped; display only, no migration; walkthrough 71; two review rounds | **three entries under Broken features:** *under a minimum font size the tables' dates are cut again* (MEASURED, round 1's R1-07: FX10's floor and the tables' columns are px); *the project control panel's 24 fields have no accessible name* (MEASURED; older than FX10; round 1's R1-12 named the dates); *in the smallest desktop window, an open task form leaves a shot's take notes no room* (MEASURED by the measuring script's neighbours pass; older than FX10). Round 2's R2-03, the desktop app's table dates losing the keyboard's focus at their calendar glyph (older than FX10), was fixed, not entered | nothing. Comment markers: 4 → 4. |
@@ -2028,7 +2029,7 @@ defines them; a row's "owner" is who acts first.
 - ~~**P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.~~ — FIXED by post-overhaul S3b: the popups' own label went; FileManager's head says it once.
 - (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1; walkthrough 47 Q192.)
 - **P1-25 · React logs duplicate keys (26×) after a take is unassigned or undone** (`rabbitFixturesAdapter.js:68-74`, `RabbitProvider.jsx:2919`; dev fixtures). MEASURED.
-- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED. **Wider (VW1's research, 2026-10-13, MEASURED on `?fixtures=game`):** the Tasks count is wrong too — it counts a task only under its first level (`taskCountById` reads the task's main `level_id`), so "Cliff Path", which fixture task 18 names second, reads 0 assets and 0 tasks in the table and in its window's *Linked counts* line while the window lists *Assets (2)* and *Tasks (1)* (`docs/sessions/handoffs/img/po-vw1-levels-05-window-counts-*.png`). Audrey ruled the fix (VW1's Q12); it is step 2 of `docs/design/CUSTOM_VIEWS_DESIGN.md` §7.
+- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED. **Wider (VW1's research, 2026-10-13, MEASURED on `?fixtures=game`):** the Tasks count is wrong too — it counts a task only under its first level (`taskCountById` reads the task's main `level_id`), so "Cliff Path", which fixture task 18 names second, reads 0 assets and 0 tasks in the table and in its window's *Linked counts* line while the window lists *Assets (2)* and *Tasks (1)* (`docs/sessions/handoffs/img/po-vw1-levels-05-window-counts-*.png`). Audrey ruled the fix (VW1's Q12); it is step 2 of `docs/design/CUSTOM_VIEWS_DESIGN.md` §7. *(2026-10-16, VW1m: the Tasks count now counts every task with an item of that level or experience; the Assets count is still VW1b's.)*
 - **P1-27 · Two tests import `@babel/parser` / `@babel/traverse` undeclared** (`otterCss.test.js`, `authSelectors.test.js`; resolved through plugin-react). MEASURED by reading `package.json`. Declaring them is a lock change: the lock's owner.
 - **P1-28 · A missing thumbnail draws the browser's broken-image icon** in a light 1px frame (`FileThumbnail`, the entity popups, Scenes rows; the asset detail draws initials instead). MEASURED.
 
@@ -3005,10 +3006,6 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   reloading the project). None of them opens a version, so nothing is set
   aside from there, but a version deleted from that table skips constraint
   10's question (review round 1, R1-08). Owner: the continuation (step 3).
-- **S5b-07 · An asset whose task is set aside cannot be deleted** (review
-  round 1, R1-01): the cloud sees a task through its asset and cascades the
-  asset's delete onto it, so the delete is refused with the tasks named.
-  Decided by S5b. Owner: Audrey (or delete them with it, named?).
 - **S5b-08 · 0090's guard refuses a member's whole-row UPSERT that carries
   an unchanged set-aside stamp** (its INSERT arm reads NEW before ON
   CONFLICT); the UPDATE re-send passes. Harmless today: every S5b write

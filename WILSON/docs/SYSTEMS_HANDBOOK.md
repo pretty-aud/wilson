@@ -4991,22 +4991,33 @@ of a session — this section is limits by design, that file is faults.
   lose in one request and deletes in another (a take assigned in between is
   lost, said in the hand-off).
 
-**A task's items (FX2, migration 0096 — 2026-10-11)**
+**A task's items (FX2, migration 0096 — 2026-10-11; no main item since VW1m, migration 0097 — 2026-10-16)**
 
 - **A task relates to many items through `task_items`: assets, scenes,
-  shots, levels and experiences, ordered within each kind. The single
-  columns stay.** `tasks.asset_id`, `scene_id` and `shot_id` are each the
-  task's MAIN item of that kind (the first by position, then created_at,
-  then id), kept in step in both directions by triggers
-  (`fn_task_items_sync_task` on the items, `fn_tasks_sync_items` and
-  `fn_tasks_seed_items` on the tasks, under the transaction-local flag
-  `wilson.task_items_sync`). A writer of a single column (the beta, a
-  template applied to an asset, a bid version opened, the agent) moves an
-  item the task already has to first, replaces the main item with a new one,
-  or removes the main item when it clears the column. `tasks` has no level
-  or experience column: on the cloud those live only as items, and the
-  provider derives all five single fields from the items. The Local Server
-  (`electron/rabbitTaskItems.cjs`) and the fixtures run the same rules.
+  shots, levels and experiences, and no item counts for more than another**
+  (Audrey, 2026-10-16: "lets not have main asset be a thing"). Every screen
+  reads the items through `buildItemLookup` (`taskItemsModel.js`): a task's
+  LIVE items (an item whose row is in the trash is hidden from its tasks and
+  comes back on restore), a kind's **combination** (its set, keyed by the
+  sorted ids, named in the display order), and three sorts for the task
+  window (Type, A to Z, Date added). Grouped by an item, the Timeline, the
+  Tasks table and the Board show one row or group per combination; the
+  Budget splits a task's days and money evenly between its items; a task's
+  phase is its own, else the one its live assets share. `ctx.tasks` carries
+  no link field where items are kept.
+- **The single columns are a copy for older apps only.** `tasks.asset_id`,
+  `scene_id` and `shot_id` (and the five fields on the desktop's and the
+  fixtures' rows) hold each kind's first item in the stored order (position,
+  created_at, id: the order items were added), written by
+  `fn_task_items_sync_task` and its twins and read by nothing in this app.
+  An older app's write of one ADDS that item and never removes another
+  (`fn_tasks_sync_items` since 0097, `planLegacyFieldWrite` on the desktop
+  and the fixtures); `fn_tasks_seed_items` makes a new task's columns its
+  items. **Deleting an asset never deletes or hides a task** (0097: the key
+  is `ON DELETE SET NULL`; `tasks_select` hops to the task's own project for
+  every task). `tasks` has no level or experience column: on the cloud
+  those live only as items. The Local Server (`electron/rabbitTaskItems.cjs`)
+  and the fixtures run the same rules; the desktop's read never reorders.
 - **RLS.** Reads hop to `projects` and `tasks` under the caller's own RLS (a
   private project's items stay hidden; a task the caller cannot see hides its
   items); writes add `has_active_membership` and `can_write_project` (a
@@ -5015,7 +5026,7 @@ of a session — this section is limits by design, that file is faults.
   UPDATE `position` only (a column grant); `reorder_task_items` is SECURITY
   INVOKER. The table is on the project's live channel (`fn_realtime_broadcast`,
   sixteen tables), pinned by suites 72 and 99. §7a locks the task row before
-  it reads the main item (two writers of one task's items take turns; a
+  it reads the first item (two writers of one task's items take turns; a
   single-column write from an older tab can deadlock with one, and Postgres
   takes one back whole). 0096 refuses to run again after a later migration is
   recorded, and refuses a broadcast body that is neither 0091's nor its own
@@ -5024,16 +5035,16 @@ of a session — this section is limits by design, that file is faults.
   items write with code `task_items_unavailable`**: the load's read of
   `public.task_items` is the probe, and nothing is stripped (0096 adds no
   column to a table the client upserts).
-- **The client re-reads a task's single links from its items only when a
-  write changes that task's items**; a task the backend brings back outside a
-  load (a bid version's open, an undo from the trash) keeps its row's links
-  and has its items read (review round 2). No editor makes a row the project
-  no longer shows a task's main one.
-- **Known limits, by design:** sums and grouped rows (the Budget, the
-  Timeline, the Tasks table's groups) count a task once, under its main item;
-  lists and per-row counts name every item. A bid version keeps the main
-  items only; templates name no items; the edit history sees an item change
-  only as a change of the task's main asset, scene or shot.
+- **Writes**: the task window adds and removes items; a drop on a group or a
+  Timeline row sets a kind to that group's items (`setTaskItemsOfKind`, one
+  undoable write that keeps the task's hidden items); a task made from a
+  combination carries its items (`addTask` with `items`). A bid version
+  keeps every item of every task; opening one saved before 0097 adds its
+  saved item where the task lost it and removes nothing.
+- **Known limits:** a task's history records no item change (the copy's
+  lines are hidden in the drawer until Audrey's answer to VW1m's Q-N8); the
+  Dashboard shows a task's assets as of its last load (`docs/OUTSTANDING.md`);
+  templates name no items; a split shows fractions of a day.
 
 **Security-adjacent**
 
