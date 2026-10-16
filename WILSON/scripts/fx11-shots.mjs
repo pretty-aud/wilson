@@ -226,7 +226,9 @@ try {
         counter: counter ? { box: box(counter), text: counter.textContent, footer: box(counterFooter), gapToFoot: footBox ? px(footBox.y - counter.getBoundingClientRect().bottom) : null } : null,
         dot: dot ? {
           count: dots, onTop, box: box(dot), mark: box(dotMark), tone: dotMark.dataset.tone, state: dot.dataset.state,
-          color: getComputedStyle(dotMark).backgroundColor, name: dotMark.getAttribute('aria-label'), title: dotMark.getAttribute('title') ?? dot.getAttribute('title'),
+          color: getComputedStyle(dotMark).backgroundColor, name: dot.querySelector('.rb-conn-cell')?.getAttribute('aria-label') ?? null, title: dot.querySelector('.rb-conn-cell')?.getAttribute('title') ?? null,
+          markTitle: dotMark.getAttribute('title'), button: dot.querySelector('.rb-conn-cell')?.tagName || null,
+          shape: { radius: getComputedStyle(dotMark).borderRadius, transform: getComputedStyle(dotMark).transform },
           live: live ? { role: live.getAttribute('role'), ariaLive: live.getAttribute('aria-live'), text: live.textContent } : null,
           gapToFoot: footBox ? px(footBox.y - dotMark.getBoundingClientRect().bottom) : null,
         } : { count: 0 },
@@ -262,8 +264,15 @@ try {
     if (d.x < m.shell.x || d.right > m.shell.x + 24) fail(`the dot (${d.x}..${d.right}) is not in the 24px gutter`);
     const hits = m.corner.textUnder.filter((t) => t.x < d.right + 4 && t.right > d.x - 4 && t.y < d.bottom + 4 && t.bottom > d.y - 4);
     if (hits.length) fail(`text under or touching the dot: ${JSON.stringify(hits)}`);
-    if (!m.dot.name || !/Database/.test(m.dot.name) || !/Files/.test(m.dot.name)) fail(`the dot's accessible name does not say each part: ${m.dot.name}`);
-    if (m.dot.title !== m.dot.name) fail('the hover text and the accessible name differ');
+    if (!m.dot.title || !/Database/.test(m.dot.title) || !/Files/.test(m.dot.title)) fail(`the dot's words do not say each part: ${m.dot.title}`);
+    if (m.dot.name !== `Connection: ${m.dot.title}`) fail(`the button's name is not the words: ${m.dot.name}`);
+    if (m.dot.markTitle !== m.dot.title) fail("the dot's own title would mask the button's");
+    if (m.dot.button !== 'BUTTON') fail('the cell is not a button (no keyboard way to the words)');
+    // Never colour alone: green a circle, amber a diamond, red a square.
+    const round = m.dot.shape.radius !== '0px';
+    const turned = m.dot.shape.transform !== 'none';
+    const shapeOk = m.dot.state === 'files' ? (!round && turned) : m.dot.state === 'offline' ? (!round && !turned) : (round && !turned);
+    if (!shapeOk) fail(`the ${m.dot.state} dot has the wrong shape: ${JSON.stringify(m.dot.shape)}`);
     // The colour the fixtures' seam asks for (?connection=…), and its tone.
     const want = CONNECTION === 'files-down' ? ['files', 'warning'] : CONNECTION === 'offline' ? ['offline', 'danger'] : ['connected', 'success'];
     if (m.dot.state !== want[0] || m.dot.tone !== want[1]) fail(`the dot is ${m.dot.state}/${m.dot.tone}, not ${want.join('/')}`);
@@ -281,6 +290,37 @@ try {
   await sleep(600);
   await measure('gallery');
   await shot('gallery');
+  if (CHECK || SHOTS) {
+    // The keyboard's way to the words (FX11 review round 1, R1-4): Tab reaches
+    // the cell, Enter shows the words, Escape hides them.
+    let reached = false;
+    await page.locator('body').click({ position: { x: 600, y: 10 } });
+    for (let i = 0; i < 300 && !reached; i++) {
+      await page.keyboard.press('Tab');
+      reached = await page.evaluate(() => !!document.activeElement?.closest?.('.rb-conn-cell'));
+    }
+    if (!reached && CHECK) failures.push(`gallery at ${W}x${H}: Tab never reaches the connection dot`);
+    if (reached) {
+      await page.keyboard.press('Enter');
+      const words = await page.locator('[data-testid="connection-dot-words"]').innerText().catch(() => null);
+      console.log(`  keyboard: Tab reached the dot; Enter shows: ${JSON.stringify(words)}`);
+      if (CHECK && (!words || !/Database/.test(words) || !/Files/.test(words))) failures.push(`gallery at ${W}x${H}: Enter shows no words`);
+      await shot('keyboard-words');
+      await page.keyboard.press('Escape');
+      if (CHECK && await page.locator('[data-testid="connection-dot-words"]').count()) failures.push(`gallery at ${W}x${H}: Escape leaves the words open`);
+    }
+    // Forced colours (R1-5): the dot stays drawn, not painted out with the cell.
+    await page.emulateMedia({ forcedColors: 'active' });
+    const fc = await page.evaluate(() => {
+      const mark = document.querySelector('.rb-conn .ui-status-dot');
+      const cell = document.querySelector('.rb-conn');
+      return mark && cell ? { dot: getComputedStyle(mark).backgroundColor, cell: getComputedStyle(cell).backgroundColor, adjust: getComputedStyle(mark).forcedColorAdjust } : null;
+    });
+    console.log(`  forced colours: ${JSON.stringify(fc)}`);
+    if (CHECK && (!fc || fc.dot === fc.cell)) failures.push(`gallery at ${W}x${H}: under forced colours the dot is painted out (${JSON.stringify(fc)})`);
+    await shot('forced-colors');
+    await page.emulateMedia({ forcedColors: 'none' });
+  }
   await click(page.locator('.rb-summary-card, button', { hasText: 'Salt Hours' }).first(), 'Salt Hours');
   await sleep(800);
   for (const name of TABS) {

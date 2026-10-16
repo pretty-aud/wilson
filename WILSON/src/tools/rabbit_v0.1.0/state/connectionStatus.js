@@ -38,11 +38,12 @@
 //    token the caller read from an auth EVENT (the hook keeps the latest one)
 //    — never supabase-js, never presignStorage's own getSession.
 // 4. The storage check is a real round trip to where the files are kept, never
-//    inferred from the database: Petal cloud lists one object of the files
-//    bucket; a company bucket is asked for one object through the presign
-//    function; the Local Server and a NAS are asked by the desktop's own
-//    GET /api/rabbit/connection (electron/connectionProbe.cjs), which stats
-//    the files root.
+//    inferred from the database: on Petal cloud, a HEAD of one of the open
+//    project's files (else a list of one object of the files bucket); a
+//    company bucket is asked about one object through the presign function
+//    (a real file of the project where there is one: R1-1); the Local Server
+//    and a NAS are asked by the desktop's own GET /api/rabbit/connection
+//    (electron/connectionProbe.cjs), which stats the files root.
 // =============================================================================
 
 import { activeWorkspaceProvider, WORKSPACE_PROVIDERS } from '../storage/index.js'
@@ -157,20 +158,43 @@ export function adapterKindOf(adapterMode, adapter) {
   return null
 }
 
+// The money segments (public.rabbit_money_segment, 0042 + 0088;
+// supabase/functions/_shared/moneySegments.ts): a body under one is gated by
+// the money and Legal rules, so it is never the one the dot reads.
+const MONEY_SEGMENTS = ['INVOICES', 'FINANCE', 'LEGAL']
+function readableFileOf(files, provider, projectId) {
+  return (files || []).find(f => f && f.storage_provider === provider && f.storage_path && !f.deleted_at
+    && !f.is_financial && (!projectId || f.project_id === projectId)
+    && !MONEY_SEGMENTS.includes(String(f.storage_path.split('/')[2] || '').toUpperCase())) || null
+}
+
 /**
- * The path a company bucket is asked about: a real file of this project kept
- * in the bucket when there is one (it exists, so a 403 cannot be the bucket's
- * way of saying "missing" without ListBucket), else a row-shaped key nobody
- * writes, for the open project or the first listed one (a 404 is then the
- * bucket answering). The storage-presign function admits only row-shaped
- * paths whose third segment is not money (_shared/presignPath.ts).
+ * The path a company bucket is asked about, and whether a file is really
+ * there: { path, real }.
+ *   * real — a file of the open project kept in the bucket. It exists, so a
+ *     403 is the bucket refusing, never its way of saying "missing".
+ *   * not real — a row-shaped key nobody writes, for the open project or the
+ *     first listed one. A 404 is then the bucket answering; a 403 says
+ *     nothing either way, because a key without s3:ListBucket — the
+ *     handbook's own setup (SYSTEMS_HANDBOOK, "Nothing wider — WILSON never
+ *     lists") — answers 403 for a missing object (review round 1, R1-1).
+ * Null with no project at all. The storage-presign function admits only
+ * row-shaped paths whose third segment is not money (_shared/presignPath.ts).
  */
 export function bucketProbeKey({ files = [], projectId = null, projectIds = [] } = {}) {
-  const real = (files || []).find(f => f && f.storage_provider === 's3' && f.storage_path && !f.deleted_at
-    && (!projectId || f.project_id === projectId))
-  if (real) return real.storage_path
+  const real = readableFileOf(files, 's3', projectId)
+  if (real) return { path: real.storage_path, real: true }
   const pid = projectId || (projectIds || [])[0]
-  return pid ? `projects/${pid}/connection-check/wilson-connection-check` : null
+  return pid ? { path: `projects/${pid}/connection-check/wilson-connection-check`, real: false } : null
+}
+
+/**
+ * A Petal cloud file of the open project to read one byte of, or null
+ * (review round 1, R1-8: listing proves the storage API and its metadata, a
+ * read proves the object store behind it). Never a money or Legal body.
+ */
+export function petalProbePath({ files = [], projectId = null } = {}) {
+  return projectId ? (readableFileOf(files, 'supabase', projectId)?.storage_path || null) : null
 }
 
 // ── 3. The probe ────────────────────────────────────────────────────────────
@@ -202,7 +226,11 @@ async function readStorageChoice(deps, signal) {
   })
   if (!res?.ok) return { failed: true }
   const rows = await json(res)
-  return { row: Array.isArray(rows) ? (rows[0] || null) : null }
+  // A body that could not be read (or was cut off at the ceiling) is not
+  // "no row": guessing Petal cloud from it is what the upload path refuses
+  // to do (review round 1, R1-3).
+  if (!Array.isArray(rows) || signal.aborted) return { failed: true }
+  return { row: rows[0] || null }
 }
 
 async function cloudFiles(deps, signal) {
@@ -220,6 +248,21 @@ async function cloudFiles(deps, signal) {
 
   if (provider === WORKSPACE_PROVIDERS.PETAL) {
     const place = FILES_PLACE.petal
+    const object = deps.petalPath?.()
+    if (object) {
+      // One of the open project's own files, asked about with the HEAD
+      // supabase-js's exists() sends (storage-js `HEAD /object/<bucket>/<path>`,
+      // the same two headers as the list, so no new CORS question): the
+      // storage service looks the object up rather than only listing. Any
+      // answer about the object under 500 (a 400 / 404 "not found" included)
+      // is the store answering; 401 / 403 is it refusing you; 5xx is the
+      // store failing.
+      const res = await deps.fetch(`${deps.supabaseUrl}/storage/v1/object/${FILES_BUCKET}/${object.split('/').map(encodeURIComponent).join('/')}`, {
+        method: 'HEAD', headers: cloudHeaders(deps, token), signal, cache: 'no-store',
+      })
+      if (res && typeof res.status === 'number' && res.status < 500 && res.status !== 401 && res.status !== 403) return { ok: true, place }
+      return { ...answerOfResponse(res), place }
+    }
     const res = await deps.fetch(`${deps.supabaseUrl}/storage/v1/object/list/${FILES_BUCKET}`, {
       method: 'POST',
       headers: cloudHeaders(deps, token, { 'content-type': 'application/json' }),
@@ -235,13 +278,17 @@ async function cloudFiles(deps, signal) {
     if (!key) return { ok: null, why: 'no-project', place }
     let signed
     try {
-      signed = await deps.presign('head', key, { token, signal })
+      signed = await deps.presign('head', key.path, { token, signal })
     } catch (err) {
       if (signal.aborted) throw err
       return { ok: false, why: err?.status === 401 || err?.status === 403 ? 'refused' : 'error', place }
     }
     if (!signed?.url) return { ok: false, why: 'error', place }
     const res = await deps.fetch(signed.url, { method: 'HEAD', signal, cache: 'no-store' })
+    // A key nobody writes, answered 403: a bucket key without ListBucket says
+    // that for a missing object, so it proves neither way (R1-1). Unchecked
+    // (grey, never announced) until the project has a file in the bucket.
+    if (!key.real && res?.status === 403) return { ok: null, why: 'no-file', place }
     return { ...answerOfResponse(res, { missingIsAnswer: true }), place }
   }
 
@@ -284,9 +331,12 @@ async function localAnswer(deps, signal) {
  *   localFetch       the desktop loopback fetch (lib/localServerFetch)
  *   token()          the latest access token from an auth event, or null
  *   supabaseUrl, anonKey
- *   storageChoice()  the remembered workspace_storage row, or undefined
+ *   storageChoice()  the workspace_storage row the upload path holds
+ *                    (peekWorkspaceStorageCached), else the dot's own
+ *                    remembered one, else undefined (then it is read)
  *   rememberStorageChoice(row)
- *   bucketKey()      bucketProbeKey's answer for now
+ *   bucketKey()      bucketProbeKey's answer for now: { path, real } or null
+ *   petalPath()      petalProbePath's answer for now, or null
  *   presign(op, path, { token, signal })  storageApi.presignStorage
  *   desktop          true where the desktop's loopback server is
  */
@@ -319,7 +369,10 @@ export async function probeConnection(kind, deps, { timeoutMs = CONNECTION_TIMEO
     // project data and the files are the same folder. Not abortable (the
     // adapter takes no signal) — bounded by the ceiling, and it is not auth-js.
     const r = await run(async () => deps.adapter.status())
-    const answer = r?.online === true ? { ok: true } : { ok: false, why: r?.why || 'unreachable' }
+    // The adapter says why in `error` ('not signed in', 'no rabbit root
+    // folder configured', or the request's own error) — R1-10.
+    const why = r?.why || (r?.error === 'not signed in' ? 'signed-out' : 'unreachable')
+    const answer = r?.online === true ? { ok: true } : { ok: false, why }
     return { database: answer, files: { ...answer, place: FILES_PLACE.drive } }
   }
   return { database: null, files: null }
@@ -344,6 +397,7 @@ function statusWord(answer) {
     case 'unavailable': return 'not available (the demo folder is missing)'
     case 'missing':     return 'not found'
     case 'no-project':  return 'checked once there is a project'
+    case 'no-file':     return 'checked once this project has a file there'
     default:            return 'not answering'
   }
 }
@@ -398,7 +452,9 @@ export function connectionView({ kind, result = null, realtimeStatus = 'off', pr
         : database?.why === 'signed-out' ? 'Not signed in: the database does not answer'
           : 'Offline: the database is not answering',
     checking: 'Checking the connection',
-    unchecked: 'The database is connected; the files are checked once there is a project',
+    unchecked: files?.why === 'no-file'
+      ? 'The database is connected; the files are checked once this project has a file there'
+      : 'The database is connected; the files are checked once there is a project',
   }[state]
   return { state, tone: STATE_TONE[state], words: parts.join(' · '), summary }
 }

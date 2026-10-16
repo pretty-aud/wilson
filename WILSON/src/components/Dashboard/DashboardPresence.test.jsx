@@ -46,6 +46,14 @@ describe('the Dashboard header (FX11): the faces, no Live badge', () => {
     // The names in words, for a screen reader (the faces carry them only in titles).
     expect(presence.querySelector('[role="group"]').getAttribute('aria-label')).toBe('Online now: Mara Okonkwo, Theo Lindqvist')
   })
+  it('the faces only while the channel is live (review round 1, R1-11): after a channel error the last list is not people online', () => {
+    for (const status of ['error', 'connecting', 'off', undefined]) {
+      rabbit.value = { workspaceRealtimeStatus: status, workspacePresentUsers: [{ user_id: 'u1', label: 'm' }], subscribeWorkspaceEvents: () => () => {} }
+      const { container, unmount } = render(<DashboardPage />)
+      expect(container.querySelector('.dash-presence'), String(status)).toBeNull()
+      unmount()
+    }
+  })
   it('live with nobody else online draws nothing on the right (it used to draw the badge alone)', () => {
     rabbit.value = { workspaceRealtimeStatus: 'live', workspacePresentUsers: [], subscribeWorkspaceEvents: () => () => {} }
     const { container } = render(<DashboardPage />)

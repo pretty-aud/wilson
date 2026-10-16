@@ -104,14 +104,20 @@ describe('GET /api/rabbit/connection', () => {
     expect(await (await fetch(url)).json()).toEqual({ data: { ok: false, why: 'unreachable' }, files: { ok: false, why: 'unreachable', kind: 'workspace' } })
   })
 
-  it('the data folder unavailable (the demo folder missing) is a 503 with the sentence', async () => {
+  it('a getter that throws is a 500 with a fixed sentence — never its message, which can carry a path; a 503 is only ever the missing-folder guard\'s (review round 1, R1-9)', async () => {
     const url = await serve({
-      getDataDir: () => { throw new Error('the demo folder is not available: E:\\demo — open Settings → Storage') },
+      getDataDir: () => { throw Object.assign(new Error(`EACCES: permission denied, mkdir '${dataDir}\\nope'`), { code: 'EACCES' }) },
       getFilesRoot: () => ({ root: filesDir, kind: 'demo' }),
     })
     const res = await fetch(url)
-    expect(res.status).toBe(503)
-    expect((await res.json()).error).toMatch(/demo folder is not available/)
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'the local data folder could not be read' })
+    expect(JSON.stringify(body)).not.toContain(dataDir)
+    const root = await serve({ getDataDir: () => dataDir, getFilesRoot: () => { throw new Error(`no root at ${filesDir}`) } })
+    const r2 = await fetch(root)
+    expect(r2.status).toBe(500)
+    expect(JSON.stringify(await r2.json())).not.toContain(filesDir)
   })
 
   it('the default ceiling is a few seconds, under the dot\'s own', () => {

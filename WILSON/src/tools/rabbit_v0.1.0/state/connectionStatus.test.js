@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
-  answerOfResponse, bounded, adapterKindOf, bucketProbeKey, probeConnection, connectionView, isSettled,
+  answerOfResponse, bounded, adapterKindOf, bucketProbeKey, petalProbePath, probeConnection, connectionView, isSettled,
   FILES_PLACE, FILES_BUCKET, LOCAL_CONNECTION_ROUTE, CONNECTION_TIMEOUT_MS,
 } from './connectionStatus.js'
 
@@ -129,12 +129,12 @@ describe('adapterKindOf and bucketProbeKey', () => {
       { project_id: PID, storage_provider: 's3', storage_path: 'projects/p/files/x/1-gone.mov', deleted_at: '2026-10-01' },
       { project_id: PID, storage_provider: 's3', storage_path: `projects/${PID}/files/x/1-c.mov` },
     ]
-    expect(bucketProbeKey({ files, projectId: PID })).toBe(`projects/${PID}/files/x/1-c.mov`)
-    expect(bucketProbeKey({ files: [], projectId: PID })).toBe(`projects/${PID}/connection-check/wilson-connection-check`)
-    expect(bucketProbeKey({ files: [], projectIds: [PID] })).toBe(`projects/${PID}/connection-check/wilson-connection-check`)
+    expect(bucketProbeKey({ files, projectId: PID })).toEqual({ path: `projects/${PID}/files/x/1-c.mov`, real: true })
+    expect(bucketProbeKey({ files: [], projectId: PID })).toEqual({ path: `projects/${PID}/connection-check/wilson-connection-check`, real: false })
+    expect(bucketProbeKey({ files: [], projectIds: [PID] })).toEqual({ path: `projects/${PID}/connection-check/wilson-connection-check`, real: false })
     expect(bucketProbeKey({})).toBeNull()
     // The presign gate's shape (_shared/presignPath.ts): projects/<uuid>/<non-money>/…, plain segments.
-    const key = bucketProbeKey({ projectId: PID }).split('/')
+    const key = bucketProbeKey({ projectId: PID }).path.split('/')
     expect(key[0]).toBe('projects')
     expect(key.length).toBeGreaterThanOrEqual(3)
     for (const s of key) expect(s).toMatch(/^[A-Za-z0-9._-]+$/)
@@ -199,6 +199,51 @@ describe('probeConnection: the cloud on Petal cloud', () => {
     expect(r.files).toEqual({ ok: false, why: 'unknown' })
     expect(fetch.calls.some((c) => c.url.includes('/storage/v1/'))).toBe(false)
   })
+  it('R1-3: a storage choice whose body cannot be read, or is cut off at the ceiling, is "not known" and is not remembered', async () => {
+    const garbled = fakeFetch((url) => (url.includes('workspace_storage') ? { status: 200, ok: true, json: async () => { throw new SyntaxError('x') } } : res(200, [])))
+    const deps = cloudDeps({ fetch: garbled })
+    const r = await probeConnection('cloud', deps)
+    expect(r.files).toEqual({ ok: false, why: 'unknown' })
+    expect(deps.rememberStorageChoice).not.toHaveBeenCalled()
+    vi.useFakeTimers()
+    try {
+      const slowBody = fakeFetch((url) => (url.includes('workspace_storage')
+        ? { status: 200, ok: true, json: () => new Promise((resolve) => setTimeout(() => resolve([{ mode: 'central', provider: 'petal' }]), 10_000)) }
+        : res(200, [])))
+      const d2 = cloudDeps({ fetch: slowBody })
+      const p = probeConnection('cloud', d2, { timeoutMs: 500 })
+      await vi.advanceTimersByTimeAsync(500)
+      expect((await p).files).toEqual({ ok: false, why: 'timeout' })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(d2.rememberStorageChoice).not.toHaveBeenCalled()
+    } finally { vi.useRealTimers() }
+  })
+  it('R1-8: with a file of the open project on Petal cloud, the store is asked about that object (the HEAD supabase-js\'s exists() sends); without one, a list', async () => {
+    const path = `projects/${PID}/files/a b/1-c.mov`
+    const at = (status) => fakeFetch((url) => (url.includes('/storage/v1/object/rabbit-files/') ? res(status) : res(200, [])))
+    const ok = at(200)
+    expect((await probeConnection('cloud', cloudDeps({ fetch: ok, petalPath: () => path }))).files).toEqual({ ok: true, place: FILES_PLACE.petal })
+    const call = ok.calls.find((c) => c.url.includes('/storage/v1/object/rabbit-files/'))
+    expect(call.url).toBe(`https://db.example/storage/v1/object/rabbit-files/projects/${PID}/files/a%20b/1-c.mov`)
+    expect(call.init.method).toBe('HEAD')
+    expect(call.init.headers).toEqual({ apikey: 'anon', authorization: 'Bearer tok' })
+    expect(ok.calls.some((c) => c.url.includes('/object/list/'))).toBe(false)
+    // "Not found" answers (400 / 404) are the store answering; 401/403 refusing; 5xx failing.
+    for (const [status, files] of [[400, { ok: true }], [404, { ok: true }], [403, { ok: false, why: 'refused', status: 403 }], [502, { ok: false, why: 'error', status: 502 }]]) {
+      expect((await probeConnection('cloud', cloudDeps({ fetch: at(status), petalPath: () => path }))).files).toEqual({ ...files, place: FILES_PLACE.petal })
+    }
+  })
+  it('the file read is never a money or Legal body, nor another project\'s, nor a removed one', () => {
+    const f = (o) => ({ project_id: PID, storage_provider: 'supabase', storage_path: `projects/${PID}/files/x/1-a.pdf`, ...o })
+    expect(petalProbePath({ files: [f({ is_financial: true })], projectId: PID })).toBeNull()
+    expect(petalProbePath({ files: [f({ storage_path: `projects/${PID}/INVOICES/x/1-a.pdf` })], projectId: PID })).toBeNull()
+    expect(petalProbePath({ files: [f({ storage_path: `projects/${PID}/legal/x/1-a.pdf` })], projectId: PID })).toBeNull()
+    expect(petalProbePath({ files: [f({ project_id: 'other' })], projectId: PID })).toBeNull()
+    expect(petalProbePath({ files: [f({ deleted_at: '2026-10-01' })], projectId: PID })).toBeNull()
+    expect(petalProbePath({ files: [f({})], projectId: null })).toBeNull()
+    expect(petalProbePath({ files: [f({ is_financial: true }), f({})], projectId: PID })).toBe(`projects/${PID}/files/x/1-a.pdf`)
+    expect(bucketProbeKey({ files: [f({ storage_provider: 's3', storage_path: `projects/${PID}/FINANCE/x/1.pdf` })], projectId: PID }).real).toBe(false)
+  })
   it('the storage choice is read once and remembered; a remembered choice is not read again', async () => {
     const fetch = fakeFetch((url) => (url.includes('workspace_storage') ? res(200, [{ mode: 'central', provider: 'petal' }]) : res(200, [])))
     const deps = cloudDeps({ fetch })
@@ -215,7 +260,7 @@ describe('probeConnection: the company\'s own bucket, and a NAS', () => {
   it('asks the bucket for one object through the presign function — with the token and the signal, never getSession — and a 404 is the bucket answering', async () => {
     const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
     const fetch = fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(404) : res(200, [])))
-    const r = await probeConnection('cloud', cloudDeps({ fetch, presign, storageChoice: () => s3, bucketKey: () => `projects/${PID}/files/x/1-c.mov` }))
+    const r = await probeConnection('cloud', cloudDeps({ fetch, presign, storageChoice: () => s3, bucketKey: () => ({ path: `projects/${PID}/files/x/1-c.mov`, real: true }) }))
     expect(presign).toHaveBeenCalledTimes(1)
     const [op, key, opts] = presign.mock.calls[0]
     expect([op, key, opts.token]).toEqual(['head', `projects/${PID}/files/x/1-c.mov`, 'tok'])
@@ -226,14 +271,35 @@ describe('probeConnection: the company\'s own bucket, and a NAS', () => {
   it('a bucket that refuses (403) is not connected; a presign refusal is "not answering for you"; a presign that failed otherwise is "not answering"', async () => {
     const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
     const fetch = fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(403) : res(200, [])))
-    const r = await probeConnection('cloud', cloudDeps({ fetch, presign, storageChoice: () => s3, bucketKey: () => 'projects/p/x/y' }))
+    const r = await probeConnection('cloud', cloudDeps({ fetch, presign, storageChoice: () => s3, bucketKey: () => ({ path: 'projects/p/x/y', real: true }) }))
     expect(r.files).toMatchObject({ ok: false, why: 'refused', place: FILES_PLACE.s3 })
     const refusing = vi.fn(async () => { throw Object.assign(new Error('[s3] you cannot presign for this project'), { status: 403 }) })
-    expect((await probeConnection('cloud', cloudDeps({ fetch, presign: refusing, storageChoice: () => s3, bucketKey: () => 'projects/p/x/y' }))).files)
+    expect((await probeConnection('cloud', cloudDeps({ fetch, presign: refusing, storageChoice: () => s3, bucketKey: () => ({ path: 'projects/p/x/y', real: true }) }))).files)
       .toEqual({ ok: false, why: 'refused', place: FILES_PLACE.s3 })
     const down = vi.fn(async () => { throw Object.assign(new Error('[s3] Network error'), { status: 0 }) })
-    expect((await probeConnection('cloud', cloudDeps({ fetch, presign: down, storageChoice: () => s3, bucketKey: () => 'projects/p/x/y' }))).files)
+    expect((await probeConnection('cloud', cloudDeps({ fetch, presign: down, storageChoice: () => s3, bucketKey: () => ({ path: 'projects/p/x/y', real: true }) }))).files)
       .toEqual({ ok: false, why: 'error', place: FILES_PLACE.s3 })
+  })
+  it('R1-1: a key nobody writes answered 403 (a bucket key without ListBucket, the handbook\'s own setup) is unchecked — never amber, never announced; a 404 there is the bucket answering', async () => {
+    const presign = vi.fn(async () => ({ url: 'https://bucket.example/signed' }))
+    const synthetic = { path: `projects/${PID}/connection-check/wilson-connection-check`, real: false }
+    const bucket = (status) => fakeFetch((url) => (url.startsWith('https://bucket.example') ? res(status) : res(200, [])))
+    const at403 = await probeConnection('cloud', cloudDeps({ fetch: bucket(403), presign, storageChoice: () => s3, bucketKey: () => synthetic }))
+    expect(at403.files).toEqual({ ok: null, why: 'no-file', place: FILES_PLACE.s3 })
+    const v = connectionView({ kind: 'cloud', result: at403 })
+    expect(v.state).toBe('unchecked')
+    expect(v.tone).toBe('neutral')
+    expect(isSettled(v.state)).toBe(false)
+    expect(v.words).toBe("Database: connected · Files: your company's own bucket, checked once this project has a file there")
+    const at404 = await probeConnection('cloud', cloudDeps({ fetch: bucket(404), presign, storageChoice: () => s3, bucketKey: () => synthetic }))
+    expect(at404.files).toEqual({ ok: true, place: FILES_PLACE.s3 })
+    // A real file answered 403 IS the bucket refusing: amber.
+    const real403 = await probeConnection('cloud', cloudDeps({ fetch: bucket(403), presign, storageChoice: () => s3, bucketKey: () => ({ path: `projects/${PID}/files/x/1-c.mov`, real: true }) }))
+    expect(real403.files).toMatchObject({ ok: false, why: 'refused' })
+    // A key nobody writes, refused by the presign function itself: still amber.
+    const refusing = vi.fn(async () => { throw Object.assign(new Error('[s3] you cannot presign for this project'), { status: 403 }) })
+    expect((await probeConnection('cloud', cloudDeps({ fetch: bucket(404), presign: refusing, storageChoice: () => s3, bucketKey: () => synthetic }))).files)
+      .toEqual({ ok: false, why: 'refused', place: FILES_PLACE.s3 })
   })
   it('with no project to ask about, the bucket is not asked and the files are unchecked (neither green nor amber)', async () => {
     const presign = vi.fn()
@@ -302,6 +368,9 @@ describe('probeConnection: the Local Server, the fixtures, Google Drive', () => 
     expect(r).toEqual({ database: { ok: true }, files: { ok: true, place: FILES_PLACE.drive } })
     const off = await probeConnection('drive', { adapter: { status: async () => ({ online: false }) } })
     expect(off.database.ok).toBe(false)
+    // R1-10: the adapter's own reason is kept.
+    const signedOut = await probeConnection('drive', { adapter: { status: async () => ({ online: false, error: 'not signed in' }) } })
+    expect(signedOut.database).toEqual({ ok: false, why: 'signed-out' })
   })
   it('no backend: nothing is asked', async () => {
     await expect(probeConnection(null, {})).resolves.toEqual({ database: null, files: null })

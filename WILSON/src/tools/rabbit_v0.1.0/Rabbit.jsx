@@ -207,7 +207,10 @@ export default function Rabbit({ currentPage } = {}) {
   // the 24px gutter square, where no tab draws text (measured at 1280 and
   // 1440, FX11 hand-off §2); the Bins rail's counter, which did, moved up.
   // B1 took the old corner overlays out because they covered content (V1-08:
-  // a pill and five faces); one 8px dot in the gutter does not.
+  // a pill and five faces). The dot's cell covers no text, but it does sit
+  // over the left of whatever row is at the very bottom: x 18–24 of a row's
+  // select button, a Timeline phase's chevron, the gantt scrollbar's first
+  // 24px (review round 1, R1-6) — scrolled up, the row is whole again.
   //
   // The roster the presence avatars need is fetched HERE, once for the life of
   // the shell. The strip is rendered under two different parents (the context
@@ -339,12 +342,15 @@ export default function Rabbit({ currentPage } = {}) {
 // open (Session 7 presence, cloud mode only — nothing while realtime is off
 // or nobody else is here). The LIVE / Sync pill that stood before them went
 // in FX11: whether live updates are on is one of the connection dot's words
-// now ("Live updates: on"), not a third green mark on the bar.
+// now ("Live updates: on"), not a third green mark on the bar. With the pill
+// gone, the faces show only while the channel is LIVE (review round 1,
+// R1-11): on a channel error the last list stays in state, and faces with no
+// pill beside them would say people are here when nothing is listening.
 function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {}, max = 5 }) {
   // Session 8: presence meta only carries { user_id, label } — the roster is
   // joined in so chips can show real avatars where members uploaded one. The
   // shell fetches the roster and passes the map in (see Rabbit's comment).
-  if (!realtimeStatus || realtimeStatus === 'off') return null
+  if (realtimeStatus !== 'live') return null
   const list = Array.isArray(users) ? users : []
   if (list.length === 0) return null
   const shown = list.slice(0, max)

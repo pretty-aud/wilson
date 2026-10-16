@@ -68,6 +68,16 @@ export async function getWorkspaceStorageCached() {
   return await fetchWorkspaceStorage()
 }
 
+// The cached choice as it stands — undefined when never loaded (or forgotten
+// at a sign-out or a workspace switch), null when the workspace has none —
+// WITHOUT fetching (post-overhaul FX11). R.A.B.B.I.T.'s connection dot asks
+// the store the upload path would write to, so it reads this very slot
+// first; it never fills it (its own read selects two columns, and this slot
+// must keep fetchWorkspaceStorage's row shape).
+export function peekWorkspaceStorageCached() {
+  return cachedRow
+}
+
 // Sign-out must forget the choice with the session (App.jsx's teardown
 // branch) — the next account in this window may be a different workspace.
 export function clearWorkspaceStorageCache() {

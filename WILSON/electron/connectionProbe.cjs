@@ -21,15 +21,24 @@
 //
 // ── What "answers" means, and why it is bounded ─────────────────────────────
 // Each root is asked with ONE asynchronous stat (fs.promises — the libuv pool,
-// never the main thread; a synchronous stat of a dead SMB share would freeze
+// not the main thread; a synchronous stat of a dead SMB share would freeze
 // the whole app for the SMB time-out, SYSTEMS_HANDBOOK §17). ok is "it is
 // there and it is a folder". A stat still pending after `timeoutMs` answers
 // `timeout` — and is NOT started again while it is pending: the next request
 // waits on the same stat (single flight), so a dead share holds one pool
-// thread, never one per minute. Nothing is created, written or listed.
+// thread, never one per minute. This route writes and lists nothing.
+//
+// ⚠️ NOT EVERYTHING HERE IS OFF THE MAIN THREAD (review round 1, R1-9): the
+// two getters main.cjs passes are its own resolvers, and they do what they
+// always do on every call — getRabbitDataDir's existsSync / mkdirSync of the
+// LOCAL data folder, readFilesConfig's read, the demo folder's presence
+// check. None of them touches the files root (a NAS); the one call that can
+// meet a dead share is the async stat above.
 //
 // Behind the /api/rabbit missing-folder guard (a missing demo folder is a 503
-// before this runs) and the B3 per-launch token, like every /api route.
+// before this runs) and the B3 per-launch token, like every /api route. A
+// getter that throws here answers 500 with a fixed sentence — never its
+// message, which can carry a path — so a 503 is only ever the guard's.
 // Pure: every host dependency is injected; connectionRoute.test.js drives it
 // through a real express app on temp folders.
 // =============================================================================
@@ -79,8 +88,8 @@ function mountConnectionProbe(expressApp, {
     try {
       dataDir = getDataDir();
       files = getFilesRoot() || {};
-    } catch (err) {
-      return res.status(503).json({ error: (err && err.message) || 'the local data folder is not available' });
+    } catch {
+      return res.status(500).json({ error: 'the local data folder could not be read' });
     }
     const [data, filesAnswer] = await Promise.all([ask(dataDir), ask(files.root)]);
     res.set('cache-control', 'no-store');

@@ -260,7 +260,7 @@
       "port": 5298
     },
     {
-      "_comment": "FX11 (one connection dot in R.A.B.B.I.T.'s bottom-left corner; the project bar keeps the status and the faces): this worktree's dev server on the bundle's port, as the dev fixtures' tester. The four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe), and the worktree's gitignored .env.local holds the same four; the Supabase pair is a placeholder on a closed local port, nothing real is reached. ?fixtures=storage-down and ?fixtures=offline show the dot's amber and red (walkthrough 73; scripts/fx11-shots.mjs measures and photographs them).",
+      "_comment": "FX11 (one connection dot in R.A.B.B.I.T.'s bottom-left corner; the project bar keeps the status and the faces): this worktree's dev server on the bundle's port, as the dev fixtures' tester. The four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe), and the worktree's gitignored .env.local holds the same four; the Supabase pair is a placeholder on a closed local port, nothing real is reached. ?connection=files-down and ?connection=offline show the dot's amber and red (walkthrough 73; scripts/fx11-shots.mjs measures and photographs them).",
       "name": "fx11-worktree",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [

@@ -60,7 +60,10 @@ export default function DashboardPage() {
     <div className="dash-page">
       <Toolbar
         right={(
-          <WorkspacePresenceStrip users={rabbit?.workspacePresentUsers || []} />
+          <WorkspacePresenceStrip
+            status={rabbit?.workspaceRealtimeStatus}
+            users={rabbit?.workspacePresentUsers || []}
+          />
         )}
       >
         <Tabs
@@ -112,7 +115,7 @@ export default function DashboardPage() {
 // Presence meta carries only { user_id, label } (auth user_metadata may be
 // stale) — join against the workspace directory for display names + real
 // avatars.
-function WorkspacePresenceStrip({ users }) {
+function WorkspacePresenceStrip({ status, users }) {
   const wm = useWorkspaceMembers()
   const rabbit = useRabbit()
 
@@ -152,7 +155,10 @@ function WorkspacePresenceStrip({ users }) {
     })
   }, [users, wm.members])
 
-  if (resolved.length === 0) return null
+  // The faces only while the workspace channel is live (FX11 review round 1,
+  // R1-11): with no badge beside them, a list left over from a channel error
+  // would say people are online when nothing is listening.
+  if (status !== 'live' || resolved.length === 0) return null
 
   const overflow = Math.max(0, (users?.length || 0) - resolved.length)
 

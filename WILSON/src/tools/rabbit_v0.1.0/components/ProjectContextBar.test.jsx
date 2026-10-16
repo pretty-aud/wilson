@@ -152,6 +152,15 @@ describe('Rabbit.jsx (FX11): the faces on the bar, one connection dot in the cor
     expect(rabbitSrc).toMatch(/\n {6}<ConnectionDot active=\{currentPage === 'rabbit'\} \/>/)
   })
 
+  it('the faces show only while the channel is live (review round 1, R1-11: a list left over from a channel error is not people here)', () => {
+    const strip = rabbitSrc.slice(rabbitSrc.indexOf('function RealtimePresenceStrip'), rabbitSrc.indexOf('function NoProjectPlaceholder'))
+    const body = strip.replace(/^\s*\/\/.*$/gm, '')
+    expect(body).toMatch(/\n\s*if \(realtimeStatus !== 'live'\) return null\n/)
+    expect(body).toMatch(/if \(list\.length === 0\) return null/)
+    // And the group names them (the faces carry names only in their titles).
+    expect(body).toMatch(/role="group" aria-label=\{`Also on this project: \$\{names\}`\}/)
+  })
+
   it('the faces strip never positions itself over the view body', () => {
     const strip = rabbitSrc.slice(rabbitSrc.indexOf('function RealtimePresenceStrip'), rabbitSrc.indexOf('function NoProjectPlaceholder'))
     expect(strip).not.toMatch(/\babsolute\b/)
