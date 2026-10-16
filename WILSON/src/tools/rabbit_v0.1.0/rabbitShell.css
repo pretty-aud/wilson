@@ -51,6 +51,91 @@
      B1 restyle: every value from here to the Intake section is a token. */
   .rb-shell { background-color: var(--color-paper); }
 
+  /* ═══ The connection dot (FX11, components/ConnectionDot.jsx) ════════════
+     The corner square it owns is the page gutter's (`--spacing-gutter`,
+     24px) at the shell's bottom-left, just above the orange bar: the column
+     no tab draws text in (measured at 1280 and 1440, FX11 hand-off). The
+     Bins rail's footer pads its own 8px above it (bins.css `.bn-tree-foot`).
+     The square is a cell of its own — the raised paper, a hairline on its
+     top and right, flush with the shell's left edge and the orange bar —
+     and the kit's 8px StatusDot is centred in it. Measured at FX11's first
+     draft: a bare dot at the foot of a table lined up with the last row and
+     read as that row's bullet (Law of Proximity: "Hair and makeup test",
+     green); in its own bounded cell it reads as the window's (Common
+     Region), and a row's icon scrolling through the corner — the
+     Timeline's phase chevrons at 6px, Tasks' milestone diamonds at 12px —
+     passes under the cell instead of beside the dot. Its edge is the ink at
+     28% — about 2.2:1 on the paper, twice the rule's alpha: review round 1
+     (R1-6) found the rule's 1.51:1 and the raised paper's 1.08:1 did not
+     set it apart at the end of Tasks, where the dot read as "+ New task"'s
+     bullet; round 2 (R2-11) found the third ink (5:1) the brightest resting
+     edge in the tool and the app's own hover edge for a card, so the corner
+     read as a card being pointed at. The edges are a pseudo-element, not
+     borders, so the button under them keeps the whole 24 x 24 (R2-6: WCAG
+     2.5.8; with borders it was 23 x 23). z-index 25: above every tab's
+     sticky layer — the Timeline's label column is 20, and at 10 it hid the
+     dot there (measured, fx11-shots.mjs --check reads what the browser
+     paints at the dot's centre) — and under every menu and popover (30 and
+     up); the ingestion toast (90) floats over it while an intake runs. No
+     shadow on the cell: a docked surface (§3.3). */
+  .rb-conn {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: var(--spacing-gutter);
+    height: var(--spacing-gutter);
+    background-color: var(--color-paper-raised);
+    z-index: 25;
+  }
+  .rb-conn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-top: 1px solid color-mix(in srgb, var(--color-ink) 28%, transparent);
+    border-right: 1px solid color-mix(in srgb, var(--color-ink) 28%, transparent);
+    pointer-events: none;
+  }
+  /* The whole cell is the button (the toggletip, R1-4): the hover box, the
+     press target and the focus stop; the app's one focus ring, drawn inside
+     the cell, which sits on the shell's left edge. */
+  .rb-conn-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background-color: transparent;
+    cursor: pointer;
+  }
+  .rb-conn-cell:focus-visible { outline-offset: -3px; }
+  /* Never colour alone (WCAG 1.4.1; R1-4: under deuteranopia the green and
+     the red differ by 1.04:1 in luminance): green a circle, amber a diamond
+     (the warning sign's shape), red a square. */
+  .rb-conn[data-state="files"] .ui-status-dot { border-radius: 0; transform: rotate(45deg) scale(0.85); }
+  .rb-conn[data-state="offline"] .ui-status-dot { border-radius: 0; }
+  /* The words, shown on a press (Enter, Space, a click), above the cell: a
+     floating surface, so it carries the one shadow. */
+  .rb-conn-caption {
+    position: absolute;
+    left: 4px;
+    bottom: calc(100% + 4px);
+    width: max-content;
+    max-width: 320px;
+    padding: 6px 10px;
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  /* Forced colours (R1-5): the dot keeps its colour and shape, ringed in the
+     system's text colour, instead of being painted out with the cell. */
+  @media (forced-colors: active) {
+    .rb-conn .ui-status-dot { forced-color-adjust: none; outline: 1px solid CanvasText; }
+  }
+
   /* ═══ ViewTabs: the kit's Tabs, on the page gutter ═══════════════════════
      The first tab's LABEL (or icon) sits on the 24px gutter, the same line
      as the tool title above and the context bar's icon below (review R44):
@@ -108,11 +193,12 @@
     .rb-viewtabs-list.ui-tabs { margin-left: 2px; }  /* 16 + 2 + 6 = the 24px gutter */
   }
 
-  /* ═══ The status group (Q10): presence, then the adapter dot ═════════════
-     Docked in the context bar's slots, or on Summary at the tab strip's
-     right end. */
-  .rb-ctx-status-group { display: flex; align-items: center; gap: 8px; }
-  .rb-tabbar-status { margin-right: 8px; }
+  /* ═══ The faces (FX11: the LIVE pill and the adapter dot are gone) ═══════
+     Before Switch in the context bar, or on Summary at the tab strip's right
+     end — where the wrapper takes no box (an empty strip leaves no gap) and
+     the faces keep 8px from Help. */
+  .rb-tabbar-status { display: contents; }
+  .rb-tabbar-status > .rb-presence { margin-right: 8px; }
   .rb-presence { display: flex; align-items: center; gap: 4px; }
   /* 28px, not 20: two Label-step capitals ("WW" 23.0px) spilled out of a 20px
      circle, which is T2's MemberAvatar finding at a smaller size (R1 finding

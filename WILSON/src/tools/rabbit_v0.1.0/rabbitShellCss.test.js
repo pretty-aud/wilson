@@ -49,6 +49,8 @@ const OWNED = [
   'views/intake/IntakeReview.jsx', 'views/ProjectSummaryView.jsx', 'views/TeamView.jsx',
   // FX3: the Team tab's gallery, styled in this sheet's Team section.
   'views/TeamGallery.jsx',
+  // FX11: the connection dot in the shell's bottom-left corner.
+  'components/ConnectionDot.jsx',
 ]
 const jsx = OWNED.map((f) => jsCode(read(f))).join('\n')
 

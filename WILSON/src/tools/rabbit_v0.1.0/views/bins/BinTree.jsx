@@ -95,7 +95,12 @@ export default function BinTree({
           />
         ))}
       </div>
-      <div className="px-3 py-2 flex-shrink-0 flex flex-col gap-1" style={{ borderTop: `1px solid ${C.line}` }}>
+      {/* FX11 (Audrey: "lets move the bin and files counter a little higher
+          up to make space for the green dot in the bin tab"): the footer pads
+          its 8px above the shell's corner square, where the connection dot
+          sits (bins.css `.bn-tree-foot`), so the counter and the hint rise
+          24px and the dot sits clear beneath them. */}
+      <div className="bn-tree-foot px-3 pt-2 flex-shrink-0 flex flex-col gap-1" style={{ borderTop: `1px solid ${C.line}` }}>
         {/* The project count the footer bar used to carry (Q10 removed the bar, C1 keeps the readout). */}
         <div className="text-caption tabular-nums" style={{ color: C.muted }} data-testid="bins-project-count">
           {allCount} file{allCount === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{allOffline ? ` · ${allOffline} ${offlineWord}` : ''}

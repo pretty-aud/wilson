@@ -35,8 +35,14 @@ async function sessionToken() {
   }
 }
 
-async function callStorageFn(name, body) {
-  const token = await sessionToken()
+// `opts.token` / `opts.signal` (FX11): the connection dot's bucket probe calls
+// with the access token it read from an auth EVENT and its own abort signal,
+// so the probe never calls getSession() — an abandoned getSession() keeps
+// auth-js's global lock (OUTSTANDING's auth-js lock entry) — and a hung
+// request is aborted, not left running. An aborted call rethrows its
+// AbortError; every other caller passes nothing and is unchanged.
+async function callStorageFn(name, body, { token: given = null, signal = undefined } = {}) {
+  const token = given || await sessionToken()
   if (!token) {
     return { ok: false, status: 401, data: { error: 'unauthorized', detail: 'Session expired — sign in again.' } }
   }
@@ -49,10 +55,12 @@ async function callStorageFn(name, body) {
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body ?? {}),
+      signal,
     })
     const json = await res.json().catch(() => ({}))
     return { ok: res.ok, status: res.status, data: json }
-  } catch {
+  } catch (err) {
+    if (signal?.aborted) throw err
     return { ok: false, status: 0, data: { error: 'network', detail: 'Network error — check your connection.' } }
   }
 }
@@ -78,13 +86,16 @@ export function releaseStaleUploadReservations() {
  *
  * @param {'put'|'get'|'del'|'head'} op
  * @param {string} path row-shaped storage_path (never carries the prefix)
+ * @param {{token?: string, signal?: AbortSignal}} [opts] see callStorageFn
  * @returns {Promise<{url: string, method: string, expiresAt: string}>}
  */
-export async function presignStorage(op, path) {
-  const res = await callStorageFn('storage-presign', { op, path })
+export async function presignStorage(op, path, opts) {
+  const res = await callStorageFn('storage-presign', { op, path }, opts)
   if (!res.ok || !res.data?.url) {
     const detail = res.data?.detail || res.data?.error || `presign failed (${res.status})`
-    throw new Error(`[s3] ${detail}`)
+    // The status rides on the error (FX11): the connection dot tells a
+    // refusal (401/403) from a function that did not answer (0, 5xx).
+    throw Object.assign(new Error(`[s3] ${detail}`), { status: res.status })
   }
   return res.data
 }

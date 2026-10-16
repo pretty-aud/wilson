@@ -179,6 +179,11 @@
   /* ── The bin tree ───────────────────────────────────────────────────── */
   /* The selected edge is an inset shadow, not a 2px border (V1-12: one
      border, the 1px hairline); it takes no width, so text never shifts. */
+  /* FX11: the rail's footer (the bin and file counter, the drop hint) pads
+     its own 8px above the shell's corner square — the page gutter's, where
+     the connection dot sits (rabbitShell.css `.rb-conn`) — so the dot is
+     clear beneath it. */
+  .bn-tree-foot { padding-bottom: calc(8px + var(--spacing-gutter)); }
   .bn-tree-row {
     min-height: var(--row-dense);
     color: var(--color-ink-2);
