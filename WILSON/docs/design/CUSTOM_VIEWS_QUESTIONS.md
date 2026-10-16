@@ -616,6 +616,108 @@ each with its choices, the recommended one first, and the **interim choice**
 a build session uses until she answers. Ask them four at a time, as above,
 and record her answers here, verbatim, under "Her answers, batch 9" and on.
 
+### Her answers, batch 9 (asked as a numbered list 1–12 in VW1's close-out of 2026-10-13; answered by number in the chat on 2026-10-16; recorded verbatim)
+
+| # | Question (design §10) | Her answer |
+|---|---|---|
+| 1 | Q-A, room for the view's name on the Tasks toolbar | "can we try make more room in the toolbar for the views name. if its the button lets just make it longer. what did you mean by a dot?" |
+| 2 | Q-B, Scenes and Shots on two lines at 1440 | "keep" |
+| 3 | Q-C, the Tasks tab's two groupings | "keep" |
+| 4 | Q-D, dragging a task onto another item's group | "what main item?" |
+| 5 | Q-E, fields on cards | "yes. allow the user to select what shows in the cards" |
+| 6 | Q-F, reviewers and the editing controls | "hidden" |
+| 7 | Q-G1, a *New view* saved at once, starting as *All* | "yes" |
+| 8 | Q-G2, the item columns after Priority at 150px | "yes" |
+| 9 | Q-G3, *Save* over a teammate's newer save | "go with your pick" |
+| 10 | Q-H, switching views with a change for now | "dont ask" |
+| 11 | Q-I, empty groups when a table is first grouped | "go with your pick" |
+| 12 | Q-J, the pictures and numbers in front of the name | "what are you asking? elaborate" |
+
+### What follows from batch 9 (say if any is wrong)
+
+- **Scenes and Shots** keep their search box and count on a second line at
+  1440 once the Views button names the view (Q-B).
+- **The Tasks tab keeps two groupings**: the table's and the Board's
+  columns, each with its own *Hide empty groups* switch (Q-C).
+- **A view's fields also choose what shows on cards** (Q-E): on the Board,
+  in the Gallery and on the Scenes table's nested shot rows, the Fields card
+  is where you pick which lines a card shows, in the view's order.
+- **A seat that cannot write does not see** *New view*, the move buttons,
+  the handles or the *…* menus (Q-F); the bar shows it *Reset* only.
+- **A *New view* is saved for everyone at once, starting as *All*** (Q-G1);
+  **the item columns sit after Priority, 150px each** (Q-G2); ***Save* over a
+  teammate's newer save asks first** (Q-G3).
+- **Switching views drops a change for now without asking** (Q-H): the
+  table shows the chosen view as it is saved.
+- **Empty groups start as today** (Q-I): in tables only the Tasks Status
+  grouping shows its empty groups, and the Board shows every column; the
+  switch changes it per view.
+- **Q-A, Q-D and Q-J are explained and asked again** (batch 10, below).
+
+---
+
+## Batch 10 — three of batch 9 explained, and asked again
+
+**Q-A1. How do we make room for the view's name on the Tasks toolbar?**
+(Her words: "can we try make more room in the toolbar for the views name.
+if its the button lets just make it longer.") Measured at 1440: the Tasks
+toolbar has about 42px to spare, so making the Views button longer needs
+room taken from somewhere, or a second line.
+- **"Deleted key dates" becomes an icon** *(Recommended)*: today it is a
+  156px text button; as an icon (its name on hover) it frees about 128px, so
+  the Views button can be about 250px: about 17 letters of the view's name
+  plus *edited*, on one line. (It opens the bin of deleted key dates.)
+- **Phase, Key date and New task become one *New* button with a menu**
+  (Task, Phase, Key date): frees about 196px, but making a phase or a key
+  date takes one more click.
+- **The toolbar takes two lines at 1440**, as it already does at 1280: the
+  name gets 20 letters or more and nothing else changes.
+
+**Q-A2. How does the button show that the view has unsaved changes?** ("A
+dot", her question: instead of the word *edited* after the view's name, a
+small orange dot ● after the name means "this view has changes you have
+not saved"; the bar under the toolbar says it in words either way.)
+- **The word *edited*** *(Recommended)*: "Shoot week · edited"; with Q-A1's
+  room it fits, and a word needs no learning.
+- **A dot**: "Shoot week ●"; about five more letters of the name.
+
+**Q-D. Dragging a task onto another asset's group** (her question: "what
+main item?"). Since FX2 a task can be linked to several assets (and scenes,
+shots, levels, experiences). The first one in its list is its **main**
+asset: the task's window marks it *Main*, and you change which one is main
+by reordering there. The Timeline and the Budget place the task under its
+main asset only (its bar and its days count once, there), and so does the
+Tasks table when you group it by asset (your Q11a). So when the Tasks table
+is grouped by asset and you drag a task from one asset's group to another's:
+- **The new asset is added as the main one** *(Recommended)*: the task
+  keeps its other assets; nothing is lost. A task about *Lighthouse
+  Interior* and *Storm Lantern* dropped on *Mara*'s group becomes about
+  *Mara* (main), *Lighthouse Interior* and *Storm Lantern*.
+- **The new asset replaces the main one** (what dragging does today): the
+  old main asset comes off the task. The same task becomes about *Mara*
+  (main) and *Storm Lantern*.
+- **No dragging between these groups.**
+The same for scene, shot, level and experience groups.
+
+**Q-J. The columns in front of the name** (her question: "what are you
+asking? elaborate"). In three tables some columns sit to the left of the
+item's name: in **Assets** the picture; in **Scenes** the arrow that opens
+a scene's shots, the picture and the scene number; in **Shots** the picture
+and the shot number. A view lets you hide columns and change their order,
+and the name always comes first among them, because it is the column that
+stays in place when a wide table scrolls sideways (your Q6a). What happens
+to the columns in front of it?
+- **They stay in front of the name** *(Recommended)*: a view can hide them
+  (a Scenes view without pictures, say) but not move them; tables look as
+  they do today.
+- **They become ordinary columns after the name**: the name is the first
+  column (after the tick box), and you can place the picture or the number
+  anywhere after it.
+
+### Her answers, batch 10
+
+*(waiting)*
+
 ---
 
 ## Not asked, because nothing you see depends on it
