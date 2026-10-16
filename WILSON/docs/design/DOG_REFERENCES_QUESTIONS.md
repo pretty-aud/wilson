@@ -98,9 +98,36 @@ generate?**
 also shows that a private note is going exactly where you meant it to (working
 memory: the answer beside the choice).
 
-### Her answers, batch 1
+### Her answers, batch 1 (2026-10-16; asked in chat as multiple choice; recorded verbatim)
 
-*(not yet asked)*
+- **Q1:** "Production items (Recommended),Tasks (Recommended),Phases and milestones"
+- **Q2** (typed): "choosing the project should select what files and items he user can choose from to make a deck. for this interface, allow the user to collapse the view for selecting items for the deck. this if the user just needs to use uploaded files and the prompt and no project selected.
+
+  allow for a way to select all core files or files from today or a range of dates."
+- **Q3:** "Its words; files to tick (Recommended)"
+- **Q4** (typed): "name only but give the user option to preview references"
+
+### What follows from batch 1 (say if any is wrong)
+
+1. **Offered:** assets, scenes, shots, levels and experiences; tasks; the
+   Timeline's phases and milestones; files; your notes. **Not offered:** Bin clips.
+2. **Choosing a project sets what can be chosen; it sends nothing on its own.**
+   No file goes to the AI unless it is ticked, and nothing is downloaded until you
+   generate. (Today's twenty files are no longer sent automatically.)
+3. **The references card folds away**, for a deck made from uploads and the
+   prompt alone, with no project chosen.
+4. **Quick ways to choose many files:** all Core files at once; the files from
+   today; the files from a range of dates.
+5. **An item sends its words** (name, status, description, notes); its files are
+   listed under it to tick one by one.
+6. **The card shows names only; each reference can be previewed** on demand, to
+   read exactly what will be sent for it.
+7. **Q16 (one project or two) is answered by Q2:** the chosen project sets what can
+   be chosen, so a deck draws on one project. Your notes are yours, not a
+   project's (batch 2 asks about notes with no project chosen).
+8. **Two new questions** came out of these answers and are added below: whether
+   the project's own title and description still go once a project is chosen
+   (Q17, batch 4), and which date the date tools use (Q18, batch 3).
 
 ---
 
@@ -110,7 +137,8 @@ memory: the answer beside the choice).
 admin. Which notes can be chosen?**
 
 - **Any of your own notes** *(Recommended)*: all of them, searchable by title and
-  subject. Nothing changes about who can read them.
+  subject, with or without a project chosen. Nothing changes about who can read
+  them.
 - **Your notes tied to this project**: adds a *Project* field to each note (a
   small database change); D.O.G. offers only the chosen project's.
 - **Yours and shared ones**: adds sharing to notes so a teammate can share one
@@ -180,13 +208,15 @@ goes (sources, then the request, then the result).
 **Q10. When you click to add references, what opens?**
 
 - **A window with ticks** *(Recommended)*: one search at the top, Items, Files and
-  Notes down the left, tick boxes to choose many, a preview on the right.
-- **A side panel**: slides in from the right, a ticked list, no preview.
+  Notes down the left, tick boxes to choose many, your quick choices (all Core
+  files, today's, a range of dates) above the files, and a Preview on each row.
+- **A side panel**: slides in from the right with the same ticked list, narrower.
 - **A list like the task window's**: like "Add an item", one click adds one, inside
   the card.
 
-*Why:* choosing many with a preview needs room; a window is the shape everyone
-knows from file dialogs (Jakob's law), and closing it puts you back at the card.
+*Why:* choosing many, with the quick choices and a preview, needs room; a window is
+the shape everyone knows from file dialogs (Jakob's law), and closing it puts you
+back at the card, which lists names only (your Q4).
 
 **Q11. In the Files tab, files live in folders (a shot's folder inside its
 scene's). Can a whole folder be chosen at once?**
@@ -198,18 +228,17 @@ scene's). Can a whole folder be chosen at once?**
 *Why:* "the scene's folder" is how people think of a scene's material; the meter
 keeps a big folder honest.
 
-**Q12. D.O.G. keeps its pages and uploads while WILSON is open and loses them when
-it closes. Should the chosen references be remembered longer?**
+**Q18. Your quick choices pick files "from today or a range of dates". Which
+date, and for what?**
 
-- **Same as uploads** *(Recommended)*: kept while WILSON is open, gone when it
-  closes. Nothing about your private notes is written to this computer.
-- **Per project, this computer**: reopening D.O.G. on the same project brings the
-  same references back, on this computer only.
-- **Per project, everywhere**: saved with your account for each project (a small
-  database change).
+- **The day a file was added; notes by their date** *(Recommended)*: files by
+  the day they were uploaded, your notes by the date each note carries.
+- **Files only, by the day added**: the date tools are for files; notes and items
+  have none.
+- **The day anything last changed**: files, notes and items by their last edit.
 
-*Why:* the deck itself is not remembered either, and a list of your notes' titles
-left on a shared computer is a small leak of something private.
+*Why:* "from today" most often means "what I just added"; a note already carries
+its own date, which is how the Notes page sorts and groups.
 
 ### Her answers, batch 3
 
@@ -246,28 +275,51 @@ videos into the slides today. What should it do now?**
 *Why:* once you choose what the deck reads, it should place what you chose, not
 something else.
 
-**Q15. Today each project file can be marked Core (defines the project) or Ref
-(background only), and the AI is told which is which. What about references?**
+**Q15. Files keep their Core / Ref mark (your "select all core files"): Core
+defines the project, Ref is background, and the AI is told which is which. Do
+items and notes get the mark too?**
 
-- **Every reference** *(Recommended)*: each chosen item, file and note gets the
-  Core / Ref mark. A file's mark is still saved on the file, as today.
-- **Files only**: files keep Core / Ref; items and notes go without.
-- **Drop it**: everything chosen counts the same.
+- **Items and notes too** *(Recommended)*: each chosen item and note gets the same
+  Core / Ref mark, for this deck. A file's mark is still saved on the file, as
+  today.
+- **Files only**: items and notes go without a mark.
 
 *Why:* a treatment note can define a project as much as a brief PDF; one mark that
 looks and works the same everywhere (law of similarity).
 
-**Q16. Can one deck draw on two projects?**
+**Q17. Once a project is chosen, does its own title and description still go to
+the AI, as today?**
 
-- **One project** *(Recommended)*: references come from the chosen project (your
-  notes from anywhere). Changing project asks before clearing its references.
-- **Mix projects**: references from any project you can open, each showing its
-  project's name.
+- **Yes, always** *(Recommended)*: one short paragraph that tells the AI what the
+  project is, whatever else is ticked.
+- **Only when ticked**: the project appears as its own row at the top of the
+  references, ticked or not like any other.
 
-*Why:* a deck is about one project; mixing makes the card harder to read and the
-privacy rule harder to state.
+*Why:* a few dozen words that ground every slide, and today's decks already rely
+on them.
 
 ### Her answers, batch 4
+
+*(not yet asked)*
+
+---
+
+## Batch 5 — remembering
+
+**Q12. D.O.G. keeps its pages and uploads while WILSON is open and loses them when
+it closes. Should the chosen references be remembered longer?**
+
+- **Same as uploads** *(Recommended)*: kept while WILSON is open, gone when it
+  closes. Nothing about your private notes is written to this computer.
+- **Per project, this computer**: reopening D.O.G. on the same project brings the
+  same references back, on this computer only.
+- **Per project, everywhere**: saved with your account for each project (a small
+  database change).
+
+*Why:* the deck itself is not remembered either, and a list of your notes' titles
+left on a shared computer is a small leak of something private.
+
+### Her answers, batch 5
 
 *(not yet asked)*
 
