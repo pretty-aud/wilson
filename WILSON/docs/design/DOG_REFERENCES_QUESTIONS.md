@@ -445,9 +445,10 @@ place?"
    notes, is written to this computer or to the database. No database change:
    migration 0099 and test suite 102, held for this answer, stay unused.
 2. **Use project assets places only the pictures and videos you tick**, from
-   anywhere in the project. One you did not tick is never read, placed or sent,
-   whatever it is filed under. Your Q2 holds in full; your Q14 holds for the box
-   (it still places the project's pictures and videos), not for unticked ones.
+   anywhere in the project. One you did not tick is never placed or sent to the
+   AI, whatever it is filed under (it is read only if you preview it). Your Q2
+   holds in full; your Q14 holds for the box (it still places the project's
+   pictures and videos), not for unticked ones.
 3. **The three cards keep their names**: *1 Project documentation*,
    *2 References*, *3 Generate outline*.
 4. **D.O.G. opens on Full deck**: the full deck box and the theme generator show

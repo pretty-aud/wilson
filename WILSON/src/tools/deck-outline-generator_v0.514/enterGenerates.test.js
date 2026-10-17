@@ -140,3 +140,52 @@ describe('DeckOutlineGenerator calls it first, with its own page, and App tells 
     expect(dog.match(/dog-full-deck/g)).toHaveLength(1)
   })
 })
+
+// Audrey's Q21 (2026-10-17, DG1b): "When D.O.G. opens, which side is the
+// switch on?" "Full deck". The side is the switch state's first value, and
+// App renders every page at once and only hides the others, so D.O.G. opens
+// on Full deck each time WILSON starts and keeps the side after that. With
+// Full deck on, Enter generates the deck exactly when the visible "Generate
+// full deck outline" button can (the handler asks the button's two things).
+describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
+  const DECL = /const \[fullDeckMode, setFullDeckMode\] = useState\((true|false)\)/g
+  // The side the one live declaration starts on; null unless there is exactly one.
+  const opensOn = (src) => {
+    const live = blankJsComments(src).match(DECL) || []
+    if (live.length !== 1) return null
+    return live[0].endsWith('useState(true)') ? 'Full deck' : 'Single page'
+  }
+  // Every live line that calls the setter: none may run when D.O.G. mounts.
+  // The known callers are a click on a side's words, the switch's own change
+  // and arrow keys, and the Alt key's toggle; anything else (an effect that
+  // resets the side, say) would quietly undo her answer.
+  const CALLERS = [
+    /onClick=\{\(\) => setFullDeckMode\((true|false)\)\}>/,
+    /onChange=\{setFullDeckMode\}/,
+    /if \(e\.key === 'Arrow(Left|Right)'\) \{ e\.preventDefault\(\); setFullDeckMode\((true|false)\); \}/,
+    /^setFullDeckMode\(prev => !prev\);$/,
+  ]
+  const strayCallers = (src) => blankJsComments(src).split(/\r?\n/).map((l) => l.trim())
+    .filter((l) => /setFullDeckMode/.test(l) && !/const \[fullDeckMode, setFullDeckMode\]/.test(l))
+    .filter((l) => !CALLERS.some((re) => re.test(l)))
+
+  it('the switch starts on Full deck', () => {
+    expect(opensOn(read('./DeckOutlineGenerator.jsx'))).toBe('Full deck')
+  })
+  it('CONTROL: the check reads Single page, ignores a commented-out line, and refuses two declarations', () => {
+    expect(opensOn('const [fullDeckMode, setFullDeckMode] = useState(false);')).toBe('Single page')
+    expect(opensOn('// const [fullDeckMode, setFullDeckMode] = useState(true);\nconst [fullDeckMode, setFullDeckMode] = useState(false);')).toBe('Single page')
+    expect(opensOn('const [fullDeckMode, setFullDeckMode] = useState(true);\nconst [fullDeckMode, setFullDeckMode] = useState(true);')).toBe(null)
+  })
+  it('nothing sets the side on its own: every call is a click, the switch, an arrow key or Alt', () => {
+    const dog = read('./DeckOutlineGenerator.jsx')
+    expect(strayCallers(dog)).toEqual([])
+    // The Alt toggle is one line, and it is a key's, not a mount's.
+    expect(blankJsComments(dog).match(/setFullDeckMode\(prev => !prev\)/g)).toHaveLength(1)
+    expect(blankJsComments(dog)).toMatch(/if \(e\.key !== 'Alt'\) return;[\s\S]{0,700}setFullDeckMode\(prev => !prev\);[\s\S]{0,120}document\.addEventListener\('keyup', handler\)/)
+  })
+  it('CONTROL: an effect that resets the side when D.O.G. mounts is caught', () => {
+    const planted = "  useEffect(() => { setFullDeckMode(false); }, []);\n  useEffect(() => setFullDeckMode(false), [projectId]);"
+    expect(strayCallers(planted)).toHaveLength(2)
+  })
+})

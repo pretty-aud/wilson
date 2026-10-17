@@ -8,6 +8,11 @@ answers it follows the recommended pick and marks it **provisional (Qn)**, built
 so that a different answer is one change. The research is
 `docs/design/DOG_REFERENCES_RESEARCH.md`.
 
+**Answered on 2026-10-17 (DG1b).** Batches 5 and 6 were put to her in chat
+(her answers verbatim in the questions file). Five confirmed the provisional
+picks; Q21 changed one: D.O.G. opens on *Full deck*. §1's P rows, §2.4 and §9
+items 8 and 9 now say what she ruled; §13 is the record.
+
 Written with the `laws-of-ux` and `design-direction` skills loaded. Inks and
 families do not change: D.O.G.'s existing tokens and kit components only, no new
 colour, no new typeface.
@@ -37,10 +42,12 @@ colour, no new typeface.
 | R17 | The project's title and description always go. | Q17 |
 | R18 | Full deck and Single page are one card; the switch reads *Single page* on its other side; Full deck shows the full deck box and the theme generator; Single page shows page number, layout and the single page box; the two media boxes show in both; examples and subtitles stay. | her brief |
 | R19 | Uploads stay exactly as they are. | her brief |
-| P12 | **Provisional (Q12):** the chosen set is kept while WILSON is open, never written to the computer. | recommended pick |
-| P19 | **Provisional (Q19):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") can also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out, so the conflict is put to her first (Q19). | recommended pick |
-| P20 | **Provisional (Q20):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | recommended pick |
-| P21 | **Provisional (Q21):** D.O.G. opens on *Single page*, as today. | recommended pick |
+| P12 | **Answered (Q12, 2026-10-17):** the chosen set is kept while WILSON is open, never written to the computer. | Q12, "Same as uploads" |
+| P19 | **Answered (Q19, 2026-10-17):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") could also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out. Put to her in those words, she chose the ticked ones. | Q19, "Only the ones you tick" |
+| P20 | **Answered (Q20, 2026-10-17):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | Q20, "Keep those names" |
+| P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open. | Q21, "Full deck" |
+| P22 | **Answered (Q22, 2026-10-17):** an item also sends its type, dates and production fields (§3, §9 item 8). | Q22, "Keep them" |
+| P23 | **Answered (Q23, 2026-10-17):** *"to place media in the deck"* shows beside *Use visual assets*, in the hint ink. | Q23, "Shown beside the box" |
 
 ---
 
@@ -87,6 +94,9 @@ Top to bottom, D.O.G.'s middle column holds three input cards and the output.
 ┌ GENERATED OUTPUT ─────────────────────────────────────────┐
 ```
 
+Card 3 is drawn on its Single page side. D.O.G. opens on Full deck (her Q21,
+§2.4).
+
 **The laws that shape it** (each tied to a decision):
 
 - **Law of Common Region and serial position.** The three cards read in the
@@ -105,7 +115,7 @@ Top to bottom, D.O.G.'s middle column holds three input cards and the output.
   each row's Preview and Remove are at the row's end where the eye finishes the
   name, as in the task window's Items table.
 
-### 2.1 Card 1, *Project documentation* (provisional name, P20)
+### 2.1 Card 1, *Project documentation* (her name, Q20)
 
 - **Project**: the dropdown and **New project**, as today. Its hint changes,
   because today's words would now be false: *"The deck's project. Its title and
@@ -195,7 +205,7 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
 - **The footer**: the same meter as the card, *"N chosen"*, and **Done**.
   Escape and Done both close and keep the ticks.
 
-### 2.4 Card 3, *Generate outline* (provisional name, P20; R18 exactly)
+### 2.4 Card 3, *Generate outline* (her name, Q20; R18 exactly)
 
 - **The switch**, first in the card: *Single page*, the switch, *Full deck*.
   Both words always show; the side that is on reads in the full ink and the
@@ -205,14 +215,14 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
   shortcuts to their side, hidden from it and not in the tab order. Space and
   Enter work as on every switch, Left and Right choose a side, and the switch
   keeps its `dog-full-deck` class, so Enter keeps generating from it
-  (`enterGenerates.js`; review round 1, finding 4). It opens on *Single page*
-  (P21).
+  (`enterGenerates.js`; review round 1, finding 4). It opens on *Full deck*
+  (her Q21, 2026-10-17), and the side is then kept while WILSON is open.
 - **The two media boxes**, under the switch, in both modes:
   - **Use visual assets** with *"to place media in the deck"* after it in the
     hint ink (R15): your uploaded pictures and videos, as *Use uploaded assets*
     did.
   - **Use project assets**: the project's pictures and videos among your
-    chosen references (P19).
+    chosen references (her Q19).
 - **Full deck side**: **Deck Context & Guidelines** with the **Theme generator**
   box on its label line, the hint *"Set the overall tone, style, and objectives
   for the deck • Include desired page count"*, the box with its example
@@ -435,9 +445,10 @@ their own modules and the component changes as little as it can.
    status, description, notes): also its type, dates, scene number, time of
    day, framing, camera movement, frame count, a task's priority, role and
    what it is about, a milestone's phase. Shared project data, no privacy
-   change. Asked as Q22.
+   change. Asked as Q22; she kept them (2026-10-17).
 9. *"to place media in the deck"* is shown as the box's hint; her quote may
-   have been her explanation rather than label text. Asked as Q23.
+   have been her explanation rather than label text. Asked as Q23; she chose
+   it shown beside the box (2026-10-17).
 10. The cloud's file list has no paging (PostgREST's 1,000-row default, as for
     the Files tab today): past 1,000 files in one project, *All Core files*
     and a folder's tick reach only the first thousand. Stated, not fixed
@@ -474,7 +485,7 @@ Nineteen findings; every one is answered in the sections above and in the build
 | # | Severity | Finding | Done |
 |---|---|---|---|
 | 1 | HIGH | A PDF estimated by bytes is wrong by an order of magnitude either way | Counted by pages (page tree, or compressed object streams through the platform's DecompressionStream); not guessed before the body is in hand; said in the meter; over 100 pages flagged (§2.2, §4) |
-| 2 | MEDIUM | P19 departs from "like before" | Kept provisional; the conflict with Q2 put to her first (§1, Q19) |
+| 2 | MEDIUM | P19 departs from "like before" | Kept provisional; the conflict with Q2 put to her first (§1, Q19); on 2026-10-17 she chose the ticked ones |
 | 3 | MEDIUM | The contract line was false (uploads go too) | Rewritten to name everything that goes (§2.2) |
 | 4 | MEDIUM | The two-sided switch's name and keys | Name *Full deck*, words pointer-only and hidden from a screen reader, Left/Right choose, Enter unchanged (§2.4) |
 | 5 | MEDIUM | Local Server: an item's own files are not linked to it | Stated in §6 and in the window |
@@ -537,4 +548,37 @@ without it.
 | "32 MB: … over 32 MB" at the boundary | Sizes round up |
 | The items block could be served from the AI file-id cache | Never cached |
 | The download size counted bodies already read | Leaves them out |
+
+## 13. Her batch 5 and 6 answers (DG1b, 2026-10-17)
+
+DG1b asked the six in chat, as multiple choice, Q19's conflict in plain words;
+her answers are verbatim in `DOG_REFERENCES_QUESTIONS.md`.
+
+| Question | Her answer | What it changes |
+|---|---|---|
+| Q12 remembering | "Same as uploads (Recommended)" | Nothing: the chosen set stays in memory while WILSON is open. No migration; 0099 and suite 102 stay unused. |
+| Q19 what *Use project assets* places | "Only the ones you tick (Recommended)" | Nothing: the ticked pictures and videos, from anywhere in the project. One not ticked is never placed or sent. |
+| Q20 the card names | "Keep those names (Recommended)" | Nothing. |
+| Q21 the switch's opening side | "Full deck" | `fullDeckMode` starts `true`. |
+| Q22 an item's extra fields | "Keep them (Recommended)" | Nothing: §3's table stands. |
+| Q23 the box's hint | "Shown beside the box (Recommended)" | Nothing. |
+
+**What opening on Full deck does, measured in the development copy.** A fresh
+D.O.G. shows the deck context box, the theme generator and *Generate full deck
+outline*; the layout, the page number and the page box are drawn when the
+switch is moved to Single page. App keeps every page mounted, so the side then
+stays where it is put until WILSON closes: moved to Single page, away to
+R.A.B.B.I.T. through the app's own page change and back, it is still on Single
+page. One consequence, stated: D.O.G.'s Enter key (outside a text field,
+before any page exists) generates a full deck whenever *Generate full deck
+outline* can, as it always did with Full deck on; before, at opening, it also
+needed a layout and a page request.
+
+**Tests.** `enterGenerates.test.js` pins the opening side, and that nothing
+sets the side on its own (every call is a click, the switch, an arrow key or
+Alt), each with a control. On the real component, flipping the side back and
+planting a mount-time reset each turn one test red.
+
+**Also.** `scripts/dg1-shots.mjs` sets the switch to a side instead of toggling
+it, and records the side D.O.G. opens on (`refsOpensOn`).
 

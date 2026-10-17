@@ -14,7 +14,8 @@
  *          window on Files, on Scenes with a scene ticked and previewed, on
  *          Notes with one ticked; the card with what was chosen; Full deck
  *          and Single page; a deck asked for from files the test data
- *          refuses to read.
+ *          refuses to read. The side D.O.G. opens on is measured first
+ *          (`refsOpensOn`: Full deck since DG1b, Audrey's Q21).
  *
  * For each state it prints, and writes as `po-dg1-measure-<part>-<W>x<H>.json`
  * into --out, what the screen says: every field label, hint, placeholder and
@@ -65,6 +66,17 @@ async function shot(page, part, n, state) {
   const name = `po-dg1-${part}-${String(n).padStart(2, '0')}-${state}-${W}x${H}.png`;
   await page.screenshot({ path: join(OUT, name) });
   console.log(`  📷 ${name}`);
+}
+
+// The Single page / Full deck switch, set to one side and never toggled
+// blind: D.O.G. opens on Full deck since DG1b (Audrey's Q21) and opened on
+// Single page before, so a toggle would photograph the other side.
+const SWITCH = '.dog-full-deck [role=switch]';
+const sideOf = (page) => page.$eval(SWITCH, (e) => (e.getAttribute('aria-checked') === 'true' ? 'Full deck' : 'Single page'));
+async function setSide(page, side) {
+  if ((await sideOf(page)) !== side) await page.click(SWITCH);
+  await page.waitForFunction(([sel, want]) => document.querySelector(sel)?.getAttribute('aria-checked') === want,
+    [SWITCH, String(side === 'Full deck')]);
 }
 
 // What D.O.G.'s two input cards say, read from the page.
@@ -126,14 +138,12 @@ async function partDog(browser) {
     await shot(page, 'dog', 2, 'project');
 
     // Full deck on.
-    await page.click('.dog-full-deck [role=switch]');
-    await page.waitForFunction(() => document.querySelector('.dog-full-deck [role=switch]')?.getAttribute('aria-checked') === 'true');
+    await setSide(page, 'Full deck');
     report.fullDeck = await page.evaluate(readDog);
     await shot(page, 'dog', 3, 'full-deck');
 
     // Off again, a layout chosen, the second card in view.
-    await page.click('.dog-full-deck [role=switch]');
-    await page.waitForFunction(() => document.querySelector('.dog-full-deck [role=switch]')?.getAttribute('aria-checked') === 'false');
+    await setSide(page, 'Single page');
     const layouts = await page.$$eval('.dog-s2 select option', (os) => os.map((o) => o.value).filter(Boolean));
     if (!layouts.length) throw new Error('the layout dropdown lists no layout');
     await page.selectOption('.dog-s2 select', layouts[0]);
@@ -154,6 +164,7 @@ async function partRefs(browser) {
   const dialog = () => page.locator('.ui-dialog.dog-refs-dialog');
   try {
     await page.waitForSelector('.dog-project-select', { timeout: 15000 });
+    report.refsOpensOn = await sideOf(page);
     const options = await page.$$eval('.dog-project-select option', (os) => os.map((o) => ({ value: o.value, label: o.textContent.trim() })));
     const first = options.find((o) => o.value);
     if (!first) throw new Error('the project dropdown lists no project');
@@ -189,12 +200,12 @@ async function partRefs(browser) {
     report.refsMeter = await page.$eval('.dog-refs-meter-words', (e) => e.textContent.trim());
     await shot(page, 'refs', 5, 'card-chosen');
 
-    await page.click('.dog-full-deck [role=switch]');
+    await setSide(page, 'Full deck');
     await page.evaluate(() => document.querySelector('.dog-s2')?.scrollIntoView({ block: 'start' }));
     report.refsFullDeck = await page.evaluate(readDog);
     await shot(page, 'refs', 6, 'full-deck');
 
-    await page.click('.dog-full-deck [role=switch]');
+    await setSide(page, 'Single page');
     const layouts = await page.$$eval('.dog-s2 select option', (os) => os.map((o) => o.value).filter(Boolean));
     await page.selectOption('.dog-s2 select', layouts[0]);
     await page.evaluate(() => document.querySelector('.dog-s2')?.scrollIntoView({ block: 'start' }));
@@ -220,7 +231,7 @@ async function partRefs(browser) {
     await dlg.getByRole('button', { name: /^All Core files/ }).click();
     await dlg.getByRole('button', { name: 'Done' }).click();
     await dlg.waitFor({ state: 'detached' });
-    await p.click('.dog-full-deck [role=switch]');
+    await setSide(p, 'Full deck');
     await p.getByRole('button', { name: 'Generate full deck outline' }).click();
     await p.waitForSelector('.ui-banner', { timeout: 15000 });
     report.refsNothingReadable = await p.$$eval('.ui-banner', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
