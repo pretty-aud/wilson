@@ -165,11 +165,41 @@ describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
     /onClick=\{\(\) => setFullDeckMode\((true|false)\)\}>/,
     /onChange=\{setFullDeckMode\}/,
     /if \(e\.key === 'Arrow(Left|Right)'\) \{ e\.preventDefault\(\); setFullDeckMode\((true|false)\); \}/,
-    /^setFullDeckMode\(prev => !prev\);$/,
+    /^setFullDeckMode\(\(?prev\)? => !prev\);$/,
   ]
   const strayCallers = (src) => blankJsComments(src).split(/\r?\n/).map((l) => l.trim())
     .filter((l) => /setFullDeckMode/.test(l) && !/const \[fullDeckMode, setFullDeckMode\]/.test(l))
     .filter((l) => !CALLERS.some((re) => re.test(l)))
+  // Where the one Alt toggle sits: inside the handler that checks for Alt (a
+  // key's, not a mount's), between that check and the handler's closing `};`,
+  // however long its comments grow; `(prev) =>` is read as well.
+  const TOGGLE = /setFullDeckMode\(\(?prev\)? => !prev\)/g
+  const altToggle = (src) => {
+    const live = blankJsComments(src)
+    const n = (live.match(TOGGLE) || []).length
+    if (n !== 1) return `${n} toggles`
+    const check = live.indexOf("if (e.key !== 'Alt') return;")
+    if (check < 0 || live.lastIndexOf('const handler = (e) => {', check) < 0) return 'no Alt handler'
+    const at = live.search(TOGGLE)
+    return at > check && at < live.indexOf('};', check) ? 'inside the Alt handler' : 'outside it'
+  }
+  // Why D.O.G. keeps its side (and its pages and uploads) while WILSON is
+  // open: App renders it once, directly inside its own PageSurface, with no
+  // key and no condition around it, and PageSurface hides an inactive page by
+  // display rather than dropping it. A registry `.map` rendering the pages
+  // would turn this red: read it again then.
+  const remountRisks = (app) => {
+    const live = blankJsComments(app)
+    const risks = []
+    const tags = live.match(/<DeckOutlineGenerator\b[\s\S]*?\/>/g) || []
+    if (tags.length !== 1) risks.push(`${tags.length} DeckOutlineGenerator tags`)
+    if (tags.some((t) => /\bkey=/.test(t))) risks.push('a key on D.O.G.')
+    if (!/<PageSurface id="dog"(?![^>]*\bkey=)[^>]*>\s*<DeckOutlineGenerator\b/.test(live)) risks.push('not directly inside a key-less PageSurface id="dog"')
+    const surface = (live.match(/function PageSurface\([\s\S]*?\r?\n}\r?\n/) || [''])[0]
+    if (!/display: currentPage === id \? 'flex' : 'none'/.test(surface)) risks.push('PageSurface does not hide by display')
+    if (/return null|&&\s*\(?\s*children|\?\s*children\s*:/.test(surface)) risks.push('PageSurface can drop its children')
+    return risks
+  }
 
   it('the switch starts on Full deck', () => {
     expect(opensOn(read('./DeckOutlineGenerator.jsx'))).toBe('Full deck')
@@ -182,23 +212,33 @@ describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
   it('nothing sets the side on its own: every call is a click, the switch, an arrow key or Alt', () => {
     const dog = read('./DeckOutlineGenerator.jsx')
     expect(strayCallers(dog)).toEqual([])
-    // The Alt toggle is one line, inside the Alt key's own handler (a key's,
-    // not a mount's), however long that handler's comments grow.
-    const live = blankJsComments(dog)
-    expect(live.match(/setFullDeckMode\(prev => !prev\)/g)).toHaveLength(1)
-    const from = live.indexOf("if (e.key !== 'Alt') return;")
-    const to = live.indexOf("document.addEventListener('keyup', handler)", from)
-    const toggle = live.indexOf('setFullDeckMode(prev => !prev)')
-    expect(from, 'the Alt handler').toBeGreaterThan(-1)
-    expect(toggle > from && toggle < to, 'the toggle sits inside the Alt handler').toBe(true)
+    expect(altToggle(dog)).toBe('inside the Alt handler')
   })
-  it('App mounts D.O.G. once and gives it no key, so nothing remounts it and resets the side', () => {
-    const tags = (src) => blankJsComments(src).match(/<DeckOutlineGenerator\b[\s\S]*?\/>/g) || []
-    const app = tags(read('../../App.jsx'))
-    expect(app).toHaveLength(1)
-    expect(app[0]).not.toMatch(/\bkey=/)
-    // CONTROL: a key anywhere in the tag is seen, after the other props too.
-    expect(tags('<DeckOutlineGenerator\n  onNavigate={navigateTo}\n  currentPage={currentPage}\n  key={projectId}\n/>')[0]).toMatch(/\bkey=/)
+  it('CONTROL: a toggle beside the Alt handler instead of in it, or a second one, is caught', () => {
+    const effect = (inside, beside) => [
+      '  useEffect(() => {',
+      '    const handler = (e) => {',
+      "      if (e.key !== 'Alt') return;",
+      '      e.preventDefault();',
+      inside,
+      '    };',
+      beside,
+      "    document.addEventListener('keyup', handler);",
+      '  }, []);',
+    ].join('\n')
+    expect(altToggle(effect('      setFullDeckMode((prev) => !prev);', ''))).toBe('inside the Alt handler')
+    expect(altToggle(effect('', '    setFullDeckMode(prev => !prev);'))).toBe('outside it')
+    expect(altToggle(effect('      setFullDeckMode(prev => !prev);', '    setFullDeckMode(prev => !prev);'))).toBe('2 toggles')
+  })
+  it('App keeps D.O.G. mounted: once, directly in its own page, no key, hidden by display', () => {
+    expect(remountRisks(read('../../App.jsx'))).toEqual([])
+  })
+  it('CONTROL: a key, a condition around it, a key on its page, and a page that drops its children are each caught', () => {
+    const app = read('../../App.jsx')
+    expect(remountRisks(app.replace(/(<DeckOutlineGenerator\b[\s\S]*?)(\s*\/>)/, '$1\n          key={currentPage}$2'))).toContain('a key on D.O.G.')
+    expect(remountRisks(app.replace(/(<PageSurface id="dog"[^>]*>)(\s*)(<DeckOutlineGenerator\b[\s\S]*?\/>)/, "$1$2{currentPage === 'dog' && $3}"))).toContain('not directly inside a key-less PageSurface id="dog"')
+    expect(remountRisks(app.replace('<PageSurface id="dog"', '<PageSurface id="dog" key={currentPage}'))).toContain('not directly inside a key-less PageSurface id="dog"')
+    expect(remountRisks(app.replace(/(function PageSurface\([\s\S]*?)\{children\}/, '$1{currentPage === id && children}'))).toContain('PageSurface can drop its children')
   })
   it('CONTROL: an effect that resets the side when D.O.G. mounts is caught', () => {
     const planted = "  useEffect(() => { setFullDeckMode(false); }, []);\n  useEffect(() => setFullDeckMode(false), [projectId]);"

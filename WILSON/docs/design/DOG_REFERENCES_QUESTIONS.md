@@ -462,7 +462,9 @@ place?"
    And with Full deck on from the start, Enter on the page (not in a text box,
    and not on a button, D.O.G.'s own tick boxes and switch excepted as before)
    generates a full deck as soon as there is something to read; before, at
-   opening, it also needed a layout and a page request.
+   opening, it also needed a layout and a page request. In the deck context box,
+   Enter generates too, even after pages exist (Shift+Enter makes a new line),
+   as it always did.
 
 ---
 

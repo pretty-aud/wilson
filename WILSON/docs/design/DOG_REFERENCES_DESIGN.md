@@ -212,10 +212,13 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
   other in the dim ink, and the knob sits on that side. The switch's own name
   is *Full deck* (`aria-label`; checked is Full deck, unchecked is Single
   page), so a screen reader hears which side is on; the two words are pointer
-  shortcuts to their side, hidden from it and not in the tab order. Space and
-  Enter work as on every switch, Left and Right choose a side, and the switch
-  keeps its `dog-full-deck` class, so Enter keeps generating from it
-  (`enterGenerates.js`; review round 1, finding 4). It opens on *Full deck*
+  shortcuts to their side, hidden from it and not in the tab order. Space
+  works as on every switch and Left and Right choose a side. Enter does too
+  until there is something to read with no page yet; then it is D.O.G.'s
+  generate key and does not move the switch (the `dog-full-deck` class,
+  `enterGenerates.js`; review round 1, finding 4), and since Q21 that
+  generates a full deck from the moment D.O.G. opens (DG1b review round 2,
+  finding 3). It opens on *Full deck*
   (her Q21, 2026-10-17), and the side is then kept while WILSON is open; the
   Alt key, which toggles it, is heard on every page (OUTSTANDING DG1b-01).
 - **The two media boxes**, under the switch, in both modes:
@@ -582,8 +585,13 @@ opening, it also needed a layout and a page request. The deck context may be
 empty, and the theme generator, ticked at open, runs with it. Enter on any
 other focused button presses that button: after *Done* closes the References
 window, focus is on *Add references*, and Enter reopened the window (measured;
-with focus on the page, Enter started the deck). Whether Enter at open should
-also want a deck context is hers to say (walkthrough 75 §4).
+with focus on the page, Enter started the deck). Two more Enters do the same,
+as they always did with Full deck on: Enter on the switch itself generates
+instead of moving it (Space and the arrow keys move it), and Enter in the deck
+context box generates even after pages exist (its own handler; Shift+Enter
+for a new line). Whether Enter at open should also want a deck context, and
+whether Enter on the switch should move it, are hers to say (walkthrough 75
+§4).
 
 **Tests.** `enterGenerates.test.js` pins the opening side, and that nothing
 sets the side on its own (every call is a click, the switch, an arrow key or
@@ -608,4 +616,27 @@ eight findings, four MEDIUM, none wrong with the switch itself.
 | 6 | LOW | `dg1-shots.mjs`'s comments described a toggle that no longer happens | They say which shots share a side |
 | 7 | LOW | The tests were brittle in places, and blind to a remount from App | The Alt check is bounded by its handler, not a character window; a new test that App mounts D.O.G. once with no `key`, with a control; on the real files, a planted key, a moved Alt handler, the side flipped back and a mount-time reset each turned the tests red |
 | 8 | LOW | Beyond her answers: tooling only (the launch entry, `refsOpensOn`) | Nothing to do |
+
+## 15. DG1b code review round 2 (2026-10-17)
+
+A second Fable reviewer attacked round 1's corrections (commit `b27b20d7`),
+read-only: seven findings, four MEDIUM, none in the switch itself. It found
+the walk script's new proof sound.
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | MEDIUM | Walkthrough 75 step 12 (on the real cloud) still assumed D.O.G. opens on Single page: it ends on *Generate page outline*, which Full deck does not draw | The step says *Single page*, a layout and a page request first |
+| 2 | MEDIUM | Step 13 promised one *downloaded* record per preview and per generation; `readBody` keeps each body for the session, so a preview's read is used again at Generate and one record is left; the preview's "Reading it here is recorded" line shows on such a reuse too | Step 13 says one record and why; the preview line is DG1's and outside her answers: OUTSTANDING DG1b-02 |
+| 3 | MEDIUM | §2.4's "Space and Enter work as on every switch" is false once there is something to read: Enter on the switch is D.O.G.'s generate key there (C12's exception), so since Q21 a keyboard user changing sides at open starts a full deck | §2.4 and §13 say it; walkthrough 75 §6 lists every Enter that generates; her §4 question asks whether Enter on the switch should move it |
+| 4 | MEDIUM | The App test proved only that D.O.G.'s tag has no `key`: a condition around it, a key on its page, or a page that drops its children would remount it and pass | One check now names each of those, with a control for each planted into App's real text; the walkthrough's line matches what it proves |
+| 5 | LOW | The Alt check's window could pass a toggle placed beside the handler, and a harmless rewrite (`(prev) =>`) could break it | The toggle must sit in the handler that checks for Alt, up to that handler's close; `(prev) =>` is read; controls for a toggle beside it and a second one |
+| 6 | LOW | "Not in a text box" was not the whole Enter story: the deck context box's own Enter generates, even after pages exist; links, tabs and an open window | Walkthrough 75 §6 and §13 say so |
+| 7 | LOW | Nits: "the twelve-page check script" is the walk of every page; step 17 must go through WILSON's menu in the browser; step 16's picture is the 1440x900 one; DG1b-01's fix needs `currentPage` in the effect's dependencies | All four done |
+
+On the real files, each correction's test was made to fail: a `key` after
+D.O.G.'s other props in `App.jsx` (now caught only by the new check), a
+condition around D.O.G.'s tag, the Alt toggle moved beside its handler, the
+side flipped back, and a mount-time reset each turned exactly one test red.
+`scripts/ui-walk.mjs --only dog` passes with the new proof and fails with the
+old one ("1 of 1 screens did not come back clean").
 
