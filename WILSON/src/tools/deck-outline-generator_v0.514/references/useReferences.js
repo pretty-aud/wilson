@@ -7,8 +7,8 @@
 // person asks for. Pure decisions live in referenceModel.js; this hook is the
 // I/O around them.
 //
-// 🚨 Nothing here writes to browser storage (provisional Q12, "Same as
-// uploads"): the chosen set lives in this screen's memory, which App keeps
+// 🚨 Nothing here writes to browser storage (Audrey's Q12, 2026-10-17: "Same
+// as uploads"): the chosen set lives in this screen's memory, which App keeps
 // mounted while WILSON is open. No note title, file name or id reaches disk.
 //
 // 🚨 When a body is read. A FILE is read at Generate, or at a Preview the

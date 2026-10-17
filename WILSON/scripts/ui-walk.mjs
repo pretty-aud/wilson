@@ -108,7 +108,7 @@ const REGISTRY = [
   // The twelve URLs, as ui-page-check walks them. Proofs are page text, never
   // the shell's (excluded) — "R.A.B.B.I.T." here is Home's own button.
   P('home', '/', { homeCaps: true, expect: { text: 'R.A.B.B.I.T.' } }),
-  P('dog', '/dog', { expect: { text: 'Generate page outline' } }),   // A1: sentence case (Q2)
+  P('dog', '/dog', { expect: { text: 'Generate outline' } }),   // card 3's title, on either side: D.O.G. opens on Full deck since DG1b (Audrey's Q21), where "Generate page outline" is not drawn
   P('otter', '/otter', { expect: { text: 'New course' } }),   // A3: sentence case (Q2)
   P('rabbit', '/rabbit', { expect: { text: 'Salt Hours' } }),
   P('settings', '/settings', { expect: { text: 'Version and updates' } }),

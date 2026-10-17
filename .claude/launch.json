@@ -298,6 +298,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/festive-cori-52d885/WILSON --port 5300 --strictPort"
       ],
       "port": 5300
+    },
+    {
+      "_comment": "DG1b (D.O.G.'s references: Audrey's last six answers, batches 5 and 6 of docs/design/DOG_REFERENCES_QUESTIONS.md): this worktree's dev server on the bundle's port 5301, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment (dg1-worktree's recipe); the Supabase pair is a placeholder on a closed local port, nothing real is reached, since the fixtures answer every read and write in memory. D.O.G. at /dog; R.A.B.B.I.T., Salt Hours; scripts/dg1-shots.mjs 5301 --part refs photographs it (walkthrough 75).",
+      "name": "dg1b-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/strange-hopper-de0d91/WILSON --port 5301 --strictPort"
+      ],
+      "port": 5301
     }
   ]
 }
