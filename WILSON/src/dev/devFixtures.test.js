@@ -199,8 +199,13 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     expect(importsSomething(read(join(SRC, 'components/settings/gatewayWords.js')))).toBe(false)
     // The GW3 loosening, proven the same way: gatewayDoors imports nothing.
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/bins/gatewayDoors.js')))).toBe(false)
-    // The FX2 loosening, proven the same way: taskItemsModel imports nothing.
-    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/taskItemsModel.js')))).toBe(false)
+    // The FX2 loosening, proven the same way. VW1b (2026-10-17): taskItemsModel
+    // imports assetTypes.js and only it (her Q-N1b sorts by an asset's own
+    // type, in the Assets table's order), which imports nothing — so neither
+    // can carry the fixtures anywhere either (budgetVersionModel's shape, below).
+    const itemModelImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/taskItemsModel.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])
+    expect(itemModelImports).toEqual(["from './assetTypes'"])
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/assetTypes.js')))).toBe(false)
     // The S5 loosening, proven the same way: budgetMath imports nothing, and
     // budgetVersionModel imports dates.js and only dates.js, which imports
     // nothing — so neither can carry the fixtures anywhere either.

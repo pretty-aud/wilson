@@ -64,7 +64,8 @@ const FRAMING = abbrList(scenesSrc, 'FRAMING_OPTIONS')
 const CAMERA_MOVEMENT = abbrList(scenesSrc, 'CAMERA_MOVEMENT_OPTIONS')
 const assetsSrc = src('tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx')
 const ASSET_STATUSES = quotedList(assetsSrc, 'export const ASSET_STATUSES')
-const ASSET_TYPES = quotedList(assetsSrc, 'export const ASSET_TYPES')
+// VW1b (2026-10-17): the asset types live in state/assetTypes.js (the view re-exports them).
+const ASSET_TYPES = quotedList(src('tools/rabbit_v0.1.0/state/assetTypes.js'), 'export const ASSET_TYPES')
 const BUDGET_TIERS = [...src('components/RateCard/useRateCard.js').matchAll(/value:\s*'(tier_\d)'/g)].map((x) => x[1])
 const BUDGET_SHEETS = ['crew', 'talent', 'expenses_travel']
 const PROJECT_STATUSES = quotedList(src('tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx'), 'STATUS_OPTIONS')
