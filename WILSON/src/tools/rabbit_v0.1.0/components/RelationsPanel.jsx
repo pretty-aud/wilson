@@ -30,7 +30,7 @@
 // (R4-27). Every state is a `data-*` attribute or a real :hover resolved in
 // the sheet.
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Boxes, ListChecks, Plus, X, Search,
@@ -57,8 +57,9 @@ import MenuButton from '../views/scenes/MenuButton'
 // by the window's Sort.
 import {
   ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, ITEM_SORTS, ITEM_SORT_LABEL,
-  itemsOfTask, tasksAbout, buildItemLookup, sortItemsForDisplay,
+  itemsOfTask, tasksAbout, buildItemLookup, sortItemsForDisplay, typeRunsOf,
 } from '../state/taskItemsModel'
+import { assetTypeLabel } from '../state/assetTypes'
 import '../views/rabbitFiles.css'
 
 // A priority's words, in sentence case ("low" -> "Low"). A status's words
@@ -1267,8 +1268,18 @@ export function useTaskItemsView(task, ctx) {
 // window on that computer (a person's habit, not a task's). Every read and
 // write is tried: a private window, blocked site data or a full store throws,
 // and the window then starts at *Type* and keeps the choice while it is open.
+// VW1b (2026-10-17): ONE choice on screen too. The Tasks table's item cells
+// list a task's items in the order its window does (her Q10: "the order ...
+// stay as the task's window sets them"), so every reader subscribes to the
+// one store: a Sort chosen in a task's window reorders the cells behind it at
+// once (it was each component's own copy, read at its mount).
 const ITEM_SORT_KEY = 'rabbit_task_items_sort'
-function keptItemSort() {
+const itemSortListeners = new Set()
+// The choice when the browser's store refused it (blocked, or full): kept for
+// this page only, as before.
+let itemSortHeld = null
+function readItemSort() {
+  if (itemSortHeld != null) return itemSortHeld
   try {
     const kept = window.localStorage.getItem(ITEM_SORT_KEY)
     return ITEM_SORTS.includes(kept) ? kept : ITEM_SORTS[0]
@@ -1276,14 +1287,30 @@ function keptItemSort() {
     return ITEM_SORTS[0]
   }
 }
+function chooseItemSort(next) {
+  if (!ITEM_SORTS.includes(next)) return
+  try {
+    window.localStorage.setItem(ITEM_SORT_KEY, next)
+    itemSortHeld = null
+  } catch {
+    itemSortHeld = next
+  }
+  for (const heard of [...itemSortListeners]) heard()
+}
+function onItemSort(heard) {
+  itemSortListeners.add(heard)
+  // Another window of WILSON on this computer chose one.
+  const fromElsewhere = (e) => { if (e.key === ITEM_SORT_KEY || e.key === null) heard() }
+  window.addEventListener('storage', fromElsewhere)
+  return () => { itemSortListeners.delete(heard); window.removeEventListener('storage', fromElsewhere) }
+}
 export function useTaskItemSort() {
-  const [sort, setSort] = useState(keptItemSort)
-  const choose = useCallback((next) => {
-    if (!ITEM_SORTS.includes(next)) return
-    setSort(next)
-    try { window.localStorage.setItem(ITEM_SORT_KEY, next) } catch { /* kept for this window only */ }
-  }, [])
-  return [sort, choose]
+  const sort = useSyncExternalStore(onItemSort, readItemSort, readItemSort)
+  return [sort, chooseItemSort]
+}
+/** Tests only: forget a choice the store refused (module state, one page). */
+export function _resetTaskItemSortForTests() {
+  itemSortHeld = null
 }
 
 // The Sort menu's unchosen rows hold the check's room, so the three words
@@ -1305,14 +1332,13 @@ export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, write
   const homeOf = useHomeIndex(ctx)
   const listsKnown = Array.isArray(ctx?.shotLists)
   const current = ITEM_SORTS.includes(sort) ? sort : ITEM_SORTS[0]
-  // *Type*: a run of rows per kind under its name. *A to Z*, *Date added*:
-  // one run, no kind names.
+  // *Type*: a run of rows per kind under its name; VW1b (her Q-N1b, "The
+  // asset's own type"), the assets one run per asset type, named "Assets ·
+  // Character", so the order the Sort chose can be read. *A to Z*, *Date
+  // created*: one run, no kind names.
   const byKind = current === 'type'
   const shown = useMemo(() => sortItemsForDisplay(live, current, lookup), [live, current, lookup])
-  const kinds = useMemo(
-    () => (byKind ? ITEM_KINDS.map(kind => ({ kind, items: shown.filter(i => i.entity_type === kind) })).filter(g => g.items.length > 0) : []),
-    [shown, byKind],
-  )
+  const kinds = useMemo(() => (byKind ? typeRunsOf(shown, lookup) : []), [shown, byKind, lookup])
   if (!task) return null
 
   // Every verb reports its own failure (the provider's banner); the window
@@ -1377,12 +1403,15 @@ export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, write
       >
         {live.length === 0 ? (
           <p className="rb-rel-empty">{`No items yet. Add the ${kindsInWords(pickerKinds(ctx, live))} this task is about.`}</p>
-        ) : byKind ? kinds.map(g => (
-          <div key={g.kind} className="rb-rel-kind" role="group" aria-label={KIND_LABEL_PLURAL[g.kind]}>
-            <span className="rb-rel-kind-label" aria-hidden="true">{KIND_LABEL_PLURAL[g.kind]}</span>
-            {g.items.map(itemRow)}
-          </div>
-        )) : shown.map(itemRow)}
+        ) : byKind ? kinds.map(g => {
+          const words = g.type == null ? KIND_LABEL_PLURAL[g.kind] : `${KIND_LABEL_PLURAL.asset} · ${assetTypeLabel(g.type)}`
+          return (
+            <div key={g.key} className="rb-rel-kind" role="group" aria-label={words}>
+              <span className="rb-rel-kind-label" aria-hidden="true">{words}</span>
+              {g.items.map(itemRow)}
+            </div>
+          )
+        }) : shown.map(itemRow)}
       </RelSection>
 
       {picking && (

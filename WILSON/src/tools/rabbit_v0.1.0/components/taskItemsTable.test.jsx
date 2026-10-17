@@ -9,7 +9,10 @@
 // an item in the trash hidden, back on restore.
 //   · no Main, no Move up / Move down: every row's hover slot holds Remove;
 //   · ONE Sort menu in the Items head beside the +: Type (the default, a run
-//     per kind), A to Z and Date added (one list, each row its kind's glyph);
+//     per asset type, then per kind: VW1b, her Q-N1b), A to Z and Date
+//     created (the item's own creation date, her Q-N1a; one list, each row
+//     its kind's glyph); one store, so every window and the Tasks table's
+//     cells follow one choice;
 //     remembered on that computer (one key, a throwing store survived);
 //     reached and left by keyboard;
 //   · an item whose row the project does not show is HIDDEN: not listed, not
@@ -28,6 +31,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
+import { _resetTaskItemSortForTests } from './RelationsPanel'
 
 const holder = vi.hoisted(() => ({ role: 'admin', ctx: null }))
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
@@ -57,11 +61,19 @@ const item = (id, kind, entity, position, created_at = '2026-10-11T00:00:00Z') =
 function ctxOf(over = {}) {
   const ctx = {
     tasks: [{ id: 't1', title: 'Spray comp', status: 'in_progress', priority: 'high' }],
-    assets: [{ id: 'a1', name: 'Sea Spray Comp', status: 'in_progress' }, { id: 'a2', name: 'Lighthouse Interior', status: 'approved' }, { id: 'a3', name: 'Storm Lantern', status: 'final' }],
+    // VW1b: each asset's own type (her Q-N1b) and each row's own creation
+    // date (her Q-N1a). Lighthouse Interior (an environment) before Sea Spray
+    // Comp (VFX) by type, as by name; made in the opposite order to the dates
+    // their items carry below.
+    assets: [
+      { id: 'a1', name: 'Sea Spray Comp', status: 'in_progress', type: 'vfx', created_at: '2026-09-04T00:00:00Z' },
+      { id: 'a2', name: 'Lighthouse Interior', status: 'approved', type: 'environment', created_at: '2026-09-03T00:00:00Z' },
+      { id: 'a3', name: 'Storm Lantern', status: 'final', type: 'prop', created_at: '2026-09-05T00:00:00Z' },
+    ],
     phases: [{ id: 'ph1', name: 'Post' }],
     project: { id: 'p1', scenes_enabled: true, levels_enabled: false, experiences_enabled: false },
-    scenes: [{ id: 's4', name: 'The storm', status: 'in_progress' }, { id: 's5', name: "Father's boat", status: 'pending_review' }],
-    shots: [{ id: 'h10', scene_id: 's4', name: 'Rain on the glass', status: 'in_progress' }, { id: 'h11', scene_id: 's4', name: 'The log book', status: 'in_progress' }],
+    scenes: [{ id: 's4', name: 'The storm', status: 'in_progress', created_at: '2026-09-02T00:00:00Z' }, { id: 's5', name: "Father's boat", status: 'pending_review' }],
+    shots: [{ id: 'h10', scene_id: 's4', name: 'Rain on the glass', status: 'in_progress', created_at: '2026-09-01T00:00:00Z' }, { id: 'h11', scene_id: 's4', name: 'The log book', status: 'in_progress' }],
     levels: [], experiences: [],
     taskItems: [item('i1', 'asset', 'a1', 0), item('i2', 'asset', 'a2', 1), item('i3', 'scene', 's4', 0), item('i4', 'shot', 'h10', 0)],
     taskItemsAvailable: true,
@@ -88,7 +100,7 @@ const sectionOpen = () => [...document.querySelectorAll('.rb-task-detail-files .
 const filesHandedTo = () => [...document.querySelectorAll('.files-under-test')].map(f => JSON.parse(f.dataset.props))
 
 beforeEach(() => { holder.role = 'admin'; localStorage.clear() })
-afterEach(() => { cleanup(); _resetOverlaysForTests(); vi.restoreAllMocks(); localStorage.clear() })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); _resetTaskItemSortForTests(); vi.restoreAllMocks(); localStorage.clear() })
 
 describe('the Items table', () => {
   it('sits at the top of the left column, rows grouped by kind (Type), names A to Z inside a kind, a shot as "Scene › Shot"', () => {
@@ -96,7 +108,8 @@ describe('the Items table', () => {
     const t = table()
     expect(t.closest('.rb-task-detail-files')).not.toBeNull()
     expect(within(t).getByText('Items (4)')).toBeTruthy()
-    expect(kindGroups()).toEqual(['Assets', 'Scenes', 'Shots'])
+    // VW1b (her Q-N1b): the assets one run per asset type, each named.
+    expect(kindGroups()).toEqual(['Assets · Environment', 'Assets · VFX', 'Scenes', 'Shots'])
     // The display order, not the stored one: Lighthouse Interior was added
     // second and reads first.
     expect(rowNames()).toEqual(['Lighthouse Interior', 'Sea Spray Comp', 'The storm', 'The storm › Rain on the glass'])
@@ -147,7 +160,7 @@ describe('an item whose row the project does not show is hidden', () => {
     expect(within(table()).getByText('Items (1)')).toBeTruthy()
     expect(rowNames()).toEqual(['Sea Spray Comp'])
     expect(table().textContent).not.toMatch(/No longer in the project|Untitled/)
-    expect(kindGroups()).toEqual(['Assets'])
+    expect(kindGroups()).toEqual(['Assets · VFX'])
   })
 
   it('the last LIVE item is the last item: its remove asks first', () => {
@@ -162,7 +175,7 @@ describe('an item whose row the project does not show is hidden', () => {
     const ctx = ctxOf({ taskItems: [item('i1', 'asset', 'a1', 0), item('i9', 'asset', 'a9', 1)] })
     const { rerender } = open(ctx)
     expect(rowNames()).toEqual(['Sea Spray Comp'])
-    const restored = { ...ctx, assets: [...ctx.assets, { id: 'a9', name: 'Bell Rope', status: 'in_progress' }] }
+    const restored = { ...ctx, assets: [...ctx.assets, { id: 'a9', name: 'Bell Rope', status: 'in_progress', type: 'prop' }] }
     holder.ctx = restored
     rerender(<TaskDetailPopup taskId="t1" ctx={restored} onClose={vi.fn()} />)
     expect(rowNames()).toEqual(['Bell Rope', 'Sea Spray Comp'])
@@ -172,14 +185,14 @@ describe('an item whose row the project does not show is hidden', () => {
 
 // Her Q-N1, Hick: one Sort where two buttons sat on every row.
 describe('the Sort menu', () => {
-  it('sits in the Items head beside the +, names its choice, and offers three: Type, A to Z, Date added (Type checked)', () => {
+  it('sits in the Items head beside the +, names its choice, and offers three: Type, A to Z, Date created (Type checked)', () => {
     open(ctxOf())
     const sort = sortButton()
     expect(sort.getAttribute('aria-label')).toBe('Sort items: Type')
     expect(sort.nextElementSibling.contains(within(table()).getByRole('button', { name: 'Add an item' }))).toBe(true)
     fireEvent.click(sort)
     expect(document.querySelector('.ui-menu .ui-menu-header').textContent).toBe('Sort items by')
-    expect(menuItems().map(b => b.textContent)).toEqual(['Type', 'A to Z', 'Date added'])
+    expect(menuItems().map(b => b.textContent)).toEqual(['Type', 'A to Z', 'Date created'])
     // The check marks the choice; the others hold its room (one edge).
     expect(menuItems().map(b => !!b.querySelector('svg.lucide'))).toEqual([true, false, false])
     expect(menuItems().every(b => b.querySelector('svg'))).toBe(true)
@@ -207,16 +220,49 @@ describe('the Sort menu', () => {
     expect([...table().querySelectorAll('.rb-rel-row svg[role="img"]')].map(g => g.getAttribute('aria-label'))).toEqual(['Asset', 'Asset', 'Scene', 'Shot'])
   })
 
-  it('Date added: one list in the order the items were added, across kinds', () => {
+  // VW1b (2026-10-17), her Q-N1a: "The item's own creation date". The rows
+  // were made shot (09-01), scene (09-02), Lighthouse Interior (09-03), Sea
+  // Spray Comp (09-04); their items were added in another order.
+  it('Date created: one list by when each item ITSELF was made, oldest first, across kinds', () => {
     open(ctxOf({ taskItems: [
-      item('i1', 'asset', 'a1', 0, '2026-10-12T00:00:00Z'), item('i2', 'asset', 'a2', 1, '2026-10-13T00:00:00Z'),
-      item('i3', 'scene', 's4', 0, '2026-10-11T00:00:00Z'), item('i4', 'shot', 'h10', 0, '2026-10-09T00:00:00Z'),
+      item('i1', 'asset', 'a1', 0, '2026-10-09T00:00:00Z'), item('i2', 'asset', 'a2', 1, '2026-10-13T00:00:00Z'),
+      item('i3', 'scene', 's4', 0, '2026-10-12T00:00:00Z'), item('i4', 'shot', 'h10', 0, '2026-10-11T00:00:00Z'),
     ] }))
-    chooseSort('Date added')
+    chooseSort('Date created')
+    expect(sortButton().getAttribute('aria-label')).toBe('Sort items: Date created')
     expect(table().querySelector('.rb-rel-kind')).toBeNull()
-    expect(rowNames()).toEqual(['The storm › Rain on the glass', 'The storm', 'Sea Spray Comp', 'Lighthouse Interior'])
+    expect(rowNames()).toEqual(['The storm › Rain on the glass', 'The storm', 'Lighthouse Interior', 'Sea Spray Comp'])
+    // CONTROL: the interim (when each was added to the task) read Sea Spray
+    // Comp first and Lighthouse Interior last.
+    expect(rowNames()).not.toEqual(['Sea Spray Comp', 'The storm › Rain on the glass', 'The storm', 'Lighthouse Interior'])
     chooseSort('Type')
-    expect(kindGroups()).toEqual(['Assets', 'Scenes', 'Shots'])
+    expect(kindGroups()).toEqual(['Assets · Environment', 'Assets · VFX', 'Scenes', 'Shots'])
+  })
+
+  // VW1b, her Q-N1b: "The asset's own type". A character comes before a
+  // prop whatever their names say: the runs make the order readable.
+  it('Type: the assets by their own type, in the Assets table\'s order, each run named; CONTROL: A to Z puts Anchor first', () => {
+    open(ctxOf({
+      assets: [{ id: 'z1', name: 'Zed', status: 'in_progress', type: 'character' }, { id: 'p1', name: 'Anchor', status: 'final', type: 'prop' }],
+      taskItems: [item('i1', 'asset', 'p1', 0), item('i2', 'asset', 'z1', 1)],
+    }))
+    expect(kindGroups()).toEqual(['Assets · Character', 'Assets · Prop'])
+    expect(rowNames()).toEqual(['Zed', 'Anchor'])
+    chooseSort('A to Z')
+    expect(rowNames()).toEqual(['Anchor', 'Zed'])
+  })
+
+  // VW1b: one choice on screen. The table's item cells follow the window's
+  // Sort (her Q10), so every reader is subscribed: a second window (or the
+  // table behind this one) reorders at once.
+  it('one store: a Sort chosen in one window is the Sort of every window open', () => {
+    open(ctxOf())
+    render(<TaskDetailPopup taskId="t1" ctx={holder.ctx} onClose={vi.fn()} />)
+    const buttons = () => [...document.querySelectorAll('.rb-rel-items')].map(t => within(t).getByRole('button', { name: /^Sort items: / }).getAttribute('aria-label'))
+    expect(buttons()).toEqual(['Sort items: Type', 'Sort items: Type'])
+    fireEvent.click(within(document.querySelectorAll('.rb-rel-items')[0]).getByRole('button', { name: /^Sort items: / }))
+    fireEvent.click(menuItems().find(b => b.textContent === 'A to Z'))
+    expect(buttons()).toEqual(['Sort items: A to Z', 'Sort items: A to Z'])
   })
 
   it('is remembered on that computer: one key, and the next window opens at it', () => {
@@ -376,13 +422,13 @@ describe('the Files sections under the table', () => {
     ])
   })
 
-  it('follow the Sort: Date added reorders them, and the first is the one open', () => {
+  it('follow the Sort: Date created reorders them, and the first is the one open', () => {
     open(ctxOf({ taskItems: [
       item('i1', 'asset', 'a1', 0, '2026-10-12T00:00:00Z'), item('i2', 'asset', 'a2', 1, '2026-10-13T00:00:00Z'),
       item('i3', 'scene', 's4', 0, '2026-10-11T00:00:00Z'), item('i4', 'shot', 'h10', 0, '2026-10-09T00:00:00Z'),
     ] }))
-    chooseSort('Date added')
-    expect(sectionLabels()).toEqual(['Shot: The storm › Rain on the glass', 'Scene: The storm', 'Asset: Sea Spray Comp', 'Asset: Lighthouse Interior'])
+    chooseSort('Date created')
+    expect(sectionLabels()).toEqual(['Shot: The storm › Rain on the glass', 'Scene: The storm', 'Asset: Lighthouse Interior', 'Asset: Sea Spray Comp'])
     expect(sectionOpen()).toEqual(['true', 'false', 'false', 'false'])
     expect(filesHandedTo()).toEqual([{ shotId: 'h10', shotName: 'Rain on the glass', taskId: 't1', mode: 'readonly' }])
   })

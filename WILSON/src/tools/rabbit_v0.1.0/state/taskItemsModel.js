@@ -16,7 +16,9 @@
 // entity_id, position, created_at, created_by }` — entity_type one of the
 // five KINDS. Their STORED ORDER (position, then created_at, then id —
 // 0096's ORDER BY, compareItems) means only the order they were added: it
-// decides the *Date added* sort and the older apps' copy, nothing else.
+// decides the older apps' copy and breaks a tie nothing else breaks, nothing
+// else (VW1b: her Q-N1a made the window's *date* the item's own creation
+// date, so no screen sorts by when an item was added any more).
 //
 // THE OLDER APPS' COPY: each task's single fields (asset_id, scene_id,
 // shot_id, level_id, experience_id) hold the first item of their kind in the
@@ -39,6 +41,10 @@
 //   * the dev fixtures import this file.
 //
 // NOT task_links: that is 0000's table of a task's URL links (`taskLinks`).
+
+// VW1b (2026-10-17): the *Type* sort reads an asset's own type in the Assets
+// table's order (her Q-N1b); a plain list, no view imported.
+import { ASSET_TYPES } from './assetTypes'
 
 export const ITEM_KINDS = Object.freeze(['asset', 'scene', 'shot', 'level', 'experience'])
 
@@ -75,10 +81,16 @@ export const NO_KIND_LABEL = Object.freeze({
 })
 
 // VW1m (2026-10-16), her Q-N1: "allow user to sort select order by date of
-// creation/upload, alphabetical, type". The task window's Sort menu; *Type*
-// is where it starts (batch 14's interim, until Q-N1a and Q-N1b are asked).
+// creation/upload, alphabetical, type". The task window's Sort menu, and the
+// order the Tasks table's item cells list a task's items in (her Q10: "the
+// order ... stay as the task's window sets them"); *Type* is where it starts.
+// VW1b (2026-10-17), her answers to Q-N1a and Q-N1b (batch 15): *date* is
+// "The item's own creation date" (when the asset, scene, shot, level or
+// experience itself was made, not when it was added to the task), and *type*
+// is "The asset's own type" (character, environment, prop… in the Assets
+// table's order, ASSET_TYPES), the other kinds after the assets.
 export const ITEM_SORTS = Object.freeze(['type', 'name', 'date'])
-export const ITEM_SORT_LABEL = Object.freeze({ type: 'Type', name: 'A to Z', date: 'Date added' })
+export const ITEM_SORT_LABEL = Object.freeze({ type: 'Type', name: 'A to Z', date: 'Date created' })
 
 export function isItemKind(kind) {
   return ITEM_KINDS.includes(kind)
@@ -362,7 +374,14 @@ function byNumber(a, b) {
  *                               assets, levels and experiences by name A to Z;
  *                               scenes by number, then name; shots by their
  *                               scene's number, then their own, then name;
- *                               rows not shown last; ties by id.
+ *                               rows not shown last; ties by id;
+ *   * typeOf(kind, id)          VW1b (her Q-N1b): an asset's own type
+ *                               ('other' when it names none), null for the
+ *                               other kinds and for a row not shown;
+ *   * madeAt(kind, id)          VW1b (her Q-N1a): when the row itself was
+ *                               made (its created_at, in ms with the
+ *                               database's microseconds as a fraction), null
+ *                               when the row is not shown or says no date.
  */
 export function buildItemLookup({ items, available = true, assets, scenes, shots, levels, experiences } = {}) {
   const lists = { asset: assets, scene: scenes, shot: shots, level: levels, experience: experiences }
@@ -446,20 +465,42 @@ export function buildItemLookup({ items, available = true, assets, scenes, shots
     }
   }
 
-  return Object.freeze({ idsOf, combinationOf, nameOf, isLive, orderOf })
+  const typeOf = (kind, id) => {
+    if (kind !== 'asset') return null
+    const row = rowOf(kind, id)
+    return row ? (row.type || 'other') : null
+  }
+  const madeAt = (kind, id) => {
+    const v = rowOf(kind, id)?.created_at
+    if (v == null || v === '' || !Number.isFinite(Date.parse(v))) return null
+    return timeOf(v)
+  }
+
+  return Object.freeze({ idsOf, combinationOf, nameOf, isLive, orderOf, typeOf, madeAt })
+}
+
+// VW1b (2026-10-17), her Q-N1b: an asset type's place in the *Type* sort —
+// the Assets table's own order (ASSET_TYPES: it sorts and groups by type in
+// that order), a type the list does not name after every one it does.
+function typeRank(type) {
+  const n = ASSET_TYPES.indexOf(type)
+  return n < 0 ? ASSET_TYPES.length : n
 }
 
 /**
  * VW1m (2026-10-16), her Q-N1: a task's item rows in the window's chosen
  * order (ITEM_SORTS; anything else reads as *Type*). The caller keeps only
- * the live rows (lookup.isLive); this only orders.
- *   * type  kinds in ITEM_KINDS order, each in the display order;
+ * the live rows (lookup.isLive); this only orders. VW1b (2026-10-17): her
+ * answers to Q-N1a and Q-N1b.
+ *   * type  kinds in ITEM_KINDS order (assets first, the other kinds after
+ *           them); the assets by their own type, in the Assets table's order
+ *           (ASSET_TYPES; a type it does not name after, A to Z), each type,
+ *           and each other kind, in the display order;
  *   * name  one list by name A to Z, ties by kind, then the display order;
- *   * date  one list by when each was added (created_at), each kind keeping
- *           its stored order: the kinds' stored orders merged by time, ties
- *           by kind. Positions are a kind's own, so they alone cannot order
- *           one list across kinds; with every time equal this is the stored
- *           order itemsOfTask reads.
+ *   * date  one list by when each item ITSELF was made (the asset's, scene's,
+ *           shot's, level's or experience's own created_at), oldest first;
+ *           a row that says no date after the dated ones; ties by kind, then
+ *           the display order.
  * Returns a new array.
  */
 export function sortItemsForDisplay(items, sort, lookup) {
@@ -471,23 +512,13 @@ export function sortItemsForDisplay(items, sort, lookup) {
   const inKind = (a, b) => (lookup && isItemKind(a.entity_type) ? lookup.orderOf(a.entity_type)(a.entity_id, b.entity_id) : 0)
     || compareItems(a, b)
   if (sort === 'date') {
-    const lanes = new Map()
-    for (const i of list) {
-      const k = kindIndex(i)
-      if (!lanes.has(k)) lanes.set(k, [])
-      lanes.get(k).push(i)
-    }
-    const heads = [...lanes.keys()].sort((a, b) => a - b).map(k => lanes.get(k).sort(compareItems))
-    const out = []
-    for (;;) {
-      let pick = -1
-      for (let n = 0; n < heads.length; n++) {
-        if (!heads[n].length) continue
-        if (pick < 0 || timeOf(heads[n][0].created_at) < timeOf(heads[pick][0].created_at)) pick = n
-      }
-      if (pick < 0) return out
-      out.push(heads[pick].shift())
-    }
+    const made = (i) => (lookup ? lookup.madeAt(i.entity_type, i.entity_id) : null)
+    return list.slice().sort((a, b) => {
+      const ma = made(a)
+      const mb = made(b)
+      if ((ma == null) !== (mb == null)) return ma == null ? 1 : -1
+      return (ma == null ? 0 : ma - mb) || (kindIndex(a) - kindIndex(b)) || inKind(a, b)
+    })
   }
   if (sort === 'name') {
     const nameOf = (i) => (lookup ? lookup.nameOf(i.entity_type, i.entity_id) : null)
@@ -498,7 +529,33 @@ export function sortItemsForDisplay(items, sort, lookup) {
       return (na == null ? 0 : NAME_ORDER.compare(na, nb)) || (kindIndex(a) - kindIndex(b)) || inKind(a, b)
     })
   }
-  return list.slice().sort((a, b) => (kindIndex(a) - kindIndex(b)) || inKind(a, b))
+  const typeOf = (i) => (lookup ? lookup.typeOf(i.entity_type, i.entity_id) : null)
+  const byType = (a, b) => {
+    const ta = typeOf(a)
+    const tb = typeOf(b)
+    if (ta == null || tb == null) return 0
+    return (typeRank(ta) - typeRank(tb)) || byCodeUnit(ta, tb)
+  }
+  return list.slice().sort((a, b) => (kindIndex(a) - kindIndex(b)) || byType(a, b) || inKind(a, b))
+}
+
+/**
+ * VW1b (2026-10-17): the runs the task window names under *Type* — one per
+ * asset type (her Q-N1b), then one per other kind — over rows already in
+ * that order (sortItemsForDisplay). Each `{ key, kind, type, items }`:
+ * `type` is the asset type for an asset run, null for another kind's.
+ */
+export function typeRunsOf(sorted, lookup) {
+  const runs = []
+  for (const i of Array.isArray(sorted) ? sorted : []) {
+    if (!i) continue
+    const type = i.entity_type === 'asset' ? (lookup?.typeOf('asset', i.entity_id) ?? 'other') : null
+    const key = type == null ? i.entity_type : `asset:${type}`
+    const last = runs[runs.length - 1]
+    if (last && last.key === key) last.items.push(i)
+    else runs.push({ key, kind: i.entity_type, type, items: [i] })
+  }
+  return runs
 }
 
 /** A refusal's words when an item cannot be what it says. Null when it can. */

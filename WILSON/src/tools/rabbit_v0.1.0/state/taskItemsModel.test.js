@@ -9,6 +9,9 @@
 // of one field adds and never moves; screens read the LIVE items in one
 // display order through buildItemLookup (item 2 of
 // docs/sessions/handoffs/po-vw1m-2026-10-16.md).
+//
+// VW1b (2026-10-17), her answers to Q-N1a and Q-N1b: *Date created* is the
+// item's own creation date, *Type* the asset's own type.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -19,8 +22,9 @@ import {
   compareItems, itemsOfTask, copyFieldsFromItems,
   tasksAbout, taskCountsByEntity, nextPosition,
   planLegacyFieldWrite, planSetKind, seedItemsFor, linkFieldsIn, withoutLinkFields, itemShapeProblem,
-  indexItemsByTask, buildItemLookup, sortItemsForDisplay,
+  indexItemsByTask, buildItemLookup, sortItemsForDisplay, typeRunsOf,
 } from './taskItemsModel'
+import { ASSET_TYPES } from './assetTypes'
 
 const T = 'task-1'
 const it_ = (id, kind, entity, position, created_at = '2026-10-11T10:00:00Z', task = T) =>
@@ -42,7 +46,7 @@ describe('the five kinds and their fields', () => {
   })
   it('offers her three sorts (Q-N1), Type first, each with its words', () => {
     expect(ITEM_SORTS).toEqual(['type', 'name', 'date'])
-    expect(ITEM_SORT_LABEL).toEqual({ type: 'Type', name: 'A to Z', date: 'Date added' })
+    expect(ITEM_SORT_LABEL).toEqual({ type: 'Type', name: 'A to Z', date: 'Date created' })
   })
   it('VW1m: no item counts for more than another, so the rules that picked one are gone', () => {
     for (const gone of ['mainItemOf', 'linkFieldsFromItems', 'withItemLinks', 'withItemLinksFor', 'linksInStep',
@@ -323,40 +327,127 @@ describe('buildItemLookup where the backend keeps no items (available false)', (
   })
 })
 
-describe('sortItemsForDisplay — her Q-N1 sorts for the task window', () => {
-  const lookup = buildItemLookup({ ...ROWS })
+// VW1b (2026-10-17): her answers to Q-N1a ("The item's own creation date")
+// and Q-N1b ("The asset's own type"), batch 15 of CUSTOM_VIEWS_QUESTIONS.md.
+// Every row below carries its own type and creation date; every ITEM was
+// added in the opposite order, so a sort that read when an item was added
+// (the interim) or the kinds alone (the interim *Type*) answers otherwise.
+const DATED = {
+  assets: [
+    { id: 'as-lh', name: 'Lighthouse Interior', type: 'environment', created_at: '2026-09-02T10:00:00Z' },
+    { id: 'as-sl', name: 'storm Lantern', type: 'prop', created_at: '2026-09-01T10:00:00Z' },
+    { id: 'as-ma', name: 'Mara', type: 'character', created_at: '2026-09-05T10:00:00Z' },
+    { id: 'as-zz', name: 'Ash', type: 'mystery', created_at: null },
+    { id: 'as-no', name: 'Buoy' }, // no type: reads as 'other'; no date
+  ],
+  scenes: [{ id: 'sc-3', name: 'Cliff', scene_number: 3, created_at: '2026-09-03T10:00:00Z' }],
+  shots: [{ id: 'sh-1', name: 'Wide', scene_id: 'sc-3', shot_number: 1, created_at: '2026-09-04T10:00:00Z' }],
+  levels: [{ id: 'lv-1', name: 'Docks', created_at: '2026-08-30T10:00:00Z' }],
+  experiences: [],
+}
+
+describe('buildItemLookup — an asset\'s own type and a row\'s own creation date (VW1b)', () => {
+  const l = buildItemLookup({ ...DATED })
+  it('typeOf: an asset\'s own type, "other" when it names none; null for another kind or a row not shown', () => {
+    expect(l.typeOf('asset', 'as-ma')).toBe('character')
+    expect(l.typeOf('asset', 'as-no')).toBe('other')
+    expect(l.typeOf('scene', 'sc-3')).toBeNull()
+    expect(l.typeOf('asset', 'as-gone')).toBeNull()
+  })
+  it('madeAt: the row\'s own created_at in ms, null when it says none or the row is not shown', () => {
+    expect(l.madeAt('asset', 'as-sl')).toBe(Date.parse('2026-09-01T10:00:00Z'))
+    expect(l.madeAt('level', 'lv-1')).toBe(Date.parse('2026-08-30T10:00:00Z'))
+    expect(l.madeAt('asset', 'as-zz')).toBeNull()
+    expect(l.madeAt('asset', 'as-no')).toBeNull()
+    expect(l.madeAt('asset', 'as-gone')).toBeNull()
+    expect(buildItemLookup({ assets: [{ id: 'x', created_at: 'not a date' }] }).madeAt('asset', 'x')).toBeNull()
+  })
+  it('madeAt keeps the database\'s microseconds, as the stored order does (VW1m R2-7)', () => {
+    const m = buildItemLookup({ assets: [{ id: 'a', created_at: '2026-09-01T10:00:00.000100Z' }, { id: 'b', created_at: '2026-09-01T10:00:00.000900Z' }] })
+    expect(m.madeAt('asset', 'a')).toBeLessThan(m.madeAt('asset', 'b'))
+  })
+})
+
+describe('sortItemsForDisplay — her Q-N1 sorts, with her Q-N1a and Q-N1b answers (VW1b)', () => {
+  const lookup = buildItemLookup({ ...DATED })
+  // Added newest-first: r1 (the oldest add) is the newest row, and so on.
   const rows = [
-    it_('r1', 'scene', 'sc-3', 0, '2026-10-11T10:00:00Z'),
-    it_('r2', 'asset', 'as-sl', 0, '2026-10-11T09:00:00Z'),
-    it_('r3', 'asset', 'as-lh', 1, '2026-10-11T11:00:00Z'),
-    it_('r4', 'level', 'lv-1', 0, '2026-10-11T08:00:00Z'),
-    it_('r5', 'shot', 'sh-1-2', 0, '2026-10-11T10:30:00Z'),
+    it_('r1', 'asset', 'as-ma', 0, '2026-10-11T08:00:00Z'),
+    it_('r2', 'shot', 'sh-1', 0, '2026-10-11T09:00:00Z'),
+    it_('r3', 'scene', 'sc-3', 0, '2026-10-11T10:00:00Z'),
+    it_('r4', 'asset', 'as-lh', 1, '2026-10-11T11:00:00Z'),
+    it_('r5', 'asset', 'as-sl', 2, '2026-10-11T12:00:00Z'),
+    it_('r6', 'level', 'lv-1', 0, '2026-10-11T13:00:00Z'),
   ]
-  it('Type: kinds in order, each in the display order', () => {
-    expect(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id)).toEqual(['r3', 'r2', 'r1', 'r5', 'r4'])
+  it('Type: the assets by their own type in the Assets table\'s order (character, environment, prop…), then the other kinds, each in the display order', () => {
+    expect(ASSET_TYPES.slice(0, 3)).toEqual(['character', 'environment', 'prop'])
+    // Mara (character), Lighthouse Interior (environment), storm Lantern (prop); then Cliff, Cliff › Wide, Docks.
+    expect(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id)).toEqual(['r1', 'r4', 'r5', 'r3', 'r2', 'r6'])
+  })
+  it('FAILING CONTROL: the interim Type (the kinds alone, each by name) would put Lighthouse Interior before Mara', () => {
+    const byKindOnly = [...rows].sort((a, b) => (ITEM_KINDS.indexOf(a.entity_type) - ITEM_KINDS.indexOf(b.entity_type))
+      || lookup.orderOf(a.entity_type)(a.entity_id, b.entity_id)).map(i => i.id)
+    expect(byKindOnly).toEqual(['r4', 'r1', 'r5', 'r3', 'r2', 'r6'])
+    expect(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id)).not.toEqual(byKindOnly)
+  })
+  it('Type: a type the list does not name comes after every one it does; an asset with no type is "other", the list\'s last', () => {
+    const more = [...rows, it_('r7', 'asset', 'as-zz', 3), it_('r8', 'asset', 'as-no', 4)]
+    const ids = sortItemsForDisplay(more, 'type', lookup).map(i => i.id)
+    expect(ids.slice(0, 5)).toEqual(['r1', 'r4', 'r5', 'r8', 'r7'])
   })
   it('A to Z: one list by name, whatever the kind', () => {
-    // Cliff, Docks, Harbour › Close, Lighthouse Interior, storm Lantern
-    expect(sortItemsForDisplay(rows, 'name', lookup).map(i => i.id)).toEqual(['r1', 'r4', 'r5', 'r3', 'r2'])
+    // Cliff, Cliff › Wide, Docks, Lighthouse Interior, Mara, storm Lantern
+    expect(sortItemsForDisplay(rows, 'name', lookup).map(i => i.id)).toEqual(['r3', 'r2', 'r6', 'r4', 'r1', 'r5'])
   })
   it('A to Z: a tie on the name falls to the kind', () => {
     const l = buildItemLookup({ assets: [{ id: 'a', name: 'Dock' }], levels: [{ id: 'l', name: 'dock' }] })
     const tied = [it_('x', 'level', 'l', 0), it_('y', 'asset', 'a', 0)]
     expect(sortItemsForDisplay(tied, 'name', l).map(i => i.id)).toEqual(['y', 'x'])
   })
-  it('Date added: one list by when each was added, newest last', () => {
-    expect(sortItemsForDisplay(rows, 'date', lookup).map(i => i.id)).toEqual(['r4', 'r2', 'r1', 'r5', 'r3'])
+  it('Date created: one list by when each item ITSELF was made, oldest first, whatever the kind', () => {
+    // Docks 08-30, storm Lantern 09-01, Lighthouse Interior 09-02, Cliff 09-03, Cliff › Wide 09-04, Mara 09-05.
+    expect(sortItemsForDisplay(rows, 'date', lookup).map(i => i.id)).toEqual(['r6', 'r5', 'r4', 'r3', 'r2', 'r1'])
   })
-  it('Date added: a kind keeps its stored order; with every time equal it is the stored order itemsOfTask reads', () => {
-    const same = [it_('b', 'scene', 'sc-1', 1), it_('a', 'asset', 'as-lh', 1), it_('c', 'asset', 'as-sl', 0), it_('d', 'scene', 'sc-3', 0)]
-    expect(sortItemsForDisplay(same, 'date', lookup).map(i => i.id)).toEqual(itemsOfTask(same, T).map(i => i.id))
-    expect(sortItemsForDisplay(same, 'date', lookup).map(i => i.id)).toEqual(['c', 'a', 'd', 'b'])
+  it('FAILING CONTROL: the interim Date added (when each was added to the task) is the opposite order here', () => {
+    const added = [...rows].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).map(i => i.id)
+    expect(added).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'])
+    expect(sortItemsForDisplay(rows, 'date', lookup).map(i => i.id)).not.toEqual(added)
+  })
+  it('Date created: a row that says no date comes after the dated ones; ties by kind, then the display order', () => {
+    const more = [it_('u1', 'asset', 'as-no', 0), it_('u2', 'asset', 'as-zz', 1), ...rows]
+    const ids = sortItemsForDisplay(more, 'date', lookup).map(i => i.id)
+    expect(ids.slice(-2)).toEqual(['u2', 'u1']) // Ash, Buoy: no date, by name
+    const l = buildItemLookup({ assets: [{ id: 'a', name: 'B', created_at: '2026-09-01T00:00:00Z' }], levels: [{ id: 'l', name: 'A', created_at: '2026-09-01T00:00:00Z' }] })
+    expect(sortItemsForDisplay([it_('x', 'level', 'l', 0), it_('y', 'asset', 'a', 0)], 'date', l).map(i => i.id)).toEqual(['y', 'x'])
+  })
+  it('the labels say the new meaning: Date created', () => {
+    expect(ITEM_SORT_LABEL.date).toBe('Date created')
   })
   it('anything else reads as Type; the list given is never changed', () => {
     const before = rows.map(i => i.id)
     expect(sortItemsForDisplay(rows, 'nonsense', lookup).map(i => i.id)).toEqual(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id))
     expect(rows.map(i => i.id)).toEqual(before)
     expect(sortItemsForDisplay(null, 'type', lookup)).toEqual([])
+  })
+})
+
+describe('typeRunsOf — the window\'s runs under Type: one per asset type, then one per other kind (VW1b)', () => {
+  const lookup = buildItemLookup({ ...DATED })
+  it('splits the sorted rows into runs, each with its kind and the asset type it is about', () => {
+    const rows = [it_('a', 'asset', 'as-ma', 0), it_('b', 'asset', 'as-lh', 1), it_('c', 'asset', 'as-no', 2), it_('d', 'scene', 'sc-3', 0), it_('e', 'level', 'lv-1', 0)]
+    const runs = typeRunsOf(sortItemsForDisplay(rows, 'type', lookup), lookup)
+    expect(runs.map(r => [r.key, r.kind, r.type, r.items.map(i => i.id)])).toEqual([
+      ['asset:character', 'asset', 'character', ['a']],
+      ['asset:environment', 'asset', 'environment', ['b']],
+      ['asset:other', 'asset', 'other', ['c']],
+      ['scene', 'scene', null, ['d']],
+      ['level', 'level', null, ['e']],
+    ])
+  })
+  it('two assets of one type share a run; nothing given, no runs', () => {
+    const l = buildItemLookup({ assets: [{ id: 'p', name: 'P', type: 'prop' }, { id: 'q', name: 'Q', type: 'prop' }] })
+    expect(typeRunsOf([it_('a', 'asset', 'p', 0), it_('b', 'asset', 'q', 1)], l).map(r => r.items.length)).toEqual([2])
+    expect(typeRunsOf(null, l)).toEqual([])
   })
 })
 

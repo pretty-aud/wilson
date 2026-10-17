@@ -51,6 +51,7 @@ import { useRabbit } from '../state/RabbitProvider'
 // FX2 (0096): an asset's task count and its window's tasks count every task
 // ABOUT it (any of its items).
 import { taskCountsByEntity, tasksAbout } from '../state/taskItemsModel'
+import { ASSET_TYPES, assetTypeLabel } from '../state/assetTypes'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useTaskTemplates } from '../../../components/TaskTemplates/useTaskTemplates'
 import { usePermissions } from '../../../permissions/usePermissions'
@@ -80,11 +81,10 @@ const THUMB_SIZES = ['sm', 'md', 'lg']
 // The body the Table / Gallery tabs switch (the kit's Tabs wants its panel).
 const BODY_ID = 'rb-asset-body'
 
-export const ASSET_TYPES = [
-  'character','environment','prop','vehicle','vfx','animation','rig','model',
-  'texture','audio','vo','music','cinematic','ui','level','script','treatment',
-  'concept','storyboard','illustration','document','deliverable','other',
-]
+// VW1b (2026-10-17): an asset's types and their words live in
+// state/assetTypes.js since the model sorts a task's items by them (her Q-N1b);
+// re-exported here for the callers that read them from this file.
+export { ASSET_TYPES, assetTypeLabel } from '../state/assetTypes'
 
 export const ASSET_STATUSES = [
   'not_started','in_progress','pending_review','needs_revisions',
@@ -171,18 +171,8 @@ const STATUS_LABELS = Object.fromEntries(ASSET_STATUSES.map(s => [s, statusMeta(
 const STATUS_OPTIONS = ASSET_STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] }))
 
 // ── Type words ──
-// V2 (2026-09-27), B4c §4.2 item 8: a type printed its raw code ("script",
-// "vfx") in the table, the popups and the pickers, where the file tables'
-// kinds read in sentence case ("Script"). It reads in sentence case now, and
-// its three acronyms in capitals. The CODE is unchanged everywhere: only the
-// words on screen are.
-const TYPE_ACRONYMS = { vfx: 'VFX', vo: 'VO', ui: 'UI' }
-export function assetTypeLabel(type) {
-  const t = type || 'other'
-  if (TYPE_ACRONYMS[t]) return TYPE_ACRONYMS[t]
-  const words = t.replace(/_/g, ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
-}
+// assetTypeLabel (state/assetTypes.js): a type in sentence case, its three
+// acronyms in capitals (V2, B4c §4.2 item 8).
 const TYPE_LABELS = Object.fromEntries(ASSET_TYPES.map(t => [t, assetTypeLabel(t)]))
 const TYPE_OPTIONS = ASSET_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }))
 
