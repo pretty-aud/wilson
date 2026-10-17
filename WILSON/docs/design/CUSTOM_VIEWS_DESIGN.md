@@ -6,7 +6,10 @@ answer verbatim there: batches 1–8 of 2026-10-13, batches 9–13 of
 the `laws-of-ux` and `design-direction` skills loaded. **Status:** the
 design of 2026-10-13 was reviewed twice (§11); what her answers of
 2026-10-16 added (§4.11 combination groups, the *New* menu, no main item)
-is not yet reviewed: the session that builds each part reviews it first.
+is reviewed by the session that builds each part, first. VW1b's parts
+(§4.6, §4.7, the Tasks halves of §4.10 and §4.11, §8's KR-1 portalled and
+KR-2) were reviewed at its step 0 on 2026-10-17 (§11 round 3) and are
+corrected here, with her answers of 2026-10-17 (batches 15 and 16) in them.
 **Every question is answered.** Taking the main item out of WILSON is its own
 session, before the build (VW1m, §7), with its own measured list and
 questions.
@@ -96,7 +99,7 @@ and 600 only** (`src/ui/typeScale.test.js`).
 | **Changed for now** | The view on screen with changes that are not saved (a *draft*). It lasts while WILSON is open (Q3b) and belongs to that person and that table. |
 | **Last used** | The view a person last chose (or saved as new) on a table in a project; that table opens on it (Q4). |
 | **Table** | One of the six lists that have views: `tasks`, `assets`, `scenes`, `shots`, `levels`, `experiences` (Scenes and Shots apart, Q16). |
-| **Combination group** | When a table is grouped by a linked kind, the group of rows linked to exactly the same set of items of that kind ("Lighthouse Interior, Storm Lantern"); the set has no order and its name lists the items A to Z. Rows linked to none are in "No asset" (or "No scene", …). |
+| **Combination group** | When a table is grouped by a linked kind, the group of rows linked to exactly the same set of items of that kind ("Lighthouse Interior, Storm Lantern"); the set has no order and its name lists the items in the display order (by name, numbers read as numbers; scenes and shots by their numbers; §4.11). Rows linked to none are in "No asset" (or "No scene", …). |
 | **Grouping** | A combination group made with *Create grouping* (Q-D): saved for the project, shown even while empty, so rows can be dragged into it. |
 | **A seat that cannot write** | A reviewer, or anyone `can_write_project` refuses on the project. |
 
@@ -300,52 +303,120 @@ about them. Its words are written into the table's polite live region.
 
 ### 4.6 The Tasks table's item columns (Q9–Q11, Q6a, Q-G2)
 
-- **Columns:** Asset, then Scene and Shot, then Level and Experience, after
-  Priority, before Phase, 150px each (Q-G2); each a field in the Fields
-  card. A kind's column is there when the project has that kind turned on or
-  any task names one (`pickerKinds`). The Title keeps FX8's rule (the
-  remainder, at most 360px).
-- **The cell:** the task's items of that kind by name, in the order the
-  task's window lists them (VW1m sets that order once the main item is gone),
-  separated by commas, cut with "+2" (a kit `Badge` in the muted ink) when
-  they do not fit; the full list is the cell's tooltip and accessible name;
-  "—" when there are none. A shot reads "Scene › Shot". A row the project no
-  longer has reads "No longer in the project"; a row the bundle has not
-  loaded yet reads "Not loaded yet" and schedules the live merge's debounced
-  re-read.
-- **The picker (Q10):** clicking the cell (or Enter on it) opens a Popover
-  under the cell, portalled to the shell's layer with a fixed position from
-  the cell's box, opening above when less than 240px is free below, closing
-  when a scroller that holds the cell scrolls. Inside: a search field, then
-  every row of that kind in the project, each a 28px row (`role="checkbox"`,
-  `aria-checked`) with a tick, the name, and in the muted ink what tells
-  same-named rows apart (an asset's type and phase; a shot's scene; a scene's
-  number). Ticking adds the item; unticking removes it and shows the undo
-  toast; unticking the last item asks first. Scenes and shots offer the
-  active shot list's rows with *Show all lists*, as the task window's picker
-  does. Escape closes; focus returns to the cell.
-- **A seat that cannot write:** the cell is text at full ink (no picker, not
-  a Tab stop), its whole list in a visually hidden span; the task's *Open*
-  shows the list.
-- **Filters:** the Asset filter matches any of a task's assets; Scene, Shot,
-  Level and Experience join the filter fields with the shared filter row.
-- **Grouping:** the combination groups of §4.11, for the table and the
-  Board's columns.
-- **Width (Q6a):** with every column on, the table scrolls sideways inside
-  its frame, the checkbox and Title columns kept in place (§8 KR-2); the
-  widths follow §4.10.
-- **The Board:** a card names all its assets, as the cell does, and its
-  lines are the view's fields (Q-E).
+Reviewed at VW1b's step 0 (2026-10-17, §11 round 3, after her answers of
+2026-10-16 and 2026-10-17) and corrected here. Each part says which session
+builds it: **VW1b** the columns, the cells, the one-kind picker, the
+columns' presence rule, Scene, Shot, Level and Experience in the Group menu,
+the sticky columns and the widths; VW1d the Fields card and the shared
+filter row; VW1m built the Asset filter's any-item match and the Board's
+cards naming every asset (VW1b tests them).
+
+- **Columns (VW1b):** Asset, then Scene and Shot, then Level and Experience,
+  after Priority, before Phase, each at least 150px (Q-G2) and growable
+  (§4.10). A kind's column is there when the project has that kind turned on
+  or any task names a live item of it (the task window's picker rule,
+  `pickerKinds`, read over every task). Keyed by KIND (`asset`, `scene`,
+  `shot`, `level`, `experience`): the keys VW1c stores in a view's `fields`
+  (§5.1). The Title keeps FX8's rule (the remainder, between 216 and 360px).
+  Each is a field in the Fields card (VW1d).
+- **The cell (VW1b):** the task's LIVE items of that kind (her Q-N4: an item
+  whose row is in the trash or not loaded is not shown and not counted, and
+  comes back with its row), by name, separated by commas, in the task
+  window's *Sort* (her Q10: "the order ... stay as the task's window sets
+  them"; the Sort is the window's choice, remembered per computer, her Q-N1,
+  so the window and the cells always agree on one computer). Her answers of
+  2026-10-17 (batch 15) say what the Sort means: *Type* lists the assets by
+  their own type, in the Assets table's order (`ASSET_TYPES`), then by name,
+  and the other kinds after the assets; *A to Z* by name; *Date created* by
+  when each row itself was made (its `created_at`; a row without one last).
+  As many names as fit, then "+N" (the kit `Badge` in the muted ink) for the
+  rest; until the cell is measured the names are cut with "…", so nothing
+  jumps; a cell with one name is never measured. The whole list, in the same
+  order, is the cell's tooltip and its accessible name; "—" when there are
+  none (named "No asset", "No scene", …). A shot reads "Scene › Shot". A
+  group's band keeps the display order (§4.11): where the Sort is not *A to
+  Z*, a cell and its band can name the same items in two orders (walkthrough
+  72 asks her).
+- **The picker (VW1b, Q10):** the cell is a button; a click, Enter or Space
+  opens the kit Popover (portalled, §8 KR-1) under it, labelled "Assets of
+  <task>" (or Scenes, …). Inside: a search field; for scenes and shots the
+  *Show all lists* switch (the active shot list's rows by default, as the
+  task window's picker; a row the task already has stays listed whatever its
+  list); then every live row of that kind in the project, each a dense row
+  (32px, as the window's picker rows) with `role="checkbox"`,
+  `aria-checked`, a tick, the name and, only for rows whose name another row
+  shares, in the muted ink what tells them apart (an asset's type and phase;
+  a scene's number; a shot's number, its scene already in its name). The
+  list is ONE Tab stop (roving focus: ↑ ↓ Home End move, Space or Enter
+  ticks); ↓ from the search moves into it. The window's own picker keeps its
+  add-only shape; the two share the kinds rule, each kind's rows (`pickerRows`
+  for scenes and shots), the search's match and the lookup's names
+  (`RelationsPanel.jsx`), so neither forks the other.
+  - **A draft, committed once (step 0 review, finding 3).** While the
+    Popover is open a tick changes a draft of the task's items of that kind,
+    and the cell shows the draft. Closing it (Escape, a press outside, Tab
+    out, the cell pressed again) commits ONCE: what was added and what was
+    removed, applied to the task's items as they are then (a teammate's
+    change meanwhile is kept), through `ctx.setTaskItemsOfKind` (queued, one
+    undo step, its hidden items kept) inside `ctx.runWithUndoToast`:
+    *Added “Storm Lantern” to “Rig test”*, *Removed …*, or *Changed the
+    assets of “Rig test”*. The toast is the announcement. Nothing changed:
+    nothing written, no toast. A refusal or a failure is said in the tab's
+    Banner (VW1m R2-2's route). Grouped by that kind, the row moves once,
+    after the commit: a write at every tick would move the row, and unmount
+    the cell the Popover hangs from, at every tick.
+  - **Unticking the task's last live item (of any kind) asks first**, at
+    the untick, with the window's question (*Remove the last item*), a kit
+    Dialog over the Popover; *Cancel* keeps it ticked.
+  - **Focus:** the search has the keyboard on open; closing returns it to
+    the cell, found again by its task and kind when the row has re-rendered
+    or moved group, else the table's scroller. Tab from the Popover's last
+    control closes it and goes on to the control after the cell; Shift+Tab
+    from its first returns to the cell.
+- **A seat that cannot write (VW1b):** the cell is text at full ink (no
+  picker, not a Tab stop). The names that fit and the "+N" are
+  `aria-hidden`, and the whole list is in a visually hidden span, so a
+  screen reader reads it once; the task's *Open* shows the list.
+- **Where the backend keeps no items** (`ctx.taskItemsAvailable` false: a
+  cloud before 0096, the test doubles; step 0 review, finding 19): the cell
+  is VW1m's, the task's one item by name on a button that opens its window;
+  no picker.
+- **Not in a cell (step 0 review, finding 1):** no "No longer in the
+  project" and no "Not loaded yet". The lookup cannot tell a row in the
+  trash from one not loaded (both are simply not in the bundle), her Q-N4
+  hides both, and nothing schedules a re-read.
+- **Filters:** the Asset filter matches any of a task's live assets (VW1m);
+  Scene, Shot, Level and Experience join the filter fields with the shared
+  filter row (VW1d).
+- **Grouping (VW1b):** Scene, Shot, Level and Experience join the Group menu
+  (the table's and the Board's) where their column shows; grouped by any of
+  them, the combination groups of §4.11, for the table and the Board's
+  columns.
+- **Width (Q6a, VW1b):** with every column on, the table scrolls sideways
+  inside its frame, the checkbox and Title columns kept in place (§8 KR-2);
+  the widths follow §4.10.
+- **The Board:** a card names all its assets, as the cell does (VW1m); its
+  lines are the view's fields (Q-E, VW1d).
 
 ### 4.7 The counts (Q12)
 
-- **Levels and Experiences:** the Assets count counts assets whose
-  `level_ids` / `experience_ids` hold the row, and the Tasks count every task
-  with an item of that level or experience; the window's *Linked counts* line
-  reads the same numbers.
+- **Levels and Experiences (VW1b):** the Assets count counts the assets
+  whose `level_ids` / `experience_ids` hold the row, each asset once; the
+  view's `linkKey` (`level_id` / `experience_id`) stays for the two things it
+  is right for, the files count and a new task's seed. The Tasks count
+  counts every task with a live item of that level or experience (VW1m). The
+  window's *Linked counts* line reads the same two maps, so it changes with
+  them. **On the cloud** assets carry no level or experience links yet (the
+  adapter's allowlist leaves them out), so there a level's Assets count is 0
+  by data, not by defect, until VW1e adds the links (§4.11); walkthrough 72
+  says so (step 0 review, finding 11).
 - **The scene window's** *shots / assets / tasks* line counts assets through
-  `scene_ids`.
-- Each count is a field a view can hide.
+  `scene_ids` (VW1b). In `ScenesView.jsx`, the plan's unsafe file, only
+  `assetCountByScene` changes; the Scenes table has no Assets column.
+- The two fixtures that pinned the wrong field (an asset's `level_id` in
+  `rabbitEntityViewsRender.test.jsx`) move to `level_ids` /
+  `experience_ids`.
+- Each count is a field a view can hide (VW1d, VW1e).
 
 ### 4.8 The defects fixed (Q21)
 
@@ -371,9 +442,10 @@ browser storage starting empty at every launch.
   grids; the Filters and Sort cards are plain forms. Enter or Space chooses;
   Escape goes back from a card, then closes; focus returns to the button.
 - **Layers:** Popovers are kept on a stack in `overlay.js`; only the top one
-  answers Escape (bubble phase) and outside presses; a press inside a kit
-  `Menu`, a kit `Dialog` or a child Popover, or while a modal opened after
-  it is open, is not outside.
+  answers Escape (capture phase, marked handled, so a Dialog under it stays
+  open: step 0 review, finding 7) and outside presses; it stands down while
+  a Dialog or a Menu opened after it is open; a press inside a kit `Menu`, a
+  kit `Dialog` or a child Popover is not outside (§8 KR-1).
 - **The picker:** the search field has the keyboard on open; ↓ moves into
   the list; Space ticks; Escape closes; Tab from its last control goes to
   the control after the cell and closes it, Shift+Tab from its first returns
@@ -405,6 +477,28 @@ browser storage starting empty at every launch.
   moves to `data-col="bid"`.
 - A test per table hides every growable column and holds the name at 360px
   or less; one shows every column and checks the minimum width.
+- **Tasks (VW1b; step 0 review, finding 6).** The growable columns are the
+  five item columns (each at least 150px, Q-G2: they hold lists of names, the
+  reason the Asset column grew), Phase and Assignee; the checkbox, Status,
+  Priority, the two dates and Bid are fixed. The view computes, from the
+  columns on screen, `--rb-task-fixed` (the sum of every visible column's
+  width or minimum) and `--rb-task-grow-n` (the number of visible growable
+  columns, at least 1, so the division is never by 0) and sets them as inline
+  custom properties on `.rb-task-table-wrap`: one pure function whose output
+  is only those two properties, and one entry added to the lane guard's
+  `STYLES_ALLOWED` with a control. With no growable column visible (VW1d),
+  `data-grow="none"` gives the table `width: min(100%, var(--rb-task-fixed) +
+  var(--rb-task-title-max))`. An asset-only project's numbers are exactly
+  today's (three growable columns). In the sheet's arithmetic (content boxes
+  1256, 1416 and 1896, as `rabbitRowTitles.test.jsx` measures them): a film
+  project (Asset, Scene, Shot; fixed 1322, narrowest 1538) scrolls 282px at
+  1280 and 122px at 1440 with the Title at 216; at 1920 each growable column
+  takes 42.8px more and the Title is 360. With all five kinds (fixed 1622,
+  narrowest 1838) it scrolls 582px and 422px; at 1920 nothing scrolls and the
+  Title is 274. `rabbitRowTitles.test.jsx`'s Tasks arithmetic gains these
+  cases; its asset-only numbers stand.
+- **Bid's alignment** keys on `data-col="bid"`, on Bid's head cell and on
+  every row's Bid cell (the key dates' rows too), not on `:last-child`.
 
 ### 4.11 Combination groups and *Create grouping* (Q-D, Q-D1–D5, Q-M3)
 
@@ -415,19 +509,28 @@ browser storage starting empty at every launch.
   name them). The Timeline grouped by asset, scene, shot, level or
   experience shows the Tasks table's combination groups as its rows, and has
   no *Create grouping* (VW1m builds the Timeline's half).
-- **The groups:** one group per set of items rows are linked to, named by
-  the items A to Z ("Lighthouse Interior, Storm Lantern"), the empty set as
-  "No asset" (or "No scene", …); a row sits in exactly one group, so the
-  groups' counts add up to the rows'. The project's groupings (below) show
-  even while empty; every other group exists while a row is in it. The
-  groups are ordered as the grouping field's values are today (by name),
-  with "No …" last; the *Hide empty groups* switch hides the project's empty
-  groupings for that view.
+- **The groups (the Tasks half built by VW1m; Scene, Shot, Level and
+  Experience reach the Group menu in VW1b):** one group per set of items
+  rows are linked to, named by its items in the display order ("Lighthouse
+  Interior, Storm Lantern": assets, levels and experiences by name, numbers
+  read as numbers; scenes by number; shots by their scene's number, then
+  their own), the empty set as "No asset" (or "No scene", …); a row sits in
+  exactly one group, so the groups' counts add up to the rows'. The order
+  (step 0 review, finding 10): a group for each single item in the project's
+  own order (the active shot list's, for scenes and shots), then the
+  combinations by their name, then "No …" last. In a table a group exists
+  while a row is in it (the Tasks Status grouping excepted, Q-I); the Board
+  keeps a column for every single item, empty or not (Q-I). The project's
+  groupings (below; VW1c, VW1d) show even while empty; the *Hide empty
+  groups* switch (VW1d) hides the empty ones for that view.
 - **Dragging a row into a group makes that group's items the row's**
   (Q-D1): any others come off; dragging into "No asset" takes them all off;
-  the undo toast puts them back; the live region says where it went. A seat
-  that cannot write cannot drag.
-- ***Create grouping*** (Q-D3): a toolbar button beside the Group dropdown,
+  the undo toast puts them back, and is the announcement. Its items in the
+  trash are kept (Q-N4), so a restore puts them back; a drop on the group the
+  row is in writes nothing and shows no toast; where the backend keeps no
+  items a group is one item or none and the drop writes that single field
+  (VW1m, step 0 review finding 15). A seat that cannot write cannot drag.
+- ***Create grouping*** (VW1d, with its data in VW1c) (Q-D3): a toolbar button beside the Group dropdown,
   shown only while the table is grouped by a linked kind, hidden from a seat
   that cannot write (Q-F). It opens the kit `Dialog` "Create grouping":
   a search field and a check box for every item of that kind in the project
@@ -654,22 +757,67 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
 ## 8. Kit requests (each lands with its first caller)
 
 - **VW1-KR-1 `Popover`** (`src/ui/Popover.jsx`): a non-modal floating card,
-  `role="dialog"` with a label, paper-raised, 6px radius, the one shadow,
-  opacity-only motion. *In place* (rendered right after its trigger; Tab
-  continues to the next control and Tab out closes it; as tall as the room
-  below less 12px) when no ancestor clips it (the Views dropdown);
-  *portalled* to the shell's layer with `position: fixed` from the trigger's
-  box (the item picker, inside the table's scroller), keeping the Tab order
-  itself, opening above when under 240px is free below, closing when a
-  scroller that holds the trigger scrolls. Kept on a stack in `overlay.js`;
-  only the top Popover answers Escape and outside presses. Focus in on open,
-  back to the trigger on close (or to a named fallback).
-- **VW1-KR-2 Table sticky columns** (`src/ui/Table.jsx` + `src/index.css`):
-  `stickyColumns={n}` keeps the first n columns in place while the table
-  scrolls sideways: opaque paper with the row tints as a background image;
-  the scroller's gutter covered; a `colSpan` row's content sticky itself;
-  `scroll-padding-left` equal to the sticky width; the sticky header cells
-  above the body's; the Title cell a `<th scope="row">`.
+  `role="dialog"` with a label (never `aria-modal`), paper-raised, 6px
+  radius, the one shadow, opacity-only motion. *In place* (rendered right
+  after its trigger; Tab continues to the next control and Tab out closes
+  it; as tall as the room below less 12px) when no ancestor clips it (the
+  Views dropdown; built with that caller, VW1d). *Portalled* (built by VW1b
+  with the item picker, inside the table's scroller; step 0 review, findings
+  7 and 8): into `<body>` with `position: fixed` from the trigger's box at
+  its open; under the trigger's left edge, above it when under 240px is free
+  below and more above, 12px inside the window's edges, at most the room on
+  its side less 12px, scrolling inside past that with its scroll contained
+  (`overscroll-behavior: contain`: a wheel over it never scrolls the table).
+  **Layers:** z-index 70, the Dialog's own, so equal layers stack in
+  document order: a Dialog opened from it (the last item's question) covers
+  it, and a Popover opened from a Dialog sits over that Dialog; under the
+  Menu (80) and the toasts (90), over the drawer (60). Kept on a stack in
+  `overlay.js`; only the top Popover answers Escape and outside presses, and
+  it stands down while a Dialog or a Menu opened AFTER it is open
+  (`modalDepth()` and `menuDepth()` read at its open). It hears Escape in the
+  capture phase and marks it handled, so a Dialog under it (whose listener
+  checks `defaultPrevented`) stays open. `overlayOpen()` counts it. A press
+  outside closes it, but not one on its trigger (whose own click toggles
+  it), in a kit Menu, a Dialog or another Popover. A scroll of anything that
+  holds the trigger, heard from the frame after its open (its own opening
+  must not close it), or a window resize closes it: its place was measured
+  once. **Focus** in on open (a named control, else the first); back on close
+  to the trigger its caller names now (the cell's row may have re-rendered),
+  else the first trigger, and only when focus was still in the card (a press
+  elsewhere keeps its own focus). It keeps the Tab order a portal would
+  lose: Tab from its last control closes it and moves on to the control
+  after the trigger; Shift+Tab from its first returns to the trigger.
+- **VW1-KR-2 Table sticky columns** (`src/ui/Table.jsx` + `src/index.css`;
+  VW1b; step 0 review, findings 4 and 5): `stickyColumns={n}` (1 to 3) keeps
+  the first n columns in place while the table scrolls sideways
+  (`border-collapse: separate` is what makes sticky cells possible: keep it).
+  - **Insets, measured.** The Table reads its sticky head cells' widths (a
+    `ResizeObserver`) into `--ui-sticky-<k>` on the table, the left inset of
+    column k, and sets the scroller's `scroll-padding-left` to where the
+    sticky columns end, so Tab and `focus()` never park a control under
+    them. A sticky cell holds at the scroller's PADDING edge (measured in
+    Chromium 152 at step 0: `left: 0` in a scroller padded 12px holds at
+    12px from its border), so the first inset is 0, not the gutter.
+  - **The gutter covered.** The scroller's own left padding (its gutter,
+    `--ui-sticky-gutter` where the lane pads it) is covered by the first
+    sticky cell, or the cells scrolling past would show through it.
+  - **Paint.** Every head cell of a table with sticky columns `z-index: 2`,
+    its sticky head cells 3; body sticky cells 1. A sticky cell's ground is
+    the surface's paper at every state (dark `--color-paper`, light
+    `--color-surface-light-solid`), and a state's tint reaches it as a
+    `background-image` (the drag mark's own pattern): the kit's selected and
+    interactive-hover fills do so, and a lane re-points its own row fills
+    for its sticky cells (the Tasks hover; `rabbitTasksCss.test.js`'s
+    `kitFights` measures the result). The selected row's 2px edge is on the
+    first cell, which is sticky, so it stays in view.
+  - **A spanning cell** (a group's band, the add row) is not sticky; its
+    content is (`position: sticky; left: 0`, at its own width), the cell made
+    `overflow: visible`: a `.ui-td`'s `overflow: hidden` would make the cell
+    the content's scroll container, and the content would never move.
+  - **No `<th scope="row">`** (finding 5): the Title cell holds the row's
+    three buttons, so a row header would read them out with every cell, and
+    sticky needs no `th`. A row header is its own request once RowTitle's
+    buttons are reconsidered.
 - **VW1-KR-3 `MenuButton`** (from `views/scenes/MenuButton.jsx` to
   `src/ui/`): a button that opens the kit `Menu` with a keyboard model and
   stays shown while its menu is open. Callers: the views' *…*, the Tasks
@@ -691,7 +839,16 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
 - **A filter value whose row is gone matches nothing**; a deleted view does
   not say who deleted it.
 - **Scenes, shots, levels and experiences are not on the live channel**: a
-  row a teammate has just added reads "Not loaded yet" until the re-read.
+  row a teammate has just added, and a task's item naming it, show at the
+  next load; until then the item is hidden, like one in the trash (Q-N4).
+- **A Board grouped by Scene or Shot** shows a column for every scene or shot
+  of the active list, empty ones included (her Q-I), until the view's *Hide
+  empty groups* (VW1d).
+- **A cell and its group's band can name the same items in two orders**: the
+  cell follows the task window's Sort (Q10), the band the display order
+  (§4.11).
+- **On the cloud a level's or experience's Assets count is 0** until VW1e
+  carries assets' level and experience links there (§4.7).
 - **Budget's Expenses and the Team tab** keep their old saved views (Q19)
   and their keyboard gap (P1-08 for those two).
 
@@ -708,7 +865,7 @@ asked in that session.
 
 ---
 
-## 11. The review rounds (of the design of 2026-10-13)
+## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0)
 
 The two rounds reviewed the design before her answers of 2026-10-16. Their
 findings and corrections stand where her later answers did not replace
@@ -727,6 +884,39 @@ going to the name), eleven medium, nine low or low-medium; every one taken
 One high (the Tasks toolbar has about 42px to spare at 1440, not 102:
 re-measured live), eleven medium or medium-low, five low or low-medium;
 every one taken (the full table is at `de3f4fcb`).
+
+### Round 3 (VW1b's step 0: one Fable reviewer, read-only, 2026-10-17, against VW1m's code at `6ed89048`) — 21 findings
+
+The parts her answers of 2026-10-16 and 2026-10-17 added that VW1b builds
+(§4.6, §4.7, §4.10's and §4.11's Tasks halves, §8's KR-1 portalled and
+KR-2). Corrected above; the claim one correction rests on was measured in
+the browser first (finding 4's insets).
+
+| # | Severity | Finding | Taken |
+|---|---|---|---|
+| 1 | high | the cell's "No longer in the project" and "Not loaded yet" cannot be told apart from what the bundle holds and contradict Q-N4; nothing could schedule the re-read | struck (§4.6, §9) |
+| 2 | high | "the order the task's window lists them" is the window's per-computer Sort, not the display order the band uses; her 2026-10-17 answers change what *Type* and *Date* mean | her two answers written into §4.6; the cell keeps the window's Sort (her Q10's own words and VW1b's brief), the band the display order; the mismatch is a known limit and a walkthrough question. **Not taken:** the display order for the cell (it would part the cell from the window Q10 ties it to) |
+| 3 | high | a tick written at once moves the row when grouped by that kind (the cell unmounts under the Popover), and the raw item verbs are not queued for the undo toast | a draft committed once on close through the queued `setTaskItemsOfKind`, inside `runWithUndoToast` (§4.6) |
+| 4 | high | KR-2 unbuildable as written: a sticky child of a `.ui-td` sticks to the cell; paint order unspecified; row fills are cell backgrounds | paint order, grounds and tints as images, the spanning cells made `overflow: visible`, the measured insets (§8). **Not taken:** insets of 12px and 48px: measured, a sticky cell already holds at the padding edge; the gutter is covered instead |
+| 5 | medium-high | a `<th scope="row">` Title cell would read its three buttons with every cell; a pinned test counts `td`s | dropped (§8) |
+| 6 | medium-high | which columns grow is undefined; the `/ 3` and the inline style collide with two tests and the lane guard | the item columns grow at a 150px minimum; inline properties through one guarded entry; `data-grow="none"`; the numbers (§4.10) |
+| 7 | medium | focus has no answer for a trigger that unmounts; Escape order against the Dialog | the caller names the trigger now; capture-phase Escape, standing down for newer layers (§8) |
+| 8 | medium | no layer named; the scroll rule needs exceptions | z-index 70 by document order (over a Dialog it opens from, which the reviewer's 65 would not be); the scroll heard from the next frame; contained overscroll; resize (§8) |
+| 9 | medium | the window's picker is add-only, all kinds, no ticks | shared pieces named; the cell's picker new (§4.6) |
+| 10 | medium | the groups' order and "A to Z" do not describe VW1m's model | VW1m's order and the display order written (§3, §4.11) |
+| 11 | medium | the cloud has no asset-level links; two fixtures pin `level_id` | §4.7 |
+| 12 | medium | the read-only cell reads twice | the visible part `aria-hidden`, one hidden list (§4.6). **Not taken:** a button that opens the window (VW1b's brief: text, not a Tab stop) |
+| 13 | medium | "+N" needs a mechanism | measured after layout, ellipsis until then, one-name cells never measured (§4.6) |
+| 14 | medium | scope untagged | each part tagged with its session (§4.6, §4.11) |
+| 15 | low | the drag's rules unsaid | §4.11 |
+| 16 | low | the Board by Scene or Shot shows every column | §9 |
+| 17 | low | two announcements for one drag | the toast is the announcement (§4.6, §4.11) |
+| 18 | low | the picker's keyboard model | one Tab stop, roving (§4.6) |
+| 19 | low | no rule where the backend keeps no items | VW1m's cell there (§4.6) |
+| 20 | low | the columns' keys | keyed by kind (§4.6) |
+| 21 | nit | words: "Enter on it", "28px row" | §4.6 |
+
+### What rounds 1 and 2 found sound
 
 What both rounds found sound: §1's fidelity to her answers of 2026-10-13;
 the access rules (every policy hops to the project; `can_write_project` is
