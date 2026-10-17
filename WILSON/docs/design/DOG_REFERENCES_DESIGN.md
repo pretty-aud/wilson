@@ -8,6 +8,11 @@ answers it follows the recommended pick and marks it **provisional (Qn)**, built
 so that a different answer is one change. The research is
 `docs/design/DOG_REFERENCES_RESEARCH.md`.
 
+**Answered on 2026-10-17 (DG1b).** Batches 5 and 6 were put to her in chat
+(her answers verbatim in the questions file). Five confirmed the provisional
+picks; Q21 changed one: D.O.G. opens on *Full deck*. §1's P rows, §2.4 and §9
+items 8 and 9 now say what she ruled; §13 is the record.
+
 Written with the `laws-of-ux` and `design-direction` skills loaded. Inks and
 families do not change: D.O.G.'s existing tokens and kit components only, no new
 colour, no new typeface.
@@ -37,10 +42,12 @@ colour, no new typeface.
 | R17 | The project's title and description always go. | Q17 |
 | R18 | Full deck and Single page are one card; the switch reads *Single page* on its other side; Full deck shows the full deck box and the theme generator; Single page shows page number, layout and the single page box; the two media boxes show in both; examples and subtitles stay. | her brief |
 | R19 | Uploads stay exactly as they are. | her brief |
-| P12 | **Provisional (Q12):** the chosen set is kept while WILSON is open, never written to the computer. | recommended pick |
-| P19 | **Provisional (Q19):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") can also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out, so the conflict is put to her first (Q19). | recommended pick |
-| P20 | **Provisional (Q20):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | recommended pick |
-| P21 | **Provisional (Q21):** D.O.G. opens on *Single page*, as today. | recommended pick |
+| P12 | **Answered (Q12, 2026-10-17):** the chosen set is kept while WILSON is open, never written to the computer. | Q12, "Same as uploads" |
+| P19 | **Answered (Q19, 2026-10-17):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") could also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out. Put to her in those words, she chose the ticked ones. | Q19, "Only the ones you tick" |
+| P20 | **Answered (Q20, 2026-10-17):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | Q20, "Keep those names" |
+| P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open (the Alt key can flip it from any page: OUTSTANDING DG1b-01). | Q21, "Full deck" |
+| P22 | **Answered (Q22, 2026-10-17):** an item also sends its type, dates and production fields (§3, §9 item 8). | Q22, "Keep them" |
+| P23 | **Answered (Q23, 2026-10-17):** *"to place media in the deck"* shows beside *Use visual assets*, in the hint ink. | Q23, "Shown beside the box" |
 
 ---
 
@@ -87,6 +94,9 @@ Top to bottom, D.O.G.'s middle column holds three input cards and the output.
 ┌ GENERATED OUTPUT ─────────────────────────────────────────┐
 ```
 
+Card 3 is drawn on its Single page side. D.O.G. opens on Full deck (her Q21,
+§2.4).
+
 **The laws that shape it** (each tied to a decision):
 
 - **Law of Common Region and serial position.** The three cards read in the
@@ -105,7 +115,7 @@ Top to bottom, D.O.G.'s middle column holds three input cards and the output.
   each row's Preview and Remove are at the row's end where the eye finishes the
   name, as in the task window's Items table.
 
-### 2.1 Card 1, *Project documentation* (provisional name, P20)
+### 2.1 Card 1, *Project documentation* (her name, Q20)
 
 - **Project**: the dropdown and **New project**, as today. Its hint changes,
   because today's words would now be false: *"The deck's project. Its title and
@@ -195,24 +205,28 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
 - **The footer**: the same meter as the card, *"N chosen"*, and **Done**.
   Escape and Done both close and keep the ticks.
 
-### 2.4 Card 3, *Generate outline* (provisional name, P20; R18 exactly)
+### 2.4 Card 3, *Generate outline* (her name, Q20; R18 exactly)
 
 - **The switch**, first in the card: *Single page*, the switch, *Full deck*.
   Both words always show; the side that is on reads in the full ink and the
   other in the dim ink, and the knob sits on that side. The switch's own name
   is *Full deck* (`aria-label`; checked is Full deck, unchecked is Single
   page), so a screen reader hears which side is on; the two words are pointer
-  shortcuts to their side, hidden from it and not in the tab order. Space and
-  Enter work as on every switch, Left and Right choose a side, and the switch
-  keeps its `dog-full-deck` class, so Enter keeps generating from it
-  (`enterGenerates.js`; review round 1, finding 4). It opens on *Single page*
-  (P21).
+  shortcuts to their side, hidden from it and not in the tab order. Space
+  works as on every switch and Left and Right choose a side. Enter does too
+  until there is something to read with no page yet; then it is D.O.G.'s
+  generate key and does not move the switch (the `dog-full-deck` class,
+  `enterGenerates.js`; review round 1, finding 4), and since Q21 that
+  generates a full deck from the moment D.O.G. opens (DG1b review round 2,
+  finding 3). It opens on *Full deck*
+  (her Q21, 2026-10-17), and the side is then kept while WILSON is open; the
+  Alt key, which toggles it, is heard on every page (OUTSTANDING DG1b-01).
 - **The two media boxes**, under the switch, in both modes:
   - **Use visual assets** with *"to place media in the deck"* after it in the
     hint ink (R15): your uploaded pictures and videos, as *Use uploaded assets*
     did.
   - **Use project assets**: the project's pictures and videos among your
-    chosen references (P19).
+    chosen references (her Q19).
 - **Full deck side**: **Deck Context & Guidelines** with the **Theme generator**
   box on its label line, the hint *"Set the overall tone, style, and objectives
   for the deck • Include desired page count"*, the box with its example
@@ -435,9 +449,10 @@ their own modules and the component changes as little as it can.
    status, description, notes): also its type, dates, scene number, time of
    day, framing, camera movement, frame count, a task's priority, role and
    what it is about, a milestone's phase. Shared project data, no privacy
-   change. Asked as Q22.
+   change. Asked as Q22; she kept them (2026-10-17).
 9. *"to place media in the deck"* is shown as the box's hint; her quote may
-   have been her explanation rather than label text. Asked as Q23.
+   have been her explanation rather than label text. Asked as Q23; she chose
+   it shown beside the box (2026-10-17).
 10. The cloud's file list has no paging (PostgREST's 1,000-row default, as for
     the Files tab today): past 1,000 files in one project, *All Core files*
     and a folder's tick reach only the first thousand. Stated, not fixed
@@ -474,7 +489,7 @@ Nineteen findings; every one is answered in the sections above and in the build
 | # | Severity | Finding | Done |
 |---|---|---|---|
 | 1 | HIGH | A PDF estimated by bytes is wrong by an order of magnitude either way | Counted by pages (page tree, or compressed object streams through the platform's DecompressionStream); not guessed before the body is in hand; said in the meter; over 100 pages flagged (§2.2, §4) |
-| 2 | MEDIUM | P19 departs from "like before" | Kept provisional; the conflict with Q2 put to her first (§1, Q19) |
+| 2 | MEDIUM | P19 departs from "like before" | Kept provisional; the conflict with Q2 put to her first (§1, Q19); on 2026-10-17 she chose the ticked ones |
 | 3 | MEDIUM | The contract line was false (uploads go too) | Rewritten to name everything that goes (§2.2) |
 | 4 | MEDIUM | The two-sided switch's name and keys | Name *Full deck*, words pointer-only and hidden from a screen reader, Left/Right choose, Enter unchanged (§2.4) |
 | 5 | MEDIUM | Local Server: an item's own files are not linked to it | Stated in §6 and in the window |
@@ -537,4 +552,91 @@ without it.
 | "32 MB: … over 32 MB" at the boundary | Sizes round up |
 | The items block could be served from the AI file-id cache | Never cached |
 | The download size counted bodies already read | Leaves them out |
+
+## 13. Her batch 5 and 6 answers (DG1b, 2026-10-17)
+
+DG1b asked the six in chat, as multiple choice, Q19's conflict in plain words;
+her answers are verbatim in `DOG_REFERENCES_QUESTIONS.md`.
+
+| Question | Her answer | What it changes |
+|---|---|---|
+| Q12 remembering | "Same as uploads (Recommended)" | Nothing: the chosen set stays in memory while WILSON is open. No migration; 0099 and suite 102 stay unused. |
+| Q19 what *Use project assets* places | "Only the ones you tick (Recommended)" | Nothing: the ticked pictures and videos, from anywhere in the project. One not ticked is never placed or sent. |
+| Q20 the card names | "Keep those names (Recommended)" | Nothing. |
+| Q21 the switch's opening side | "Full deck" | `fullDeckMode` starts `true`. |
+| Q22 an item's extra fields | "Keep them (Recommended)" | Nothing: §3's table stands. |
+| Q23 the box's hint | "Shown beside the box (Recommended)" | Nothing. |
+
+**What opening on Full deck does, measured in the development copy.** A fresh
+D.O.G. shows the deck context box, the theme generator and *Generate full deck
+outline*; the layout, the page number and the page box are drawn when the
+switch is moved to Single page. App keeps every page mounted, so the side then
+stays where it is put until WILSON closes: moved to Single page, away to
+R.A.B.B.I.T. through the app's own page change and back, it is still on Single
+page. The exception, found while checking this and not fixed (outside her
+answers): D.O.G.'s Alt toggle is heard on every page, so one Alt release on
+R.A.B.B.I.T. flipped the hidden switch (OUTSTANDING DG1b-01).
+
+One consequence, stated: with no page yet, D.O.G.'s Enter key (on its page,
+outside a text field, and not on a button other than its own tick boxes and
+switch: `enterGenerates.js`) generates a full deck whenever *Generate full
+deck outline* is enabled, as it always did with Full deck on; before, at
+opening, it also needed a layout and a page request. The deck context may be
+empty, and the theme generator, ticked at open, runs with it. Enter on any
+other focused button presses that button: after *Done* closes the References
+window, focus is on *Add references*, and Enter reopened the window (measured;
+with focus on the page, Enter started the deck). Two more Enters do the same,
+as they always did with Full deck on: Enter on the switch itself generates
+instead of moving it (Space and the arrow keys move it), and Enter in the deck
+context box generates even after pages exist (its own handler; Shift+Enter
+for a new line). Whether Enter at open should also want a deck context, and
+whether Enter on the switch should move it, are hers to say (walkthrough 75
+§4).
+
+**Tests.** `enterGenerates.test.js` pins the opening side, and that nothing
+sets the side on its own (every call is a click, the switch, an arrow key or
+Alt), each with a control. On the real component, flipping the side back and
+planting a mount-time reset each turn one test red.
+
+**Also.** `scripts/dg1-shots.mjs` sets the switch to a side instead of toggling
+it, and records the side D.O.G. opens on (`refsOpensOn`).
+
+## 14. DG1b code review round 1 (2026-10-17)
+
+A Fable reviewer read DG1b's two commits, her answers and the code, read-only:
+eight findings, four MEDIUM, none wrong with the switch itself.
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | MEDIUM | `scripts/ui-walk.mjs` proved D.O.G.'s page by "Generate page outline", which Full deck does not draw | The proof is card 3's title, *Generate outline*, on either side |
+| 2 | MEDIUM | Walkthrough 75 still said Q21 opens on Single page, and its §4 listed all six as open | §1, §2 and §4 updated in place; §6 "After your answers" written; the README row |
+| 3 | MEDIUM | "The side is kept while WILSON is open" is false for Alt: D.O.G.'s Alt toggle is heard on every page (the Files tab's Alt+← ends in one) | Measured (one Alt release on R.A.B.B.I.T. flipped it); said in §1, §2.4, §13, the questions file, the code note and the walkthrough; OUTSTANDING DG1b-01; not fixed (outside her answers), hers to rule |
+| 4 | MEDIUM | Enter at open now starts a full deck, and the theme call, as soon as there is a source, with an empty deck context; "exactly when its button can" overstated it | §13 says it in full (the empty context, the theme generator, Enter on a focused button presses it: after *Done* it reopened the window, measured); "exactly" gone from the note and the test; whether Enter at open should want a deck context is hers (walkthrough 75 §4) |
+| 5 | LOW | Q12's "nothing is written" overstated: a chosen file's read is recorded in its activity | The questions file and the walkthrough say so |
+| 6 | LOW | `dg1-shots.mjs`'s comments described a toggle that no longer happens | They say which shots share a side |
+| 7 | LOW | The tests were brittle in places, and blind to a remount from App | The Alt check is bounded by its handler, not a character window; a new test that App mounts D.O.G. once with no `key`, with a control; on the real files, a planted key, a moved Alt handler, the side flipped back and a mount-time reset each turned the tests red |
+| 8 | LOW | Beyond her answers: tooling only (the launch entry, `refsOpensOn`) | Nothing to do |
+
+## 15. DG1b code review round 2 (2026-10-17)
+
+A second Fable reviewer attacked round 1's corrections (commit `b27b20d7`),
+read-only: seven findings, four MEDIUM, none in the switch itself. It found
+the walk script's new proof sound.
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | MEDIUM | Walkthrough 75 step 12 (on the real cloud) still assumed D.O.G. opens on Single page: it ends on *Generate page outline*, which Full deck does not draw | The step says *Single page*, a layout and a page request first |
+| 2 | MEDIUM | Step 13 promised one *downloaded* record per preview and per generation; `readBody` keeps each body for the session, so a preview's read is used again at Generate and one record is left; the preview's "Reading it here is recorded" line shows on such a reuse too | Step 13 says one record and why; the preview line is DG1's and outside her answers: OUTSTANDING DG1b-02 |
+| 3 | MEDIUM | §2.4's "Space and Enter work as on every switch" is false once there is something to read: Enter on the switch is D.O.G.'s generate key there (C12's exception), so since Q21 a keyboard user changing sides at open starts a full deck | §2.4 and §13 say it; walkthrough 75 §6 lists every Enter that generates; her §4 question asks whether Enter on the switch should move it |
+| 4 | MEDIUM | The App test proved only that D.O.G.'s tag has no `key`: a condition around it, a key on its page, or a page that drops its children would remount it and pass | One check now names each of those, with a control for each planted into App's real text; the walkthrough's line matches what it proves |
+| 5 | LOW | The Alt check's window could pass a toggle placed beside the handler, and a harmless rewrite (`(prev) =>`) could break it | The toggle must sit in the handler that checks for Alt, up to that handler's close; `(prev) =>` is read; controls for a toggle beside it and a second one |
+| 6 | LOW | "Not in a text box" was not the whole Enter story: the deck context box's own Enter generates, even after pages exist; links, tabs and an open window | Walkthrough 75 §6 and §13 say so |
+| 7 | LOW | Nits: "the twelve-page check script" is the walk of every page; step 17 must go through WILSON's menu in the browser; step 16's picture is the 1440x900 one; DG1b-01's fix needs `currentPage` in the effect's dependencies | All four done |
+
+On the real files, each correction's test was made to fail: a `key` after
+D.O.G.'s other props in `App.jsx` (now caught only by the new check), a
+condition around D.O.G.'s tag, the Alt toggle moved beside its handler, the
+side flipped back, and a mount-time reset each turned exactly one test red.
+`scripts/ui-walk.mjs --only dog` passes with the new proof and fails with the
+old one ("1 of 1 screens did not come back clean").
 

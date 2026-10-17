@@ -55,7 +55,13 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   const [uploadedFiles, setUploadedFiles] = useState([]); // Array of {file, content, type}
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isFileLoading, setIsFileLoading] = useState(false);
-  const [fullDeckMode, setFullDeckMode] = useState(false);
+  // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
+  // page mounted, so the side then stays where it is put until WILSON closes,
+  // as the uploads do; the one exception is the Alt toggle below, which hears
+  // Alt on every page (OUTSTANDING DG1b-01). With Full deck on and no page
+  // yet, D.O.G.'s Enter key (enterGenerates.js says where it is D.O.G.'s)
+  // generates the deck whenever its button is enabled.
+  const [fullDeckMode, setFullDeckMode] = useState(true);
 
   // Visual Asset Placement State
   const [useUploadedAssets, setUseUploadedAssets] = useState(false);
@@ -202,7 +208,8 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
    * images/videos from a project or uploaded in the outline like before").
    * "Use visual assets" (was "Use uploaded assets"): the uploads' pictures
    * and videos. "Use project assets": the pictures and videos among the
-   * chosen references (provisional Q19, "The ones you tick").
+   * chosen references (Audrey's Q19, 2026-10-17: "Only the ones you tick";
+   * a picture or video not ticked is never placed or sent to the AI).
    */
   const placementFrom = useCallback((refMedia) => {
     const assets = [];

@@ -365,6 +365,9 @@ tomorrow". So these four are not yet asked. **The build follows the recommended
 pick of each, provisionally**, and each is written so that a different answer is
 one change, not a rebuild. Ask them first thing.
 
+**Asked on 2026-10-17** by DG1b, in this chat, as multiple choice; her answers
+are under the batch.
+
 
 ---
 
@@ -420,9 +423,48 @@ Single page / Full deck card). Keep those names?**
 
 *Why:* today's starting point; one less change to notice.
 
-### Her answers, batch 5
+### Her answers, batch 5 (2026-10-17; asked in chat as multiple choice by DG1b; recorded verbatim)
 
-*(not yet asked: left for tomorrow at her request)*
+Q19 was put to her with the conflict in these words: "'Use project assets'
+places pictures and videos on the slides. Before, it took every picture and video
+filed on the project itself, without you ticking them. Your Q14 said 'like
+before'. But a placed picture is also sent to the AI to look at, and your Q2 said
+choosing a project only sets what you can choose from, so nothing goes unless you
+tick it. Those two answers pull apart. Which pictures and videos should it
+place?"
+
+- **Q12:** "Same as uploads (Recommended)"
+- **Q19:** "Only the ones you tick (Recommended)"
+- **Q20:** "Keep those names (Recommended)"
+- **Q21:** "Full deck"
+
+### What follows from batch 5 (say if any is wrong)
+
+1. **The chosen references are kept while WILSON is open and gone when it
+   closes**, as your uploads are. What you ticked, and your notes' text, are
+   not saved on this computer or in the database; as before, a chosen file
+   that is read (at Generate, or a Preview you ask for) is recorded in that
+   file's activity, as every download is. No database change: migration 0099
+   and test suite 102, held for this answer, stay unused.
+2. **Use project assets places only the pictures and videos you tick**, from
+   anywhere in the project. One you did not tick is never placed or sent to the
+   AI, whatever it is filed under (it is read only if you preview it). Your Q2
+   holds in full; your Q14 holds for the box (it still places the project's
+   pictures and videos), not for unticked ones.
+3. **The three cards keep their names**: *1 Project documentation*,
+   *2 References*, *3 Generate outline*.
+4. **D.O.G. opens on Full deck**: the full deck box and the theme generator show
+   first, and the page number, the layout dropdown and the single page box show
+   when the switch is moved to Single page. The side is kept while WILSON is open,
+   as your pages and uploads are, and starts on Full deck again when WILSON opens.
+   One exception, found while checking it and true before too: pressing Alt on
+   any page flips the switch. It is written down to fix (OUTSTANDING DG1b-01).
+   And with Full deck on from the start, Enter on the page (not in a text box,
+   and not on a button, D.O.G.'s own tick boxes and switch excepted as before)
+   generates a full deck as soon as there is something to read; before, at
+   opening, it also needed a layout and a page request. In the deck context box,
+   Enter generates too, even after pages exist (Shift+Enter makes a new line),
+   as it always did.
 
 ---
 
@@ -451,9 +493,22 @@ box says, or your explanation of it?**
 
 *Why:* the short line says what the box does at the moment of choosing.
 
-### Her answers, batch 6
+### Her answers, batch 6 (2026-10-17; asked in chat as multiple choice by DG1b; recorded verbatim)
 
-*(not yet asked: left for tomorrow)*
+- **Q22:** "Keep them (Recommended)"
+- **Q23:** "Shown beside the box (Recommended)"
+
+### What follows from batch 6 (say if any is wrong)
+
+1. **A chosen item sends its extra fields too**: its type, dates and production
+   fields (a scene's number and time of day; a shot's framing, camera movement
+   and frame count; a task's priority, role and the items it is about; a
+   milestone's phase), beside its name, status, description and notes.
+2. **The box reads *Use visual assets*, with "to place media in the deck" after
+   it** in the lighter hint text.
+
+**All six are answered.** Of the six, only Q21 changes what DG1 built (D.O.G. now
+opens on Full deck); the other five confirm the provisional build.
 
 ---
 

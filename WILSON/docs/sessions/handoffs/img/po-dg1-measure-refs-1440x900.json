@@ -1,4 +1,5 @@
 {
+  "refsOpensOn": "Full deck",
   "refsCards": {
     "cards": [
       {
@@ -71,37 +72,21 @@
         "collapsed": "false",
         "note": null,
         "top": 609,
-        "height": 435,
+        "height": 312,
         "fields": [
           {
-            "label": "Slide Layout Type",
-            "hint": "Choose how content will be arranged on the slide"
-          },
-          {
-            "label": "Page #",
-            "hint": "Single number or range (e.g. 3-7)"
-          },
-          {
-            "label": "Page Request",
-            "hint": "Describe the specific content you want on this slide"
+            "label": "Deck Context & Guidelines",
+            "hint": null
           }
         ],
         "hints": [
-          "Choose how content will be arranged on the slide",
-          "Single number or range (e.g. 3-7)",
-          "Describe the specific content you want on this slide"
+          "Set the overall tone, style, and objectives for the deck • Include desired page count"
         ],
         "placeholders": [
           {
-            "tag": "input",
-            "cls": "dog-page-number",
-            "placeholder": "5 or 1-10",
-            "disabled": false
-          },
-          {
             "tag": "textarea",
-            "cls": "dog-page-request",
-            "placeholder": "Example: I need a page listing all the main characters with summaries for each...",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
             "disabled": false
           }
         ],
@@ -115,42 +100,24 @@
             "name": "Use project assets",
             "checked": false,
             "words": "Use project assets"
+          },
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
           }
         ],
         "switches": [
           {
             "label": "",
-            "checked": false,
+            "checked": true,
             "width": 36
           }
         ],
-        "selects": [
-          {
-            "cls": "dog-select",
-            "value": "",
-            "options": [
-              "Select layout...",
-              "Title slide",
-              "Section header",
-              "Title and body",
-              "Title and two columns",
-              "Title and three columns",
-              "Title and four columns",
-              "Title only",
-              "One column text",
-              "Main point",
-              "Section title and description",
-              "Caption",
-              "Big number",
-              "Blank",
-              "Section Header w/Gradient",
-              "Title Page w/Gradient"
-            ]
-          }
-        ],
+        "selects": [],
         "buttons": [
           {
-            "words": "Generate page outline",
+            "words": "Generate full deck outline",
             "disabled": true
           }
         ]
@@ -159,7 +126,7 @@
         "title": "Generated output",
         "collapsed": null,
         "note": null,
-        "top": 1052,
+        "top": 928,
         "height": 814,
         "fields": [],
         "hints": [],

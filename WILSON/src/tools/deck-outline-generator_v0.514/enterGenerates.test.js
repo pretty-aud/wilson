@@ -140,3 +140,108 @@ describe('DeckOutlineGenerator calls it first, with its own page, and App tells 
     expect(dog.match(/dog-full-deck/g)).toHaveLength(1)
   })
 })
+
+// Audrey's Q21 (2026-10-17, DG1b): "When D.O.G. opens, which side is the
+// switch on?" "Full deck". The side is the switch state's first value, and
+// App renders every page at once and only hides the others, so D.O.G. opens
+// on Full deck each time WILSON starts and keeps the side after that (but for
+// the Alt toggle, heard on every page: OUTSTANDING DG1b-01). With Full deck on
+// and no page yet, the Enter key, wherever enterIsDogs says it is D.O.G.'s,
+// generates the deck whenever the "Generate full deck outline" button is
+// enabled (the handler asks the button's own two things).
+describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
+  const DECL = /const \[fullDeckMode, setFullDeckMode\] = useState\((true|false)\)/g
+  // The side the one live declaration starts on; null unless there is exactly one.
+  const opensOn = (src) => {
+    const live = blankJsComments(src).match(DECL) || []
+    if (live.length !== 1) return null
+    return live[0].endsWith('useState(true)') ? 'Full deck' : 'Single page'
+  }
+  // Every live line that calls the setter: none may run when D.O.G. mounts.
+  // The known callers are a click on a side's words, the switch's own change
+  // and arrow keys, and the Alt key's toggle; anything else (an effect that
+  // resets the side, say) would quietly undo her answer.
+  const CALLERS = [
+    /onClick=\{\(\) => setFullDeckMode\((true|false)\)\}>/,
+    /onChange=\{setFullDeckMode\}/,
+    /if \(e\.key === 'Arrow(Left|Right)'\) \{ e\.preventDefault\(\); setFullDeckMode\((true|false)\); \}/,
+    /^setFullDeckMode\(\(?prev\)? => !prev\);$/,
+  ]
+  const strayCallers = (src) => blankJsComments(src).split(/\r?\n/).map((l) => l.trim())
+    .filter((l) => /setFullDeckMode/.test(l) && !/const \[fullDeckMode, setFullDeckMode\]/.test(l))
+    .filter((l) => !CALLERS.some((re) => re.test(l)))
+  // Where the one Alt toggle sits: inside the handler that checks for Alt (a
+  // key's, not a mount's), between that check and the handler's closing `};`,
+  // however long its comments grow; `(prev) =>` is read as well.
+  const TOGGLE = /setFullDeckMode\(\(?prev\)? => !prev\)/g
+  const altToggle = (src) => {
+    const live = blankJsComments(src)
+    const n = (live.match(TOGGLE) || []).length
+    if (n !== 1) return `${n} toggles`
+    const check = live.indexOf("if (e.key !== 'Alt') return;")
+    if (check < 0 || live.lastIndexOf('const handler = (e) => {', check) < 0) return 'no Alt handler'
+    const at = live.search(TOGGLE)
+    return at > check && at < live.indexOf('};', check) ? 'inside the Alt handler' : 'outside it'
+  }
+  // Why D.O.G. keeps its side (and its pages and uploads) while WILSON is
+  // open: App renders it once, directly inside its own PageSurface, with no
+  // key and no condition around it, and PageSurface hides an inactive page by
+  // display rather than dropping it. A registry `.map` rendering the pages
+  // would turn this red: read it again then.
+  const remountRisks = (app) => {
+    const live = blankJsComments(app)
+    const risks = []
+    const tags = live.match(/<DeckOutlineGenerator\b[\s\S]*?\/>/g) || []
+    if (tags.length !== 1) risks.push(`${tags.length} DeckOutlineGenerator tags`)
+    if (tags.some((t) => /\bkey=/.test(t))) risks.push('a key on D.O.G.')
+    if (!/<PageSurface id="dog"(?![^>]*\bkey=)[^>]*>\s*<DeckOutlineGenerator\b/.test(live)) risks.push('not directly inside a key-less PageSurface id="dog"')
+    const surface = (live.match(/function PageSurface\([\s\S]*?\r?\n}\r?\n/) || [''])[0]
+    if (!/display: currentPage === id \? 'flex' : 'none'/.test(surface)) risks.push('PageSurface does not hide by display')
+    if (/return null|&&\s*\(?\s*children|\?\s*children\s*:/.test(surface)) risks.push('PageSurface can drop its children')
+    return risks
+  }
+
+  it('the switch starts on Full deck', () => {
+    expect(opensOn(read('./DeckOutlineGenerator.jsx'))).toBe('Full deck')
+  })
+  it('CONTROL: the check reads Single page, ignores a commented-out line, and refuses two declarations', () => {
+    expect(opensOn('const [fullDeckMode, setFullDeckMode] = useState(false);')).toBe('Single page')
+    expect(opensOn('// const [fullDeckMode, setFullDeckMode] = useState(true);\nconst [fullDeckMode, setFullDeckMode] = useState(false);')).toBe('Single page')
+    expect(opensOn('const [fullDeckMode, setFullDeckMode] = useState(true);\nconst [fullDeckMode, setFullDeckMode] = useState(true);')).toBe(null)
+  })
+  it('nothing sets the side on its own: every call is a click, the switch, an arrow key or Alt', () => {
+    const dog = read('./DeckOutlineGenerator.jsx')
+    expect(strayCallers(dog)).toEqual([])
+    expect(altToggle(dog)).toBe('inside the Alt handler')
+  })
+  it('CONTROL: a toggle beside the Alt handler instead of in it, or a second one, is caught', () => {
+    const effect = (inside, beside) => [
+      '  useEffect(() => {',
+      '    const handler = (e) => {',
+      "      if (e.key !== 'Alt') return;",
+      '      e.preventDefault();',
+      inside,
+      '    };',
+      beside,
+      "    document.addEventListener('keyup', handler);",
+      '  }, []);',
+    ].join('\n')
+    expect(altToggle(effect('      setFullDeckMode((prev) => !prev);', ''))).toBe('inside the Alt handler')
+    expect(altToggle(effect('', '    setFullDeckMode(prev => !prev);'))).toBe('outside it')
+    expect(altToggle(effect('      setFullDeckMode(prev => !prev);', '    setFullDeckMode(prev => !prev);'))).toBe('2 toggles')
+  })
+  it('App keeps D.O.G. mounted: once, directly in its own page, no key, hidden by display', () => {
+    expect(remountRisks(read('../../App.jsx'))).toEqual([])
+  })
+  it('CONTROL: a key, a condition around it, a key on its page, and a page that drops its children are each caught', () => {
+    const app = read('../../App.jsx')
+    expect(remountRisks(app.replace(/(<DeckOutlineGenerator\b[\s\S]*?)(\s*\/>)/, '$1\n          key={currentPage}$2'))).toContain('a key on D.O.G.')
+    expect(remountRisks(app.replace(/(<PageSurface id="dog"[^>]*>)(\s*)(<DeckOutlineGenerator\b[\s\S]*?\/>)/, "$1$2{currentPage === 'dog' && $3}"))).toContain('not directly inside a key-less PageSurface id="dog"')
+    expect(remountRisks(app.replace('<PageSurface id="dog"', '<PageSurface id="dog" key={currentPage}'))).toContain('not directly inside a key-less PageSurface id="dog"')
+    expect(remountRisks(app.replace(/(function PageSurface\([\s\S]*?)\{children\}/, '$1{currentPage === id && children}'))).toContain('PageSurface can drop its children')
+  })
+  it('CONTROL: an effect that resets the side when D.O.G. mounts is caught', () => {
+    const planted = "  useEffect(() => { setFullDeckMode(false); }, []);\n  useEffect(() => setFullDeckMode(false), [projectId]);"
+    expect(strayCallers(planted)).toHaveLength(2)
+  })
+})

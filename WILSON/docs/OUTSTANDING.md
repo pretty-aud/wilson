@@ -1835,6 +1835,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul DG1b (2026-10-17; `po/dg1b-references-answers` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s references, Audrey's last six answers (batches 5 and 6 of `docs/design/DOG_REFERENCES_QUESTIONS.md`, asked in chat as multiple choice, verbatim there, Q19's conflict between her Q14 and Q2 put in plain words): five confirmed DG1's provisional picks; Q21 changed one, D.O.G. opens on Full deck. No migration (Q12 needed none; 0099 / suite 102 stay unused). Walkthrough 75 §6. | DG1b-01 (D.O.G.'s Alt key flips its switch from any page; found while checking Q21), DG1b-02 (the preview says a cached read is recorded; found by review round 2); neither fixed, both outside her answers | nothing |
 | Post-overhaul VW1m (2026-10-16; `po/vw1m-no-main-item` into `feat/post-overhaul-edit-versioning`) — no main item (Audrey: "lets not have main asset be a thing. thats not needed and i dont like."): every place a task's main item was read measured first (289), her batch 14 answered (batches 15-16 to interim choices), migration 0097 and suite 100 on wilson-dev (deleting an asset never deletes a task; an older app's single write adds), the Timeline's combination rows, the Budget's even split, the task window's Sort and Files per item, the Tasks table and Board by combination, the Dashboard, bid versions keeping every item; walkthrough 74; two review rounds | **one entry under Broken features:** *the Dashboard shows a task's assets as of its last load* (INFERRED); dated notes on *the desktop's browser storage* (the Items sort is kept there too), *grouping Tasks by Phase or Assignee* (its Asset half fixed) and P1-26 (its Tasks half fixed) | **two:** *on the desktop, a deleted asset's tasks come back when the project is read again* (no backend deletes or hides a task with its asset now: 0097, the provider, the live merge) and **S5b-07** (*an asset whose task is set aside cannot be deleted*: the refusal went with its reason). Comment markers: 4 → 4. |
 | Post-overhaul DG1 (2026-10-16; `po/dg1-dog-references` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s references (Audrey: "a robust way to choose ... items in the rabbit tool ... files or personal notes"; "lets make the Full Deck and Single Page interfaces one"): research, her answers (batches 1 to 4 verbatim; 5 and 6 left for tomorrow at her request, built on the recommended picks), the design reviewed twice, the build reviewed twice. | DG1-01 (the cloud lists a project's first 1,000 files only), DG1-02 (on the Local Server an item's own files are not linked to it), DG1-03 (the AI's file store keeps what D.O.G. sends) | — |
 | Post-overhaul FX11 (2026-10-16; `po/fx11-connection-dot` into `feat/post-overhaul-edit-versioning`) — one connection dot in the bottom-left corner of every R.A.B.B.I.T. tab, just above the orange bar (Audrey: "this green dot should clarify that the system is connected to the storage solution not just the databases on supabase"): green when the database AND where the files are kept answer (a real, bounded, abortable probe of each: Petal cloud's bucket, a company bucket through storage-presign, the desktop's new `GET /api/rabbit/connection` for the Local Server and a NAS), amber when only the database does, red offline, a diamond and a square besides the colour, the words on hover and on a press (a toggletip), a change announced once; the project bar keeps the name and status left and the faces then Switch right (no LIVE, no adapter dot); the Dashboard's Live badge gone; the Bins counter 24px up (walkthrough 73); two review rounds on Opus, every finding fixed | **nothing.** Every finding of the two rounds was fixed in the session; the trade the corner makes (its cell sits over the left of a list's very bottom row) is the walkthrough's known limit, by her placement, not a fault | nothing |
@@ -3389,4 +3390,34 @@ S4b-11 are untouched and still hers.
   key's stored files after a deck is made. Fix: a DELETE route in `ai-files`
   and a sweep when a D.O.G. session ends or after N hours (an Edge Function
   change, so staging and prod need Audrey). Owner: a security or AI session.
+
+## Post-overhaul DG1b (`po/dg1b-references-answers`) — left open (2026-10-17)
+
+- **DG1b-01 · D.O.G.'s Alt key flips its Single page / Full deck switch from any
+  page.** PRE-EXISTING (the "Alt key toggle for Full Deck mode" effect in
+  `DeckOutlineGenerator.jsx`). The handler listens on the whole document and
+  never asks which page is showing, and App keeps D.O.G. mounted behind every
+  other page, so one Alt press and release outside a text field on any page
+  flips D.O.G.'s hidden switch. MEASURED in the development copy (2026-10-17):
+  on R.A.B.B.I.T., one Alt release turned Full deck into Single page. From the
+  code: it also fires on the release that ends an Alt+key shortcut (it ignores
+  only Ctrl, Shift and Meta), such as the Files tab's own Alt+← (up a folder,
+  `ProjectFilesExplorer.jsx`). INFERRED: Alt+Tab back into WILSON may deliver
+  that release too. Since Audrey's Q21 (D.O.G. opens on Full deck, then keeps
+  its side while WILSON is open) this is the one way the side changes unseen,
+  and a flipped side changes what Enter generates. S2a gave Enter a page guard
+  for the same reason (`enterIsDogs`, her C12). Would settle it: on
+  R.A.B.B.I.T., press and release Alt, then open D.O.G. Fix: return unless
+  `currentPage === 'dog'` (with `currentPage` in the effect's dependencies,
+  empty today), and ignore a release that ended a shortcut; whether Alt should
+  toggle at all is hers. Owner: a D.O.G. session.
+- **DG1b-02 · D.O.G.'s preview says "Reading it here is recorded in the file's
+  activity" when nothing new is recorded.** PRE-EXISTING (DG1).
+  `useReferences.readBody` keeps each file's body for the session (by size and
+  date), so a second read, by a preview or at Generate, is neither downloaded
+  nor recorded; the preview's line is chosen before the read and says it is
+  recorded either way. From the code (DG1b's review round 2, 2026-10-17).
+  Would settle it: on the cloud, preview a chosen PDF twice, then open its
+  activity: one *downloaded* row. Fix: say it only when this preview
+  downloaded (the id not yet in `readIds`). Owner: a D.O.G. session.
 
