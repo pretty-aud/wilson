@@ -208,10 +208,9 @@ describe('VW1b: the cell — every live item by name, in the task window\'s Sort
     const many = [...ITEMS(), item('i9', 't1', 'asset', 'a3', 2)]
     const proto = Element.prototype
     vi.spyOn(proto, 'getBoundingClientRect').mockImplementation(function () {
-      return { width: this.hasAttribute && this.hasAttribute('data-name') ? 80 : 0, height: 20, left: 0, top: 0, right: 0, bottom: 0 }
-    })
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
-      return this.classList && this.classList.contains('rb-task-items') ? 150 : 0
+      const width = this.hasAttribute && this.hasAttribute('data-name') ? 80
+        : this.classList && this.classList.contains('rb-task-items') ? 150 : 0
+      return { width, height: 20, left: 0, top: 0, right: width, bottom: 20 }
     })
     page({ taskItems: many })
     const c = cellOf('Glass and rain rig test', 'asset')
@@ -438,16 +437,19 @@ describe('VW1b: grouped by the new kinds — one group per combination; a drop t
 
 // ── VW1b code review round 1 (2026-10-17) ───────────────────────────────────
 describe('VW1b review round 1: the cell\'s measuring, the picker\'s place, a tick\'s cost, a grouping that outlives its column', () => {
-  // Each name's width by its words (its comma included), as Chromium measured them.
+  // Each name's width by its words (its comma included), as Chromium measured
+  // them; each box's by its class (its own fractional width, round 2's R2-4,
+  // and the whole number a browser gives as clientWidth).
   const stubWidths = (widths, boxes) => {
+    const boxOf = (el) => {
+      for (const [cls, w] of Object.entries(boxes)) if (el.classList && el.classList.contains(cls)) return w
+      return 0
+    }
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
-      const w = this.hasAttribute && this.hasAttribute('data-name') ? (widths[this.textContent] ?? 0) : 0
+      const w = this.hasAttribute && this.hasAttribute('data-name') ? (widths[this.textContent] ?? 0) : boxOf(this)
       return { width: w, height: 20, left: 0, top: 0, right: w, bottom: 20 }
     })
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
-      for (const [cls, w] of Object.entries(boxes)) if (this.classList && this.classList.contains(cls)) return w
-      return 0
-    })
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () { return Math.round(boxOf(this)) })
   }
   const three = [...ITEMS(), item('i9', 't1', 'asset', 'a3', 2)]
 
@@ -518,5 +520,95 @@ describe('VW1b review round 1: the cell\'s measuring, the picker\'s place, a tic
     rerender({ ...without, project: { ...without.project, scenes_enabled: true }, taskItems: ITEMS() })
     expect(document.querySelectorAll('tr.rb-task-group-row')).toHaveLength(0)
     expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
+  })
+})
+
+// ── VW1b code review round 2 (2026-10-17), attacking round 1's corrections ──
+describe('VW1b review round 2: the badge measured, the cell\'s fractional room, a closed picker\'s list until its write lands', () => {
+  // Chromium's own widths (round 2's probe): the kit Badge holding "+N".
+  const BADGES = { '+1': 26.25, '+2': 28.61, '+3': 28.56, '+4': 28.63, '+5': 28.77, '+6': 28.31, '+7': 27.25, '+8': 28.64, '+9': 28.36 }
+  const stub = (widths, box) => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      let w = 0
+      if (this.hasAttribute && this.hasAttribute('data-name')) w = widths[this.textContent] ?? 0
+      else if (this.classList && this.classList.contains('rb-task-items-ruler')) w = BADGES[this.textContent] ?? 0
+      else if (this.classList && this.classList.contains('rb-task-items')) w = box
+      return { width: w, height: 20, left: 0, top: 0, right: w, bottom: 20 }
+    })
+    // As a browser gives it: a whole number.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
+      return this.classList && this.classList.contains('rb-task-items') ? Math.round(box) : 0
+    })
+  }
+  const three = [...ITEMS(), item('i9', 't1', 'asset', 'a3', 2)]
+  const four = [...three, item('i10', 't1', 'asset', 'a4', 3)]
+  const label = () => cellOf('Glass and rain rig test', 'asset').getAttribute('aria-label')
+  const escape = () => act(async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }) })
+
+  it('R2-1: the room kept for "+N" is that badge\'s own measured width: "+2" is 28.6px, not round 1\'s 26.5, so two names do not fit beside it in 160.5px (one name and "+3")', () => {
+    // Mara, Harbour Wall: 126.9px; with the gap and "+2", 161.5 > 160.5.
+    stub({ 'Mara, ': 50, 'Harbour Wall, ': 76.9, 'Lighthouse Interior, ': 60, 'Storm Lantern': 60 }, 160.5)
+    page({ taskItems: four })
+    const c = cellOf('Glass and rain rig test', 'asset')
+    expect(c.querySelectorAll('[data-name]')).toHaveLength(1)
+    expect(c.querySelector('.rb-task-items-more').textContent).toBe('+3')
+    // The ruler holds no text and is hidden from a screen reader.
+    const ruler = c.querySelector('.rb-task-items-ruler')
+    expect(ruler.textContent).toBe('')
+    expect(ruler.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('R2-4: the room is the cell\'s fractional width: three names of 284.22px fit a 284.42px cell, where the whole-number clientWidth (284) dropped one', () => {
+    stub({ 'Harbour Wall, ': 100.1, 'Lighthouse Interior, ': 100.1, 'Storm Lantern': 84.02 }, 284.42)
+    page({ taskItems: three })
+    const c = cellOf('Glass and rain rig test', 'asset')
+    expect(c.querySelectorAll('[data-name]')).toHaveLength(3)
+    expect(c.querySelector('.rb-task-items-more')).toBeNull()
+  })
+
+  it('R2-2: a closed picker\'s list stays in its cell until the write lands (it showed the old items, then jumped); then the cell reads the task\'s items again', async () => {
+    let land
+    const { ctx, rerender } = page({ setTaskItemsOfKind: vi.fn(() => new Promise((resolve) => { land = resolve })) })
+    fireEvent.click(cellOf('Glass and rain rig test', 'asset'))
+    tick('Harbour Wall')
+    await escape()
+    expect(picker()).toBeNull()
+    expect(label()).toBe('Harbour Wall, Lighthouse Interior, Storm Lantern')
+    // It lands: the task's items say the same.
+    const landed = [...ctx.taskItems, item('ix', 't1', 'asset', 'a3', 2)]
+    rerender({ ...ctx, taskItems: landed })
+    await act(async () => { land({ added: 1, removed: 0 }) })
+    expect(label()).toBe('Harbour Wall, Lighthouse Interior, Storm Lantern')
+    // And from then on the cell reads them: a teammate's later change shows.
+    rerender({ ...ctx, taskItems: landed.filter((i) => i.id !== 'i1') })
+    expect(label()).toBe('Harbour Wall, Lighthouse Interior')
+  })
+
+  it('R2-2: a refused write: the cell goes back to what the task really has, and the Banner says why', async () => {
+    let refuse
+    page({ setTaskItemsOfKind: vi.fn(() => new Promise((_, reject) => { refuse = reject })) })
+    fireEvent.click(cellOf('Glass and rain rig test', 'asset'))
+    tick('Harbour Wall')
+    await escape()
+    expect(label()).toBe('Harbour Wall, Lighthouse Interior, Storm Lantern')
+    await act(async () => { refuse(new Error('This project is read-only for you')) })
+    expect(label()).toBe('Lighthouse Interior, Storm Lantern')
+    expect(document.querySelector('.ui-banner').textContent).toContain('Could not change the assets of “Glass and rain rig test”: This project is read-only for you')
+  })
+
+  it('R2-2: opened again before the write lands, the picker starts from the list being written, and the second close builds on it (built on the old items, it took the first change back)', async () => {
+    const { ctx } = page({ setTaskItemsOfKind: vi.fn(() => new Promise(() => {})) })
+    fireEvent.click(cellOf('Glass and rain rig test', 'asset'))
+    tick('Harbour Wall')
+    await escape()
+    expect(ctx.setTaskItemsOfKind).toHaveBeenLastCalledWith('t1', 'asset', ['a1', 'a2', 'a3'])
+    fireEvent.click(cellOf('Glass and rain rig test', 'asset'))
+    expect(rows().find(([n]) => n === 'Harbour Wall')[1]).toBe('true')
+    tick('Storm Lantern')
+    await escape()
+    expect(ctx.setTaskItemsOfKind).toHaveBeenCalledTimes(2)
+    expect(ctx.setTaskItemsOfKind).toHaveBeenLastCalledWith('t1', 'asset', ['a1', 'a3'])
+    expect(ctx.runWithUndoToast.mock.calls[1][1]).toBe('Removed "Storm Lantern" from "Glass and rain rig test"')
+    expect(label()).toBe('Harbour Wall, Lighthouse Interior')
   })
 })

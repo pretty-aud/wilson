@@ -330,14 +330,17 @@ cards naming every asset (VW1b tests them).
   and the other kinds after the assets; *A to Z* by name; *Date created* by
   when each row itself was made (its `created_at`; a row without one last).
   As many names as fit, then "+N" (the kit `Badge` in the muted ink) for the
-  rest, measured in the CELL's room with the badge's own width kept for it
-  (code review round 1, R1-4 and R1-8); until the cell is measured the names
-  are cut with "…", so nothing jumps; a cell with one name is never measured.
-  The whole list, in the same order, is the cell's tooltip and its accessible
-  name; "—" when there are none (named "No asset", "No scene", …). A shot
-  reads "Scene › Shot". A group's band keeps the display order (§4.11): where
-  the Sort is not *A to Z*, a cell and its band can name the same items in two
-  orders (walkthrough 72 asks her).
+  rest, measured in the CELL's room (its fractional width) with each "+N"
+  badge's own width kept for it, measured on a hidden copy of the badge (code
+  review round 1, R1-4 and R1-8; round 2, R2-1 and R2-4: a width by digits
+  fitted "1", the narrowest, and cut a name beside "+2" to "+9", and a
+  whole-number room dropped a name that fitted); until the cell is measured
+  the names are cut with "…", so nothing jumps; a cell with one name is never
+  measured. The whole list, in the same order, is the cell's tooltip and its
+  accessible name; "—" when there are none (named "No asset", "No scene", …).
+  A shot reads "Scene › Shot". A group's band keeps the display order (§4.11):
+  where the Sort is not *A to Z*, a cell and its band can name the same items
+  in two orders (walkthrough 72 asks her).
 - **The picker (VW1b, Q10):** the cell is a button; a click, Enter or Space
   opens the kit Popover (portalled, §8 KR-1) under it, labelled "Assets of
   <task>" (or Scenes, …). Inside: a search field; for scenes and shots the
@@ -365,7 +368,13 @@ cards naming every asset (VW1b tests them).
     nothing written, no toast. A refusal or a failure is said in the tab's
     Banner (VW1m R2-2's route). Grouped by that kind, the row moves once,
     after the commit: a write at every tick would move the row, and unmount
-    the cell the Popover hangs from, at every tick.
+    the cell the Popover hangs from, at every tick. The closed picker's list
+    stays in its cell until the write lands (then the cell reads the task's
+    items again: the same, or after a refusal what is really there), and a
+    picker opened on the cell before then starts from that list, so a second
+    close builds on the first (code review round 2, R2-2: the cell showed the
+    old items until the queued write landed, then jumped; built on the old
+    items, a second close took the first change back).
   - **Unticking the task's last live item (of any kind) asks first**, at
     the untick, with the window's question (*Remove the last item*), a kit
     Dialog over the Popover; *Cancel* keeps it ticked.
@@ -808,7 +817,10 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
     1, R1-2, measured): Chromium reads everything left of it as outside the
     view, so focus landing IN a sticky cell (a title's rename field, the next
     row's checkbox on Tab) threw the table back to its start, and a control
-    only partly under the cover was not moved at all.
+    only partly under the cover was not moved at all. A POINTER press moves
+    nothing (round 2, R2-3, measured): its focus lands on the press, before
+    the release, so the control slid from under the pointer, and a press
+    within the ring's 4px of the cover's edge was lost (no click).
   - **Layers over them.** A lane layer that lies over the sticky cells sits
     above their z-index: the Tasks bulk bar (4, over the head's 3) and the
     drag-over band stuck under the head (2, over the body's 1) — R1-1, R1-3.

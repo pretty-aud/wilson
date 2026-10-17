@@ -462,9 +462,13 @@
      their own, cut where the box ends, the first one with "…" when even it
      does not fit (and every one until the cell is measured, so nothing
      jumps). */
-  .rb-task-items { display: flex; align-items: center; gap: 6px; }
+  .rb-task-items { position: relative; display: flex; align-items: center; gap: 6px; }
   .rb-task-items-names { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rb-task-items-more { flex-shrink: 0; }
+  /* The ruler (VW1b review round 2, R2-1): a kit Badge the measuring copies
+     to learn each "+N" badge's own width. Out of the row, never painted,
+     kept inside its cell (the cell is its containing block). */
+  .rb-task-items-ruler { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; }
   /* A seat that may not write: the same names, hidden from a screen reader
      (the whole list is said once, in its visually hidden span). */
   .rb-task-items-shown { display: flex; align-items: center; gap: 6px; min-width: 0; }

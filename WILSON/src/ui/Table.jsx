@@ -69,6 +69,11 @@ const ALIGNS = ['left', 'center', 'right']
 // sticky end is outside the view": focus landing IN a sticky cell (a title's
 // rename field, the next row's checkbox on Tab) threw the table back to its
 // start, and a control only partly under the sticky columns was not moved.
+// A POINTER press moves nothing (round 2, R2-3): its focus lands on the
+// press, before the release, so a control scrolled then slid from under the
+// pointer, and a press within the ring's 4px of the cover's edge was lost
+// (no click); every press on a partly covered control slid it 50 to 60px as
+// it was pressed. The rule is the keyboard's (and a script's).
 // `--ui-sticky-room` is the scroller's content width: a spanning cell
 // (`colSpan`, a group's band) is not sticky, its FIRST CHILD is, at most that
 // wide (the sheet), so a band's words stay in view. Where nothing is
@@ -105,11 +110,15 @@ function useStickyColumns(n, tableRef, scrollRef) {
       }
     }
     measure()
+    // A press in the table, from its pointerdown to its release (R2-3).
+    let pressing = false
+    const press = () => { pressing = true }
+    const release = () => { pressing = false }
     // Where the sticky columns end, on screen: the last sticky head cell's
     // right edge (it holds its place, so it is where the cover ends now).
     const onFocus = (e) => {
       const el = e.target
-      if (!scroller || !(el instanceof Element) || !scroller.contains(el) || inStickyPlace(el, scroller)) return
+      if (pressing || !scroller || !(el instanceof Element) || !scroller.contains(el) || inStickyPlace(el, scroller)) return
       const last = table.tHead?.rows?.[0]?.cells?.[n - 1]
       if (!last) return
       const end = last.getBoundingClientRect().right + RING_ROOM
@@ -117,12 +126,21 @@ function useStickyColumns(n, tableRef, scrollRef) {
       if (from < end) scroller.scrollLeft -= end - from
     }
     scroller?.addEventListener('focusin', onFocus)
-    if (typeof ResizeObserver !== 'function') return () => scroller?.removeEventListener('focusin', onFocus)
+    scroller?.addEventListener('pointerdown', press, true)
+    window.addEventListener('pointerup', release, true)
+    window.addEventListener('pointercancel', release, true)
+    const unhear = () => {
+      scroller?.removeEventListener('focusin', onFocus)
+      scroller?.removeEventListener('pointerdown', press, true)
+      window.removeEventListener('pointerup', release, true)
+      window.removeEventListener('pointercancel', release, true)
+    }
+    if (typeof ResizeObserver !== 'function') return unhear
     const ro = new ResizeObserver(measure)
     const cells = table.tHead?.rows?.[0]?.cells
     for (let k = 0; k < n; k++) if (cells?.[k]) ro.observe(cells[k])
     if (scroller) ro.observe(scroller)
-    return () => { ro.disconnect(); scroller?.removeEventListener('focusin', onFocus) }
+    return () => { ro.disconnect(); unhear() }
   }, [n, tableRef, scrollRef])
 }
 

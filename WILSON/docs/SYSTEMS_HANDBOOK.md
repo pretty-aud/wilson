@@ -5059,17 +5059,18 @@ of a session — this section is limits by design, that file is faults.
   items write with code `task_items_unavailable`**: the load's read of
   `public.task_items` is the probe, and nothing is stripped (0096 adds no
   column to a table the client upserts).
-- **The Tasks table** (VW1b) has a column per kind the project uses
-  (Asset, Scene, Shot, Level, Experience: `views/tasksTableColumns.js`, the
-  window's picker rule `pickerKinds` over every task): each cell names every
-  live item, "+N" past what fits, and opens a picker (the kit `Popover`,
+- **The Tasks table** (VW1b) has a column per kind the project uses (Asset,
+  Scene, Shot, Level, Experience: `views/tasksTableColumns.js`, the window's
+  picker rule `pickerKinds` over every task): each cell names every live
+  item, "+N" past what fits, and opens a picker (the kit `Popover`,
   portalled) that ticks several; the ticks are a draft, committed once when
-  it closes (`views/TaskItemCells.jsx`). The table scrolls sideways with the
-  checkbox and Title kept in place (the kit Table's `stickyColumns`); its
-  widths come from the columns on screen. Levels', Experiences' and the
-  scene window's asset counts read an asset's `level_ids`,
-  `experience_ids` and `scene_ids` (on the cloud an asset carries no
-  level or experience link yet).
+  it closes and shown in the cell until that write lands (a second close
+  before then builds on it: `views/TaskItemCells.jsx`). The table scrolls
+  sideways with the checkbox and Title kept in place (the kit Table's
+  `stickyColumns`); its widths come from the columns on screen. Levels',
+  Experiences' and the scene window's asset counts read an asset's
+  `level_ids`, `experience_ids` and `scene_ids` (on the cloud an asset
+  carries no level or experience link yet).
 - **Writes**: the task window adds and removes items; a drop on a group or a
   Timeline row sets a kind to that group's items (`setTaskItemsOfKind`, one
   undoable write that keeps the task's hidden items; the Tasks table's
