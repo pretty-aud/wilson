@@ -142,19 +142,27 @@ if (VW1B) {
       return cells;
     }, title);
     const scrollAll = (page) => page.evaluate(() => { const sc = document.querySelector('.ui-table.rb-task-table').closest('.ui-table-scroll'); sc.scrollLeft = sc.scrollWidth; });
+    // A row brought into view, the table at rest sideways: a row wider than
+    // the scroller is also scrolled sideways by scrollIntoViewIfNeeded (12px
+    // in Chromium once the scroll padding went, VW1b review round 1, R1-2),
+    // which no person's own scrolling does.
+    const rowInView = async (page, locator) => {
+      await locator.scrollIntoViewIfNeeded();
+      await page.evaluate(() => { document.querySelector('.ui-table.rb-task-table').closest('.ui-table-scroll').scrollLeft = 0; });
+    };
     const TWO = 'Glass and rain rig test';
 
     await state('tasks', '', async (page) => { await tasksTab(page); return tableNow(page); });
     await state('two-assets', '', async (page) => {
       await tasksTab(page);
-      await page.locator('tr.rb-task-row', { hasText: TWO }).first().scrollIntoViewIfNeeded();
+      await rowInView(page, page.locator('tr.rb-task-row', { hasText: TWO }).first());
       return rowNow(page, TWO);
     });
     if (VW1B === 'after') {
       await state('picker', '', async (page) => {
         await tasksTab(page);
         const row = page.locator('tr.rb-task-row', { hasText: TWO }).first();
-        await row.scrollIntoViewIfNeeded();
+        await rowInView(page, row);
         await row.locator('button.rb-task-items').first().click();
         await page.waitForTimeout(300);
         return page.evaluate(() => {
@@ -170,7 +178,7 @@ if (VW1B) {
       await page.getByRole('combobox', { name: 'Group' }).selectOption('asset');
       await page.waitForTimeout(300);
       const band = page.locator('tr.rb-task-group-row', { hasText: ',' }).first();
-      if (await band.count()) await band.scrollIntoViewIfNeeded();
+      if (await band.count()) await rowInView(page, band);
       return page.evaluate(() => [...document.querySelectorAll('tr.rb-task-group-row')].map((r) => `${r.querySelector('.rb-task-group-label').textContent} (${r.querySelector('.rb-task-group-count').textContent})`));
     });
     await state('scrolled', '', async (page) => {
