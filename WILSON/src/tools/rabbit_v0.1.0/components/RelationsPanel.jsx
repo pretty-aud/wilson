@@ -1204,9 +1204,11 @@ export function RelationBadge({ icon: Icon, count, label, onClick }) {
 //     alphabetical, type": ONE Sort menu beside the + (three choices in one
 //     place, where two buttons sat on every row — Hick). *Type*, where it
 //     starts, keeps a run of rows per kind under its name, each in the
-//     display order (names A to Z, scenes and shots by number); *A to Z* and
-//     *Date added* are one list, each row keeping its kind's glyph (named for
-//     a screen reader there, where no kind heads it). The choice is
+//     display order (names A to Z, scenes and shots by number) — VW1b, her
+//     Q-N1b of 2026-10-17: the assets a run per asset type ("Assets ·
+//     Character"); *A to Z* and *Date created* (her Q-N1a: when each item
+//     itself was made) are one list, each row keeping its kind's glyph (named
+//     for a screen reader there, where no kind heads it). The choice is
 //     remembered on that computer, and the Files sections under the table
 //     follow it (her Q-N2). Sort shows once there are two items to order;
 //   · her Q-N4: an item whose row the project does not show (a trashed asset,
