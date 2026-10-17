@@ -1072,7 +1072,12 @@ cheapest to change and never a database change her answer could take back.
   deleting an asset says *Its tasks stay.*; *Asset is X* means the task has
   X; an older build that writes one asset adds it, never removes one.
 
-## Batch 15 — your sort, and the editors that set one asset (prepared, not yet asked)
+## Batch 15 — your sort, and the editors that set one asset (Q-N1a and Q-N1b asked by the controller in chat on 2026-10-17 as multiple choice; answered)
+
+**Her answers, 2026-10-17 (verbatim):**
+- **Q-N1a (which date):** "The item's own creation date" — NOT the interim (added to the task). VW1b changes `sortItemsForDisplay` (`taskItemsModel.js`): by date = when the asset, scene, shot, level or experience itself was created.
+- **Q-N1b (which type):** "The asset's own type" — NOT the interim (by kind). VW1b: by type = the asset's own type (character, prop, environment…) for assets; the kind for the other item kinds.
+- **Q-N5 (the Asset cell)** was not asked: VW1b replaces the cell with the item columns, and her 2026-10-13 answer ("shows all or none") already rules it.
 
 **Q-N1a. Sorting a task's items "by date": which date?**
 - **When the item was added to this task** *(Recommended; interim)*: the
@@ -1104,7 +1109,12 @@ its cards and its read-only task window show one asset, the first.
   *(Recommended; interim)*.
 - **No asset column** on the Dashboard.
 
-## Batch 16 — bid versions and the history (prepared, not yet asked)
+## Batch 16 — bid versions and the history (Q-N7 and Q-N8 asked by the controller in chat on 2026-10-17 as multiple choice; answered)
+
+**Her answers, 2026-10-17 (verbatim):**
+- **Q-N7 (a bid version):** "Keep every item (Recommended)" — the interim, built; nothing changes.
+- **Q-N8 (item history):** "No item history (Recommended)" — the interim, built; no migration.
+- **Q-N6 (the Dashboard names every asset)** was not asked; the interim (yes) stands unless she says otherwise.
 
 **Q-N7. What a bid version keeps about a task's items.** Today it keeps the
 first asset, scene, shot, level and experience only; opening it swaps the
