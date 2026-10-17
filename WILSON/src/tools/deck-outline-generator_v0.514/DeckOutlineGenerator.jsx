@@ -57,8 +57,10 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   const [isFileLoading, setIsFileLoading] = useState(false);
   // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
   // page mounted, so the side then stays where it is put until WILSON closes,
-  // as the uploads do. With it on, Enter (outside a text field, before any
-  // page exists) generates the deck exactly when its button can.
+  // as the uploads do; the one exception is the Alt toggle below, which hears
+  // Alt on every page (OUTSTANDING DG1b-01). With Full deck on and no page
+  // yet, D.O.G.'s Enter key (enterGenerates.js says where it is D.O.G.'s)
+  // generates the deck whenever its button is enabled.
   const [fullDeckMode, setFullDeckMode] = useState(true);
 
   // Visual Asset Placement State

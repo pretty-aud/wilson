@@ -7,15 +7,17 @@
  *
  * On the dev fixtures:
  *
- *   dog    D.O.G. at rest; a project chosen (the first one in the list); the
- *          Full deck switch on; the switch off again with a layout chosen.
+ *   dog    D.O.G. at rest; a project chosen (the first one in the list); Full
+ *          deck; Single page with a layout chosen. Since DG1b D.O.G. opens on
+ *          Full deck, so shots 1 to 3 share that side.
  *   notes  The Dashboard's Notes tab: the list, then the first note open.
  *   refs   DG1 as built (walkthrough 75): the three cards; the Add references
  *          window on Files, on Scenes with a scene ticked and previewed, on
  *          Notes with one ticked; the card with what was chosen; Full deck
  *          and Single page; a deck asked for from files the test data
  *          refuses to read. The side D.O.G. opens on is measured first
- *          (`refsOpensOn`: Full deck since DG1b, Audrey's Q21).
+ *          (`refsOpensOn`: Full deck since DG1b, Audrey's Q21), so card 3 is on
+ *          Full deck in shots 1 to 6 and on Single page in shot 7.
  *
  * For each state it prints, and writes as `po-dg1-measure-<part>-<W>x<H>.json`
  * into --out, what the screen says: every field label, hint, placeholder and
@@ -137,12 +139,12 @@ async function partDog(browser) {
     report.project = { chosen: first.label, ...(await page.evaluate(readDog)) };
     await shot(page, 'dog', 2, 'project');
 
-    // Full deck on.
+    // Full deck (where D.O.G. opens since DG1b): set, not toggled.
     await setSide(page, 'Full deck');
     report.fullDeck = await page.evaluate(readDog);
     await shot(page, 'dog', 3, 'full-deck');
 
-    // Off again, a layout chosen, the second card in view.
+    // Single page, a layout chosen, card 3 in view.
     await setSide(page, 'Single page');
     const layouts = await page.$$eval('.dog-s2 select option', (os) => os.map((o) => o.value).filter(Boolean));
     if (!layouts.length) throw new Error('the layout dropdown lists no layout');

@@ -45,7 +45,7 @@ colour, no new typeface.
 | P12 | **Answered (Q12, 2026-10-17):** the chosen set is kept while WILSON is open, never written to the computer. | Q12, "Same as uploads" |
 | P19 | **Answered (Q19, 2026-10-17):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") could also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out. Put to her in those words, she chose the ticked ones. | Q19, "Only the ones you tick" |
 | P20 | **Answered (Q20, 2026-10-17):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | Q20, "Keep those names" |
-| P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open. | Q21, "Full deck" |
+| P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open (the Alt key can flip it from any page: OUTSTANDING DG1b-01). | Q21, "Full deck" |
 | P22 | **Answered (Q22, 2026-10-17):** an item also sends its type, dates and production fields (§3, §9 item 8). | Q22, "Keep them" |
 | P23 | **Answered (Q23, 2026-10-17):** *"to place media in the deck"* shows beside *Use visual assets*, in the hint ink. | Q23, "Shown beside the box" |
 
@@ -216,7 +216,8 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
   Enter work as on every switch, Left and Right choose a side, and the switch
   keeps its `dog-full-deck` class, so Enter keeps generating from it
   (`enterGenerates.js`; review round 1, finding 4). It opens on *Full deck*
-  (her Q21, 2026-10-17), and the side is then kept while WILSON is open.
+  (her Q21, 2026-10-17), and the side is then kept while WILSON is open; the
+  Alt key, which toggles it, is heard on every page (OUTSTANDING DG1b-01).
 - **The two media boxes**, under the switch, in both modes:
   - **Use visual assets** with *"to place media in the deck"* after it in the
     hint ink (R15): your uploaded pictures and videos, as *Use uploaded assets*
@@ -569,10 +570,20 @@ outline*; the layout, the page number and the page box are drawn when the
 switch is moved to Single page. App keeps every page mounted, so the side then
 stays where it is put until WILSON closes: moved to Single page, away to
 R.A.B.B.I.T. through the app's own page change and back, it is still on Single
-page. One consequence, stated: D.O.G.'s Enter key (outside a text field,
-before any page exists) generates a full deck whenever *Generate full deck
-outline* can, as it always did with Full deck on; before, at opening, it also
-needed a layout and a page request.
+page. The exception, found while checking this and not fixed (outside her
+answers): D.O.G.'s Alt toggle is heard on every page, so one Alt release on
+R.A.B.B.I.T. flipped the hidden switch (OUTSTANDING DG1b-01).
+
+One consequence, stated: with no page yet, D.O.G.'s Enter key (on its page,
+outside a text field, and not on a button other than its own tick boxes and
+switch: `enterGenerates.js`) generates a full deck whenever *Generate full
+deck outline* is enabled, as it always did with Full deck on; before, at
+opening, it also needed a layout and a page request. The deck context may be
+empty, and the theme generator, ticked at open, runs with it. Enter on any
+other focused button presses that button: after *Done* closes the References
+window, focus is on *Add references*, and Enter reopened the window (measured;
+with focus on the page, Enter started the deck). Whether Enter at open should
+also want a deck context is hers to say (walkthrough 75 §4).
 
 **Tests.** `enterGenerates.test.js` pins the opening side, and that nothing
 sets the side on its own (every call is a click, the switch, an arrow key or
@@ -581,4 +592,20 @@ planting a mount-time reset each turn one test red.
 
 **Also.** `scripts/dg1-shots.mjs` sets the switch to a side instead of toggling
 it, and records the side D.O.G. opens on (`refsOpensOn`).
+
+## 14. DG1b code review round 1 (2026-10-17)
+
+A Fable reviewer read DG1b's two commits, her answers and the code, read-only:
+eight findings, four MEDIUM, none wrong with the switch itself.
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | MEDIUM | `scripts/ui-walk.mjs` proved D.O.G.'s page by "Generate page outline", which Full deck does not draw | The proof is card 3's title, *Generate outline*, on either side |
+| 2 | MEDIUM | Walkthrough 75 still said Q21 opens on Single page, and its §4 listed all six as open | §1, §2 and §4 updated in place; §6 "After your answers" written; the README row |
+| 3 | MEDIUM | "The side is kept while WILSON is open" is false for Alt: D.O.G.'s Alt toggle is heard on every page (the Files tab's Alt+← ends in one) | Measured (one Alt release on R.A.B.B.I.T. flipped it); said in §1, §2.4, §13, the questions file, the code note and the walkthrough; OUTSTANDING DG1b-01; not fixed (outside her answers), hers to rule |
+| 4 | MEDIUM | Enter at open now starts a full deck, and the theme call, as soon as there is a source, with an empty deck context; "exactly when its button can" overstated it | §13 says it in full (the empty context, the theme generator, Enter on a focused button presses it: after *Done* it reopened the window, measured); "exactly" gone from the note and the test; whether Enter at open should want a deck context is hers (walkthrough 75 §4) |
+| 5 | LOW | Q12's "nothing is written" overstated: a chosen file's read is recorded in its activity | The questions file and the walkthrough say so |
+| 6 | LOW | `dg1-shots.mjs`'s comments described a toggle that no longer happens | They say which shots share a side |
+| 7 | LOW | The tests were brittle in places, and blind to a remount from App | The Alt check is bounded by its handler, not a character window; a new test that App mounts D.O.G. once with no `key`, with a control; on the real files, a planted key, a moved Alt handler, the side flipped back and a mount-time reset each turned the tests red |
+| 8 | LOW | Beyond her answers: tooling only (the launch entry, `refsOpensOn`) | Nothing to do |
 

@@ -27,23 +27,24 @@
 **What this is.** DG1 of the post-overhaul plan
 (`docs/sessions/briefs/po-dg1-dog-references.md`): research
 (`docs/design/DOG_REFERENCES_RESEARCH.md`), your answers
-(`docs/design/DOG_REFERENCES_QUESTIONS.md`, batches 1 to 4 verbatim), the
-design (`docs/design/DOG_REFERENCES_DESIGN.md`) and the build. **Batches 5 and
-6 (six questions) wait for you**: you asked to *"leave questions for
-tomorrow"*, so the build follows the recommended pick of each, marked
-*provisional* in the design. Section 4 below lists them.
+(`docs/design/DOG_REFERENCES_QUESTIONS.md`, batches 1 to 6 verbatim), the
+design (`docs/design/DOG_REFERENCES_DESIGN.md`) and the build. You asked to
+*"leave questions for tomorrow"*, so batches 5 and 6 were first built on their
+recommended picks. You answered them on 2026-10-17, and one answer changed the
+build: **D.O.G. now opens on Full deck**. Section 6 says what each answer did.
 
 Written 2026-10-16 against `feat/post-overhaul-edit-versioning` (DG1,
-`po/dg1-dog-references`). No database change.
+`po/dg1-dog-references`); updated 2026-10-17 for your answers (DG1b,
+`po/dg1b-references-answers`). No database change.
 
 ## 1. Step by step
 
-**A. The three cards** (the development copy on port 5300, `/dog`, the test
-data)
+**A. The three cards** (the development copy, `/dog`, the test data: port 5301
+in DG1b's worktree)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 1 | Open D.O.G. | Three cards: **1 Project documentation** (the project and your uploads), **2 References** (*None chosen*), **3 Generate outline**, then the output. In card 3 the switch reads **Single page** (bright) and **Full deck** (dim). |
+| 1 | Open D.O.G. | Three cards: **1 Project documentation** (the project and your uploads), **2 References** (*None chosen*), **3 Generate outline**, then the output. In card 3 the switch is on **Full deck** (bright; *Single page* dim), with the deck context box, the **Theme generator** box and **Generate full deck outline**. |
 | 2 | Choose **Salt Hours** | Its description under the dropdown, and nothing else: no attachment count, no Core / Ref chips. Card 2 reads *"What goes to the AI: your uploads, what is listed here, and the project's title and description, with what you write below."* (`po-dg1-refs-01-cards`) |
 
 **B. The window**
@@ -61,9 +62,9 @@ data)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 9 | Switch to **Full deck** (or click the words *Full deck*) | The deck context box with its example and *"• Include desired page count"*, the **Theme generator** box on its label line, **Generate full deck outline** (`po-dg1-refs-06-full-deck`). The two media boxes stay. |
-| 10 | Back to **Single page**, choose a layout | Layout, page number and the page box, each with its hint and example, and under the page box: *"Also applied here, from Full deck: …the theme generator (on)."* (`po-dg1-refs-07-single-page`) |
-| 11 | A new page: **Add references**, **All Core files**, **Done**; **Full deck**, **Generate full deck outline** | The test data refuses every file download, so: *"Nothing you chose could be read, so nothing was generated…"* and an amber line, *"Not sent: Salt_Hours_shooting_script_v4.pdf (could not be read), …"* (`po-dg1-refs-08-nothing-readable`). All Core files ticked six: the Photoshop file is greyed, *D.O.G. cannot read this kind of file*. |
+| 9 | Card 3 as it opens, on **Full deck** | The deck context box with its example and *"• Include desired page count"*, the **Theme generator** box on its label line, **Generate full deck outline** (`po-dg1-refs-06-full-deck`). The two media boxes stay. |
+| 10 | Switch to **Single page** (or click the words *Single page*), choose a layout | Layout, page number and the page box, each with its hint and example, and under the page box: *"Also applied here, from Full deck: …the theme generator (on)."* (`po-dg1-refs-07-single-page`) |
+| 11 | A new page (it opens on Full deck): **Add references**, **All Core files**, **Done**; **Generate full deck outline** | The test data refuses every file download, so: *"Nothing you chose could be read, so nothing was generated…"* and an amber line, *"Not sent: Salt_Hours_shooting_script_v4.pdf (could not be read), …"* (`po-dg1-refs-08-nothing-readable`). All Core files ticked six: the Photoshop file is greyed, *D.O.G. cannot read this kind of file*. |
 | 11b | Tick a video in Files | Its card row says *placed only, not read*: a video is placed in a slide by *Use project assets*, never sent to the AI, and on its own it does not enable Generate. |
 
 **D. On the real cloud** (wilson-dev or the beta, signed in, when you choose)
@@ -83,10 +84,11 @@ data)
 ## 2. How to check it
 
 - The tests: `npx vitest run src/tools/deck-outline-generator_v0.514 src/components/Dashboard src/cloud/migrate/polarityRoundTrip.test.js src/tools/rabbit_v0.1.0/views/rabbitFilesRender.test.jsx`.
-- The development copy: the `dg1-worktree` launch entry, port 5300;
-  `node scripts/dg1-shots.mjs 5300 --out <dir> --size 1440x900 --part refs`
-  walks §1 A to C and photographs them (`--part dog` and `--part notes` are
-  the before pictures).
+- The development copy: the `dg1b-worktree` launch entry, port 5301 (DG1's
+  was `dg1-worktree`, port 5300);
+  `node scripts/dg1-shots.mjs 5301 --out <dir> --size 1440x900 --part refs`
+  walks §1 A to C, photographs them, and records the side D.O.G. opens on
+  (`--part dog` and `--part notes` are the before pictures).
 
 ## 3. What was checked, and how
 
@@ -111,17 +113,16 @@ data)
 
 ## 4. Waiting on you
 
-Batches 5 and 6 in `docs/design/DOG_REFERENCES_QUESTIONS.md`, each built on
-its recommended pick:
+Batches 5 and 6 are answered (section 6). Still yours:
 
-- **Q12** remembering: kept while WILSON is open, as uploads are.
-- **Q19** *Use project assets*: places the pictures and videos among your
-  chosen references. Your *"like before"* would place the project's own media
-  without a tick, and that would send unticked pictures to the AI, which your
-  Q2 rules out; this one needs your call.
-- **Q20** the card names; **Q21** the switch opens on *Single page*.
-- **Q22** an item's extra fields (type, dates, framing…); **Q23** whether
-  *"to place media in the deck"* shows beside the box.
+- **§1 D on the real cloud.** The test data cannot read files or reach the AI.
+- **The design's §9 decisions you have not seen**, items 1 to 7 and 10 to 18,
+  each small (items 8 and 9 were your Q22 and Q23). Say if any is wrong.
+- **Enter at the start.** Say if Enter should also want something in the deck
+  context box before it generates a full deck (section 6, "One thing to know").
+- **The Alt key** flips the switch from any page, as it did before. Say if Alt
+  should stop toggling it, or toggle it only on D.O.G.'s page
+  (`docs/OUTSTANDING.md`, DG1b-01).
 
 ## 5. Known limits
 
@@ -132,3 +133,55 @@ its recommended pick:
 - A PDF is counted by its pages only once it is read (an upload at once; a
   chosen file at its first preview or generation); until then the meter says
   how many it has not counted.
+
+## 6. After your answers (2026-10-17)
+
+You answered batches 5 and 6 on 2026-10-17. Your words are under each batch in
+`docs/design/DOG_REFERENCES_QUESTIONS.md`.
+
+| Question | Your answer | What changed |
+|---|---|---|
+| Q12, remembering | Same as uploads | Nothing. Your ticks are kept while WILSON is open and gone when it closes, and are never saved. A file that is read is still recorded in its activity, as before. |
+| Q19, what *Use project assets* places | Only the ones you tick | Nothing. A project picture or video you did not tick is never placed or sent to the AI. |
+| Q20, the card names | Keep those names | Nothing. |
+| Q21, the switch's side when D.O.G. opens | Full deck | **D.O.G. opens on Full deck.** |
+| Q22, an item's extra fields | Keep them | Nothing. |
+| Q23, the box's hint | Shown beside the box | Nothing. |
+
+**F. The one change** (the development copy, `/dog`)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 16 | Open D.O.G. | Card 3 is on **Full deck**: the deck context box with its example, the **Theme generator** box and **Generate full deck outline** (`po-dg1-refs-01-cards`). |
+| 17 | Click **Single page**, go to R.A.B.B.I.T., come back to D.O.G. | Still on **Single page**. The side is kept while WILSON is open, as your uploads are. One exception, true before too: pressing Alt on any page flips the switch. It is written down to fix (`docs/OUTSTANDING.md`, DG1b-01). |
+| 18 | Close WILSON and open it again (in the browser: reload the page) | **Full deck** again. |
+
+**One thing to know.** With Full deck on and no pages yet, pressing Enter on
+D.O.G.'s page (not in a text box, and not on a button other than D.O.G.'s own
+tick boxes and switch) generates a full deck as soon as there is something to
+read: a file uploaded, or a reference chosen. The deck context box may be
+empty, and the theme generator, ticked at the start, runs too. That was already
+so whenever Full deck was on; it now holds from the moment D.O.G. opens.
+Before, at opening, Enter also needed a layout and a page request. Enter on any
+other button presses that button: right after **Done**, focus is on **Add
+references**, so Enter opens the window again.
+
+**How it was checked.**
+
+- **Your answers, word for word**, in the questions file, then built: one line
+  of code for Q21, and the notes that still called the other five provisional.
+- **Tests:** new checks that D.O.G. opens on Full deck, that nothing moves the
+  switch back on its own, and that WILSON never restarts D.O.G. while it is
+  open. Each was made to fail by breaking the code on purpose. The whole suite
+  passed, but for one network timing test that passes on its own.
+- **The development copy**, as in F above: it opens on Full deck; Single page is
+  kept across R.A.B.B.I.T. and back; a reload opens on Full deck; Enter with an
+  upload starts a full deck; after **Done**, Enter only reopens the window.
+- **Two code reviews**, each by a separate reviewer reading the code. The first
+  found eight things, none wrong with the switch itself: the twelve-page check
+  script still looked for "Generate page outline", this section was not yet
+  written, the Alt key and the Enter key above, two sentences that said too
+  much, and two scripts' comments and tests to make firmer. Each was corrected
+  or written down. ROUND2_PENDING
+- **The pictures** in this walkthrough were retaken: `po-dg1-refs-01-cards`
+  shows card 3 on Full deck.

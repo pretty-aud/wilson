@@ -144,9 +144,11 @@ describe('DeckOutlineGenerator calls it first, with its own page, and App tells 
 // Audrey's Q21 (2026-10-17, DG1b): "When D.O.G. opens, which side is the
 // switch on?" "Full deck". The side is the switch state's first value, and
 // App renders every page at once and only hides the others, so D.O.G. opens
-// on Full deck each time WILSON starts and keeps the side after that. With
-// Full deck on, Enter generates the deck exactly when the visible "Generate
-// full deck outline" button can (the handler asks the button's two things).
+// on Full deck each time WILSON starts and keeps the side after that (but for
+// the Alt toggle, heard on every page: OUTSTANDING DG1b-01). With Full deck on
+// and no page yet, the Enter key, wherever enterIsDogs says it is D.O.G.'s,
+// generates the deck whenever the "Generate full deck outline" button is
+// enabled (the handler asks the button's own two things).
 describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
   const DECL = /const \[fullDeckMode, setFullDeckMode\] = useState\((true|false)\)/g
   // The side the one live declaration starts on; null unless there is exactly one.
@@ -180,9 +182,23 @@ describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
   it('nothing sets the side on its own: every call is a click, the switch, an arrow key or Alt', () => {
     const dog = read('./DeckOutlineGenerator.jsx')
     expect(strayCallers(dog)).toEqual([])
-    // The Alt toggle is one line, and it is a key's, not a mount's.
-    expect(blankJsComments(dog).match(/setFullDeckMode\(prev => !prev\)/g)).toHaveLength(1)
-    expect(blankJsComments(dog)).toMatch(/if \(e\.key !== 'Alt'\) return;[\s\S]{0,700}setFullDeckMode\(prev => !prev\);[\s\S]{0,120}document\.addEventListener\('keyup', handler\)/)
+    // The Alt toggle is one line, inside the Alt key's own handler (a key's,
+    // not a mount's), however long that handler's comments grow.
+    const live = blankJsComments(dog)
+    expect(live.match(/setFullDeckMode\(prev => !prev\)/g)).toHaveLength(1)
+    const from = live.indexOf("if (e.key !== 'Alt') return;")
+    const to = live.indexOf("document.addEventListener('keyup', handler)", from)
+    const toggle = live.indexOf('setFullDeckMode(prev => !prev)')
+    expect(from, 'the Alt handler').toBeGreaterThan(-1)
+    expect(toggle > from && toggle < to, 'the toggle sits inside the Alt handler').toBe(true)
+  })
+  it('App mounts D.O.G. once and gives it no key, so nothing remounts it and resets the side', () => {
+    const tags = (src) => blankJsComments(src).match(/<DeckOutlineGenerator\b[\s\S]*?\/>/g) || []
+    const app = tags(read('../../App.jsx'))
+    expect(app).toHaveLength(1)
+    expect(app[0]).not.toMatch(/\bkey=/)
+    // CONTROL: a key anywhere in the tag is seen, after the other props too.
+    expect(tags('<DeckOutlineGenerator\n  onNavigate={navigateTo}\n  currentPage={currentPage}\n  key={projectId}\n/>')[0]).toMatch(/\bkey=/)
   })
   it('CONTROL: an effect that resets the side when D.O.G. mounts is caught', () => {
     const planted = "  useEffect(() => { setFullDeckMode(false); }, []);\n  useEffect(() => setFullDeckMode(false), [projectId]);"

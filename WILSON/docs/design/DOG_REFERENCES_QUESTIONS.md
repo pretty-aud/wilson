@@ -441,9 +441,11 @@ place?"
 ### What follows from batch 5 (say if any is wrong)
 
 1. **The chosen references are kept while WILSON is open and gone when it
-   closes**, as your uploads are. Nothing about them, and nothing about your
-   notes, is written to this computer or to the database. No database change:
-   migration 0099 and test suite 102, held for this answer, stay unused.
+   closes**, as your uploads are. What you ticked, and your notes' text, are
+   not saved on this computer or in the database; as before, a chosen file
+   that is read (at Generate, or a Preview you ask for) is recorded in that
+   file's activity, as every download is. No database change: migration 0099
+   and test suite 102, held for this answer, stay unused.
 2. **Use project assets places only the pictures and videos you tick**, from
    anywhere in the project. One you did not tick is never placed or sent to the
    AI, whatever it is filed under (it is read only if you preview it). Your Q2
@@ -455,6 +457,12 @@ place?"
    first, and the page number, the layout dropdown and the single page box show
    when the switch is moved to Single page. The side is kept while WILSON is open,
    as your pages and uploads are, and starts on Full deck again when WILSON opens.
+   One exception, found while checking it and true before too: pressing Alt on
+   any page flips the switch. It is written down to fix (OUTSTANDING DG1b-01).
+   And with Full deck on from the start, Enter on the page (not in a text box,
+   and not on a button, D.O.G.'s own tick boxes and switch excepted as before)
+   generates a full deck as soon as there is something to read; before, at
+   opening, it also needed a layout and a page request.
 
 ---
 
