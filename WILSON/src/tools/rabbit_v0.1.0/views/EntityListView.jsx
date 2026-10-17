@@ -36,8 +36,10 @@
 //   Icon           the lucide glyph (Gamepad2 | Sparkles)
 //   collection     the ctx list, and the thumbnail route's segment
 //                  ('levels': ctx.levels, /projects/:id/levels/:id/thumbnail)
-//   linkKey        an asset's / task's link to a row ('level_id'): the
-//                  Assets count, and the key ctx.addTask links a new task by
+//   linkKey        a task's link to a row ('level_id'): the key ctx.addTask
+//                  links a new task by, and a file's link (the Files count)
+//   assetsKey      an asset's links to rows ('level_ids'), the field the
+//                  Assets tab writes: the Assets count (VW1b)
 //   addMethod, updateMethod, deleteMethod
 //                  the ctx writers ('addLevel', 'updateLevel', 'deleteLevel')
 //   savedViewsKey  the saved views' localStorage key
@@ -202,15 +204,22 @@ export default function EntityListView({ entity }) {
   }
 
   // ── Lookups ──
+  // VW1b (2026-10-17; her Q12, "Fix counts, no new columns"; the design's
+  // §4.7, OUTSTANDING P1-26's assets half): an asset is in a level (or an
+  // experience) when its `level_ids` (`experience_ids`) hold the row — the
+  // field the Assets tab writes and the window's Assets list reads. It
+  // counted `level_id`, which no asset carries, so every level read 0 assets
+  // while its window listed them. Each asset counts once per row. On the
+  // cloud assets carry no level or experience links yet (the adapter leaves
+  // them out): there the count is 0 by data, until VW1e carries them.
   const assetCountById = useMemo(() => {
     const map = {}
     for (const a of assets) {
-      const id = a[entity.linkKey]
-      if (!id) continue
-      map[id] = (map[id] || 0) + 1
+      const ids = Array.isArray(a?.[entity.assetsKey]) ? a[entity.assetsKey] : []
+      for (const id of new Set(ids.filter(x => x != null && x !== '').map(String))) map[id] = (map[id] || 0) + 1
     }
     return map
-  }, [assets, entity.linkKey])
+  }, [assets, entity.assetsKey])
 
   // VW1m (2026-10-16): a task counts under every level (or experience) it is
   // about, not only its first (OUTSTANDING P1-26, the tasks half): the

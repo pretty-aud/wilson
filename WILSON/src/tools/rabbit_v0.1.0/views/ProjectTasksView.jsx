@@ -33,9 +33,20 @@
 // Asset C"), the Law of Common Region: a group is the region of the tasks
 // that share exactly those items. A drop makes the group's items the task's
 // (Q-D1), with the shell's undo toast (Ctrl+Z is not bound on this tab).
-// *Asset is X* means the task has X; the Asset cell names every asset and
-// opens the task's window (Q-N5's interim, until VW1b's picker). Every
-// reading goes through the model's one path, buildItemLookup.
+// *Asset is X* means the task has X. Every reading goes through the model's
+// one path, buildItemLookup.
+//
+// VW1b (2026-10-17, her Q9 "All of them", Q10 "Pick several there", Q11 "Yes,
+// a column for each", Q-G2, Q6a; the design's §4.6 as its step 0 review
+// corrected it): a column per item kind the project uses — Asset, Scene, Shot,
+// Level, Experience, after Priority — each cell every live item by name in the
+// task window's Sort, "+N" past what fits, a click opening a picker that ticks
+// several (TaskItemCells.jsx: a draft, committed once on close, one undo
+// step). Scene, Shot, Level and Experience join the Group menu with their
+// columns. The table scrolls sideways with the checkbox and Title kept in
+// place (the kit Table's stickyColumns), its widths from the columns on
+// screen (tasksTableColumns.js). Working memory: the task's name stays in
+// view while the table scrolls; Fitts: the edit is in the cell the eye is on.
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import {
@@ -70,7 +81,10 @@ import {
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
-import { KIND_FIELD, NO_KIND_LABEL, buildItemLookup, isItemKind } from '../state/taskItemsModel'
+import { ITEM_KINDS, KIND_FIELD, KIND_LABEL, NO_KIND_LABEL, buildItemLookup, isItemKind, sortIdsForDisplay } from '../state/taskItemsModel'
+import { pickerKinds, useTaskItemSort } from '../components/RelationsPanel'
+import { TaskItemCell, useItemPicker } from './TaskItemCells'
+import { tasksTableColumns, tasksTableWidths } from './tasksTableColumns'
 import './rabbitTasks.css'
 
 // ── Constants ──
@@ -81,18 +95,21 @@ const TASK_STATUSES = [
 
 const PRIORITIES = ['low','medium','high','urgent']
 
-// VW1m (2026-10-16): grouping by Asset makes one group per combination of a
-// task's assets (her Q-D). Scene, Shot, Level and Experience join this list
-// with their columns (her Q11; VW1b): the grouping code already takes any
-// item kind.
-const GROUPABLE_FIELDS = [
-  { value: '',        label: 'No grouping' },
-  { value: 'status',  label: 'Status' },
-  { value: 'asset',   label: 'Asset' },
-  { value: 'phase',   label: 'Phase' },
-  { value: 'priority',label: 'Priority' },
-  { value: 'assignee',label: 'Assignee' },
-]
+// VW1m (2026-10-16): grouping by an item kind makes one group per
+// combination of a task's items (her Q-D). VW1b (her Q11): Scene, Shot,
+// Level and Experience join Asset here exactly where their columns show
+// (`kinds`, the task window's picker rule over every task), in the kinds'
+// order, where Asset always sat.
+function groupableFields(kinds = ['asset']) {
+  return [
+    { value: '',        label: 'No grouping' },
+    { value: 'status',  label: 'Status' },
+    ...kinds.map(kind => ({ value: kind, label: KIND_LABEL[kind] })),
+    { value: 'phase',   label: 'Phase' },
+    { value: 'priority',label: 'Priority' },
+    { value: 'assignee',label: 'Assignee' },
+  ]
+}
 
 // A combination group's names A to Z, numbers read as numbers ("Shot 2"
 // before "Shot 10"), case ignored: the order item 2 of VW1m's hand-off gives
@@ -139,11 +156,13 @@ function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false) {
 }
 
 /**
- * A task's live items of a kind by name, in the display order, joined with
- * ', ' ('' for none): the Asset cell's words and a Board card's.
+ * A task's live items of a kind by name, joined with ', ' ('' for none): a
+ * Board card's words. VW1b: in the task window's Sort, as the table's cell
+ * lists them (the design's §4.6: "a card names all its assets, as the cell
+ * does").
  */
-function itemNamesOf(lookup, task, kind) {
-  return lookup.idsOf(task, kind).map(id => lookup.nameOf(kind, id)).join(', ')
+function itemNamesOf(lookup, task, kind, sort) {
+  return sortIdsForDisplay(kind, lookup.idsOf(task, kind), sort, lookup).map(id => lookup.nameOf(kind, id)).join(', ')
 }
 
 /**
@@ -285,6 +304,16 @@ export default function ProjectTasksView() {
   const kindRows = useMemo(() => ({
     asset: assets, scene: ctx?.scenes, shot: ctx?.shots, level: ctx?.levels, experience: ctx?.experiences,
   }), [assets, ctx?.scenes, ctx?.shots, ctx?.levels, ctx?.experiences])
+  // VW1b (her Q11): the item columns, and the Group menu's item kinds, are the
+  // kinds the project uses — the task window's picker rule (pickerKinds) read
+  // over EVERY task's live items, so a column is there exactly when the
+  // window would offer its kind. Assets always.
+  const itemKinds = useMemo(() => pickerKinds({ project }, ITEM_KINDS
+    .filter(kind => tasks.some(t => itemLookup.idsOf(t, kind).length > 0))
+    .map(kind => ({ entity_type: kind }))), [project, tasks, itemLookup])
+  // The task window's Sort, one store for every reader (her Q10: the cells
+  // list a task's items "as the task's window sets them").
+  const [itemSort] = useTaskItemSort()
 
   const phaseById = useMemo(() => {
     const m = {}; for (const p of phases) m[p.id] = p; return m
@@ -314,6 +343,16 @@ export default function ProjectTasksView() {
   const [sortDir, setSortDir]       = useState('asc')
   const [groupBy, setGroupBy]       = useState('')
   const [kanbanGroup, setKanbanGroup] = useState('status')
+  // VW1b: the Group menu offers the item kinds the project uses; a grouping
+  // whose kind it no longer offers (its column gone) reads as the default.
+  const groupFields = useMemo(() => groupableFields(itemKinds), [itemKinds])
+  const tableGroup = groupFields.some(f => f.value === groupBy) ? groupBy : ''
+  const boardGroup = groupFields.some(f => f.value === kanbanGroup) ? kanbanGroup : 'status'
+  // VW1b review round 1 (R1-10): such a grouping is forgotten, not kept
+  // aside — kept, the table regrouped by itself the moment a task named that
+  // kind again, and a saved view stored it.
+  useEffect(() => { if (groupBy !== tableGroup) setGroupBy(tableGroup) }, [groupBy, tableGroup])
+  useEffect(() => { if (kanbanGroup !== boardGroup) setKanbanGroup(boardGroup) }, [kanbanGroup, boardGroup])
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   // VW1m review round 2 (R2-2): a refused or failed drop's sentence, said in
   // the kit Banner above the table or the Board until dismissed (or the next
@@ -491,7 +530,7 @@ export default function ProjectTasksView() {
 
   // ── Grouping (table) ──
   const groups = useMemo(() => {
-    const g = groupBy
+    const g = tableGroup
     if (!g) return null
     // VW1m: an item kind groups by combination (itemGroupsOf), never by a
     // task's first item.
@@ -544,11 +583,11 @@ export default function ProjectTasksView() {
       label: resolveGroupLabel(g, key),
       tasks: map[key] || [],
     }))
-  }, [processed, groupBy, phases, projectMembers, phaseById, memberById, sortField, sortDir, itemLookup, kindRows])
+  }, [processed, tableGroup, phases, projectMembers, phaseById, memberById, sortField, sortDir, itemLookup, kindRows])
 
   // Kanban groups
   const kanbanGroups = useMemo(() => {
-    const g = kanbanGroup
+    const g = boardGroup
     // VW1m: a column per single item even when empty (her Q-I), a column per
     // combination that holds tasks, and "No …".
     if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g], true)
@@ -580,7 +619,7 @@ export default function ProjectTasksView() {
       label: resolveGroupLabel(g, key),
       tasks: map[key] || [],
     }))
-  }, [processed, kanbanGroup, phases, projectMembers, phaseById, memberById, itemLookup, kindRows])
+  }, [processed, boardGroup, phases, projectMembers, phaseById, memberById, itemLookup, kindRows])
 
   function resolveGroupLabel(field, key) {
     if (key === '__none__') return 'Unassigned'
@@ -620,7 +659,7 @@ export default function ProjectTasksView() {
     const view = {
       id: Date.now().toString(),
       name: saveName.trim(),
-      filters, sortField, sortDir, groupBy, kanbanGroup, viewMode,
+      filters, sortField, sortDir, groupBy: tableGroup, kanbanGroup: boardGroup, viewMode,
     }
     const next = [...savedViews, view]
     setSavedViews(next)
@@ -801,13 +840,13 @@ export default function ProjectTasksView() {
         <span className="rb-task-divider" aria-hidden="true" />
 
         {/* Group */}
-        <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
+        <select value={viewMode === 'kanban' ? boardGroup : tableGroup}
           onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
           aria-label="Group"
           className="ui-input rb-task-tool"
           data-size="sm"
-          data-active={(viewMode === 'kanban' ? kanbanGroup !== 'status' : !!groupBy) ? 'true' : 'false'}>
-          {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          data-active={(viewMode === 'kanban' ? boardGroup !== 'status' : !!tableGroup) ? 'true' : 'false'}>
+          {groupFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
         <span className="rb-task-divider" aria-hidden="true" />
@@ -877,7 +916,9 @@ export default function ProjectTasksView() {
             tasks={processed}
             hasAnyTask={tasks.length > 0}
             groups={groups}
-            groupBy={groupBy}
+            groupBy={tableGroup}
+            itemKinds={itemKinds}
+            itemSort={itemSort}
             itemLookup={itemLookup}
             phases={phases}
             members={projectMembers}
@@ -897,7 +938,8 @@ export default function ProjectTasksView() {
         ) : (
           <KanbanBoard
             groups={kanbanGroups}
-            kanbanGroup={kanbanGroup}
+            kanbanGroup={boardGroup}
+            itemSort={itemSort}
             itemLookup={itemLookup}
             memberById={memberById}
             ctx={ctx}
@@ -1136,20 +1178,19 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // Electron's 1024px floor, a scrollbar of up to 18px allowed for at 1280)
 // rather than wrapping a date mid-token (V1-06) or starving the title. A row's buttons sit in the title cell, right after its
 // words (FX8, the kit's RowTitle): there is no actions column.
-function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir, onDropFail }) {
-  const columns = [
-    { key: 'title',       label: 'Title' },
-    { key: 'status',      label: 'Status',   width: 'var(--rb-task-col-status)' },
-    { key: 'priority',    label: 'Priority', width: 'var(--rb-task-col-priority)' },
-    { key: 'asset_id',    label: 'Asset',    width: 'var(--rb-task-col-asset)' },
-    { key: 'phase_id',    label: 'Phase',    width: 'var(--rb-task-col-phase)' },
-    { key: 'assignee_id', label: 'Assignee', width: 'var(--rb-task-col-assignee)' },
-    { key: 'start_date',  label: 'Start',    width: 'var(--rb-task-col-date)' },
-    { key: 'end_date',    label: 'End',      width: 'var(--rb-task-col-date)' },
-    { key: 'bid_days',    label: 'Bid',      width: 'var(--rb-task-col-bid)', numeric: true },
-  ]
-  // The checkbox column plus the nine above: what a spanning cell spans.
+// VW1b (2026-10-17): the columns are tasksTableColumns' (an item column per
+// kind the project uses, after Priority), the fixed sum and the growable count
+// from the columns on screen (widthStyle, the design's §4.10); with every
+// column on, the table scrolls sideways with the checkbox and Title kept in
+// place (stickyColumns, her Q6a), and an item cell's picker is the table's
+// (useItemPicker: a cell's row moves group after its commit).
+function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, itemKinds = ['asset'], itemSort = 'type', phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir, onDropFail }) {
+  const columns = useMemo(() => tasksTableColumns(itemKinds), [itemKinds])
+  const widths = useMemo(() => tasksTableWidths(columns), [columns])
+  // The checkbox column plus the columns above: what a spanning cell spans.
   const span = columns.length + 1
+  const wrapRef = useRef(null)
+  const picker = useItemPicker({ ctx, lookup: itemLookup, tableRef: wrapRef, onFail: onDropFail })
 
   // ── Multi-select state ──
   const [selected, setSelected] = useState(new Set())
@@ -1216,7 +1257,8 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, pha
   }
 
   const rowProps = {
-    columns, itemLookup, phases, members, ctx, canWrite,
+    columns, itemLookup, itemSort, phases, members, ctx, canWrite,
+    picking: picker.picking, onOpenItems: picker.open, draftStore: picker.store,
   }
   const taskRow = (t, drop) => (
     <TaskRow key={t.id} task={t} {...rowProps} drop={drop}
@@ -1279,8 +1321,11 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, pha
   }
 
   return (
-    <div className="rb-task-table-wrap">
+    <div className="rb-task-table-wrap" ref={wrapRef}
+      style={{ '--rb-task-fixed': widths.fixed, '--rb-task-grow-n': widths.growN }}
+      data-grow={widths.grow === 0 ? 'none' : undefined}>
       {guard.modal}
+      {picker.layer}
       {/* ── Bulk-action bar (overlays the header, right of the checkbox
           column: the controls appear where the selection was made). ── */}
       {someSelected && (
@@ -1310,6 +1355,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, pha
 
       <Table
         dense
+        stickyColumns={2}
         className="rb-task-table"
         head={(
           <Row>
@@ -1328,7 +1374,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, pha
               </button>
             </Th>
             {columns.map(c => (
-              <Th key={c.key} width={c.width} numeric={c.numeric}>{c.label}</Th>
+              <Th key={c.key} width={c.width} numeric={c.numeric} data-col={c.key === 'bid_days' ? 'bid' : undefined}>{c.label}</Th>
             ))}
           </Row>
         )}
@@ -1676,7 +1722,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
           // FX8: its one button, Delete, right after its words (a key date
           // has no window to open), as every row's buttons are.
           return (
-            <Td key={c.key} className="rb-task-cell">
+            <Td key={c.key} className="rb-task-cell" data-col="title">
               <RowTitle actions={canWrite && !isProjectBound ? (
                 <IconButton size="sm" Icon={Trash2} danger title={`Delete ${milestone.title || 'Untitled key date'}`} onClick={handleDelete} />
               ) : null}>
@@ -1742,9 +1788,9 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
             </Td>
           )
         }
-        // Empty cell for other columns
+        // Empty cell for other columns (Bid keyed on its column, VW1b)
         return (
-          <Td key={c.key} numeric={c.numeric}>
+          <Td key={c.key} numeric={c.numeric} data-col={c.key === 'bid_days' ? 'bid' : undefined}>
             <span className="rb-task-none">—</span>
           </Td>
         )
@@ -1754,7 +1800,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 }
 
 // ── Single task row ──
-function TaskRow({ task, columns, itemLookup, phases, members, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
+function TaskRow({ task, columns, itemLookup, itemSort = 'type', picking = null, onOpenItems, draftStore = null, phases, members, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
   const guard = useDependencyStatusGuard(ctx)
   const removal = useRemovalAsk(ctx)
   const writeReason = useWriteReason()
@@ -1836,24 +1882,6 @@ function TaskRow({ task, columns, itemLookup, phases, members, ctx, canWrite, on
             </select>
           </span>
         )
-      case 'asset_id': {
-        // VW1m (2026-10-16), Q-N5's interim (until VW1b's picker): every live
-        // asset by name, cut short by the cell, the whole list its title and
-        // its accessible name. One asset choice here would replace the
-        // others, so the cell is no select: it opens the task's window, as
-        // the row's Open does, where the Items table adds and removes them.
-        // Opening is a read, so a seat that may not write keeps it.
-        const names = itemNamesOf(itemLookup, task, 'asset')
-        return (
-          <button type="button" onClick={onDetailClick}
-            className="rb-task-cell-text"
-            data-empty={names ? 'false' : 'true'}
-            title={names || NO_KIND_LABEL.asset}
-            aria-label={names || NO_KIND_LABEL.asset}>
-            {names || '—'}
-          </button>
-        )
-      }
       case 'phase_id':
         return (
           <span className="rb-task-cell-editor">
@@ -1887,6 +1915,17 @@ function TaskRow({ task, columns, itemLookup, phases, members, ctx, canWrite, on
       case 'bid_days':
         return <CellNumberInput value={task.bid_days} label="Bid days" onCommit={v => handleUpdate({ bid_days: v })} readOnly={!canWrite} />
       default:
+        // VW1b (her Q9, Q10, Q11): an item column — every live item of its
+        // kind by name, a click opening the picker (TaskItemCells.jsx).
+        if (col.kind) {
+          const mine = picking && picking.taskId === task.id && picking.kind === col.kind
+          return (
+            <TaskItemCell task={task} kind={col.kind} lookup={itemLookup} sort={itemSort}
+              canWrite={canWrite} available={ctx?.taskItemsAvailable === true}
+              draftStore={draftStore} open={!!mine}
+              onOpen={onOpenItems} onOpenWindow={onDetailClick} />
+          )
+        }
         return <span className="rb-task-none">{task[col.key] ?? '—'}</span>
     }
   }
@@ -1922,7 +1961,7 @@ function TaskRow({ task, columns, itemLookup, phases, members, ctx, canWrite, on
         </button>
       </Td>
       {columns.map(c => (
-        <Td key={c.key} numeric={c.numeric} className="rb-task-cell">
+        <Td key={c.key} numeric={c.numeric} className="rb-task-cell" data-col={c.key === 'title' ? 'title' : c.key === 'bid_days' ? 'bid' : undefined}>
           {renderCell(c)}
         </Td>
       ))}
@@ -1959,19 +1998,19 @@ function AddRow({ span, canWrite, onAdd, drop }) {
 // • Prägnanz — clean cards, no excess decoration
 // • Fitts's Law — generous add-task targets, large enough card touch areas
 //
-function KanbanBoard({ groups, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
+function KanbanBoard({ groups, kanbanGroup, itemLookup, itemSort = 'type', memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
   return (
     <div className="rb-task-board">
       {groups.map(g => (
         <KanbanColumn key={g.key} group={g} kanbanGroup={kanbanGroup}
-          itemLookup={itemLookup} memberById={memberById}
+          itemLookup={itemLookup} itemSort={itemSort} memberById={memberById}
           ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} onDropFail={onDropFail} />
       ))}
     </div>
   )
 }
 
-function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
+function KanbanColumn({ group, kanbanGroup, itemLookup, itemSort, memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
   const [addTitle, setAddTitle] = useState('')
   const guard = useDependencyStatusGuard(ctx)
   const [dragOver, setDragOver] = useState(false)
@@ -2043,7 +2082,7 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrit
       <div className="rb-task-col-list">
         {group.tasks.map(t => (
           <KanbanCard key={t.id} task={t}
-            itemLookup={itemLookup} memberById={memberById}
+            itemLookup={itemLookup} itemSort={itemSort} memberById={memberById}
             ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)} />
         ))}
 
@@ -2067,12 +2106,12 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, memberById, ctx, canWrit
   )
 }
 
-function KanbanCard({ task, itemLookup, memberById, ctx, canWrite, onDetailClick }) {
+function KanbanCard({ task, itemLookup, itemSort, memberById, ctx, canWrite, onDetailClick }) {
   const removal = useRemovalAsk(ctx)
   const assignee = task.assignee_id ? memberById[task.assignee_id] : null
   // VW1m (2026-10-16): every live asset by name, cut short by the card, the
   // whole list on hover (it was the first asset only).
-  const assetNames = itemNamesOf(itemLookup, task, 'asset')
+  const assetNames = itemNamesOf(itemLookup, task, 'asset', itemSort)
   const status   = task.status   || 'waiting_to_start'
   const priority = task.priority || 'medium'
 

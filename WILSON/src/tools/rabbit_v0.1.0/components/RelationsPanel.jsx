@@ -30,7 +30,7 @@
 // (R4-27). Every state is a `data-*` attribute or a real :hover resolved in
 // the sheet.
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Boxes, ListChecks, Plus, X, Search,
@@ -57,8 +57,9 @@ import MenuButton from '../views/scenes/MenuButton'
 // by the window's Sort.
 import {
   ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, ITEM_SORTS, ITEM_SORT_LABEL,
-  itemsOfTask, tasksAbout, buildItemLookup, sortItemsForDisplay,
+  itemsOfTask, tasksAbout, buildItemLookup, sortItemsForDisplay, typeRunsOf,
 } from '../state/taskItemsModel'
+import { assetTypeLabel } from '../state/assetTypes'
 import '../views/rabbitFiles.css'
 
 // A priority's words, in sentence case ("low" -> "Low"). A status's words
@@ -1203,9 +1204,11 @@ export function RelationBadge({ icon: Icon, count, label, onClick }) {
 //     alphabetical, type": ONE Sort menu beside the + (three choices in one
 //     place, where two buttons sat on every row — Hick). *Type*, where it
 //     starts, keeps a run of rows per kind under its name, each in the
-//     display order (names A to Z, scenes and shots by number); *A to Z* and
-//     *Date added* are one list, each row keeping its kind's glyph (named for
-//     a screen reader there, where no kind heads it). The choice is
+//     display order (names A to Z, scenes and shots by number) — VW1b, her
+//     Q-N1b of 2026-10-17: the assets a run per asset type ("Assets ·
+//     Character"); *A to Z* and *Date created* (her Q-N1a: when each item
+//     itself was made) are one list, each row keeping its kind's glyph (named
+//     for a screen reader there, where no kind heads it). The choice is
 //     remembered on that computer, and the Files sections under the table
 //     follow it (her Q-N2). Sort shows once there are two items to order;
 //   · her Q-N4: an item whose row the project does not show (a trashed asset,
@@ -1267,8 +1270,18 @@ export function useTaskItemsView(task, ctx) {
 // window on that computer (a person's habit, not a task's). Every read and
 // write is tried: a private window, blocked site data or a full store throws,
 // and the window then starts at *Type* and keeps the choice while it is open.
+// VW1b (2026-10-17): ONE choice on screen too. The Tasks table's item cells
+// list a task's items in the order its window does (her Q10: "the order ...
+// stay as the task's window sets them"), so every reader subscribes to the
+// one store: a Sort chosen in a task's window reorders the cells behind it at
+// once (it was each component's own copy, read at its mount).
 const ITEM_SORT_KEY = 'rabbit_task_items_sort'
-function keptItemSort() {
+const itemSortListeners = new Set()
+// The choice when the browser's store refused it (blocked, or full): kept for
+// this page only, as before.
+let itemSortHeld = null
+function readItemSort() {
+  if (itemSortHeld != null) return itemSortHeld
   try {
     const kept = window.localStorage.getItem(ITEM_SORT_KEY)
     return ITEM_SORTS.includes(kept) ? kept : ITEM_SORTS[0]
@@ -1276,14 +1289,30 @@ function keptItemSort() {
     return ITEM_SORTS[0]
   }
 }
+function chooseItemSort(next) {
+  if (!ITEM_SORTS.includes(next)) return
+  try {
+    window.localStorage.setItem(ITEM_SORT_KEY, next)
+    itemSortHeld = null
+  } catch {
+    itemSortHeld = next
+  }
+  for (const heard of [...itemSortListeners]) heard()
+}
+function onItemSort(heard) {
+  itemSortListeners.add(heard)
+  // Another window of WILSON on this computer chose one.
+  const fromElsewhere = (e) => { if (e.key === ITEM_SORT_KEY || e.key === null) heard() }
+  window.addEventListener('storage', fromElsewhere)
+  return () => { itemSortListeners.delete(heard); window.removeEventListener('storage', fromElsewhere) }
+}
 export function useTaskItemSort() {
-  const [sort, setSort] = useState(keptItemSort)
-  const choose = useCallback((next) => {
-    if (!ITEM_SORTS.includes(next)) return
-    setSort(next)
-    try { window.localStorage.setItem(ITEM_SORT_KEY, next) } catch { /* kept for this window only */ }
-  }, [])
-  return [sort, choose]
+  const sort = useSyncExternalStore(onItemSort, readItemSort, readItemSort)
+  return [sort, chooseItemSort]
+}
+/** Tests only: forget a choice the store refused (module state, one page). */
+export function _resetTaskItemSortForTests() {
+  itemSortHeld = null
 }
 
 // The Sort menu's unchosen rows hold the check's room, so the three words
@@ -1305,14 +1334,13 @@ export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, write
   const homeOf = useHomeIndex(ctx)
   const listsKnown = Array.isArray(ctx?.shotLists)
   const current = ITEM_SORTS.includes(sort) ? sort : ITEM_SORTS[0]
-  // *Type*: a run of rows per kind under its name. *A to Z*, *Date added*:
-  // one run, no kind names.
+  // *Type*: a run of rows per kind under its name; VW1b (her Q-N1b, "The
+  // asset's own type"), the assets one run per asset type, named "Assets ·
+  // Character", so the order the Sort chose can be read. *A to Z*, *Date
+  // created*: one run, no kind names.
   const byKind = current === 'type'
   const shown = useMemo(() => sortItemsForDisplay(live, current, lookup), [live, current, lookup])
-  const kinds = useMemo(
-    () => (byKind ? ITEM_KINDS.map(kind => ({ kind, items: shown.filter(i => i.entity_type === kind) })).filter(g => g.items.length > 0) : []),
-    [shown, byKind],
-  )
+  const kinds = useMemo(() => (byKind ? typeRunsOf(shown, lookup) : []), [shown, byKind, lookup])
   if (!task) return null
 
   // Every verb reports its own failure (the provider's banner); the window
@@ -1377,12 +1405,15 @@ export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, write
       >
         {live.length === 0 ? (
           <p className="rb-rel-empty">{`No items yet. Add the ${kindsInWords(pickerKinds(ctx, live))} this task is about.`}</p>
-        ) : byKind ? kinds.map(g => (
-          <div key={g.kind} className="rb-rel-kind" role="group" aria-label={KIND_LABEL_PLURAL[g.kind]}>
-            <span className="rb-rel-kind-label" aria-hidden="true">{KIND_LABEL_PLURAL[g.kind]}</span>
-            {g.items.map(itemRow)}
-          </div>
-        )) : shown.map(itemRow)}
+        ) : byKind ? kinds.map(g => {
+          const words = g.type == null ? KIND_LABEL_PLURAL[g.kind] : `${KIND_LABEL_PLURAL.asset} · ${assetTypeLabel(g.type)}`
+          return (
+            <div key={g.key} className="rb-rel-kind" role="group" aria-label={words}>
+              <span className="rb-rel-kind-label" aria-hidden="true">{words}</span>
+              {g.items.map(itemRow)}
+            </div>
+          )
+        }) : shown.map(itemRow)}
       </RelSection>
 
       {picking && (
@@ -1416,8 +1447,11 @@ export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, write
 
 // The kinds a project's picker offers: assets always; scenes and shots, levels
 // and experiences where the project turns them on (the window's old pickers'
-// rule) or the task already names one.
-function pickerKinds(ctx, items) {
+// rule) or the task already names one. VW1b (2026-10-17): the Tasks table's
+// item columns and its Group menu read the same rule over every task's items
+// (`items` is any list of `{ entity_type }`), so a column is there exactly
+// when the window would offer its kind.
+export function pickerKinds(ctx, items) {
   const p = ctx?.project
   const has = (kind) => items.some(i => i.entity_type === kind)
   return ITEM_KINDS.filter(kind => {
@@ -1428,36 +1462,89 @@ function pickerKinds(ctx, items) {
   })
 }
 
+// ── What the window's picker and the Tasks table's item cells share ──────────
+// VW1b (2026-10-17; the design's §4.6, step 0 review finding 9): the window's
+// picker adds (every kind, a row the task names not offered); the cell's
+// picker ticks (one kind, every row, the task's ticked). They share these,
+// so neither forks the other: whether "Show all lists" adds anything, each
+// kind's rows (the ACTIVE shot list's scenes and shots unless all lists are
+// shown, D10, and any row in `keep` whatever its list), the search's match,
+// and the lookup's words for a row.
+
+/** Whether "Show all lists" has scenes or shots to add (another list holds some). */
+export function itemPickerScopeOn(ctx) {
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  return otherListRows({ active: scenes, all: ctx?.allScenes || scenes })
+    || otherListRows({ active: shots, all: ctx?.allShots || shots })
+}
+
+/** A row's words in the pickers: the lookup's (a shot "Scene › Shot"). */
+function offerName(lookup, kind, row) {
+  return lookup?.nameOf(kind, row.id) || row.name || `Untitled ${kind}`
+}
+
+// What tells two rows apart when their names are the same (her Q10: "two
+// assets with the same name show their type and phase"): an asset's type and
+// phase; a scene's number; a shot's number (its scene is already in its
+// name). Nothing for a level or an experience.
+function tellApart(kind, row, phaseById) {
+  if (kind === 'asset') {
+    const phase = row.phase_id ? phaseById.get(row.phase_id)?.name : null
+    return [assetTypeLabel(row.type), phase || 'No phase'].join(' · ')
+  }
+  if (kind === 'scene' && row.scene_number != null && row.scene_number !== '') return `Scene ${row.scene_number}`
+  if (kind === 'shot' && row.shot_number != null && row.shot_number !== '') return `Shot ${row.shot_number}`
+  return null
+}
+
+/**
+ * The rows a picker offers for one kind, in the project's order, matched by
+ * the search (`query`, any case), each `{ row, name, apart }`: `apart` says
+ * what tells it from another row of the same name, null when its name is its
+ * own.
+ */
+export function itemPickerOffers(ctx, kind, { lookup, showAll = false, keep = [], query = '' } = {}) {
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  const rows = {
+    asset: () => ctx?.assets || [],
+    scene: () => pickerRows({ active: scenes, all: ctx?.allScenes || scenes, showAll, keep }),
+    shot: () => pickerRows({ active: shots, all: ctx?.allShots || shots, showAll, keep }),
+    level: () => ctx?.levels || [],
+    experience: () => ctx?.experiences || [],
+  }[kind]?.() || []
+  const named = rows.filter(r => r && r.id != null).map(r => ({ row: r, name: offerName(lookup, kind, r) }))
+  const seen = new Map()
+  for (const o of named) {
+    const k = o.name.toLowerCase()
+    seen.set(k, (seen.get(k) || 0) + 1)
+  }
+  const phaseById = new Map((ctx?.phases || []).map(p => [p.id, p]))
+  const q = String(query || '').trim().toLowerCase()
+  return named
+    .filter(o => !q || o.name.toLowerCase().includes(q))
+    .map(o => ({ ...o, apart: seen.get(o.name.toLowerCase()) > 1 ? tellApart(kind, o.row, phaseById) : null }))
+}
+
 // AssetPickerOverlay's shell, over the same column, for all five kinds: one
 // search, then a group per kind, each row an add. A row the task already
 // names is not offered. Scenes and shots are the ACTIVE shot list's (D10),
 // with "Show all lists" for the rest, as the window's old pickers were.
 // VW1m (2026-10-16): a row's words are the model's lookup's, as the table's.
+// VW1b: its rows, scope and match are the shared ones above.
 function TaskItemPickerOverlay({ ctx, items, lookup, onPick, onClose }) {
   const [search, setSearch] = useState('')
   const [showAllLists, setShowAllLists] = useState(false)
   useFocusBackOnClose()
   const kinds = pickerKinds(ctx, items)
-  const scenes = ctx?.scenes || []
-  const shots = ctx?.shots || []
-  const allScenes = ctx?.allScenes || scenes
-  const allShots = ctx?.allShots || shots
-  const scopeOn = kinds.includes('scene') && (otherListRows({ active: scenes, all: allScenes }) || otherListRows({ active: shots, all: allShots }))
+  const scopeOn = kinds.includes('scene') && itemPickerScopeOn(ctx)
   const taken = new Set(items.map(i => `${i.entity_type}:${i.entity_id}`))
   const q = search.trim().toLowerCase()
-  const source = {
-    asset: () => ctx?.assets || [],
-    scene: () => pickerRows({ active: scenes, all: allScenes, showAll: showAllLists }),
-    shot: () => pickerRows({ active: shots, all: allShots, showAll: showAllLists }),
-    level: () => ctx?.levels || [],
-    experience: () => ctx?.experiences || [],
-  }
   const groups = kinds.map(kind => ({
     kind,
-    offers: source[kind]()
-      .filter(r => r && !taken.has(`${kind}:${r.id}`))
-      .map(r => ({ row: r, name: lookup.nameOf(kind, r.id) || r.name || `Untitled ${kind}` }))
-      .filter(o => !q || o.name.toLowerCase().includes(q)),
+    offers: itemPickerOffers(ctx, kind, { lookup, showAll: showAllLists, query: search })
+      .filter(o => !taken.has(`${kind}:${o.row.id}`)),
   })).filter(g => g.offers.length > 0)
   const total = groups.reduce((n, g) => n + g.offers.length, 0)
 

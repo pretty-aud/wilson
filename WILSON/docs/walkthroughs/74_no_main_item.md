@@ -128,6 +128,8 @@ the Desktop kit's `00_HOW_TO_APPLY.md`, after 0096.
 
 ## 4. Questions for you (not yet asked: you went to bed)
 
+*(2026-10-17: you answered four of these on 2026-10-17. Q-N1a and Q-N1b went the other way from the interim and are built by VW1b: the Sort reads **Date created** (when each item itself was made) and **Type** orders the assets by their own type, each run named, as in walkthrough 72 step 11. Q-N7 and Q-N8 stand as built. Q-N5 was not asked: VW1b's tick-list replaces the cell (walkthrough 72, part 1). Q-N6 was not asked and stands as built unless you say otherwise.)*
+
 Each is built to its interim choice until you answer
 (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`, batches 15 and 16):
 

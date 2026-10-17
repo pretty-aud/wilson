@@ -5011,7 +5011,7 @@ of a session — this section is limits by design, that file is faults.
   lose in one request and deletes in another (a take assigned in between is
   lost, said in the hand-off).
 
-**A task's items (FX2, migration 0096 — 2026-10-11; no main item since VW1m, migration 0097 — 2026-10-16)**
+**A task's items (FX2, migration 0096 — 2026-10-11; no main item since VW1m, migration 0097 — 2026-10-16; the Tasks table's item columns, VW1b — 2026-10-17)**
 
 - **A task relates to many items through `task_items`: assets, scenes,
   shots, levels and experiences, and no item counts for more than another**
@@ -5020,7 +5020,11 @@ of a session — this section is limits by design, that file is faults.
   LIVE items (an item whose row is in the trash is hidden from its tasks and
   comes back on restore), a kind's **combination** (its set, keyed by the
   sorted ids, named in the display order), and three sorts for the task
-  window (Type, A to Z, Date added). Grouped by an item, the Timeline, the
+  window, kept per computer in one store (`useTaskItemSort`): Type (the
+  assets by their own type, in the Assets table's order, then the other
+  kinds), A to Z, and Date created (when each row itself was made) — her
+  answers of 2026-10-17; the Tasks table's item cells list a task's items in
+  the same Sort. Grouped by an item, the Timeline, the
   Tasks table and the Board show one row or group per combination; the
   Budget splits a task's days and money evenly between its items; a task's
   phase is its own, else the one its live assets share. `ctx.tasks` carries
@@ -5055,14 +5059,28 @@ of a session — this section is limits by design, that file is faults.
   items write with code `task_items_unavailable`**: the load's read of
   `public.task_items` is the probe, and nothing is stripped (0096 adds no
   column to a table the client upserts).
+- **The Tasks table** (VW1b) has a column per kind the project uses (Asset,
+  Scene, Shot, Level, Experience: `views/tasksTableColumns.js`, the window's
+  picker rule `pickerKinds` over every task): each cell names every live
+  item, "+N" past what fits, and opens a picker (the kit `Popover`,
+  portalled) that ticks several; the ticks are a draft, committed once when
+  it closes and shown in the cell until that write lands (a second close
+  before then builds on it: `views/TaskItemCells.jsx`). The table scrolls
+  sideways with the checkbox and Title kept in place (the kit Table's
+  `stickyColumns`); its widths come from the columns on screen. Levels',
+  Experiences' and the scene window's asset counts read an asset's
+  `level_ids`, `experience_ids` and `scene_ids` (on the cloud an asset
+  carries no level or experience link yet).
 - **Writes**: the task window adds and removes items; a drop on a group or a
   Timeline row sets a kind to that group's items (`setTaskItemsOfKind`, one
-  undoable write that keeps the task's hidden items); a task made from a
+  undoable write that keeps the task's hidden items; the Tasks table's
+  picker commits through it too); a task made from a
   combination carries its items (`addTask` with `items`). A bid version
   keeps every item of every task; opening one saved before 0097 adds its
   saved item where the task lost it and removes nothing.
-- **Known limits:** a task's history records no item change (the copy's
-  lines are hidden in the drawer until Audrey's answer to VW1m's Q-N8); the
+- **Known limits:** a task's history records no item change (Audrey's
+  answer to VW1m's Q-N8, 2026-10-17: "No item history"; the copy's lines are
+  hidden in the drawer); the
   Dashboard shows a task's assets as of its last load (`docs/OUTSTANDING.md`);
   templates name no items; a split shows fractions of a day.
 

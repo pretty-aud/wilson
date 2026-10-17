@@ -30,6 +30,8 @@ export const COMPONENTS = [
   'Tabs', 'Panel', 'Drawer', 'Stat', 'HoverActions',
   // Post-overhaul FX8 (FX8-KR-1)
   'RowTitle',
+  // Post-overhaul VW1b (VW1-KR-1)
+  'Popover',
 ]
 
 describe('src/ui inventory', () => {

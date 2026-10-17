@@ -45,7 +45,104 @@
 // sort by it, which is the one moment you are looking straight at it.
 // =============================================================================
 
+import { useLayoutEffect, useRef } from 'react'
+
 const ALIGNS = ['left', 'center', 'right']
+
+// ── Sticky columns (post-overhaul VW1b, the kit request VW1-KR-2) ───────────
+//
+//   <Table stickyColumns={2} …>   the first two columns stay in place while
+//                                 the table scrolls sideways (1 to 3).
+//
+// The insets are MEASURED, never declared twice: the sticky head cells'
+// widths (a ResizeObserver) become `--ui-sticky-<k>` on the table, the left
+// inset of column k. A sticky cell holds at the scroller's PADDING edge
+// (measured in Chromium 152, VW1b step 0: `left: 0` in a scroller padded 12px
+// holds 12px in), so column 0's inset is 0 and the padding — the scroller's
+// gutter, `--ui-sticky-gutter` — is covered by the first column's cells (the
+// sheet), or the cells scrolling past would show through it.
+// A control focused UNDER the sticky columns (Shift+Tab back along a row
+// scrolled sideways) is scrolled clear of them, with its focus ring's 4px;
+// a control that sits in a sticky place (a sticky cell, a band's sticky
+// words) moves nothing. VW1b review round 1 (R1-2): this was the scroller's
+// `scroll-padding-left`, which Chromium 152 reads as "everything left of the
+// sticky end is outside the view": focus landing IN a sticky cell (a title's
+// rename field, the next row's checkbox on Tab) threw the table back to its
+// start, and a control only partly under the sticky columns was not moved.
+// A POINTER press moves nothing (round 2, R2-3): its focus lands on the
+// press, before the release, so a control scrolled then slid from under the
+// pointer, and a press within the ring's 4px of the cover's edge was lost
+// (no click); every press on a partly covered control slid it 50 to 60px as
+// it was pressed. The rule is the keyboard's (and a script's).
+// `--ui-sticky-room` is the scroller's content width: a spanning cell
+// (`colSpan`, a group's band) is not sticky, its FIRST CHILD is, at most that
+// wide (the sheet), so a band's words stay in view. Where nothing is
+// measured (no layout, as under the test runner) every inset is 0 and the
+// room unset. The paint (z-order, the grounds, the row tints as images) is
+// the sheet's (src/index.css).
+const RING_ROOM = 4
+function inStickyPlace(el, scroller) {
+  for (let p = el; p && p !== scroller; p = p.parentElement) {
+    const css = getComputedStyle(p)
+    if (css.position === 'sticky' && css.left !== 'auto' && css.left !== '') return true
+  }
+  return false
+}
+function useStickyColumns(n, tableRef, scrollRef) {
+  useLayoutEffect(() => {
+    const table = tableRef.current
+    const scroller = scrollRef.current
+    if (!n || !table) return undefined
+    const measure = () => {
+      const cells = table.tHead?.rows?.[0]?.cells
+      const css = scroller ? getComputedStyle(scroller) : null
+      const pad = css ? (parseFloat(css.paddingLeft) || 0) : 0
+      const padRight = css ? (parseFloat(css.paddingRight) || 0) : 0
+      let left = 0
+      for (let k = 0; k < n; k++) {
+        table.style.setProperty(`--ui-sticky-${k}`, `${left}px`)
+        left += cells?.[k] ? cells[k].getBoundingClientRect().width : 0
+      }
+      table.style.setProperty('--ui-sticky-gutter', `${pad}px`)
+      if (scroller) {
+        const room = scroller.clientWidth - pad - padRight
+        if (room > 0) table.style.setProperty('--ui-sticky-room', `${room}px`)
+      }
+    }
+    measure()
+    // A press in the table, from its pointerdown to its release (R2-3).
+    let pressing = false
+    const press = () => { pressing = true }
+    const release = () => { pressing = false }
+    // Where the sticky columns end, on screen: the last sticky head cell's
+    // right edge (it holds its place, so it is where the cover ends now).
+    const onFocus = (e) => {
+      const el = e.target
+      if (pressing || !scroller || !(el instanceof Element) || !scroller.contains(el) || inStickyPlace(el, scroller)) return
+      const last = table.tHead?.rows?.[0]?.cells?.[n - 1]
+      if (!last) return
+      const end = last.getBoundingClientRect().right + RING_ROOM
+      const from = el.getBoundingClientRect().left
+      if (from < end) scroller.scrollLeft -= end - from
+    }
+    scroller?.addEventListener('focusin', onFocus)
+    scroller?.addEventListener('pointerdown', press, true)
+    window.addEventListener('pointerup', release, true)
+    window.addEventListener('pointercancel', release, true)
+    const unhear = () => {
+      scroller?.removeEventListener('focusin', onFocus)
+      scroller?.removeEventListener('pointerdown', press, true)
+      window.removeEventListener('pointerup', release, true)
+      window.removeEventListener('pointercancel', release, true)
+    }
+    if (typeof ResizeObserver !== 'function') return unhear
+    const ro = new ResizeObserver(measure)
+    const cells = table.tHead?.rows?.[0]?.cells
+    for (let k = 0; k < n; k++) if (cells?.[k]) ro.observe(cells[k])
+    if (scroller) ro.observe(scroller)
+    return () => { ro.disconnect(); unhear() }
+  }, [n, tableRef, scrollRef])
+}
 
 export function Table({
   head,
@@ -55,17 +152,26 @@ export function Table({
   surface = 'dark',
   className = '',
   scrollClassName = '',
+  stickyColumns = 0,
   ...rest
 }) {
+  const tableRef = useRef(null)
+  const scrollRef = useRef(null)
+  const sticky = Math.max(0, Math.min(3, Math.floor(Number(stickyColumns) || 0)))
+  useStickyColumns(sticky, tableRef, scrollRef)
   return (
     <div
+      ref={scrollRef}
       className={`ui-table-scroll ${surface === 'light' ? 'wilson-light-scroll' : 'wilson-dark-scroll'} ${scrollClassName}`.trim()}
       data-surface={surface}
     >
       <table
+        ref={tableRef}
         className={`ui-table ${className}`.trim()}
         data-dense={dense ? 'true' : undefined}
         data-surface={surface}
+        data-sticky={sticky ? 'true' : undefined}
+        data-sticky-columns={sticky ? String(sticky) : undefined}
         {...rest}
       >
         {head && <thead>{head}</thead>}

@@ -94,7 +94,9 @@ function mount(View, extra = {}) {
       { id: 'e1', name: 'First Light', status: 'approved', sort_order: 0 },
       { id: 'e2', name: 'Night Market', status: 'not_started', sort_order: 1 },
     ],
-    assets: [{ id: 'a1', level_id: 'l1', experience_id: 'e2' }],
+    // VW1b: an asset's links are the arrays the Assets tab writes. a2 carries
+    // only single fields no asset really has: a CONTROL the count must not read.
+    assets: [{ id: 'a1', level_ids: ['l1'], experience_ids: ['e2'] }, { id: 'a2', level_id: 'l2', experience_id: 'e1' }],
     tasks: [{ id: 't1', level_id: 'l1', experience_id: 'e1' }, { id: 't2', level_id: 'l1' }],
     phases: [], teamAssignments: [],
     addLevel: vi.fn(async () => {}), updateLevel: vi.fn(), deleteLevel: vi.fn(async () => {}),
@@ -110,6 +112,33 @@ function mount(View, extra = {}) {
 const row = (name) => screen.getByText(name).closest('tr')
 /** Tick a row's checkbox: the named button in its first cell. */
 const tick = (name) => fireEvent.click(within(row(name)).getByRole('button', { name: `Select ${name}` }))
+
+// VW1b (2026-10-17; her Q12, "Fix counts, no new columns"; the design's
+// §4.7; OUTSTANDING P1-26's assets half): a level's (an experience's) Assets
+// count counts the assets whose level_ids (experience_ids) hold it — what the
+// Assets tab writes and the window's Assets list reads; the window's Linked
+// counts line reads the same number. It read `level_id`, which no asset
+// carries, so every level read 0 assets while its window listed them.
+describe.each(PAGES)('VW1b: $page counts its assets by the arrays an asset carries', (p) => {
+  const arrays = p.noun === 'level' ? 'level_ids' : 'experience_ids'
+  it('an asset in two rows counts in both; one naming a row twice counts once; the stale single field counts nowhere', () => {
+    mount(p.View, {
+      assets: [
+        { id: 'a1', [arrays]: [p.ids[0], p.ids[1]] },
+        { id: 'a2', [arrays]: [p.ids[0], p.ids[0]] },
+        { id: 'a3', [p.link]: p.ids[1] },
+      ],
+    })
+    expect(row(p.names[0]).children[3].textContent).toBe('2')
+    expect(row(p.names[1]).children[3].textContent).toBe('1')
+  })
+  it('the window\'s Linked counts line reads the same number as the row', () => {
+    mount(p.View, { assets: [{ id: 'a1', [arrays]: [p.ids[0]] }, { id: 'a2', [arrays]: [p.ids[0]] }] })
+    expect(row(p.names[0]).children[3].textContent).toBe('2')
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Open ${p.names[0]}` }))
+    expect(screen.getByRole('dialog').textContent.replace(/\s+/g, ' ')).toMatch(/Linked counts ?2 assets \/ /)
+  })
+})
 
 describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
   it('shows its own noun and its own rows, none of the other entity\'s, counted by its own link key', () => {
@@ -942,7 +971,7 @@ describe('Levels and Experiences are one component', () => {
       rabbit.current = {
         project: { id: 'p1', name: 'Salt Hours', levels_enabled: true, experiences_enabled: true },
         levels: rows(), experiences: rows(),
-        assets: [{ id: 'a1', level_id: 'r1', experience_id: 'r1' }],
+        assets: [{ id: 'a1', level_ids: ['r1'], experience_ids: ['r1'] }],
         tasks: [{ id: 't1', level_id: 'r2', experience_id: 'r2' }],
         phases: [], teamAssignments: [],
       }

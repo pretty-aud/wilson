@@ -20,6 +20,7 @@ const EXPERIENCE = {
   Icon: Sparkles,
   collection: 'experiences',
   linkKey: 'experience_id',
+  assetsKey: 'experience_ids',
   addMethod: 'addExperience',
   updateMethod: 'updateExperience',
   deleteMethod: 'deleteExperience',

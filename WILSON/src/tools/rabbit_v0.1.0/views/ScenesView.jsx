@@ -614,11 +614,15 @@ export default function ScenesView({ pageActive = false } = {}) {
   }
 
   // ── Lookups ──
+  // VW1b (2026-10-17; her Q12; the design's §4.7): an asset is in a scene
+  // when its `scene_ids` hold it (what the Assets tab writes and the scene
+  // window's Assets list reads); it counted `scene_id`, which no asset
+  // carries, so the window's shots / assets / tasks line read 0 assets.
   const assetCountByScene = useMemo(() => {
     const map = {}
     for (const a of assets) {
-      if (!a.scene_id) continue
-      map[a.scene_id] = (map[a.scene_id] || 0) + 1
+      const ids = Array.isArray(a?.scene_ids) ? a.scene_ids : []
+      for (const id of new Set(ids.filter(x => x != null && x !== '').map(String))) map[id] = (map[id] || 0) + 1
     }
     return map
   }, [assets])

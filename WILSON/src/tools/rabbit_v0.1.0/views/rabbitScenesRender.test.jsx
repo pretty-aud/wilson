@@ -3674,3 +3674,26 @@ describe('FX1: the number fields of the shot rows and the popups', () => {
     expect(ctx.updateShot).not.toHaveBeenCalled()
   })
 })
+
+// VW1b (2026-10-17; her Q12, "Fix counts, no new columns"; the design's
+// §4.7): the scene window's shots / assets / tasks line counts the assets
+// whose scene_ids hold the scene — what the Assets tab writes and the
+// window's own Assets list reads. It read `scene_id`, which no asset carries,
+// so the line read 0 assets while the list beside it named them.
+describe('VW1b: the scene window counts its assets through scene_ids', () => {
+  it('an asset in two scenes counts in each; one naming the scene twice counts once; a stale scene_id counts nowhere', () => {
+    page({ assets: [
+      { id: 'a1', name: 'Fresnel lamp', status: 'in_progress', scene_ids: ['sc1', 'sc2'] },
+      { id: 'a2', name: 'Rope', status: 'in_progress', scene_ids: ['sc1', 'sc1'] },
+      { id: 'a3', name: 'Old link', status: 'in_progress', scene_id: 'sc1' },
+    ] })
+    const dialog = openScenePopup()
+    const prop = [...dialog.querySelectorAll('.rb-scene-prop')].find((p) => p.textContent.startsWith('Shots / assets / tasks'))
+    const figure = prop.querySelector('.rb-scene-prop-figure').textContent.split(' / ')
+    expect(figure[1]).toBe('2')
+    // The window's own Assets list names the same two.
+    expect(within(dialog.querySelector('.rb-scene-detail-side')).getByText('Fresnel lamp')).toBeTruthy()
+    expect(within(dialog.querySelector('.rb-scene-detail-side')).getByText('Rope')).toBeTruthy()
+    expect(within(dialog.querySelector('.rb-scene-detail-side')).queryByText('Old link')).toBeNull()
+  })
+})

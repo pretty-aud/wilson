@@ -12,14 +12,40 @@
 //
 // Module state on purpose: there is one document and one stack. Tests call
 // `_resetOverlaysForTests()` between cases.
+//
+// Post-overhaul VW1b (2026-10-17), the kit request VW1-KR-1: Popovers keep a
+// stack of their own (docs/design/CUSTOM_VIEWS_DESIGN.md §4.9: "only the top
+// one answers Escape and outside presses"), and a Popover stands down while a
+// layer opened AFTER it is open — a Dialog (modalDepth) or a Menu
+// (menuDepth) — so the newer layer takes the key and the press.
 // =============================================================================
 
 const modalStack = []
 let openMenus = 0
+const popoverStack = []
 
-/** True while any kit Dialog or Menu is open. */
+/** True while any kit Dialog, Menu or Popover is open. */
 export function overlayOpen() {
-  return modalStack.length > 0 || openMenus > 0
+  return modalStack.length > 0 || openMenus > 0 || popoverStack.length > 0
+}
+
+/** Register a Popover instance (any unique object). Returns an unregister function. */
+export function pushPopover(id) {
+  popoverStack.push(id)
+  return () => {
+    const i = popoverStack.indexOf(id)
+    if (i >= 0) popoverStack.splice(i, 1)
+  }
+}
+
+/** Only the topmost Popover answers Escape and outside presses. */
+export function isTopPopover(id) {
+  return popoverStack.length > 0 && popoverStack[popoverStack.length - 1] === id
+}
+
+/** How many kit Menus are open now (a Popover compares it with its own open). */
+export function menuDepth() {
+  return openMenus
 }
 
 /** Register a dialog instance (any unique object). Returns an unregister function. */
@@ -54,6 +80,7 @@ export function menuClosed() {
 export function _resetOverlaysForTests() {
   modalStack.length = 0
   openMenus = 0
+  popoverStack.length = 0
 }
 
 // ── Focus, for the surfaces that take it away ───────────────────────────────
