@@ -540,6 +540,17 @@ export function sortItemsForDisplay(items, sort, lookup) {
 }
 
 /**
+ * VW1b (2026-10-17): one kind's ids in the window's Sort — the order the
+ * Tasks table's item cell lists a task's items of that kind in (her Q10: "the
+ * order ... stay as the task's window sets them"). The same rule as
+ * sortItemsForDisplay, over ids. Returns a new array.
+ */
+export function sortIdsForDisplay(kind, ids, sort, lookup) {
+  const rows = (Array.isArray(ids) ? ids : []).map(id => ({ id: String(id), entity_type: kind, entity_id: id }))
+  return sortItemsForDisplay(rows, sort, lookup).map(r => r.entity_id)
+}
+
+/**
  * VW1b (2026-10-17): the runs the task window names under *Type* — one per
  * asset type (her Q-N1b), then one per other kind — over rows already in
  * that order (sortItemsForDisplay). Each `{ key, kind, type, items }`:

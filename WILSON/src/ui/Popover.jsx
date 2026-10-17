@@ -1,0 +1,222 @@
+// =============================================================================
+// Popover — a non-modal floating card (post-overhaul VW1b, 2026-10-17: the
+// kit request VW1-KR-1 of docs/design/CUSTOM_VIEWS_DESIGN.md §8, with its
+// first caller, the Tasks table's item picker).
+//
+// `role="dialog"` with a label, NOT `aria-modal`: the page behind stays live
+// (Jakob: a Notion relation cell's picker). Paper-raised, the 6px float
+// radius, the one float shadow, opacity-only motion (`ui-fade-in`, stopped
+// under reduced motion).
+//
+// ── The PORTALLED form (this file's only form today) ────────────────────────
+// Rendered into <body> at `position: fixed`, placed from the anchor's box when
+// it opens, because the anchor sits inside a scroller that clips anything in
+// place (the Tasks table's `.ui-table-scroll`). Under the anchor's left edge;
+// ABOVE it when less than 240px is free below and more is free above; never
+// taller than the room on its side less 12px, scrolling inside past that.
+// The design's *in place* form (rendered right after its trigger, for the
+// Views dropdown) lands with ITS first caller (VW1d), not before: the kit
+// takes an addition only with a caller.
+//
+// ── Layers (overlay.js) ─────────────────────────────────────────────────────
+// Popovers keep a stack; only the TOP one answers Escape and outside presses.
+// A layer opened after it — a kit Dialog (the picker's "Remove the last
+// item" question) or a kit Menu — takes the key and the press: the Popover
+// stands down while modalDepth() or menuDepth() is above what it was at its
+// open. Escape is heard in the CAPTURE phase and marked handled, so a Dialog
+// UNDER the Popover (its bubble-phase listener checks `defaultPrevented`)
+// stays open; a Menu opened inside it closes first because it is newer.
+// z-index 70, the Dialog's: equal layers stack by document order, so a
+// Dialog opened after the Popover covers it and a Popover opened from a
+// Dialog sits over it.
+//
+// A press outside closes it (not one on the anchor, whose own click toggles
+// it; not one inside a Menu, a Dialog or another Popover). A scroll of
+// anything that holds the anchor (or of the page) closes it, as does a
+// resize: its place was measured from the anchor's box once.
+//
+// ── Focus ───────────────────────────────────────────────────────────────────
+// In on open: `initialFocus` (a ref), else the first control, else the card.
+// Back on close to `returnFocus()` (a function, so a caller whose anchor was
+// re-rendered can name the one on screen now), else the anchor — only when
+// focus was still inside the card (a press elsewhere keeps its own focus).
+// The portal keeps the Tab order itself: Tab from the card's last control
+// closes it and moves on to the control AFTER the anchor; Shift+Tab from its
+// first closes it and returns to the anchor.
+// =============================================================================
+
+import { useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { pushPopover, isTopPopover, modalDepth, menuDepth, focusableWithin } from './overlay'
+
+// Between the anchor and the card; the card's distance from the window's
+// edges; the room below under which it opens above (the design's 240px).
+const GAP = 4
+const EDGE = 12
+const ROOM_BELOW = 240
+
+/** Where the card goes, from the anchor's box at its open. */
+function placePopover(rect, width, vw, vh) {
+  const w = Math.max(0, Math.min(width, vw - 2 * EDGE))
+  const left = Math.max(EDGE, Math.min(rect.left, vw - w - EDGE))
+  const below = vh - rect.bottom - GAP
+  const above = rect.top - GAP
+  if (below < ROOM_BELOW && above > below) {
+    return { side: 'above', left, width: w, bottom: vh - rect.top + GAP, maxHeight: Math.max(0, above - EDGE) }
+  }
+  return { side: 'below', left, width: w, top: rect.bottom + GAP, maxHeight: Math.max(0, below - EDGE) }
+}
+
+// The control the Tab key reaches after `el`, skipping what `skip` holds.
+function focusableAfter(el, skip) {
+  if (!el || !el.ownerDocument) return null
+  const all = focusableWithin(el.ownerDocument.body).filter((x) => !(skip && skip.contains(x)))
+  const i = all.indexOf(el)
+  if (i >= 0) return all[i + 1] || null
+  return all.find((x) => el.compareDocumentPosition(x) & 4) || null
+}
+
+export function Popover({
+  anchor,
+  label,
+  onClose,
+  width = 280,
+  initialFocus = null,
+  returnFocus = null,
+  className = '',
+  children,
+  ...rest
+}) {
+  const ref = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  const returnRef = useRef(returnFocus)
+  returnRef.current = returnFocus
+  // The anchor on screen now: the caller's, when it names one.
+  const anchorRef = useRef(anchor)
+  const currentAnchor = () => {
+    const named = typeof returnRef.current === 'function' ? returnRef.current() : null
+    return (named && named.isConnected) ? named : anchorRef.current
+  }
+  // Measured once, at the open (a scroll or a resize closes it).
+  const [place] = useState(() => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1400
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900
+    const rect = anchor?.getBoundingClientRect?.() || { left: 0, top: 0, bottom: 0 }
+    return placePopover(rect, width, vw, vh)
+  })
+
+  // A layout effect: its cleanup runs while the card is still in the
+  // document, so "was focus inside it?" can still be asked.
+  useLayoutEffect(() => {
+    const id = {}
+    const unregister = pushPopover(id)
+    const modalsAt = modalDepth()
+    const menusAt = menuDepth()
+    const node = ref.current
+    const newerLayer = () => modalDepth() > modalsAt || menuDepth() > menusAt
+    const close = (why) => closeRef.current?.(why)
+
+    // ── Focus in ──
+    if (node && !node.contains(document.activeElement)) {
+      const target = initialFocus?.current || focusableWithin(node)[0] || node
+      target.focus?.()
+    }
+
+    const key = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (!isTopPopover(id) || newerLayer()) return
+      e.preventDefault()
+      close('escape')
+    }
+    const down = (e) => {
+      if (!isTopPopover(id) || newerLayer()) return
+      const t = e.target
+      if (!(t instanceof Node)) return
+      if (node && node.contains(t)) return
+      const a = currentAnchor()
+      if (a && a.contains(t)) return
+      if (t instanceof Element && t.closest('.ui-menu, .ui-dialog-backdrop, .ui-popover')) return
+      close('outside')
+    }
+    const scrolled = (e) => {
+      const t = e.target
+      if (node && t instanceof Node && node.contains(t)) return
+      const a = currentAnchor()
+      if (t === document || t === document.documentElement || t === document.body
+        || (t instanceof Node && a && t.contains(a))) close('scroll')
+    }
+    const resized = () => close('resize')
+    document.addEventListener('keydown', key, true)
+    document.addEventListener('mousedown', down, true)
+    window.addEventListener('resize', resized)
+    // The scroll rule from the NEXT frame (step 0 review, finding 8): a
+    // scroll its own opening caused (a focus that brought the trigger into
+    // view, a wheel's last tick) must not close it at once.
+    const nextFrame = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (f) => setTimeout(f, 16)
+    const cancelFrame = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : clearTimeout
+    let hearing = false
+    const frame = nextFrame(() => { hearing = true; document.addEventListener('scroll', scrolled, true) })
+    return () => {
+      cancelFrame(frame)
+      document.removeEventListener('keydown', key, true)
+      document.removeEventListener('mousedown', down, true)
+      if (hearing) document.removeEventListener('scroll', scrolled, true)
+      window.removeEventListener('resize', resized)
+      unregister()
+      // ── Focus back ── only when it was still in the card (or nowhere).
+      const active = document.activeElement
+      if (!active || active === document.body || (node && node.contains(active))) {
+        const back = currentAnchor()
+        if (back && back.isConnected) back.focus?.()
+      }
+    }
+    // Registered once per mount, as Dialog is: a re-render must not move it
+    // up the stack.
+  }, [])
+
+  // The Tab order a portal would otherwise lose (the card is at the end of
+  // <body>, far from its anchor).
+  function onKeyDown(e) {
+    rest.onKeyDown?.(e)
+    if (e.defaultPrevented || e.key !== 'Tab') return
+    const node = ref.current
+    const items = focusableWithin(node)
+    const i = items.indexOf(document.activeElement)
+    if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
+      const a = currentAnchor()
+      const to = e.shiftKey ? a : focusableAfter(a, node)
+      e.preventDefault()
+      to?.focus?.()
+      closeRef.current?.('tab')
+    }
+  }
+
+  const style = {
+    left: place.left,
+    width: place.width,
+    maxHeight: place.maxHeight,
+    ...(place.side === 'above' ? { bottom: place.bottom } : { top: place.top }),
+  }
+  return createPortal(
+    <div
+      {...rest}
+      ref={ref}
+      role="dialog"
+      aria-label={label}
+      tabIndex={-1}
+      className={`ui-popover ${className}`.trim()}
+      data-side={place.side}
+      data-surface="dark"
+      style={style}
+      onKeyDown={onKeyDown}
+    >
+      {children}
+    </div>,
+    document.body,
+  )
+}
+
+export default Popover

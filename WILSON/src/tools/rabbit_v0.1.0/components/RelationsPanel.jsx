@@ -1445,8 +1445,11 @@ export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, write
 
 // The kinds a project's picker offers: assets always; scenes and shots, levels
 // and experiences where the project turns them on (the window's old pickers'
-// rule) or the task already names one.
-function pickerKinds(ctx, items) {
+// rule) or the task already names one. VW1b (2026-10-17): the Tasks table's
+// item columns and its Group menu read the same rule over every task's items
+// (`items` is any list of `{ entity_type }`), so a column is there exactly
+// when the window would offer its kind.
+export function pickerKinds(ctx, items) {
   const p = ctx?.project
   const has = (kind) => items.some(i => i.entity_type === kind)
   return ITEM_KINDS.filter(kind => {
@@ -1457,36 +1460,89 @@ function pickerKinds(ctx, items) {
   })
 }
 
+// ── What the window's picker and the Tasks table's item cells share ──────────
+// VW1b (2026-10-17; the design's §4.6, step 0 review finding 9): the window's
+// picker adds (every kind, a row the task names not offered); the cell's
+// picker ticks (one kind, every row, the task's ticked). They share these,
+// so neither forks the other: whether "Show all lists" adds anything, each
+// kind's rows (the ACTIVE shot list's scenes and shots unless all lists are
+// shown, D10, and any row in `keep` whatever its list), the search's match,
+// and the lookup's words for a row.
+
+/** Whether "Show all lists" has scenes or shots to add (another list holds some). */
+export function itemPickerScopeOn(ctx) {
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  return otherListRows({ active: scenes, all: ctx?.allScenes || scenes })
+    || otherListRows({ active: shots, all: ctx?.allShots || shots })
+}
+
+/** A row's words in the pickers: the lookup's (a shot "Scene › Shot"). */
+function offerName(lookup, kind, row) {
+  return lookup?.nameOf(kind, row.id) || row.name || `Untitled ${kind}`
+}
+
+// What tells two rows apart when their names are the same (her Q10: "two
+// assets with the same name show their type and phase"): an asset's type and
+// phase; a scene's number; a shot's number (its scene is already in its
+// name). Nothing for a level or an experience.
+function tellApart(kind, row, phaseById) {
+  if (kind === 'asset') {
+    const phase = row.phase_id ? phaseById.get(row.phase_id)?.name : null
+    return [assetTypeLabel(row.type), phase || 'No phase'].join(' · ')
+  }
+  if (kind === 'scene' && row.scene_number != null && row.scene_number !== '') return `Scene ${row.scene_number}`
+  if (kind === 'shot' && row.shot_number != null && row.shot_number !== '') return `Shot ${row.shot_number}`
+  return null
+}
+
+/**
+ * The rows a picker offers for one kind, in the project's order, matched by
+ * the search (`query`, any case), each `{ row, name, apart }`: `apart` says
+ * what tells it from another row of the same name, null when its name is its
+ * own.
+ */
+export function itemPickerOffers(ctx, kind, { lookup, showAll = false, keep = [], query = '' } = {}) {
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  const rows = {
+    asset: () => ctx?.assets || [],
+    scene: () => pickerRows({ active: scenes, all: ctx?.allScenes || scenes, showAll, keep }),
+    shot: () => pickerRows({ active: shots, all: ctx?.allShots || shots, showAll, keep }),
+    level: () => ctx?.levels || [],
+    experience: () => ctx?.experiences || [],
+  }[kind]?.() || []
+  const named = rows.filter(r => r && r.id != null).map(r => ({ row: r, name: offerName(lookup, kind, r) }))
+  const seen = new Map()
+  for (const o of named) {
+    const k = o.name.toLowerCase()
+    seen.set(k, (seen.get(k) || 0) + 1)
+  }
+  const phaseById = new Map((ctx?.phases || []).map(p => [p.id, p]))
+  const q = String(query || '').trim().toLowerCase()
+  return named
+    .filter(o => !q || o.name.toLowerCase().includes(q))
+    .map(o => ({ ...o, apart: seen.get(o.name.toLowerCase()) > 1 ? tellApart(kind, o.row, phaseById) : null }))
+}
+
 // AssetPickerOverlay's shell, over the same column, for all five kinds: one
 // search, then a group per kind, each row an add. A row the task already
 // names is not offered. Scenes and shots are the ACTIVE shot list's (D10),
 // with "Show all lists" for the rest, as the window's old pickers were.
 // VW1m (2026-10-16): a row's words are the model's lookup's, as the table's.
+// VW1b: its rows, scope and match are the shared ones above.
 function TaskItemPickerOverlay({ ctx, items, lookup, onPick, onClose }) {
   const [search, setSearch] = useState('')
   const [showAllLists, setShowAllLists] = useState(false)
   useFocusBackOnClose()
   const kinds = pickerKinds(ctx, items)
-  const scenes = ctx?.scenes || []
-  const shots = ctx?.shots || []
-  const allScenes = ctx?.allScenes || scenes
-  const allShots = ctx?.allShots || shots
-  const scopeOn = kinds.includes('scene') && (otherListRows({ active: scenes, all: allScenes }) || otherListRows({ active: shots, all: allShots }))
+  const scopeOn = kinds.includes('scene') && itemPickerScopeOn(ctx)
   const taken = new Set(items.map(i => `${i.entity_type}:${i.entity_id}`))
   const q = search.trim().toLowerCase()
-  const source = {
-    asset: () => ctx?.assets || [],
-    scene: () => pickerRows({ active: scenes, all: allScenes, showAll: showAllLists }),
-    shot: () => pickerRows({ active: shots, all: allShots, showAll: showAllLists }),
-    level: () => ctx?.levels || [],
-    experience: () => ctx?.experiences || [],
-  }
   const groups = kinds.map(kind => ({
     kind,
-    offers: source[kind]()
-      .filter(r => r && !taken.has(`${kind}:${r.id}`))
-      .map(r => ({ row: r, name: lookup.nameOf(kind, r.id) || r.name || `Untitled ${kind}` }))
-      .filter(o => !q || o.name.toLowerCase().includes(q)),
+    offers: itemPickerOffers(ctx, kind, { lookup, showAll: showAllLists, query: search })
+      .filter(o => !taken.has(`${kind}:${o.row.id}`)),
   })).filter(g => g.offers.length > 0)
   const total = groups.reduce((n, g) => n + g.offers.length, 0)
 

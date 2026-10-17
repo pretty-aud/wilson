@@ -40,6 +40,15 @@ describe('the "Assets" help page: a task\'s items are its items (VW1m)', () => {
   it('names the window\'s Items table as the table draws it', () => {
     expect(read('./components/RelationsPanel.jsx')).toContain('title={`Items (${live.length})`}')
   })
+  // VW1b (2026-10-17): the Tasks table's item columns, in the controls' words.
+  it('VW1b: says the Tasks table\'s item columns, the "+2", the ticks and when the change is saved', () => {
+    const text = page('rabbit-assets')
+    expect(text).toContain('The Tasks table has a column for each kind the project uses: Asset, Scene, Shot, Level and Experience.')
+    expect(text).toContain('Click a cell to tick or untick several; the change is saved when the list closes, and Undo takes it back.')
+    // The columns are named as the table names them.
+    expect(read('./state/taskItemsModel.js')).toMatch(/asset: 'Asset', scene: 'Scene', shot: 'Shot', level: 'Level', experience: 'Experience'/)
+    expect(read('./views/tasksTableColumns.js')).toContain('label: KIND_LABEL[kind]')
+  })
 })
 
 describe('the "Timeline" help page: a task about two assets sits in one row (VW1m)', () => {

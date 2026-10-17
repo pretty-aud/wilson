@@ -354,3 +354,99 @@ describe('the sortable head\'s focus ring (V2)', () => {
     expect(heads[1].querySelector('button')).toBeNull()
   })
 })
+
+// Post-overhaul VW1b (2026-10-17), the kit request VW1-KR-2: `stickyColumns`
+// keeps the first n columns in place while the table scrolls sideways
+// (docs/design/CUSTOM_VIEWS_DESIGN.md §8, as VW1b's step 0 review corrected
+// it). The insets are measured; the paint is the sheet's, asserted here by
+// the selectors themselves against rendered rows (jsdom answers `matches`).
+describe('sticky columns (VW1-KR-2)', () => {
+  const sticky = (n, extra = null) => render(
+    <Table stickyColumns={n} head={<Row><Th width="36px">□</Th><Th>Title</Th><Th>Status</Th></Row>}>
+      <Row><Td>x</Td><Td>Rig test</Td><Td>Final</Td></Row>
+      <Row selected><Td>x</Td><Td>Wall pass</Td><Td>Final</Td></Row>
+      <Row><Td colSpan={3}><span>Lighthouse Interior</span></Td></Row>
+      {extra}
+    </Table>,
+  )
+  const kitRule = (head) => {
+    const at = css.indexOf(`${head} {`)
+    expect(at, head).toBeGreaterThan(-1)
+    return css.slice(at, css.indexOf('}', at))
+  }
+
+  it('marks the table with its count (1 to 3), and nothing without the prop', () => {
+    const { container, unmount } = sticky(2)
+    const t = container.querySelector('table')
+    expect([t.getAttribute('data-sticky'), t.getAttribute('data-sticky-columns')]).toEqual(['true', '2'])
+    unmount()
+    const none = render(<Table head={<Row><Th>a</Th></Row>}><Row><Td>1</Td></Row></Table>)
+    expect(none.container.querySelector('table').hasAttribute('data-sticky')).toBe(false)
+    none.unmount()
+    const many = sticky(9)
+    expect(many.container.querySelector('table').getAttribute('data-sticky-columns')).toBe('3')
+  })
+
+  it('measures its insets: column k\'s left is the sticky widths before it; the gutter is the scroller\'s padding; scroll-padding-left is where the sticky columns end', () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const w = this.tagName === 'TH' ? ({ '□': 36, Title: 216 }[this.textContent] ?? 148) : 0
+      return { width: w, height: 32, left: 0, top: 0, right: w, bottom: 32 }
+    })
+    const real = window.getComputedStyle
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => (el.classList?.contains('ui-table-scroll')
+      ? { paddingLeft: '12px', paddingRight: '12px' } : real(el)))
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
+      return this.classList?.contains('ui-table-scroll') ? 1270 : 0
+    })
+    const { container } = sticky(2)
+    const t = container.querySelector('table')
+    expect(['--ui-sticky-0', '--ui-sticky-1', '--ui-sticky-gutter', '--ui-sticky-room'].map((p) => t.style.getPropertyValue(p)))
+      .toEqual(['0px', '36px', '12px', '1246px'])
+    expect(container.querySelector('.ui-table-scroll').style.scrollPaddingLeft).toBe(`${12 + 36 + 216}px`)
+    vi.restoreAllMocks()
+  })
+
+  it('the sheet: the head over the body (2, its sticky cells 3), the body\'s sticky cells 1 on the surface\'s paper', () => {
+    expect(kitRule('.ui-table[data-sticky="true"] > thead > .ui-tr > .ui-th')).toMatch(/z-index: 2;/)
+    expect(css).toMatch(/\.ui-table\[data-sticky-columns="3"\] > thead > \.ui-tr > \.ui-th:not\(\[colspan\]\):nth-child\(-n\+3\) \{ z-index: 3; \}/)
+    const ground = css.slice(css.indexOf('.ui-table[data-sticky-columns="3"] > tbody > .ui-tr > .ui-td:not([colspan]):nth-child(-n+3) {'))
+    expect(ground.slice(0, ground.indexOf('}'))).toMatch(/z-index: 1;\s*background-color: var\(--ui-sticky-ground\);/)
+    expect(kitRule('.ui-table[data-sticky="true"]')).toMatch(/--ui-sticky-ground: var\(--color-paper\);/)
+  })
+
+  it('the sticky cells are exactly the first n of a row; never a spanning cell, whose first child sticks instead', () => {
+    const { container } = sticky(2)
+    const GROUND = '.ui-table[data-sticky-columns="2"] > tbody > .ui-tr > .ui-td:not([colspan]):nth-child(2)'
+    const FIRST = '.ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td:not([colspan]):nth-child(1)'
+    const SPAN_CHILD = '.ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td[colspan] > :first-child'
+    const [row] = container.querySelectorAll('tbody > tr')
+    expect([...row.children].map((td) => td.matches(FIRST) || td.matches(GROUND))).toEqual([true, true, false])
+    const band = container.querySelectorAll('tbody > tr')[2]
+    expect(band.firstElementChild.matches(FIRST)).toBe(false)
+    expect(band.querySelector('span').matches(SPAN_CHILD)).toBe(true)
+    expect(kitRule('.ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td[colspan]')).toMatch(/overflow: visible;/)
+    expect(kitRule(SPAN_CHILD)).toMatch(/position: sticky;\s*left: var\(--ui-sticky-0, 0px\);\s*width: max-content;\s*max-width: var\(--ui-sticky-room, none\);/)
+  })
+
+  it('a selected row keeps its tint as an image over the paper, and its 2px edge with the gutter covered', () => {
+    const sel = '.ui-table[data-sticky-columns="2"] > tbody > .ui-tr[data-selected="true"][data-selected="true"] > .ui-td:not([colspan]):nth-child(2)'
+    const at = css.indexOf(sel)
+    const body = css.slice(css.indexOf('{', at), css.indexOf('}', at))
+    expect(body).toMatch(/background-color: var\(--ui-sticky-ground\);\s*background-image: linear-gradient\(var\(--color-signal-tint\), var\(--color-signal-tint\)\);/)
+    expect(kitRule('.ui-table[data-sticky="true"] > tbody > .ui-tr[data-selected="true"] > .ui-td:not([colspan]):first-child'))
+      .toMatch(/box-shadow: inset 2px 0 0 0 var\(--color-signal\), calc\(-1 \* var\(--ui-sticky-gutter, 0px\)\) 0 0 0 var\(--ui-sticky-ground\);/)
+    const { container } = sticky(2)
+    expect(container.querySelectorAll('tbody > tr')[1].children[1].matches(sel)).toBe(true)
+  })
+
+  it('CONTROL: without the prop no sticky rule can reach a cell', () => {
+    const { container } = render(
+      <Table head={<Row><Th>a</Th><Th>b</Th></Row>}><Row selected><Td>1</Td><Td>2</Td></Row></Table>,
+    )
+    const heads = [...css.matchAll(/^[ \t]*(\.ui-table\[data-sticky[^{\n]*?)\s*\{/gm)].flatMap((m) => m[1].split(',').map((s) => s.trim()).filter(Boolean))
+    expect(heads.length).toBeGreaterThan(10)
+    for (const td of container.querySelectorAll('td, th')) {
+      for (const h of heads) expect(td.matches(h.replace(/\s*>\s*:first-child$/, '')), h).toBe(false)
+    }
+  })
+})

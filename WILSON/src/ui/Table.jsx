@@ -45,7 +45,60 @@
 // sort by it, which is the one moment you are looking straight at it.
 // =============================================================================
 
+import { useLayoutEffect, useRef } from 'react'
+
 const ALIGNS = ['left', 'center', 'right']
+
+// ── Sticky columns (post-overhaul VW1b, the kit request VW1-KR-2) ───────────
+//
+//   <Table stickyColumns={2} …>   the first two columns stay in place while
+//                                 the table scrolls sideways (1 to 3).
+//
+// The insets are MEASURED, never declared twice: the sticky head cells'
+// widths (a ResizeObserver) become `--ui-sticky-<k>` on the table, the left
+// inset of column k. A sticky cell holds at the scroller's PADDING edge
+// (measured in Chromium 152, VW1b step 0: `left: 0` in a scroller padded 12px
+// holds 12px in), so column 0's inset is 0 and the padding — the scroller's
+// gutter, `--ui-sticky-gutter` — is covered by the first column's cells (the
+// sheet), or the cells scrolling past would show through it. The scroller's
+// `scroll-padding-left` is set to where the sticky columns end, so Tab and
+// `focus()` never park a control under them. `--ui-sticky-room` is the
+// scroller's content width: a spanning cell (`colSpan`, a group's band) is
+// not sticky, its FIRST CHILD is, at most that wide (the sheet), so a band's
+// words stay in view. Where nothing is measured (no layout, as under the test
+// runner) every inset is 0 and the room unset. The paint (z-order, the
+// grounds, the row tints as images) is the sheet's (src/index.css).
+function useStickyColumns(n, tableRef, scrollRef) {
+  useLayoutEffect(() => {
+    const table = tableRef.current
+    const scroller = scrollRef.current
+    if (!n || !table) return undefined
+    const measure = () => {
+      const cells = table.tHead?.rows?.[0]?.cells
+      const css = scroller ? getComputedStyle(scroller) : null
+      const pad = css ? (parseFloat(css.paddingLeft) || 0) : 0
+      const padRight = css ? (parseFloat(css.paddingRight) || 0) : 0
+      let left = 0
+      for (let k = 0; k < n; k++) {
+        table.style.setProperty(`--ui-sticky-${k}`, `${left}px`)
+        left += cells?.[k] ? cells[k].getBoundingClientRect().width : 0
+      }
+      table.style.setProperty('--ui-sticky-gutter', `${pad}px`)
+      if (scroller) {
+        const room = scroller.clientWidth - pad - padRight
+        if (room > 0) table.style.setProperty('--ui-sticky-room', `${room}px`)
+        scroller.style.scrollPaddingLeft = `${pad + left}px`
+      }
+    }
+    measure()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const ro = new ResizeObserver(measure)
+    const cells = table.tHead?.rows?.[0]?.cells
+    for (let k = 0; k < n; k++) if (cells?.[k]) ro.observe(cells[k])
+    if (scroller) ro.observe(scroller)
+    return () => ro.disconnect()
+  }, [n, tableRef, scrollRef])
+}
 
 export function Table({
   head,
@@ -55,17 +108,26 @@ export function Table({
   surface = 'dark',
   className = '',
   scrollClassName = '',
+  stickyColumns = 0,
   ...rest
 }) {
+  const tableRef = useRef(null)
+  const scrollRef = useRef(null)
+  const sticky = Math.max(0, Math.min(3, Math.floor(Number(stickyColumns) || 0)))
+  useStickyColumns(sticky, tableRef, scrollRef)
   return (
     <div
+      ref={scrollRef}
       className={`ui-table-scroll ${surface === 'light' ? 'wilson-light-scroll' : 'wilson-dark-scroll'} ${scrollClassName}`.trim()}
       data-surface={surface}
     >
       <table
+        ref={tableRef}
         className={`ui-table ${className}`.trim()}
         data-dense={dense ? 'true' : undefined}
         data-surface={surface}
+        data-sticky={sticky ? 'true' : undefined}
+        data-sticky-columns={sticky ? String(sticky) : undefined}
         {...rest}
       >
         {head && <thead>{head}</thead>}

@@ -323,7 +323,8 @@ export function RabbitHelpContent({ helpPage, theme }) {
       <section>
         <h3 className={T.sectionTitle}>Assets</h3>
         {/* VW1m (2026-10-16): no first asset counts for more than another
-            (rabbitNoMainHelp.test.jsx holds these lines). */}
+            (rabbitNoMainHelp.test.jsx holds these lines). VW1b (2026-10-17):
+            the Tasks table's item columns, in their own words. */}
         <p className={T.bodyText}>
           Assets are the deliverables of a project (a shot, a key art piece,
           a marketing video). They live off the timeline — they don't have
@@ -331,6 +332,13 @@ export function RabbitHelpContent({ helpPage, theme }) {
           at once: add them in the task's window, under Items. Deleting an
           asset never deletes a task: the asset comes off its tasks, which
           stay. Use the Assets tab to create, rename, and group them by phase.
+        </p>
+        <p className={T.bodyText}>
+          The Tasks table has a column for each kind the project uses: Asset,
+          Scene, Shot, Level and Experience. A cell names every item of the
+          task, in the order the task's window sorts them, and shows "+2"
+          when two more do not fit. Click a cell to tick or untick several;
+          the change is saved when the list closes, and Undo takes it back.
         </p>
       </section>
     </div>

@@ -25,6 +25,7 @@
 // scenesEdits); the kit's RowTitle in src/ui/RowTitle.test.jsx.
 // =============================================================================
 
+import { tasksTableColumns, tasksTableWidths } from './tasksTableColumns.js'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
@@ -191,7 +192,7 @@ function widthAt(sheet, wrapSel, W, extra = null) {
     const r = rulesOf(sheet).find(({ sel: s }) => s === sel)
     return r ? Object.fromEntries([...r.body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()])) : {}
   }
-  const own = { ...decls(wrapSel), ...(extra ? decls(extra) : {}) }
+  const own = { ...decls(wrapSel), ...(typeof extra === 'string' ? decls(extra) : (extra || {})) }
   const kit = cssCode(readFileSync(join(here, '../../../index.css'), 'utf8'))
   const kitToken = (p) => (kit.match(new RegExp(`(?:^|[\\s;{])${p}\\s*:\\s*([^;]+);`)) || [])[1]
   return (expr) => {
@@ -222,14 +223,17 @@ const close = (a, b) => expect(Math.abs(a - b)).toBeLessThan(0.01)
 describe('FX8: the title columns — the title takes what the others leave up to its maximum; the others the rest', () => {
   const tasks = read('rabbitTasks.css')
   const files = read('rabbitFiles.css')
-  const TASK_COLS = ['var(--rb-task-col-check)', 'var(--rb-task-col-status)', 'var(--rb-task-col-priority)', 'var(--rb-task-col-asset)',
+  const TASK_COLS = ['var(--rb-task-col-check)', 'var(--rb-task-col-status)', 'var(--rb-task-col-priority)', 'var(--rb-task-col-item)',
     'var(--rb-task-col-phase)', 'var(--rb-task-col-assignee)', 'var(--rb-task-col-date)', 'var(--rb-task-col-date)', 'var(--rb-task-col-bid)']
   const TASK_MIN = (rulesOf(tasks).find(({ sel }) => sel === '.rb-task-table').body.match(/min-width:\s*([^;]+);/) || [])[1]
 
   it('the view hands the Tasks header these widths, and the title none (it takes the rest)', () => {
+    // VW1b: the columns are tasksTableColumns' (an item column per kind).
+    const cols = read('tasksTableColumns.js')
+    for (const v of ['status', 'priority', 'item', 'phase', 'assignee', 'date', 'bid']) expect(cols).toContain(`width: 'var(--rb-task-col-${v})'`)
+    expect(cols).toContain("{ key: 'title', label: 'Title' },")
     const src = read('ProjectTasksView.jsx')
-    for (const v of ['status', 'priority', 'asset', 'phase', 'assignee', 'date', 'bid']) expect(src).toContain(`width: 'var(--rb-task-col-${v})'`)
-    expect(src).toContain("{ key: 'title',       label: 'Title' },")
+    expect(src).toContain('tasksTableColumns(itemKinds)')
     expect(src).toContain('<Th width="var(--rb-task-col-check)" className="rb-task-check-cell">')
     expect(src).not.toMatch(/key: '_actions'/)
     // The scroller is the query container `100cqw` measures.
@@ -246,7 +250,7 @@ describe('FX8: the title columns — the title takes what the others leave up to
     const at = (W, sb = 0) => { const px = widthAt(tasks, '.rb-task-table-wrap', W); return { px, ...layout(px, TASK_COLS, TASK_MIN, W, sb) } }
     const w1280 = at(1256)
     close(w1280.title, 234); expect(w1280.sideways).toBe(false)
-    close(w1280.px('var(--rb-task-col-asset)'), 150)
+    close(w1280.px('var(--rb-task-col-item)'), 150)
     close(w1280.px('var(--rb-task-col-date)'), 144)
     // R1-02: the app shows a 10px scrollbar on a list that scrolls; the
     // table (1238px at its narrowest) still fits the 1246px left.
@@ -254,7 +258,7 @@ describe('FX8: the title columns — the title takes what the others leave up to
     close(s1280.title, 224); expect(s1280.sideways).toBe(false)
     const w1440 = at(1416)
     close(w1440.title, 360); expect(w1440.sideways).toBe(false)
-    close(w1440.px('var(--rb-task-col-asset)'), 150 + (1416 - 1382) / 3)
+    close(w1440.px('var(--rb-task-col-item)'), 150 + (1416 - 1382) / 3)
     close(w1440.px('var(--rb-task-col-phase)'), 124 + (1416 - 1382) / 3)
     close(at(1416, SB).title, 350)
     const w1920 = at(1896)
@@ -275,6 +279,62 @@ describe('FX8: the title columns — the title takes what the others leave up to
     expect(layout(withMin(262), TASK_COLS, TASK_MIN, 1256, 17).sideways).toBe(true)
     expect(layout(withMin(256), TASK_COLS, TASK_MIN, 1256, SB).sideways).toBe(true)
     expect(layout(withMin(217), TASK_COLS, TASK_MIN, 1256, 18).sideways).toBe(true)
+  })
+  // VW1b (the design's §4.10, Tasks half; step 0 review, finding 6): the
+  // item columns, Phase and Assignee grow from their minimums; the fixed sum
+  // and the growable count come from the columns on screen, set inline by the
+  // view (tasksTableWidths). The sheet's own values are the asset-only
+  // table's, so the numbers above are FX10's, unchanged.
+  const inline = (kinds) => { const w = tasksTableWidths(tasksTableColumns(kinds)); return { '--rb-task-fixed': w.fixed, '--rb-task-grow-n': w.growN } }
+  const colsFor = (kinds) => ['var(--rb-task-col-check)', 'var(--rb-task-col-status)', 'var(--rb-task-col-priority)',
+    ...kinds.map(() => 'var(--rb-task-col-item)'),
+    'var(--rb-task-col-phase)', 'var(--rb-task-col-assignee)', 'var(--rb-task-col-date)', 'var(--rb-task-col-date)', 'var(--rb-task-col-bid)']
+  const atKinds = (kinds, W, sb = 0) => {
+    const px = widthAt(tasks, '.rb-task-table-wrap', W, inline(kinds))
+    return { px, ...layout(px, colsFor(kinds), TASK_MIN, W, sb) }
+  }
+  it('VW1b: the asset-only table is the sheet\'s own: the view\'s inline values change no number', () => {
+    for (const W of [1000, 1256, 1416, 1896]) {
+      const px0 = widthAt(tasks, '.rb-task-table-wrap', W)
+      const a = { px: px0, ...layout(px0, TASK_COLS, TASK_MIN, W) }
+      const b = atKinds(['asset'], W)
+      close(a.title, b.title); close(a.tableW, b.tableW)
+      close(a.px('var(--rb-task-col-item)'), b.px('var(--rb-task-col-item)'))
+    }
+  })
+  it('VW1b: a film project (Asset, Scene, Shot): 1322px fixed, scrolling sideways at 1280 and 1440 with the Title at 216, and at 1920 each growable column 42.8px wider and the Title 360', () => {
+    const film = ['asset', 'scene', 'shot']
+    const w1280 = atKinds(film, 1256)
+    expect(w1280.sideways).toBe(true); close(w1280.title, 216); close(w1280.tableW, 1538)
+    close(w1280.tableW - 1256, 282)
+    const w1440 = atKinds(film, 1416)
+    expect(w1440.sideways).toBe(true); close(w1440.title, 216); close(w1440.tableW - 1416, 122)
+    const w1920 = atKinds(film, 1896)
+    expect(w1920.sideways).toBe(false); close(w1920.title, 360)
+    close(w1920.px('var(--rb-task-col-item)'), 150 + (1896 - 1322 - 360) / 5)
+    close(w1920.px('var(--rb-task-col-phase)'), 124 + (1896 - 1322 - 360) / 5)
+  })
+  it('VW1b: every kind on (fixed 1622): scrolls 582px at 1280 and 422px at 1440; at 1920 nothing scrolls and the Title is 274', () => {
+    const all = ['asset', 'scene', 'shot', 'level', 'experience']
+    close(atKinds(all, 1256).tableW - 1256, 582)
+    close(atKinds(all, 1416).tableW - 1416, 422)
+    const w1920 = atKinds(all, 1896)
+    expect(w1920.sideways).toBe(false); close(w1920.title, 274)
+    close(w1920.px('var(--rb-task-col-item)'), 150)
+  })
+  it('VW1b: with every growable column hidden (a view, VW1d) nothing takes the spare: data-grow="none" holds the table to its fixed columns and a 360px Title', () => {
+    const hidden = tasksTableColumns([]).filter((c) => !c.grow && c.key !== 'phase_id' && c.key !== 'assignee_id')
+    const w = tasksTableWidths(hidden)
+    expect(w.grow).toBe(0); expect(w.growN).toBe('1')
+    const rule = rulesOf(tasks).find(({ sel }) => sel === '.rb-task-table-wrap[data-grow="none"] .ui-table.rb-task-table')
+    expect(rule.body).toMatch(/width: min\(100%, calc\(var\(--rb-task-fixed\) \+ var\(--rb-task-title-max\)\)\);/)
+    const px = widthAt(tasks, '.rb-task-table-wrap', 1896, { '--rb-task-fixed': w.fixed, '--rb-task-grow-n': w.growN })
+    const fixed = px('var(--rb-task-fixed)')
+    close(fixed, 36 + 148 + 88 + 144 * 2 + 64)
+    const tableW = Math.min(1896, fixed + px('var(--rb-task-title-max)'))
+    close(tableW - fixed, 360)
+    // CONTROL: without the rule the 1896px table would give its Title the whole spare.
+    expect(1896 - fixed).toBeGreaterThan(360)
   })
   it('CONTROL: the arithmetic reads the sheet — without the spare share the title runs on past its maximum', () => {
     const px = widthAt(tasks.replace(/--rb-task-spare: [^;]+;/, '--rb-task-spare: 0px;'), '.rb-task-table-wrap', 1896)

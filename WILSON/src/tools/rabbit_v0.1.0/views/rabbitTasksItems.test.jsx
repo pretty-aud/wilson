@@ -306,7 +306,10 @@ describe('VW1m: a new task made in a group carries the group\'s items', () => {
   })
 })
 
-describe('VW1m: the Asset cell names every live asset and opens the task\'s window (Q-N5\'s interim)', () => {
+// VW1b (2026-10-17) replaced Q-N5's interim (a cell that opened the window)
+// with her Q10, "Pick several there": the cell opens a picker. The picker is
+// rabbitTasksItemColumns.test.jsx's; these keep the names and the hidden item.
+describe('VW1m, then VW1b: the Asset cell names every live asset', () => {
   const cell = (title) => rowOf(title).querySelectorAll(':scope > td')[4].firstElementChild
 
   it('every live asset by name in the display order, the list its title and its accessible name; no select', () => {
@@ -330,14 +333,22 @@ describe('VW1m: the Asset cell names every live asset and opens the task\'s wind
     expect(c.getAttribute('aria-label')).toBe('No asset')
   })
 
-  it('a click opens that task\'s window, as the row\'s Open does; a seat that may not write keeps it', () => {
+  it('VW1b: a click opens the picker, not the window; a seat that may not write reads text that is no Tab stop; without items the window opens, as before', () => {
     page()
     fireEvent.click(cell('Wall texture pass'))
-    expect(screen.getByRole('dialog', { name: 'task window t2' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: 'Assets of Wall texture pass' })).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'task window t2' })).toBeNull()
     cleanup(); _resetOverlaysForTests()
     page({ writer: false })
-    fireEvent.click(cell('Glass and rain rig test'))
-    expect(screen.getByRole('dialog', { name: 'task window t1' })).toBeTruthy()
+    const ro = cell('Glass and rain rig test')
+    expect(ro.tagName).toBe('SPAN')
+    expect(ro.getAttribute('tabindex')).toBeNull()
+    fireEvent.click(ro)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    cleanup(); _resetOverlaysForTests()
+    page({ items: false })
+    fireEvent.click(cell('Wall texture pass'))
+    expect(screen.getByRole('dialog', { name: 'task window t2' })).toBeTruthy()
   })
 
   it('a Board card names every live asset, the whole list on hover', () => {
@@ -386,11 +397,15 @@ describe('VW1m: Asset is X means the task has X', () => {
   })
 })
 
-describe('VW1m: the Group menu keeps today\'s fields; Scene, Shot, Level and Experience come with their columns (VW1b)', () => {
+describe('VW1b: Scene, Shot, Level and Experience join the Group menu with their columns (her Q11)', () => {
   const options = () => [...screen.getByRole('combobox', { name: 'Group' }).options].map((o) => o.textContent)
 
-  it('every kind turned on still offers Asset alone among the item kinds', () => {
+  it('every kind turned on: each kind, in the kinds\' order, where Asset sat', () => {
     page({ project: { scenes_enabled: true, levels_enabled: true, experiences_enabled: true } })
+    expect(options()).toEqual(['No grouping', 'Status', 'Asset', 'Scene', 'Shot', 'Level', 'Experience', 'Phase', 'Priority', 'Assignee'])
+  })
+  it('CONTROL: none turned on and no task naming one: Asset alone among the item kinds, as before', () => {
+    page()
     expect(options()).toEqual(['No grouping', 'Status', 'Asset', 'Phase', 'Priority', 'Assignee'])
   })
 })

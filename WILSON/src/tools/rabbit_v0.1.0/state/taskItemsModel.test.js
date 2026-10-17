@@ -22,7 +22,7 @@ import {
   compareItems, itemsOfTask, copyFieldsFromItems,
   tasksAbout, taskCountsByEntity, nextPosition,
   planLegacyFieldWrite, planSetKind, seedItemsFor, linkFieldsIn, withoutLinkFields, itemShapeProblem,
-  indexItemsByTask, buildItemLookup, sortItemsForDisplay, typeRunsOf,
+  indexItemsByTask, buildItemLookup, sortItemsForDisplay, typeRunsOf, sortIdsForDisplay,
 } from './taskItemsModel'
 import { ASSET_TYPES } from './assetTypes'
 
@@ -428,6 +428,26 @@ describe('sortItemsForDisplay — her Q-N1 sorts, with her Q-N1a and Q-N1b answe
     expect(sortItemsForDisplay(rows, 'nonsense', lookup).map(i => i.id)).toEqual(sortItemsForDisplay(rows, 'type', lookup).map(i => i.id))
     expect(rows.map(i => i.id)).toEqual(before)
     expect(sortItemsForDisplay(null, 'type', lookup)).toEqual([])
+  })
+})
+
+describe('sortIdsForDisplay — one kind\'s ids in the window\'s Sort, the order an item cell lists them (VW1b, her Q10)', () => {
+  const lookup = buildItemLookup({ ...DATED })
+  const ids = ['as-sl', 'as-lh', 'as-ma']
+  it('Type: the assets by their own type (character, environment, prop)', () => {
+    expect(sortIdsForDisplay('asset', ids, 'type', lookup)).toEqual(['as-ma', 'as-lh', 'as-sl'])
+  })
+  it('A to Z: by name', () => {
+    expect(sortIdsForDisplay('asset', ids, 'name', lookup)).toEqual(['as-lh', 'as-ma', 'as-sl'])
+  })
+  it('Date created: by when each row was made', () => {
+    expect(sortIdsForDisplay('asset', ids, 'date', lookup)).toEqual(['as-sl', 'as-lh', 'as-ma'])
+  })
+  it('the same answer as sortItemsForDisplay over the same kind; nothing given, nothing back; the list given untouched', () => {
+    const rows = ids.map((id, n) => it_(`r${n}`, 'asset', id, n))
+    for (const sort of ITEM_SORTS) expect(sortIdsForDisplay('asset', ids, sort, lookup)).toEqual(sortItemsForDisplay(rows, sort, lookup).map(r => r.entity_id))
+    expect(sortIdsForDisplay('asset', null, 'type', lookup)).toEqual([])
+    expect(ids).toEqual(['as-sl', 'as-lh', 'as-ma'])
   })
 })
 
