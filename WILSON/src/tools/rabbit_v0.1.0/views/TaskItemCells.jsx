@@ -35,7 +35,7 @@
 // count); working memory (the cell shows the draft while it is being made);
 // forgiveness (one undo step, the toast; the last item asks).
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { Search, Square, CheckSquare } from 'lucide-react'
 import { Popover, Badge, Switch, Dialog, Button } from '../../../ui'
@@ -43,17 +43,22 @@ import { ITEM_KINDS, KIND_LABEL_PLURAL, NO_KIND_LABEL, sortIdsForDisplay } from 
 import { itemPickerOffers, itemPickerScopeOn } from '../components/RelationsPanel'
 import './rabbitTasks.css'
 
-// What a "+N" badge and its gap take, kept for it whenever a name is left out:
-// the kit Badge at the label size holds "+99" in 36px.
-const MORE_ROOM = 36 + 6
+// What a "+N" badge and its 6px gap take, kept for it whenever a name is left
+// out. VW1b review round 1 (R1-8): the badge's own width, by its digits — the
+// kit Badge at the label size measured 26.3px for "+1" and 28.6px for "+2" in
+// Chromium 152: 19px of edges and about 7.5px a digit. A fixed 42px (room for
+// "+99") hid a name that fitted beside "+1".
+const moreRoom = (n) => 6 + 19 + 7.5 * String(n).length
 
 /**
  * The names in a cell, as many as fit on its one line, then "+N" for the
  * rest. Measured after layout: each name's width once (with its comma), the
- * cell's room at every width change. Until then, and where nothing is laid
- * out (the test runner), every name is on the line and the sheet cuts it
- * with "…", so nothing jumps; a cell with one name is never measured.
- * Keyed by its names, so a new list is measured afresh.
+ * CELL's room at every width change (VW1b review round 1, R1-4: the cell,
+ * never the names' own box, which shrink-wraps them in a seat that may not
+ * write and collapsed lists that fitted). Until then, and where nothing is
+ * laid out (the test runner), every name is on the line and the sheet cuts it
+ * with "…", so nothing jumps; a cell with one name is never measured. Keyed
+ * by its names, so a new list is measured afresh.
  */
 function ItemNames({ names }) {
   const listRef = useRef(null)
@@ -61,7 +66,7 @@ function ItemNames({ names }) {
   const [shown, setShown] = useState(names.length)
   useLayoutEffect(() => {
     const list = listRef.current
-    const box = list?.parentElement
+    const box = list?.closest('.rb-task-items')
     if (!list || !box || names.length < 2) return undefined
     const fit = () => {
       if (!widthsRef.current) {
@@ -75,12 +80,14 @@ function ItemNames({ names }) {
       const room = box.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0)
       if (!(room > 0)) return
       const w = widthsRef.current
+      let sum = 0
+      const upTo = w.map(x => (sum += x))
       let k = w.length
-      if (w.reduce((a, b) => a + b, 0) > room) {
-        let sum = 0
-        k = 0
-        while (k < w.length && sum + w[k] <= room - MORE_ROOM) { sum += w[k]; k += 1 }
-        k = Math.max(1, k)
+      if (upTo[w.length - 1] > room) {
+        k = 1
+        for (let c = w.length - 1; c >= 1; c--) {
+          if (upTo[c - 1] + moreRoom(w.length - c) <= room) { k = c; break }
+        }
       }
       setShown(prev => (prev === k ? prev : k))
     }
@@ -103,15 +110,38 @@ function ItemNames({ names }) {
   )
 }
 
+// ── The draft, outside the table's state ────────────────────────────────────
+// VW1b review round 1 (R1-5): a tick changed the TABLE's state, so every row
+// of the table re-rendered at every tick (a long table lagged per tick). The
+// draft lives in a store of its own: the open cell and the picker subscribe,
+// and a tick re-renders those two only. Any other cell reads null from it and
+// never re-renders for it.
+function createDraftStore() {
+  let value = null
+  const heard = new Set()
+  return {
+    get: () => value,
+    set: (next) => { value = next; for (const h of [...heard]) h() },
+    subscribe: (h) => { heard.add(h); return () => { heard.delete(h) } },
+  }
+}
+const NO_STORE = { get: () => null, subscribe: () => () => {} }
+function useDraft(store, mine) {
+  const s = store || NO_STORE
+  return useSyncExternalStore(s.subscribe, () => (mine ? s.get() : null), () => null)
+}
+
 /**
  * One item cell of the Tasks table: a task's live items of `kind`.
- *   draftIds  the picker's draft while this cell's picker is open
- *   open      whether this cell's picker is open
- *   onOpen    (task, kind, element) — a seat that may write, items kept
+ *   draftStore  the picker's draft (useItemPicker's `store`): read while
+ *               this cell's picker is open
+ *   open        whether this cell's picker is open
+ *   onOpen      (task, kind, element) — a seat that may write, items kept
  *   onOpenWindow  the task's window (where the backend keeps no items)
  */
-export function TaskItemCell({ task, kind, lookup, sort, canWrite = true, available = true, draftIds = null, open = false, onOpen, onOpenWindow }) {
-  const live = draftIds ?? lookup.idsOf(task, kind)
+export function TaskItemCell({ task, kind, lookup, sort, canWrite = true, available = true, draftStore = null, open = false, onOpen, onOpenWindow }) {
+  const draft = useDraft(draftStore, open)
+  const live = draft ?? lookup.idsOf(task, kind)
   const ids = useMemo(() => sortIdsForDisplay(kind, live, sort, lookup), [kind, live, sort, lookup])
   const names = ids.map(id => lookup.nameOf(kind, id) || `Untitled ${kind}`)
   const said = names.length ? names.join(', ') : NO_KIND_LABEL[kind]
@@ -227,24 +257,63 @@ function TaskItemPicker({ ctx, kind, lookup, draft, onToggle }) {
   )
 }
 
+/**
+ * The open picker, in the kit Popover: its own subscription to the draft, so
+ * a tick re-renders it and the open cell only (R1-5).
+ */
+function PickerLayer({ store, picking, ctx, lookup, title, onToggle, onClose, returnFocus }) {
+  const draft = useSyncExternalStore(store.subscribe, store.get, () => null) || picking.original
+  return (
+    <Popover
+      anchor={picking.anchor}
+      minLeft={picking.minLeft}
+      label={`${KIND_LABEL_PLURAL[picking.kind]} of ${title}`}
+      width={280}
+      returnFocus={returnFocus}
+      onClose={onClose}
+    >
+      <TaskItemPicker ctx={ctx} kind={picking.kind} lookup={lookup} draft={draft} onToggle={onToggle} />
+    </Popover>
+  )
+}
+
 /** A selector for an attribute's value, whatever an id holds. */
 function cssString(v) {
   return String(v).replace(/["\\]/g, '\\$&')
 }
 
 /**
+ * VW1b review round 1 (R1-6): where a sticky column's cover ends on screen —
+ * the table's last sticky head cell's right edge — for a cell that is not
+ * itself sticky; null where nothing covers it. A cell scrolled partly under
+ * the sticky Title opened its picker under the Title.
+ */
+function coverEndOf(anchor) {
+  const table = anchor?.closest?.('table')
+  const n = Number(table?.getAttribute('data-sticky-columns')) || 0
+  const last = n ? table.tHead?.rows?.[0]?.cells?.[n - 1] : null
+  if (!last) return null
+  const cell = anchor.closest('td, th')
+  if (cell && cell.cellIndex < n) return null
+  return last.getBoundingClientRect().right
+}
+
+/**
  * The picking itself, owned by the TABLE (not the cell: grouped by the kind
  * being edited, the row moves group after the commit, and its cell with it).
- * Returns `{ picking, open, layer }`: which cell is open with its draft, the
- * cells' open handler, and the Popover (and the last item's question) to
- * render once, in the table.
+ * Returns `{ picking, open, layer, store }`: which cell is open, the cells'
+ * open handler, the Popover (and the last item's question) to render once in
+ * the table, and the draft's store the open cell reads (R1-5).
  *   tableRef  the element the cells are in (a cell is found again by its
  *             `data-item-cell` there, after its row re-rendered or moved)
  *   onFail    (sentence) — a refused or failed write, said in the tab's
  *             Banner (VW1m R2-2's route)
  */
 export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
-  const [picking, setPicking] = useState(null) // { taskId, kind, anchor, original, draft }
+  const storeRef = useRef(null)
+  if (!storeRef.current) storeRef.current = createDraftStore()
+  const store = storeRef.current
+  const [picking, setPicking] = useState(null) // { taskId, kind, anchor, original, minLeft }
   const [asking, setAsking] = useState(null)   // the id whose untick asks
   const now = useRef({ ctx, lookup, picking, onFail })
   now.current = { ctx, lookup, picking, onFail }
@@ -258,14 +327,16 @@ export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
   const close = useCallback(() => {
     const p = now.current.picking
     if (!p) return
+    const draft = store.get() || p.original
     setPicking(null)
     setAsking(null)
+    store.set(null)
     const { ctx: c, lookup: l, onFail: fail } = now.current
     const task = (c?.tasks || []).find(t => t.id === p.taskId)
     if (!task || !c?.setTaskItemsOfKind) return
     const had = new Set(p.original.map(String))
-    const has = new Set(p.draft.map(String))
-    const added = p.draft.filter(id => !had.has(String(id)))
+    const has = new Set(draft.map(String))
+    const added = draft.filter(id => !had.has(String(id)))
     const removed = p.original.filter(id => !has.has(String(id)))
     if (!added.length && !removed.length) return
     // Applied to the task's items as they are NOW: a teammate's change made
@@ -291,7 +362,7 @@ export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
           cellOf(p.taskId, p.kind)?.focus()
         })
       })
-  }, [cellOf])
+  }, [cellOf, store])
 
   const open = useCallback((task, kind, anchor) => {
     const p = now.current.picking
@@ -301,27 +372,29 @@ export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
       if (same) return
     }
     const original = now.current.lookup.idsOf(task, kind)
-    setPicking({ taskId: task.id, kind, anchor, original, draft: original.slice() })
-  }, [close])
+    store.set(original.slice())
+    setPicking({ taskId: task.id, kind, anchor, original, minLeft: coverEndOf(anchor) })
+  }, [close, store])
 
   const toggle = useCallback((id) => {
     const p = now.current.picking
     if (!p) return
-    const on = p.draft.some(x => String(x) === String(id))
+    const draft = store.get() || p.original
+    const on = draft.some(x => String(x) === String(id))
     if (on) {
       // The task's last live item, of any kind, asks first (the window's rule).
       const task = (now.current.ctx?.tasks || []).find(t => t.id === p.taskId)
       const others = task ? ITEM_KINDS.filter(k => k !== p.kind).reduce((n, k) => n + now.current.lookup.idsOf(task, k).length, 0) : 1
-      if (others === 0 && p.draft.length === 1) { setAsking(id); return }
-      setPicking({ ...p, draft: p.draft.filter(x => String(x) !== String(id)) })
+      if (others === 0 && draft.length === 1) { setAsking(id); return }
+      store.set(draft.filter(x => String(x) !== String(id)))
     } else {
-      setPicking({ ...p, draft: [...p.draft, id] })
+      store.set([...draft, id])
     }
-  }, [])
+  }, [store])
 
   // The task gone (deleted here or by a teammate): nothing left to edit.
   const taskThere = !picking || (ctx?.tasks || []).some(t => t.id === picking.taskId)
-  useEffect(() => { if (!taskThere) { setPicking(null); setAsking(null) } }, [taskThere])
+  useEffect(() => { if (!taskThere) { setPicking(null); setAsking(null); store.set(null) } }, [taskThere, store])
 
   let layer = null
   if (picking && taskThere) {
@@ -330,16 +403,17 @@ export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
     const askName = asking != null ? (lookup.nameOf(picking.kind, asking) || `Untitled ${picking.kind}`) : null
     layer = (
       <>
-        <Popover
+        <PickerLayer
           key={`${picking.taskId}:${picking.kind}`}
-          anchor={picking.anchor}
-          label={`${KIND_LABEL_PLURAL[picking.kind]} of ${title}`}
-          width={280}
-          returnFocus={() => cellOf(picking.taskId, picking.kind)}
+          store={store}
+          picking={picking}
+          ctx={ctx}
+          lookup={lookup}
+          title={title}
+          onToggle={toggle}
           onClose={close}
-        >
-          <TaskItemPicker ctx={ctx} kind={picking.kind} lookup={lookup} draft={picking.draft} onToggle={toggle} />
-        </Popover>
+          returnFocus={() => cellOf(picking.taskId, picking.kind)}
+        />
         {askName != null && createPortal(
           <Dialog
             width="confirm"
@@ -351,7 +425,8 @@ export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
                 <Button variant="danger" onClick={() => {
                   const id = asking
                   setAsking(null)
-                  setPicking(p => (p ? { ...p, draft: p.draft.filter(x => String(x) !== String(id)) } : p))
+                  const draft = store.get()
+                  if (draft) store.set(draft.filter(x => String(x) !== String(id)))
                 }}>
                   Remove
                 </Button>
@@ -365,5 +440,5 @@ export function useItemPicker({ ctx, lookup, tableRef, onFail }) {
       </>
     )
   }
-  return { picking, open, layer }
+  return { picking, open, layer, store }
 }

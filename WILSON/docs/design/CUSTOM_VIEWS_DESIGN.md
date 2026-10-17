@@ -330,13 +330,14 @@ cards naming every asset (VW1b tests them).
   and the other kinds after the assets; *A to Z* by name; *Date created* by
   when each row itself was made (its `created_at`; a row without one last).
   As many names as fit, then "+N" (the kit `Badge` in the muted ink) for the
-  rest; until the cell is measured the names are cut with "…", so nothing
-  jumps; a cell with one name is never measured. The whole list, in the same
-  order, is the cell's tooltip and its accessible name; "—" when there are
-  none (named "No asset", "No scene", …). A shot reads "Scene › Shot". A
-  group's band keeps the display order (§4.11): where the Sort is not *A to
-  Z*, a cell and its band can name the same items in two orders (walkthrough
-  72 asks her).
+  rest, measured in the CELL's room with the badge's own width kept for it
+  (code review round 1, R1-4 and R1-8); until the cell is measured the names
+  are cut with "…", so nothing jumps; a cell with one name is never measured.
+  The whole list, in the same order, is the cell's tooltip and its accessible
+  name; "—" when there are none (named "No asset", "No scene", …). A shot
+  reads "Scene › Shot". A group's band keeps the display order (§4.11): where
+  the Sort is not *A to Z*, a cell and its band can name the same items in two
+  orders (walkthrough 72 asks her).
 - **The picker (VW1b, Q10):** the cell is a button; a click, Enter or Space
   opens the kit Popover (portalled, §8 KR-1) under it, labelled "Assets of
   <task>" (or Scenes, …). Inside: a search field; for scenes and shots the
@@ -768,6 +769,10 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
   below and more above, 12px inside the window's edges, at most the room on
   its side less 12px, scrolling inside past that with its scroll contained
   (`overscroll-behavior: contain`: a wheel over it never scrolls the table).
+  A caller whose trigger can sit partly under a cover names `minLeft`, the
+  card's least left edge (VW1b code review round 1, R1-6: the Tasks cells
+  pass the sticky Title's right edge). A caller with a long list makes its
+  list the scroller, so its search stays in view (R1-7).
   **Layers:** z-index 70, the Dialog's own, so equal layers stack in
   document order: a Dialog opened from it (the last item's question) covers
   it, and a Popover opened from a Dialog sits over that Dialog; under the
@@ -793,11 +798,20 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
   (`border-collapse: separate` is what makes sticky cells possible: keep it).
   - **Insets, measured.** The Table reads its sticky head cells' widths (a
     `ResizeObserver`) into `--ui-sticky-<k>` on the table, the left inset of
-    column k, and sets the scroller's `scroll-padding-left` to where the
-    sticky columns end, so Tab and `focus()` never park a control under
-    them. A sticky cell holds at the scroller's PADDING edge (measured in
+    column k. A sticky cell holds at the scroller's PADDING edge (measured in
     Chromium 152 at step 0: `left: 0` in a scroller padded 12px holds at
     12px from its border), so the first inset is 0, not the gutter.
+  - **Focus.** A control focused under the sticky columns (Shift+Tab back
+    along a row scrolled sideways) is scrolled clear of them, with its focus
+    ring's 4px; a control in a sticky place (a sticky cell, a band's sticky
+    words) moves nothing. Not `scroll-padding-left` (VW1b code review round
+    1, R1-2, measured): Chromium reads everything left of it as outside the
+    view, so focus landing IN a sticky cell (a title's rename field, the next
+    row's checkbox on Tab) threw the table back to its start, and a control
+    only partly under the cover was not moved at all.
+  - **Layers over them.** A lane layer that lies over the sticky cells sits
+    above their z-index: the Tasks bulk bar (4, over the head's 3) and the
+    drag-over band stuck under the head (2, over the body's 1) — R1-1, R1-3.
   - **The gutter covered.** The scroller's own left padding (its gutter,
     `--ui-sticky-gutter` where the lane pads it) is covered by the first
     sticky cell, or the cells scrolling past would show through it.

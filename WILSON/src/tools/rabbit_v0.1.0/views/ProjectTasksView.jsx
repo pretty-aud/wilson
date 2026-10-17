@@ -348,6 +348,11 @@ export default function ProjectTasksView() {
   const groupFields = useMemo(() => groupableFields(itemKinds), [itemKinds])
   const tableGroup = groupFields.some(f => f.value === groupBy) ? groupBy : ''
   const boardGroup = groupFields.some(f => f.value === kanbanGroup) ? kanbanGroup : 'status'
+  // VW1b review round 1 (R1-10): such a grouping is forgotten, not kept
+  // aside — kept, the table regrouped by itself the moment a task named that
+  // kind again, and a saved view stored it.
+  useEffect(() => { if (groupBy !== tableGroup) setGroupBy(tableGroup) }, [groupBy, tableGroup])
+  useEffect(() => { if (kanbanGroup !== boardGroup) setKanbanGroup(boardGroup) }, [kanbanGroup, boardGroup])
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   // VW1m review round 2 (R2-2): a refused or failed drop's sentence, said in
   // the kit Banner above the table or the Board until dismissed (or the next
@@ -654,7 +659,7 @@ export default function ProjectTasksView() {
     const view = {
       id: Date.now().toString(),
       name: saveName.trim(),
-      filters, sortField, sortDir, groupBy, kanbanGroup, viewMode,
+      filters, sortField, sortDir, groupBy: tableGroup, kanbanGroup: boardGroup, viewMode,
     }
     const next = [...savedViews, view]
     setSavedViews(next)
@@ -1253,7 +1258,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, ite
 
   const rowProps = {
     columns, itemLookup, itemSort, phases, members, ctx, canWrite,
-    picking: picker.picking, onOpenItems: picker.open,
+    picking: picker.picking, onOpenItems: picker.open, draftStore: picker.store,
   }
   const taskRow = (t, drop) => (
     <TaskRow key={t.id} task={t} {...rowProps} drop={drop}
@@ -1795,7 +1800,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 }
 
 // ── Single task row ──
-function TaskRow({ task, columns, itemLookup, itemSort = 'type', picking = null, onOpenItems, phases, members, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
+function TaskRow({ task, columns, itemLookup, itemSort = 'type', picking = null, onOpenItems, draftStore = null, phases, members, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
   const guard = useDependencyStatusGuard(ctx)
   const removal = useRemovalAsk(ctx)
   const writeReason = useWriteReason()
@@ -1917,7 +1922,7 @@ function TaskRow({ task, columns, itemLookup, itemSort = 'type', picking = null,
           return (
             <TaskItemCell task={task} kind={col.kind} lookup={itemLookup} sort={itemSort}
               canWrite={canWrite} available={ctx?.taskItemsAvailable === true}
-              draftIds={mine ? picking.draft : null} open={!!mine}
+              draftStore={draftStore} open={!!mine}
               onOpen={onOpenItems} onOpenWindow={onDetailClick} />
           )
         }

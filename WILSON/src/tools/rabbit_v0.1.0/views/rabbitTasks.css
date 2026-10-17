@@ -242,11 +242,15 @@
   .rb-task-table-wrap[data-grow="none"] .ui-table.rb-task-table { width: min(100%, calc(var(--rb-task-fixed) + var(--rb-task-title-max))); }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
+  /* VW1b review round 1 (R1-1): z-index 4, over the kit's sticky head
+     cells (3 at the corner, VW1-KR-2), which it lies across from the
+     checkbox column's edge (48px: the sticky Title's head); at 3 the head
+     painted over "1 selected" and the Status select. */
   .rb-task-bulk {
     position: absolute;
     top: 0;
     left: 48px;
-    z-index: 3;
+    z-index: 4;
     height: var(--table-head);
     display: flex;
     align-items: center;
@@ -359,7 +363,11 @@
        measured: a 16-row group dragged over near its end showed no mark). */
     position: sticky;
     top: var(--table-head);
-    z-index: 1;
+    /* VW1b review round 1 (R1-3): 2, over the body's sticky cells (1,
+       VW1-KR-2): at 1 a row scrolled up under the stuck band painted its
+       checkbox and title over the band's words. It sits under the head's
+       height, so the head (2 and 3) never meets it. */
+    z-index: 2;
   }
   .rb-task-group-row:hover .rb-task-group-count,
   .rb-task-group-row:hover .rb-task-phase-date,
@@ -468,12 +476,15 @@
      (32px, as the task window's picker rows), ticked as the table's own rows
      are: the same Square and CheckSquare, the selection colour when ticked.
      What tells two same-named rows apart is in the second ink. */
-  .rb-task-pick { display: flex; flex-direction: column; min-height: 0; }
+  /* VW1b review round 1 (R1-7): the picker fills the card and its LIST is
+     the scroller, so the search and "Show all lists" stay in view (the card
+     scrolled as a whole, the search with it). */
+  .rb-task-pick { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
   .rb-task-pick-search { position: relative; display: flex; align-items: center; padding: 8px; border-bottom: 1px solid var(--color-rule); }
   .rb-task-pick-search-icon { position: absolute; left: 16px; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); pointer-events: none; }
   .ui-input.rb-task-pick-input[data-size="sm"] { width: 100%; padding-left: 28px; }
   .rb-task-pick-scope { display: flex; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--color-rule); }
-  .rb-task-pick-list { display: flex; flex-direction: column; padding: 4px 0; }
+  .rb-task-pick-list { display: flex; flex-direction: column; min-height: 0; padding: 4px 0; overflow-y: auto; overscroll-behavior: contain; }
   .rb-task-pick-empty { padding: 8px 12px; font-size: var(--text-dense); color: var(--color-ink-2); }
   .rb-task-pick-row {
     display: flex;

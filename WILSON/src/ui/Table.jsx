@@ -60,14 +60,29 @@ const ALIGNS = ['left', 'center', 'right']
 // (measured in Chromium 152, VW1b step 0: `left: 0` in a scroller padded 12px
 // holds 12px in), so column 0's inset is 0 and the padding — the scroller's
 // gutter, `--ui-sticky-gutter` — is covered by the first column's cells (the
-// sheet), or the cells scrolling past would show through it. The scroller's
-// `scroll-padding-left` is set to where the sticky columns end, so Tab and
-// `focus()` never park a control under them. `--ui-sticky-room` is the
-// scroller's content width: a spanning cell (`colSpan`, a group's band) is
-// not sticky, its FIRST CHILD is, at most that wide (the sheet), so a band's
-// words stay in view. Where nothing is measured (no layout, as under the test
-// runner) every inset is 0 and the room unset. The paint (z-order, the
-// grounds, the row tints as images) is the sheet's (src/index.css).
+// sheet), or the cells scrolling past would show through it.
+// A control focused UNDER the sticky columns (Shift+Tab back along a row
+// scrolled sideways) is scrolled clear of them, with its focus ring's 4px;
+// a control that sits in a sticky place (a sticky cell, a band's sticky
+// words) moves nothing. VW1b review round 1 (R1-2): this was the scroller's
+// `scroll-padding-left`, which Chromium 152 reads as "everything left of the
+// sticky end is outside the view": focus landing IN a sticky cell (a title's
+// rename field, the next row's checkbox on Tab) threw the table back to its
+// start, and a control only partly under the sticky columns was not moved.
+// `--ui-sticky-room` is the scroller's content width: a spanning cell
+// (`colSpan`, a group's band) is not sticky, its FIRST CHILD is, at most that
+// wide (the sheet), so a band's words stay in view. Where nothing is
+// measured (no layout, as under the test runner) every inset is 0 and the
+// room unset. The paint (z-order, the grounds, the row tints as images) is
+// the sheet's (src/index.css).
+const RING_ROOM = 4
+function inStickyPlace(el, scroller) {
+  for (let p = el; p && p !== scroller; p = p.parentElement) {
+    const css = getComputedStyle(p)
+    if (css.position === 'sticky' && css.left !== 'auto' && css.left !== '') return true
+  }
+  return false
+}
 function useStickyColumns(n, tableRef, scrollRef) {
   useLayoutEffect(() => {
     const table = tableRef.current
@@ -87,16 +102,27 @@ function useStickyColumns(n, tableRef, scrollRef) {
       if (scroller) {
         const room = scroller.clientWidth - pad - padRight
         if (room > 0) table.style.setProperty('--ui-sticky-room', `${room}px`)
-        scroller.style.scrollPaddingLeft = `${pad + left}px`
       }
     }
     measure()
-    if (typeof ResizeObserver !== 'function') return undefined
+    // Where the sticky columns end, on screen: the last sticky head cell's
+    // right edge (it holds its place, so it is where the cover ends now).
+    const onFocus = (e) => {
+      const el = e.target
+      if (!scroller || !(el instanceof Element) || !scroller.contains(el) || inStickyPlace(el, scroller)) return
+      const last = table.tHead?.rows?.[0]?.cells?.[n - 1]
+      if (!last) return
+      const end = last.getBoundingClientRect().right + RING_ROOM
+      const from = el.getBoundingClientRect().left
+      if (from < end) scroller.scrollLeft -= end - from
+    }
+    scroller?.addEventListener('focusin', onFocus)
+    if (typeof ResizeObserver !== 'function') return () => scroller?.removeEventListener('focusin', onFocus)
     const ro = new ResizeObserver(measure)
     const cells = table.tHead?.rows?.[0]?.cells
     for (let k = 0; k < n; k++) if (cells?.[k]) ro.observe(cells[k])
     if (scroller) ro.observe(scroller)
-    return () => ro.disconnect()
+    return () => { ro.disconnect(); scroller?.removeEventListener('focusin', onFocus) }
   }, [n, tableRef, scrollRef])
 }
 

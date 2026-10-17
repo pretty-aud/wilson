@@ -428,3 +428,34 @@ describe('FX10: the Tasks table\'s dates hold the whole date and its calendar', 
     expect(cellPads(`${sheet}\n@layer components {\n  .rb-files-frame .rb-task-table-wrap .ui-table.rb-task-table .ui-td.rb-task-cell { padding: 0 20px; }\n}`).values).toEqual([6, 6])
   })
 })
+
+/* ── VW1b code review round 1 (2026-10-17): the sticky columns' layers and
+   the picker's scroller ────────────────────────────────────────────────────
+   The kit's sticky head cells sit at z-index 3 (the corner) and 2, the body's
+   sticky cells at 1 (src/index.css, VW1-KR-2). Two of this sheet's layers
+   met them at equal z, where document order decided against them. */
+describe('VW1b review round 1: what sits over the sticky columns', () => {
+  const kitZ = (pattern) => rulesOf(indexCss)
+    .filter(({ sel }) => pattern.test(sel))
+    .map(({ body }) => Number((body.match(/z-index:\s*(\d+)/) || [])[1]))
+    .filter((n) => Number.isFinite(n))
+  it('R1-1: the bulk bar sits above every sticky head cell (it covers the Title head; at equal z the head painted over "1 selected")', () => {
+    const head = kitZ(/data-sticky[^,]*> thead/)
+    expect(head.length).toBeGreaterThan(0)
+    expect(Number(declaredValue(sheet, '.rb-task-bulk', 'z-index'))).toBeGreaterThan(Math.max(...head))
+  })
+  it('R1-3: the drag-over band, stuck under the head, sits above the body\'s sticky cells (a row scrolled under it painted its title over the band\'s words) and never above the head', () => {
+    const body = kitZ(/data-sticky[^,]*> tbody > \.ui-tr > \.ui-td:not\(\[colspan\]\)/)
+    expect(body.length).toBeGreaterThan(0)
+    const band = Number(declaredValue(sheet, '.rb-task-group-row[data-drag-over="true"] > .ui-td', 'z-index'))
+    expect(band).toBeGreaterThan(Math.max(...body))
+    expect(declaredValue(sheet, '.rb-task-group-row[data-drag-over="true"] > .ui-td', 'top')).toBe('var(--table-head)')
+  })
+  it('R1-7: the picker\'s list is the scroller, so the search stays in view; the card does not scroll as a whole', () => {
+    expect(declaredValue(sheet, '.rb-task-pick-list', 'overflow-y')).toBe('auto')
+    expect(declaredValue(sheet, '.rb-task-pick-list', 'min-height')).toBe('0')
+    expect(declaredValue(sheet, '.rb-task-pick-list', 'overscroll-behavior')).toBe('contain')
+    expect(declaredValue(sheet, '.rb-task-pick', 'min-height')).toBe('0')
+    expect(declaredValue(sheet, '.rb-task-pick', 'flex')).toBe('1 1 auto')
+  })
+})

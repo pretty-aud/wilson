@@ -51,7 +51,7 @@ entry; `/rabbit`, the test data: **Salt Hours → Tasks**, **Table**)
 | # | Do | You should see |
 |---|----|----------------|
 | 1 | Look at the headers | *Title, Status, Priority,* **Asset, Scene, Shot,** *Phase, Assignee, Start, End, Bid* (`po-vw1b-after-01-tasks`). Before, *Asset* was the only one (`po-vw1b-before-01-tasks`). |
-| 2 | Find **Glass and rain rig test** | **Asset**: *Lighthouse Interior* and a small **+1**; point at it for *Lighthouse Interior, Sea Spray Comp*. **Scene**: *The storm*. **Shot**: *The storm › Rain on the glass* (`-02-two-assets`). A task with none reads **—**. |
+| 2 | Find **Glass and rain rig test** | **Asset**: *Lighthouse Int…* and a small **+1** (in a 150px column the first name and the count do not both fit, so the name is cut); point at it for *Lighthouse Interior, Sea Spray Comp*. **Scene**: *The storm*. **Shot**: *The storm › Rain on the glass*, cut short by the cell (`-02-two-assets`). A task with none reads **—**. |
 | 3 | Scroll the table sideways (the bar under it, or Shift + the wheel) | Status, Priority and the rest slide under the task's name; the tick box and the name stay put, and nothing shows in the gap at the left edge (`-05-scrolled`). |
 
 **B. The picker** (still Salt Hours → Tasks)

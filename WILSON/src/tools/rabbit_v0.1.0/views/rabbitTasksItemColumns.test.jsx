@@ -26,6 +26,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { useRef } from 'react'
 import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 import { _resetTaskItemSortForTests } from '../components/RelationsPanel'
@@ -43,6 +44,8 @@ const rabbit = vi.hoisted(() => ({ current: null }))
 const perms = vi.hoisted(() => ({ current: null }))
 
 const { default: ProjectTasksView } = await import('./ProjectTasksView')
+const { useItemPicker } = await import('./TaskItemCells')
+const { buildItemLookup } = await import('../state/taskItemsModel')
 
 const SORT_KEY = 'rabbit_task_items_sort'
 afterEach(() => { cleanup(); _resetOverlaysForTests(); _resetTaskItemSortForTests(); localStorage.clear(); vi.restoreAllMocks() })
@@ -429,6 +432,91 @@ describe('VW1b: grouped by the new kinds — one group per combination; a drop t
     expect(bands().length).toBeGreaterThan(0)
     rerender({ ...ctx, project: { ...ctx.project, scenes_enabled: false }, taskItems: ITEMS().filter((i) => i.entity_type === 'asset') })
     expect(bands()).toEqual([])
+    expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
+  })
+})
+
+// ── VW1b code review round 1 (2026-10-17) ───────────────────────────────────
+describe('VW1b review round 1: the cell\'s measuring, the picker\'s place, a tick\'s cost, a grouping that outlives its column', () => {
+  // Each name's width by its words (its comma included), as Chromium measured them.
+  const stubWidths = (widths, boxes) => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const w = this.hasAttribute && this.hasAttribute('data-name') ? (widths[this.textContent] ?? 0) : 0
+      return { width: w, height: 20, left: 0, top: 0, right: w, bottom: 20 }
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
+      for (const [cls, w] of Object.entries(boxes)) if (this.classList && this.classList.contains(cls)) return w
+      return 0
+    })
+  }
+  const three = [...ITEMS(), item('i9', 't1', 'asset', 'a3', 2)]
+
+  it('R1-4: a seat that may not write measures the CELL, not the names\' own shrink-wrapped box: three names that fit stay three', () => {
+    // Harbour Wall, Lighthouse Interior, Storm Lantern = 181.1px in a 260px cell.
+    stubWidths({ 'Harbour Wall, ': 60.4, 'Lighthouse Interior, ': 60.4, 'Storm Lantern': 60.3 },
+      { 'rb-task-items': 260, 'rb-task-items-shown': 181 })
+    page({ writer: false, taskItems: three })
+    const c = cellOf('Glass and rain rig test', 'asset')
+    expect(c.querySelectorAll('[data-name]')).toHaveLength(3)
+    expect(c.querySelector('.rb-task-items-more')).toBeNull()
+  })
+
+  it('R1-8: the room kept for "+N" is the badge\'s own (about 26px for "+1"), not 42px: two names and "+1" where they fit', () => {
+    // 50 + 76.9 = 126.9px of names, "+1" and its gap 32.5px: 159.4px in 166.
+    stubWidths({ 'Harbour Wall, ': 50, 'Lighthouse Interior, ': 76.9, 'Storm Lantern': 60 }, { 'rb-task-items': 166 })
+    page({ taskItems: three })
+    const c = cellOf('Glass and rain rig test', 'asset')
+    expect(c.querySelectorAll('[data-name]')).toHaveLength(2)
+    expect(c.querySelector('.rb-task-items-more').textContent).toBe('+1')
+  })
+
+  it('R1-6: the picker opens no further left than the sticky Title\'s right edge, where the cell is partly under it', () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const box = (left, width) => ({ left, right: left + width, width, top: 300, bottom: 328, height: 28 })
+      if (this.tagName === 'TH' && this.textContent === 'Title') return box(48, 216)
+      if (this.classList && this.classList.contains('rb-task-items')) return box(214, 138)
+      return box(0, 0)
+    })
+    page()
+    fireEvent.click(cellOf('Glass and rain rig test', 'asset'))
+    expect(picker().style.left).toBe('264px')
+  })
+
+  it('R1-5: a tick re-renders the open cell and the picker, not the table that owns them', () => {
+    const ctx = page().ctx
+    cleanup(); _resetOverlaysForTests()
+    const lookup = buildItemLookup({ items: ctx.taskItems, available: true, assets: ctx.assets, scenes: ctx.scenes, shots: ctx.shots, levels: [], experiences: [] })
+    const renders = { n: 0 }
+    function Owner() {
+      renders.n += 1
+      const tableRef = useRef(null)
+      const p = useItemPicker({ ctx, lookup, tableRef, onFail: () => {} })
+      return (
+        <div ref={tableRef}>
+          <button type="button" data-item-cell="t1:asset" onClick={(e) => p.open(ctx.tasks[0], 'asset', e.currentTarget)}>cell</button>
+          {p.layer}
+        </div>
+      )
+    }
+    rabbit.current = ctx
+    render(<Owner />)
+    fireEvent.click(screen.getByRole('button', { name: 'cell' }))
+    const before = renders.n
+    tick('Harbour Wall')
+    expect(rows().find(([n]) => n === 'Harbour Wall')[1]).toBe('true')
+    tick('Mara')
+    expect(renders.n).toBe(before)
+  })
+
+  it('R1-10: a grouping whose column went is forgotten, so the table does not regroup by itself when the column comes back', () => {
+    const { ctx, rerender } = page({ project: { scenes_enabled: true } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'scene' } })
+    expect(document.querySelectorAll('tr.rb-task-group-row').length).toBeGreaterThan(0)
+    const without = { ...ctx, project: { ...ctx.project, scenes_enabled: false }, taskItems: ITEMS().filter((i) => i.entity_type === 'asset') }
+    rerender(without)
+    expect(document.querySelectorAll('tr.rb-task-group-row')).toHaveLength(0)
+    rerender({ ...without, project: { ...without.project, scenes_enabled: true }, taskItems: ITEMS() })
+    expect(document.querySelectorAll('tr.rb-task-group-row')).toHaveLength(0)
     expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
   })
 })

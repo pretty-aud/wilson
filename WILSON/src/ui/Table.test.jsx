@@ -387,7 +387,7 @@ describe('sticky columns (VW1-KR-2)', () => {
     expect(many.container.querySelector('table').getAttribute('data-sticky-columns')).toBe('3')
   })
 
-  it('measures its insets: column k\'s left is the sticky widths before it; the gutter is the scroller\'s padding; scroll-padding-left is where the sticky columns end', () => {
+  it('measures its insets: column k\'s left is the sticky widths before it; the gutter is the scroller\'s padding; the room is its content width', () => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
       const w = this.tagName === 'TH' ? ({ '□': 36, Title: 216 }[this.textContent] ?? 148) : 0
       return { width: w, height: 32, left: 0, top: 0, right: w, bottom: 32 }
@@ -402,7 +402,6 @@ describe('sticky columns (VW1-KR-2)', () => {
     const t = container.querySelector('table')
     expect(['--ui-sticky-0', '--ui-sticky-1', '--ui-sticky-gutter', '--ui-sticky-room'].map((p) => t.style.getPropertyValue(p)))
       .toEqual(['0px', '36px', '12px', '1246px'])
-    expect(container.querySelector('.ui-table-scroll').style.scrollPaddingLeft).toBe(`${12 + 36 + 216}px`)
     vi.restoreAllMocks()
   })
 
@@ -448,5 +447,61 @@ describe('sticky columns (VW1-KR-2)', () => {
     for (const td of container.querySelectorAll('td, th')) {
       for (const h of heads) expect(td.matches(h.replace(/\s*>\s*:first-child$/, '')), h).toBe(false)
     }
+  })
+})
+
+// VW1b code review round 1 (R1-2): `scroll-padding-left` counted the sticky
+// cells as outside the viewing region, so focus landing IN them (a title's
+// rename field, the next row's checkbox on Tab) threw the table back to its
+// start, and a control only partly under them was not moved at all
+// (measured in Chromium 152). The kit scrolls a control focused under the
+// sticky columns clear of them itself, with its ring's 4px, and leaves a
+// control that sits in a sticky place where it is.
+describe('sticky columns: focus (VW1b review round 1, R1-2)', () => {
+  const rects = () => vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    const box = (left, width) => ({ left, right: left + width, width, top: 0, bottom: 32, height: 32 })
+    if (this.tagName === 'TH' && this.textContent === 'Title') return box(48, 216)
+    if (this.dataset?.probe === 'status') return box(160, 148)
+    if (this.dataset?.probe === 'rename') return box(60, 140)
+    if (this.dataset?.probe === 'band') return box(12, 200)
+    return box(0, 0)
+  })
+  const table = () => render(
+    <Table stickyColumns={2} head={<Row><Th>□</Th><Th>Title</Th><Th>Status</Th></Row>}>
+      <Row><Td style={{ position: 'sticky', left: '0px' }}><button type="button">x</button></Td>
+        <Td style={{ position: 'sticky', left: '36px' }}><input aria-label="Title" data-probe="rename" /></Td>
+        <Td><select aria-label="Status" data-probe="status" /></Td></Row>
+      <Row><Td colSpan={3}><div style={{ position: 'sticky', left: '0px' }}><button type="button" data-probe="band">Group</button></div></Td></Row>
+    </Table>,
+  )
+  const scrollOf = (container) => {
+    const sc = container.querySelector('.ui-table-scroll')
+    let left = 132
+    Object.defineProperty(sc, 'scrollLeft', { configurable: true, get: () => left, set: (v) => { left = v } })
+    return { sc, now: () => left }
+  }
+
+  it('sets no scroll-padding-left (it threw the table back whenever focus landed in a sticky cell)', () => {
+    rects()
+    const { container } = table()
+    expect(container.querySelector('.ui-table-scroll').style.scrollPaddingLeft).toBe('')
+    vi.restoreAllMocks()
+  })
+  it('a control focused under the sticky columns is scrolled clear of them, with its ring\'s 4px', () => {
+    rects()
+    const { container } = table()
+    const { now } = scrollOf(container)
+    fireEvent.focusIn(container.querySelector('[data-probe="status"]'))
+    expect(now()).toBe(132 - (264 + 4 - 160))
+    vi.restoreAllMocks()
+  })
+  it('CONTROL: a control in a sticky cell, or in a band\'s sticky words, moves nothing', () => {
+    rects()
+    const { container } = table()
+    const { now } = scrollOf(container)
+    fireEvent.focusIn(container.querySelector('[data-probe="rename"]'))
+    fireEvent.focusIn(container.querySelector('[data-probe="band"]'))
+    expect(now()).toBe(132)
+    vi.restoreAllMocks()
   })
 })

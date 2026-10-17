@@ -14,6 +14,9 @@
 // place (the Tasks table's `.ui-table-scroll`). Under the anchor's left edge;
 // ABOVE it when less than 240px is free below and more is free above; never
 // taller than the room on its side less 12px, scrolling inside past that.
+// VW1b review round 1 (R1-6): `minLeft`, a viewport x the card's left edge
+// does not go under — a trigger partly covered (the Tasks table's sticky
+// Title over a cell scrolled under it) names where the cover ends.
 // The design's *in place* form (rendered right after its trigger, for the
 // Views dropdown) lands with ITS first caller (VW1d), not before: the kit
 // takes an addition only with a caller.
@@ -56,9 +59,10 @@ const EDGE = 12
 const ROOM_BELOW = 240
 
 /** Where the card goes, from the anchor's box at its open. */
-function placePopover(rect, width, vw, vh) {
+function placePopover(rect, width, vw, vh, minLeft = null) {
   const w = Math.max(0, Math.min(width, vw - 2 * EDGE))
-  const left = Math.max(EDGE, Math.min(rect.left, vw - w - EDGE))
+  const from = Number.isFinite(minLeft) ? Math.max(rect.left, minLeft) : rect.left
+  const left = Math.max(EDGE, Math.min(from, vw - w - EDGE))
   const below = vh - rect.bottom - GAP
   const above = rect.top - GAP
   if (below < ROOM_BELOW && above > below) {
@@ -81,6 +85,7 @@ export function Popover({
   label,
   onClose,
   width = 280,
+  minLeft = null,
   initialFocus = null,
   returnFocus = null,
   className = '',
@@ -103,7 +108,7 @@ export function Popover({
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1400
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900
     const rect = anchor?.getBoundingClientRect?.() || { left: 0, top: 0, bottom: 0 }
-    return placePopover(rect, width, vw, vh)
+    return placePopover(rect, width, vw, vh, minLeft)
   })
 
   // A layout effect: its cleanup runs while the card is still in the

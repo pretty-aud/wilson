@@ -250,3 +250,21 @@ describe('Popover — the portalled form', () => {
     a.remove(); other.remove()
   })
 })
+
+// VW1b code review round 1 (R1-6): a trigger can sit partly under something
+// that covers it (the Tasks table's sticky Title): the caller names the least
+// left edge, and the card does not open under the cover.
+describe('Popover — minLeft (VW1b review round 1, R1-6)', () => {
+  it('opens no further left than the caller allows; without it, under the anchor', () => {
+    const a = document.createElement('button')
+    document.body.appendChild(a)
+    a.getBoundingClientRect = () => ({ left: 214, top: 200, bottom: 228, right: 352, width: 138, height: 28 })
+    const { rerender } = render(<Popover anchor={a} label="p" minLeft={264} onClose={() => {}}><button type="button">x</button></Popover>)
+    expect(document.querySelector('.ui-popover').style.left).toBe('264px')
+    rerender(<span />)
+    _resetOverlaysForTests()
+    render(<Popover anchor={a} label="q" onClose={() => {}}><button type="button">y</button></Popover>)
+    expect(document.querySelector('.ui-popover').style.left).toBe('214px')
+    a.remove()
+  })
+})
