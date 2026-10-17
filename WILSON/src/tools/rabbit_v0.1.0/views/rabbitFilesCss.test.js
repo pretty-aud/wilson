@@ -378,7 +378,8 @@ describe('LevelsView and ExperiencesView are config only (B4c, R4-11)', () => {
     })
   }
   it('the two configs have the same fields, and the date ring R4-11 carried is not one of them', () => {
-    const fields = ['type', 'noun', 'nouns', 'Noun', 'Icon', 'collection', 'linkKey', 'addMethod', 'updateMethod', 'deleteMethod', 'savedViewsKey']
+    // VW1b (2026-10-17): `assetsKey`, the arrays an asset carries (the Assets count).
+    const fields = ['type', 'noun', 'nouns', 'Noun', 'Icon', 'collection', 'linkKey', 'assetsKey', 'addMethod', 'updateMethod', 'deleteMethod', 'savedViewsKey']
     expect(configKeys(read(WRAPPERS.levels))).toEqual(fields)
     expect(configKeys(read(WRAPPERS.experiences))).toEqual(fields)
   })

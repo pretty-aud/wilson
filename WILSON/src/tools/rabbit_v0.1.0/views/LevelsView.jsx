@@ -20,6 +20,7 @@ const LEVEL = {
   Icon: Gamepad2,
   collection: 'levels',
   linkKey: 'level_id',
+  assetsKey: 'level_ids',
   addMethod: 'addLevel',
   updateMethod: 'updateLevel',
   deleteMethod: 'deleteLevel',
