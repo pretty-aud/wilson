@@ -126,3 +126,81 @@ real project. The counts on the **cloud** need one more thing first (below).
 2. **At 1440 a film project's table now scrolls a little sideways** (two more
    columns) and the task's name keeps 216px. Keep it until the views let you
    hide columns, or keep *All* narrower now?
+
+## Part 2 — where your views and groupings will be kept (VW1c, 2026-10-17)
+
+**Nothing new on screen.** This part builds the place your saved views and
+groupings live, on every kind of WILSON, so the next session (part 3) can put
+the *Views* dropdown on the Tasks table. The *Views* button is still the old
+one until then.
+
+1. **A view** is a named, saved way of showing one table — Tasks, Assets,
+   Scenes, Shots, Levels or Experiences — in one project: its filters, sorts,
+   grouping, which fields show and in what order, and its layout. It is
+   **shared with everyone on the project** (your Q1), and **anyone who can
+   edit the project may save one; a reviewer never can** (Q2). Each table
+   starts with *All* only, which is never stored (Q20).
+2. **A save never writes over a teammate's newer save without asking**
+   (Q-G3): every view carries a number that changes each time its settings
+   are saved, and a *Save* writes only if the number is still the one your
+   change started from. A rename or a new order does not change it.
+3. **A grouping** made with *Create grouping* is **saved for the project**
+   (Q-D2). Deleting an item for good (a scene, a shot, a level, an
+   experience, or an asset when the bin is emptied) takes it out of the
+   groupings that name it, and *Undo* puts it back. An asset in the trash
+   stays in its groupings, which hide until you restore it (your Q-N4).
+4. **The view you last used on each table** is remembered for you (Q4): with
+   your own settings when you are signed in (your 300 most recent tables),
+   and in the computer's own settings on the desktop without signing in.
+5. **A teammate's saved view reaches an open table at once** on the cloud
+   (Q3d). The desktop without signing in shows it at the next load.
+6. **Moving a desktop project to the cloud carries its views and
+   groupings**; groupings of levels or experiences stay behind (the move does
+   not carry those yet), and its report counts them. **The company takeout**
+   includes both.
+
+**What this is.** VW1c, the third session of the custom views' build
+(`docs/sessions/briefs/po-vw1c-custom-views-data.md`): first a review of the
+design's data part against the code (19 findings, corrected in
+`docs/design/CUSTOM_VIEWS_DESIGN.md`), then migration **0098** and its tests,
+the desktop's and the test data's twins, Google Drive (no views there: it
+will say *not on this server yet*), and the app's half, with nothing on screen
+using it yet. Written 2026-10-17 against `feat/post-overhaul-edit-versioning`
+(`po/vw1c-custom-views-data`).
+
+### 1. Nothing to try in the app yet
+
+Part 3 (VW1d) is the first you can click. Migration 0098 is on **dev**; the
+beta's database (**staging**) needs it before the beta can save views (below).
+Until then a WILSON on a database without it shows saved views as *not on
+this server yet* and keeps working.
+
+### 2. Known limits
+
+- **The desktop without signing in has no roles** (anyone using it may save
+  views) **and no live channel** (a teammate's save on a shared NAS project
+  shows at the next load).
+- **A grouping names at most 100 items**, and each must be in the project
+  when it is made; **a view's settings are at most 32 KB**; a project's table
+  holds at most **200 views and 500 groupings**.
+- **A grouping hides while one of its items is in the trash**, and comes back
+  when the item is restored.
+
+### 3. Staging (yours, when the beta merges)
+
+While linked to staging, right after 0097 (VW1m's lines in the Desktop kit),
+before re-linking to dev. The files are in the Desktop kit
+(`Post-overhaul\migrations-to-apply\`), whose `00_HOW_TO_APPLY.md` has the
+same lines:
+
+```
+supabase db query --linked --file "C:\Users\Audrey\Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\0098_table_views.sql"
+supabase db query --linked --file "C:\Users\Audrey\Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\hist-0098.sql"
+supabase db query --linked "select string_agg(version, ' ' order by version) from supabase_migrations.schema_migrations where version >= '0090'"
+```
+
+The history should end `0097 0098`. No Edge Function changed.
+
+### 4. Questions for you
+
+None this time.

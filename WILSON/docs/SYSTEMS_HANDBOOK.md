@@ -5084,6 +5084,53 @@ of a session — this section is limits by design, that file is faults.
   Dashboard shows a task's assets as of its last load (`docs/OUTSTANDING.md`);
   templates name no items; a split shows fractions of a day.
 
+**Custom table views' data (VW1c, migration 0098 — 2026-10-17; the screens are VW1d's and VW1e's)**
+
+- **Two tables, one rule file.** `table_views` (a named, saved way of
+  showing one of six tables — tasks, assets, scenes, shots, levels,
+  experiences — in one project: its `config` a JSON object of at most 32 KB,
+  its `position` the dropdown's order, its `revision` from
+  `table_views_revision_seq`, taken on insert and on every change of config,
+  never on a rename or a reorder) and `item_groupings` (a set of 1 to 100
+  items of one kind, sorted and distinct, unique per project, table and
+  kind; it holds no rows). The rules are `state/tableViewsModel.js`, pure;
+  the Local Server's copy is `electron/rabbitTableViews.cjs`, held to it by
+  `tableViewsParity.test.js`; the provider's half is
+  `state/tableViewsState.js`. The design is
+  `docs/design/CUSTOM_VIEWS_DESIGN.md` §5.
+- **Who:** RLS forced, four policies each, every arm restated (workspace,
+  membership, the project hop under the caller's RLS — private projects
+  hide — and `can_write_project` for writes: reviewers read views, never
+  save them). Column grants: a view is made with INSERT and saved with
+  UPDATE of `name`, `position`, `config` (an upsert is refused); a grouping
+  has no UPDATE. Caps: 200 views and 500 groupings a project and table
+  (`54000`, in words). A grouping's ids are checked as the caller (`23503`):
+  an asset in the trash or another project's row is refused.
+- **The sweep:** `fn_item_groupings_forget` (SECURITY DEFINER, on the five
+  item tables) takes a deleted row's id out of every grouping of its kind; a
+  grouping left empty, or naming another's set, is deleted (so the nightly
+  purge cannot roll back on the unique key). An asset in the trash stays
+  named, and the client hides the grouping while it is there. The provider's
+  deletes mirror the sweep and their undo puts the groupings back.
+- **The conditional save:** an UPDATE carries `.eq('revision', …)`; nothing
+  written means the row is read once — gone (`deleted`), another revision
+  (`changed`: a teammate saved), or the same (`filtered`: RLS dropped the
+  write without a word, so the person may no longer change views).
+- **The last used view** is `user_settings.table_view_last` (the person's
+  300 newest tables, written only through `set_table_view_last`, one
+  statement); on the signed-out desktop the machine's own
+  `rabbit-machine-settings.json` (the page's address changes at every
+  launch, so never `localStorage`).
+- **Live:** both tables are on the project channel (eighteen tables;
+  `realtimeMerge.js` maps them to `tableViews` and `itemGroupings`). A
+  client ahead of its database reads both empty and unavailable (the load's
+  reads are the probe: `42P01` / `PGRST205`); any other read error is an
+  error state, never a failed load.
+- **Known limits:** the signed-out desktop has no roles and no live
+  channel; a grouping hides while one of its items is in the trash; a view
+  sends its old and new config on the live channel (32 KB at most each, the
+  channel's ceiling not measured).
+
 **Security-adjacent**
 
 - ~~Eight SECURITY DEFINER functions are executable by `anon`.~~ ✅ **CLOSED by
