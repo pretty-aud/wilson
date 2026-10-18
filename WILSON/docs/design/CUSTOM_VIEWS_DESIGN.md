@@ -654,7 +654,15 @@ already have IS that combination's group: never two groups for one set.
   removed is made again with its id; one it shrank is made again first,
   under a new id, and the shrunk row removed only after, so a set the
   backend refuses (the row did not come back) leaves the shrunk grouping
-  as it was and the notice says so (VW1c review round 1, R1-1).
+  as it was and the notice says so (VW1c review round 1, R1-1). Where two
+  groupings shrink to one set, the one kept is the one whose item went
+  first: the screen mirrors the ids in code-unit order and the desktop's
+  bulk delete sends its requests in that order, but the cloud walks a
+  scene's shots in its own, so the undo goes by the backend's answers, not
+  the screen (an own id the backend still holds is a shrunk row), and the
+  history step keeps the ids the sets went back under, for an undo after a
+  redo (VW1c review round 2, R2-1, R2-2). A refusal other than a missing
+  item is said in its own words (R2-5).
 
 ### 5.3 The cloud: one migration for both (VW1c)
 
@@ -666,7 +674,12 @@ broadcast restated whole, post-conditions.
 
 - **`table_views` columns** as §5.1; `table_key` CHECKed to the six; `name`
   CHECKed (trimmed, 1 to 80 characters, no control characters); `config` a
-  JSON object of at most 32 KB as text; `position >= 0`; the project a
+  JSON object of at most 32 KB as text (`octet_length(config::text)`,
+  jsonb's own text, which the client and the desktop measure alike: a
+  number in full, never with an exponent; a NUL or half a surrogate pair,
+  which Postgres refuses in jsonb and in text, is refused before any
+  request, in a config and in a name; VW1c review rounds 1 and 2, R1-5,
+  R2-4); `position >= 0`; the project a
   same-workspace composite foreign key (`projects_id_workspace_key`), `ON
   DELETE CASCADE`.
 - **`item_groupings` columns** as §5.2; `table_key` and `kind` CHECKed to the
@@ -834,9 +847,11 @@ broadcast restated whole, post-conditions.
     save is never thrown away); a delete's undo makes the view again with
     its id (a new revision); a grouping's add is undone by removing it, its
     removal by adding it again. A refused undo says why and closes; one
-    whose request never answered keeps the toast to try again (round 1,
-    R1-4). A removal the cloud's policies filter out keeps the grouping on
-    screen (R1-3).
+    whose request never answered, or met a passing fault (the connection,
+    a timeout, a deadlock, an expired token), keeps the toast to try again
+    (round 1, R1-4; round 2, R2-3). A removal the cloud's policies filter
+    out keeps the grouping on screen (R1-3), and so does an add's undo,
+    saying why (R2-6).
   - **A delete for good takes items out of groupings** (§5.2): the provider's
     delete of a scene, shot, level or experience (and of an asset, where the
     backend removes the row: the desktop) remembers the groupings it touched

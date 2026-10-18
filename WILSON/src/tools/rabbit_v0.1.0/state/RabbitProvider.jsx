@@ -61,7 +61,7 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
-import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingRows } from './tableViewsState';
+import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsInTurn, groupingRestoreNotice } from './tableViewsState';
 import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
@@ -2026,8 +2026,12 @@ export function RabbitProvider({ children }) {
         // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
         // rows already soft-deleted server-side, then rethrow for rollback.
         const done = [];
+        // Review round 2 (R2-1): one request per asset, the ids in code-unit
+        // order (the order sweepGroupings mirrors), so where two groupings
+        // shrink to one set the desktop keeps the one the screen shows.
+        const inOrder = [...removed].sort((x, y) => (String(x.id) < String(y.id) ? -1 : String(x.id) > String(y.id) ? 1 : 0));
         try {
-          for (const a of removed) {
+          for (const a of inOrder) {
             await adapterRef.current.deleteAsset(a.id, activeProjectId);
             done.push(a.id);
           }
@@ -5012,26 +5016,21 @@ export function RabbitProvider({ children }) {
   // level or experience; an asset where the backend removes the row) takes
   // the item out of every grouping that names it — the backend's sweep, which
   // the delete mirrors on screen (sweepGroupings). Its undo, after the row is
-  // back, puts each grouping back as it was (tableViewsState.js). One at a
-  // time, so one that cannot be made again (an item it named is gone) does
-  // not stop the rest; it stays as the delete left it, and the notice says
-  // so (review round 1, R1-1: the history runner swallows an op's throw). No
-  // history.
+  // back, puts each grouping back as it was (tableViewsState.js'
+  // restoreGroupingsInTurn): one at a time, so one that cannot be made again
+  // does not stop the rest; it stays as the delete left it, and the notice
+  // says why (review round 1, R1-1: the history runner swallows an op's
+  // throw; round 2, R2-5: in the refusal's own words unless an item is not
+  // back). `originals` is the history entry's own array: each grouping is
+  // re-keyed in it to the id it went back under, for the entry's next undo
+  // after a redo (R2-2). No history.
   async function restoreGroupingsAfterDelete(originals) {
-    let refused = 0;
-    for (const g of originals || []) {
-      try {
-        await restoreGroupingRows({ adapter: adapterRef.current, projectId: activeProjectIdRef.current, originals: [g], bundleRef, setBundle });
-      } catch (err) {
-        refused += 1;
-        console.warn('[rabbit] a grouping of a restored item was not put back:', err?.message || err);
-      }
-    }
-    if (refused > 0) {
-      setError(refused === 1
-        ? 'A grouping was not put back as it was: an item it names is not back in the project.'
-        : `${refused} groupings were not put back as they were: an item they name is not back in the project.`);
-    }
+    const refusals = await restoreGroupingsInTurn({
+      adapter: adapterRef.current, projectId: activeProjectIdRef.current, originals, bundleRef, setBundle,
+    });
+    for (const err of refusals) console.warn('[rabbit] a grouping of a restored item was not put back:', err?.message || err);
+    const notice = groupingRestoreNotice(refusals);
+    if (notice) setError(notice);
   }
 
   const addTaskItem = useCallback(async (item) => {

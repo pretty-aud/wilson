@@ -158,6 +158,7 @@ describe('the CommonJS copy says what the model says', () => {
   const ASTRAL_80 = '😀'.repeat(80) // 80 characters, 160 UTF-16 units
   const NAMES = [
     'My view', '  My view  ', '\tMy view', 'My view\n', '', '   ', 'a'.repeat(80), 'a'.repeat(81), ASTRAL_80,
+    'a\udc00b', 'a\ud800', '\udbffa', 'pair \ud83d\ude00 ok',
     `${ASTRAL_80}😀`, 'a\nb', 'a\tb', 'a\u0000b', 'a\u001fb', 'a\u007fb', 'a\u0085b', 'a\u009fb', 'a b',
     ' x ', 'x﻿', 'a b', 'Café ✓', null, undefined, 42, ['x'], { name: 'x' },
   ]
@@ -197,6 +198,8 @@ describe('the CommonJS copy says what the model says', () => {
     null, undefined, 0, -1.5, 'x', 'q"uote', true, [], {}, [1, 'a', null], [1, undefined, 3], sparse,
     { b: 1, a: 2 }, { a: 2, b: 1 }, { a: undefined, b: 1 }, { z: { y: [{ b: 1, a: 2 }] }, a: [] }, KEYED,
     new Date(0), NaN, Infinity, [NaN], () => 1, { f: () => 1 }, { n: 10n }, circular(),
+    // Review round 2, R2-4: what JSON.stringify writes with an exponent.
+    1e21, 1e-7, [1e300], -2.5e22, 5e-324, { v: 1.5e-7 },
   ]
   it('canonicalJson, including what JSON cannot say (and what makes it throw)', () => {
     agree('canonicalJson', VALUES.map(v => [v]))
@@ -238,7 +241,25 @@ describe('the CommonJS copy says what the model says', () => {
   // 11,008 UTF-16 units but 33,008 UTF-8 bytes.
   const wide = () => ({ k: '€'.repeat(11000) })
   const CONFIGS = [null, undefined, [], 'x', 1, true, {}, { version: 1 }, sized(32768), sized(32769), wide(), circular(),
-    { n: 10n }, new Date(0), Object.create(null)]
+    { n: 10n }, new Date(0), Object.create(null),
+    // Review round 2, R2-4: the characters jsonb refuses, and the cap met by a number jsonb prints longer.
+    { v: 'a\u0000b' }, { ['\udc00']: 1 }, { v: ['x\ud800'] }, { v: '\ud83d\ude00' }, { f: () => '\u0000' },
+    { k: 'x'.repeat(32730), v: 1e21 }, { k: 'x'.repeat(32731), v: 1e21 }]
+  // Review round 2, R2-4: numbers as jsonb prints them, and the characters
+  // jsonb refuses, both copies (the bytes are wilson-dev's of 2026-10-17).
+  it('jsonbText prints a number as jsonb does, never with an exponent, in both copies', () => {
+    const printed = [[1e21, 29], [1e-7, 16], [[1e300], 310], [1.5e-7, 17], [-2.5e22, 31], [5e-324, 333],
+      [1.7976931348623157e308, 316], [123456789012345680000, 28], [0.000001, 15], [1.2345e-10, 23]]
+    for (const [v, bytes] of printed) {
+      expect(esm.utf8Length(esm.jsonbText({ v })), `esm ${v}`).toBe(bytes)
+      expect(cjs.utf8Length(cjs.jsonbText({ v })), `cjs ${v}`).toBe(bytes)
+    }
+  })
+  it('CONTROL: an exponent is what JSON.stringify writes for them, and its count is short of jsonb\'s', () => {
+    expect(JSON.stringify(1e21)).toBe('1e+21')
+    expect(JSON.stringify(1e-7)).toBe('1e-7')
+    expect(esm.utf8Length(JSON.stringify({ v: 1e21 }))).toBeLessThan(29)
+  })
   it('viewConfigProblem, word for word', () => {
     agree('viewConfigProblem', CONFIGS.map(c => [c]))
   })

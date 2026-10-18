@@ -695,6 +695,61 @@ describe('an asset deleted through main.cjs\'s asset route leaves its groupings 
     expect(b.tasks.map(t => t.id)).toEqual(['T1'])
     expect(b.taskItems).toEqual([])
   })
+
+  // Review round 2 (R2-7, R2-1): two assets each deleted by its own request,
+  // as the provider's bulk delete sends them, and the undo through the
+  // groupings' routes with the provider's own restore.
+  function twoShrinkOntoOne() {
+    const b = bundleOf({
+      itemGroupings: [grouping('G1', 'tasks', 'asset', ['A1', 'A3']), grouping('G2', 'tasks', 'asset', ['A2', 'A3'])],
+    })
+    const { routes } = mounted(b)
+    const { del } = assetRoute(b)
+    // The Local Server adapter's shape over the routes (its jfetch throws the route's code).
+    const adapter = {
+      async addItemGrouping(row) {
+        const r = call(routes, 'POST', G, {}, { id: row.id, table_key: row.table_key, kind: row.kind, entity_ids: row.entity_ids })
+        if (r.code !== 200) throw Object.assign(new Error(`[localServer] ${r.body.error}`), { code: r.body.code, status: r.code })
+        return r.body
+      },
+      async removeItemGrouping(id) {
+        const r = call(routes, 'DELETE', GID, { groupingId: id })
+        return r.body.removed ? { removed: true } : { removed: false, status: 'deleted' }
+      },
+    }
+    return { b, del, adapter }
+  }
+  const shown = (rows) => rows.map(g => `${g.id}:${g.entity_ids.join('|')}`).sort()
+
+  it('🚨 R2-7: deleted in the reverse of the screen\'s order, the desktop keeps the other grouping; the undo still puts both back as they were', async () => {
+    const { restoreGroupingsInTurn, sweepGroupings, groupingsNaming } = await import('./tableViewsState')
+    const { b, del, adapter } = twoShrinkOntoOne()
+    const originals = groupingsNaming(b.itemGroupings, 'asset', ['A2', 'A1'])
+    // The screen mirrors the sweep in code-unit order (A1 first): G1 {A3} stays.
+    const screen = { current: { itemGroupings: sweepGroupings(b.itemGroupings, 'asset', ['A2', 'A1']) } }
+    expect(shown(screen.current.itemGroupings)).toEqual(['G1:A3'])
+    // Two requests, A2 first (the caller's order, as the provider sent them
+    // before review round 2): the desktop keeps G2 {A3}.
+    del('A2')
+    del('A1')
+    expect(shown(b.itemGroupings)).toEqual(['G2:A3'])
+    // The undo: the assets come back first (the provider's addAsset), then the groupings.
+    b.assets.push({ id: 'A1' }, { id: 'A2' })
+    const setBundle = (f) => { screen.current = f(screen.current) }
+    expect(await restoreGroupingsInTurn({ adapter, projectId: PID, originals, bundleRef: screen, setBundle })).toEqual([])
+    expect(b.itemGroupings.map(g => g.entity_ids.join('|')).sort()).toEqual(['A1|A3', 'A2|A3'])
+    expect(shown(screen.current.itemGroupings)).toEqual(shown(b.itemGroupings))
+  })
+
+  it('R2-1: in code-unit order (the provider\'s since review round 2) the desktop keeps the grouping the screen shows', async () => {
+    const { sweepGroupings } = await import('./tableViewsState')
+    const { b, del } = twoShrinkOntoOne()
+    const screen = sweepGroupings(b.itemGroupings, 'asset', ['A2', 'A1'])
+    del('A1')
+    del('A2')
+    expect(shown(b.itemGroupings)).toEqual(shown(screen))
+    expect(shown(b.itemGroupings)).toEqual(['G1:A3'])
+  })
 })
 
 describe('readRabbitBundle (lifted from main.cjs) reconciles the views on every read, and persists it once', () => {

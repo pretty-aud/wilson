@@ -23,8 +23,9 @@
 //     only while it still has the name it set; a reorder's always; a new
 //     view's undo deletes it only while it still has the revision it was made
 //     with; a delete's undo makes the view again with its id. A refused undo
-//     says why (the provider's notice) and closes; a failed request keeps the
-//     toast up to try again.
+//     says why (the provider's notice) and closes; a failed request, or a
+//     passing fault (the connection, a timeout, a deadlock, an expired
+//     token), keeps the toast up to try again.
 //   * The last used view (Q4): read once per sign-in (the desktop: per start),
 //     its own request; until it answers, or for a visit where it failed or
 //     took longer than 2 s, `status` is not 'ready' and nothing is written.
@@ -59,6 +60,37 @@ function wordsError(message, code) {
 
 const ORDER = { tableViews: compareViewRows, itemGroupings: compareGroupingRows }
 
+// The cloud's words when its policies drop a grouping's write without any
+// (supabaseAdapter's TABLE_VIEWS_REFUSALS.groupingGate).
+export const GROUPINGS_GATE_WORDS = 'You can no longer change groupings on this project.'
+
+/**
+ * A refusal that may pass on a second try, so an undo keeps its toast up
+ * (review round 2, R2-3): the connection (SQLSTATE class 08), a transaction
+ * rolled back (40: a serialization failure, a deadlock), the server's
+ * resources (53), a cancel (57: a statement timeout, a shutdown),
+ * PostgREST's own connection and pool errors (PGRST000 to PGRST003), and a
+ * token it could not read or that has expired (PGRST301, PGRST303), which
+ * the client renews.
+ */
+export function isTransientCode(code) {
+  if (typeof code !== 'string') return false
+  return /^(08|40|53|57)[0-9A-Z]{3}$/.test(code) || /^PGRST00[0-3]$/.test(code)
+    || code === 'PGRST301' || code === 'PGRST303'
+}
+
+// A grouping's own id that the backend still holds: the desktop's route says
+// so by name, the cloud (and the fixtures, its twin) by the primary key's
+// 23505.
+function groupingIdTaken(err) {
+  return err?.code === 'item_grouping_id_taken'
+    || (err?.code === '23505' && /item_groupings_pkey/.test(String(err?.message || '')))
+}
+
+// A set refused because an item it names is not in the project: the cloud's
+// 23503 (0098's check), the desktop's route by name.
+const ITEM_NOT_BACK_CODES = new Set(['23503', 'item_grouping_entity_not_found'])
+
 // ── The sweep, for the provider's deletes (design §5.2) ─────────────────
 // A delete for good (a scene, shot, level or experience on every backend; an
 // asset where the backend removes the row: the desktop) takes the item out of
@@ -79,8 +111,10 @@ export function groupingsNaming(groupings, kind, ids) {
  * (planForgetItem, in turn), the ids taken in code-unit order: when two
  * groupings shrink to one set in one delete (a scene with its shots, a bulk
  * delete), the one that survives is the desktop's and the fixtures' (review
- * round 1, R1-2; the cloud's cascade order is its own, and the live channel
- * brings its answer).
+ * round 1, R1-2; the provider's bulk delete sends its requests in the same
+ * order: review round 2, R2-1). The cloud's cascade walks a scene's shots in
+ * its own order: the live channel brings its answer, and the undo asks the
+ * backend, not the screen (restoreGroupingRows).
  */
 export function sweepGroupings(groupings, kind, ids) {
   let rows = Array.isArray(groupings) ? groupings : []
@@ -97,15 +131,32 @@ export function sweepGroupings(groupings, kind, ids) {
 }
 
 /**
- * Undo of a delete for good: each grouping put back as it was. One the delete
- * removed is made again with its id. One it shrank is made again FIRST, under
- * a new id (a grouping has no update, and its own id is still taken), and the
- * shrunk row is removed only once that has landed: when the backend refuses
- * the set (an item it names did not come back — the row's own restore
- * failed), nothing has changed and the shrunk grouping stays (review round 1,
- * R1-1: removing first lost the grouping for good). Run after the row itself
- * is back. A set that is stored already (a teammate made it meanwhile, or the
- * grouping is as it was) is left as it is. Throws the backend's refusal.
+ * Undo of a delete for good: each grouping put back as it was, run after the
+ * row itself is back. Answers, for each original, the stored row that now
+ * holds its set.
+ *
+ *   * One the delete removed is made again with its id.
+ *   * One it shrank is made again FIRST, under a new id (a grouping has no
+ *     update, and its own id is still taken), and the shrunk row removed
+ *     only once that has landed: when the backend refuses the set (an item
+ *     it names did not come back — the row's own restore failed), nothing
+ *     has changed and the shrunk grouping stays (review round 1, R1-1:
+ *     removing first lost the grouping for good).
+ *   * Which of the two is the BACKEND's answer, not the screen's (review
+ *     round 2, R2-1): two groupings that shrink to one set leave the one
+ *     whose item went first, and the cloud walks a scene's shots in its own
+ *     order, so the screen's mirror (sweepGroupings) can show the other. A
+ *     grouping the screen shows as gone is tried under its own id; an id
+ *     the backend still holds (the desktop's item_grouping_id_taken, the
+ *     cloud's and the fixtures' primary-key 23505) is a shrunk row the
+ *     screen did not show, and its set is made again under a new id like
+ *     any other. Whenever the set lands under another id than the
+ *     original's, the original's id is removed (none there: nothing done).
+ *   * A set stored already (a teammate made it meanwhile, or the grouping is
+ *     as it was) is not made twice: the backend answers the stored row.
+ *   * A removal the cloud's policies filter out keeps the row, and throws in
+ *     words (review round 2, R2-6).
+ * Throws the backend's refusal.
  */
 export async function restoreGroupingRows({ adapter, projectId, originals, bundleRef, setBundle }) {
   const put = (removeIds, stored) => {
@@ -117,18 +168,78 @@ export async function restoreGroupingRows({ adapter, projectId, originals, bundl
     setBundle(apply)
     bundleRef.current = apply(bundleRef.current)
   }
+  const answered = []
   for (const g of originals || []) {
-    const current = (bundleRef.current.itemGroupings || []).find(x => String(x.id) === String(g.id))
-    if (current && groupingKeyOf(current.entity_ids) === groupingKeyOf(g.entity_ids)) continue
-    const stored = await adapter.addItemGrouping({
-      id: current ? uuidv4() : g.id, project_id: projectId, table_key: g.table_key, kind: g.kind, entity_ids: g.entity_ids,
-    })
+    const shown = (bundleRef.current.itemGroupings || []).find(x => String(x.id) === String(g.id))
+    if (shown && groupingKeyOf(shown.entity_ids) === groupingKeyOf(g.entity_ids)) { answered.push(shown); continue }
+    const add = (id) => adapter.addItemGrouping({ id, project_id: projectId, table_key: g.table_key, kind: g.kind, entity_ids: g.entity_ids })
+    let stored
+    if (shown) {
+      stored = await add(uuidv4())
+    } else {
+      try {
+        stored = await add(g.id)
+      } catch (err) {
+        if (!groupingIdTaken(err)) throw err
+        stored = await add(uuidv4())
+      }
+    }
     put([], stored)
-    if (current && String(stored?.id) !== String(current.id)) {
-      await adapter.removeItemGrouping(current.id, projectId)
-      put([current.id], null)
+    if (stored?.id != null && String(stored.id) !== String(g.id)) {
+      const res = await adapter.removeItemGrouping(g.id, projectId)
+      if (res?.status === 'filtered') throw wordsError(GROUPINGS_GATE_WORDS, '42501')
+      put([g.id], null)
+    }
+    answered.push(stored)
+  }
+  return answered
+}
+
+/**
+ * The provider's undo of a delete for good (RabbitProvider's
+ * restoreGroupingsAfterDelete): restoreGroupingRows one grouping at a time,
+ * so one that cannot be made again does not stop the rest (the history
+ * runner swallows an op's throw: review round 1, R1-1). Each entry of
+ * `originals` — the array the history entry captured — is re-keyed IN PLACE
+ * to the id its set went back under, so the entry's next undo, after a redo
+ * shrank that row again, finds it (review round 2, R2-2: it looked for the
+ * first capture's id, and the shrunk row stayed beside the restored set).
+ * Answers the refusals, in order.
+ */
+export async function restoreGroupingsInTurn({ adapter, projectId, originals, bundleRef, setBundle }) {
+  const refusals = []
+  if (!Array.isArray(originals)) return refusals
+  for (let i = 0; i < originals.length; i += 1) {
+    const g = originals[i]
+    try {
+      const [row] = await restoreGroupingRows({ adapter, projectId, originals: [g], bundleRef, setBundle })
+      if (row?.id != null && String(row.id) !== String(g.id)) originals[i] = { ...g, id: row.id }
+    } catch (err) {
+      refusals.push(err)
     }
   }
+  return refusals
+}
+
+/**
+ * The notice after restoreGroupingsInTurn, or null when every grouping went
+ * back: an item not back in the project in the provider's words, any other
+ * refusal in its own (review round 2, R2-5: every refusal was blamed on a
+ * missing item).
+ */
+export function groupingRestoreNotice(refusals) {
+  const list = (Array.isArray(refusals) ? refusals : []).filter(Boolean)
+  if (list.length === 0) return null
+  const other = list.find(err => !ITEM_NOT_BACK_CODES.has(err?.code))
+  if (!other) {
+    return list.length === 1
+      ? 'A grouping was not put back as it was: an item it names is not back in the project.'
+      : `${list.length} groupings were not put back as they were: an item they name is not back in the project.`
+  }
+  const words = String(other?.message || other).trim()
+  return list.length === 1
+    ? `A grouping was not put back as it was. ${words}`
+    : `${list.length} groupings were not put back as they were. ${words}`
 }
 
 // ── The hook ────────────────────────────────────────────────────────────
@@ -203,8 +314,9 @@ export function useTableViewsState({
   // backend gave in words — an error carrying a code: a SQLSTATE, a route's
   // refusal — is said and the toast closes (design §4.4: "A refused undo
   // shows a kit notice"; review round 1, R1-4: thrown, it kept the toast up
-  // for ever, Undo failing the same way each press); only a failure with no
-  // code (the request never answered) keeps the toast up to try again. Never
+  // for ever, Undo failing the same way each press); a failure with no code
+  // (the request never answered), or a passing fault's (isTransientCode:
+  // review round 2, R2-3), keeps the toast up to try again. Never
   // on another project than the visit's: a step that finished after a
   // project switch offers nothing (runWithUndoToast's rule), and an Undo
   // pressed after one does nothing.
@@ -217,7 +329,7 @@ export function useTableViewsState({
       try {
         outcome = await run()
       } catch (err) {
-        if (typeof err?.code === 'string' && err.code !== '') {
+        if (typeof err?.code === 'string' && err.code !== '' && !isTransientCode(err.code)) {
           setError?.(err.message || String(err))
           return
         }
@@ -406,7 +518,10 @@ export function useTableViewsState({
     applyRows('itemGroupings', [stored], visit)
     if (stored && String(stored.id) === String(row.id)) {
       offerUndo(opts.words ?? 'Grouping created', visit, async () => {
-        await adapterRef.current.removeItemGrouping(stored.id, projectId)
+        const res = await adapterRef.current.removeItemGrouping(stored.id, projectId)
+        // Review round 2 (R2-6): `filtered` (the cloud's policies dropped
+        // the delete) keeps it on screen, and says why.
+        if (res?.status === 'filtered') return GROUPINGS_GATE_WORDS
         dropRows('itemGroupings', [stored.id], visit)
         return true
       })

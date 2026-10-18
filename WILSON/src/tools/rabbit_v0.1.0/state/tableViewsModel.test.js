@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import {
   TABLE_KEYS, GROUPING_KINDS, VIEW_NAME_MAX, GROUPING_IDS_MAX, TABLE_VIEW_LAST_MAX, ALL_VIEW_ID, MAX_VIEW_POSITION,
   isTableKey, isGroupingPair, normalizeViewName, viewNameProblem, utf8Length, canonicalJson, configsEqual,
-  viewConfigProblem, defaultViewConfig, isCompleteFilter, readViewConfig, writeViewConfig, allViewOf,
+  jsonbText, viewConfigProblem, defaultViewConfig, isCompleteFilter, readViewConfig, writeViewConfig, allViewOf,
   compareViews, viewsOfTable, nextViewPosition, planReorderViews, normalizeEntityIds, groupingKeyOf,
   groupingProblem, groupingsOfTable, findGroupingBySet, isGroupingLive, planForgetItem,
   tableViewLastKey, tableViewLastKeyProblem, isViewIdOrAll, mergeTableViewLast, readTableViewLast,
@@ -61,6 +61,42 @@ describe('configs: the size, equality and the never-throwing reader (design §5.
     expect(viewConfigProblem({ pad: 'x'.repeat(33000) })).toMatch(/32 KB/)
     expect(viewConfigProblem([1, 2])).toMatch(/object/)
     expect(viewConfigProblem(null)).toMatch(/object/)
+  })
+
+  // Review round 2, R2-4: [the number, octet_length('{"v": <it>}'::jsonb::text)]
+  // as wilson-dev answered on 2026-10-17 (the numbers JSON.stringify writes
+  // with an exponent, and three it writes plainly).
+  const PRINTED = [[1e21, 29], [1e-7, 16], [[1e300], 310], [1.5e-7, 17], [-2.5e22, 31], [5e-324, 333],
+    [1.7976931348623157e308, 316], [123456789012345680000, 28], [0.000001, 15], [1.2345e-10, 23]]
+
+  it('R2-4: a number is measured as jsonb prints it, never with an exponent', () => {
+    for (const [v, bytes] of PRINTED) expect(utf8Length(jsonbText({ v })), JSON.stringify(v)).toBe(bytes)
+    expect(jsonbText({ v: 1e21 })).toBe('{"v": 1000000000000000000000}')
+    expect(jsonbText({ v: -1.5e-7 })).toBe('{"v": -0.00000015}')
+    expect(jsonbText([2e-7, 1.25e22])).toBe('[0.0000002, 12500000000000000000000]')
+    // CONTROL: JSON.stringify's text is shorter than what the cloud measures.
+    expect(utf8Length(JSON.stringify({ v: [1e300] }))).toBeLessThan(310)
+    // A config at the cap by jsonb's count passes; a byte more is refused,
+    // though JSON.stringify's count of it is under the cap.
+    const base = utf8Length(jsonbText({ k: '', v: 1e21 }))
+    expect(base).toBe(38)
+    expect(viewConfigProblem({ k: 'x'.repeat(32768 - base), v: 1e21 })).toBe(null)
+    expect(viewConfigProblem({ k: 'x'.repeat(32769 - base), v: 1e21 })).toMatch(/32 KB/)
+    expect(utf8Length(JSON.stringify({ k: 'x'.repeat(32769 - base), v: 1e21 }))).toBeLessThan(32768)
+  })
+
+  it('R2-4: a NUL or half of a surrogate pair (jsonb refuses them: 22P05, 22P02) is refused in a config\'s key or value, and in a name', () => {
+    for (const config of [{ v: 'a\u0000b' }, { ['\u0000']: 1 }, { v: ['\udc00'] }, { v: { deep: 'x\ud800' } },
+      { v: '\ud800x' }, { ['\udc00']: 1 }, { v: [{ w: 'ok', z: 'end\udbff' }] }]) {
+      expect(viewConfigProblem(config), JSON.stringify(config)).toBe('A view\'s settings hold a character that cannot be saved.')
+    }
+    // CONTROL: a whole pair (an emoji) is kept, and a value
+    // the request would not carry is not read.
+    expect(viewConfigProblem({ v: '😀', w: '😀', x: 'é€' })).toBe(null)
+    expect(viewConfigProblem({ v: undefined, f: () => '\u0000' })).toBe(null)
+    expect(viewNameProblem('Shoot \udc00 week')).toBe('A view\'s name holds a character that cannot be saved.')
+    expect(viewNameProblem('Shoot week \ud83c')).toBe('A view\'s name holds a character that cannot be saved.')
+    expect(viewNameProblem('Shoot 😀 week')).toBe(null)
   })
 
   it('two configs that differ only in key order are the same (jsonb\'s equality: no new revision)', () => {

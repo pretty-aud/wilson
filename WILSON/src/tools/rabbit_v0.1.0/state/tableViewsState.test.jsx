@@ -19,7 +19,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingRows,
+  useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingRows, restoreGroupingsInTurn,
+  groupingRestoreNotice, isTransientCode, GROUPINGS_GATE_WORDS,
   TABLE_VIEWS_UNAVAILABLE_WORDS, TABLE_VIEW_LAST_WAIT_MS,
 } from './tableViewsState'
 
@@ -33,8 +34,11 @@ const grouping = (id, ids, extra = {}) => ({
 })
 
 // A fake backend keeping rows the way the cloud does: revisions from one
-// counter, conditional writes answering the contract's statuses.
-function fakeBackend({ views = [], groupings = [], available = true, loadError = null, last = { available: true, map: {} } } = {}) {
+// counter, conditional writes answering the contract's statuses. A grouping's
+// id taken by another set is refused as the backend `idTaken` names refuses
+// it (the cloud's and the fixtures' primary-key 23505, or the desktop's
+// route); a removal of no row answers `deleted` (review round 2).
+function fakeBackend({ views = [], groupings = [], available = true, loadError = null, last = { available: true, map: {} }, idTaken = 'cloud' } = {}) {
   let counter = 100
   const db = { views: views.map(v => ({ ...v })), groupings: groupings.map(g => ({ ...g })), map: { ...last.map } }
   const calls = []
@@ -82,6 +86,11 @@ function fakeBackend({ views = [], groupings = [], available = true, loadError =
       const same = db.groupings.find(g => g.table_key === row.table_key && g.kind === row.kind && [...g.entity_ids].sort().join('|') === key)
       if (same) return { ...same }
       if (row.entity_ids.includes('gone')) { const e = new Error('not in the project'); e.code = '23503'; throw e }
+      if (db.groupings.some(g => g.id === row.id)) {
+        throw idTaken === 'desktop'
+          ? Object.assign(new Error('[localServer] A grouping with that id names another set.'), { code: 'item_grouping_id_taken', status: 409 })
+          : Object.assign(new Error('[supabase] duplicate key value violates unique constraint "item_groupings_pkey"'), { code: '23505' })
+      }
       const stored = { ...row, created_at: '2026-10-17T11:00:00Z' }
       db.groupings.push(stored)
       return { ...stored }
@@ -90,7 +99,7 @@ function fakeBackend({ views = [], groupings = [], available = true, loadError =
       calls.push(['removeItemGrouping', id])
       const had = db.groupings.some(g => g.id === id)
       db.groupings = db.groupings.filter(g => g.id !== id)
-      return { removed: had }
+      return had ? { removed: true } : { removed: false, status: 'deleted' }
     }),
     getTableViewLast: vi.fn(async () => ({ available: last.available, map: { ...db.map } })),
     setTableViewLast: vi.fn(async (key, viewId) => {
@@ -491,5 +500,103 @@ describe('review round 1\'s corrections in the hook', () => {
     hook.rerender({ adapter: backend, bundle: current().bundle, activeProjectId: P1, adapterMode: 'local_server', authUserId: 'u1', adapterLater: true })
     await waitFor(() => expect(current().api.tableViewLast.status).toBe('ready'))
     expect(current().api.lastViewOf('tasks')).toBe('v7')
+  })
+})
+
+describe('review round 2\'s corrections', () => {
+  const sets = (rows) => rows.map(g => g.entity_ids.join(',')).sort()
+  const byId = (rows) => rows.map(g => `${g.id}:${g.entity_ids.join(',')}`).sort()
+
+  for (const form of ['cloud', 'desktop']) {
+    it(`🚨 R2-1 (${form}): two groupings shrunk onto one set, the backend keeping the other one than the screen shows — the undo puts both back and leaves no shrunk row`, async () => {
+      // Before the delete: G1 {a1, x} and G2 {a2, x}. The backend took a2 first
+      // (the cloud's cascade order, or the desktop's requests in the caller's
+      // order) and kept G2 {x}; the screen took a1 first and shows G1 {x}.
+      const adapter = fakeBackend({ groupings: [grouping('G2', ['x'])], idTaken: form })
+      const bundleRef = { current: { itemGroupings: [grouping('G1', ['x'])] } }
+      const setBundle = (f) => { bundleRef.current = f(bundleRef.current) }
+      const originals = [grouping('G1', ['a1', 'x']), grouping('G2', ['a2', 'x'])]
+      const refusals = await restoreGroupingsInTurn({ adapter, projectId: P1, originals, bundleRef, setBundle })
+      expect(refusals).toEqual([])
+      expect(sets(adapter.db.groupings)).toEqual(['a1,x', 'a2,x'])
+      // The screen holds what the backend holds, ids and all.
+      expect(byId(bundleRef.current.itemGroupings)).toEqual(byId(adapter.db.groupings))
+    })
+  }
+
+  it('🚨 R2-2: undo, redo, undo — the entry\'s groupings follow the ids they went back under, so the second undo leaves one grouping, as it was', async () => {
+    const G = grouping('G', ['h1', 'h2'], { kind: 'shot' })
+    const adapter = fakeBackend({ groupings: [G] })
+    const bundleRef = { current: { itemGroupings: [{ ...G }] } }
+    const setBundle = (f) => { bundleRef.current = f(bundleRef.current) }
+    // The history entry's capture, taken once, at the first delete.
+    const originals = groupingsNaming(bundleRef.current.itemGroupings, 'shot', ['h1'])
+    // The delete, and later its redo: the backend's sweep, mirrored on screen.
+    const deleteH1 = () => {
+      adapter.db.groupings = sweepGroupings(adapter.db.groupings, 'shot', ['h1'])
+      bundleRef.current = { ...bundleRef.current, itemGroupings: sweepGroupings(bundleRef.current.itemGroupings, 'shot', ['h1']) }
+    }
+    deleteH1()
+    expect(await restoreGroupingsInTurn({ adapter, projectId: P1, originals, bundleRef, setBundle })).toEqual([])
+    expect(originals[0].id).not.toBe('G') // re-keyed to the id its set went back under
+    expect(adapter.db.groupings.map(g => g.id)).toEqual([originals[0].id])
+    deleteH1() // the redo
+    expect(await restoreGroupingsInTurn({ adapter, projectId: P1, originals, bundleRef, setBundle })).toEqual([])
+    expect(sets(adapter.db.groupings)).toEqual(['h1,h2'])
+    expect(byId(bundleRef.current.itemGroupings)).toEqual(byId(adapter.db.groupings))
+  })
+
+  it('R2-3: a passing fault keeps the undo\'s toast up to try again; a refusal in words still closes it', async () => {
+    for (const code of ['08006', '40001', '40P01', '53300', '57014', '57P01', 'PGRST000', 'PGRST003', 'PGRST301', 'PGRST303']) {
+      expect(isTransientCode(code), code).toBe(true)
+    }
+    for (const code of ['23505', '23503', '42501', '54000', '22P02', 'PGRST004', 'PGRST116', 'PGRST204', 'PGRST302', 'item_grouping_id_taken', '0800', '', undefined, 57014]) {
+      expect(isTransientCode(code), String(code)).toBe(false)
+    }
+    const backend = fakeBackend({ views: [view('v1', { name: 'Shoot week' })] })
+    const { current } = setup({ backend })
+    await act(async () => { await current().api.deleteTableView('v1') })
+    backend.addTableView.mockRejectedValueOnce(Object.assign(new Error('[supabase] canceling statement due to statement timeout'), { code: '57014' }))
+    await act(async () => { await expect(current().toasts.current.at(-1).onUndo()).rejects.toThrow('statement timeout') })
+    backend.addTableView.mockRejectedValueOnce(Object.assign(new Error('[supabase] JWT expired'), { code: 'PGRST303' }))
+    await act(async () => { await expect(current().toasts.current.at(-1).onUndo()).rejects.toThrow('JWT expired') })
+    expect(current().notices.current).toEqual([])
+    // The next press lands.
+    await act(async () => { await expect(current().toasts.current.at(-1).onUndo()).resolves.toBeUndefined() })
+    expect(current().api.viewsOf('tasks').map(v => v.id)).toEqual(['v1'])
+  })
+
+  it('R2-5: the notice blames an item not back in the project only when that was the refusal; any other is said in its own words', () => {
+    const err = (code, message) => Object.assign(new Error(message), { code })
+    expect(groupingRestoreNotice([])).toBe(null)
+    expect(groupingRestoreNotice([err('23503', 'A grouping can name only this project\'s own scenes.')]))
+      .toBe('A grouping was not put back as it was: an item it names is not back in the project.')
+    expect(groupingRestoreNotice([err('item_grouping_entity_not_found', 'x'), err('23503', 'y')]))
+      .toBe('2 groupings were not put back as they were: an item they name is not back in the project.')
+    expect(groupingRestoreNotice([err('42501', GROUPINGS_GATE_WORDS)]))
+      .toBe(`A grouping was not put back as it was. ${GROUPINGS_GATE_WORDS}`)
+    expect(groupingRestoreNotice([err('23503', 'y'), err('54000', 'A project\'s Tasks table holds at most 500 groupings.')]))
+      .toBe('2 groupings were not put back as they were. A project\'s Tasks table holds at most 500 groupings.')
+    expect(groupingRestoreNotice([new TypeError('Failed to fetch')])).toBe('A grouping was not put back as it was. Failed to fetch')
+  })
+
+  it('R2-6: an add\'s undo that the cloud\'s policies filter keeps the grouping and says why; so does a restore\'s removal', async () => {
+    const backend = fakeBackend()
+    const { current } = setup({ backend })
+    let g
+    await act(async () => { g = await current().api.addItemGrouping({ tableKey: 'tasks', kind: 'asset', entityIds: ['A1'] }) })
+    backend.removeItemGrouping.mockResolvedValueOnce({ removed: false, status: 'filtered' })
+    await act(async () => { await expect(current().toasts.current.at(-1).onUndo()).resolves.toBeUndefined() })
+    expect(current().notices.current.at(-1)).toBe(GROUPINGS_GATE_WORDS)
+    expect(current().api.groupingsOf('tasks', 'asset').map(x => x.id)).toEqual([g.id])
+    // The restore: the set lands under a new id; the shrunk row's removal is
+    // filtered, so the row stays and the refusal says why.
+    const adapter = fakeBackend({ groupings: [grouping('g3', ['A3'])] })
+    const bundleRef = { current: { itemGroupings: [grouping('g3', ['A3'])] } }
+    const setBundle = (f) => { bundleRef.current = f(bundleRef.current) }
+    adapter.removeItemGrouping.mockResolvedValueOnce({ removed: false, status: 'filtered' })
+    await expect(restoreGroupingRows({ adapter, projectId: P1, originals: [grouping('g3', ['A2', 'A3'])], bundleRef, setBundle }))
+      .rejects.toMatchObject({ code: '42501', message: GROUPINGS_GATE_WORDS })
+    expect(bundleRef.current.itemGroupings.some(x => x.id === 'g3')).toBe(true)
   })
 })

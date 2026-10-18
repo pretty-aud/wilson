@@ -10,7 +10,9 @@
 //     the stored row comes onto the context;
 //   · a scene deleted for good leaves the grouping that names it (the sweep,
 //     on screen and in the store), and Ctrl+Z puts the scene back and then
-//     the grouping as it was;
+//     the grouping as it was, again after a redo (review round 2, R2-2);
+//   · a bulk delete for good on the desktop sends its requests in the order
+//     the screen mirrors (R2-1);
 //   · the last used view, written and read back through the context.
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
@@ -140,6 +142,16 @@ describe('custom table views through the provider (the dev fixtures)', () => {
     await waitFor(() => expect(ctx.error).toMatch(/grouping was not put back/))
   })
 
+  it('R2-5: a grouping refused for another reason than a missing item is said in the refusal\'s words', async () => {
+    await mount(fx.rabbitAdapter())
+    await run(async () => { await ctx.addItemGrouping({ tableKey: 'tasks', kind: 'scene', entityIds: [SC(5), SC(6)] }) })
+    await run(() => ctx.deleteScene(SC(6)))
+    vi.spyOn(holder.adapter, 'addItemGrouping')
+      .mockRejectedValue(Object.assign(new Error('You can no longer change groupings on this project.'), { code: '42501' }))
+    await run(() => ctx.undo())
+    await waitFor(() => expect(ctx.error).toBe('A grouping was not put back as it was. You can no longer change groupings on this project.'))
+  })
+
   it('CONTROL: a grouping that does not name the deleted scene is untouched, and nothing is restored for it', async () => {
     await mount(fx.rabbitAdapter())
     let g
@@ -150,6 +162,62 @@ describe('custom table views through the provider (the dev fixtures)', () => {
     await waitFor(() => expect(ctx.scenes.some(s => s.id === SC(6))).toBe(true))
     expect(fx.store.itemGroupings.find(x => x.id === g.id).entity_ids).toEqual([SC(1), SC(2)].sort())
     expect(calls).not.toHaveBeenCalled()
+  })
+
+  it('🚨 R2-1: a bulk delete for good (the desktop) sends its requests in the ids\' code-unit order, so the grouping left on screen is the one the backend kept; Ctrl+Z puts both back', async () => {
+    const { createRequire } = await import('node:module')
+    const twin = createRequire(import.meta.url)('../../../../electron/rabbitTableViews.cjs')
+    const base = fx.rabbitAdapter()
+    const sent = []
+    // The desktop's shape: no trash (no restoreAsset), and each delete removes
+    // the row and sweeps its groupings and task items in the same write.
+    const desktop = {
+      ...base,
+      restoreAsset: undefined,
+      async deleteAsset(id) {
+        sent.push(id)
+        fx.store.assets = fx.store.assets.filter(a => a.id !== id)
+        fx.store.taskItems = (fx.store.taskItems || []).filter(i => !(i.entity_type === 'asset' && i.entity_id === id))
+        const rows = {
+          assets: fx.store.assets, scenes: fx.store.scenes || [], shots: fx.store.shots || [],
+          levels: fx.store.levels || [], experiences: fx.store.experiences || [], itemGroupings: fx.store.itemGroupings,
+        }
+        twin.forgetGoneItems(rows)
+        fx.store.itemGroupings = rows.itemGroupings
+      },
+    }
+    await mount(desktop)
+    const [lo, hi, x] = ctx.assets.map(a => a.id).sort()
+    await run(async () => { await ctx.addItemGrouping({ tableKey: 'tasks', kind: 'asset', entityIds: [lo, x] }) })
+    await run(async () => { await ctx.addItemGrouping({ tableKey: 'tasks', kind: 'asset', entityIds: [hi, x] }) })
+    const mine = (rows) => rows.filter(g => g.table_key === 'tasks' && g.kind === 'asset').map(g => `${g.id}:${g.entity_ids.join(',')}`).sort()
+    const sets = (rows) => rows.filter(g => g.table_key === 'tasks' && g.kind === 'asset').map(g => g.entity_ids.join(',')).sort()
+    // Handed in the other order, as a view's selection may hand them.
+    await run(() => ctx.deleteAssets([hi, lo]))
+    expect(sent).toEqual([lo, hi])
+    expect(mine(fx.store.itemGroupings)).toHaveLength(1)
+    expect(mine(ctx.itemGroupings)).toEqual(mine(fx.store.itemGroupings))
+    await run(() => ctx.undo())
+    await waitFor(() => expect([lo, hi].every(id => ctx.assets.some(a => a.id === id))).toBe(true))
+    await waitFor(() => expect(sets(fx.store.itemGroupings)).toEqual([[lo, x].sort().join(','), [hi, x].sort().join(',')].sort()))
+    expect(mine(ctx.itemGroupings)).toEqual(mine(fx.store.itemGroupings))
+  })
+
+  it('🚨 R2-2: Ctrl+Z, Ctrl+Y, Ctrl+Z of a scene deleted for good leaves one grouping, as it was', async () => {
+    await mount(fx.rabbitAdapter())
+    await run(async () => { await ctx.addItemGrouping({ tableKey: 'tasks', kind: 'scene', entityIds: [SC(5), SC(6)] }) })
+    const pair = [SC(5), SC(6)].sort().join(',')
+    const sets = (rows) => rows.filter(x => x.table_key === 'tasks' && x.kind === 'scene').map(x => x.entity_ids.join(','))
+    await run(() => ctx.deleteScene(SC(6)))
+    await run(() => ctx.undo())
+    await waitFor(() => expect(sets(fx.store.itemGroupings)).toEqual([pair]))
+    await run(() => ctx.redo())
+    expect(ctx.scenes.some(s => s.id === SC(6))).toBe(false)
+    expect(sets(fx.store.itemGroupings)).toEqual([SC(5)])
+    await run(() => ctx.undo())
+    await waitFor(() => expect(ctx.scenes.some(s => s.id === SC(6))).toBe(true))
+    await waitFor(() => expect(sets(fx.store.itemGroupings)).toEqual([pair]))
+    expect(sets(ctx.itemGroupings)).toEqual([pair])
   })
 
   it('the last used view is read once and written through the context', async () => {

@@ -5088,7 +5088,8 @@ of a session — this section is limits by design, that file is faults.
 
 - **Two tables, one rule file.** `table_views` (a named, saved way of
   showing one of six tables — tasks, assets, scenes, shots, levels,
-  experiences — in one project: its `config` a JSON object of at most 32 KB,
+  experiences — in one project: its `config` a JSON object of at most 32 KB
+  as jsonb prints it, which the client and the desktop measure alike,
   its `position` the dropdown's order, its `revision` from
   `table_views_revision_seq`, taken on insert and on every change of config,
   never on a rename or a reorder) and `item_groupings` (a set of 1 to 100
@@ -5111,7 +5112,9 @@ of a session — this section is limits by design, that file is faults.
   grouping left empty, or naming another's set, is deleted (so the nightly
   purge cannot roll back on the unique key). An asset in the trash stays
   named, and the client hides the grouping while it is there. The provider's
-  deletes mirror the sweep and their undo puts the groupings back.
+  deletes mirror the sweep and their undo puts the groupings back, going by
+  the backend's answers: of two groupings shrunk onto one set, the one kept
+  is the backend's (the cloud walks a scene's shots in its own order).
 - **The conditional save:** an UPDATE carries `.eq('revision', …)`; nothing
   written means the row is read once — gone (`deleted`), another revision
   (`changed`: a teammate saved), or the same (`filtered`: RLS dropped the

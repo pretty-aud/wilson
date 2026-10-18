@@ -87,6 +87,35 @@ const isPlainObject = (v) => v != null && typeof v === 'object' && !Array.isArra
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
+// A character jsonb cannot keep (review round 2, R2-4; asked of wilson-dev,
+// 2026-10-17): NUL (22P05, "unsupported Unicode escape sequence") and half
+// of a surrogate pair (22P02), in a config's key or value and in a name
+// alike: a request carries both as JSON escapes. The desktop's file keeps
+// them, so a project holding one could not move to the cloud.
+function unstorableCharIn(text) {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0) return true;
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = text.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) { i++; continue; }
+      return true;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+}
+// A config read as jsonbText reads it (toJSON; an object's undefined,
+// function and symbol values dropped), every key and string walked.
+function unstorableIn(value) {
+  if (value !== null && typeof value === 'object' && typeof value.toJSON === 'function') value = value.toJSON();
+  if (typeof value === 'string') return unstorableCharIn(value);
+  if (value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(unstorableIn);
+  return Object.keys(value).some(k => value[k] !== undefined && typeof value[k] !== 'function'
+    && typeof value[k] !== 'symbol' && (unstorableCharIn(k) || unstorableIn(value[k])));
+}
+
 // Names
 
 /** A view's name as it is stored: trimmed (the cloud's CHECK refuses padding). */
@@ -101,6 +130,7 @@ function viewNameProblem(name) {
   if (name.length === 0) return 'A view needs a name.';
   if ([...name].length > VIEW_NAME_MAX) return `A view's name can be at most ${VIEW_NAME_MAX} characters.`;
   if (CONTROL.test(name)) return 'A view\'s name cannot hold a line break or a tab.';
+  if (unstorableCharIn(name)) return 'A view\'s name holds a character that cannot be saved.';
   return null;
 }
 
@@ -146,9 +176,29 @@ function compareCodePoints(a, b) {
 }
 
 /**
+ * A finite number as jsonb prints it: numeric's text, which never has an
+ * exponent (review round 2, R2-4; wilson-dev, 2026-10-17: 1e21, which
+ * JSON.stringify writes as 1e+21, prints as 1000000000000000000000; 1e-7
+ * as 0.0000001; 1e300 as its 301 digits). Otherwise JSON.stringify's
+ * digits, which Postgres keeps as they came.
+ */
+function jsonbNumberText(n) {
+  const s = JSON.stringify(n);
+  const m = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+  if (!m) return s;
+  const digits = m[2] + (m[3] || '');
+  const point = m[2].length + Number(m[4]);
+  const body = point <= 0 ? `0.${'0'.repeat(-point)}${digits}`
+    : point >= digits.length ? digits + '0'.repeat(point - digits.length)
+      : `${digits.slice(0, point)}.${digits.slice(point)}`;
+  return m[1] + body;
+}
+
+/**
  * A value as Postgres prints it as jsonb text (`config::text`, what 0098's
  * CHECK measures): ": " after a key and ", " between members, an object's
- * keys by their length in bytes, then byte by byte. The model's jsonbText,
+ * keys by their length in bytes, then byte by byte, a number as numeric
+ * prints it (jsonbNumberText). The model's jsonbText,
  * word for word (review round 1, R1-5: measured as JSON.stringify, a config
  * between about 31.5 and 32 KB passed here and was refused by the cloud).
  */
@@ -156,7 +206,8 @@ function jsonbText(value, seen = new Set()) {
   if (value !== null && typeof value === 'object' && typeof value.toJSON === 'function') value = value.toJSON();
   if (value === null || value === undefined || typeof value === 'function' || typeof value === 'symbol') return 'null';
   if (typeof value === 'bigint') return JSON.stringify(value); // throws, as JSON.stringify does
-  if (typeof value !== 'object') return typeof value === 'number' && !Number.isFinite(value) ? 'null' : JSON.stringify(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? jsonbNumberText(value) : 'null';
+  if (typeof value !== 'object') return JSON.stringify(value);
   if (seen.has(value)) throw new TypeError('Converting circular structure to JSON');
   seen.add(value);
   try {
@@ -179,6 +230,7 @@ function viewConfigProblem(config) {
   if (!isPlainObject(config)) return 'A view\'s settings must be an object.';
   let text;
   try { text = jsonbText(config); } catch { return 'A view\'s settings could not be read.'; }
+  if (unstorableIn(config)) return 'A view\'s settings hold a character that cannot be saved.';
   if (utf8Length(text) > VIEW_CONFIG_MAX_BYTES) return 'A view\'s settings can be at most 32 KB.';
   return null;
 }
