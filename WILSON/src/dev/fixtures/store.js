@@ -179,6 +179,16 @@ export function createStore() {
     shotLists: clone(SHOT_LISTS),
     shotListItems: clone(SHOT_LIST_ITEMS),
     edits: clone(EDITS),
+    // VW1c (0098): custom table views and groupings. Nothing is seeded (Q20:
+    // each table comes with the built-in All only, which is never stored).
+    // `tableViewRevision` is 0098's table_views_revision_seq: one counter for
+    // every view, never reused, so a view made again with its id takes a
+    // number no view ever had. `tableViewLast` is the person's
+    // user_settings.table_view_last (Q4), in memory for the session.
+    tableViews: [],
+    itemGroupings: [],
+    tableViewRevision: 0,
+    tableViewLast: {},
 
     folders: clone(FOLDERS),
     files: clone(FILES),
