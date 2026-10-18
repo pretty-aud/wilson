@@ -61,6 +61,7 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
+import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingRows } from './tableViewsState';
 import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
@@ -217,6 +218,11 @@ const EMPTY_BUNDLE = {
   setAsidePhases:       [],
   setAsideMilestones:   [],
   setAsideDependencies: [],
+  // Custom table views (VW1c, migration 0098): the project's saved views of
+  // its six tables and its saved groupings. Same rule as every key above, in
+  // the same three test lists (and Drive's loader pattern).
+  tableViews:           [],
+  itemGroupings:        [],
 };
 
 function indexById(rows) {
@@ -1957,12 +1963,17 @@ export function RabbitProvider({ children }) {
     const assetItemsGone = sweepItems
       ? (bundleRef.current.taskItems || []).filter(i => i.entity_type === 'asset' && i.entity_id === id).map(i => ({ ...i }))
       : [];
+    // VW1c (0098): where the delete removes the row, the asset leaves every
+    // grouping that names it (the Local Server's sweep); in the trash (the
+    // cloud, the fixtures) it stays named and its groupings hide (Q-N4).
+    const groupingsGone = canSoftDelete ? [] : groupingsNaming(bundleRef.current.itemGroupings, 'asset', [id]);
     const tasksStay = assetsHaveTasks([id]);
     const result = await optimistic(
       prev => ({
         ...prev,
         assets: prev.assets.filter(a => a.id !== id),
         ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && i.entity_id === id)) } : {}),
+        ...(canSoftDelete ? {} : { itemGroupings: sweepGroupings(prev.itemGroupings || [], 'asset', [id]) }),
       }),
       () => adapterRef.current.deleteAsset(id, activeProjectId),
     );
@@ -1976,6 +1987,7 @@ export function RabbitProvider({ children }) {
           : [
               () => mutationsRef.current.addAsset(oldAsset),
               async () => { if (assetItemsGone.length) await restoreItemRows(assetItemsGone); },
+              () => restoreGroupingsAfterDelete(groupingsGone),
             ],
         redoOps: [() => mutationsRef.current.deleteAsset(id)],
       });
@@ -2000,12 +2012,15 @@ export function RabbitProvider({ children }) {
     const assetItemsGone = sweepItems
       ? (bundleRef.current.taskItems || []).filter(i => i.entity_type === 'asset' && idSet.has(i.entity_id)).map(i => ({ ...i }))
       : [];
+    // VW1c (0098): as deleteAsset, the groupings a delete for good touches.
+    const groupingsGone = canSoftDelete ? [] : groupingsNaming(bundleRef.current.itemGroupings, 'asset', [...idSet]);
     const tasksStay = assetsHaveTasks([...idSet]);
     const result = await optimistic(
       prev => ({
         ...prev,
         assets: prev.assets.filter(a => !idSet.has(a.id)),
         ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && idSet.has(i.entity_id))) } : {}),
+        ...(canSoftDelete ? {} : { itemGroupings: sweepGroupings(prev.itemGroupings || [], 'asset', [...idSet]) }),
       }),
       async () => {
         // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
@@ -2033,6 +2048,7 @@ export function RabbitProvider({ children }) {
         : [
             ...removed.slice().reverse().map(a => () => mutationsRef.current.addAsset(a)),
             async () => { if (assetItemsGone.length) await restoreItemRows(assetItemsGone); },
+            () => restoreGroupingsAfterDelete(groupingsGone),
           ],
       redoOps: [() => mutationsRef.current.deleteAssets([...idSet])],
     });
@@ -2486,6 +2502,20 @@ export function RabbitProvider({ children }) {
     markRecentlyWithdrawn(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
+
+  // ── Custom table views (VW1c, migration 0098; state/tableViewsState.js) ──
+  // The project's views and groupings, whether this backend keeps them, the
+  // mutators (each with its undo toast, none in the keyboard history), the
+  // last used view of each table and the changes for now — all on the
+  // context below. The deletes above and below mirror the groupings' sweep.
+  const tableViewsApi = useTableViewsState({
+    adapterRef, bundleRef, setBundle, bundle, activeProjectId, adapterMode, authUserId,
+    projectVisitRef, showUndoToast, setError,
+  });
+  const {
+    addTableView, updateTableView, renameTableView, deleteTableView, reorderTableViews,
+    addItemGrouping, removeItemGrouping,
+  } = tableViewsApi;
 
   // undo / redo swallow an op's throw and keep going; a refused withdraw (a
   // collaborator Saved the list meanwhile) must still say why, so these ops
@@ -3840,6 +3870,12 @@ export function RabbitProvider({ children }) {
       items: items.filter(i => i.shot_id === sh.id).map(i => ({ ...i })),
       taskIds: tasks.filter(t => t.shot_id === sh.id).map(t => t.id),
     }));
+    // VW1c (0098): the scene and its shots leave every grouping that names
+    // them (the sweep, on every backend: scenes and shots have no trash).
+    const groupingsGone = [
+      ...groupingsNaming(bundleRef.current.itemGroupings, 'scene', [id]),
+      ...groupingsNaming(bundleRef.current.itemGroupings, 'shot', [...childIds]),
+    ];
     const result = await optimistic(
       prev => ({
         ...prev,
@@ -3847,6 +3883,7 @@ export function RabbitProvider({ children }) {
         shots: prev.shots.filter(s => !childIds.has(s.id)),
         shotListItems: (prev.shotListItems || []).filter(i => i.scene_id !== id && !childIds.has(i.shot_id)),
         taskItems: (prev.taskItems || []).filter(i => !namesGone(i)),
+        itemGroupings: sweepGroupings(sweepGroupings(prev.itemGroupings || [], 'scene', [id]), 'shot', [...childIds]),
         tasks: itemsKept ? prev.tasks : prev.tasks.map(t => {
           if (t.scene_id !== id && !childIds.has(t.shot_id)) return t;
           return {
@@ -3869,6 +3906,7 @@ export function RabbitProvider({ children }) {
             restoreItems: r.items, restoreTaskLinks: r.taskIds,
             restoreTaskItems: taskItemsGone.filter(i => i.entity_type === 'shot' && i.entity_id === r.shot.id),
           })),
+          () => restoreGroupingsAfterDelete(groupingsGone),
         ],
         redoOps: [() => mutationsRef.current.deleteScene(id)],
       });
@@ -3974,6 +4012,8 @@ export function RabbitProvider({ children }) {
     // VW1m (2026-10-16): as deleteScene, the raw shot_id is nulled only where
     // the backend keeps no items (where it does, it is the older apps' copy).
     const itemsKept = taskItemsOnRef.current;
+    // VW1c (0098): the shot leaves every grouping that names it (the sweep).
+    const groupingsGone = groupingsNaming(bundleRef.current.itemGroupings, 'shot', [id]);
     const result = await optimistic(
       prev => ({
         ...prev,
@@ -3981,6 +4021,7 @@ export function RabbitProvider({ children }) {
         shotListItems: (prev.shotListItems || []).filter(i => i.shot_id !== id),
         tasks: itemsKept ? prev.tasks : prev.tasks.map(t => (t.shot_id === id ? { ...t, shot_id: null } : t)),
         taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'shot' && i.entity_id === id)),
+        itemGroupings: sweepGroupings(prev.itemGroupings || [], 'shot', [id]),
       }),
       () => adapterRef.current.deleteShot(id, activeProjectId),
     );
@@ -3989,6 +4030,7 @@ export function RabbitProvider({ children }) {
         undoOps: [async () => {
           await mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds, restoreTaskItems: taskItemsGone });
           if (takesBefore.length) await mutationsRef.current.replaceShotTakes([id], takesBefore);
+          await restoreGroupingsAfterDelete(groupingsGone);
         }],
         redoOps: [() => mutationsRef.current.deleteShot(id)],
       });
@@ -4055,11 +4097,14 @@ export function RabbitProvider({ children }) {
     // FX2 (0096): the level's task items go with it; the undo puts them back.
     const taskItemsGone = (bundleRef.current.taskItems || [])
       .filter(i => i.entity_type === 'level' && i.entity_id === id).map(i => ({ ...i }));
+    // VW1c (0098): the level leaves every grouping that names it (the sweep).
+    const groupingsGone = groupingsNaming(bundleRef.current.itemGroupings, 'level', [id]);
     const result = await optimistic(
       prev => ({
         ...prev,
         levels: prev.levels.filter(l => l.id !== id),
         taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'level' && i.entity_id === id)),
+        itemGroupings: sweepGroupings(prev.itemGroupings || [], 'level', [id]),
       }),
       () => adapterRef.current.deleteLevel(id, activeProjectId),
     );
@@ -4068,6 +4113,7 @@ export function RabbitProvider({ children }) {
         undoOps: [async () => {
           await mutationsRef.current.addLevel(oldLevel);
           if (taskItemsOnRef.current) await restoreItemRows(taskItemsGone);
+          await restoreGroupingsAfterDelete(groupingsGone);
         }],
         redoOps: [() => mutationsRef.current.deleteLevel(id)],
       });
@@ -4134,11 +4180,14 @@ export function RabbitProvider({ children }) {
     // FX2 (0096): the experience's task items go with it; the undo puts them back.
     const taskItemsGone = (bundleRef.current.taskItems || [])
       .filter(i => i.entity_type === 'experience' && i.entity_id === id).map(i => ({ ...i }));
+    // VW1c (0098): the experience leaves every grouping that names it (the sweep).
+    const groupingsGone = groupingsNaming(bundleRef.current.itemGroupings, 'experience', [id]);
     const result = await optimistic(
       prev => ({
         ...prev,
         experiences: prev.experiences.filter(e => e.id !== id),
         taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'experience' && i.entity_id === id)),
+        itemGroupings: sweepGroupings(prev.itemGroupings || [], 'experience', [id]),
       }),
       () => adapterRef.current.deleteExperience(id, activeProjectId),
     );
@@ -4147,6 +4196,7 @@ export function RabbitProvider({ children }) {
         undoOps: [async () => {
           await mutationsRef.current.addExperience(oldExperience);
           if (taskItemsOnRef.current) await restoreItemRows(taskItemsGone);
+          await restoreGroupingsAfterDelete(groupingsGone);
         }],
         redoOps: [() => mutationsRef.current.deleteExperience(id)],
       });
@@ -4954,6 +5004,23 @@ export function RabbitProvider({ children }) {
       } catch (err) {
         setBundle(prev => ({ ...prev, taskItems: (prev.taskItems || []).filter(i => i.id !== row.id) }));
         console.warn('[rabbit] an item of a restored task was not put back:', err?.message || err);
+      }
+    }
+  }
+
+  // VW1c (0098): undo's other primitive. A delete for good (a scene, shot,
+  // level or experience; an asset where the backend removes the row) takes
+  // the item out of every grouping that names it — the backend's sweep, which
+  // the delete mirrors on screen (sweepGroupings). Its undo, after the row is
+  // back, puts each grouping back as it was (tableViewsState.js). One at a
+  // time, so one that cannot be made again (an item it named is gone) does
+  // not stop the rest. No history.
+  async function restoreGroupingsAfterDelete(originals) {
+    for (const g of originals || []) {
+      try {
+        await restoreGroupingRows({ adapter: adapterRef.current, projectId: activeProjectIdRef.current, originals: [g], bundleRef, setBundle });
+      } catch (err) {
+        console.warn('[rabbit] a grouping of a restored item was not put back:', err?.message || err);
       }
     }
   }
@@ -8144,6 +8211,15 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.addTaskItem        = addTaskItem;
   mutationsRef.current.removeTaskItem     = removeTaskItem;
   mutationsRef.current.setTaskItemsOfKind = setTaskItemsOfKind;
+  // VW1c (0098): views and groupings (their undo is the toast's own, never a
+  // history entry; registered so every caller reaches the current version).
+  mutationsRef.current.addTableView       = addTableView;
+  mutationsRef.current.updateTableView    = updateTableView;
+  mutationsRef.current.renameTableView    = renameTableView;
+  mutationsRef.current.deleteTableView    = deleteTableView;
+  mutationsRef.current.reorderTableViews  = reorderTableViews;
+  mutationsRef.current.addItemGrouping    = addItemGrouping;
+  mutationsRef.current.removeItemGrouping = removeItemGrouping;
   mutationsRef.current.addScene       = addScene;
   mutationsRef.current.updateScene    = updateScene;
   mutationsRef.current.deleteScene    = deleteScene;
@@ -8407,6 +8483,22 @@ export function RabbitProvider({ children }) {
     // backend keeps them — the task window draws its Items table only then.
     taskItems:     bundle.taskItems || [],
     taskItemsAvailable: taskItemsOn,
+    // VW1c (0098): custom table views — design §5.5, state/tableViewsState.js.
+    tableViews:          tableViewsApi.tableViews,
+    itemGroupings:       tableViewsApi.itemGroupings,
+    tableViewsAvailable: tableViewsApi.available,
+    tableViewsError:     tableViewsApi.loadError,
+    viewsOf:             tableViewsApi.viewsOf,
+    allViewOf:           tableViewsApi.allViewOf,
+    groupingsOf:         tableViewsApi.groupingsOf,
+    addTableView, updateTableView, renameTableView, deleteTableView, reorderTableViews,
+    addItemGrouping, removeItemGrouping,
+    tableViewLast:       tableViewsApi.tableViewLast,
+    setTableViewLast:    tableViewsApi.setTableViewLast,
+    lastViewOf:          tableViewsApi.lastViewOf,
+    viewDraftOf:         tableViewsApi.viewDraftOf,
+    setViewDraft:        tableViewsApi.setViewDraft,
+    clearViewDraft:      tableViewsApi.clearViewDraft,
     files:         bundle.files,
     assetVersions: bundle.assetVersions,
     comments:      bundle.comments,
@@ -8664,6 +8756,8 @@ export function RabbitProvider({ children }) {
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn,
+    tableViewsApi, addTableView, updateTableView, renameTableView, deleteTableView, reorderTableViews,
+    addItemGrouping, removeItemGrouping,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,

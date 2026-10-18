@@ -303,9 +303,12 @@ describe('applyRealtimeEvent — robustness', () => {
     // FX2 (0096): task_items joined the project_id arm the same way (its
     // post-conditions 10g and suite 99 probes 14 and 16 pin the arm and the
     // trigger). Scenes, shots, levels and experiences are still NOT here.
+    //
+    // VW1c (0098): table_views and item_groupings joined it too (0098's
+    // post-condition 11g; suite 101 probes 16-18).
     expect(Object.keys(TABLE_TO_COLLECTION).sort()).toEqual([
-      'asset_versions', 'assets', 'bin_files', 'bins', 'comments', 'files', 'milestones',
-      'phase_dependencies', 'phases', 'shot_takes', 'task_dependencies', 'task_items', 'task_links', 'tasks',
+      'asset_versions', 'assets', 'bin_files', 'bins', 'comments', 'files', 'item_groupings', 'milestones',
+      'phase_dependencies', 'phases', 'shot_takes', 'table_views', 'task_dependencies', 'task_items', 'task_links', 'tasks',
     ])
   })
 })
