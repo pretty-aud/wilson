@@ -3134,13 +3134,21 @@ export function supabaseAdapter() {
     // Answers { removed }: false when there was no such row, or when the
     // access rules filtered the delete out (RLS filters a DELETE without a
     // word). `projectId` is the Local Server's URL; the cloud ignores it.
+    // Review round 1 (R1-3): a delete that removed nothing says why, read
+    // once, as a view's delete does — `deleted` (the row is gone: a teammate
+    // removed it, or the sweep) or `filtered` (it is still there: the
+    // policies dropped the delete, so the person may no longer change
+    // groupings), and the provider keeps the row on screen for the second.
     async removeItemGrouping(id, _projectId) {
       requireTableViews();
       const client = await requireClient();
       const res = await client.from('item_groupings').delete().eq('id', id).select('id');
       if (res.error) throw tableViewsWriteError(res.error, { table: 'item_groupings' });
       tableViewsAnswered();
-      return { removed: Array.isArray(res.data) && res.data.length > 0 };
+      if (Array.isArray(res.data) && res.data.length > 0) return { removed: true };
+      const read = await client.from('item_groupings').select('id').eq('id', id).maybeSingle();
+      if (read.error) throw tableViewsWriteError(read.error, { table: 'item_groupings' });
+      return { removed: false, status: read.data ? 'filtered' : 'deleted' };
     },
     // The last used view of each table (Q4, design §4.5): the person's own
     // user_settings row, read by its OWN request (never inside

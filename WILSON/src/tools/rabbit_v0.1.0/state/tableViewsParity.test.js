@@ -28,11 +28,11 @@ const cjs = require('../../../../electron/rabbitTableViews.cjs')
 // ── What each copy carries ──────────────────────────────────────────────────
 const SHARED_CONSTANTS = [
   'TABLE_KEYS', 'GROUPING_KINDS', 'VIEW_NAME_MAX', 'VIEW_CONFIG_MAX_BYTES', 'VIEWS_PER_TABLE_MAX',
-  'GROUPINGS_PER_TABLE_MAX', 'GROUPING_IDS_MAX', 'TABLE_VIEW_LAST_MAX', 'ALL_VIEW_ID',
+  'GROUPINGS_PER_TABLE_MAX', 'GROUPING_IDS_MAX', 'TABLE_VIEW_LAST_MAX', 'ALL_VIEW_ID', 'MAX_VIEW_POSITION',
 ]
 const SHARED_RULES = [
   'isTableKey', 'isGroupingPair', 'normalizeViewName', 'viewNameProblem', 'utf8Length', 'canonicalJson',
-  'configsEqual', 'viewConfigProblem', 'compareViews', 'compareViewRows', 'compareGroupingRows',
+  'configsEqual', 'jsonbText', 'viewConfigProblem', 'compareViews', 'compareViewRows', 'compareGroupingRows',
   'viewsOfTable', 'nextViewPosition', 'planReorderViews',
   'normalizeEntityIds', 'groupingKeyOf', 'groupingProblem', 'findGroupingBySet', 'planForgetItem',
   'tableViewLastKey', 'tableViewLastKeyProblem', 'isViewIdOrAll', 'mergeTableViewLast',
@@ -219,8 +219,22 @@ describe('the CommonJS copy says what the model says', () => {
     expect(Object.keys(KEYED).sort((x, y) => x.localeCompare(y))).not.toEqual(['10', '9', 'E', 'e', 'é'])
   })
 
-  // The JSON of { k: 'x'.repeat(n - 8) } is exactly n bytes ({"k":""} is 8).
-  const sized = (bytes) => ({ k: 'x'.repeat(bytes - 8) })
+  // Review round 1 (R1-5): 0098's CHECK measures octet_length(config::text),
+  // jsonb's own text, which has ": " and ", " — so { k: 'x'.repeat(n - 9) }
+  // is exactly n bytes there ({"k": ""} is 9).
+  const sized = (bytes) => ({ k: 'x'.repeat(bytes - 9) })
+  it('jsonbText is jsonb\'s own text, as wilson-dev printed it (and the twin agrees)', () => {
+    agree('jsonbText', VALUES.map(v => [v]))
+    // From wilson-dev, 2026-10-17: '{"sorts":[{"field":"title","dir":"asc"}],"version":1,"filters":[],
+    // "zz":"é\n\"q","b":{"bb":true,"a":null},"n":-1.5}'::jsonb::text — 132 bytes.
+    const sample = { sorts: [{ field: 'title', dir: 'asc' }], version: 1, filters: [], zz: 'é\n"q', b: { bb: true, a: null }, n: -1.5 }
+    const printed = '{"b": {"a": null, "bb": true}, "n": -1.5, "zz": "é\\n\\"q", "sorts": [{"dir": "asc", "field": "title"}], "filters": [], "version": 1}'
+    expect(esm.jsonbText(sample)).toBe(printed)
+    expect(cjs.jsonbText(sample)).toBe(printed)
+    expect(esm.utf8Length(printed)).toBe(132)
+    // CONTROL: JSON.stringify is not that text, and is shorter.
+    expect(esm.utf8Length(JSON.stringify(sample))).toBeLessThan(132)
+  })
   // 11,008 UTF-16 units but 33,008 UTF-8 bytes.
   const wide = () => ({ k: '€'.repeat(11000) })
   const CONFIGS = [null, undefined, [], 'x', 1, true, {}, { version: 1 }, sized(32768), sized(32769), wide(), circular(),
@@ -229,7 +243,8 @@ describe('the CommonJS copy says what the model says', () => {
     agree('viewConfigProblem', CONFIGS.map(c => [c]))
   })
   it('CONTROL: the cap is 32,768 UTF-8 bytes of JSON, inclusive', () => {
-    expect(JSON.stringify(sized(32768)).length).toBe(32768)
+    expect(esm.jsonbText(sized(32768)).length).toBe(32768)
+    expect(JSON.stringify(sized(32768)).length).toBe(32767) // JSON.stringify would let 32769 through
     expect(esm.viewConfigProblem(sized(32768))).toBeNull() // a >= refuses it
     expect(esm.viewConfigProblem(sized(32769))).toMatch(/32 KB/)
     expect(JSON.stringify(wide()).length).toBeLessThan(32768) // a .length count passes it

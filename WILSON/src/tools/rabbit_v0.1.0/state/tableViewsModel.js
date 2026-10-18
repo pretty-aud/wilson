@@ -133,11 +133,54 @@ export function configsEqual(a, b) {
   return canonicalJson(a) === canonicalJson(b)
 }
 
-/** Why a config cannot be stored, in words, or null. */
+// Code point order, which is UTF-8 byte order (Postgres' memcmp on text).
+function compareCodePoints(a, b) {
+  const x = [...a], y = [...b]
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const d = x[i].codePointAt(0) - y[i].codePointAt(0)
+    if (d !== 0) return d
+  }
+  return x.length - y.length
+}
+
+/**
+ * A value as Postgres prints it as jsonb text (`config::text`, what 0098's
+ * CHECK measures): ": " after a key and ", " between members — one byte
+ * more each than JSON.stringify — and an object's keys by their length in
+ * bytes, then byte by byte (jsonb's own order). A value JSON.stringify drops
+ * (undefined, a function) is dropped from an object and is null in an
+ * array, as the request PostgREST receives would carry it. Throws where
+ * JSON.stringify throws (a cycle, a BigInt). Review round 1, R1-5: measured
+ * as JSON.stringify, a config between about 31.5 and 32 KB passed the client
+ * and the desktop and was refused by the cloud.
+ */
+export function jsonbText(value, seen = new Set()) {
+  if (value !== null && typeof value === 'object' && typeof value.toJSON === 'function') value = value.toJSON()
+  if (value === null || value === undefined || typeof value === 'function' || typeof value === 'symbol') return 'null'
+  if (typeof value === 'bigint') return JSON.stringify(value) // throws, as JSON.stringify does
+  if (typeof value !== 'object') return typeof value === 'number' && !Number.isFinite(value) ? 'null' : JSON.stringify(value)
+  if (seen.has(value)) throw new TypeError('Converting circular structure to JSON')
+  seen.add(value)
+  try {
+    if (Array.isArray(value)) {
+      const parts = []
+      for (let i = 0; i < value.length; i++) parts.push(jsonbText(value[i], seen))
+      return '[' + parts.join(', ') + ']'
+    }
+    const keys = Object.keys(value)
+      .filter(k => value[k] !== undefined && typeof value[k] !== 'function' && typeof value[k] !== 'symbol')
+      .sort((a, b) => (utf8Length(a) - utf8Length(b)) || compareCodePoints(a, b))
+    return '{' + keys.map(k => JSON.stringify(k) + ': ' + jsonbText(value[k], seen)).join(', ') + '}'
+  } finally {
+    seen.delete(value)
+  }
+}
+
+/** Why a config cannot be stored, in words, or null (measured as the cloud's CHECK measures it). */
 export function viewConfigProblem(config) {
   if (!isPlainObject(config)) return 'A view\'s settings must be an object.'
   let text
-  try { text = JSON.stringify(config) } catch { return 'A view\'s settings could not be read.' }
+  try { text = jsonbText(config) } catch { return 'A view\'s settings could not be read.' }
   if (utf8Length(text) > VIEW_CONFIG_MAX_BYTES) return 'A view\'s settings can be at most 32 KB.'
   return null
 }
@@ -327,13 +370,20 @@ export function viewsOfTable(views, tableKey) {
     .sort(compareViews)
 }
 
-/** Where a new view goes: after the table's last (Q5c, Q-G1). */
+/** The largest position the cloud's INTEGER column holds. */
+export const MAX_VIEW_POSITION = 2147483647
+
+/**
+ * Where a new view goes: after the table's last (Q5c, Q-G1); at most
+ * MAX_VIEW_POSITION, where a tie falls to created_at, so a stored position at
+ * the ceiling never makes every later insert overflow (review round 1, R1-6).
+ */
 export function nextViewPosition(views, tableKey) {
   let max = -1
   for (const v of Array.isArray(views) ? views : []) {
     if (v && v.table_key === tableKey && num(v.position) > max) max = num(v.position)
   }
-  return max + 1
+  return Math.min(max + 1, MAX_VIEW_POSITION)
 }
 
 /**

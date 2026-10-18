@@ -172,7 +172,7 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {(projectId: string, tableKey: string, ids: string[]) => Promise<object[]>} reorderTableViews
  * @property {(projectId: string) => Promise<object[]>}             listItemGroupings
  * @property {(row: object) => Promise<object>}                     addItemGrouping
- * @property {(id: string, projectId?: string) => Promise<{removed: boolean}>} removeItemGrouping
+ * @property {(id: string, projectId?: string) => Promise<{removed: boolean, status?: string}>} removeItemGrouping
  * @property {() => Promise<{available: boolean, map: object}>}     getTableViewLast
  * @property {(key: string, view: string) => Promise<object>}       setTableViewLast
  *   Custom table views and groupings (VW1c, migration 0098; design §5;
@@ -208,7 +208,10 @@ import { devFixtures } from '../../../dev/devFixtures';
  *   - addItemGrouping(row `{ id?, project_id, table_key, kind, entity_ids
  *     }`): an INSERT; a set already stored for that table and kind answers
  *     the stored row (the cloud's unique key, then a read).
- *     removeItemGrouping(id, projectId) answers `{ removed }`.
+ *     removeItemGrouping(id, projectId) answers `{ removed: true }`, or `{
+ *     removed: false, status }` read once: `deleted` (gone) or `filtered` (the
+ *     cloud's policies dropped the delete; the row stays on screen) — review
+ *     round 1, R1-3.
  *   - getTableViewLast(): the person's last used view of each table, `{
  *     available, map }` (the cloud's user_settings.table_view_last, read by
  *     its own request — 42703 / PGRST204 answer `{ available: false, map: {}

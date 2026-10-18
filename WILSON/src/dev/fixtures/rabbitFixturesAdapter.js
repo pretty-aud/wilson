@@ -1010,9 +1010,11 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       store.itemGroupings.push(created)
       return clone(created)
     },
+    // Review round 1 (R1-3): the cloud's answer; no roles here, so nothing
+    // removed means gone (or out of sight in a trashed project).
     async removeItemGrouping(id, _projectId) {
       const g = findById(store.itemGroupings, id)
-      if (!g || !liveProject(g.project_id)) return { removed: false }
+      if (!g || !liveProject(g.project_id)) return { removed: false, status: 'deleted' }
       store.itemGroupings = store.itemGroupings.filter(x => x.id !== id)
       return { removed: true }
     },
@@ -1355,7 +1357,12 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // fires for the scene and for each shot its CASCADE takes).
     async deleteScene(id, _projectId) {
       const scene = findById(store.scenes, id)
+      // Review round 1 (R1-2): the shots in id order (code unit), so two
+      // groupings that shrink to one set keep the same survivor here, on the
+      // desktop and on screen (the cloud's cascade order is its own; the live
+      // channel brings its answer).
       const shots = store.shots.filter(s => s.scene_id === id)
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
       remove(store.scenes, id)
       sweepShotListLinks('scene_id', id)
       sweepTaskItemsOf('scene', id)

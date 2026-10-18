@@ -50,7 +50,7 @@
 
 BEGIN;
 
-SELECT plan(118);
+SELECT plan(121);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1105,7 +1105,7 @@ UPDATE public.assets SET deleted_at = now() WHERE id = '10100000-0000-0000-0000-
 SELECT is(
   (SELECT entity_ids FROM public.item_groupings WHERE id = '10122222-0000-0000-0000-000000000006'),
   ARRAY['10100000-0000-0000-0000-0000000000a1', '10100000-0000-0000-0000-0000000000a4']::uuid[],
-  'an asset put in the trash stays named: the client hides the grouping while it is there (§5.2)');
+  'an asset put in the trash stays named: the client hides the grouping while it is there (§5.2; a guard — no trigger fires on a trash, R1-8)');
 
 -- The nightly purge, scoped to this suite: a6 went to the trash 101 years
 -- ago and the purge keeps 100 years, so no real row of dev's is touched.
@@ -1139,6 +1139,20 @@ SELECT ok(
 -- ═════════════════════════════════════════════════════════════════════════
 -- PRIVACY and tenancy, each arm isolated (§6)
 -- ═════════════════════════════════════════════════════════════════════════
+-- A trashed project (review round 1, R1-8), made as postgres with a view
+-- and a grouping, then put in the trash.
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+  ('aaaa1111-0000-0000-0000-000000000103', '11111111-1111-1111-1111-111111111111',
+   'Trashed T101', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+INSERT INTO public.assets (id, project_id, name) VALUES
+  ('10100000-0000-0000-0000-0000000007a1', 'aaaa1111-0000-0000-0000-000000000103', 'T asset');
+INSERT INTO public.table_views (id, project_id, table_key, name, position, config) VALUES
+  ('10111111-0000-0000-0000-000000000007', 'aaaa1111-0000-0000-0000-000000000103', 'tasks', 'T view', 0, '{}');
+INSERT INTO public.item_groupings (id, project_id, table_key, kind, entity_ids) VALUES
+  ('10122222-0000-0000-0000-00000000000b', 'aaaa1111-0000-0000-0000-000000000103', 'tasks', 'asset',
+   ARRAY['10100000-0000-0000-0000-0000000007a1']::uuid[]);
+UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1111-0000-0000-0000-000000000103';
+
 -- workspace_id is granted for the moment (this file rolls back), so the
 -- stamping trigger cannot refuse for the wrong reason: each refusal below is
 -- the policy's project hop alone.
@@ -1201,22 +1215,49 @@ SELECT lives_ok(
     VALUES ('aaaa1111-0000-0000-0000-000000000101', 'tasks', 'Creator''s view', 1, '{}')$$,
   'CONTROL: the private project''s creator saves a view into it');
 
+-- A trashed project, as the company ADMIN (who reads and writes every live
+-- project of the workspace): hidden, and closed (R1-8).
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+-- 117
+SELECT is(
+  (SELECT count(*)::int FROM public.table_views WHERE project_id = 'aaaa1111-0000-0000-0000-000000000103')
+  + (SELECT count(*)::int FROM public.item_groupings WHERE project_id = 'aaaa1111-0000-0000-0000-000000000103'),
+  0, 'a trashed project''s views and groupings are hidden, even from the company admin (the project hop''s live arm)');
+-- 118
+SELECT throws_ok(
+  $$INSERT INTO public.table_views (project_id, workspace_id, table_key, name, position, config)
+    VALUES ('aaaa1111-0000-0000-0000-000000000103', '11111111-1111-1111-1111-111111111111', 'tasks', 'Into the bin', 1, '{}')$$,
+  '42501', NULL,
+  'no view is saved into a trashed project, workspace sent (the hop alone refuses)');
+
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
 REVOKE INSERT (workspace_id) ON public.table_views FROM authenticated;
 
--- 117
+-- 119
 SELECT ok(
   NOT has_column_privilege('authenticated', 'public.table_views', 'workspace_id', 'INSERT')
   AND (SELECT name FROM public.table_views WHERE id = '10111111-0000-0000-0000-000000000005') = 'Private view',
   'the moment''s grant is gone, and the private view is as it was');
+
+-- 120
+SELECT ok(
+  EXISTS (SELECT 1 FROM public.table_views WHERE id = '10111111-0000-0000-0000-000000000007')
+  AND EXISTS (SELECT 1 FROM public.item_groupings WHERE id = '10122222-0000-0000-0000-00000000000b'),
+  'CONTROL: the trashed project''s view and grouping are still stored — the trash hides, it deletes nothing');
 
 -- ═════════════════════════════════════════════════════════════════════════
 -- anon
 -- ═════════════════════════════════════════════════════════════════════════
 SET LOCAL ROLE anon;
 
--- 118
+-- 121
 SELECT throws_ok(
   $$SELECT count(*) FROM public.table_views$$,
   '42501', NULL, 'anon cannot read views at all');

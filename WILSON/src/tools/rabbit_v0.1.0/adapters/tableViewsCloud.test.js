@@ -377,14 +377,22 @@ describe('a grouping\'s writes', () => {
       .toEqual({ code: '23505', message: '[supabase] duplicate key value violates unique constraint "item_groupings_pkey"' })
   })
 
-  it('removeItemGrouping deletes by id and answers { removed }: false when nothing went (gone, or filtered out)', async () => {
+  it('removeItemGrouping deletes by id and answers { removed }; nothing removed is read once: gone, or filtered out (review round 1, R1-3)', async () => {
     globalThis.__testSupabase = makeClient({ item_groupings: { delete: { data: [{ id: 'g1' }], error: null } } })
     const a = supabaseAdapter()
     expect(await a.removeItemGrouping('g1', 'p1')).toEqual({ removed: true })
     expect(tableCalls('item_groupings')[0].ops).toEqual([['delete'], ['eq', 'id', 'g1'], ['select', 'id']])
+    expect(tableCalls('item_groupings')).toHaveLength(1) // removed: no read-back
+    // Gone: the read finds no row.
+    calls.length = 0
     globalThis.__testSupabase = makeClient({ item_groupings: { delete: { data: [], error: null } } })
     resetSupabaseAdapter()
-    expect(await a.removeItemGrouping('g1', 'p1')).toEqual({ removed: false })
+    expect(await a.removeItemGrouping('g1', 'p1')).toEqual({ removed: false, status: 'deleted' })
+    expect(tableCalls('item_groupings')[1].ops).toEqual([['select', 'id'], ['eq', 'id', 'g1'], ['maybeSingle']])
+    // Still there: the policies filtered the delete out (the person may no longer change groupings).
+    globalThis.__testSupabase = makeClient({ item_groupings: { delete: { data: [], error: null }, maybeSingle: { data: { id: 'g1' }, error: null } } })
+    resetSupabaseAdapter()
+    expect(await a.removeItemGrouping('g1', 'p1')).toEqual({ removed: false, status: 'filtered' })
   })
 
   it('the instrument: WRITES is every view and grouping write the adapter has', () => {

@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  TABLE_KEYS, GROUPING_KINDS, VIEW_NAME_MAX, GROUPING_IDS_MAX, TABLE_VIEW_LAST_MAX, ALL_VIEW_ID,
+  TABLE_KEYS, GROUPING_KINDS, VIEW_NAME_MAX, GROUPING_IDS_MAX, TABLE_VIEW_LAST_MAX, ALL_VIEW_ID, MAX_VIEW_POSITION,
   isTableKey, isGroupingPair, normalizeViewName, viewNameProblem, utf8Length, canonicalJson, configsEqual,
   viewConfigProblem, defaultViewConfig, isCompleteFilter, readViewConfig, writeViewConfig, allViewOf,
   compareViews, viewsOfTable, nextViewPosition, planReorderViews, normalizeEntityIds, groupingKeyOf,
@@ -177,6 +177,13 @@ describe('views: All, the order, the place of a new one, the reorder (Q5c, Q20; 
     expect(viewsOfTable(views, 'tasks').map(v => v.id)).toEqual(['c', 'a', 'b'])
     // CONTROL: equal times fall to the id.
     expect([{ id: 'y', position: 0, created_at: t(1) }, { id: 'x', position: 0, created_at: t(1) }].sort(compareViews).map(v => v.id)).toEqual(['x', 'y'])
+  })
+
+  it('R1-6: a new view never goes past the INTEGER ceiling; a tie there falls to created_at', () => {
+    const at = (p) => [{ id: 'x', table_key: 'tasks', position: p }]
+    expect(MAX_VIEW_POSITION).toBe(2147483647)
+    expect(nextViewPosition(at(MAX_VIEW_POSITION - 1), 'tasks')).toBe(MAX_VIEW_POSITION)
+    expect(nextViewPosition(at(MAX_VIEW_POSITION), 'tasks')).toBe(MAX_VIEW_POSITION) // not 2147483648 (22003 on every insert)
   })
 
   it('a new view goes after the table\'s last; the first at 0', () => {

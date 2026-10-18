@@ -74,10 +74,18 @@ export function groupingsNaming(groupings, kind, ids) {
     .map(g => ({ ...g, entity_ids: [...(g.entity_ids || [])] }))
 }
 
-/** The groupings after each of `ids` (of `kind`) is deleted for good (planForgetItem, in turn). */
+/**
+ * The groupings after each of `ids` (of `kind`) is deleted for good
+ * (planForgetItem, in turn), the ids taken in code-unit order: when two
+ * groupings shrink to one set in one delete (a scene with its shots, a bulk
+ * delete), the one that survives is the desktop's and the fixtures' (review
+ * round 1, R1-2; the cloud's cascade order is its own, and the live channel
+ * brings its answer).
+ */
 export function sweepGroupings(groupings, kind, ids) {
   let rows = Array.isArray(groupings) ? groupings : []
-  for (const id of ids || []) {
+  const ordered = [...new Set((ids || []).map(String))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  for (const id of ordered) {
     const { remove, update } = planForgetItem(rows, kind, id)
     if (remove.length === 0 && update.length === 0) continue
     const gone = new Set(remove.map(String))
@@ -89,26 +97,37 @@ export function sweepGroupings(groupings, kind, ids) {
 }
 
 /**
- * Undo of a delete for good: each grouping put back as it was — removed and
- * made again with its id where it shrank (a grouping has no update), made
- * again where it went. Run after the row itself is back (the backends check
- * every id names a row of the project). A set that is stored already (a
- * teammate made it meanwhile) is left as it is.
+ * Undo of a delete for good: each grouping put back as it was. One the delete
+ * removed is made again with its id. One it shrank is made again FIRST, under
+ * a new id (a grouping has no update, and its own id is still taken), and the
+ * shrunk row is removed only once that has landed: when the backend refuses
+ * the set (an item it names did not come back — the row's own restore
+ * failed), nothing has changed and the shrunk grouping stays (review round 1,
+ * R1-1: removing first lost the grouping for good). Run after the row itself
+ * is back. A set that is stored already (a teammate made it meanwhile, or the
+ * grouping is as it was) is left as it is. Throws the backend's refusal.
  */
 export async function restoreGroupingRows({ adapter, projectId, originals, bundleRef, setBundle }) {
-  for (const g of originals || []) {
-    const current = (bundleRef.current.itemGroupings || []).find(x => String(x.id) === String(g.id))
-    if (current && groupingKeyOf(current.entity_ids) === groupingKeyOf(g.entity_ids)) continue
-    if (current) await adapter.removeItemGrouping(g.id, projectId)
-    const stored = await adapter.addItemGrouping({
-      id: g.id, project_id: projectId, table_key: g.table_key, kind: g.kind, entity_ids: g.entity_ids,
-    })
+  const put = (removeIds, stored) => {
+    const gone = new Set(removeIds.map(String))
     const apply = (b) => {
-      const list = (b.itemGroupings || []).filter(x => String(x.id) !== String(g.id) && String(x.id) !== String(stored?.id))
+      const list = (b.itemGroupings || []).filter(x => !gone.has(String(x.id)) && String(x.id) !== String(stored?.id))
       return { ...b, itemGroupings: stored ? [...list, stored].sort(compareGroupingRows) : list }
     }
     setBundle(apply)
     bundleRef.current = apply(bundleRef.current)
+  }
+  for (const g of originals || []) {
+    const current = (bundleRef.current.itemGroupings || []).find(x => String(x.id) === String(g.id))
+    if (current && groupingKeyOf(current.entity_ids) === groupingKeyOf(g.entity_ids)) continue
+    const stored = await adapter.addItemGrouping({
+      id: current ? uuidv4() : g.id, project_id: projectId, table_key: g.table_key, kind: g.kind, entity_ids: g.entity_ids,
+    })
+    put([], stored)
+    if (current && String(stored?.id) !== String(current.id)) {
+      await adapter.removeItemGrouping(current.id, projectId)
+      put([current.id], null)
+    }
   }
 }
 
@@ -180,16 +199,30 @@ export function useTableViewsState({
   const findGrouping = useCallback((id) => (bundleRef.current.itemGroupings || []).find(g => String(g.id) === String(id)) || null, [bundleRef])
 
   // The undo toast's Undo: `run` answers true when the undo landed, or the
-  // words to say when it was refused (nothing to retry); a thrown error keeps
-  // the toast up to try again. Never on another project than the visit's: a
-  // step that finished after a project switch offers nothing (runWithUndoToast's
-  // rule), and an Undo pressed after one does nothing.
+  // words to say when it was refused (nothing to retry). A refusal the
+  // backend gave in words — an error carrying a code: a SQLSTATE, a route's
+  // refusal — is said and the toast closes (design §4.4: "A refused undo
+  // shows a kit notice"; review round 1, R1-4: thrown, it kept the toast up
+  // for ever, Undo failing the same way each press); only a failure with no
+  // code (the request never answered) keeps the toast up to try again. Never
+  // on another project than the visit's: a step that finished after a
+  // project switch offers nothing (runWithUndoToast's rule), and an Undo
+  // pressed after one does nothing.
   const offerUndo = useCallback((words, visit, run) => {
     if (typeof showUndoToast !== 'function' || !words) return
     if (visit !== projectVisitRef.current) return
     showUndoToast(words, async () => {
       if (visit !== projectVisitRef.current) return
-      const outcome = await run()
+      let outcome
+      try {
+        outcome = await run()
+      } catch (err) {
+        if (typeof err?.code === 'string' && err.code !== '') {
+          setError?.(err.message || String(err))
+          return
+        }
+        throw err
+      }
       if (typeof outcome === 'string') setError?.(outcome)
     })
   }, [showUndoToast, setError, projectVisitRef])
@@ -389,7 +422,10 @@ export function useTableViewsState({
     const projectId = projectIdRef.current
     const visit = projectVisitRef.current
     const res = await adapterRef.current.removeItemGrouping(id, projectId)
-    dropRows('itemGroupings', [id], visit)
+    // Review round 1 (R1-3): off the screen only when it is off the backend;
+    // `filtered` (the cloud's policies dropped the delete) keeps it, and the
+    // caller says why.
+    if (res?.removed || res?.status === 'deleted') dropRows('itemGroupings', [id], visit)
     if (res?.removed) {
       offerUndo(words ?? 'Grouping removed', visit, async () => {
         try {
@@ -422,9 +458,15 @@ export function useTableViewsState({
   const lastRef = useRef(last)
   lastRef.current = last
   const lastSeqRef = useRef(0)
+  // Read again for every adapter (an object, read at render) and every
+  // person. Not by the mode alone: the signed-out desktop's boot chooses
+  // 'local_server', which is already the provider's default mode, so the mode
+  // never changed and the read ran only at mount, before there was an
+  // adapter — the desktop never read its map (VW1c, found in the session).
+  const adapterNow = adapterRef.current
   useEffect(() => {
     const seq = ++lastSeqRef.current
-    const a = adapterRef.current
+    const a = adapterNow
     if (!a || typeof a.getTableViewLast !== 'function') {
       setLast({ status: 'unavailable', map: {} })
       return undefined
@@ -451,8 +493,7 @@ export function useTableViewsState({
         setLast({ status: 'failed', map: {} })
       })
     return () => { settled = true; clearTimeout(timer) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapterMode, authUserId])
+  }, [adapterNow, adapterMode, authUserId])
 
   // Writes go one behind another, so two quick choices land in their order.
   const lastQueueRef = useRef(Promise.resolve())

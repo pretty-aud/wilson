@@ -213,7 +213,7 @@ describe('the groupings\' verbs', () => {
     expect(await localServerAdapter().removeItemGrouping('g1', 'p1')).toEqual({ removed: true })
     expect(calls).toEqual([{ url: '/api/rabbit/projects/p1/item-groupings/g1', method: 'DELETE', body: undefined }])
     calls = spyFetch(ok({ ok: true, removed: false }))
-    expect(await localServerAdapter().removeItemGrouping('g1', 'p1')).toEqual({ removed: false })
+    expect(await localServerAdapter().removeItemGrouping('g1', 'p1')).toEqual({ removed: false, status: 'deleted' }) // R1-3: no roles here: gone
     await expect(localServerAdapter().removeItemGrouping('g1')).rejects.toThrow(/project/)
     expect(calls).toHaveLength(1)
   })

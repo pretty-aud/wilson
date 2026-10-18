@@ -1476,7 +1476,7 @@ describe('custom table views and groupings (VW1c, 0098 on the fixtures)', () => 
     const { fx } = fresh()
     const g = await fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'shot', entity_ids: [SHOT(1)] })
     expect(await fx.removeItemGrouping(g.id, PROJECT_ID)).toEqual({ removed: true })
-    expect(await fx.removeItemGrouping(g.id, PROJECT_ID)).toEqual({ removed: false })
+    expect(await fx.removeItemGrouping(g.id, PROJECT_ID)).toEqual({ removed: false, status: 'deleted' }) // R1-3: no roles here: gone
     expect(await fx.listItemGroupings(PROJECT_ID)).toEqual([])
   })
 

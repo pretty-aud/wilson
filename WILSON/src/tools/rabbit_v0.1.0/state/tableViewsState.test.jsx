@@ -104,11 +104,12 @@ function fakeBackend({ views = [], groupings = [], available = true, loadError =
 
 // The provider's wiring, in miniature: the bundle in state and a ref, the
 // project visit's generation, the toast and the notice recorded.
-function useHarness({ adapter, bundle: initial, activeProjectId, adapterMode = 'supabase', authUserId = 'u1' }) {
+function useHarness({ adapter, bundle: initial, activeProjectId, adapterMode = 'supabase', authUserId = 'u1', adapterLater = false }) {
   const [bundle, setBundle] = useState(initial)
   const bundleRef = useRef(bundle)
   useEffect(() => { bundleRef.current = bundle }, [bundle])
-  const adapterRef = useRef(adapter)
+  // `adapterLater`: as the provider's boot, the adapter is set after mount.
+  const adapterRef = useRef(adapterLater ? null : adapter)
   const projectVisitRef = useRef(0)
   const seenProject = useRef(undefined)
   if (seenProject.current !== activeProjectId) { seenProject.current = activeProjectId; projectVisitRef.current += 1 }
@@ -120,14 +121,14 @@ function useHarness({ adapter, bundle: initial, activeProjectId, adapterMode = '
     adapterRef, bundleRef, setBundle, bundle, activeProjectId, adapterMode, authUserId,
     projectVisitRef, showUndoToast, setError,
   })
-  return { api, bundle, bundleRef, toasts, notices, projectVisitRef }
+  return { api, bundle, bundleRef, adapterRef, toasts, notices, projectVisitRef }
 }
 
-function setup({ backend, bundle, activeProjectId = P1, adapterMode, authUserId } = {}) {
+function setup({ backend, bundle, activeProjectId = P1, adapterMode, authUserId, adapterLater } = {}) {
   const adapter = backend || fakeBackend()
   const start = bundle || { tableViews: adapter.db.views.map(v => ({ ...v })), itemGroupings: adapter.db.groupings.map(g => ({ ...g })) }
   const hook = renderHook((props) => useHarness(props), {
-    initialProps: { adapter, bundle: start, activeProjectId, adapterMode, authUserId },
+    initialProps: { adapter, bundle: start, activeProjectId, adapterMode, authUserId, adapterLater },
   })
   return { adapter, hook, current: () => hook.result.current }
 }
@@ -409,7 +410,7 @@ describe('the sweep\'s helpers for the provider\'s deletes (design §5.2)', () =
     ])
   })
 
-  it('the undo puts each grouping back as it was: made again where it went, removed and made again where it shrank', async () => {
+  it('the undo puts each grouping back as it was: made again with its id where it went; where it shrank, made again first and the shrunk row removed after', async () => {
     const adapter = fakeBackend({ groupings: [grouping('g2', ['A1'])] })
     const bundleRef = { current: { itemGroupings: [grouping('g2', ['A1'])] } }
     const setBundle = (f) => { bundleRef.current = f(bundleRef.current) }
@@ -417,13 +418,78 @@ describe('the sweep\'s helpers for the provider\'s deletes (design §5.2)', () =
     adapter.db.groupings.push(grouping('g3', ['A3']))
     bundleRef.current.itemGroupings.push(grouping('g3', ['A3']))
     await restoreGroupingRows({ adapter, projectId: P1, originals: [grouping('g1', ['A1', 'A2']), grouping('g3', ['A2', 'A3'])], bundleRef, setBundle })
-    expect(adapter.calls.map(c => c[0])).toEqual(['addItemGrouping', 'removeItemGrouping', 'addItemGrouping'])
-    expect(bundleRef.current.itemGroupings.map(g => [g.id, g.entity_ids.join(',')]).sort()).toEqual([
-      ['g1', 'A1,A2'], ['g2', 'A1'], ['g3', 'A2,A3'],
-    ])
+    expect(adapter.calls.map(c => c[0])).toEqual(['addItemGrouping', 'addItemGrouping', 'removeItemGrouping'])
+    expect(adapter.calls[0][1].id).toBe('g1')
+    expect(adapter.calls[1][1].id).not.toBe('g3') // its own id is still taken by the shrunk row
+    expect(adapter.calls[2][1]).toBe('g3')
+    expect(bundleRef.current.itemGroupings.map(g => g.entity_ids.join(',')).sort()).toEqual(['A1', 'A1,A2', 'A2,A3'])
+    expect(bundleRef.current.itemGroupings.some(g => g.id === 'g3')).toBe(false)
     // CONTROL: a grouping already as it was is left alone.
     adapter.calls.length = 0
     await restoreGroupingRows({ adapter, projectId: P1, originals: [grouping('g2', ['A1'])], bundleRef, setBundle })
     expect(adapter.calls).toEqual([])
+  })
+
+  it('🚨 R1-1: when the set is refused (an item it names did not come back), the shrunk grouping survives and nothing is removed', async () => {
+    const adapter = fakeBackend({ groupings: [grouping('g3', ['A3'])] })
+    const bundleRef = { current: { itemGroupings: [grouping('g3', ['A3'])] } }
+    const setBundle = (f) => { bundleRef.current = f(bundleRef.current) }
+    // The delete took 'gone' out of g3 {A3, gone}; the row's own restore failed, so 'gone' is not back.
+    await expect(restoreGroupingRows({ adapter, projectId: P1, originals: [grouping('g3', ['A3', 'gone'])], bundleRef, setBundle }))
+      .rejects.toMatchObject({ code: '23503' })
+    expect(adapter.calls.map(c => c[0])).toEqual(['addItemGrouping'])
+    expect(adapter.db.groupings).toEqual([grouping('g3', ['A3'])])
+    expect(bundleRef.current.itemGroupings).toEqual([grouping('g3', ['A3'])])
+  })
+
+  it('R1-2: two groupings that shrink to one set keep the survivor the desktop keeps (the ids in code-unit order)', async () => {
+    const { createRequire } = await import('node:module')
+    const twin = createRequire(import.meta.url)('../../../../electron/rabbitTableViews.cjs')
+    const GA = grouping('GA', ['d5', 'd9'], { kind: 'shot' })
+    const GB = grouping('GB', ['d2', 'd9'], { kind: 'shot' })
+    // The provider is handed the shots in the bundle's order (d5 before d2).
+    const onScreen = sweepGroupings([GA, GB], 'shot', ['d5', 'd2'])
+    const desktop = { assets: [], scenes: [], shots: [{ id: 'd9' }], levels: [], experiences: [], itemGroupings: [{ ...GA }, { ...GB }] }
+    twin.forgetGoneItems(desktop)
+    expect(onScreen.map(g => [g.id, g.entity_ids.join(',')])).toEqual([['GB', 'd9']])
+    expect(desktop.itemGroupings.map(g => [g.id, g.entity_ids.join(',')])).toEqual([['GB', 'd9']])
+  })
+})
+
+describe('review round 1\'s corrections in the hook', () => {
+  it('R1-3: a removal the cloud\'s policies filtered keeps the grouping on screen; a gone one leaves', async () => {
+    const backend = fakeBackend({ groupings: [grouping('g1', ['A1']), grouping('g2', ['A2'])] })
+    const { current } = setup({ backend })
+    backend.removeItemGrouping.mockResolvedValueOnce({ removed: false, status: 'filtered' })
+    let res
+    await act(async () => { res = await current().api.removeItemGrouping('g1') })
+    expect(res).toEqual({ removed: false, status: 'filtered' })
+    expect(current().api.groupingsOf('tasks', 'asset').map(g => g.id)).toEqual(['g1', 'g2'])
+    expect(current().toasts.current).toEqual([])
+    backend.removeItemGrouping.mockResolvedValueOnce({ removed: false, status: 'deleted' })
+    await act(async () => { await current().api.removeItemGrouping('g2') })
+    expect(current().api.groupingsOf('tasks', 'asset').map(g => g.id)).toEqual(['g1'])
+  })
+
+  it('R1-4: an undo the backend refuses in words is said and the toast closes; a request that never answered keeps it', async () => {
+    const backend = fakeBackend({ views: [view('v1', { name: 'Shoot week' })] })
+    const { current } = setup({ backend })
+    await act(async () => { await current().api.deleteTableView('v1') })
+    backend.addTableView.mockRejectedValueOnce(Object.assign(new Error('A project\'s Tasks table holds at most 200 saved views.'), { code: '54000' }))
+    await act(async () => { await expect(current().toasts.current.at(-1).onUndo()).resolves.toBeUndefined() })
+    expect(current().notices.current.at(-1)).toBe('A project\'s Tasks table holds at most 200 saved views.')
+    // CONTROL: no code (the network): the toast's Undo rejects, so the toast stays to try again.
+    backend.addTableView.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await act(async () => { await expect(current().toasts.current.at(-1).onUndo()).rejects.toThrow('Failed to fetch') })
+  })
+
+  it('S-1: an adapter set after mount (the desktop\'s boot keeps the default mode) is read for the last used view', async () => {
+    const backend = fakeBackend({ last: { available: true, map: { 'p1:tasks': { view: 'v7', at: 1 } } } })
+    const { current, hook } = setup({ backend, adapterLater: true, adapterMode: 'local_server' })
+    await waitFor(() => expect(current().api.tableViewLast.status).toBe('unavailable'))
+    current().adapterRef.current = backend
+    hook.rerender({ adapter: backend, bundle: current().bundle, activeProjectId: P1, adapterMode: 'local_server', authUserId: 'u1', adapterLater: true })
+    await waitFor(() => expect(current().api.tableViewLast.status).toBe('ready'))
+    expect(current().api.lastViewOf('tasks')).toBe('v7')
   })
 })

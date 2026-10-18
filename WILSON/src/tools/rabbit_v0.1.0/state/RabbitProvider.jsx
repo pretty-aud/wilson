@@ -5014,14 +5014,23 @@ export function RabbitProvider({ children }) {
   // the delete mirrors on screen (sweepGroupings). Its undo, after the row is
   // back, puts each grouping back as it was (tableViewsState.js). One at a
   // time, so one that cannot be made again (an item it named is gone) does
-  // not stop the rest. No history.
+  // not stop the rest; it stays as the delete left it, and the notice says
+  // so (review round 1, R1-1: the history runner swallows an op's throw). No
+  // history.
   async function restoreGroupingsAfterDelete(originals) {
+    let refused = 0;
     for (const g of originals || []) {
       try {
         await restoreGroupingRows({ adapter: adapterRef.current, projectId: activeProjectIdRef.current, originals: [g], bundleRef, setBundle });
       } catch (err) {
+        refused += 1;
         console.warn('[rabbit] a grouping of a restored item was not put back:', err?.message || err);
       }
+    }
+    if (refused > 0) {
+      setError(refused === 1
+        ? 'A grouping was not put back as it was: an item it names is not back in the project.'
+        : `${refused} groupings were not put back as they were: an item they name is not back in the project.`);
     }
   }
 

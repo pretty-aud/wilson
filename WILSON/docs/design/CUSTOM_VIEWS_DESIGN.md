@@ -650,7 +650,11 @@ already have IS that combination's group: never two groups for one set.
   desktop) leaves every grouping that names it, and a grouping left with no
   items, or left naming the same set as another grouping, goes (findings 1
   and 2). The undo of such a delete puts the row back, then the groupings it
-  took the item from, as they were (the provider, §5.5).
+  took the item from, as they were (the provider, §5.5): one the delete
+  removed is made again with its id; one it shrank is made again first,
+  under a new id, and the shrunk row removed only after, so a set the
+  backend refuses (the row did not come back) leaves the shrunk grouping
+  as it was and the notice says so (VW1c review round 1, R1-1).
 
 ### 5.3 The cloud: one migration for both (VW1c)
 
@@ -829,7 +833,10 @@ broadcast restated whole, post-conditions.
     it only while it still has the revision it was made with (a teammate's
     save is never thrown away); a delete's undo makes the view again with
     its id (a new revision); a grouping's add is undone by removing it, its
-    removal by adding it again. A refused undo says why.
+    removal by adding it again. A refused undo says why and closes; one
+    whose request never answered keeps the toast to try again (round 1,
+    R1-4). A removal the cloud's policies filter out keeps the grouping on
+    screen (R1-3).
   - **A delete for good takes items out of groupings** (§5.2): the provider's
     delete of a scene, shot, level or experience (and of an asset, where the
     backend removes the row: the desktop) remembers the groupings it touched

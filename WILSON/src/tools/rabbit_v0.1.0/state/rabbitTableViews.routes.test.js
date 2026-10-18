@@ -208,8 +208,12 @@ describe('POST /table-views — an INSERT', () => {
     expect(call(routes, 'POST', V, {}, { ...ok, name: 'a'.repeat(81) }).body.error).toBe('A view\'s name can be at most 80 characters.')
     expect(writes).toHaveLength(0)
     expect(b.tableViews).toHaveLength(1)
-    // The edges pass: 80 characters, 32,768 bytes, position 2147483647.
-    expect(call(routes, 'POST', V, {}, { ...ok, name: 'a'.repeat(80), config: { k: 'x'.repeat(32760) }, position: 2147483647 }).code).toBe(200)
+    // The edges pass: 80 characters, 32,768 bytes as jsonb prints it ({"k": ""}
+    // is 9; review round 1, R1-5), position 2147483647.
+    expect(call(routes, 'POST', V, {}, { ...ok, name: 'a'.repeat(80), config: { k: 'x'.repeat(32759) }, position: 2147483647 }).code).toBe(200)
+    // CONTROL (R1-5): one byte more is refused, though its JSON.stringify is 32,768 bytes.
+    expect(JSON.stringify({ k: 'x'.repeat(32760) }).length).toBe(32768)
+    expect(call(routes, 'POST', V, {}, { ...ok, name: 'b', config: { k: 'x'.repeat(32760) } })).toMatchObject({ code: 400, body: { code: 'table_view_invalid' } })
   })
 
   it('refuses an id already used with 409 table_view_id_taken', () => {

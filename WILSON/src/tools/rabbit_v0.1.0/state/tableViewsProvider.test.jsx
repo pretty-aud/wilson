@@ -118,8 +118,26 @@ describe('custom table views through the provider (the dev fixtures)', () => {
     expect(fx.store.itemGroupings.find(x => x.id === g.id).entity_ids).toEqual([SC(5)])
     await run(() => ctx.undo())
     await waitFor(() => expect(ctx.scenes.some(s => s.id === SC(6))).toBe(true))
-    await waitFor(() => expect(fx.store.itemGroupings.find(x => x.id === g.id)?.entity_ids).toEqual([SC(5), SC(6)].sort()))
-    expect(ctx.groupingsOf('tasks', 'scene').find(x => x.id === g.id)?.entity_ids).toEqual([SC(5), SC(6)].sort())
+    // As it was: the set (a shrunk grouping is made again first, under a new
+    // id, and the shrunk row removed after: review round 1, R1-1).
+    const sets = (rows) => rows.filter(x => x.table_key === 'tasks' && x.kind === 'scene').map(x => x.entity_ids.join(','))
+    await waitFor(() => expect(sets(fx.store.itemGroupings)).toEqual([[SC(5), SC(6)].sort().join(',')]))
+    expect(sets(ctx.itemGroupings)).toEqual([[SC(5), SC(6)].sort().join(',')])
+    expect(fx.store.itemGroupings.some(x => x.id === g.id)).toBe(false)
+  })
+
+  it('🚨 R1-1: Ctrl+Z whose scene does not come back leaves the shrunk grouping as it was, and says so', async () => {
+    await mount(fx.rabbitAdapter())
+    await run(async () => { await ctx.addItemGrouping({ tableKey: 'tasks', kind: 'scene', entityIds: [SC(5), SC(6)] }) })
+    await run(() => ctx.deleteScene(SC(6)))
+    // The scene's restore fails (offline, a refusal): the history runner
+    // goes on to the groupings' restore.
+    vi.spyOn(holder.adapter, 'upsertScene').mockRejectedValue(new Error('offline'))
+    await run(() => ctx.undo())
+    const sets = (rows) => rows.filter(x => x.table_key === 'tasks' && x.kind === 'scene').map(x => x.entity_ids.join(','))
+    expect(sets(fx.store.itemGroupings)).toEqual([SC(5)])
+    expect(sets(ctx.itemGroupings)).toEqual([SC(5)])
+    await waitFor(() => expect(ctx.error).toMatch(/grouping was not put back/))
   })
 
   it('CONTROL: a grouping that does not name the deleted scene is untouched, and nothing is restored for it', async () => {

@@ -426,7 +426,8 @@ export function localServerAdapter() {
     removeItemGrouping: async (id, projectId) => {
       needsProject('removeItemGrouping', projectId)
       const res = await jfetch(`${BASE}/projects/${enc(projectId)}/item-groupings/${enc(id)}`, { method: 'DELETE' })
-      return { removed: !!res?.removed }
+      // Review round 1 (R1-3): no roles here, so nothing removed means gone.
+      return res?.removed ? { removed: true } : { removed: false, status: 'deleted' }
     },
     // The last used view is this computer's (design §5.4): the machine's own
     // settings file, never the project's, never localStorage.
