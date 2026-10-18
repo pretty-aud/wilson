@@ -197,9 +197,12 @@ same lines:
 supabase db query --linked --file "C:\Users\Audrey\Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\0098_table_views.sql"
 supabase db query --linked --file "C:\Users\Audrey\Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\hist-0098.sql"
 supabase db query --linked "select string_agg(version, ' ' order by version) from supabase_migrations.schema_migrations where version >= '0090'"
+supabase db query --linked "select (select count(*) from pg_policies where tablename in ('table_views', 'item_groupings')) as policies, (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.fn_realtime_broadcast()'::regprocedure) as broadcast_body, (select count(*) from information_schema.columns where table_name = 'user_settings' and column_name = 'table_view_last') as last_used_column"
 ```
 
-The history should end `0097 0098`. No Edge Function changed.
+The history should end `0097 0098`, `policies` should be `8`, `broadcast_body`
+`e5abdcf2b8abce914416acb148144971` and `last_used_column` `1`. No Edge
+Function changed.
 
 ### 4. Questions for you
 
