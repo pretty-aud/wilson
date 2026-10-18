@@ -63,6 +63,9 @@ describe('rls.yml\'s failure-replay list', () => {
     expect(numbers.every(Number.isFinite)).toBe(true)
     expect(numbers).toEqual([...numbers].sort((a, b) => a - b))
     expect(listed).toContain('100_no_main_item.sql')
+    // VW1c (2026-10-17): 0098's suite, which also covers item_groupings
+    // (COVERED_BY), replays like every other.
+    expect(listed.slice(-2)).toEqual(['100_no_main_item.sql', '101_table_views.sql'])
   })
 })
 
@@ -93,11 +96,12 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
     expect(pickSuites(names, ['1'])).toEqual(['01_projects.sql'])
   })
 
-  it('over the real directory, every suite once, 100 last', () => {
+  // VW1c (2026-10-17): suite 101 (101_table_views.sql, 0098) is now the last.
+  it('over the real directory, every suite once, 100 then 101 last', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.at(-1)).toBe('100_no_main_item.sql')
+    expect(picked.slice(-2)).toEqual(['100_no_main_item.sql', '101_table_views.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })
