@@ -308,6 +308,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/strange-hopper-de0d91/WILSON --port 5301 --strictPort"
       ],
       "port": 5301
+    },
+    {
+      "_comment": "VW1c (custom table views, the build, part 2: the views' and groupings' data; migration 0098, suite 101, every backend and the provider, no screen): this worktree's dev server on the bundle's port 5298, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T. at /rabbit, Salt Hours; ?fixtures=game for levels and experiences.",
+      "name": "vw1c-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/youthful-roentgen-ae7b85/WILSON --port 5298 --strictPort"
+      ],
+      "port": 5298
     }
   ]
 }

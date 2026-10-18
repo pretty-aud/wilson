@@ -62,6 +62,8 @@ const BUNDLE_KEYS = [
   'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
   // FX2 (0096): a task's items.
   'taskItems',
+  // VW1c (0098): the saved views and groupings (none seeded, Q20).
+  'tableViews', 'itemGroupings',
 ]
 
 // The S3a contract's nine shot-list methods plus review round 1's two
@@ -1263,5 +1265,288 @@ describe('the fixtures add clips as 0091\'s add_bin_files does (BC2, for the des
     const flat = await fx.addBinFiles(PROJECT_ID, vfx.id, [{ location_id: loc, relative_path: 'VFX/x.jpg', sub_bin: 'VFX' }], false)
     expect(flat.created[0].bin_id).toBe(vfx.id)
     expect(flat.bins).toEqual([])
+  })
+})
+
+// =============================================================================
+// Custom table views and groupings (VW1c, migration 0098) — the fake cloud
+// keeps 0098's rules and answers as the cloud ADAPTER does (adapters/index.js's
+// typedef; design §4.4, §5): nothing seeded (Q20); the revision from one
+// counter, on insert and on a change of config only; the model's caps and
+// CHECK words with the cloud's codes; the ids' check against the project's
+// LIVE rows (an asset in the trash refused); the conditional save's answers;
+// the reorder by planReorderViews; the sweep on a delete for good, and none
+// for the trash (her Q-N4); the last used map in memory. The fixtures model
+// no roles for writes, so the cloud's third answer to a write that wrote
+// nothing ('filtered') never comes from here (said in the adapter).
+// =============================================================================
+
+const { TABLE_VIEWS_REFUSALS } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
+const { FIXTURES_TABLE_VIEWS_SENTENCES, viewsCapWords, groupingsCapWords, groupingIdsCheckWords } = await import('./rabbitFixturesAdapter')
+const { viewNameProblem, viewConfigProblem } = await import('../../tools/rabbit_v0.1.0/state/tableViewsModel')
+const { readFileSync } = await import('node:fs')
+const { fileURLToPath } = await import('node:url')
+const { dirname, resolve } = await import('node:path')
+
+describe('custom table views and groupings (VW1c, 0098 on the fixtures)', () => {
+  const VIEW_KEYS = ['id', 'project_id', 'table_key', 'name', 'position', 'revision', 'revised_by', 'config', 'created_at', 'created_by', 'updated_at', 'updated_by']
+  const GROUPING_KEYS = ['id', 'project_id', 'table_key', 'kind', 'entity_ids', 'created_at', 'created_by', 'updated_at', 'updated_by']
+  const ASSET = (n) => fid('asset', n)
+  const SCENE = (n) => fid('scene', n)
+  const SHOT = (n) => fid('shot', n)
+  const fresh = (opts) => { const f = buildDevFixtures(opts); return { fx: f.rabbitAdapter(), store: f.store } }
+  const view = (fields = {}) => ({ project_id: PROJECT_ID, table_key: 'tasks', name: 'Shoot week', position: 0, config: { version: 1, filters: [] }, ...fields })
+  const refusedWith = async (p) => p.then(() => null, (e) => ({ code: e.code, message: e.message }))
+
+  it('nothing is seeded (Q20): the load answers both keys empty; the backend keeps views, and its loads never fail to read them', async () => {
+    const { fx } = fresh()
+    const bundle = await fx.loadProject(PROJECT_ID)
+    expect(bundle.tableViews).toEqual([])
+    expect(bundle.itemGroupings).toEqual([])
+    expect(fx.tableViewsAvailable()).toBe(true)
+    expect(fx.tableViewsLoadError()).toBeNull()
+    expect(await fx.getTableViewLast()).toEqual({ available: true, map: {} })
+  })
+
+  it('addTableView answers the stored row in the cloud\'s shape: a new revision from one counter, the stamps and the creator its own', async () => {
+    const { fx } = fresh()
+    const a = await fx.addTableView({ ...view(), revision: 999, revised_by: 'forged', created_by: 'forged', workspace_id: 'forged' })
+    expect(Object.keys(a)).toEqual(VIEW_KEYS)
+    expect(a).toMatchObject({ project_id: PROJECT_ID, table_key: 'tasks', name: 'Shoot week', position: 0, revision: 1, revised_by: PERMISSIONS.userId, created_by: PERMISSIONS.userId, updated_by: PERMISSIONS.userId })
+    const b = await fx.addTableView(view({ table_key: 'assets', name: 'Props' }))
+    expect(b.revision).toBe(2)
+    expect(await fx.listTableViews(PROJECT_ID)).toEqual([b, a]) // by table_key: assets before tasks
+  })
+
+  it('the load and the list answer the cloud\'s order: table_key, position, created_at, id', async () => {
+    const { fx } = fresh()
+    const t2 = await fx.addTableView(view({ name: 'Two', position: 2 }))
+    const t0 = await fx.addTableView(view({ name: 'Zero', position: 0 }))
+    const s0 = await fx.addTableView(view({ table_key: 'shots', name: 'Shots', position: 0 }))
+    const a5 = await fx.addTableView(view({ table_key: 'assets', name: 'Assets', position: 5 }))
+    expect((await fx.loadProject(PROJECT_ID)).tableViews.map(v => v.id)).toEqual([a5.id, s0.id, t0.id, t2.id])
+  })
+
+  it('refuses what 0098 refuses, in the model\'s words, with the cloud\'s codes', async () => {
+    const { fx } = fresh()
+    const CHECK = '23514'
+    expect(await refusedWith(fx.addTableView(view({ name: ' Padded' })))).toEqual({ code: CHECK, message: viewNameProblem(' Padded') })
+    expect(await refusedWith(fx.addTableView(view({ name: 'x'.repeat(81) })))).toEqual({ code: CHECK, message: viewNameProblem('x'.repeat(81)) })
+    expect(await refusedWith(fx.addTableView(view({ name: 'Tab\there' })))).toEqual({ code: CHECK, message: viewNameProblem('Tab\there') })
+    expect(await refusedWith(fx.addTableView(view({ name: '' })))).toEqual({ code: CHECK, message: 'A view needs a name.' })
+    expect(await refusedWith(fx.addTableView(view({ config: [] })))).toEqual({ code: CHECK, message: viewConfigProblem([]) })
+    const big = { version: 1, note: 'é'.repeat(16400) } // 32,800 bytes in UTF-8
+    expect(await refusedWith(fx.addTableView(view({ config: big })))).toEqual({ code: CHECK, message: 'A view\'s settings can be at most 32 KB.' })
+    expect(await refusedWith(fx.addTableView(view({ position: -1 })))).toEqual({ code: CHECK, message: FIXTURES_TABLE_VIEWS_SENTENCES.position })
+    expect(await refusedWith(fx.addTableView(view({ table_key: 'budget' })))).toEqual({ code: CHECK, message: FIXTURES_TABLE_VIEWS_SENTENCES.tableKey })
+    // A type the column cannot read, and a NOT NULL, keep Postgres' words.
+    expect(await refusedWith(fx.addTableView(view({ position: 1.5 })))).toEqual({ code: '22P02', message: '[supabase] invalid input syntax for type integer: "1.5"' })
+    expect(await refusedWith(fx.addTableView(view({ name: undefined })))).toMatchObject({ code: '23502' })
+    // A project in the trash is out of the policy's reach.
+    await fx.deleteProject(PROJECT_ID)
+    expect(await refusedWith(fx.addTableView(view()))).toEqual({ code: '42501', message: TABLE_VIEWS_REFUSALS.gate })
+    // CONTROL: none of those was stored.
+    await fx.restoreProject(PROJECT_ID)
+    expect(await fx.listTableViews(PROJECT_ID)).toEqual([])
+  })
+
+  it('the cap: 200 views of a table in a project (54000, the database\'s words); another table still takes one', async () => {
+    const { fx, store } = fresh()
+    for (let i = 0; i < 200; i++) store.tableViews.push({ id: `v${i}`, project_id: PROJECT_ID, table_key: 'tasks', name: `V${i}`, position: i, revision: i + 1, revised_by: null, config: {}, created_at: '2026-10-17T00:00:00.000Z', created_by: null, updated_at: '2026-10-17T00:00:00.000Z', updated_by: null })
+    expect(await refusedWith(fx.addTableView(view()))).toEqual({ code: '54000', message: 'A project\'s Tasks table holds at most 200 saved views.' })
+    await expect(fx.addTableView(view({ table_key: 'scenes' }))).resolves.toMatchObject({ table_key: 'scenes' })
+  })
+
+  it('the save: a change of config takes a new revision, a rename or a move never, and an equal config in another key order is no change', async () => {
+    const { fx } = fresh()
+    const v = await fx.addTableView(view({ config: { version: 1, filters: [], sorts: [] } }))
+    const other = await fx.addTableView(view({ name: 'Other' })) // the counter moves on
+    const saved = await fx.updateTableView(v.id, { config: { version: 1, filters: [{ field: 'status', op: 'is', values: ['blocked'] }] } }, { projectId: PROJECT_ID, expectRevision: v.revision })
+    expect(saved.status).toBe('saved')
+    expect(saved.row.revision).toBeGreaterThan(other.revision)
+    expect(saved.row.revised_by).toBe(PERMISSIONS.userId)
+    const renamed = await fx.updateTableView(v.id, { name: 'Shoot week 2' }, { projectId: PROJECT_ID, expectName: 'Shoot week' })
+    expect(renamed).toMatchObject({ status: 'saved', row: { name: 'Shoot week 2', revision: saved.row.revision } })
+    const moved = await fx.updateTableView(v.id, { position: 4 }, { projectId: PROJECT_ID })
+    expect(moved.row).toMatchObject({ position: 4, revision: saved.row.revision })
+    const reordered = await fx.updateTableView(v.id, { config: { filters: [{ values: ['blocked'], op: 'is', field: 'status' }], version: 1 } }, { projectId: PROJECT_ID, expectRevision: saved.row.revision })
+    expect(reordered.row.revision).toBe(saved.row.revision)
+  })
+
+  it('a save that wrote nothing reads the row once: another revision (or name) is changed, with the row; no row is deleted', async () => {
+    const { fx } = fresh()
+    const v = await fx.addTableView(view())
+    const teammate = await fx.updateTableView(v.id, { config: { version: 1, sorts: [{ field: 'title', dir: 'asc' }] } }, { projectId: PROJECT_ID, expectRevision: v.revision })
+    const stale = await fx.updateTableView(v.id, { config: { version: 1 } }, { projectId: PROJECT_ID, expectRevision: v.revision })
+    expect(stale).toEqual({ status: 'changed', row: teammate.row })
+    const staleName = await fx.updateTableView(v.id, { name: 'Back' }, { projectId: PROJECT_ID, expectName: 'Not its name' })
+    expect(staleName).toEqual({ status: 'changed', row: teammate.row })
+    // CONTROL: nothing was written by either.
+    expect((await fx.listTableViews(PROJECT_ID))[0]).toEqual(teammate.row)
+    await fx.deleteTableView(v.id, { projectId: PROJECT_ID })
+    expect(await fx.updateTableView(v.id, { name: 'Gone' }, { projectId: PROJECT_ID, expectRevision: teammate.row.revision })).toEqual({ status: 'deleted' })
+  })
+
+  it('a save is refused as the cloud refuses it: an empty change before anything, a CHECK on the new row', async () => {
+    const { fx } = fresh()
+    const v = await fx.addTableView(view())
+    expect(await refusedWith(fx.updateTableView(v.id, { revision: 9, id: 'x' }, { projectId: PROJECT_ID }))).toEqual({ code: 'invalid', message: TABLE_VIEWS_REFUSALS.nothingToChange })
+    expect(await refusedWith(fx.updateTableView(v.id, { name: 'Trailing ' }, { projectId: PROJECT_ID }))).toEqual({ code: '23514', message: viewNameProblem('Trailing ') })
+    expect((await fx.listTableViews(PROJECT_ID))[0].name).toBe('Shoot week')
+  })
+
+  it('a delete: removed; a stale revision is changed and keeps the row; a row gone is deleted', async () => {
+    const { fx } = fresh()
+    const v = await fx.addTableView(view())
+    const after = await fx.updateTableView(v.id, { config: { version: 1, keyDates: false } }, { projectId: PROJECT_ID, expectRevision: v.revision })
+    expect(await fx.deleteTableView(v.id, { projectId: PROJECT_ID, expectRevision: v.revision })).toEqual({ status: 'changed', row: after.row })
+    expect(await fx.listTableViews(PROJECT_ID)).toHaveLength(1)
+    expect(await fx.deleteTableView(v.id, { projectId: PROJECT_ID, expectRevision: after.row.revision })).toEqual({ status: 'removed' })
+    expect(await fx.deleteTableView(v.id, { projectId: PROJECT_ID })).toEqual({ status: 'deleted' })
+  })
+
+  it('a view made again with its id (a delete\'s undo) takes a revision no view ever had', async () => {
+    const { fx } = fresh()
+    const v = await fx.addTableView(view())
+    await fx.deleteTableView(v.id, { projectId: PROJECT_ID })
+    const again = await fx.addTableView({ ...view(), id: v.id })
+    expect(again.id).toBe(v.id)
+    expect(again.revision).toBeGreaterThan(v.revision)
+    expect(await refusedWith(fx.addTableView({ ...view(), id: v.id }))).toMatchObject({ code: '23505' })
+  })
+
+  it('reorder: the named views first, the rest after in their order, positions dense; the rows moved come back; no revision moves', async () => {
+    const { fx } = fresh()
+    const a = await fx.addTableView(view({ name: 'A', position: 0 }))
+    const b = await fx.addTableView(view({ name: 'B', position: 1 }))
+    const c = await fx.addTableView(view({ name: 'C', position: 5 }))
+    const other = await fx.addTableView(view({ table_key: 'shots', name: 'S', position: 0 }))
+    const moved = await fx.reorderTableViews(PROJECT_ID, 'tasks', [c.id, 'not-a-view', other.id])
+    expect(moved.map(r => [r.name, r.position]).sort()).toEqual([['A', 1], ['B', 2], ['C', 0]])
+    expect(moved.every(r => [a, b, c].find(x => x.id === r.id).revision === r.revision)).toBe(true)
+    expect((await fx.listTableViews(PROJECT_ID)).filter(v => v.table_key === 'tasks').map(v => v.name)).toEqual(['C', 'A', 'B'])
+    expect((await fx.listTableViews(PROJECT_ID)).find(v => v.id === other.id).position).toBe(0)
+    // Its refusals are the function's 22023, in its words.
+    expect(await refusedWith(fx.reorderTableViews(PROJECT_ID, 'budget', []))).toEqual({ code: '22023', message: '[supabase] reorder_table_views: budget is not a table with views (tasks, assets, scenes, shots, levels, experiences)' })
+    expect(await refusedWith(fx.reorderTableViews(PROJECT_ID, 'tasks', [a.id, a.id]))).toEqual({ code: '22023', message: '[supabase] reorder_table_views: a view is named twice' })
+    expect(await refusedWith(fx.reorderTableViews(PROJECT_ID, 'tasks', [null]))).toEqual({ code: '22023', message: '[supabase] reorder_table_views: a view id is empty' })
+    // No list at all moves nothing (the function's NULL).
+    expect(await fx.reorderTableViews(PROJECT_ID, 'tasks', null)).toEqual([])
+  })
+
+  it('a grouping is stored as a set (sorted, each id once); the same set again answers the stored row, never a second', async () => {
+    const { fx } = fresh()
+    const g = await fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'asset', entity_ids: [ASSET(7), ASSET(4), ASSET(7)], created_by: 'forged' })
+    expect(Object.keys(g)).toEqual(GROUPING_KEYS)
+    expect(g).toMatchObject({ entity_ids: [ASSET(4), ASSET(7)], created_by: PERMISSIONS.userId })
+    const again = await fx.addItemGrouping({ id: 'mine', project_id: PROJECT_ID, table_key: 'tasks', kind: 'asset', entity_ids: [ASSET(7), ASSET(4)] })
+    expect(again).toEqual(g)
+    // CONTROL: another table, or another kind, is another set.
+    await fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'levels', kind: 'asset', entity_ids: [ASSET(4), ASSET(7)] })
+    expect((await fx.listItemGroupings(PROJECT_ID)).map(x => x.table_key)).toEqual(['levels', 'tasks'])
+    // An id taken by another set is the primary key's 23505.
+    expect(await refusedWith(fx.addItemGrouping({ id: g.id, project_id: PROJECT_ID, table_key: 'tasks', kind: 'asset', entity_ids: [ASSET(1)] }))).toMatchObject({ code: '23505' })
+  })
+
+  it('the ids\' check: each id a LIVE row of its kind in the project — an asset in the trash is refused (23503, the database\'s words), and taken again once restored', async () => {
+    const { fx } = fresh()
+    await fx.deleteAsset(ASSET(8))
+    expect(await refusedWith(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'asset', entity_ids: [ASSET(8), ASSET(9)] })))
+      .toEqual({ code: '23503', message: 'A grouping can name only this project\'s own assets: 1 of the 2 named are not in it (or are in the trash).' })
+    expect(await refusedWith(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'scene', entity_ids: [SCENE(1), 'f1c70000-000d-4000-8000-000000000099'] })))
+      .toEqual({ code: '23503', message: groupingIdsCheckWords('scene', 1, 2) })
+    await fx.restoreAsset(ASSET(8))
+    await expect(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'asset', entity_ids: [ASSET(8), ASSET(9)] })).resolves.toMatchObject({ entity_ids: [ASSET(8), ASSET(9)] })
+  })
+
+  it('the CHECKs and the cap, as the database orders them', async () => {
+    const { fx, store } = fresh()
+    // The pair (design §4.11): Scenes is not grouped at all.
+    expect(await refusedWith(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'scenes', kind: 'asset', entity_ids: [ASSET(1)] })))
+      .toEqual({ code: '23514', message: 'The scenes table cannot be grouped by asset.' })
+    expect(await refusedWith(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'asset', entity_ids: [] })))
+      .toEqual({ code: '23514', message: 'A grouping names at least one item.' })
+    for (let i = 0; i < 500; i++) store.itemGroupings.push({ id: `g${i}`, project_id: PROJECT_ID, table_key: 'assets', kind: 'scene', entity_ids: [`s${i}`], created_at: '2026-10-17T00:00:00.000Z', created_by: null })
+    expect(await refusedWith(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'assets', kind: 'scene', entity_ids: [SCENE(1)] })))
+      .toEqual({ code: '54000', message: groupingsCapWords('assets') })
+    await expect(fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'scene', entity_ids: [SCENE(1)] })).resolves.toMatchObject({ table_key: 'tasks' })
+  })
+
+  it('removeItemGrouping answers { removed }', async () => {
+    const { fx } = fresh()
+    const g = await fx.addItemGrouping({ project_id: PROJECT_ID, table_key: 'tasks', kind: 'shot', entity_ids: [SHOT(1)] })
+    expect(await fx.removeItemGrouping(g.id, PROJECT_ID)).toEqual({ removed: true })
+    expect(await fx.removeItemGrouping(g.id, PROJECT_ID)).toEqual({ removed: false, status: 'deleted' }) // R1-3: no roles here: gone
+    expect(await fx.listItemGroupings(PROJECT_ID)).toEqual([])
+  })
+
+  it('the sweep: a scene deleted for good leaves its groupings (shrunk, gone when empty, gone when it would repeat another set) — and its shots\' too', async () => {
+    const { fx } = fresh()
+    const add = (table_key, kind, entity_ids) => fx.addItemGrouping({ project_id: PROJECT_ID, table_key, kind, entity_ids })
+    const shrinks = await add('tasks', 'scene', [SCENE(1), SCENE(2), SCENE(3)])
+    const empties = await add('assets', 'scene', [SCENE(1)])
+    const repeats = await add('tasks', 'scene', [SCENE(1), SCENE(4)])
+    const kept = await add('tasks', 'scene', [SCENE(4)])
+    const shotOfScene1 = await add('tasks', 'shot', [SHOT(1), SHOT(4)])
+    await fx.deleteScene(SCENE(1), PROJECT_ID)
+    const after = await fx.listItemGroupings(PROJECT_ID)
+    expect(after.find(g => g.id === shrinks.id).entity_ids).toEqual([SCENE(2), SCENE(3)])
+    // Stamped as fn_audit_touch stamps the sweep's UPDATE: the person whose delete it was.
+    expect(after.find(g => g.id === shrinks.id).updated_by).toBe(PERMISSIONS.userId)
+    expect(after.find(g => g.id === empties.id)).toBeUndefined()
+    expect(after.find(g => g.id === repeats.id)).toBeUndefined() // it would name {4}, which `kept` names
+    expect(after.find(g => g.id === kept.id).entity_ids).toEqual([SCENE(4)])
+    // Shot 1 went with its scene (the CASCADE), and the sweep fired for it.
+    expect(after.find(g => g.id === shotOfScene1.id).entity_ids).toEqual([SHOT(4)])
+  })
+
+  it('the sweep runs for a shot, a level and an experience deleted for good — and NOT for an asset in the trash (Q-N4)', async () => {
+    const { fx } = fresh({ variant: 'game' })
+    const add = (table_key, kind, entity_ids) => fx.addItemGrouping({ project_id: PROJECT_ID, table_key, kind, entity_ids })
+    const shots = await add('tasks', 'shot', [SHOT(5), SHOT(6)])
+    const levels = await add('tasks', 'level', [fid('level', 1), fid('level', 2)])
+    const experiences = await add('assets', 'experience', [fid('experience', 1)])
+    const assets = await add('tasks', 'asset', [ASSET(4), ASSET(7)])
+    await fx.deleteShot(SHOT(5), PROJECT_ID)
+    await fx.deleteLevel(fid('level', 1))
+    await fx.deleteExperience(fid('experience', 1))
+    await fx.deleteAsset(ASSET(4))
+    const after = await fx.listItemGroupings(PROJECT_ID)
+    expect(after.find(g => g.id === shots.id).entity_ids).toEqual([SHOT(6)])
+    expect(after.find(g => g.id === levels.id).entity_ids).toEqual([fid('level', 2)])
+    expect(after.find(g => g.id === experiences.id)).toBeUndefined()
+    // The trash changes nothing stored: the grouping keeps its asset and
+    // shows again on restore (the screens hide it meanwhile).
+    expect(after.find(g => g.id === assets.id).entity_ids).toEqual([ASSET(4), ASSET(7)])
+  })
+
+  it('the last used view: one key merged with the backend\'s clock, the map answered and read back; refusals are the function\'s 22023', async () => {
+    const { fx } = fresh()
+    const before = Date.now()
+    const map = await fx.setTableViewLast(`${PROJECT_ID}:tasks`, 'all')
+    expect(map[`${PROJECT_ID}:tasks`].view).toBe('all')
+    expect(map[`${PROJECT_ID}:tasks`].at).toBeGreaterThanOrEqual(before)
+    const v = await fx.addTableView(view())
+    await fx.setTableViewLast(`${PROJECT_ID}:shots`, v.id)
+    expect(Object.keys((await fx.getTableViewLast()).map).sort()).toEqual([`${PROJECT_ID}:shots`, `${PROJECT_ID}:tasks`])
+    expect(await refusedWith(fx.setTableViewLast(`${PROJECT_ID}:budget`, 'all'))).toMatchObject({ code: '22023' })
+    expect(await refusedWith(fx.setTableViewLast(`${PROJECT_ID}:tasks`, 'not a view!'))).toMatchObject({ code: '22023' })
+    // Reads are clones.
+    const read = await fx.getTableViewLast()
+    read.map.x = 1
+    expect((await fx.getTableViewLast()).map.x).toBeUndefined()
+  })
+
+  it('the words are the cloud adapter\'s, and the caps\' and the ids\' check\'s are the migration\'s own', () => {
+    for (const k of Object.keys(FIXTURES_TABLE_VIEWS_SENTENCES)) expect(FIXTURES_TABLE_VIEWS_SENTENCES[k], k).toBe(TABLE_VIEWS_REFUSALS[k])
+    // (By path: jsdom's URL is not the one node:fs takes.)
+    const SQL = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../supabase/migrations/0098_table_views.sql'), 'utf8')
+    // RAISE … '<format>' with %s filled as Postgres fills them (initcap(table_key), the kind and the counts).
+    const raise = (start) => { const m = new RegExp(`RAISE EXCEPTION '(${start}[^;]*?)',`).exec(SQL); if (!m) throw new Error(`0098 raises no "${start}"`); return m[1].replace(/''/g, "'") }
+    expect(viewsCapWords('tasks')).toBe(raise("A project''s % table holds at most 200 saved views").replace('%', 'Tasks'))
+    expect(groupingsCapWords('experiences')).toBe(raise("A project''s % table holds at most 500 groupings").replace('%', 'Experiences'))
+    const ids = raise('A grouping can name only')
+    expect(groupingIdsCheckWords('shot', 2, 3)).toBe(ids.replace('%', 'shot').replace('%', '2').replace('%', '3'))
+    expect(() => raise('No such sentence')).toThrow(/raises no/)
   })
 })

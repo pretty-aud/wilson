@@ -47,8 +47,14 @@ const OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
 const READ_ONLY_MSG =
   'Google Drive adapter is read-only in v0.1 — see RABBIT_v0.6_post_build_notes.md for the write plan';
 
-const readOnly = (name) => async () => {
-  throw new Error(`[gdrive] ${name}() — ${READ_ONLY_MSG}`);
+// `code` (VW1c): the refusal a feature Drive does not keep carries on every
+// backend without it (custom table views: `table_views_unavailable`), so a
+// caller branches on one code whichever backend refused. The words are the
+// same read-only sentence as every other Drive write.
+const readOnly = (name, code = null) => async () => {
+  const err = new Error(`[gdrive] ${name}() — ${READ_ONLY_MSG}`);
+  if (code) err.code = code;
+  throw err;
 };
 
 let cachedConfig = null;
@@ -248,6 +254,12 @@ export function googleDriveAdapter() {
         // (2026-10-16): they are the task's items here too (read-only; the
         // single fields are only the older builds' copy) — see itemsExported.
         taskItems:     bundle.taskItems || [],
+        // VW1c (0098): Drive keeps no saved views and no groupings (design
+        // §5.5: it loads both empty and unavailable, and the screens say
+        // "not on this server yet" up front) — whatever an export holds.
+        // The keys are here so the EMPTY_BUNDLE spread has nothing to reset.
+        tableViews:    [],
+        itemGroupings: [],
       });
     },
 
@@ -288,6 +300,26 @@ export function googleDriveAdapter() {
       return (await this.loadProject(projectId)).taskItems;
     },
 
+    // VW1c (0098): custom table views and groupings are not kept here (the
+    // bundle's two keys are always empty, above), so the reads answer none
+    // without a request, the last used map is not on this server, and the
+    // writes are LOUD readOnly() stubs below.
+    tableViewsAvailable() {
+      return false;
+    },
+    tableViewsLoadError() {
+      return null;
+    },
+    async listTableViews() {
+      return [];
+    },
+    async listItemGroupings() {
+      return [];
+    },
+    async getTableViewLast() {
+      return { available: false, map: {} };
+    },
+
     async downloadFile(file) {
       // file.storage_path is the Drive file ID for gdrive-stored files.
       if (!file?.storage_path) throw new Error('[gdrive] file has no storage_path (Drive file id)');
@@ -320,6 +352,15 @@ export function googleDriveAdapter() {
     // here, loudly: a silent no-op would report an item added or removed.
     addTaskItem:          readOnly('addTaskItem'),
     deleteTaskItem:       readOnly('deleteTaskItem'),
+    // VW1c (0098): loud, with the code every backend without views answers;
+    // a silent no-op would report a view saved or a grouping made.
+    addTableView:         readOnly('addTableView', 'table_views_unavailable'),
+    updateTableView:      readOnly('updateTableView', 'table_views_unavailable'),
+    deleteTableView:      readOnly('deleteTableView', 'table_views_unavailable'),
+    reorderTableViews:    readOnly('reorderTableViews', 'table_views_unavailable'),
+    addItemGrouping:      readOnly('addItemGrouping', 'table_views_unavailable'),
+    removeItemGrouping:   readOnly('removeItemGrouping', 'table_views_unavailable'),
+    setTableViewLast:     readOnly('setTableViewLast', 'table_views_unavailable'),
     uploadFile:           readOnly('uploadFile'),
     updateFile:           readOnly('updateFile'),
     deleteFile:           readOnly('deleteFile'),

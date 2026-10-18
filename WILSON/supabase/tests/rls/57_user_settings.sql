@@ -11,6 +11,10 @@
 --   3. One row per person by PRIMARY KEY.
 --   4. Both JSONB columns must be OBJECTS — the client spreads them, and an
 --      array or scalar would throw at the call site instead of the boundary.
+--   5. 0098 (VW1c, 2026-10-17): table_view_last, the last used view of each
+--      table (her Q4), written through set_table_view_last — the first-ever
+--      write makes the row, a write merges one key, the 300 newest stay, the
+--      refusals, the CHECK, and nobody else's row is reached (probes 22-37).
 --
 -- The sibling suite 56 carries the fuller commentary; this one is deliberately
 -- the same shape so a reader can diff them.
@@ -18,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(37);
 
 SELECT * FROM tests.rls_setup();
 
@@ -199,6 +203,127 @@ RESET ROLE;
 SELECT is((SELECT count(*)::int FROM public.user_settings
             WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
           1, 'the other member''s settings survived the unqualified DELETE');
+
+-- ── 0098 (VW1c, 2026-10-17): the last used view (her Q4) ────────────────────
+-- user_settings.table_view_last, written by the client only through
+-- set_table_view_last (SECURITY INVOKER, one statement): the first-ever write
+-- makes the person's row, a write merges one key with the server's clock, the
+-- 300 newest are kept, and nobody else's row is reached.
+
+-- 22
+SELECT has_column('public', 'user_settings', 'table_view_last',
+  'user_settings carries table_view_last (0098 §9)');
+
+-- 23
+SELECT ok(
+  has_function_privilege('authenticated', 'public.set_table_view_last(text, text)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.set_table_view_last(text, text)', 'EXECUTE')
+  AND NOT (SELECT prosecdef FROM pg_proc WHERE oid = 'public.set_table_view_last(text, text)'::regprocedure),
+  'set_table_view_last runs as the caller, for authenticated only');
+
+-- user_c discarded their row above: their next write is a first-ever one.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc',
+                      '11111111-1111-1111-1111-111111111111');
+
+-- 24
+SELECT lives_ok(
+  $$SELECT public.set_table_view_last('aaaa1111-0000-0000-0000-000000000001:tasks',
+                                      '10111111-0000-0000-0000-000000000001')$$,
+  'the first-ever write of a person with no settings row makes the row (one statement)');
+
+-- 25
+SELECT is(
+  (SELECT table_view_last -> 'aaaa1111-0000-0000-0000-000000000001:tasks' ->> 'view' FROM public.user_settings),
+  '10111111-0000-0000-0000-000000000001',
+  'and holds the view for that project''s table');
+
+-- 26
+SELECT ok(
+  (SELECT jsonb_typeof(table_view_last -> 'aaaa1111-0000-0000-0000-000000000001:tasks' -> 'at') = 'number'
+      AND prompts = '{}'::jsonb
+     FROM public.user_settings),
+  'stamped with the server''s clock; the new row''s prompts left at their default');
+
+-- 27
+SELECT lives_ok(
+  $$SELECT public.set_table_view_last('aaaa1111-0000-0000-0000-000000000001:assets', 'all')$$,
+  'a second table''s last view merges in (the built-in All view is "all")');
+
+-- 28
+SELECT is(
+  (SELECT string_agg(k, ',' ORDER BY k) FROM public.user_settings, jsonb_object_keys(table_view_last) AS k),
+  'aaaa1111-0000-0000-0000-000000000001:assets,aaaa1111-0000-0000-0000-000000000001:tasks',
+  'both keys kept: a write merges its one key, it never replaces the map');
+
+-- 29
+SELECT throws_ok(
+  $$SELECT public.set_table_view_last('not-a-key', 'all')$$,
+  '22023', NULL, 'a key that is not "<project id>:<table>" is refused');
+
+-- 30
+SELECT throws_ok(
+  $$SELECT public.set_table_view_last('aaaa1111-0000-0000-0000-000000000001:budget', 'all')$$,
+  '22023', NULL, 'a table with no views is refused');
+
+-- 31
+SELECT throws_ok(
+  $$SELECT public.set_table_view_last('aaaa1111-0000-0000-0000-000000000001:tasks', 'everything')$$,
+  '22023', NULL, 'a view that is neither an id nor "all" is refused');
+
+-- The trim: user_d's map seeded with 300 old entries (at 1 … 300), as postgres.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+UPDATE public.user_settings
+   SET table_view_last = (SELECT jsonb_object_agg(lpad(g::text, 8, '0') || '-0000-0000-0000-000000000000:tasks',
+                                                  jsonb_build_object('view', 'all', 'at', g))
+                            FROM generate_series(1, 300) AS g)
+ WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd',
+                      '11111111-1111-1111-1111-111111111111');
+
+-- 32
+SELECT lives_ok(
+  $$SELECT public.set_table_view_last('aaaa1111-0000-0000-0000-000000000001:tasks', 'all')$$,
+  'a person with 300 tables remembered writes a 301st');
+
+-- 33
+SELECT ok(
+  (SELECT count(*) = 300 FROM public.user_settings, jsonb_object_keys(table_view_last))
+  AND (SELECT table_view_last ? 'aaaa1111-0000-0000-0000-000000000001:tasks' FROM public.user_settings)
+  AND NOT (SELECT table_view_last ? '00000001-0000-0000-0000-000000000000:tasks' FROM public.user_settings)
+  AND (SELECT table_view_last ? '00000002-0000-0000-0000-000000000000:tasks' FROM public.user_settings),
+  'the 300 newest are kept: the oldest goes, the new one and the next-oldest stay');
+
+-- 34
+SELECT is(
+  (SELECT prompts->>'companion' FROM public.user_settings),
+  'be terse',
+  'the merge never touches the prompts');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- 35
+SELECT ok(
+  (SELECT table_view_last ? 'aaaa1111-0000-0000-0000-000000000001:assets' FROM public.user_settings
+    WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+  AND NOT (SELECT table_view_last ? 'aaaa1111-0000-0000-0000-000000000001:assets' FROM public.user_settings
+            WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  'each person''s writes land in their own row only');
+
+-- 36
+SELECT throws_ok(
+  $$UPDATE public.user_settings SET table_view_last = '[1]'::jsonb
+     WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
+  '23514', NULL, 'the map must be an object, whoever writes it (the CHECK)');
+
+-- 37
+SELECT throws_ok(
+  $$UPDATE public.user_settings SET table_view_last = jsonb_build_object('pad', repeat('x', 70000))
+     WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
+  '23514', NULL, 'the map is at most 64 KB');
 
 SELECT * FROM finish();
 

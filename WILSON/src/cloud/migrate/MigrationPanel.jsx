@@ -36,7 +36,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePermissions } from '../../permissions'
-import { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE } from './runMigration'
+import { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE, VIEW_FILTERS_LEFT_BEHIND } from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import '../../components/settings/settings.css'
@@ -176,8 +176,9 @@ export default function MigrationPanel() {
       title={MIGRATE_TITLE}
       description={<>
         Copy every project under <span className="s-data">rabbit-data</span> into the active
-        workspace: its schedule, assets, tasks, files, scenes and shots, and its bins with
-        their logging, marks and takes. Dry-run first to preview the diff. Re-running the full
+        workspace: its schedule, assets, tasks, files, scenes and shots, its bins with
+        their logging, marks and takes, and its saved views and groupings. Dry-run first to
+        preview the diff. Re-running the full
         migration is safe — rows already present in the cloud are skipped.
       </>}
     >
@@ -358,6 +359,9 @@ function ReportTable({ r }) {
           {r.shotTakes && <Row label="takes" bucket={r.shotTakes} />}
           {/* FX2 (0096): a task's items. */}
           {r.taskItems && <Row label="items on tasks" bucket={r.taskItems} />}
+          {/* VW1c (0098): saved views and groupings. */}
+          {r.tableViews && <Row label="saved views" bucket={r.tableViews} />}
+          {r.itemGroupings && <Row label="groupings" bucket={r.itemGroupings} />}
           {posters && <Row label="pictures" bucket={posters} />}
         </tbody>
       </table>
@@ -384,6 +388,9 @@ function ReportTable({ r }) {
       )}
       {r.shotTakes?.orphans > 0 && (
         <p className="s-row-desc mt-2" data-testid="orphan-takes">{ORPHAN_TAKES(r.shotTakes.orphans)}.</p>
+      )}
+      {r.tableViews?.filtersLeftBehind > 0 && (
+        <p className="s-row-desc mt-2" data-testid="view-filters-left-behind">{VIEW_FILTERS_LEFT_BEHIND(r.tableViews.filtersLeftBehind)}.</p>
       )}
       {/* Said BEFORE the archive is offered, so "Done" means what moved and
           this names what did not (review round 2). */}

@@ -43,6 +43,10 @@ const {
 // each task's five single fields are only the older builds' copy (each
 // kind's first item added); nothing in this build reads them.
 const rabbitTaskItems = require('./rabbitTaskItems.cjs');
+// VW1c (0098's twin): custom table views, saved groupings and this machine's
+// last used view — bundle.tableViews / bundle.itemGroupings, and
+// <data folder>/rabbit-machine-settings.json.
+const rabbitTableViews = require('./rabbitTableViews.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -1493,6 +1497,15 @@ function startLocalServer(distPath) {
       try {
         if (rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId })) dirty = true;
       } catch (e) { console.error('task items reconcile failed:', e.message); }
+      // VW1c (0098's twin): a bundle from before custom table views gains
+      // `tableViews` and `itemGroupings`; a grouping naming an item no longer
+      // in the bundle (deleted by a build without the sweep) loses it, as
+      // the cloud's fn_item_groupings_forget would have taken it (a grouping
+      // left empty, or naming another's set, goes). Converges: once nothing
+      // dangles it changes nothing.
+      try {
+        if (rabbitTableViews.reconcileTableViewsOnRead(bundle)) dirty = true;
+      } catch (e) { console.error('table views reconcile failed:', e.message); }
       // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
       // is stored absolute (the project POST writes <root>/<slug>), so a folder
       // moved or copied elsewhere would keep pointing at where it USED to be —
@@ -1621,6 +1634,9 @@ function startLocalServer(distPath) {
         taskLinks:       [],
         // FX2 (0096's twin): a task's items.
         taskItems:       [],
+        // VW1c (0098's twin): the project's saved table views and groupings.
+        tableViews:      [],
+        itemGroupings:   [],
         files:           [],
         assetVersions:   [],
         comments:        [],
@@ -2856,6 +2872,10 @@ function startLocalServer(distPath) {
         }
       }
       rabbitRemoveFrom(bundle.assets, req.params.id);
+      // VW1c (0098's sweep twin): the asset leaves every saved grouping that
+      // names it, in this write; a grouping left empty, or naming another's
+      // set, goes. The desktop has no asset trash: this delete is for good.
+      rabbitTableViews.forgetGoneItems(bundle);
       // FX2 (0096's twin): the asset leaves every task's items, in this
       // write. VW1m (2026-10-16), her Q-M2 "The tasks stay": no task is
       // deleted with it; each keeps its other items (or none), and its older
@@ -2865,8 +2885,12 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    // FX2 (0096's twin): the item hooks the generic routes call.
-    const taskItemHooks = rabbitTaskItems.makeTaskItemHooks({ newId: uuidv4 });
+    // FX2 (0096's twin): the item hooks the generic routes call. VW1c (0098's
+    // sweep twin): wrapped, so a scene, shot, level or experience deleted
+    // through them also leaves every saved grouping that names it, in the
+    // same write (a scene's shots, gone with it, too). The registrations
+    // below are unchanged.
+    const taskItemHooks = rabbitTableViews.withItemGroupingSweep(rabbitTaskItems.makeTaskItemHooks({ newId: uuidv4 }));
     rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true, taskItems: taskItemHooks });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
@@ -4542,6 +4566,16 @@ function startLocalServer(distPath) {
     // DELETE /task-items/:itemId.
     rabbitTaskItems.mountRabbitTaskItems(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4,
+    });
+    // VW1c (0098's twin): GET / POST /table-views, POST /table-views/reorder,
+    // PATCH and DELETE /table-views/:viewId, GET / POST /item-groupings,
+    // DELETE /item-groupings/:groupingId — every write { touch: false } (a
+    // saved view does not move the project up the list, and the _DATABASES
+    // mirrors carry no views) — and this machine's last used view, GET
+    // /machine-settings and POST /machine-settings/table-view-last, in
+    // getDataDir() (app data: per computer, never the demo folder).
+    rabbitTableViews.mountRabbitTableViews(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4, getDataDir, readJSON, writeJSON,
     });
     mountRabbitShotLists(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitNotFound, uuidv4,

@@ -195,6 +195,10 @@ SELECT ok(
 -- 2026-10-11 (FX2, migration 0096): fifteen became sixteen — task_items joins
 -- the project_id arm (an item added to a task appears without reloading);
 -- 99_task_items probes 14 and 16 and 0096's post-condition 10g prove it.
+-- 2026-10-17 (VW1c, migration 0098): sixteen became eighteen — table_views
+-- and item_groupings join the project_id arm (a teammate's saved view or
+-- grouping reaches an open table, her Q3d); 101_table_views probes 16-18 and
+-- 0098's post-condition 11g prove it.
 SELECT is(
   (SELECT string_agg(c.relname::text, ',' ORDER BY c.relname::text)
      FROM pg_trigger tg
@@ -202,9 +206,9 @@ SELECT is(
      JOIN pg_class c ON c.oid = tg.tgrelid
     WHERE p.proname = 'fn_realtime_broadcast'
       AND NOT tg.tgisinternal),
-  'asset_versions,assets,bin_files,bins,comments,files,milestones,phase_dependencies,'
-  || 'phases,project_members,projects,shot_takes,task_dependencies,task_items,task_links,tasks',
-  'the broadcast trigger is on exactly the sixteen project-scoped tables (0091 added bins, bin_files, shot_takes; 0096 task_items)');
+  'asset_versions,assets,bin_files,bins,comments,files,item_groupings,milestones,phase_dependencies,'
+  || 'phases,project_members,projects,shot_takes,table_views,task_dependencies,task_items,task_links,tasks',
+  'the broadcast trigger is on exactly the eighteen project-scoped tables (0091 added bins, bin_files, shot_takes; 0096 task_items; 0098 table_views, item_groupings)');
 
 
 -- ── probes 11-14: KEY DATES ONLY — Audrey's ruling, machine-checked ───────

@@ -106,6 +106,9 @@ const CLOUD_BUNDLE_KEYS = [
   // load; binRoots is answered [] (the signed-out desktop's known roots have
   // no cloud shape). An omitted key would reset the Bins tab on every load.
   'bins', 'binFiles', 'binRoots', 'shotTakes', 'binLocations',
+  // 0098 (VW1c): the saved views and groupings; their reads are the 0098
+  // probe and never fail the load (tableViewsCloud.test.js).
+  'tableViews', 'itemGroupings',
 ]
 
 describe('supabaseAdapter.loadProject — bundle key coverage', () => {

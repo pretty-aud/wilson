@@ -177,7 +177,12 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       'tools/rabbit_v0.1.0/state/shotListModel',
       // FX2 (0096): a task's items' rules (taskItemsModel.js, pure), so the
       // fake cloud keeps a task's columns and items as 0096's triggers do.
-      'tools/rabbit_v0.1.0/state/taskItemsModel']
+      'tools/rabbit_v0.1.0/state/taskItemsModel',
+      // VW1c (0098): custom table views' and groupings' rules
+      // (tableViewsModel.js, pure), so the fake cloud keeps 0098's caps,
+      // CHECKs, revisions, reorder, sweep and last used map as the database
+      // does.
+      'tools/rabbit_v0.1.0/state/tableViewsModel']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -199,6 +204,8 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     expect(importsSomething(read(join(SRC, 'components/settings/gatewayWords.js')))).toBe(false)
     // The GW3 loosening, proven the same way: gatewayDoors imports nothing.
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/bins/gatewayDoors.js')))).toBe(false)
+    // The VW1c loosening, proven the same way: tableViewsModel imports nothing.
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/tableViewsModel.js')))).toBe(false)
     // The FX2 loosening, proven the same way. VW1b (2026-10-17): taskItemsModel
     // imports assetTypes.js and only it (her Q-N1b sorts by an asset's own
     // type, in the Assets table's order), which imports nothing — so neither

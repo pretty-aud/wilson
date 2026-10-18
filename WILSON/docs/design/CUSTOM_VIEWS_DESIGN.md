@@ -10,6 +10,8 @@ is reviewed by the session that builds each part, first. VW1b's parts
 (§4.6, §4.7, the Tasks halves of §4.10 and §4.11, §8's KR-1 portalled and
 KR-2) were reviewed at its step 0 on 2026-10-17 (§11 round 3) and are
 corrected here, with her answers of 2026-10-17 (batches 15 and 16) in them.
+§5, the data, was reviewed against the code at VW1c's step 0 on 2026-10-17
+(§11 round 4) and is corrected here too.
 **Every question is answered.** Taking the main item out of WILSON is its own
 session, before the build (VW1m, §7), with its own measured list and
 questions.
@@ -272,14 +274,19 @@ about them. Its words are written into the table's polite live region.
   view it started from, and *Save* writes only if the view still holds it.
   A save that changes nothing reads the row once: no row means *deleted*;
   another revision means *changed meanwhile* (the bar names the person who
-  made it); the same revision means the database refused (the danger state).
-  Only a change of the view's settings makes a new revision; a rename or a
-  reorder does not raise the bar.
+  made it); the same revision means the database filtered the write out
+  without a word, which only its access rules do: the person may no longer
+  change views on this project (that state; VW1c step 0, finding 13). A
+  refusal with words (a CHECK, a cap) is the danger state. Only a change of
+  the view's settings makes a new revision; a rename or a reorder does not
+  raise the bar.
 - **Undo**: every saved change to a view shows the shell's undo toast
   (`components/UndoToast.jsx`), named; it pauses while it has the keyboard's
   focus as well as under the pointer. Undo of a settings save is conditional
   on the revision it left, of a rename on the name it set; undo of a reorder
-  is unconditional. A refused undo shows a kit notice. Ctrl+Z is not bound
+  is unconditional; undo of a new view deletes it only while it still has
+  the revision it was made with, so a teammate's save in between is never
+  thrown away (VW1c). A refused undo shows a kit notice. Ctrl+Z is not bound
   on Tasks, Assets, Levels or Experiences; on Scenes, Ctrl+Z while a view's
   toast shows runs that toast's Undo; view changes never enter the
   Timeline's keyboard history.
@@ -531,8 +538,9 @@ browser storage starting empty at every launch.
   combinations by their name, then "No …" last. In a table a group exists
   while a row is in it (the Tasks Status grouping excepted, Q-I); the Board
   keeps a column for every single item, empty or not (Q-I). The project's
-  groupings (below; VW1c, VW1d) show even while empty; the *Hide empty
-  groups* switch (VW1d) hides the empty ones for that view.
+  groupings (below; VW1c, VW1d) show even while empty, except while one of
+  their items is in the trash (§5.2: hidden with it, back on restore); the
+  *Hide empty groups* switch (VW1d) hides the empty ones for that view.
 - **Dragging a row into a group makes that group's items the row's**
   (Q-D1): any others come off; dragging into "No asset" takes them all off;
   the undo toast puts them back, and is the announcement. Its items in the
@@ -592,10 +600,26 @@ browser storage starting empty at every launch.
   write; a field the view does not list shows at its default place; an
   unreadable config opens as *All*; `version` above the client's greys
   *Save* with "This view was made by a newer WILSON."
+- **Every `field` and `key` in a config is the table's column key** (VW1c
+  step 0, finding 9): the Tasks table's are `views/tasksTableColumns.js`'
+  (`title`, `status`, `priority`, `asset`, `scene`, `shot`, `level`,
+  `experience`, `phase_id`, `assignee_id`, `start_date`, `end_date`,
+  `bid_days`), a linked kind by its kind name. Today's three vocabularies
+  for one thing (the columns' keys, the Group menu's values `phase` /
+  `assignee`, the Filter strip's `phase_id` / `asset_id`) are mapped to it
+  once, where the screens hand their state to the views (VW1d); the other
+  tables' keys come with their descriptions (VW1e).
 - A filter's `values` hold ids for linked rows and words for the rest; a
   value whose row is gone matches nothing and the card shows it as "No longer
   in the project".
-- *All* is never stored.
+- *All* is never stored. `allViewOf(tableKey)` (§5.5) builds it: no filter,
+  no sort, `fields: []` (every field at its default place), the grouping as
+  today (the Tasks table none and its Board by Status; Shots by Scene; the
+  rest none) and *Hide empty groups* as today (Q-I).
+- **The revision** comes from one sequence for every view, so no view ever
+  has a number another view had, even one deleted and made again with the
+  same id (an undo): a change for now can never be saved over a view that
+  only looks unchanged.
 
 ### 5.2 A grouping (Q-D2)
 
@@ -603,42 +627,91 @@ browser storage starting empty at every launch.
 {
   id, project_id, workspace_id,
   table_key: 'tasks' | 'assets' | 'levels' | 'experiences',
-  kind: 'asset' | 'scene' | 'shot' | 'level' | 'experience',
-  entity_ids: [ ... ],       -- the set, stored sorted, unique per (project, table_key, kind)
-  created_at, created_by
+  kind: 'asset' | 'scene' | 'shot' | 'level' | 'experience',   -- the pairs §4.11 allows
+  entity_ids: [ ... ],       -- 1 to 100 ids, the set: stored sorted and distinct, unique per (project, table_key, kind)
+  created_at, created_by, updated_at, updated_by
 }
 ```
 
 A grouping names a set of items; it holds no rows. Rows join it by having
-exactly its items. An item deleted from the project leaves the groupings
-that name it (a grouping left with no items goes).
+exactly its live items, and a grouping whose set is a combination that rows
+already have IS that combination's group: never two groups for one set.
+
+- **Made:** every id names a live row of its kind in the project, checked
+  by the database as the person who makes it (so an asset in the trash, or a
+  row of another project, is refused); at most 100 items (VW1c step 0,
+  finding 7).
+- **An item in the trash** (an asset, on the cloud and in the fixtures; her
+  Q-N4): a grouping shows only while every item it names is live. It hides
+  with its item and comes back on restore; nothing stored changes (finding
+  3).
+- **An item deleted for good** (a scene, shot, level or experience, which
+  have no trash; an asset at the 30-day purge; every item on the signed-out
+  desktop) leaves every grouping that names it, and a grouping left with no
+  items, or left naming the same set as another grouping, goes (findings 1
+  and 2). The undo of such a delete puts the row back, then the groupings it
+  took the item from, as they were (the provider, §5.5): one the delete
+  removed is made again with its id; one it shrank is made again first,
+  under a new id, and the shrunk row removed only after, so a set the
+  backend refuses (the row did not come back) leaves the shrunk grouping
+  as it was and the notice says so (VW1c review round 1, R1-1). Where two
+  groupings shrink to one set, the one kept is the one whose item went
+  first: the screen mirrors the ids in code-unit order and the desktop's
+  bulk delete sends its requests in that order, but the cloud walks a
+  scene's shots in its own, so the undo goes by the backend's answers, not
+  the screen (an own id the backend still holds is a shrunk row), and the
+  history step keeps the ids the sets went back under, for an undo after a
+  redo (VW1c review round 2, R2-1, R2-2). A refusal other than a missing
+  item is said in its own words (R2-5).
 
 ### 5.3 The cloud: one migration for both (VW1c)
 
-**`table_views` and `item_groupings`**, in one migration (the next free
-number when VW1c runs; the brief reserved **0097 / suite 100** for VW1's
-data, and VW1m, which runs first, takes the next free numbers for its own
-change: the controller keeps the ledger). The house's pattern from 0096:
-pre-flight checks and a re-run guard, the tables, triggers, RLS forced,
-grants, the functions, the broadcast restated whole, post-conditions.
+**`table_views` and `item_groupings`**, in one migration: **0098, with
+suite 101** (VW1m took 0097 / 100 for the main item; 0099 / 102 were DG1's
+and stay unused). The house's pattern from 0096: pre-flight checks and a
+re-run guard, the tables, triggers, RLS forced, grants, the functions, the
+broadcast restated whole, post-conditions.
 
 - **`table_views` columns** as §5.1; `table_key` CHECKed to the six; `name`
-  CHECKed (1 to 80 characters trimmed); `config` a JSON object under 32 KB;
-  `position >= 0`; the project a same-workspace composite foreign key, `ON
+  CHECKed (trimmed, 1 to 80 characters, no control characters); `config` a
+  JSON object of at most 32 KB as text (`octet_length(config::text)`,
+  jsonb's own text, which the client and the desktop measure alike: a
+  number in full, never with an exponent; a NUL or half a surrogate pair,
+  which Postgres refuses in jsonb and in text, is refused before any
+  request, in a config and in a name; VW1c review rounds 1 and 2, R1-5,
+  R2-4); `position >= 0`; the project a
+  same-workspace composite foreign key (`projects_id_workspace_key`), `ON
   DELETE CASCADE`.
 - **`item_groupings` columns** as §5.2; `table_key` and `kind` CHECKed to the
-  pairs §4.11 allows; `entity_ids` a non-empty array of distinct ids, stored
-  sorted, unique per (project, table_key, kind, entity_ids); the project a
-  same-workspace composite foreign key, `ON DELETE CASCADE`; a trigger takes
-  an item's id out of every grouping when the item is deleted (and deletes a
-  grouping left empty).
-- **Triggers:** the workspace stamped from the project; `fn_audit_touch`; a
-  pin trigger that, on a signed-in insert, stamps `created_by`,
-  `updated_by`, `created_at` and `updated_at` itself, and on update keeps
-  `created_by`; `table_views.revision` from a sequence on insert and on
-  every change of `config`, with `revised_by` = the caller; at most 200 views
-  per project and table, and 500 groupings per project and table (the
-  triggers refuse in words).
+  pairs §4.11 allows; `entity_ids` 1 to 100 ids, one dimension, no NULL,
+  sorted and distinct (an immutable helper in the CHECK), unique per
+  (project, table_key, kind, entity_ids), a GIN index for the sweep below;
+  the project a same-workspace composite foreign key, `ON DELETE CASCADE`.
+- **Triggers**, named so the BEFORE triggers fire in name order *audit →
+  cap → pin → populate_workspace → validate* (VW1c step 0, finding 19):
+  `fn_audit_touch`; the caps, which take a transaction lock on (project,
+  table key) and refuse in words past 200 views, or 500 groupings, per
+  project and table (`54000`); the pin, which on a signed-in insert stamps
+  `created_by`, `updated_by`, `created_at` and `updated_at` itself and on an
+  update keeps `created_by` and `created_at` (VW1's trap 7), and for views
+  takes `revision` from `table_views_revision_seq` on insert and on every
+  change of `config` (`revised_by` = the caller; a rename or a reorder keeps
+  both), and for groupings sorts the ids and drops repeats; the workspace
+  stamped from the project; for groupings, the check that every id is a row
+  of its kind in the grouping's project, run as the caller (so the trash and
+  a private project hide what they hide), else `23503` in words.
+- **The sweep** (findings 1 and 2): `fn_item_groupings_forget(kind)`, an
+  AFTER DELETE trigger on `assets`, `scenes`, `shots`, `levels` and
+  `experiences`, **SECURITY DEFINER** (`SET search_path = public`, EXECUTE
+  revoked from PUBLIC, anon and authenticated; 0086's shape): a project
+  member's scene delete runs as that member, who holds no UPDATE on
+  `item_groupings`, and an array carries no foreign key whose cascade would
+  run as the owner. It takes the deleted row's id out of every grouping of
+  that kind in its project; a grouping left empty, or left naming the set of
+  another grouping of the same table and kind, is deleted instead (the
+  unique key would refuse the delete, and on the nightly purge roll back the
+  whole sweep); while the project itself is being deleted it does nothing
+  (its groupings go with it).
 - **RLS (Q2):** four policies on each table, each reaching the project
   through `projects` under the caller's own RLS (the private-project arm;
   a `return=minimal` insert is judged by its own policy), plus
@@ -651,35 +724,59 @@ grants, the functions, the broadcast restated whole, post-conditions.
   `config`. `item_groupings`: SELECT, DELETE; INSERT on `(id, project_id,
   table_key, kind, entity_ids)`; no UPDATE (a grouping is replaced, not
   edited). The client creates with `insert` and saves with `update`, never
-  `upsert`.
-- **`reorder_table_views(project, table_key, ids[])`**, SECURITY INVOKER:
-  22023 for an unknown table key or a repeated id; touches only the rows of
-  that project and table key; returns the rows it wrote.
+  `upsert`. `table_views_revision_seq`: everything revoked from PUBLIC, anon
+  and authenticated, then USAGE to authenticated (the caller's `nextval` in
+  the pin) and service_role; stated and pinned, not left to the schema's
+  default privileges (finding 11).
+- **`reorder_table_views(project, table_key, ids[])`**, SECURITY INVOKER,
+  0096 §6's rule (finding 12): 22023 for an unknown table key, a NULL id or
+  a repeated id; the named views first in the order given, every other view
+  of that project and table after them in its current order (a teammate's
+  new view a stale list did not name lands after, never colliding); positions
+  dense from 0; an id of another project or table ignored; returns the rows
+  it moved. Ties in position read by `created_at`, then `id`, everywhere (the
+  load, the dropdown, `COLLECTION_ORDER`).
 - **The last used view (Q4):** `user_settings.table_view_last`, a JSON
-  object CHECKed to 64 KB, written only through `set_table_view_last(p_key,
-  p_view)`, SECURITY INVOKER, one statement (`INSERT … ON CONFLICT (user_id)
-  DO UPDATE`) that merges the key stamped with the server's `now()` and keeps
-  the 300 newest; read by its own request, never inside `fetchCloudSettings`
-  / `saveCloudSettings`; suite 57 proves the first-ever write, the trim, and
-  another person's row untouched.
-- **Live (Q3d):** both tables join `fn_realtime_broadcast`'s project arm,
-  the function restated whole, and the suites that pin the list say so;
-  `realtimeMerge.js` maps them to `tableViews` and `itemGroupings`
-  (`COLLECTION_ORDER`); an older client ignores unknown tables.
+  object CHECKed to 64 KB: `{ "<project id>:<table key>": { "view": <view id
+  or "all">, "at": <the server's clock, epoch milliseconds> } }` (about 135
+  bytes an entry, 40 KB at 300). `set_table_view_last(p_key, p_view)`,
+  SECURITY INVOKER: 22023 unless `p_key` is a project id and one of the six
+  table keys and `p_view` a view id or `all`; one statement (`INSERT … ON
+  CONFLICT (user_id) DO UPDATE`) that merges the key and keeps the 300
+  newest by `at`, the first-ever write inserting the person's row (`user_id`
+  defaults to `auth.uid()`, under `user_settings_insert`); returns the map.
+  The row is the person's own and its grants are table-wide, so the column
+  is not fenced: the client writes it only through the function (finding
+  10). Read by its own request, never inside `fetchCloudSettings` /
+  `saveCloudSettings`, which select and upsert only their two columns; suite
+  57 proves the first-ever write, the trim, the refusals, and another
+  person's row untouched.
+- **Live (Q3d):** both tables join `fn_realtime_broadcast`'s project arm
+  (eighteen tables), the function restated whole; 0098's §0 accepts 0096's
+  body (a first run) or its own (a re-run) by md5 and refuses a re-run after
+  a later migration. **The pins that move with it** (finding 5): suite 72
+  probe 10 and suite 99 probe 16 (the exact set of tables carrying the
+  trigger), suite 100 probe 7 (the body's md5, now 0098's), and
+  `state/realtimeMerge.test.js`'s list of tables; suites 20, 23, 94 and 95
+  hold unchanged, their arms restated word for word. `realtimeMerge.js` maps
+  the two to `tableViews` and `itemGroupings` with their `COLLECTION_ORDER`;
+  an older client ignores unknown tables.
 - **A client ahead of its database:** `loadProject`'s reads of the two
   tables are the migration's probe (`42P01` / `PGRST205` → empty and
   unavailable; any other error → an error state, never a failed load).
-- **The suite** (the next free number; 100 if VW1c takes 0097): every role
-  against every verb on both tables; the grants (an `upsert` refused); the
-  CHECKs; the pin trigger; the revision; the caps; the RPC under RLS; an
-  item's delete leaving the groupings; the broadcast. **Three things taught
-  first** if the suite has three digits: the coverage guard in the root
-  `rls.yml` is a shell glob (`compgen -G
-  "supabase/tests/rls/[0-9][0-9]_${t}.sql" || compgen -G
-  "supabase/tests/rls/[0-9][0-9][0-9]_${t}.sql"`, with failing controls);
-  `scripts/tap-all.mjs` sorts suites by number and filters by whole number;
-  CI's failure-replay list gains 98, 99 and the new suite. `RLS_TABLES` gains
-  both tables in the suite's commit.
+- **The suite, 101** (`101_table_views.sql`): every role against every verb
+  on both tables; the grants (an `upsert` refused, the sequence's); the
+  CHECKs; the pin; the revision; the caps; the ids' check (another project's
+  row, a trashed asset, an unknown id); the RPC under RLS; the sweep (a
+  member's scene delete shrinks a grouping, the collision, the empty
+  grouping, the purge's path, a client cannot run it); the broadcast. VW1m
+  taught the three-digit suites (the coverage guard, `tap-all.mjs`, the
+  replay list's pin); what is left: the replay line gains
+  `101_table_views.sql` and `storage/rlsSuiteLists.test.js` its pin.
+  **Coverage** (finding 4): the guard demands a suite named exactly for each
+  table in `RLS_TABLES`, so `table_views` joins `RLS_TABLES` with
+  `101_table_views.sql` and `item_groupings` maps to it in `COVERED_BY`
+  (93_bins' shape), in the suite's commit.
 - **Applied to wilson-dev only**, rehearsed rolled back first through
   `scripts/tap-hosted.py`, by `supabase db query --linked --file …` plus its
   history row; the Desktop kit section; the staging lines in the hand-off.
@@ -688,35 +785,102 @@ grants, the functions, the broadcast restated whole, post-conditions.
 ### 5.4 The desktop signed out (the Local Server)
 
 - Views and groupings ride in the project's file as `tableViews` and
-  `itemGroupings`, through their own module, `electron/rabbitTableViews.cjs`:
-  writes that do not move the project to the top of the Projects list, the
-  cloud CHECKs' twins, the revision bump, a reorder route, a 409 that carries
-  the stored row when a save's revision is stale; an item's delete leaves the
-  groupings that name it.
+  `itemGroupings`, through their own module, `electron/rabbitTableViews.cjs`
+  (the CommonJS twin of the model's backend half, §5.5): routes under
+  `/api/rabbit/projects/:projectId/table-views` (GET, POST, PATCH `/:id`
+  with the revision or the name it expects, DELETE `/:id`, POST `/reorder`)
+  and `/item-groupings` (GET, POST, DELETE `/:id`); every write through
+  `writeRabbitBundle(…, { touch: false })`, so the project does not move to
+  the top of the Projects list and the `_DATABASES` mirrors, which carry no
+  views, are not rewritten (finding 16); the cloud CHECKs' twins and its
+  caps; the revision from a counter kept in the file and never reused; the
+  reorder; a 409 `{ code: 'table_view_stale', row }` carrying the stored row
+  when a save's revision (or an undo's name) is stale, the shot lists'
+  `edit_saved_since` shape; an item's delete leaves the groupings that name
+  it, by a hook on the generic delete routes and the asset route (as
+  `taskItemHooks`) and a prune on read.
 - No roles: anyone using the desktop may save views and create groupings. No
   live channel: a teammate's save on a shared NAS project shows the next time
   the project loads.
-- The last used view is per computer: a `tableViewLast` map in the machine's
-  own settings, its writes serialized.
+- The last used view is per computer (finding 8): the machine's own file
+  `<data folder>/rabbit-machine-settings.json` (`{ tableViewLast }`), read by
+  `GET /api/rabbit/machine-settings`, written by `POST
+  /api/rabbit/machine-settings/table-view-last` `{ key, view }`, which merges
+  that one key with the server's clock and keeps the 300 newest (the twin of
+  `set_table_view_last`). The handler is synchronous, so two windows' writes
+  never lose each other's key (a whole-file write would). Never
+  `localStorage`: the page's address changes at every launch (VW1's trap 5).
 
 ### 5.5 The other backends and places
 
+- **The model** (finding 15): `state/tableViewsModel.js`, pure: the six table
+  keys and the grouping pairs, the name rule, the never-throwing config
+  reader and the writer that keeps unknown keys, *All*, the order of views,
+  a grouping's set (sorted, distinct, its key, whether it is live), the
+  sweep's rule (an item gone: shrink, or go when empty or a repeat), and the
+  last used map's merge and trim. Its backend half is copied in CommonJS
+  into `electron/rabbitTableViews.cjs`, held to it by
+  `tableViewsParity.test.js` (FX2's `taskItemsParity` shape), and
+  `src/dev/devFixtures.test.js` lets the fixtures import it.
 - **The dev fixtures:** empty `tableViews` and `itemGroupings` (Q20), the same
-  verbs in memory with the revision rule, the last used map in memory.
+  verbs in memory with the cloud's rules (the revision, the caps, the ids'
+  check, the conditional save answering as the cloud does, the sweep on a
+  hard delete), the last used map in memory.
 - **Google Drive:** loads both empty and unavailable; the dropdown and *Create
   grouping* show *not on this server yet* up front.
 - **The provider** (`RabbitProvider.jsx`): `ctx.tableViews`,
   `ctx.itemGroupings`, their availability; the mutators `addTableView`,
-  `updateTableView`, `deleteTableView`, `reorderTableViews`,
-  `addItemGrouping`, `removeItemGrouping`, and the drag's
-  `setTaskItemsOfKind` (one undoable write of a task's items of one kind),
-  each in `mutationsRef`, each with its undo toast and kept out of the
-  keyboard history; `ctx.tableViewLast` and `setTableViewLast`; the
-  changes-for-now store; selectors `viewsOf(tableKey)`, `allViewOf(tableKey)`,
-  `groupingsOf(tableKey, kind)`.
-- **The bundle-key places** (FX2's list) for both collections; the takeout;
-  the move to the cloud (both carried; values pointing at levels and
-  experiences, which the move does not carry, are counted in its report).
+  `updateTableView`, `renameTableView`, `deleteTableView`,
+  `reorderTableViews`, `addItemGrouping`, `removeItemGrouping`, and the
+  drag's `setTaskItemsOfKind` (one undoable write of a task's items of one
+  kind, VW1m's), each in `mutationsRef`, each with its undo toast and kept
+  out of the keyboard history (the toast's own undo, not a history entry);
+  `ctx.tableViewLast` and `setTableViewLast` (the map read once a sign-in,
+  its 2s wait, §4.5); the changes-for-now store (per project and table: the
+  view it started from, that view's revision, the config; dropped on a
+  project switch or a reload); selectors `viewsOf(tableKey)`,
+  `allViewOf(tableKey)`, `groupingsOf(tableKey, kind)`.
+  - **Undo** (§4.4): a settings save's undo writes the old config only while
+    the view still has the revision the save left; a rename's only while it
+    still has the name it set; a reorder's always; a new view's undo deletes
+    it only while it still has the revision it was made with (a teammate's
+    save is never thrown away); a delete's undo makes the view again with
+    its id (a new revision); a grouping's add is undone by removing it, its
+    removal by adding it again. A refused undo says why and closes; one
+    whose request never answered, or met a passing fault (the connection,
+    a timeout, a deadlock, an expired token), keeps the toast to try again
+    (round 1, R1-4; round 2, R2-3). A removal the cloud's policies filter
+    out keeps the grouping on screen (R1-3), and so does an add's undo,
+    saying why (R2-6).
+  - **A delete for good takes items out of groupings** (§5.2): the provider's
+    delete of a scene, shot, level or experience (and of an asset, where the
+    backend removes the row: the desktop) remembers the groupings it touched
+    and its undo puts them back as they were after the row, as VW1m's undo
+    puts a task's items back.
+  - **Who changed a view** (finding 14): `revised_by` is named through the
+    workspace directory (`listTeamMembers`), "Someone" when it is not there
+    (a company admin without a seat is in the directory; a removed member is
+    not); on the desktop it is empty, and the bar says "another computer"
+    (VW1d's words).
+- **The bundle-key places** (finding 17), for both collections: `EMPTY_BUNDLE`
+  (`RabbitProvider.jsx`); the bundle's typedef (`adapters/index.js`); each
+  adapter's `loadProject` (the cloud's, the Local Server's normaliser, the
+  fixtures', Drive's explicit list); `electron/main.cjs`' `emptyBundle` and
+  `readRabbitBundle`'s old-bundle step; the three key lists
+  (`adapters/loadProjectBundle.test.js`' `EXPECTED_KEYS` and its Drive
+  loader pattern, which reads the last key; `supabaseLoadProject.test.js`'
+  `CLOUD_BUNDLE_KEYS`; the fixtures' contract `BUNDLE_KEYS`);
+  `state/mutationsRegistry.test.js` (every new mutator registered);
+  `TAKEOUT_TABLES` (the takeout carries both tables; `table_view_last` is a
+  person's own and stays out, as the rest of `user_settings` does). The
+  desktop's readable `timeline.json` names schedule rows only and takes
+  neither.
+- **The move to the cloud** (finding 18): both carried with their ids, by
+  insert (never upsert), after the scenes and shots they may name, through
+  the cloud adapter's column allowlist, which strips `workspace_id`,
+  `revision`, `revised_by` and the audit four; groupings of levels and
+  experiences, and filter values naming levels and experiences (which the
+  move does not carry), are counted in its report as left behind.
 - **The old views (Q17):** each table's browser key is removed on the first
   load after its new views ship; Expenses' and Team's are untouched.
 
@@ -864,6 +1028,12 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
   items (Q-M1).
 - **A filter value whose row is gone matches nothing**; a deleted view does
   not say who deleted it.
+- **A grouping names at most 100 items**, each a live row of the project
+  when it is made, and **hides while one of its items is in the trash**
+  (her Q-N4); deleted for good, the item leaves it (VW1c).
+- **A view's settings are at most 32 KB**, and a project's table holds at
+  most 200 views and 500 groupings; the last used map keeps a person's 300
+  newest tables (VW1c).
 - **Scenes, shots, levels and experiences are not on the live channel**: a
   row a teammate has just added, and a task's item naming it, show at the
   next load; until then the item is hidden, like one in the trash (Q-N4).
@@ -891,7 +1061,7 @@ asked in that session.
 
 ---
 
-## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0)
+## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0; §5 at VW1c's)
 
 The two rounds reviewed the design before her answers of 2026-10-16. Their
 findings and corrections stand where her later answers did not replace
@@ -941,6 +1111,39 @@ the browser first (finding 4's insets).
 | 19 | low | no rule where the backend keeps no items | VW1m's cell there (§4.6) |
 | 20 | low | the columns' keys | keyed by kind (§4.6) |
 | 21 | nit | words: "Enter on it", "28px row" | §4.6 |
+
+### Round 4 (VW1c's step 0: one Fable reviewer, read-only, 2026-10-17, against the code at `f227519f`) — 19 findings
+
+§5 whole and what §3, §4.2 to §4.5, §4.11 and §9 ask of the data, against
+the code after VW1m (0097) and VW1b, and her answers. Every claim the
+corrections rest on was read again by hand first (the five item tables'
+deletes, the coverage guard, the pins on the broadcast and on the bundle's
+keys). Corrected above.
+
+| # | Severity | Finding | Taken |
+|---|---|---|---|
+| 1 | high | the item sweep, as an ordinary trigger, runs as a member deleting a scene, who holds no UPDATE on `item_groupings`: the delete would fail (scenes, shots, levels and experiences have no trash; an array has no foreign key to cascade as the owner) | the sweep is SECURITY DEFINER, EXECUTE revoked from clients (§5.3) |
+| 2 | high | a grouping shrunk to the set of another grouping breaks the unique key inside the sweep: the delete refused, and the nightly purge rolled back whole | the shrunk grouping is deleted instead (§5.3), the same rule in the desktop's and the fixtures' twins |
+| 3 | high | an asset in the trash: no rule for a grouping naming it, and its shrunk label would collide with the single item's group; on the desktop an undone delete could not bring the grouping back | a grouping shows only while every item is live (Q-N4), never two groups for one set; the undo of a delete for good restores the groupings (§5.2, §5.5) |
+| 4 | medium | the coverage guard demands a suite named for each table in `RLS_TABLES`; one suite cannot be named for two | `table_views` in `RLS_TABLES`, `item_groupings` in `COVERED_BY` (93_bins' shape) — the brief's "RLS_TABLES gains both" read through the guard (§5.3) |
+| 5 | medium | the pins that move with the broadcast were unnamed, one of them a hash | named: suites 72 (probe 10), 99 (probe 16, the trigger set; probe 14, which counts the sixteen names, stays true) and 100 (probe 7, the md5), the live merge's test; 0098's §0 md5 pair (§5.3) |
+| 6 | medium | §5.3's numbers and "three things taught first" were stale | 0098 / 101; only the replay line and its pin left to teach (§5.3) |
+| 7 | medium | `entity_ids` unchecked (another project's rows, unknown ids) and unbounded | checked as the caller at insert; at most 100 (§5.2, §5.3) |
+| 8 | medium | the desktop's "machine settings" had no file or route, and whole-file writes lose another window's key | `rabbit-machine-settings.json`, a GET and a one-key merge (§5.4) |
+| 9 | medium-low | three vocabularies for the Tasks table's fields | the column keys, mapped once by the screens (§5.1) |
+| 10 | low-medium | "written only through" `set_table_view_last` contradicts `user_settings`' table-wide grants | said as the client's rule; the key, the view and the shape validated and stated (§5.3) |
+| 11 | low | the revision's `nextval` worked only through the schema's default privileges | the sequence's grants stated and pinned; one sequence kept for every view (a per-view counter would repeat after a delete and its undo, §5.1) |
+| 12 | low | the reorder's rule for ids a stale list omits, and the tie order, unsaid | 0096 §6's rule; ties by `created_at`, `id` (§5.3) |
+| 13 | low | "the same revision means the database refused" is in fact RLS's silent filter | that branch is "you can no longer change views"; the danger state is for a refusal with words (§4.4) |
+| 14 | low | the roster cannot name a company admin or manager without a seat | named through the workspace directory, "Someone" otherwise (§5.5) |
+| 15 | low | the CHECKs' twins had no named home | `state/tableViewsModel.js`, its CommonJS twin, a parity test, the fixtures' allowance (§5.5) |
+| 16 | low | `touch: false` also skips the mirrors; the item deletes need a hook | said; the hook as `taskItemHooks` (§5.4) |
+| 17 | low | "the bundle-key places" were implicit | listed (§5.5) |
+| 18 | low | the move to the cloud must pass the column allowlist | said; levels' and experiences' groupings and filter values counted as left behind (§5.5) |
+| 19 | nit | `item_groupings` lacked the audit four the triggers write; the BEFORE triggers' order unsaid | the audit four; the order by name (§5.2, §5.3) |
+
+Not verified by the reviewer: the live channel's largest message (a 32 KB
+view sends its old and new rows); staging and production (dev only).
 
 ### What rounds 1 and 2 found sound
 

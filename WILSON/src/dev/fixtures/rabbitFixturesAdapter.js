@@ -29,6 +29,10 @@
 // addendum, sections A, C, D, E). Round 2 reverted round 1's frozen
 // membership of an archived list (R2-1) and added the positions-only reorder,
 // which never inserts (R2-2).
+//
+// Custom table views and groupings (VW1c, migration 0098) keep 0098's rules
+// the same way and answer as the cloud adapter does — see the note above
+// tvError.
 // =============================================================================
 
 import { devWriteRefused } from '../devFixtures'
@@ -46,6 +50,13 @@ import {
 } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
+// VW1c (0098): custom table views and groupings — the one statement of their
+// rules (pure, imports nothing; devFixtures.test.js allows it).
+import {
+  VIEWS_PER_TABLE_MAX, GROUPINGS_PER_TABLE_MAX, isTableKey, viewNameProblem, viewConfigProblem, configsEqual,
+  groupingProblem, normalizeEntityIds, findGroupingBySet, compareViewRows, compareGroupingRows,
+  planReorderViews, planForgetItem, tableViewLastKeyProblem, isViewIdOrAll, mergeTableViewLast,
+} from '../../tools/rabbit_v0.1.0/state/tableViewsModel'
 
 const PRIMARY = 'primary'
 
@@ -140,6 +151,28 @@ const FIXTURES_BROWSER_BINS_CAPABILITIES = Object.freeze({ ...FIXTURES_BINS_CAPA
 // For binsAdapterParity.test.js: the sentences and the capability object,
 // pinned against the cloud adapter's.
 export { BINS_SENTENCES as FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES, FIXTURES_BROWSER_BINS_CAPABILITIES }
+
+// VW1c (0098): what the cloud ADAPTER answers when the database refuses a view
+// or grouping write — supabaseAdapter's TABLE_VIEWS_REFUSALS, restated because
+// devFixtures.test.js allow-lists what src/dev may import
+// (rabbitFixturesAdapter.contract.test.js pins the two) — and the database's
+// own words for its caps and its ids' check (0098 §4a, §4c; the contract test
+// holds them to the migration), which the adapter passes through as they are.
+// A CHECK's words are the model's, on both sides.
+const TABLE_VIEWS_SENTENCES = Object.freeze({
+  gate: 'You can no longer change views on this project.',
+  groupingGate: 'You can no longer change groupings on this project.',
+  position: 'A view\'s place in the list must be a whole number of at least 0.',
+  tableKey: 'A view belongs to one of the six tables: tasks, assets, scenes, shots, levels or experiences.',
+  groupingIds: 'A grouping names 1 to 100 items, each once.',
+  nothingToChange: 'A change to a view names its name, its place in the list or its settings.',
+})
+// Postgres' initcap, for the one-word lowercase table keys the caps name.
+const initcap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1).toLowerCase()
+const viewsCapWords = (tableKey) => `A project's ${initcap(tableKey)} table holds at most ${VIEWS_PER_TABLE_MAX} saved views.`
+const groupingsCapWords = (tableKey) => `A project's ${initcap(tableKey)} table holds at most ${GROUPINGS_PER_TABLE_MAX} groupings.`
+const groupingIdsCheckWords = (kind, notFound, named) => `A grouping can name only this project's own ${kind}s: ${notFound} of the ${named} named are not in it (or are in the trash).`
+export { TABLE_VIEWS_SENTENCES as FIXTURES_TABLE_VIEWS_SENTENCES, viewsCapWords, groupingsCapWords, groupingIdsCheckWords }
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
 // write on an archived list too, and round 2 reverted that (R2-1, below).
@@ -557,6 +590,67 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     return patch(list, row.id, { archived_at, archived_by, updated_by: by })
   }
 
+  // ── Custom table views and groupings (VW1c, migration 0098) ────────────────
+  // The fake cloud keeps 0098's rules and answers as the cloud ADAPTER does
+  // (adapters/index.js's typedef): its statuses, its codes (the SQLSTATEs it
+  // keeps on err.code) and its words. A write meets the database's checks in
+  // the database's order — a type it cannot read, then the BEFORE triggers
+  // (the cap, the pin, the grouping's ids' check), then the policy, then the
+  // NOT NULLs and the CHECKs (Postgres tests those by name), then the keys.
+  //
+  // WHO MAY WRITE: the fixtures model no roles for writes (they sign in as
+  // Mara, a workspace admin and the project's manager — see the shot lists'
+  // note below), so can_write_project is always true here and a conditional
+  // write is never 'filtered'. A project that is gone or in the trash is out
+  // of the policy's reach, as on the cloud (the policies' hop to a live
+  // project): its views and groupings are not visible, and a write is refused.
+  const tvError = (code, message) => { const err = new Error(message); err.code = code; return err }
+  const viewsIn = (projectId) => (liveProject(projectId) ? store.tableViews.filter(v => v.project_id === projectId) : [])
+  const groupingsIn = (projectId) => (liveProject(projectId) ? store.itemGroupings.filter(g => g.project_id === projectId) : [])
+  const visibleView = (id) => { const v = findById(store.tableViews, id); return v && liveProject(v.project_id) ? v : null }
+  // `position` is an INTEGER column: a value it cannot read is refused before
+  // anything else (22P02), as PostgREST hands it to Postgres.
+  function positionUnreadable(position) {
+    return position !== undefined && !Number.isInteger(position)
+      ? tvError('22P02', `[supabase] invalid input syntax for type integer: "${position}"`)
+      : null
+  }
+  // The NOT NULLs, then the CHECKs by name: config, name, position, table_key.
+  function viewRowRefusal(row) {
+    for (const col of ['name', 'config']) {
+      if (row[col] == null) return tvError('23502', `[supabase] null value in column "${col}" of relation "table_views" violates not-null constraint`)
+    }
+    const problem = viewConfigProblem(row.config) || viewNameProblem(row.name)
+      || (row.position < 0 ? TABLE_VIEWS_SENTENCES.position : null)
+      || (isTableKey(row.table_key) ? null : TABLE_VIEWS_SENTENCES.tableKey)
+    return problem ? tvError('23514', problem) : null
+  }
+  // A conditional write that wrote nothing: the row read once, as the cloud
+  // adapter reads it (no row: deleted; another revision or name: changed).
+  // The third answer, 'filtered', needs a policy that refuses Mara: never here.
+  function tableViewMiss(row, opts) {
+    if (!row) return { status: 'deleted' }
+    const otherRevision = opts?.expectRevision != null && String(row.revision) !== String(opts.expectRevision)
+    const otherName = opts?.expectName != null && row.name !== opts.expectName
+    return { status: otherRevision || otherName ? 'changed' : 'filtered', row: clone(row) }
+  }
+  // 0098 §5's sweep, for a row deleted for good: its id leaves every grouping
+  // of its kind in its project; a grouping left empty, or naming another's
+  // set, goes (the model's planForgetItem, in the cloud loop's id order); one
+  // that shrinks is stamped as fn_audit_touch stamps an UPDATE (now, and the
+  // person whose delete it was). An asset in the TRASH is not deleted, and
+  // changes nothing (her Q-N4).
+  function sweepGroupingsOf(kind, id, projectId) {
+    const here = store.itemGroupings.filter(g => g.project_id === projectId)
+    const { remove: gone, update } = planForgetItem(here, kind, id)
+    if (!gone.length && !update.length) return
+    const out = new Set(gone)
+    const shrunk = new Map(update.map(u => [u.id, u.entity_ids]))
+    const at = now()
+    store.itemGroupings = store.itemGroupings.filter(g => !out.has(g.id))
+      .map(g => (shrunk.has(g.id) ? { ...g, entity_ids: shrunk.get(g.id), updated_at: at, updated_by: by } : g))
+  }
+
   const adapter = {
     mode: 'fixtures',
 
@@ -625,6 +719,11 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         edits: inProject(store.edits).sort(byCreated),
         // FX2 (0096): a task's items, a trashed task's hidden (the task hop).
         taskItems: inProject(store.taskItems).filter(i => liveTaskOf(i.task_id)),
+        // VW1c (0098): the saved views and groupings, in the cloud's order
+        // (table_key, position, created_at, id; table_key, kind, created_at,
+        // id). None is seeded (Q20).
+        tableViews: viewsIn(projectId).sort(compareViewRows),
+        itemGroupings: groupingsIn(projectId).sort(compareGroupingRows),
       }))
     },
     async createProject(payload) {
@@ -753,6 +852,187 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     // VW1m (2026-10-16): no reorder, as the cloud adapter has none (her
     // Q-N1: the task window sorts; it has no Move buttons).
+
+    // ── Custom table views and groupings (VW1c, migration 0098) ──────────────
+    // The cloud's verbs and answers, in memory (see the note above
+    // tvError). The fake cloud has 0098: available, and a load never fails
+    // to read them.
+    tableViewsAvailable() { return true },
+    tableViewsLoadError() { return null },
+    async listTableViews(projectId) {
+      return clone(viewsIn(projectId).sort(compareViewRows))
+    },
+    // An INSERT: the revision from the one counter, the stamps and the
+    // creator are the backend's (0098's pin), whatever the row carries.
+    async addTableView(row) {
+      const body = isPlainObject(row) ? row : {}
+      const projectId = body.project_id
+      const tableKey = body.table_key
+      const unreadable = positionUnreadable(body.position)
+      if (unreadable) throw unreadable
+      // trg_table_views_cap: at most 200 views of a table in a project.
+      if (viewsIn(projectId).filter(v => v.table_key === tableKey).length >= VIEWS_PER_TABLE_MAX) {
+        throw tvError('54000', viewsCapWords(tableKey))
+      }
+      if (!liveProject(projectId)) throw tvError('42501', TABLE_VIEWS_SENTENCES.gate)
+      const draft = {
+        project_id: projectId, table_key: tableKey, name: body.name,
+        position: body.position === undefined ? 0 : body.position,
+        config: body.config === undefined ? {} : body.config,
+      }
+      const refused = viewRowRefusal(draft)
+      if (refused) throw refused
+      if (body.id != null && findById(store.tableViews, body.id)) {
+        throw tvError('23505', '[supabase] duplicate key value violates unique constraint "table_views_pkey"')
+      }
+      store.tableViewRevision += 1
+      const at = now()
+      // The row as the cloud's select answers it, key for key.
+      const stored = {
+        id: body.id != null ? body.id : newId(), project_id: projectId, table_key: tableKey, name: draft.name,
+        position: draft.position, revision: store.tableViewRevision, revised_by: by, config: clone(draft.config),
+        created_at: at, created_by: by, updated_at: at, updated_by: by,
+      }
+      store.tableViews.push(stored)
+      return clone(stored)
+    },
+    // The SAVE: written only where the view still has the revision (or, for
+    // a rename's undo, the name) expected; a change of config takes a new
+    // revision, a rename or a move never (0098 §4b, compared as jsonb is:
+    // key order ignored).
+    async updateTableView(id, patch, opts = {}) {
+      const set = {}
+      for (const k of ['name', 'position', 'config']) if (patch && patch[k] !== undefined) set[k] = patch[k]
+      if (Object.keys(set).length === 0) throw tvError('invalid', TABLE_VIEWS_SENTENCES.nothingToChange)
+      const unreadable = positionUnreadable(set.position)
+      if (unreadable) throw unreadable
+      const row = visibleView(id)
+      const holds = row
+        && (opts?.expectRevision == null || String(row.revision) === String(opts.expectRevision))
+        && (opts?.expectName == null || row.name === opts.expectName)
+      if (!holds) return tableViewMiss(row, opts)
+      const next = { ...row, ...set }
+      const refused = viewRowRefusal(next)
+      if (refused) throw refused
+      if (!configsEqual(next.config, row.config)) {
+        store.tableViewRevision += 1
+        next.revision = store.tableViewRevision
+        next.revised_by = by
+      }
+      next.config = clone(next.config)
+      next.updated_at = now()
+      next.updated_by = by
+      store.tableViews = store.tableViews.map(v => (v.id === id ? next : v))
+      return { status: 'saved', row: clone(next) }
+    },
+    async deleteTableView(id, opts = {}) {
+      const row = visibleView(id)
+      if (!row || (opts?.expectRevision != null && String(row.revision) !== String(opts.expectRevision))) {
+        return tableViewMiss(row, { expectRevision: opts?.expectRevision })
+      }
+      store.tableViews = store.tableViews.filter(v => v.id !== id)
+      return { status: 'removed' }
+    },
+    // reorder_table_views (0098 §8) by the model's planReorderViews: the
+    // named views first, the rest after in their order, positions dense from
+    // 0; its refusals are the function's 22023, in its words. A reorder never
+    // makes a new revision. Answers the rows it moved.
+    async reorderTableViews(projectId, tableKey, ids) {
+      if (!isTableKey(tableKey)) {
+        throw tvError('22023', `[supabase] reorder_table_views: ${tableKey} is not a table with views (tasks, assets, scenes, shots, levels, experiences)`)
+      }
+      if (ids == null) return []
+      let changes
+      try {
+        changes = planReorderViews(viewsIn(projectId), tableKey, ids)
+      } catch (err) {
+        if (err?.code !== 'table_view_invalid') throw err
+        throw tvError('22023', `[supabase] reorder_table_views: ${err.message}`)
+      }
+      const at = now()
+      const moved = []
+      for (const { id, position } of changes) {
+        const v = findById(store.tableViews, id)
+        if (!v) continue
+        v.position = position
+        v.updated_at = at
+        v.updated_by = by
+        moved.push(clone(v))
+      }
+      return moved
+    },
+    async listItemGroupings(projectId) {
+      return clone(groupingsIn(projectId).sort(compareGroupingRows))
+    },
+    // An INSERT. 0098's order: the cap; the pin (the set sorted, each id
+    // once); the ids' check as the caller sees the project — each a LIVE row
+    // of its kind in it, so an asset in the trash is refused (23503); the
+    // policy; the CHECKs by name (the set, then the pair). A set already
+    // stored for that table and kind answers the stored row, as the cloud
+    // adapter answers its unique key's 23505; an id taken by another set is
+    // the primary key's 23505.
+    async addItemGrouping(row) {
+      const body = isPlainObject(row) ? row : {}
+      const projectId = body.project_id
+      const tableKey = body.table_key
+      const kind = body.kind
+      if (groupingsIn(projectId).filter(g => g.table_key === tableKey).length >= GROUPINGS_PER_TABLE_MAX) {
+        throw tvError('54000', groupingsCapWords(tableKey))
+      }
+      const raw = Array.isArray(body.entity_ids) ? body.entity_ids : null
+      const readable = raw && raw.length > 0 && raw.every(x => typeof x === 'string' && x !== '')
+      const ids = readable ? normalizeEntityIds(raw) : raw
+      if (readable && ITEM_ROWS[kind]) {
+        const live = new Set((store[ITEM_ROWS[kind]] || [])
+          .filter(r => r.project_id === projectId && !r.deleted_at && liveProject(projectId)).map(r => r.id))
+        const notFound = ids.filter(x => !live.has(x)).length
+        if (notFound) throw tvError('23503', groupingIdsCheckWords(kind, notFound, ids.length))
+      }
+      if (!liveProject(projectId)) throw tvError('42501', TABLE_VIEWS_SENTENCES.groupingGate)
+      if (raw == null || tableKey == null || kind == null) {
+        const col = raw == null ? 'entity_ids' : tableKey == null ? 'table_key' : 'kind'
+        throw tvError('23502', `[supabase] null value in column "${col}" of relation "item_groupings" violates not-null constraint`)
+      }
+      const idsProblem = groupingProblem({ table_key: 'tasks', kind: 'asset', entity_ids: raw })
+      if (idsProblem) throw tvError('23514', idsProblem)
+      const pairProblem = groupingProblem({ table_key: tableKey, kind, entity_ids: ids })
+      if (pairProblem) throw tvError('23514', pairProblem)
+      const stored = findGroupingBySet(groupingsIn(projectId), tableKey, kind, ids)
+      if (stored) return clone(stored)
+      if (body.id != null && findById(store.itemGroupings, body.id)) {
+        throw tvError('23505', '[supabase] duplicate key value violates unique constraint "item_groupings_pkey"')
+      }
+      const at = now()
+      const created = {
+        id: body.id != null ? body.id : newId(), project_id: projectId, table_key: tableKey, kind,
+        entity_ids: ids, created_at: at, created_by: by, updated_at: at, updated_by: by,
+      }
+      store.itemGroupings.push(created)
+      return clone(created)
+    },
+    // Review round 1 (R1-3): the cloud's answer; no roles here, so nothing
+    // removed means gone (or out of sight in a trashed project).
+    async removeItemGrouping(id, _projectId) {
+      const g = findById(store.itemGroupings, id)
+      if (!g || !liveProject(g.project_id)) return { removed: false, status: 'deleted' }
+      store.itemGroupings = store.itemGroupings.filter(x => x.id !== id)
+      return { removed: true }
+    },
+    // The last used view of each table (Q4), in memory for the session.
+    async getTableViewLast() {
+      return { available: true, map: clone(store.tableViewLast) }
+    },
+    // set_table_view_last (0098 §9): one key merged with the backend's clock,
+    // the 300 newest kept (the model's mergeTableViewLast); its refusals the
+    // function's 22023, in its words.
+    async setTableViewLast(key, view) {
+      if (tableViewLastKeyProblem(key)) {
+        throw tvError('22023', `[supabase] set_table_view_last: ${key} is not a project id and a table (tasks, assets, scenes, shots, levels, experiences)`)
+      }
+      if (!isViewIdOrAll(view)) throw tvError('22023', `[supabase] set_table_view_last: ${view} is not a view id or "all"`)
+      store.tableViewLast = mergeTableViewLast(store.tableViewLast, key, view, Date.now())
+      return clone(store.tableViewLast)
+    },
 
     // ── Files ────────────────────────────────────────────────────────────────
     async uploadFile() { throw devWriteRefused('Uploading a file') },
@@ -1072,28 +1352,51 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // left a shot with a dangling scene_id still listed in other lists, a
     // state the cloud cannot hold — and a walkthrough on the fixtures could
     // never show the stale item a cloud list write would then trip over.
+    // VW1c (0098): each row deleted for good also leaves the groupings that
+    // name it (sweepGroupingsOf, the twin of fn_item_groupings_forget, which
+    // fires for the scene and for each shot its CASCADE takes).
     async deleteScene(id, _projectId) {
-      const shotIds = store.shots.filter(s => s.scene_id === id).map(s => s.id)
+      const scene = findById(store.scenes, id)
+      // Review round 1 (R1-2): the shots in id order (code unit), so two
+      // groupings that shrink to one set keep the same survivor here, on the
+      // desktop and on screen (the cloud's cascade order is its own; the live
+      // channel brings its answer).
+      const shots = store.shots.filter(s => s.scene_id === id)
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
       remove(store.scenes, id)
       sweepShotListLinks('scene_id', id)
       sweepTaskItemsOf('scene', id)
-      for (const shotId of shotIds) {
-        remove(store.shots, shotId)
-        sweepShotListLinks('shot_id', shotId)
-        sweepTaskItemsOf('shot', shotId)
+      if (scene) sweepGroupingsOf('scene', id, scene.project_id)
+      for (const shot of shots) {
+        remove(store.shots, shot.id)
+        sweepShotListLinks('shot_id', shot.id)
+        sweepTaskItemsOf('shot', shot.id)
+        sweepGroupingsOf('shot', shot.id, shot.project_id)
       }
     },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
     // BC2: a shot's takes go with it, as 0091's shot_takes_shot_fk CASCADE
     // takes them on the cloud (the provider's undo puts them back).
-    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id); sweepTaskItemsOf('shot', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id) },
+    async deleteShot(id, _projectId) {
+      const shot = findById(store.shots, id)
+      remove(store.shots, id); sweepShotListLinks('shot_id', id); sweepTaskItemsOf('shot', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id)
+      if (shot) sweepGroupingsOf('shot', id, shot.project_id)
+    },
     async listLevels(projectId) { return clone(store.levels.filter(s => s.project_id === projectId)) },
     async upsertLevel(level) { return clone(upsert(store.levels, { workspace_id: workspaceId, created_by: by, ...level, updated_by: by })) },
-    async deleteLevel(id) { remove(store.levels, id); sweepTaskItemsOf('level', id) },
+    async deleteLevel(id) {
+      const level = findById(store.levels, id)
+      remove(store.levels, id); sweepTaskItemsOf('level', id)
+      if (level) sweepGroupingsOf('level', id, level.project_id)
+    },
     async listExperiences(projectId) { return clone(store.experiences.filter(s => s.project_id === projectId)) },
     async upsertExperience(exp) { return clone(upsert(store.experiences, { workspace_id: workspaceId, created_by: by, ...exp, updated_by: by })) },
-    async deleteExperience(id) { remove(store.experiences, id); sweepTaskItemsOf('experience', id) },
+    async deleteExperience(id) {
+      const experience = findById(store.experiences, id)
+      remove(store.experiences, id); sweepTaskItemsOf('experience', id)
+      if (experience) sweepGroupingsOf('experience', id, experience.project_id)
+    },
 
     // ── Shot lists, items, edits (0084; the S3a contract's nine methods plus
     //    round 1's two membership deltas and round 2's reorder) ──────────────

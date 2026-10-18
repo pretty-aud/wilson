@@ -38,10 +38,27 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {object[]} taskLinks      a task's URL links (0000)
  * @property {object[]} taskItems      a task's items: the assets, scenes,
  *   shots, levels and experiences it is about (FX2, 0096)
+ * @property {object[]} tableViews     the project's saved views of its six
+ *   tables (VW1c, 0098), by table_key, position, created_at, id
+ * @property {object[]} itemGroupings  the project's saved groupings (VW1c,
+ *   0098), by table_key, kind, created_at, id
  * @property {object[]} files
  * @property {object[]} assetVersions
  * @property {object[]} comments
  * @property {object[]} ingestionRuns
+ */
+
+/**
+ * What a view's update or delete answers (VW1c, 0098; design §4.4): the
+ * write landed (`saved` with the stored row, or `removed`), or nothing was
+ * written and the row was read once — `deleted` (it is gone), `changed`
+ * (another revision or name: a teammate's save; `row` is the stored one) or
+ * `filtered` (the same: the cloud's access rules dropped the write without a
+ * word, so the person may no longer change views; never answered by the
+ * signed-out desktop or the dev fixtures, which have no roles).
+ * @typedef {Object} TableViewWrite
+ * @property {'saved'|'removed'|'deleted'|'changed'|'filtered'} status
+ * @property {object=} row
  */
 
 /**
@@ -145,6 +162,63 @@ import { devFixtures } from '../../../dev/devFixtures';
  *     stay for the older apps that call them.
  *   - google_drive: listTaskItems and the bundle's taskItems answer what the
  *     export holds; the two writes throw readOnly().
+ *
+ * @property {() => boolean}                                        tableViewsAvailable
+ * @property {() => (string|null)}                                  tableViewsLoadError
+ * @property {(projectId: string) => Promise<object[]>}             listTableViews
+ * @property {(row: object) => Promise<object>}                     addTableView
+ * @property {(id: string, patch: object, opts: object) => Promise<TableViewWrite>} updateTableView
+ * @property {(id: string, opts: object) => Promise<TableViewWrite>} deleteTableView
+ * @property {(projectId: string, tableKey: string, ids: string[]) => Promise<object[]>} reorderTableViews
+ * @property {(projectId: string) => Promise<object[]>}             listItemGroupings
+ * @property {(row: object) => Promise<object>}                     addItemGrouping
+ * @property {(id: string, projectId?: string) => Promise<{removed: boolean, status?: string}>} removeItemGrouping
+ * @property {() => Promise<{available: boolean, map: object}>}     getTableViewLast
+ * @property {(key: string, view: string) => Promise<object>}       setTableViewLast
+ *   Custom table views and groupings (VW1c, migration 0098; design §5;
+ *   the rules in state/tableViewsModel.js). A VIEW `{ id, project_id,
+ *   table_key, name, position, revision, revised_by, config, created_at,
+ *   created_by, updated_at, updated_by }`; a GROUPING `{ id, project_id,
+ *   table_key, kind, entity_ids, created_at, created_by, updated_at,
+ *   updated_by }`. loadProject
+ *   returns both (bundle keys tableViews, itemGroupings).
+ *   - tableViewsAvailable(): whether this backend keeps views and groupings.
+ *     False on a cloud without 0098 (loadProject's reads are the probe:
+ *     42P01 / PGRST205 → both empty) and on Google Drive; every write then
+ *     refuses with code `table_views_unavailable` before any request.
+ *     tableViewsLoadError(): the last load's read error in words when it was
+ *     anything but the probe's answer (both empty, never a failed load), else
+ *     null.
+ *   - addTableView(row `{ id?, project_id, table_key, name, position, config
+ *     }`): an INSERT, never an upsert (the cloud's column grants refuse one);
+ *     answers the stored row, its revision and stamps the backend's.
+ *   - updateTableView(id, patch `{ name?, position?, config? }`, opts `{
+ *     projectId, expectRevision?, expectName? }`) and deleteTableView(id,
+ *     opts `{ projectId, expectRevision? }`) answer a TableViewWrite: `{
+ *     status: 'saved', row }` (an update) or `{ status: 'removed' }` (a
+ *     delete), or, when the expectation did not hold and nothing was written, the row
+ *     read once: `{ status: 'deleted' }` (no row), `{ status: 'changed', row
+ *     }` (another revision or name: changed meanwhile), `{ status:
+ *     'filtered', row }` (the same: the cloud's access rules filtered the
+ *     write out without a word — the person may no longer change views; the
+ *     signed-out desktop never answers this). Only a change of config makes
+ *     a new revision.
+ *   - reorderTableViews(projectId, tableKey, ids): reorder_table_views'
+ *     rule; answers the rows it moved.
+ *   - addItemGrouping(row `{ id?, project_id, table_key, kind, entity_ids
+ *     }`): an INSERT; a set already stored for that table and kind answers
+ *     the stored row (the cloud's unique key, then a read).
+ *     removeItemGrouping(id, projectId) answers `{ removed: true }`, or `{
+ *     removed: false, status }` read once: `deleted` (gone) or `filtered` (the
+ *     cloud's policies dropped the delete; the row stays on screen) — review
+ *     round 1, R1-3.
+ *   - getTableViewLast(): the person's last used view of each table, `{
+ *     available, map }` (the cloud's user_settings.table_view_last, read by
+ *     its own request — 42703 / PGRST204 answer `{ available: false, map: {}
+ *     }`; the desktop's machine file; the fixtures' memory; Drive
+ *     unavailable). setTableViewLast(key, view) merges one key
+ *     (`<project id>:<table key>`, a view id or "all") with the backend's
+ *     clock, keeps the 300 newest, and answers the map.
  *
  * @property {(projectId: string, scope: UploadScope, file: File) => Promise<object>} uploadFile
  * @property {(projectId: string) => Promise<object[]>}             listFiles

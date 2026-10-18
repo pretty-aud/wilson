@@ -25,6 +25,8 @@ import { splitSetAside } from '../state/setAside';
 import { localFetch } from '../../../lib/localServerFetch.js';
 // FX2 (0096): a task's items, in the order the cloud reads them.
 import { compareItems } from '../state/taskItemsModel.js';
+// VW1c (0098): views and groupings, in the order the cloud reads them.
+import { compareViewRows, compareGroupingRows } from '../state/tableViewsModel.js';
 
 const BASE = '/api/rabbit';
 
@@ -128,6 +130,55 @@ function sortByPositionThenId(rows) {
   return [...(rows || [])].sort((a, b) => ((Number(a?.position) || 0) - (Number(b?.position) || 0)) || cmpCodeUnits(a?.id, b?.id))
 }
 
+// VW1c (0098): the loads' order (the model's, the cloud's) — views by
+// table_key, then the dropdown's (position, created_at to the microsecond,
+// id); groupings by table_key, kind, created_at, id. Copies, never in place —
+// the caller owns the bundle.
+function sortTableViews(rows) {
+  return (Array.isArray(rows) ? rows.filter(v => v && typeof v === 'object') : []).sort(compareViewRows)
+}
+function sortItemGroupings(rows) {
+  return (Array.isArray(rows) ? rows.filter(g => g && typeof g === 'object') : []).sort(compareGroupingRows)
+}
+
+// VW1c (0098): a view's conditional write answers a TableViewWrite (adapters/
+// index.js) rather than an Error — no row (404) and the route's 409
+// `table_view_stale`, which carries the stored row, are answers the provider
+// branches on. Any other refusal throws as jfetch throws: the route's words,
+// its status and its code.
+async function tableViewWriteFetch(url, init) {
+  let res
+  try {
+    res = await localFetch(url, init)
+  } catch (err) {
+    lastError = err.message || String(err)
+    throw err
+  }
+  let body = null
+  try { body = await res.json() } catch { /* no JSON body */ }
+  if (res.ok || res.status === 404 || (res.status === 409 && body?.code === 'table_view_stale')) {
+    lastError  = null
+    lastSyncAt = new Date()
+    return { status: res.status, body }
+  }
+  const msg = body?.error || `HTTP ${res.status}`
+  lastError = msg
+  const err = new Error(`[localServer] ${msg}`)
+  err.status = res.status
+  if (body?.code) err.code = String(body.code)
+  throw err
+}
+function tableViewWrite({ status, body }, done) {
+  if (status === 404) return { status: 'deleted' }
+  if (status === 409) return { status: 'changed', row: body?.row ?? null }
+  return done === 'saved' ? { status: 'saved', row: body } : { status: 'removed' }
+}
+const enc = (v) => encodeURIComponent(String(v))
+const plainMap = (v) => (v != null && typeof v === 'object' && !Array.isArray(v) ? v : {})
+function needsProject(verb, projectId) {
+  if (projectId == null || projectId === '') throw new Error(`[localServer] ${verb} needs the project id`)
+}
+
 export function localServerAdapter() {
   return {
     mode: 'local_server',
@@ -226,6 +277,13 @@ export function localServerAdapter() {
         // (electron/rabbitTaskItems.cjs) and keeps those fields in step.
         // Sorted as the cloud orders them: task, kind, then 0096's order.
         taskItems:       sortTaskItems(bundle.taskItems),
+        // VW1c (0098's twin: electron/rabbitTableViews.cjs): the project's
+        // saved views of its six tables and its saved groupings. Same reason
+        // as every key above; the server gives an older bundle both arrays
+        // and takes a deleted item out of every grouping on read. Sorted as
+        // the cloud orders them.
+        tableViews:      sortTableViews(bundle.tableViews),
+        itemGroupings:   sortItemGroupings(bundle.itemGroupings),
       });
     },
 
@@ -302,6 +360,89 @@ export function localServerAdapter() {
     // VW1m (2026-10-16): no reorder call (her Q-N1: the task window sorts,
     // it has no Move buttons). The server keeps its /task-items/reorder route
     // for the older builds that share a project file on the NAS.
+
+    // ── Custom table views and groupings (VW1c, 0098's twin:
+    // electron/rabbitTableViews.cjs; the contract in adapters/index.js) ──
+    // Always kept here; no roles, so never `filtered`. The routes refuse with
+    // `{ error, code }`, which arrives on the thrown Error (`.status`,
+    // `.code`) — except a view's conditional write, which answers.
+    tableViewsAvailable: () => true,
+    tableViewsLoadError: () => null,
+    listTableViews: async (projectId) =>
+      sortTableViews(await jfetch(`${BASE}/projects/${enc(projectId)}/table-views`)),
+    // An INSERT (the id, when sent, must be new); answers the stored row,
+    // its revision taken from the project's counter.
+    addTableView: async (row) => {
+      needsProject('addTableView', row?.project_id)
+      return jfetch(`${BASE}/projects/${enc(row.project_id)}/table-views`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: row.id, table_key: row.table_key, name: row.name, position: row.position, config: row.config }),
+      })
+    },
+    // patch `{ name?, position?, config? }`; opts `{ projectId,
+    // expectRevision?, expectName? }`. 200 → saved, 404 → deleted, 409
+    // table_view_stale → changed (the stored row). Only a change of config
+    // takes a new revision.
+    updateTableView: async (id, patch, opts = {}) => {
+      needsProject('updateTableView', opts?.projectId)
+      const body = {}
+      for (const k of ['name', 'position', 'config']) if (patch?.[k] !== undefined) body[k] = patch[k]
+      if (opts.expectRevision != null) body.expectRevision = opts.expectRevision
+      if (opts.expectName != null) body.expectName = opts.expectName
+      return tableViewWrite(await tableViewWriteFetch(`${BASE}/projects/${enc(opts.projectId)}/table-views/${enc(id)}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      }), 'saved')
+    },
+    // opts `{ projectId, expectRevision? }` (the revision rides in the query
+    // string). 200 → removed, 404 → deleted, 409 → changed (the stored row).
+    deleteTableView: async (id, opts = {}) => {
+      needsProject('deleteTableView', opts?.projectId)
+      const q = opts.expectRevision != null ? `?expectRevision=${enc(opts.expectRevision)}` : ''
+      return tableViewWrite(await tableViewWriteFetch(
+        `${BASE}/projects/${enc(opts.projectId)}/table-views/${enc(id)}${q}`, { method: 'DELETE' }), 'removed')
+    },
+    // reorder_table_views' rule; answers the rows it moved.
+    reorderTableViews: async (projectId, tableKey, ids) =>
+      (await jfetch(`${BASE}/projects/${enc(projectId)}/table-views/reorder`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ table_key: tableKey, ids }),
+      })) || [],
+    listItemGroupings: async (projectId) =>
+      sortItemGroupings(await jfetch(`${BASE}/projects/${enc(projectId)}/item-groupings`)),
+    // An INSERT; a set already stored for that table and kind answers the
+    // stored row (written nothing).
+    addItemGrouping: async (row) => {
+      needsProject('addItemGrouping', row?.project_id)
+      return jfetch(`${BASE}/projects/${enc(row.project_id)}/item-groupings`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: row.id, table_key: row.table_key, kind: row.kind, entity_ids: row.entity_ids }),
+      })
+    },
+    removeItemGrouping: async (id, projectId) => {
+      needsProject('removeItemGrouping', projectId)
+      const res = await jfetch(`${BASE}/projects/${enc(projectId)}/item-groupings/${enc(id)}`, { method: 'DELETE' })
+      // Review round 1 (R1-3): no roles here, so nothing removed means gone.
+      return res?.removed ? { removed: true } : { removed: false, status: 'deleted' }
+    },
+    // The last used view is this computer's (design §5.4): the machine's own
+    // settings file, never the project's, never localStorage.
+    getTableViewLast: async () => {
+      const res = await jfetch(`${BASE}/machine-settings`)
+      return { available: true, map: plainMap(res?.tableViewLast) }
+    },
+    setTableViewLast: async (key, view) => {
+      const res = await jfetch(`${BASE}/machine-settings/table-view-last`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ key, view }),
+      })
+      return plainMap(res?.tableViewLast)
+    },
 
     // ── Files ─────────────────────────────────────────────────
     // Demo 2026-09-11 (Audrey: "[localServer] HTTP 413" adding a file to a
