@@ -1144,6 +1144,35 @@ answer.*
 
 ---
 
+## Batch 17 — the Views button's width, the Board's card fields, the order inside a cell (walkthrough 72 part 3's two questions and part 1's first, asked by the controller in chat on 2026-10-25 as multiple choice; answered)
+
+**Her answers, 2026-10-25 (verbatim):**
+- **Q-P1 (the Views button's width):** "Narrower, 136px (Recommended)" — VW1e makes the button 136px on EVERY table, the Tasks table's included (VW1d shipped 160px; §4.10's 180px for Assets, Levels and Experiences and the Scenes bookmark's 180px are superseded): about 12 letters of the view's name, an ellipsis after, the full name in the dropdown and on hover.
+- **Q-P2 (the Board's card fields):** "One list for both (Recommended)" — one Fields card per view; hiding a field on the Board's cards hides its column in that view's table too; a Board with fewer fields and a table with more are two saved views. VW1d step 0's finding 6 stands; nothing changes.
+- **Q-P3 (the order inside a cell, walkthrough 72 part 1's question 1, open since VW1b):** "Keep the task's own order (Recommended)" — a cell lists a task's items as the task window's Sort gives them (her Q10) while the group names read A to Z; VW1e keeps the same rule on Assets, Levels, Experiences, Scenes and Shots.
+- **Walkthrough 72 part 1's question 2** (the 1440 width: keep *All* until the views let you hide columns?) was not asked: VW1d's Fields card now hides columns, which is what the recommended answer waited for.
+
+**Q-P1. The Views button's width.** 160px shows about 14 letters of a
+view's name and keeps the toolbar on one line at 1440 until a sort is
+chosen while grouped by an item; at 1280 one filter wraps it.
+- **Narrower, 136px** *(Recommended)*: about 12 letters; 1440 grouped and
+  sorted, and 1280 with a filter on, stay on one line.
+- **Keep 160px**: about 14 letters; the two cases above take two lines.
+
+**Q-P2. The Board's card fields.** A view has one list of fields.
+- **One list for both** *(Recommended)*: hiding Priority on the Board's
+  cards hides the Priority column when the same view is shown as a table.
+- **The Board keeps its own list**: a view carries the table's columns and
+  the Board's card fields apart.
+
+**Q-P3. The order inside a cell** when tasks are grouped by an item.
+- **Keep the task's own order** *(Recommended)*: the cell lists the items
+  as the task window's Sort gives them (Q10), so the table matches the
+  window.
+- **Always A to Z**, like the group names.
+
+---
+
 ## Not asked, because nothing you see depends on it
 
 - Where the cloud keeps the views (a table per project, readable only by the
