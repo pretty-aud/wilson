@@ -5163,8 +5163,17 @@ of a session — this section is limits by design, that file is faults.
   hidden only while an item is in the trash; the Timeline shows the Tasks
   table's (its builders take `groupings`; a shot grouping sits under its
   scene or a scene combination made for it; outside the active list, none).
+- **A stored config is data from anyone on the project** (code review round
+  2): one rule says whether a row filters (`appliesFilter`: the count, the
+  summaries and the table); a filter or sort the table cannot apply reads as
+  what it is and does nothing; stored keys are looked up as own keys only (no
+  prototype-shaped grouping or person); a value stored twice is one; a newer
+  WILSON's view greys Save and Duplicate; another WILSON's kept settings that
+  fill the 32 KB cap say so on Save. A save's refusal holds for the revision
+  it met, so a teammate's later save is said instead.
 - **The kit**: Popover's in-place form (`inPlace`; Escape asks the caller;
-  focus leaving it closes it; its own StrictMode hand-back is not "leaving"),
+  focus leaving it closes it; its own StrictMode hand-back is not "leaving";
+  at least 240px wide and never past the window),
   MenuButton in `src/ui` (its keyboard model without roles, a labelled form),
   Banner `live={false}`. The undo toast pauses while focused.
 
