@@ -15,6 +15,11 @@ import { ToastProvider } from '../../../../ui/Toast'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 const seat = vi.hoisted(() => ({ canWrite: true }))
+// Each test mounts the real provider and the whole Tasks table and works it
+// as a person does: alone the slowest take about 2s here, and CI's runner
+// passed the 5s default on three of them (f0065300, 49086256, 362a001a;
+// VW1d, 2026-10-25). The waits inside each test bound it.
+vi.setConfig({ testTimeout: 20_000 })
 
 vi.mock('../../adapters', () => ({
   selectAdapter: () => holder.adapter,
