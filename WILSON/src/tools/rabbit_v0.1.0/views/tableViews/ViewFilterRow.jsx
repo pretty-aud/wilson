@@ -42,11 +42,16 @@ export function ViewFilterRow({ row, index, description, onChange, onRemove }) {
       <span className="rb-tv-filter-where text-label uppercase">{index === 0 ? 'Where' : 'And'}</span>
       <select value={row.field} aria-label="Field" className="ui-input rb-tv-filter-field" data-size="sm"
         onChange={e => onChange(withFilterField(row, e.target.value, description))}>
-        {!def && <option value={row.field}>{row.field}</option>}
+        {/* A stored row on a field this table cannot filter, or with a
+            condition its field does not have (another build's), reads as
+            what it is and filters nothing — never as the first option
+            (code review round 2, R2-3). */}
+        {(!def || !def.filter) && <option value={row.field}>{`${def ? def.label : row.field} (cannot filter)`}</option>}
         {description.filterFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
       </select>
       <select value={row.op} aria-label="Condition" className="ui-input rb-tv-filter-op" data-size="sm"
         onChange={e => onChange(withFilterOp(row, e.target.value))}>
+        {!ops.some(o => o.value === row.op) && <option value={row.op}>{`${row.op} (unknown)`}</option>}
         {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       {needsValue && (def?.filter === 'text' ? (
@@ -97,7 +102,9 @@ function ValuePicker({ def, values, description, onChange }) {
  * move, Space or Enter ticks — the item picker's model, VW1b), the gone
  * values first while chosen. Also *Create grouping*'s list.
  */
-export function TickList({ options, chosen, plural, onChange, searchable = null, autoFocus = false }) {
+export function TickList({ options, chosen: given, plural, onChange, searchable = null, autoFocus = false }) {
+  // A value stored twice is one tick (code review round 2, R2-8).
+  const chosen = [...new Set(given)]
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef(null)

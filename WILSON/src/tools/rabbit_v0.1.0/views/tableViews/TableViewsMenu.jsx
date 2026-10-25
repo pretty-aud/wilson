@@ -50,6 +50,7 @@ import {
   BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, Check, GripVertical, ArrowUp, ArrowDown, Plus, X,
 } from 'lucide-react'
 import { Button, IconButton, Popover, HoverActions, MenuButton, Switch } from '../../../../ui'
+import { readViewConfig } from '../../state/tableViewsModel'
 import {
   effectiveFields, fieldsToStore, moveField, moveFieldTo, moveItem, moveItemTo,
   filtersSummary, sortSummary, groupSummary, fieldsSummary,
@@ -61,6 +62,29 @@ const LIST_WIDTH = 300
 // Today's filter row is about 532px before the card's padding (finding 7).
 const WIDE_WIDTH = 560
 const CARD_TITLES = { filters: 'Filters', sort: 'Sort', group: 'Group', fields: 'Fields' }
+
+/**
+ * A list's drag, armed by a press on a row's handle (only then is the row
+ * draggable) and disarmed by a release anywhere: a real drag fires no
+ * pointerup (the browser cancels the pointer as it starts) and ends with
+ * dragend (code review round 2, R2-5: armed by a press slid off the handle,
+ * the row stayed draggable and took the next foreign drop).
+ */
+function useArmedDrag() {
+  const [armed, setArmed] = useState(null)
+  useEffect(() => {
+    if (armed == null) return undefined
+    const off = () => setArmed(null)
+    document.addEventListener('pointerup', off, true)
+    return () => document.removeEventListener('pointerup', off, true)
+  }, [armed])
+  return [armed, setArmed]
+}
+// What a drop carries: the dragged row's own id (a drop of anything else —
+// text from a field, a file — carries none of the list's ids).
+const carried = (e) => {
+  try { return e.dataTransfer?.getData?.('text/plain') ?? null } catch { return null }
+}
 
 /** A grid cell's control: the `[data-col]` element, or the button inside it. */
 function controlOf(el) {
@@ -135,7 +159,7 @@ export function TableViewsMenu({ tv, description, ask, announce = () => {}, onRe
           ) : (
             <ViewsList
               tv={tv} description={description} ask={ask} announce={announce} onRetry={onRetry}
-              board={board} initialRef={listInitialRef}
+              board={board} initialRef={listInitialRef} focusButton={() => buttonRef.current?.focus()}
               renaming={renaming} setRenaming={setRenaming}
               creating={creating} setCreating={setCreating}
               backTo={backTo} clearBackTo={() => setBackTo(null)}
@@ -152,7 +176,7 @@ export function TableViewsMenu({ tv, description, ask, announce = () => {}, onRe
 // ── The list: Views, This view, New view ────────────────────────────────
 
 function ViewsList({
-  tv, description, ask, announce, onRetry, board, initialRef,
+  tv, description, ask, announce, onRetry, board, initialRef, focusButton,
   renaming, setRenaming, creating, setCreating, backTo, clearBackTo, onChosen, onOpenCard,
 }) {
   const rows = [tv.allView, ...tv.views]
@@ -169,7 +193,7 @@ function ViewsList({
   // R1-2, R1-3, R1-13: a cancel, a move and a Cancel each left it on <body>
   // or on another row.
   const [pendingFocus, setPendingFocus] = useState(null)
-  const [dragId, setDragId] = useState(null)
+  const [dragId, setDragId] = useArmedDrag()
   const [overId, setOverId] = useState(null)
   const newRef = useRef(null)
 
@@ -211,7 +235,7 @@ function ViewsList({
       const el = partsRef.current?.querySelector(`[data-part="${pendingFocus.part}"]`)
       if (el) { el.focus(); landed = true }
     }
-    if (!landed && (pendingFocus.index != null || pendingFocus.id != null)) document.querySelector('.rb-tv-button')?.focus()
+    if (!landed && (pendingFocus.index != null || pendingFocus.id != null)) focusButton()
     setPendingFocus(null)
   }) // after every render until it lands
 
@@ -253,13 +277,15 @@ function ViewsList({
       announce(`${v.name} could not be moved: ${err?.message || err}`)
     }
   }
-  async function dropOn(target) {
+  async function dropOn(target, what) {
     const from = dragId
     setDragId(null); setOverId(null)
-    if (!from || String(from) === String(target.id)) return
+    if (!from || String(what) !== String(from) || String(from) === String(target.id)) return
+    const moved = stored.find(x => String(x.id) === String(from))
+    // The armed view deleted meanwhile (by a teammate): nothing to move.
+    if (!moved) return
     const ids = stored.map(x => x.id).filter(id => String(id) !== String(from))
     const to = target.builtIn ? 0 : ids.findIndex(id => String(id) === String(target.id))
-    const moved = stored.find(x => String(x.id) === String(from))
     ids.splice(target.builtIn ? 0 : to, 0, moved.id)
     try {
       await tv.reorder(ids)
@@ -346,7 +372,7 @@ function ViewsList({
   const fieldsNow = effectiveFields(tv.config.fields, description.fieldKeys, { fixed: description.fixed })
   const shownFields = board ? fieldsNow.filter(f => description.cardFields.includes(f.key)) : fieldsNow
   const parts = [
-    { part: 'filters', label: 'Filters', summary: filtersSummary(tv.config) },
+    { part: 'filters', label: 'Filters', summary: filtersSummary(tv.config, description) },
     { part: 'sort', label: 'Sort', summary: sortSummary(tv.config, description) },
     { part: 'group', label: 'Group', summary: groupSummary(tv.config, description) },
     { part: 'fields', label: 'Fields', summary: fieldsSummary(shownFields) },
@@ -374,7 +400,7 @@ function ViewsList({
               onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(v.id)); e.dataTransfer.effectAllowed = 'move' }}
               onDragEnd={() => { setDragId(null); setOverId(null) }}
               onDragOver={(e) => { if (dragId != null && canEdit) { e.preventDefault(); setOverId(v.id) } }}
-              onDrop={(e) => { e.preventDefault(); dropOn(v) }}
+              onDrop={(e) => { e.preventDefault(); dropOn(v, carried(e)) }}
               onFocus={() => setActiveRow(i)}
             >
               {canEdit && (
@@ -384,8 +410,7 @@ function ViewsList({
                       <IconButton size="sm" Icon={GripVertical} data-col="handle" tabIndex={tab}
                         title={`Move ${v.name}, ${positionWords(v)}`}
                         className="rb-tv-handle"
-                        onPointerDown={() => setDragId(v.id)}
-                        onPointerUp={() => { if (dragId != null) setDragId(null) }} />
+                        onPointerDown={() => setDragId(v.id)} />
                     </HoverActions>
                   )}
                 </div>
@@ -424,7 +449,9 @@ function ViewsList({
                           // it went, unasked): choosing applies only another view (Q-H).
                           { label: 'Edit', onClick: () => { if (tv.deleted || String(v.id) !== String(tv.viewId)) tv.choose(v.id); setPendingFocus({ part: 'filters' }) } },
                           { label: 'Rename', onClick: () => setRenaming({ id: v.id, text: v.name, error: null }) },
-                          { label: 'Duplicate', onClick: () => duplicate(v) },
+                          // A newer WILSON's view: its copy would drop that build's
+                          // settings, so Duplicate is greyed as Save is (review round 2, R2-6).
+                          { label: 'Duplicate', disabled: readViewConfig(v.config, description.tableKey).newer, hint: readViewConfig(v.config, description.tableKey).newer ? 'Newer WILSON' : undefined, onClick: () => duplicate(v) },
                           { divider: true },
                           { label: 'Delete', danger: true, onClick: () => remove(v) },
                         ]} />
@@ -551,7 +578,7 @@ function SortCard({ tv, description, announce }) {
     }
     setPending(null)
   })
-  const [dragField, setDragField] = useState(null)
+  const [dragField, setDragField] = useArmedDrag()
   const [overField, setOverField] = useState(null)
   function moveTo(i, to, col) {
     const next = moveItemTo(sorts, i, to)
@@ -561,7 +588,8 @@ function SortCard({ tv, description, announce }) {
     setPending({ field, col })
     announce(`${labelOf(field)} moved to ${to + 1} of ${sorts.length}`)
   }
-  function drop(target) {
+  function drop(target, what) {
+    if (dragField == null || what !== dragField) { setDragField(null); setOverField(null); return }
     const from = sorts.findIndex(s => s.field === dragField)
     const to = sorts.findIndex(s => s.field === target)
     setDragField(null); setOverField(null)
@@ -577,14 +605,14 @@ function SortCard({ tv, description, announce }) {
           onDragStart={(e) => { e.dataTransfer.setData('text/plain', s.field); e.dataTransfer.effectAllowed = 'move' }}
           onDragEnd={() => { setDragField(null); setOverField(null) }}
           onDragOver={(e) => { if (dragField != null) { e.preventDefault(); setOverField(s.field) } }}
-          onDrop={(e) => { e.preventDefault(); drop(s.field) }}>
+          onDrop={(e) => { e.preventDefault(); drop(s.field, carried(e)) }}>
           <IconButton ref={keep(s.field, 'handle')} size="sm" Icon={GripVertical} className="rb-tv-handle"
             title={`Move ${labelOf(s.field)}, ${i + 1} of ${sorts.length}`}
             onPointerDown={() => setDragField(s.field)}
-            onPointerUp={() => { if (dragField != null) setDragField(null) }}
             onKeyDown={(e) => { if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveTo(i, i + (e.key === 'ArrowUp' ? -1 : 1), 'handle') } }} />
           <select value={s.field} aria-label="Sort by" className="ui-input rb-tv-sort-field" data-size="sm"
             onChange={e => set(sorts.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))}>
+            {!description.field(s.field)?.sortable && <option value={s.field}>{`${s.field} (not in this table)`}</option>}
             {description.sortFields.filter(f => f.key === s.field || !sorts.some(x => x.field === f.key)).map(f => (
               <option key={f.key} value={f.key}>{f.label}</option>
             ))}
@@ -662,7 +690,7 @@ function FieldsCard({ tv, description, announce }) {
   const at = active != null && live(active) ? active : firstLive
   const gridRef = useRef(null)
   const [pending, setPending] = useState(null) // { key, col }
-  const [dragKey, setDragKey] = useState(null)
+  const [dragKey, setDragKey] = useArmedDrag()
   const [overKey, setOverKey] = useState(null)
   const controlAt = (i, col) => {
     const el = gridRef.current?.querySelector(`[data-row="${i}"] [data-col="${col}"]`)
@@ -692,10 +720,10 @@ function FieldsCard({ tv, description, announce }) {
     setPending({ key, col })
     announceMove(key, next)
   }
-  function drop(targetKey) {
+  function drop(targetKey, what) {
     const key = dragKey
     setDragKey(null); setOverKey(null)
-    if (!key) return
+    if (!key || what !== key) return
     const next = moveFieldTo(list, key, targetKey)
     if (JSON.stringify(next) === JSON.stringify(list)) return
     store(next)
@@ -748,15 +776,14 @@ function FieldsCard({ tv, description, announce }) {
               onDragStart={(e) => { e.dataTransfer.setData('text/plain', f.key); e.dataTransfer.effectAllowed = 'move' }}
               onDragEnd={() => { setDragKey(null); setOverKey(null) }}
               onDragOver={(e) => { if (dragKey != null && canMove) { e.preventDefault(); setOverKey(f.key) } }}
-              onDrop={(e) => { e.preventDefault(); drop(f.key) }}
+              onDrop={(e) => { e.preventDefault(); drop(f.key, carried(e)) }}
               onFocus={() => { if (live(i)) setActive(i) }}>
               <div role="gridcell" className="rb-tv-cell rb-tv-cell-handle">
                 {canMove && (
                   <HoverActions>
                     <IconButton size="sm" Icon={GripVertical} data-col="handle" tabIndex={tab} className="rb-tv-handle"
                       title={`Move ${label}, ${mi + 1} of ${movable.length}`}
-                      onPointerDown={() => setDragKey(f.key)}
-                      onPointerUp={() => { if (dragKey != null) setDragKey(null) }} />
+                      onPointerDown={() => setDragKey(f.key)} />
                   </HoverActions>
                 )}
               </div>

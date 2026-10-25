@@ -714,6 +714,17 @@ browser storage starting empty at every launch.
 - A filter's `values` hold ids for linked rows and words for the rest; a
   value whose row is gone matches nothing and the card shows it as "No longer
   in the project".
+- **A stored part this table cannot apply** (VW1d code review round 2,
+  R2-3, R2-4) — a filter row with another build's condition or on a field
+  the table cannot filter, a sort on a field the table lacks — is kept,
+  filters or sorts nothing, is not counted (*Filter (n)*, the summaries),
+  and reads as what it is ("… (unknown)", "… (cannot filter)", "… (not in
+  this table)"), never as the select's first option. **Another WILSON's
+  keys count toward the 32 KB** (they are kept on write): where they alone
+  leave no room for a change, *Save* says so in the bar and *Save as new
+  view*, which carries only this build's settings, holds it (R2-2). A
+  newer WILSON's view cannot be duplicated by this one (its copy would drop
+  that build's settings; R2-6).
 - *All* is never stored. `allViewOf(tableKey)` (§5.5) builds it: no filter,
   no sort, `fields: []` (every field at its default place), the grouping as
   today (the Tasks table none and its Board by Status; Shots by Scene; the

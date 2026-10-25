@@ -616,7 +616,9 @@ describe('code review round 1 (UX, accessibility)', () => {
     openCard('Fields')
     const rowOf = (name) => within(dropdown()).getByRole('button', { name: new RegExp(`^Move ${name},`) }).closest('[role="row"]')
     fireEvent.pointerDown(within(dropdown()).getByRole('button', { name: /^Move Priority,/ }))
-    const dt = { setData: () => {}, effectAllowed: '' }
+    // The drag carries its row's id, as the browser's does (review round 2, R2-5).
+    const carriedData = {}
+    const dt = { setData: (k, v) => { carriedData[k] = v }, getData: (k) => carriedData[k], effectAllowed: '' }
     fireEvent.dragStart(rowOf('Priority'), { dataTransfer: dt })
     fireEvent.dragOver(rowOf('Status'), { dataTransfer: dt })
     fireEvent.drop(rowOf('Status'), { dataTransfer: dt })
@@ -701,5 +703,133 @@ describe('code review round 1 (UX, accessibility)', () => {
     await mount()
     openViews()
     expect(dropdown().parentElement.tagName).toBe('DIV')
+  })
+})
+
+// ── Code review round 2 (Fable; security on the view's filters, and an
+// attack on round 1's corrections): each correction asserted, each fails
+// without it. ────────────────────────────────────────────────────────────
+async function storedView(name, config) {
+  let v
+  await run(async () => { v = await ctx.addTableView({ tableKey: 'tasks', name }) })
+  const row = fx.store.tableViews.find(x => x.id === v.id)
+  row.config = config
+  await run(() => ctx.reloadActiveProject())
+  return v
+}
+async function chooseView(name) {
+  openViews()
+  fireEvent.click(within(dropdown()).getByRole('button', { name }))
+}
+
+describe('code review round 2 (security on the view\'s filters; round 1\'s corrections)', () => {
+  it('R2-1: a failed save then a teammate\'s save: the bar names the teammate and Save asks first (the old failure is stale)', async () => {
+    const a = fx.rabbitAdapter()
+    const real = a.updateTableView.bind(a)
+    let fail = true
+    a.updateTableView = async (...args) => { if (fail) { fail = false; throw new Error('offline') } return real(...args) }
+    await mount(a)
+    await newView('Shoot week')
+    escape()
+    const id = fx.store.tableViews.find(v => v.name === 'Shoot week').id
+    await filterStatus('In progress')
+    await run(async () => { fireEvent.click(within(bar()).getByRole('button', { name: 'Save' })) })
+    expect(bar().textContent).toContain('Shoot week could not be saved: offline.')
+    await teammateSaves(id, { version: 1, filters: [{ field: 'status', op: 'is', values: ['final'] }] })
+    expect(bar().textContent).toContain('Mara Okonkwo changed Shoot week.')
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByRole('dialog', { name: 'Save over the newer Shoot week?' })).toBeTruthy()
+  })
+  it('R2-2: a view filled by another WILSON\'s settings says so on Save, and Save as new view still holds the change', async () => {
+    await mount()
+    await storedView('Full', { version: 1, junk: 'x'.repeat(32600) })
+    await chooseView('Full')
+    await filterStatus('Final')
+    await run(async () => { fireEvent.click(within(bar()).getByRole('button', { name: 'Save' })) })
+    expect(bar().textContent).toContain('Full could not be saved: settings from another WILSON fill this view; save your change as a new view.')
+    // CONTROL: the plain cap's words are not what it says.
+    expect(bar().textContent).not.toContain('at most 32 KB')
+  })
+  it('R2-3: a stored row with an unknown condition, or on a field this table cannot filter, is not counted and reads as what it is', async () => {
+    await mount()
+    await storedView('Odd', { version: 1, filters: [{ field: 'status', op: 'bogus', values: ['final'] }, { field: 'created_at', op: 'is', values: ['x'] }] })
+    await chooseView('Odd')
+    expect(screen.getByRole('button', { name: /^Filter/ }).textContent).toBe('Filter')
+    expect(rowCount()).toBe(storedTasks().length)
+    fireEvent.click(screen.getByRole('button', { name: /^Filter/ }))
+    const rows = document.querySelectorAll('.rb-task-filters .rb-tv-filter-row')
+    const chosen = (sel) => sel.options[sel.selectedIndex].textContent
+    expect(chosen(within(rows[0]).getByRole('combobox', { name: 'Condition' }))).toBe('bogus (unknown)')
+    expect(chosen(within(rows[1]).getByRole('combobox', { name: 'Field' }))).toBe('Created (cannot filter)')
+  })
+  it('R2-4: a sort on a field the table lacks shows in the card as what it is, and the toolbar shows no sort for it', async () => {
+    await mount()
+    await storedView('By level', { version: 1, sorts: [{ field: 'level', dir: 'desc' }] })
+    await chooseView('By level')
+    const sort = screen.getByRole('combobox', { name: 'Sort' })
+    expect(sort.value).toBe('')
+    expect(sort.getAttribute('data-active')).toBe('false')
+    expect(screen.queryByTitle(/^Sorted /)).toBeNull()
+    openCard('Sort')
+    const sel = within(dropdown()).getByRole('combobox', { name: 'Sort by' })
+    expect(sel.options[sel.selectedIndex].textContent).toBe('level (not in this table)')
+  })
+  it('R2-5: a press released without a drag disarms the row; a drop that carries no row of the list moves nothing', async () => {
+    await mount()
+    openCard('Fields')
+    const heads = () => [...document.querySelectorAll('.rb-task-table thead th')].map(th => th.textContent).slice(1, 4)
+    const rowOf = (name) => within(dropdown()).getByRole('button', { name: new RegExp(`^Move ${name},`) }).closest('[role="row"]')
+    const foreign = { setData: () => {}, getData: () => 'some text', effectAllowed: '' }
+    fireEvent.pointerDown(within(dropdown()).getByRole('button', { name: /^Move Priority,/ }))
+    fireEvent.drop(rowOf('Status'), { dataTransfer: foreign })
+    expect(heads()).toEqual(['Title', 'Status', 'Priority'])
+    fireEvent.pointerDown(within(dropdown()).getByRole('button', { name: /^Move Priority,/ }))
+    fireEvent.pointerUp(document.body)
+    expect(rowOf('Priority').getAttribute('draggable')).toBe('false')
+  })
+  it('R2-6: a newer WILSON\'s view cannot be duplicated (its copy would lose that build\'s settings); CONTROL: this build\'s can', async () => {
+    await mount()
+    await storedView('Newer', { version: 2, layout: 'table' })
+    openViews()
+    fireEvent.click(within(dropdown()).getByRole('button', { name: 'More for Newer' }))
+    const dup = [...document.querySelectorAll('.ui-menu-item')].find(b => b.textContent.startsWith('Duplicate'))
+    expect(dup.disabled).toBe(true)
+    expect(dup.textContent).toContain('Newer WILSON')
+  })
+  it('R2-7: prototype-shaped keys are no grouping and no person', async () => {
+    const { groupToTab, groupFromTab } = await import('./tasksTableView')
+    expect(groupToTab('constructor')).toBe('constructor')
+    expect(groupToTab('__proto__')).toBe('__proto__')
+    expect(groupFromTab('toString')).toBe('toString')
+    await mount()
+    await newView('Shoot week')
+    escape()
+    const id = fx.store.tableViews.find(v => v.name === 'Shoot week').id
+    await filterStatus('In progress')
+    await teammateSaves(id, { version: 1, filters: [{ field: 'status', op: 'is', values: ['final'] }] })
+    fx.store.tableViews.find(v => v.id === id).revised_by = 'constructor'
+    fx.store.tableViewRevision += 1
+    fx.store.tableViews.find(v => v.id === id).revision = fx.store.tableViewRevision
+    await run(() => ctx.reloadActiveProject())
+    expect(bar().textContent).toContain('Someone changed Shoot week.')
+  })
+  it('R2-9: the bar gone while its name is typed (a teammate saved the same change): the keyboard goes to the Views button', async () => {
+    await mount()
+    await newView('Shoot week')
+    escape()
+    const id = fx.store.tableViews.find(v => v.name === 'Shoot week').id
+    await filterStatus('Final')
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as new view' }))
+    expect(document.activeElement).toBe(within(bar()).getByRole('textbox', { name: 'View name' }))
+    await teammateSaves(id, { version: 1, filters: [{ field: 'status', op: 'is', values: ['final'] }] })
+    expect(bar()).toBeNull()
+    expect(document.activeElement).toBe(viewsButton())
+  })
+  it('R2-12: the dropdown\'s fallback focus is its own button, not the first in the document', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src/tools/rabbit_v0.1.0/views/tableViews/TableViewsMenu.jsx'), 'utf8')
+    expect(src).not.toContain("document.querySelector('.rb-tv-button')")
+    expect(src).toContain('focusButton={() => buttonRef.current?.focus()}')
   })
 })

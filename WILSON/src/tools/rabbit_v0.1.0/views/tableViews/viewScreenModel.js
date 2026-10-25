@@ -112,8 +112,23 @@ export function moveField(effective, key, by) {
 // ── Filters (Q13; defects 1 and 2) ──────────────────────────────────────
 
 /** How many filters filter: an incomplete row (no value yet) filters nothing and is not counted (defect 1). */
-export function filterCount(filters) {
-  return (Array.isArray(filters) ? filters : []).filter(isCompleteFilter).length
+export function filterCount(filters, description = null) {
+  const list = (Array.isArray(filters) ? filters : [])
+  return (description ? list.filter(f => appliesFilter(f, description)) : list.filter(isCompleteFilter)).length
+}
+
+/**
+ * Does a row filter this table? Complete, on a field the table can filter,
+ * with a condition the field has (code review round 2, R2-3: a stored row
+ * with another build's condition, or on a field this table cannot filter,
+ * was counted — "3 filters" — while it filtered nothing). The count and the
+ * table read this one rule.
+ */
+export function appliesFilter(row, description) {
+  if (!isCompleteFilter(row)) return false
+  const def = description.field(row.field)
+  if (!def || !def.filter) return false
+  return description.filterOps(def).some(o => o.value === row.op)
 }
 
 const text = (v) => (v == null ? '' : String(v))
@@ -146,11 +161,10 @@ export function matchesFilter(values, filter) {
 
 /** The rows every complete filter matches (Q13: all must match). */
 export function applyViewFilters(rows, filters, description) {
-  const list = (Array.isArray(filters) ? filters : []).filter(isCompleteFilter)
+  const list = (Array.isArray(filters) ? filters : []).filter(f => appliesFilter(f, description))
   if (list.length === 0) return rows
   return rows.filter(row => list.every((f) => {
     const field = description.field(f.field)
-    if (!field || !field.filter) return true
     const values = description.valuesOf(row, f.field)
     return matchesFilter(values, field.filter === 'text' ? { ...f, text: true } : f)
   }))
@@ -207,11 +221,16 @@ export function withFirstSort(sorts, field) {
   return [{ field, dir: list[0]?.field === field ? list[0].dir : dir }, ...rest]
 }
 
-/** The first sort's direction turned round. */
-export function withFirstSortReversed(sorts) {
+/**
+ * The first sort's direction turned round — the first for which `applies`
+ * holds (the toolbar's: the first the table can sort by; a stored sort on a
+ * field it lacks is kept as it is, code review round 2, R2-4).
+ */
+export function withFirstSortReversed(sorts, applies = () => true) {
   const list = (Array.isArray(sorts) ? sorts : []).filter(Boolean)
-  if (list.length === 0) return list
-  return [{ ...list[0], dir: list[0].dir === 'desc' ? 'asc' : 'desc' }, ...list.slice(1)]
+  const i = list.findIndex(applies)
+  if (i < 0) return list
+  return list.map((s, j) => (j === i ? { ...s, dir: s.dir === 'desc' ? 'asc' : 'desc' } : s))
 }
 
 /** A list's item moved up (-1) or down (+1); the list as it is when it cannot move. */
@@ -230,7 +249,9 @@ export function readable(config, tableKey) {
   return readViewConfig(writeViewConfig(null, config || {}), tableKey).config
 }
 
-const sortedValues = (f) => ({ field: f.field, op: f.op, values: [...f.values].map(text).sort() })
+// A row's values as a set (review round 2, R2-8: a stored value twice, or
+// as a number and a string, is one value).
+const sortedValues = (f) => ({ field: f.field, op: f.op, values: [...new Set(f.values.map(text))].sort() })
 const groupKey = (g) => (g ? `${g.field}\u0001${g.hideEmpty ? 1 : 0}` : '')
 
 /**
@@ -257,8 +278,8 @@ export function sameEffect(a, b, { tableKey, fieldKeys = [], fixed = [] } = {}) 
 
 // ── The "This view" summaries (design §4.2) ──────────────────────────────
 
-export function filtersSummary(config) {
-  const n = filterCount(config?.filters)
+export function filtersSummary(config, description = null) {
+  const n = filterCount(config?.filters, description)
   return n === 0 ? 'None' : n === 1 ? '1 filter' : `${n} filters`
 }
 

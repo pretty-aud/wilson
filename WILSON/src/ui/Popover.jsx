@@ -79,6 +79,10 @@ import { pushPopover, isTopPopover, modalDepth, menuDepth, focusableWithin } fro
 const GAP = 4
 const EDGE = 12
 const ROOM_BELOW = 240
+// The in-place form's least width, however near the window's edge its
+// trigger sits (VW1d code review round 2, R2-10: at the edge its room was 0,
+// a card no one could read with the keyboard inside it).
+const MIN_INLINE_WIDTH = 240
 
 /** Where the card goes, from the anchor's box at its open. */
 function placePopover(rect, width, vw, vh, minLeft = null) {
@@ -274,7 +278,7 @@ export function Popover({
         data-place="inline"
         data-side="below"
         data-surface="dark"
-        style={{ width: Math.min(width, place.maxWidth), maxHeight: place.maxHeight }}
+        style={{ width: Math.min(width, Math.max(MIN_INLINE_WIDTH, place.maxWidth)), maxHeight: place.maxHeight }}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
       >

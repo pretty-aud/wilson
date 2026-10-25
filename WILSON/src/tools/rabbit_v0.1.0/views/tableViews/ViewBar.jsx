@@ -45,7 +45,12 @@ export function ViewBar({ tv, ask, announce = () => {}, focusViews = () => {} })
     const was = wasNamingRef.current
     wasNamingRef.current = false
     const a = document.activeElement
-    if (was && (!a || a === document.body)) asNewRef.current?.focus()
+    // The bar gone with it (a teammate saved the same change): the Views
+    // button (code review round 2, R2-9).
+    if (was && (!a || a === document.body)) {
+      if (asNewRef.current) asNewRef.current.focus()
+      else focusViews()
+    }
   }, [naming])
   if (!bar) return null
 

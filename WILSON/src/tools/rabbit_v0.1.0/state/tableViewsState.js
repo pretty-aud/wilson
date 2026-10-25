@@ -44,6 +44,9 @@ import {
 } from './tableViewsModel'
 
 export const TABLE_VIEWS_UNAVAILABLE_WORDS = 'Saved views are not on this server yet.'
+// VW1d code review round 2 (R2-2): a view whose settings from another WILSON
+// leave no room for a change.
+export const OTHER_SETTINGS_FILL_WORDS = 'settings from another WILSON fill this view; save your change as a new view'
 export const TABLE_VIEW_LAST_WAIT_MS = 2000
 
 export function tableViewsUnavailableError() {
@@ -395,6 +398,13 @@ export function useTableViewsState({
     if (!before) return { status: 'deleted' }
     const next = writeViewConfig(before.config, config)
     const problem = viewConfigProblem(next)
+    // VW1d code review round 2 (R2-2): the stored view's own settings from
+    // another WILSON (kept on write, design §5.1) can fill the 32 KB alone;
+    // then the change itself fits and only a new view (which carries just
+    // this build's settings) can hold it — said so, not "at most 32 KB".
+    if (problem && !viewConfigProblem(writeViewConfig(null, config))) {
+      throw wordsError(OTHER_SETTINGS_FILL_WORDS, 'table_view_invalid')
+    }
     if (problem) throw wordsError(problem, 'table_view_invalid')
     const projectId = projectIdRef.current
     const visit = projectVisitRef.current

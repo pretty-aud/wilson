@@ -372,6 +372,12 @@ describe('Popover — the in-place form (VW1d)', () => {
     expect(card().style.width).toBe('560px')
   })
 
+  it('VW1d code review round 2 (R2-10): a trigger at the window\'s edge still gets a card 240px wide, never 0', () => {
+    const edge = { ...BOX, left: innerWidth + 20, right: innerWidth + 120 }
+    render(<InPlace width={560} box={edge} />)
+    expect(card().style.width).toBe('240px')
+  })
+
   it('takes a new width at a re-render (a card widens it), its left edge the sheet\'s', () => {
     const { rerender } = render(<InPlace width={300} />)
     rerender(<InPlace width={560} />)

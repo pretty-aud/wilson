@@ -192,6 +192,31 @@ describe('the bar\'s ten rows (design §4.4), derived', () => {
   })
 })
 
+describe('code review round 2: hostile or foreign rows', () => {
+  const d = tasksDescription({ itemKinds: ['asset'] })
+  it('R2-3: a row with an unknown condition, or on a field this table cannot filter, is not counted and filters nothing', async () => {
+    const { appliesFilter } = await import('./viewScreenModel')
+    const rows = [{ field: 'status', op: 'bogus', values: ['final'] }, { field: 'created_at', op: 'is', values: ['x'] }, { field: 'nowhere', op: 'is', values: ['x'] }]
+    expect(rows.map(r => appliesFilter(r, d))).toEqual([false, false, false])
+    expect(filterCount(rows, d)).toBe(0)
+    expect(filtersSummary({ filters: rows }, d)).toBe('None')
+    // CONTROL: a real one counts, and the count without a description is the raw one.
+    expect(filterCount([...rows, { field: 'status', op: 'is', values: ['final'] }], d)).toBe(1)
+    expect(filterCount(rows)).toBe(3)
+  })
+  it('R2-8: a value stored twice (or as a number and a string) is one value: removing the repeat is no change', () => {
+    const base = defaultViewConfig('tasks')
+    const fx = { tableKey: 'tasks', fieldKeys: KEYS, fixed }
+    expect(sameEffect({ ...base, filters: [{ field: 'status', op: 'is', values: ['x', 'x', 1, '1'] }] }, { ...base, filters: [{ field: 'status', op: 'is', values: ['1', 'x'] }] }, fx)).toBe(true)
+  })
+  it('R2-4: the toolbar\'s arrow turns round the first sort the table has; a stored sort it lacks is kept as it is', () => {
+    const s = [{ field: 'level', dir: 'desc' }, { field: 'title', dir: 'asc' }]
+    expect(withFirstSortReversed(s, x => x.field !== 'level')).toEqual([{ field: 'level', dir: 'desc' }, { field: 'title', dir: 'desc' }])
+    // CONTROL: with no rule, the first.
+    expect(withFirstSortReversed(s)[0]).toEqual({ field: 'level', dir: 'asc' })
+  })
+})
+
 describe('code review round 1, R1-4: dragging a field or a sort to another\'s place', () => {
   it('moveFieldTo: the field takes the target\'s place; the name never moves and nothing goes before it', async () => {
     const { moveFieldTo, moveItemTo } = await import('./viewScreenModel')

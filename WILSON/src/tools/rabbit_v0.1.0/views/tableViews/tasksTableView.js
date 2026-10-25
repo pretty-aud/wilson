@@ -57,9 +57,12 @@ const TEXT_OPS = Object.freeze([
 const TAB_GROUP = Object.freeze({ phase_id: 'phase', assignee_id: 'assignee' })
 const CONFIG_GROUP = Object.freeze({ phase: 'phase_id', assignee: 'assignee_id' })
 /** A config's grouping field as the tab's grouping code names it. */
-export function groupToTab(field) { return field ? (TAB_GROUP[field] || field) : '' }
+// Own keys only: a stored "constructor" or "__proto__" maps to itself, then
+// reads as no grouping (code review round 2, R2-7).
+const own = (map, key) => (Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null)
+export function groupToTab(field) { return field ? (own(TAB_GROUP, field) || String(field)) : '' }
 /** The tab's grouping value as a config names it. */
-export function groupFromTab(value) { return value ? (CONFIG_GROUP[value] || value) : '' }
+export function groupFromTab(value) { return value ? (own(CONFIG_GROUP, value) || String(value)) : '' }
 
 const ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 

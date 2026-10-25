@@ -76,7 +76,13 @@ export function useTableView({ ctx, tableKey, description, canWrite = false, nam
 
   // The last save's refusal, per view (the only state the bar keeps).
   const [refusals, setRefusals] = useState({})
-  const refusal = refusals[String(screen.id)] || null
+  // A refusal holds for the revision it met: a teammate's save after it (the
+  // live merge moves the row's revision) makes it stale, and the bar says
+  // their save instead — with Save asking first, and a newer WILSON's Save
+  // greyed (code review round 2, R2-1: the stale "could not be saved" row,
+  // checked before the moved one, offered a Try again that could never land).
+  const stored = refusals[String(screen.id)] || null
+  const refusal = stored && (!row || stored.revision == null || Number(stored.revision) === Number(row.revision)) ? stored : null
   const clearRefusal = useCallback((id) => setRefusals(r => {
     if (!(String(id) in r)) return r
     const next = { ...r }
@@ -159,11 +165,16 @@ export function useTableView({ ctx, tableKey, description, canWrite = false, nam
         writeDraft(selection(res.row.id, res.row))
         clearRefusal(id)
       } else if (res?.status === 'filtered') {
-        setRefusals(r => ({ ...r, [String(id)]: { kind: 'filtered' } }))
+        setRefusals(r => ({ ...r, [String(id)]: { kind: 'filtered', revision: row.revision } }))
+      } else {
+        // `changed` / `deleted`: the row the backend brought (or took) says
+        // what the bar says now; an older refusal no longer does (review
+        // round 2, R2-1).
+        clearRefusal(id)
       }
       return res?.status || null
     } catch (err) {
-      setRefusals(r => ({ ...r, [String(id)]: { kind: 'failed', reason: err?.message || String(err) } }))
+      setRefusals(r => ({ ...r, [String(id)]: { kind: 'failed', reason: err?.message || String(err), revision: row.revision } }))
       return 'failed'
     }
   }, [row, ctx, config, draft, writeDraft, selection, clearRefusal])

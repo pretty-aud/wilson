@@ -357,7 +357,8 @@ export default function ProjectTasksView() {
   // Who changed a view, by the workspace roster (design §5.5): "Someone"
   // when they are not there.
   const nameOf = useCallback((id) => {
-    const m = memberById[id]
+    // Its own entries only: a stored "constructor" is nobody (review round 2, R2-7).
+    const m = Object.prototype.hasOwnProperty.call(memberById, id) ? memberById[id] : null
     return m ? (m.name || m.display_name || m.username || null) : null
   }, [memberById])
   const toast = useOptionalToast()
@@ -452,9 +453,13 @@ export default function ProjectTasksView() {
   const filters = config.filters || []
   const sorts = config.sorts || []
   // The FIRST sort does what the one sort did besides ordering the rows: it
-  // orders the Phase groups and places the key dates (finding 5).
-  const sortField = sorts[0]?.field || ''
-  const sortDir = sorts[0]?.dir === 'desc' ? 'desc' : 'asc'
+  // orders the Phase groups and places the key dates (finding 5). The first
+  // the table can sort by: one on a field it lacks (a view sorted by Scene
+  // on a project without scenes) sorts nothing, and the toolbar does not
+  // show it as a sort (code review round 2, R2-4).
+  const firstSort = sorts.find(s => s && description.field(s.field)?.sortable) || null
+  const sortField = firstSort?.field || ''
+  const sortDir = firstSort?.dir === 'desc' ? 'desc' : 'asc'
   const groupBy = groupToTab(config.group?.field)
   const kanbanGroup = groupToTab(config.board?.field) || 'status'
   const tableHideEmpty = config.group ? config.group.hideEmpty !== false : true
@@ -469,7 +474,7 @@ export default function ProjectTasksView() {
     return { ...c, board: { field, hideEmpty: description.hideEmptyDefault('board', field) } }
   })
   const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
-  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts) }))
+  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
   // VW1b: the Group menu offers the item kinds the project uses; a grouping
   // whose kind it no longer offers (its column gone) reads as the default.
   // VW1d: read, not written back — a view keeps its grouping (VW1b R1-10's
@@ -740,7 +745,7 @@ export default function ProjectTasksView() {
 
   // ── What the view shows (VW1d) ──
   // *Filter (n)* counts only the rows that filter (defect 1).
-  const activeFilters = filterCount(filters)
+  const activeFilters = filterCount(filters, description)
   // The columns: the view's fields over the columns the project uses, in its
   // order, the hidden ones out (her Q6, Q7); the Title first, always shown.
   const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
