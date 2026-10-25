@@ -92,7 +92,7 @@ try {
   let page = await fresh();
   measures.rest = await toolbar(page);
   await shot(page, 1, 'rest');
-  await page.getByRole('button', { name: /^New/ }).click();
+  await page.getByRole('button', { name: 'New', exact: true }).click();
   await shot(page, 2, 'new-menu');
   await page.keyboard.press('Escape');
 

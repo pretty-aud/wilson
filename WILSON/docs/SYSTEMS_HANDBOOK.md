@@ -5134,6 +5134,40 @@ of a session — this section is limits by design, that file is faults.
   sends its old and new config on the live channel (32 KB at most each, the
   channel's ceiling not measured).
 
+**Custom table views on screen (VW1d — 2026-10-25: the Tasks table; the other tables are VW1e's)**
+
+- **One shared piece, a description per table.** `views/tableViews/`: the
+  rules on screen (`viewScreenModel.js`, pure: fields' order and visibility,
+  several filter values, several sorts, the bar's rows derived on render,
+  the view on screen), one table's hook (`useTableView.js`), the Views
+  button and its in-place dropdown with the four cards
+  (`TableViewsMenu.jsx`), the filter row the toolbar's strip and the
+  Filters card share (`ViewFilterRow.jsx`), the bar (`ViewBar.jsx`),
+  *Create grouping* (`CreateGroupingDialog.jsx`), the root's questions
+  (`useAsk.jsx`), one sheet (`tableViews.css`, `rb-tv-`, its guards in
+  `tableViewsCss.test.js`). A table gives it a description
+  (`tasksTableView.js`: every key a column key; a sort may name a field
+  with no column, Tasks' `created_at`).
+- **The view on screen** is the change for now's (the provider's draft,
+  kept across tabs; a draft with no `config` only says which view), else the
+  person's last used view while that map is `ready`, else *All*; a view
+  deleted since opens on *All* quietly; one deleted while on screen says so
+  (a toast with no change, the bar with one).
+- **A change** is what shows the table otherwise than the view (an empty
+  filter row, a field list equal to the default, a value order do not);
+  Save is conditional on the revision the change began from, and over a
+  teammate's newer save only after asking (Q-G3). The bar is derived from
+  the draft, the row, the person, the seat, the backend and the last
+  refusal; the live merge and a refused save feed the same rule.
+- **Groupings** show even while empty, whatever *Hide empty groups* says,
+  hidden only while an item is in the trash; the Timeline shows the Tasks
+  table's (its builders take `groupings`; a shot grouping sits under its
+  scene or a scene combination made for it; outside the active list, none).
+- **The kit**: Popover's in-place form (`inPlace`; Escape asks the caller;
+  focus leaving it closes it; its own StrictMode hand-back is not "leaving"),
+  MenuButton in `src/ui` (its keyboard model without roles, a labelled form),
+  Banner `live={false}`. The undo toast pauses while focused.
+
 **Security-adjacent**
 
 - ~~Eight SECURITY DEFINER functions are executable by `anon`.~~ ✅ **CLOSED by

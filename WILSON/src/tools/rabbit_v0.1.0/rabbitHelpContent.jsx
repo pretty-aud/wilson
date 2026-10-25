@@ -857,7 +857,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               table, in the controls' own words (rabbitViewsHelp.test.jsx
               holds them to the files that draw them). */}
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Views on the Tasks table</h4>
+            <h4 className={T.cardTitle}>Views on the tasks table</h4>
             <p className={T.listItem}>
               The <span className={T.listBold}>Views</span> button names the
               view on screen. Its list holds <span className={T.listBold}>All</span> and

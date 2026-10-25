@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 // =============================================================================
-// The help's *Views on the Tasks table* card (post-overhaul VW1d, 2026-10-25)
+// The help's *Views on the tasks table* card (post-overhaul VW1d, 2026-10-25)
 // names the controls in the words the files that draw them use: a renamed
 // button fails here, so the help never names a control that is not on
 // screen (rabbitScenesHelp.test.jsx's shape). CONTROL: a word no file draws
@@ -24,7 +24,7 @@ const drawn = (word) => new RegExp(`>\\s*${word}\\s*<|'${word}'|label="${word}"`
 describe('the help names the views\' controls in their own words', () => {
   it('each bold word of the card is drawn by the views\' files', () => {
     const { container } = render(<RabbitHelpContent helpPage="rabbit-phases" theme="dark" />)
-    const card = [...container.querySelectorAll('h4')].find(h => h.textContent === 'Views on the Tasks table')?.parentElement
+    const card = [...container.querySelectorAll('h4')].find(h => h.textContent === 'Views on the tasks table')?.parentElement
     expect(card).toBeTruthy()
     const bold = [...card.querySelectorAll('span')].map(s => s.textContent.trim()).filter(Boolean)
     expect(bold).toEqual(['Views', 'All', 'Reset', 'Save as new view', 'Save', 'New view', 'Create grouping', 'Remove grouping', 'Hide empty groups'])

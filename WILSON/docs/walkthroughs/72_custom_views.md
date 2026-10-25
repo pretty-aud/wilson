@@ -1,9 +1,9 @@
 # 72 — CUSTOM TABLE VIEWS (R.A.B.B.I.T. → a project → Tasks, Levels, Experiences, Scenes)
 
 This walkthrough grows with the build: **part 1 (VW1b)** is the Tasks table's
-item columns and the counts; parts 2 to 4 (the views' data, the views on
-Tasks, the other tables) are added by the sessions that build them, and the
-last one completes it.
+item columns and the counts; **part 2 (VW1c)** the views' data; **part 3
+(VW1d)** the views on the Tasks table; part 4 (the other tables) is added by
+the session that builds it, and completes it.
 
 ## Part 1 — every item in the Tasks table, and the counts (VW1b, 2026-10-17)
 
@@ -207,3 +207,147 @@ Function changed.
 ### 4. Questions for you
 
 None this time.
+
+## Part 3 — your views on the Tasks table (VW1d, 2026-10-25)
+
+1. **The Tasks toolbar's *Views* button names the view on screen** (your Q5,
+   Q-A2: no *edited* word, no dot). It opens a list, right under the button:
+   **All**, then the project's views, shared with everyone on the project
+   (Q1), the one on screen ticked; then **This view**: *Filters*, *Sort*,
+   *Group* and *Fields*, each with a short summary. Each opens its own card
+   in the same place, with a ← back (Q5a, Q5b).
+2. **Filter, Sort, Group, the Table / Board tabs and the cards change the
+   view for the moment** (Q3). While the table differs from the view as
+   saved, a slim bar under the toolbar says *Shoot week: changed for now*
+   with **Reset**, **Save as new view** and **Save** (Q3a, Q3c, Q-A3); on
+   *All*, which cannot change, *Save as new view* only. A change lasts while
+   WILSON is open, across tabs (Q3b); choosing another view drops it without
+   asking (Q-H).
+3. **A filter can match several values** (Q13): *Status is In progress,
+   Pending review*, ticked in a small list. A new filter row filters nothing
+   until it has a value, and *Filter (1)* counts only rows that filter; a
+   row's condition and value reset when its field changes (the two defects
+   you said to fix, Q21). **Several sorts, in order** (Q14): the toolbar's
+   Sort sets the first, the Sort card holds the rest.
+4. **Fields** (Q6, Q7): hide any column but *Title*, or move it; turn the
+   key dates' rows off with **Show key dates**. On the **Board** the same
+   card chooses what a card shows (Q-E): Status, Priority, Asset, Assignee,
+   Start, Bid.
+5. **Group** (Q15, Q-I): **Hide empty groups**, starting as today (off for
+   Status and on the Board, on for the rest).
+6. **New view** (Q-G1) is saved for everyone at once, starting as *All*;
+   each view's **…** has Edit, Rename, Duplicate and Delete (which asks
+   first); drag a view by its handle, or use *Move up* / *Move down*, to
+   reorder them for everyone (Q5c).
+7. **Each table opens on the view you last used there** (Q4).
+8. **A teammate's save reaches you at once** (Q3d); if you have a change of
+   your own, it stays on screen and the bar says who saved; **Save** then
+   asks before writing yours over theirs (Q-G3).
+9. **The toolbar's Phase, Key date and New task are one *New* button** with
+   a menu (Q-A1); **Create grouping** appears beside the Group menu while
+   the table is grouped by Asset, Scene, Shot, Level or Experience (Q-D3).
+   A grouping is saved for the project (Q-D2) and shows even while empty, to
+   drag tasks into; remove it from its group's **…** (Q-D5). The Timeline
+   grouped by asset, scene, level or experience shows the groupings too,
+   with no Create grouping there (Q-D4).
+10. **The views your browser kept for the Tasks table before are gone**
+    (Q17, *Start fresh*). The other tables' old views stay until their part.
+
+**What this is.** VW1d, the fourth session of the custom views' build
+(`docs/sessions/briefs/po-vw1d-custom-views-tasks.md`): first a review of the
+design's screen parts against the code (18 findings, corrected in
+`docs/design/CUSTOM_VIEWS_DESIGN.md`), then the views on the Tasks table, the
+design's §7 step 4. No database change: it uses part 2's. Assets, Levels,
+Experiences, Scenes and Shots get theirs in part 4 (VW1e).
+
+Written 2026-10-25 against `feat/post-overhaul-edit-versioning` (VW1d,
+`po/vw1d-custom-views-tasks`). Nothing to apply anywhere.
+
+### 1. Step by step
+
+**A. The toolbar and the list** (the development copy on port 5298, the
+`vw1d-worktree` entry; `/rabbit`, the test data: **Salt Hours → Tasks**)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 1 | Look at the toolbar | *Filter, Sort, Group, Table / Board*, the **All** button, the search; on the right the count, *Export*, *Deleted key dates* and one orange **New** (`po-vw1d-01-rest`). |
+| 2 | Click **New** | *Task*, *Phase*, *Key date* (`-02-new-menu`). Each does what its button did. |
+| 3 | Click **All**, then **New view**, type **Shoot week**, press **Enter** | The button now reads *Shoot week*; the list shows it ticked under *All*; the undo toast says *Shoot week saved for everyone* (`-03-dropdown`). |
+| 4 | Click **Filters**, then **Add filter**; leave its value empty | The card widens; nothing in the table changes and no bar appears (an empty row filters nothing). |
+| 5 | Choose **Status**, click **Choose…**, tick **In progress** and **Pending review** | The table shows only those; the bar appears: *Shoot week: changed for now* (`-04-filters`, `-05-bar`). |
+| 6 | Press **Esc** three times | The tick list closes, then the card goes back to the list, then the list closes; the keyboard is on the Views button. |
+| 7 | Click **Save** in the bar | The bar goes; the toast says *Shoot week saved* (its Undo takes it back). |
+| 8 | Click **All** in the list, then **Shoot week** again | All 42 tasks, then the filtered ones again. Go to Timeline and back: still *Shoot week*. |
+
+**B. Sort, Group, Fields** (still Salt Hours → Tasks)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 9 | Toolbar **Sort: Phase**; then the list → **Sort** → **Add sort** → **Start date** | The summary reads *Phase, then Start*. |
+| 10 | **Group: Status**, then the list → **Group** → **Hide empty groups** | Nine status groups, then only the ones with tasks. |
+| 11 | The list → **Fields**, turn off **Show Priority**, then **Show key dates** | The Priority column goes; the key dates' rows go (`-09-fields`). *Title* says *Always shown*. |
+| 12 | **Board**, then the list → **Fields** | The card's own six; turn off *Priority*: the cards lose it (`-10-board-fields`). |
+| 13 | **Reset** in the bar | Back to the view as saved. |
+
+**C. Groupings** (still Salt Hours → Tasks)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 14 | **Group: Asset** | **Create grouping** beside the Group menu (`-06-grouped`). |
+| 15 | Click it, tick **Lighthouse Interior** and **Cliff Path** | The name reads *Cliff Path, Lighthouse Interior* as you tick (`-07-create`). **Create**. |
+| 16 | Scroll to the new group | *Cliff Path, Lighthouse Interior* **0**, empty, ready to drag a task into (`-08-grouping`). Drag one in: it is about exactly those two. |
+| 17 | Open **Create grouping** again and tick the same two | *That grouping already exists.* and *Create* greyed. **Cancel**. |
+| 18 | Point at the group's head, click **…** → **Remove grouping** | It asks first; **Remove grouping**: the group goes (it stays while tasks are in it). |
+| 19 | **Timeline**, group by asset | The grouping is a row there too. |
+
+**D. The keyboard**
+
+| # | Do | You should see |
+|---|----|----------------|
+| 20 | Tab to the Views button, **Enter** | The list opens with the keyboard on the ticked view. **↑ ↓** move between views, **← →** along a row's buttons (the handle, *Move up*, *Move down*, **…**). |
+| 21 | On a view's handle, **Alt + ↓** | The view moves down for everyone. |
+
+**E. On the desktop app and the beta**, when you choose: the same steps on a
+real project. On the beta, saving views needs part 2's staging lines first;
+until then the list says *Saved views are not on this server yet.*
+
+### 2. What changed, place by place
+
+| Where | Before | Now |
+|-------|--------|-----|
+| Tasks toolbar | *Views* (a menu of this browser's saved views); *Phase*, *Key date*, *New task* | the view's name, its list and cards; one *New* menu |
+| Filters | one value each; a new row emptied the table | several values; an empty row filters nothing |
+| Sort | one | several, in order |
+| Group | as it was | plus *Hide empty groups*; *Create grouping* |
+| Columns | all of them, always | a view hides or moves any but *Title* |
+| Board cards | always six lines' worth | a view hides any of them |
+| Under the toolbar | nothing | the bar, only while there is something to save |
+| Timeline grouped by an item | combinations with tasks | the project's groupings too, even empty |
+
+### 3. Known limits
+
+- **At 1440, grouped by an item and sorted, the toolbar takes two lines**
+  (the Views button keeps 160px for the name, about 14 letters); at rest and
+  grouped it fits one with 24px to spare. At 1280 it now fits one line at
+  rest (it took two), and two when grouped by an item.
+- **A Board card keeps its own order**: a view chooses which of its six
+  fields show, not their order; Phase, End and the other items have no
+  place on a card yet.
+- **One field list serves the table and the Board**: a field hidden on the
+  Board is hidden in the table too.
+- **The Board's Group menu has no *No grouping*** any more: a Board view
+  always has columns.
+- **A grouping naming a scene or shot outside the active shot list** shows in
+  the table, not on the Timeline (which shows the active list).
+- **The desktop without signing in** names no person in the bar (*changed on
+  another computer*), and learns of a teammate's save when it saves.
+
+### 4. Questions for you
+
+1. **The Views button's width**: 160px shows about 14 letters of a view's
+   name and keeps the toolbar on one line at 1440 until a sort is chosen
+   while grouped by an item. Keep it, or narrower (about 12 letters) so that
+   case stays on one line too?
+2. **The Board's card fields**: hiding Priority on the Board also hides the
+   Priority column in that view's table (one list for both). Keep that, or
+   should the Board keep its own list of card fields?
