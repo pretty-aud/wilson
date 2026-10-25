@@ -30,7 +30,7 @@
 import { Fragment, useMemo } from 'react'
 import { Film, FileText, Clapperboard, GripVertical } from 'lucide-react'
 import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState, RowTitle, HoverActions } from '../../../../ui'
-import MenuButton from './MenuButton'
+import { MenuButton } from '../../../../ui'
 import NumberField from './NumberField'
 import { framesToTimecode } from './timecode'
 import { blockLine } from './useCutDrag'

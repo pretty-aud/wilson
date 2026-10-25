@@ -96,6 +96,8 @@ import { activeIdsOf, linksInActive, NO_SCENE_GROUP } from './scenes/linkHomes'
 // way (buildItemLookup), and grouped by asset, scene, shot, level or
 // experience a task sits in the row of its combination of them.
 import { ITEM_KINDS, KIND_FIELD, NO_KIND_LABEL, buildItemLookup, itemsOfTask, tasksAbout } from '../state/taskItemsModel'
+// VW1d (2026-10-25): the project's groupings as rows (design §4.11).
+import { isGroupingLive } from '../state/tableViewsModel'
 // Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
@@ -635,16 +637,32 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   const sceneById = ctx?.sceneById
   const shotById = ctx?.shotById
   const homeOf = useHomeIndex(ctx)
+  // VW1d (2026-10-25; design §4.11, step 0 review finding 8): the project's
+  // groupings on the Tasks table (her Q-D2; Q-D4: "make the grouping a group
+  // in the timeline as well. do not add a new group button in timeline view
+  // though"), each with every item live (Q-N4), as rows even while empty.
+  // The builders' one extra input, and this memo's. Not while a bid version
+  // is viewed: its rows are its own snapshot's (S5d), and a grouping is the
+  // live project's.
+  const groupingsOf = ctx?.groupingsOf
+  const taskGroupings = useMemo(() => {
+    if (typeof groupingsOf !== 'function' || view) return null
+    const out = {}
+    for (const kind of ITEM_KINDS) {
+      out[kind] = groupingsOf('tasks', kind).filter(g => isGroupingLive(g, itemLookup.isLive)).map(g => g.entity_ids.map(String))
+    }
+    return out
+  }, [groupingsOf, itemLookup, view])
   const rows = useMemo(
     () => buildRowsByGrouping({
       groupBy, phases, assets, tasks, schedule,
       sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds,
       teamAssignments, teamMembers: tm?.members || [],
       scenes, shots, levels, experiences,
-      sceneById, shotById, homeOf, itemLookup, savedIdsOf,
+      sceneById, shotById, homeOf, itemLookup, savedIdsOf, groupings: taskGroupings,
     }),
     [groupBy, phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds,
-     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf, itemLookup, savedIdsOf]
+     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf, itemLookup, savedIdsOf, taskGroupings]
   )
   // VW1m (2026-10-16): each group's header row by the id its drop target,
   // its drop zone and its tasks' rows carry (phaseHint): what a drop on it
@@ -6746,7 +6764,12 @@ export function versionTaskItems(view) {
 // the rows `rowById` holds — `one` (an item's id → its tasks), `many` (each
 // combination of two or more: { key, ids, label, tasks }, A to Z by label)
 // and `none`.
-function bucketByCombination(tasks, kind, rowById, lookup, nameOf) {
+// VW1d (2026-10-25; design §4.11, step 0 review finding 8): `saved`, the
+// project's groupings of the kind on the Tasks table (her Q-D2, Q-D4: "make
+// the grouping a group in the timeline as well"), each an id list with every
+// item live: one of two or more items the rows hold is a combination row,
+// empty or not (a grouping of one adds nothing: each item has its row).
+function bucketByCombination(tasks, kind, rowById, lookup, nameOf, saved = []) {
   const one = {}
   const many = new Map()
   const none = []
@@ -6762,6 +6785,13 @@ function bucketByCombination(tasks, kind, rowById, lookup, nameOf) {
     } else {
       none.push(t)
     }
+  }
+  for (const raw of Array.isArray(saved) ? saved : []) {
+    const ids = (raw || []).filter(id => rowById[id])
+    if (ids.length < 2 || ids.length !== raw.length) continue
+    const ordered = lookup ? ids.slice().sort(lookup.orderOf(kind)) : ids
+    const key = combinationKey(ordered)
+    if (!many.has(key)) many.set(key, { key, ids: ordered, label: ordered.map(id => nameOf(rowById[id])).join(', '), tasks: [] })
   }
   return { one, many: [...many.values()].sort(byLabel), none }
 }
@@ -6964,24 +6994,27 @@ function buildSchedule({ phases, assets, tasks, dependencies, itemLookup = null 
 // a task's single fields, as before. `savedIdsOf` (review round 1, R1-3,
 // optional): while a version is viewed, its saved ids of a kind for a task
 // (savedIdsReader), so a link to a row the project no longer has is said.
+// `groupings` (VW1d, optional): the project's groupings on the Tasks table,
+// `{ asset, scene, shot, level, experience }` each a list of id lists with
+// every item live — rows even while empty (design §4.11, finding 8).
 export function buildRowsByGrouping({
   groupBy, phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null,
   teamAssignments = [], teamMembers = [],
   scenes = [], shots = [], levels = [], experiences = [],
   sceneById = null, shotById = null, homeOf = null,
-  itemLookup = null, savedIdsOf = null,
+  itemLookup = null, savedIdsOf = null, groupings = null,
 }) {
   switch (groupBy) {
     case 'team':
       return buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder, collapsedSet, teamAssignments, teamMembers })
     case 'asset':
-      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf })
+      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf, saved: groupings?.asset })
     case 'scene':
-      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf, itemLookup, savedIdsOf })
+      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf, itemLookup, savedIdsOf, saved: groupings })
     case 'level':
-      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf })
+      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf, saved: groupings?.level })
     case 'experience':
-      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf })
+      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf, saved: groupings?.experience })
     case 'phase':
     default:
       return buildRows({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup })
@@ -7288,7 +7321,7 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
 
 // ── buildRowsByAsset ────────────────────────────────────────
 // Asset → Tasks (flat — no phase wrappers)
-function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null }) {
+function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null, saved = [] }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
@@ -7316,7 +7349,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
     one: tasksByAsset,      // { assetId: Task[] }
     many: assetCombos,      // [{ key, ids, label, tasks }]
     none: noAssetTasks,
-  } = bucketByCombination(tasks, 'asset', assetById, itemLookup, a => a.name || 'Untitled asset')
+  } = bucketByCombination(tasks, 'asset', assetById, itemLookup, a => a.name || 'Untitled asset', saved)
   const goneTip = goneLinkTip('asset', 'Asset', assetById, itemLookup, savedIdsOf)
 
   // Sort assets by start_date then name
@@ -7443,7 +7476,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
 // as before; combinations follow them, A to Z. Each link is resolved alone
 // (linksInActive with one field), so every one outside the active list is
 // named in the task's tooltip, as before.
-function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null, itemLookup = null, savedIdsOf = null }) {
+function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null, itemLookup = null, savedIdsOf = null, saved = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const tip = (row) => (homeOf ? homeOf(row.id).title(row.name || null) : undefined)
@@ -7533,6 +7566,27 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
       const combo = comboOf(sceneCombos, 'scene', sceneIds, sceneName, { shots: new Map() })
       if (inShots.length) comboOf(combo.shots, 'shot', inShots, shotName).tasks.push(t)
       else combo.tasks.push(t)
+    }
+  }
+  // VW1d (design §4.11, finding 8): the project's groupings, rows even while
+  // empty. Two or more scenes: a scene combination. Shots: under their one
+  // scene as a shot combination (two or more shots), or, spanning several
+  // scenes, under a scene combination for those scenes. A grouping naming a
+  // scene or shot outside the active list is no row here (S3c reads the
+  // active list; the Tasks table, which reads every list, shows it).
+  for (const ids of saved?.scene || []) {
+    if (ids.length < 2 || !ids.every(id => sceneRowById[id] && active.sceneIds.has(id))) continue
+    comboOf(sceneCombos, 'scene', ids, sceneName, { shots: new Map() })
+  }
+  for (const ids of saved?.shot || []) {
+    if (ids.length === 0 || !ids.every(id => sceneOfShot.has(id))) continue
+    const sceneIds = [...new Set(ids.map(id => sceneOfShot.get(id)))]
+    if (sceneIds.length === 1) {
+      if (ids.length < 2) continue
+      if (!shotCombosOf[sceneIds[0]]) shotCombosOf[sceneIds[0]] = new Map()
+      comboOf(shotCombosOf[sceneIds[0]], 'shot', ids, shotName)
+    } else {
+      comboOf(comboOf(sceneCombos, 'scene', sceneIds, sceneName, { shots: new Map() }).shots, 'shot', ids, shotName)
     }
   }
   const tooltipOf = (t) => outsideOf.get(t.id)
@@ -7665,14 +7719,14 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
 }
 
 // ── buildRowsByLevel ────────────────────────────────────────
-function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null }) {
+function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null, saved = [] }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const levelById = Object.fromEntries(levels.map(l => [l.id, l]))
 
   // VW1m (2026-10-16): by the task's combination of levels, as by asset.
   const { one: tasksByLevel, many: levelCombos, none: noLevel } =
-    bucketByCombination(tasks, 'level', levelById, itemLookup, l => l.name || 'Untitled level')
+    bucketByCombination(tasks, 'level', levelById, itemLookup, l => l.name || 'Untitled level', saved)
   // Post-overhaul S5d: a level the project no longer has, said (R1-3: a
   // viewed version's too, on whichever row its task sits).
   const goneTip = goneLinkTip('level', 'Level', levelById, itemLookup, savedIdsOf)
@@ -7778,14 +7832,14 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
 }
 
 // ── buildRowsByExperience ───────────────────────────────────
-function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null }) {
+function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null, saved = [] }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const expById = Object.fromEntries(experiences.map(e => [e.id, e]))
 
   // VW1m (2026-10-16): by the task's combination of experiences, as by asset.
   const { one: tasksByExp, many: expCombos, none: noExp } =
-    bucketByCombination(tasks, 'experience', expById, itemLookup, e => e.name || 'Untitled experience')
+    bucketByCombination(tasks, 'experience', expById, itemLookup, e => e.name || 'Untitled experience', saved)
   // Post-overhaul S5d: an experience the project no longer has, said (R1-3:
   // a viewed version's too, on whichever row its task sits).
   const goneTip = goneLinkTip('experience', 'Experience', expById, itemLookup, savedIdsOf)

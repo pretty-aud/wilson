@@ -70,7 +70,11 @@
   /* The toolbar: the kit's Toolbar with `wrap`. Its left slot wraps too, so
      at Electron's 1024px floor nothing is pushed off the row's end. */
   .rb-task-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
+  /* VW1d (design §4.1): at least as wide as "12/240" at the total's digits
+     (`--rb-task-count-ch`, set on it), so filtering never re-wraps the
+     toolbar. */
   .rb-task-count {
+    min-width: calc(var(--rb-task-count-ch) * 1ch + 8px);
     padding: 0 4px;
     font-family: var(--font-mono);
     font-size: calc(var(--text-caption) * var(--mono-size-adjust));
@@ -113,6 +117,9 @@
   .rb-task-search-clear { position: absolute; right: 0; }
 
   .rb-task-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  /* VW1d (design §4.5): the last used view not known yet — the kit Loading
+     line where the table will be. */
+  .rb-task-waiting { padding: 16px var(--spacing-gutter); }
 
   /* The filter strip under the toolbar. */
   .rb-task-filters {
@@ -123,15 +130,14 @@
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
-  .rb-task-filter-row { display: flex; align-items: center; gap: 8px; }
-  .rb-task-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
-  .ui-input.rb-task-filter-text { width: 144px; }
-  .ui-input.rb-task-filter-field { width: 128px; }
-  .ui-input.rb-task-filter-op { width: 160px; }
+  /* VW1d: its rows are the custom views' shared filter row (the Filters
+     card draws the same one; views/tableViews/tableViews.css). */
   .rb-task-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
-  /* Saved views: on the kit's floating tokens (the kit Menu has no item with
-     a trailing action; kit request K2). */
+  /* A floating list on the kit's floating tokens: the task templates'
+     dependency list. (VW1d: the Tasks tab's old saved-views menu, its first
+     user, is gone with its empty row, foot and icon; the custom views'
+     dropdown is the kit Popover.) */
   .rb-task-menu {
     position: absolute;
     right: 0;
@@ -145,7 +151,6 @@
     border-radius: var(--radius-float);
     box-shadow: var(--shadow-float);
   }
-  .rb-task-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
   .rb-task-menu-item {
     display: flex;
     align-items: center;
@@ -163,8 +168,6 @@
   }
   .rb-task-menu-item:hover { background-color: var(--color-hover); }
   .rb-task-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rb-task-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
-  .rb-task-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
 
   /* ── The table: the kit's Table, dense ─────────────────────────────────── */
   /* The columns (FX8). The title takes the width the others leave, between

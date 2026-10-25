@@ -364,12 +364,19 @@ describe('VW1m, then VW1b: the Asset cell names every live asset', () => {
 })
 
 describe('VW1m: Asset is X means the task has X', () => {
+  // VW1d: the strip's row is the custom views' shared filter row — the
+  // field's key is the column's (`asset`), and a choice's value is ticked in
+  // its picker (her Q13).
   function filter(op, value) {
     fireEvent.click(screen.getByRole('button', { name: /^Filter/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Add filter' }))
-    fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'asset_id' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'asset' } })
     fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: op } })
-    if (value) fireEvent.change(screen.getByRole('combobox', { name: 'Value' }), { target: { value } })
+    if (value) {
+      fireEvent.click(screen.getByRole('button', { name: /^Value:/ }))
+      const name = ASSETS().find(a => a.id === value).name
+      fireEvent.click(within(screen.getByRole('dialog', { name: 'Asset: values' })).getByRole('checkbox', { name: new RegExp(`^${name}`) }))
+    }
   }
   it('is Storm Lantern: every task that has it, whichever item it was added as', () => {
     page()

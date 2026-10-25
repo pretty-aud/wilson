@@ -233,7 +233,10 @@ describe('FX8: the title columns — the title takes what the others leave up to
     for (const v of ['status', 'priority', 'item', 'phase', 'assignee', 'date', 'bid']) expect(cols).toContain(`width: 'var(--rb-task-col-${v})'`)
     expect(cols).toContain("{ key: 'title', label: 'Title' },")
     const src = read('ProjectTasksView.jsx')
-    expect(src).toContain('tasksTableColumns(itemKinds)')
+    // VW1d: the view's fields over the description's columns, which are
+    // tasksTableColumns' for the kinds the project uses.
+    expect(read('tableViews/tasksTableView.js')).toContain('const columns = tasksTableColumns(kinds)')
+    expect(src).toContain('fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key))')
     expect(src).toContain('<Th width="var(--rb-task-col-check)" className="rb-task-check-cell">')
     expect(src).not.toMatch(/key: '_actions'/)
     // The scroller is the query container `100cqw` measures.

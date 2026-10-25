@@ -639,12 +639,27 @@ export function useTableViewsState({
   ), [last, activeProjectId])
 
   // ── The changes for now (Q3b) ──
+  // VW1d (2026-10-25): a change also keeps the view's settings it began
+  // from (`baseConfig`: an empty filter row, or a teammate's save over a
+  // change that changes nothing, is told apart from a real change) and the
+  // view's name (the bar names a view deleted meanwhile, §4.4). A draft with
+  // no `config` only says which view is on screen (chosen, or the last used
+  // one the table opened on), kept across tabs like a change.
   const [drafts, setDrafts] = useState({})
   useEffect(() => { setDrafts({}) }, [activeProjectId, adapterMode])
   const viewDraftOf = useCallback((tableKey) => drafts[tableKey] || null, [drafts])
   const setViewDraft = useCallback((tableKey, draft) => {
     if (!isTableKey(tableKey)) return
-    setDrafts(d => (draft ? { ...d, [tableKey]: { viewId: draft.viewId ?? null, baseRevision: draft.baseRevision ?? null, config: draft.config ?? null } } : d))
+    setDrafts(d => (draft ? {
+      ...d,
+      [tableKey]: {
+        viewId: draft.viewId ?? null,
+        baseRevision: draft.baseRevision ?? null,
+        config: draft.config ?? null,
+        baseConfig: draft.baseConfig ?? null,
+        name: typeof draft.name === 'string' ? draft.name : null,
+      },
+    } : d))
   }, [])
   const clearViewDraft = useCallback((tableKey) => {
     setDrafts(d => {

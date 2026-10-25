@@ -47,12 +47,25 @@
 // place (the kit Table's stickyColumns), its widths from the columns on
 // screen (tasksTableColumns.js). Working memory: the task's name stays in
 // view while the table scrolls; Fitts: the edit is in the cell the eye is on.
+//
+// VW1d (2026-10-25), the custom views on this table (docs/design/
+// CUSTOM_VIEWS_DESIGN.md §4.1 to §4.5, §4.11, as VW1d's step 0 review
+// corrected them): the table shows a VIEW (views/tableViews/: the view on
+// screen, or its change for now, useTableView). Filter, Sort, Group, the
+// Table / Board tabs and the cards change it for the moment (her Q3); the
+// bar under the toolbar saves it (Q3c, Q-A3). The toolbar's Phase, Key date
+// and New task are one *New* menu (Q-A1); *Create grouping* sits beside the
+// Group menu while the table is grouped by a linked kind (Q-D3), and the
+// project's groupings show as groups even while empty (Q-D2), removed from a
+// group's *…* (Q-D5). The browser's old saved views are removed (Q17).
+// Hick: nothing new on the toolbar at rest — the Views button replaces the
+// old one, the bar exists only while there is something to save.
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import {
   ListChecks, Plus, Search, Filter, Trash2, X, FileText,
-  ArrowUpDown, Diamond,
-  ChevronDown, ChevronRight, Save, BookmarkPlus,
+  ArrowUpDown, Diamond, Group,
+  ChevronDown, ChevronRight,
   CheckSquare, Square, MinusSquare,
   History, Download,
 } from 'lucide-react'
@@ -76,24 +89,43 @@ import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
-  HoverActions, RowTitle, EmptyState, Badge, StatusDot, statusMeta, humanizeStatus, Banner,
+  HoverActions, RowTitle, EmptyState, Badge, StatusDot, humanizeStatus, Banner,
+  MenuButton, Loading, useToast,
 } from '../../../ui'
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
-import { ITEM_KINDS, KIND_FIELD, KIND_LABEL, NO_KIND_LABEL, buildItemLookup, isItemKind, sortIdsForDisplay } from '../state/taskItemsModel'
+import { ITEM_KINDS, KIND_FIELD, KIND_LABEL, KIND_LABEL_PLURAL, NO_KIND_LABEL, buildItemLookup, isItemKind, sortIdsForDisplay } from '../state/taskItemsModel'
 import { pickerKinds, useTaskItemSort } from '../components/RelationsPanel'
 import { TaskItemCell, useItemPicker } from './TaskItemCells'
 import { tasksTableColumns, tasksTableWidths } from './tasksTableColumns'
+import { groupingKeyOf, isGroupingLive } from '../state/tableViewsModel'
+import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
+import { useTableView } from './tableViews/useTableView'
+import { TableViewsMenu } from './tableViews/TableViewsMenu'
+import { ViewBar } from './tableViews/ViewBar'
+import { ViewFilterRow } from './tableViews/ViewFilterRow'
+import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
+import { useAsk } from './tableViews/useAsk'
+import {
+  TASKS_TABLE, TASK_STATUSES, PRIORITIES, STATUS_LABELS, PRIORITY_LABELS, CARD_FIELDS,
+  tasksDescription, groupToTab, groupFromTab,
+} from './tableViews/tasksTableView'
+import {
+  applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
+} from './tableViews/viewScreenModel'
 import './rabbitTasks.css'
 
-// ── Constants ──
-const TASK_STATUSES = [
-  'waiting_to_start','in_progress','pending_review','needs_revisions',
-  'approved','final','blocked','on_hold','omitted',
-]
+// Q17 (her "Start fresh"): the views this browser kept for the Tasks table
+// before VW1d, removed on the first load after the new views ship. The other
+// tables' keys are VW1e's; Expenses' and Team's stay (Q19).
+const OLD_SAVED_VIEWS_KEY = 'rabbit_task_saved_views'
 
-const PRIORITIES = ['low','medium','high','urgent']
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test
+// that mounts the tab alone): a passing message, never a failure.
+function useOptionalToast() {
+  try { return useToast() } catch { return null }
+}
 
 // VW1m (2026-10-16): grouping by an item kind makes one group per
 // combination of a task's items (her Q-D). VW1b (her Q11): Scene, Shot,
@@ -127,8 +159,15 @@ const LABEL_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: '
  * every column"): a column for every single item even when empty, and its
  * "No …" column always, as it had before. Each group carries its `ids`: a
  * drop or a new task there takes exactly those.
+ * VW1d (2026-10-25): `everySingle` is also a table view's *Hide empty
+ * groups* off (§4.3); `hideEmpty` drops the empty groups. `saved` are the
+ * project's groupings of this kind (Q-D2), each `{ id, ids }` with every
+ * item live (isGroupingLive): a grouping whose set rows already have IS that
+ * group (`groupingId` on it: its *…* removes the grouping, Q-D5); one no row
+ * has shows empty, in the place its kind of group takes, and never hides
+ * (VW1d step 0, finding 1).
  */
-function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false) {
+function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false, saved = [], hideEmpty = false) {
   const byKey = new Map()
   for (const t of tasks) {
     const c = lookup.combinationOf(t, kind)
@@ -136,6 +175,15 @@ function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false) {
     if (!byKey.has(key)) byKey.set(key, { key, ids: c.ids, label: c.label || NO_KIND_LABEL[kind], tasks: [] })
     byKey.get(key).tasks.push(t)
   }
+  const groupingOf = new Map()
+  for (const g of Array.isArray(saved) ? saved : []) {
+    const ids = (g.ids || []).filter(id => lookup.isLive(kind, id)).sort(lookup.orderOf(kind))
+    if (ids.length === 0) continue
+    const key = groupingKeyOf(ids)
+    if (!groupingOf.has(key)) groupingOf.set(key, g.id)
+    if (!byKey.has(key)) byKey.set(key, { key, ids, label: ids.map(id => lookup.nameOf(kind, id)).join(', '), tasks: [] })
+  }
+  for (const [key, id] of groupingOf) byKey.get(key).groupingId = id
   const out = []
   const placed = new Set()
   for (const r of Array.isArray(rows) ? rows : []) {
@@ -152,7 +200,7 @@ function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false) {
   out.push(...rest)
   if (byKey.has('__none__')) out.push(byKey.get('__none__'))
   else if (everySingle) out.push({ key: '__none__', ids: [], label: NO_KIND_LABEL[kind], tasks: [] })
-  return out
+  return hideEmpty ? out.filter(g => g.tasks.length > 0 || g.groupingId) : out
 }
 
 /**
@@ -201,52 +249,16 @@ function itemGroupDefaults(kind, group) {
   return { items: { [kind]: ids } }
 }
 
-const SORTABLE_FIELDS = [
-  { value: 'title',      label: 'Title' },
-  { value: 'status',     label: 'Status' },
-  { value: 'priority',   label: 'Priority' },
-  { value: 'start_date', label: 'Start date' },
-  { value: 'end_date',   label: 'End date' },
-  { value: 'bid_days',   label: 'Bid days' },
-  { value: 'created_at', label: 'Created' },
-]
-
-const FILTER_FIELDS = [
-  { value: 'status',      label: 'Status',   type: 'select', options: TASK_STATUSES },
-  { value: 'priority',    label: 'Priority', type: 'select', options: PRIORITIES },
-  { value: 'asset_id',    label: 'Asset',    type: 'select', dynamic: 'assets' },
-  { value: 'phase_id',    label: 'Phase',    type: 'select', dynamic: 'phases' },
-  { value: 'assignee_id', label: 'Assignee', type: 'select', dynamic: 'members' },
-  { value: 'title',       label: 'Title',    type: 'text' },
-]
-
-const FILTER_OPS = {
-  select: [
-    { value: 'is',        label: 'is' },
-    { value: 'is_not',    label: 'is not' },
-    { value: 'is_empty',  label: 'is empty' },
-    { value: 'is_not_empty', label: 'is not empty' },
-  ],
-  text: [
-    { value: 'contains',     label: 'contains' },
-    { value: 'not_contains', label: 'does not contain' },
-    { value: 'is',           label: 'is' },
-    { value: 'is_not',       label: 'is not' },
-    { value: 'is_empty',     label: 'is empty' },
-    { value: 'is_not_empty', label: 'is not empty' },
-  ],
-}
-
-const SAVED_VIEWS_KEY = 'rabbit_task_saved_views'
+// VW1d: the sorts, filters and their conditions are the table's description
+// (views/tableViews/tasksTableView.js), keyed by the columns' keys.
 
 // The body the Table / Board tabs switch (the kit's Tabs wants its panel).
 const BODY_ID = 'rb-task-body'
 
 // Sentence-case labels (Q2). A status's words come from the kit's one status
 // source (src/ui/StatusDot), so this table, the Dashboard and the popup say
-// the same thing; the old `fmt()` lower-cased every one of them.
-const STATUS_LABELS = Object.fromEntries(TASK_STATUSES.map(s => [s, statusMeta(s).label]))
-const PRIORITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' }
+// the same thing; the old `fmt()` lower-cased every one of them. VW1d: the
+// lists and their words live with the table's description.
 function optionLabel(field, value) {
   if (field === 'status') return STATUS_LABELS[value] || humanizeStatus(value)
   if (field === 'priority') return PRIORITY_LABELS[value] || humanizeStatus(value)
@@ -335,36 +347,43 @@ export default function ProjectTasksView() {
     return teamAssignments.map(a => memberById[a.member_id]).filter(Boolean)
   }, [rosterMode, rosterMembers, ctx?.projectIsStaffed, ctx?.projectMembers, teamAssignments, memberById])
 
-  // ── View state ──
-  const [viewMode, setViewMode] = useState('table') // table | kanban
+  // ── The view (VW1d): what Filter, Sort, Group, the layout tabs and the
+  // Views dropdown's cards change, for the moment (her Q3), until the bar
+  // saves it (Q3a). The search is never part of a view (Q8).
   const [search, setSearch]     = useState('')
-  const [filters, setFilters]   = useState([])  // [{ field, op, value }]
-  const [sortField, setSortField]   = useState('')
-  const [sortDir, setSortDir]       = useState('asc')
-  const [groupBy, setGroupBy]       = useState('')
-  const [kanbanGroup, setKanbanGroup] = useState('status')
-  // VW1b: the Group menu offers the item kinds the project uses; a grouping
-  // whose kind it no longer offers (its column gone) reads as the default.
-  const groupFields = useMemo(() => groupableFields(itemKinds), [itemKinds])
-  const tableGroup = groupFields.some(f => f.value === groupBy) ? groupBy : ''
-  const boardGroup = groupFields.some(f => f.value === kanbanGroup) ? kanbanGroup : 'status'
-  // VW1b review round 1 (R1-10): such a grouping is forgotten, not kept
-  // aside — kept, the table regrouped by itself the moment a task named that
-  // kind again, and a saved view stored it.
-  useEffect(() => { if (groupBy !== tableGroup) setGroupBy(tableGroup) }, [groupBy, tableGroup])
-  useEffect(() => { if (kanbanGroup !== boardGroup) setKanbanGroup(boardGroup) }, [kanbanGroup, boardGroup])
+  const description = useMemo(() => tasksDescription({
+    itemKinds, phases, members: projectMembers, lookup: itemLookup, kindRows, itemSort,
+  }), [itemKinds, phases, projectMembers, itemLookup, kindRows, itemSort])
+  // Who changed a view, by the workspace roster (design §5.5): "Someone"
+  // when they are not there.
+  const nameOf = useCallback((id) => {
+    const m = memberById[id]
+    return m ? (m.name || m.display_name || m.username || null) : null
+  }, [memberById])
+  const toast = useOptionalToast()
+  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
+  const { ask, dialog: askDialog } = useAsk()
+  // The table's one polite live region (§4.9): the bar's state, every
+  // reorder. Keyed so the same words said twice are said twice.
+  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
+  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
+
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   // VW1m review round 2 (R2-2): a refused or failed drop's sentence, said in
   // the kit Banner above the table or the Board until dismissed (or the next
   // failure replaces it).
   const [dropFailure, setDropFailure] = useState(null)
+  // Create grouping's dialog: the kind it makes a grouping of, or null.
+  const [groupingKind, setGroupingKind] = useState(null)
+  const viewsButtonRef = useRef(null)
+  const focusViews = useCallback(() => {
+    document.querySelector('.rb-task-toolbar .rb-tv-button')?.focus({ preventScroll: true })
+  }, [])
 
-  // Saved views
-  const [savedViews, setSavedViews] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || '[]') } catch { return [] }
-  })
-  const [showSaveDialog, setShowSaveDialog] = useState(false)
-  const [saveName, setSaveName] = useState('')
+  // Q17: the old saved views go, once, on the first load after these ship.
+  useEffect(() => {
+    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
+  }, [])
 
   // Phase creation
   const [showPhaseCreate, setShowPhaseCreate] = useState(false)
@@ -418,6 +437,54 @@ export default function ProjectTasksView() {
   const canWrite = canOnProject(writeGateCtx, 'project.entity.write')
   const writeReason = projectActionDeniedReason(writeGateCtx, 'project.entity.write')
 
+  // VW1d: the Views dropdown's seat rule is the table's (Q2: anyone who can
+  // edit the project saves views; Q-F: a seat that cannot write sees no
+  // editing control).
+  const tv = useTableView({ ctx, tableKey: TASKS_TABLE, description, canWrite, nameOf, notify })
+  const config = tv.config
+  const viewMode = config.layout === 'board' ? 'kanban' : 'table'
+  const filters = config.filters || []
+  const sorts = config.sorts || []
+  // The FIRST sort does what the one sort did besides ordering the rows: it
+  // orders the Phase groups and places the key dates (finding 5).
+  const sortField = sorts[0]?.field || ''
+  const sortDir = sorts[0]?.dir === 'desc' ? 'desc' : 'asc'
+  const groupBy = groupToTab(config.group?.field)
+  const kanbanGroup = groupToTab(config.board?.field) || 'status'
+  const tableHideEmpty = config.group ? config.group.hideEmpty !== false : true
+  const boardHideEmpty = config.board?.hideEmpty === true
+  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'kanban' ? 'board' : 'table' }))
+  const setGroupBy = (value) => tv.update(c => {
+    const field = groupFromTab(value)
+    return { ...c, group: field ? { field, hideEmpty: description.hideEmptyDefault('table', field) } : null }
+  })
+  const setKanbanGroup = (value) => tv.update(c => {
+    const field = groupFromTab(value) || 'status'
+    return { ...c, board: { field, hideEmpty: description.hideEmptyDefault('board', field) } }
+  })
+  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
+  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts) }))
+  // VW1b: the Group menu offers the item kinds the project uses; a grouping
+  // whose kind it no longer offers (its column gone) reads as the default.
+  // VW1d: read, not written back — a view keeps its grouping (VW1b R1-10's
+  // write-back would make opening a view on such a project a change).
+  const groupFields = useMemo(() => groupableFields(itemKinds), [itemKinds])
+  const boardFields = useMemo(() => groupFields.filter(f => f.value !== ''), [groupFields])
+  const tableGroup = groupFields.some(f => f.value === groupBy) ? groupBy : ''
+  const boardGroup = boardFields.some(f => f.value === kanbanGroup) ? kanbanGroup : 'status'
+  // VW1b review round 1 (R1-10), as VW1d keeps it: in a CHANGE FOR NOW such
+  // a grouping is forgotten, not kept aside (kept, the table regrouped by
+  // itself the moment a task named that kind again, and a Save stored a
+  // grouping the screen did not show). A saved view keeps its own: it reads
+  // as none until the column is back, and opening it is never a change.
+  const fromDraft = tv.fromDraft
+  const update = tv.update
+  useEffect(() => {
+    if (!fromDraft) return
+    if (groupBy && groupBy !== tableGroup) update(c => ({ ...c, group: null }))
+    if (kanbanGroup !== boardGroup) update(c => ({ ...c, board: { field: 'status', hideEmpty: description.hideEmptyDefault('board', 'status') } }))
+  }, [fromDraft, groupBy, tableGroup, kanbanGroup, boardGroup, update, description])
+
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   function toggleGroup(key) {
@@ -428,68 +495,18 @@ export default function ProjectTasksView() {
     })
   }
 
-  // ── Filtering ──
+  // ── Filtering ── (VW1d: the view's filters, every one that is complete
+  // must match, a condition matching any of its values — her Q13; a row with
+  // no value yet filters nothing, defect 1. The search is the tab's own.)
   const applyFilters = useCallback((taskList) => {
     let result = taskList
-    // Text search
     const s = search.trim().toLowerCase()
     if (s) result = result.filter(t => (t.title || '').toLowerCase().includes(s))
-    // Complex filters
-    for (const f of filters) {
-      if (!f.field) continue
-      // VW1m (2026-10-16): *Asset is X* means the task has X among its live
-      // assets, *is not X* that none of them is X, *is empty* that it has
-      // none. A filter saved in this browser takes the new meaning.
-      if (f.field === 'asset_id') {
-        result = result.filter(t => {
-          const ids = itemLookup.idsOf(t, 'asset').map(String)
-          switch (f.op) {
-            case 'is':           return ids.includes(String(f.value))
-            case 'is_not':       return !ids.includes(String(f.value))
-            case 'is_empty':     return ids.length === 0
-            case 'is_not_empty': return ids.length > 0
-            default: return true
-          }
-        })
-        continue
-      }
-      result = result.filter(t => {
-        const val = t[f.field]
-        switch (f.op) {
-          case 'is':           return val === f.value
-          case 'is_not':       return val !== f.value
-          case 'is_empty':     return !val
-          case 'is_not_empty': return !!val
-          case 'contains':     return (val || '').toLowerCase().includes((f.value || '').toLowerCase())
-          case 'not_contains': return !(val || '').toLowerCase().includes((f.value || '').toLowerCase())
-          default: return true
-        }
-      })
-    }
-    return result
-  }, [search, filters, itemLookup])
+    return applyViewFilters(result, filters, description)
+  }, [search, filters, description])
 
-  // ── Sorting ──
-  const applySort = useCallback((taskList) => {
-    if (!sortField) return taskList
-    const sorted = [...taskList]
-    const dir = sortDir === 'desc' ? -1 : 1
-    sorted.sort((a, b) => {
-      let va = a[sortField] ?? ''
-      let vb = b[sortField] ?? ''
-      if (sortField === 'status') {
-        va = TASK_STATUSES.indexOf(va); vb = TASK_STATUSES.indexOf(vb)
-      } else if (sortField === 'priority') {
-        va = PRIORITIES.indexOf(va); vb = PRIORITIES.indexOf(vb)
-      } else if (typeof va === 'string') {
-        va = va.toLowerCase(); vb = (vb || '').toLowerCase()
-      }
-      if (va < vb) return -1 * dir
-      if (va > vb) return 1 * dir
-      return 0
-    })
-    return sorted
-  }, [sortField, sortDir])
+  // ── Sorting ── (VW1d: several, in order, Q14)
+  const applySort = useCallback((taskList) => applyViewSorts(taskList, sorts, description), [sorts, description])
 
   const processed = useMemo(() => applySort(applyFilters(tasks)), [tasks, applyFilters, applySort])
 
@@ -528,13 +545,25 @@ export default function ProjectTasksView() {
     return list
   }, [milestones, project?.start_date, project?.end_date])
 
+  // The project's groupings of a kind (her Q-D2), each with every item
+  // live: one hides while an item is in the trash (her Q-N4, isGroupingLive).
+  const savedOf = useCallback((kind) => {
+    const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(TASKS_TABLE, kind) : []
+    return list.filter(g => isGroupingLive(g, itemLookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
+  }, [ctx, itemLookup])
+
   // ── Grouping (table) ──
+  // VW1d: the view's *Hide empty groups* (her Q15; Q-I's default per field:
+  // off for Status, on for the rest — finding 12). Off, every group the
+  // field can have shows (every status, priority, phase, member the Assignee
+  // cell offers, single live item, and "No …"/Unassigned); on, only those
+  // that hold a task — never a project grouping (finding 1).
   const groups = useMemo(() => {
     const g = tableGroup
     if (!g) return null
     // VW1m: an item kind groups by combination (itemGroupsOf), never by a
     // task's first item.
-    if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g])
+    if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g], !tableHideEmpty, savedOf(g), tableHideEmpty)
     const map = {}
     for (const t of processed) {
       let key
@@ -546,13 +575,14 @@ export default function ProjectTasksView() {
       if (!map[key]) map[key] = []
       map[key].push(t)
     }
+    const keep = (k) => !tableHideEmpty || !!map[k]
     // Ordered keys
     let orderedKeys
     if (g === 'status')   orderedKeys = TASK_STATUSES.filter(s => map[s])
-    else if (g === 'priority') orderedKeys = PRIORITIES.filter(p => map[p])
+    else if (g === 'priority') orderedKeys = PRIORITIES.filter(keep)
     else if (g === 'phase') {
       // When sorting is active, sort phases by the sort field too
-      let phaseOrder = phases.map(p => p.id).filter(id => map[id])
+      let phaseOrder = phases.map(p => p.id).filter(keep)
       if (sortField && (sortField === 'start_date' || sortField === 'end_date' || sortField === 'title' || sortField === 'created_at')) {
         const dir = sortDir === 'desc' ? -1 : 1
         phaseOrder.sort((a, b) => {
@@ -569,28 +599,30 @@ export default function ProjectTasksView() {
         })
       }
       orderedKeys = phaseOrder
-      if (map.__none__) orderedKeys.push('__none__')
+      if (keep('__none__')) orderedKeys.push('__none__')
     } else if (g === 'assignee') {
-      orderedKeys = projectMembers.map(m => m.id).filter(id => map[id])
-      if (map.__none__) orderedKeys.push('__none__')
+      orderedKeys = projectMembers.map(m => m.id).filter(keep)
+      if (keep('__none__')) orderedKeys.push('__none__')
     } else {
       orderedKeys = Object.keys(map)
     }
-    // Add empty groups for keys with no items (so user sees all columns)
-    if (g === 'status') TASK_STATUSES.forEach(s => { if (!orderedKeys.includes(s)) orderedKeys.push(s) })
+    // The Status grouping's empty groups after the full ones, as it always
+    // showed them (the switch off, its default); on, none.
+    if (g === 'status' && !tableHideEmpty) TASK_STATUSES.forEach(s => { if (!orderedKeys.includes(s)) orderedKeys.push(s) })
     return orderedKeys.map(key => ({
       key,
       label: resolveGroupLabel(g, key),
       tasks: map[key] || [],
     }))
-  }, [processed, tableGroup, phases, projectMembers, phaseById, memberById, sortField, sortDir, itemLookup, kindRows])
+  }, [processed, tableGroup, tableHideEmpty, phases, projectMembers, phaseById, memberById, sortField, sortDir, itemLookup, kindRows, savedOf])
 
-  // Kanban groups
+  // Kanban groups. VW1d: the Board's *Hide empty groups* (off by default:
+  // her Q-I, "the Board shows every column").
   const kanbanGroups = useMemo(() => {
     const g = boardGroup
     // VW1m: a column per single item even when empty (her Q-I), a column per
     // combination that holds tasks, and "No …".
-    if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g], true)
+    if (isItemKind(g)) return itemGroupsOf(g, processed, itemLookup, kindRows[g], !boardHideEmpty, savedOf(g), boardHideEmpty)
     const map = {}
     for (const t of processed) {
       let key
@@ -614,12 +646,14 @@ export default function ProjectTasksView() {
     } else {
       orderedKeys = Object.keys(map)
     }
+    if (boardHideEmpty) orderedKeys = orderedKeys.filter(k => map[k])
     return orderedKeys.map(key => ({
       key,
       label: resolveGroupLabel(g, key),
       tasks: map[key] || [],
     }))
-  }, [processed, boardGroup, phases, projectMembers, phaseById, memberById, itemLookup, kindRows])
+  }, [processed, boardGroup, boardHideEmpty, phases, projectMembers, phaseById, memberById, itemLookup, kindRows, savedOf])
+
 
   function resolveGroupLabel(field, key) {
     if (key === '__none__') return 'Unassigned'
@@ -653,46 +687,59 @@ export default function ProjectTasksView() {
     setShowPhaseCreate(false)
   }
 
-  // ── Saved views ──
-  function saveCurrentView() {
-    if (!saveName.trim()) return
-    const view = {
-      id: Date.now().toString(),
-      name: saveName.trim(),
-      filters, sortField, sortDir, groupBy: tableGroup, kanbanGroup: boardGroup, viewMode,
-    }
-    const next = [...savedViews, view]
-    setSavedViews(next)
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
-    setSaveName('')
-    setShowSaveDialog(false)
-  }
-
-  function loadView(view) {
-    setFilters(view.filters || [])
-    setSortField(view.sortField || '')
-    setSortDir(view.sortDir || 'asc')
-    setGroupBy(view.groupBy || '')
-    setKanbanGroup(view.kanbanGroup || 'status')
-    if (view.viewMode) setViewMode(view.viewMode)
-  }
-
-  function deleteSavedView(id) {
-    const next = savedViews.filter(v => v.id !== id)
-    setSavedViews(next)
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
-  }
-
-  // ── Filter CRUD ──
+  // ── The Filter strip (VW1d): the view's filters in the shared row
+  // (views/tableViews/ViewFilterRow.jsx), the Filters card's own. A new row
+  // is the first field's first condition and no value: it filters nothing
+  // and is not counted until it has one (defect 1).
   function addFilter() {
-    setFilters(prev => [...prev, { field: 'status', op: 'is', value: '' }])
+    const first = description.filterFields[0]
+    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
   }
-  function updateFilter(idx, patch) {
-    setFilters(prev => prev.map((f, i) => i === idx ? { ...f, ...patch } : f))
+  function updateFilter(idx, row) {
+    tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === idx ? row : f)) }))
   }
   function removeFilter(idx) {
-    setFilters(prev => prev.filter((_, i) => i !== idx))
+    tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== idx) }))
   }
+
+  // ── The project's groupings (VW1d; her Q-D2, Q-D3, Q-D5) ──
+  // Create grouping: beside the Group menu while the layout on screen is
+  // grouped by a linked kind, for a seat that may save views (Q-F).
+  const groupedKind = viewMode === 'kanban' ? (isItemKind(boardGroup) ? boardGroup : null) : (isItemKind(tableGroup) ? tableGroup : null)
+  async function createGrouping(kind, ids) {
+    await ctx.addItemGrouping({ tableKey: TASKS_TABLE, kind, entityIds: ids })
+  }
+  // A group's … → Remove grouping, asked first; rows keep their items, and a
+  // group that holds rows stays, as any combination with rows does. A
+  // removal the cloud's policies dropped is said (GROUPINGS_GATE_WORDS).
+  async function removeGrouping(group) {
+    const yes = await ask({
+      title: `Remove the grouping ${group.label}?`,
+      body: 'Its tasks keep their items. The group stays while tasks are in it.',
+      confirm: 'Remove grouping',
+      danger: true,
+    })
+    if (!yes) return
+    try {
+      const res = await ctx.removeItemGrouping(group.groupingId)
+      if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
+    } catch (err) {
+      setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
+    }
+  }
+
+  // ── What the view shows (VW1d) ──
+  // *Filter (n)* counts only the rows that filter (defect 1).
+  const activeFilters = filterCount(filters)
+  // The columns: the view's fields over the columns the project uses, in its
+  // order, the hidden ones out (her Q6, Q7); the Title first, always shown.
+  const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
+  const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
+  // The Board's card: its own fields the view does not hide (her Q-E; finding 6).
+  const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && CARD_FIELDS.includes(f.key)).map(f => f.key)), [fieldList])
+  // The count's least width in characters ("12/240" at the total's digits).
+  const countChars = String(tasks.length).length * 2 + 1
+
 
   // ── Summary computations ──
   const taskSummary = useMemo(() => {
@@ -725,6 +772,12 @@ export default function ProjectTasksView() {
     <WriteReasonProvider reason={writeReason}>
     <div className="rb-task-view h-full flex flex-col">
 
+      {/* ── The table's one polite live region (VW1d, design §4.9): the
+          bar's state and every reorder, always mounted. ── */}
+      <p className="sr-only" role="status" aria-live="polite">
+        <span key={announcement.n}>{announcement.words}</span>
+      </p>
+
       {/* ── Summary tiles (always visible): the kit's Stat, value under its
           label, the same tile Summary's band uses (review R19, R43). ── */}
       <div className="rb-task-stats">
@@ -742,7 +795,9 @@ export default function ProjectTasksView() {
         className="rb-task-toolbar"
         right={(
           <>
-            <span className="rb-task-count">
+            {/* VW1d (design §4.1): a minimum width from the total's digits,
+                so filtering never re-wraps the toolbar. */}
+            <span className="rb-task-count" style={{ '--rb-task-count-ch': countChars }}>
               {processed.length}/{tasks.length}
             </span>
 
@@ -759,30 +814,7 @@ export default function ProjectTasksView() {
               Export
             </Button>
 
-            {/* Session 29 — these three used to disappear together, leaving
-                Export sitting in New task's pixel position. That is the "the
-                button says export" sighting that opened the S23 investigation:
-                nothing had been relabelled, three controls had been removed from
-                a flex row. They now grey out in place, which removes the
-                illusion as well as the confusion. */}
-            <GatedAction allowed={canWrite}>
-              {/* Phase create */}
-              <Button size="sm" Icon={Plus} onClick={() => setShowPhaseCreate(true)}>
-                Phase
-              </Button>
-            </GatedAction>
-
-            <GatedAction allowed={canWrite}>
-              {/* Key date create */}
-              {/* S1 (B3): today's LOCAL date; `toISOString()` is UTC, so an
-                  Eastern evening made the key date on tomorrow. */}
-              <Button size="sm" Icon={Diamond} onClick={() => ctx?.addMilestone?.({ title: '', date: toIsoDate(new Date()) })}>
-                Key date
-              </Button>
-            </GatedAction>
-
-            {/* Ruling 38 on the Tasks tab (Audrey, 2026-09-07). Next to the
-                create button it pairs with, not next to Export.
+            {/* Ruling 38 on the Tasks tab (Audrey, 2026-09-07).
 
                 🚨 THE LABEL IS NOT THE TIMELINE'S. There the toolbar is all key
                 dates and phases, so `Deleted` can only mean one thing; here the
@@ -797,27 +829,43 @@ export default function ProjectTasksView() {
               Deleted key dates
             </Button>
 
+            {/* VW1d, her Q-A1 ("One 'New' button with a menu"): Phase, Key
+                date and New task are one primary *New* whose menu holds Task,
+                Phase and Key date (the kit MenuButton, VW1-KR-3). The three
+                share one gate and its reason (Session 29: greyed, never
+                gone). The room it frees goes to the Views button's name and
+                to *Create grouping*. */}
             <GatedAction allowed={canWrite}>
-              <Button size="sm" variant="primary" Icon={Plus} onClick={() => handleAddTask()}>
-                New task
-              </Button>
+              <MenuButton
+                label="New"
+                variant="primary"
+                ButtonIcon={Plus}
+                minWidth={160}
+                items={[
+                  { label: 'Task', Icon: Plus, onClick: () => handleAddTask() },
+                  { label: 'Phase', Icon: Plus, onClick: () => setShowPhaseCreate(true) },
+                  // S1 (B3): today's LOCAL date; `toISOString()` is UTC, so an
+                  // Eastern evening made the key date on tomorrow.
+                  { label: 'Key date', Icon: Diamond, onClick: () => ctx?.addMilestone?.({ title: '', date: toIsoDate(new Date()) }) },
+                ]}
+              />
             </GatedAction>
           </>
         )}
       >
-        {/* Filter */}
+        {/* Filter: counts only the rows that filter (defect 1). */}
         <Button
           size="sm"
           Icon={Filter}
           className="rb-task-tool"
-          data-active={filters.length > 0 ? 'true' : 'false'}
+          data-active={activeFilters > 0 ? 'true' : 'false'}
           aria-expanded={showFilterPanel}
           onClick={() => setShowFilterPanel(!showFilterPanel)}
         >
-          Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+          Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
         </Button>
 
-        {/* Sort */}
+        {/* Sort: sets the view's FIRST sort (her Q14); the Sort card holds the rest. */}
         <span className="rb-task-sort">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
             aria-label="Sort"
@@ -825,53 +873,59 @@ export default function ProjectTasksView() {
             data-size="sm"
             data-active={sortField ? 'true' : 'false'}>
             <option value="">Sort…</option>
-            {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            {description.sortFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
           {sortField && (
             <IconButton
               size="sm"
               Icon={ArrowUpDown}
               title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
-              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+              onClick={reverseSort}
             />
           )}
         </span>
 
         <span className="rb-task-divider" aria-hidden="true" />
 
-        {/* Group */}
+        {/* Group: the table's grouping or the Board's columns (her Q-C). */}
         <select value={viewMode === 'kanban' ? boardGroup : tableGroup}
           onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
           aria-label="Group"
           className="ui-input rb-task-tool"
           data-size="sm"
           data-active={(viewMode === 'kanban' ? boardGroup !== 'status' : !!tableGroup) ? 'true' : 'false'}>
-          {groupFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          {(viewMode === 'kanban' ? boardFields : groupFields).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
+
+        {/* VW1d, her Q-D3 ("In the toolbar"): Create grouping, beside the
+            Group menu, only while the layout on screen is grouped by a
+            linked kind, and only for a seat that may save views (Q-F). */}
+        {groupedKind && tv.canEdit && (
+          <Button size="sm" Icon={Group} onClick={() => setGroupingKind(groupedKind)}>
+            Create grouping
+          </Button>
+        )}
 
         <span className="rb-task-divider" aria-hidden="true" />
 
         {/* Table / Board — the kit's Tabs: one underline, no orange fill
-            under 13px text (C6; review R14). */}
+            under 13px text (C6; review R14). The layout is part of a view
+            (her Q8): switching it is a change for now (finding 13). */}
         <Tabs
-          label="View"
+          label="Layout"
           panelId={BODY_ID}
           items={[{ id: 'table', label: 'Table' }, { id: 'kanban', label: 'Board' }]}
           value={viewMode}
           onChange={setViewMode}
         />
 
-        {/* Saved views dropdown */}
-        <SavedViewsDropdown
-          views={savedViews}
-          onLoad={loadView}
-          onDelete={deleteSavedView}
-          onSave={() => setShowSaveDialog(true)}
-        />
+        {/* VW1d: the Views button and its dropdown (design §4.1, §4.2). */}
+        <TableViewsMenu tv={tv} description={description} ask={ask} announce={announce}
+          onRetry={typeof ctx?.reloadActiveProject === 'function' ? () => ctx.reloadActiveProject() : null} />
 
         <span className="rb-task-divider" aria-hidden="true" />
 
-        {/* Search */}
+        {/* Search: the tab's own, never part of a view (her Q8). */}
         <span className="rb-task-search">
           <Search className="rb-task-search-icon" aria-hidden="true" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -885,18 +939,21 @@ export default function ProjectTasksView() {
         </span>
       </Toolbar>
 
-      {/* ── Filter panel ── */}
+      {/* ── The Filter strip: the view's filters in the shared row (VW1d;
+          the Filters card draws the same row, design §4.3). ── */}
       {showFilterPanel && (
-        <FilterPanel
-          filters={filters}
-          assets={assets}
-          phases={phases}
-          members={projectMembers}
-          onAdd={addFilter}
-          onUpdate={updateFilter}
-          onRemove={removeFilter}
-          onClose={() => setShowFilterPanel(false)}
-        />
+        <div className="rb-task-filters">
+          {filters.map((f, i) => (
+            <ViewFilterRow key={i} row={f} index={i} description={description}
+              onChange={(row) => updateFilter(i, row)} onRemove={() => removeFilter(i)} />
+          ))}
+          <div className="rb-task-filter-actions">
+            <Button size="sm" Icon={Plus} onClick={addFilter}>Add filter</Button>
+            {filters.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setShowFilterPanel(false)}>Done</Button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── A drop that did not land, said (review round 2, R2-2) ── */}
@@ -909,15 +966,24 @@ export default function ProjectTasksView() {
         </Banner>
       )}
 
+      {/* ── The *changed for now* bar (VW1d, design §4.4): only while the
+          view on screen has a change of one's own, directly above the
+          table. ── */}
+      <ViewBar tv={tv} ask={ask} announce={announce} focusViews={focusViews} />
+
       {/* ── Body ── */}
       <div className="rb-task-body" id={BODY_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Board'}>
-        {viewMode === 'table' ? (
+        {tv.waiting ? (
+          // The last used view not known yet (its 2s wait, design §4.5):
+          // the kit Loading line, the toolbar working.
+          <div className="rb-task-waiting"><Loading label="Loading views" /></div>
+        ) : viewMode === 'table' ? (
           <TaskTable
             tasks={processed}
             hasAnyTask={tasks.length > 0}
             groups={groups}
             groupBy={tableGroup}
-            itemKinds={itemKinds}
+            columns={columns}
             itemSort={itemSort}
             itemLookup={itemLookup}
             phases={phases}
@@ -927,13 +993,15 @@ export default function ProjectTasksView() {
             toggleGroup={toggleGroup}
             ctx={ctx}
             canWrite={canWrite}
+            canEditViews={tv.canEdit}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
             onHistoryClick={canViewHistory ? (id) => setHistoryTaskId(id) : null}
-            milestones={allMilestones}
+            milestones={config.keyDates === false ? [] : allMilestones}
             sortField={sortField}
             sortDir={sortDir}
             onDropFail={setDropFailure}
+            onRemoveGrouping={removeGrouping}
           />
         ) : (
           <KanbanBoard
@@ -942,36 +1010,36 @@ export default function ProjectTasksView() {
             itemSort={itemSort}
             itemLookup={itemLookup}
             memberById={memberById}
+            cardShows={cardShows}
             ctx={ctx}
             canWrite={canWrite}
+            canEditViews={tv.canEdit}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
             onDropFail={setDropFailure}
+            onRemoveGrouping={removeGrouping}
           />
         )}
       </div>
 
-      {/* ── Save view dialog — the kit's Dialog (Q17: Escape, the stack, the
-          busy lock). The backdrop still closes it, as it always did. ── */}
-      {showSaveDialog && (
-        <Dialog
-          width="confirm"
-          title="Save current view"
-          dismissOnBackdrop
-          onClose={() => setShowSaveDialog(false)}
-          footer={(
-            <>
-              <Button onClick={() => setShowSaveDialog(false)}>Cancel</Button>
-              <Button variant="primary" onClick={saveCurrentView}>Save</Button>
-            </>
-          )}
-        >
-          <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
-            placeholder="View name…"
-            aria-label="View name"
-            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-            className="ui-input" />
-        </Dialog>
+      {/* ── The views' questions (Delete a view, Save over a teammate's,
+          Remove grouping), at the view's root (design §4.2, finding 18). ── */}
+      {askDialog}
+
+      {/* ── Create grouping (VW1d, design §4.11): its kit Dialog. ── */}
+      {groupingKind && (
+        <CreateGroupingDialog
+          tableKey={TASKS_TABLE}
+          kind={groupingKind}
+          singular={KIND_LABEL[groupingKind]}
+          plural={KIND_LABEL_PLURAL[groupingKind]}
+          options={description.options(groupingKind)}
+          orderOf={itemLookup.orderOf}
+          nameOf={itemLookup.nameOf}
+          groupings={typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(TASKS_TABLE, groupingKind) : []}
+          onCreate={(ids) => createGrouping(groupingKind, ids)}
+          onClose={() => setGroupingKind(null)}
+        />
       )}
 
       {/* ── Phase create dialog ── */}
@@ -1053,118 +1121,6 @@ export default function ProjectTasksView() {
 
 
 // ═════════════════════════════════════════════════════
-// FILTER PANEL
-// ═════════════════════════════════════════════════════
-function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemove, onClose }) {
-  function getOptions(f) {
-    const def = FILTER_FIELDS.find(ff => ff.value === f.field)
-    if (!def) return []
-    if (def.dynamic === 'assets')  return assets.map(a => ({ value: a.id, label: a.name || 'Untitled' }))
-    if (def.dynamic === 'phases')  return phases.map(p => ({ value: p.id, label: p.name || 'Untitled' }))
-    if (def.dynamic === 'members') return members.map(m => ({ value: m.id, label: m.name || 'Unnamed' }))
-    return (def.options || []).map(o => ({ value: o, label: optionLabel(def.value, o) }))
-  }
-  function getType(f) {
-    return FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text'
-  }
-  return (
-    <div className="rb-task-filters">
-      {filters.map((f, i) => {
-        const type = getType(f)
-        const ops = FILTER_OPS[type] || FILTER_OPS.text
-        const needsValue = !['is_empty','is_not_empty'].includes(f.op)
-        return (
-          <div key={i} className="rb-task-filter-row">
-            <span className="rb-task-filter-where text-label uppercase">
-              {i === 0 ? 'Where' : 'And'}
-            </span>
-            <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              aria-label="Field" className="ui-input rb-task-filter-field" data-size="sm">
-              {FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
-            </select>
-            <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              aria-label="Condition" className="ui-input rb-task-filter-op" data-size="sm">
-              {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {needsValue && (
-              type === 'select' ? (
-                <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  aria-label="Value" className="ui-input rb-task-tool" data-size="sm">
-                  <option value="">— select —</option>
-                  {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ) : (
-                <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  placeholder="value…"
-                  aria-label="Value"
-                  className="ui-input rb-task-filter-text" data-size="sm" />
-              )
-            )}
-            <IconButton size="sm" Icon={X} danger title="Remove this filter" onClick={() => onRemove(i)} />
-          </div>
-        )
-      })}
-      <div className="rb-task-filter-actions">
-        <Button size="sm" Icon={Plus} onClick={onAdd}>Add filter</Button>
-        {filters.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={onClose}>Done</Button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-
-// ═════════════════════════════════════════════════════
-// SAVED VIEWS DROPDOWN
-// ═════════════════════════════════════════════════════
-// Hand-drawn on the kit's floating tokens: the kit Menu has no item with a
-// trailing action (load a view AND delete it, from one row). Kit request in
-// the B2 hand-off.
-function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
-
-  return (
-    <div className="relative" ref={ref}>
-      <Button size="sm" Icon={BookmarkPlus} aria-expanded={open} onClick={() => setOpen(!open)}>
-        Views
-      </Button>
-      {open && (
-        <div className="rb-task-menu">
-          {views.length === 0 && (
-            <div className="rb-task-menu-empty">No saved views</div>
-          )}
-          {views.map(v => (
-            <div key={v.id} className="rb-task-menu-item"
-              onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="rb-task-menu-label">{v.name}</span>
-              <IconButton size="sm" Icon={X} danger title={`Delete the saved view "${v.name}"`}
-                onClick={e => { e.stopPropagation(); onDelete(v.id) }} />
-            </div>
-          ))}
-          <div className="rb-task-menu-foot">
-            <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="rb-task-menu-item">
-              <Save className="rb-task-menu-icon" aria-hidden="true" />
-              <span className="rb-task-menu-label">Save current view</span>
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-// ═════════════════════════════════════════════════════
 // TABLE VIEW — the kit's Table (a real <table>, fixed layout, dense rows)
 // ═════════════════════════════════════════════════════
 // The header and the cells share one grid, so the header labels sit over
@@ -1184,8 +1140,11 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // column on, the table scrolls sideways with the checkbox and Title kept in
 // place (stickyColumns, her Q6a), and an item cell's picker is the table's
 // (useItemPicker: a cell's row moves group after its commit).
-function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, itemKinds = ['asset'], itemSort = 'type', phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir, onDropFail }) {
-  const columns = useMemo(() => tasksTableColumns(itemKinds), [itemKinds])
+// VW1d (2026-10-25): the columns are the view's (its fields' order and
+// visibility over tasksTableColumns, her Q6 and Q7), the Title always first
+// for the sticky columns; with no growable one shown, `data-grow="none"`.
+function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, columns: shown = null, itemSort = 'type', phases, members, phaseById, collapsedGroups, toggleGroup, ctx, canWrite, canEditViews = false, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir, onDropFail, onRemoveGrouping }) {
+  const columns = useMemo(() => shown || tasksTableColumns(['asset']), [shown])
   const widths = useMemo(() => tasksTableWidths(columns), [columns])
   // The checkbox column plus the columns above: what a spanning cell spans.
   const span = columns.length + 1
@@ -1283,8 +1242,8 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, ite
           <TaskGroup key={g.key} group={g} groupBy={groupBy} span={span}
             phaseById={phaseById}
             collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-            ctx={ctx} canWrite={canWrite} onAddTask={onAddTask}
-            renderTask={taskRow} onDropFail={onDropFail} />
+            ctx={ctx} canWrite={canWrite} canEditViews={canEditViews} onAddTask={onAddTask}
+            renderTask={taskRow} onDropFail={onDropFail} onRemoveGrouping={onRemoveGrouping} />
         ))}
       </>
     )
@@ -1453,7 +1412,7 @@ function buildGroupPatch(groupBy, targetKey) {
 // rows that share one set of drag handlers: entering any row of the group
 // counts, leaving the last one un-counts (the same counter as before, over
 // several elements instead of one wrapper).
-function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, canWrite, onAddTask, renderTask, onDropFail }) {
+function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, canWrite, canEditViews = false, onAddTask, renderTask, onDropFail, onRemoveGrouping }) {
   const [dragOver, setDragOver] = useState(false)
   const guard = useDependencyStatusGuard(ctx)
   const dragCountRef = useRef(0)
@@ -1557,6 +1516,14 @@ function TaskGroup({ group, groupBy, span, phaseById, collapsed, onToggle, ctx, 
                 <span className="rb-task-group-label">{group.label}</span>
                 <span className="rb-task-group-count">{group.tasks.length}</span>
               </button>
+            )}
+            {/* VW1d, her Q-D5: a project grouping's *…* holds Remove
+                grouping, for a seat that may save views (Q-F). */}
+            {group.groupingId && canEditViews && onRemoveGrouping && (
+              <HoverActions>
+                <MenuButton title={`More for ${group.label}`} minWidth={180}
+                  items={[{ label: 'Remove grouping', danger: true, onClick: () => onRemoveGrouping(group) }]} />
+              </HoverActions>
             )}
           </div>
         </Td>
@@ -1998,19 +1965,20 @@ function AddRow({ span, canWrite, onAdd, drop }) {
 // • Prägnanz — clean cards, no excess decoration
 // • Fitts's Law — generous add-task targets, large enough card touch areas
 //
-function KanbanBoard({ groups, kanbanGroup, itemLookup, itemSort = 'type', memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
+function KanbanBoard({ groups, kanbanGroup, itemLookup, itemSort = 'type', memberById, cardShows = null, ctx, canWrite, canEditViews = false, onAddTask, onDetailClick, onDropFail, onRemoveGrouping }) {
   return (
     <div className="rb-task-board">
       {groups.map(g => (
         <KanbanColumn key={g.key} group={g} kanbanGroup={kanbanGroup}
-          itemLookup={itemLookup} itemSort={itemSort} memberById={memberById}
-          ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} onDropFail={onDropFail} />
+          itemLookup={itemLookup} itemSort={itemSort} memberById={memberById} cardShows={cardShows}
+          ctx={ctx} canWrite={canWrite} canEditViews={canEditViews} onAddTask={onAddTask} onDetailClick={onDetailClick} onDropFail={onDropFail}
+          onRemoveGrouping={onRemoveGrouping} />
       ))}
     </div>
   )
 }
 
-function KanbanColumn({ group, kanbanGroup, itemLookup, itemSort, memberById, ctx, canWrite, onAddTask, onDetailClick, onDropFail }) {
+function KanbanColumn({ group, kanbanGroup, itemLookup, itemSort, memberById, cardShows = null, ctx, canWrite, canEditViews = false, onAddTask, onDetailClick, onDropFail, onRemoveGrouping }) {
   const [addTitle, setAddTitle] = useState('')
   const guard = useDependencyStatusGuard(ctx)
   const [dragOver, setDragOver] = useState(false)
@@ -2073,6 +2041,11 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, itemSort, memberById, ct
           <span className="rb-task-group-label" title={group.label}>{group.label}</span>
           <span className="rb-task-group-count">{group.tasks.length}</span>
         </div>
+        {/* VW1d, her Q-D5: a project grouping's column has its *…*. */}
+        {group.groupingId && canEditViews && onRemoveGrouping && (
+          <MenuButton title={`More for ${group.label}`} minWidth={180}
+            items={[{ label: 'Remove grouping', danger: true, onClick: () => onRemoveGrouping(group) }]} />
+        )}
         <GatedAction allowed={canWrite}>
           <IconButton size="sm" Icon={Plus} title={`New task in ${group.label}`} onClick={() => onAddTask(groupDefaults())} />
         </GatedAction>
@@ -2082,7 +2055,7 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, itemSort, memberById, ct
       <div className="rb-task-col-list">
         {group.tasks.map(t => (
           <KanbanCard key={t.id} task={t}
-            itemLookup={itemLookup} itemSort={itemSort} memberById={memberById}
+            itemLookup={itemLookup} itemSort={itemSort} memberById={memberById} cardShows={cardShows}
             ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)} />
         ))}
 
@@ -2106,12 +2079,16 @@ function KanbanColumn({ group, kanbanGroup, itemLookup, itemSort, memberById, ct
   )
 }
 
-function KanbanCard({ task, itemLookup, itemSort, memberById, ctx, canWrite, onDetailClick }) {
+function KanbanCard({ task, itemLookup, itemSort, memberById, cardShows = null, ctx, canWrite, onDetailClick }) {
   const removal = useRemovalAsk(ctx)
-  const assignee = task.assignee_id ? memberById[task.assignee_id] : null
+  // VW1d, her Q-E ("allow the user to select what shows in the cards"): a
+  // field the view hides leaves its part of the card; the card keeps its own
+  // order (finding 6). No view: every part, as before.
+  const shows = (key) => !cardShows || cardShows.has(key)
+  const assignee = shows('assignee_id') && task.assignee_id ? memberById[task.assignee_id] : null
   // VW1m (2026-10-16): every live asset by name, cut short by the card, the
   // whole list on hover (it was the first asset only).
-  const assetNames = itemNamesOf(itemLookup, task, 'asset', itemSort)
+  const assetNames = shows('asset') ? itemNamesOf(itemLookup, task, 'asset', itemSort) : ''
   const status   = task.status   || 'waiting_to_start'
   const priority = task.priority || 'medium'
 
@@ -2142,14 +2119,18 @@ function KanbanCard({ task, itemLookup, itemSort, memberById, ctx, canWrite, onD
       </div>
 
       {/* Status + Priority */}
-      <div className="rb-task-card-meta">
-        <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
-        <span>{STATUS_LABELS[status] || humanizeStatus(status)}</span>
-        <span aria-hidden="true">&middot;</span>
-        <span className="rb-task-card-priority" data-tone={priorityTone(priority)}>
-          {PRIORITY_LABELS[priority] || priority}
-        </span>
-      </div>
+      {(shows('status') || shows('priority')) && (
+        <div className="rb-task-card-meta">
+          {shows('status') && <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
+          {shows('status') && <span>{STATUS_LABELS[status] || humanizeStatus(status)}</span>}
+          {shows('status') && shows('priority') && <span aria-hidden="true">&middot;</span>}
+          {shows('priority') && (
+            <span className="rb-task-card-priority" data-tone={priorityTone(priority)}>
+              {PRIORITY_LABELS[priority] || priority}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Asset + Assignee */}
       {(assetNames || assignee) && (
@@ -2164,10 +2145,10 @@ function KanbanCard({ task, itemLookup, itemSort, memberById, ctx, canWrite, onD
       )}
 
       {/* Date + bid */}
-      {(task.start_date || task.bid_days != null) && (
+      {((shows('start_date') && task.start_date) || (shows('bid_days') && task.bid_days != null)) && (
         <div className="rb-task-card-figures">
-          {task.start_date && <span>{showDate(task.start_date)}</span>}
-          {task.bid_days != null && <span>{task.bid_days}d</span>}
+          {shows('start_date') && task.start_date && <span>{showDate(task.start_date)}</span>}
+          {shows('bid_days') && task.bid_days != null && <span>{task.bid_days}d</span>}
         </div>
       )}
     </div>

@@ -3321,7 +3321,7 @@ describe('S3b review round 1', () => {
 /* ── post-overhaul S3b, review round 2 ──────────────────────────────────────
    The second adversarial review attacked round 1's corrections. One test
    (or more) for each defect it found in S3b's files; R2-02's (the ⋯ under
-   Chromium's event order) is views/scenes/MenuButton.test.jsx, R2-03's are
+   Chromium's event order) is src/ui/MenuButton.test.jsx, R2-03's are
    the strengthened tests above. */
 /** A promise and the hands that settle it. */
 const deferred = () => { let resolve; let reject; const promise = new Promise((res, rej) => { resolve = res; reject = rej }); return { promise, resolve, reject } }

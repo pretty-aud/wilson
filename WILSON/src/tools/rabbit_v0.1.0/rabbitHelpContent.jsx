@@ -853,6 +853,34 @@ export function RabbitHelpContent({ helpPage, theme }) {
               the phase record so it survives a reload.
             </p>
           </div>
+          {/* Post-overhaul VW1d (2026-10-25): the custom views on the Tasks
+              table, in the controls' own words (rabbitViewsHelp.test.jsx
+              holds them to the files that draw them). */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Views on the Tasks table</h4>
+            <p className={T.listItem}>
+              The <span className={T.listBold}>Views</span> button names the
+              view on screen. Its list holds <span className={T.listBold}>All</span> and
+              the project&apos;s views, shared with everyone on the project, then
+              the view&apos;s Filters, Sort, Group and Fields, each opening its own
+              card. Filter, Sort, Group, the Table / Board tabs and the cards
+              change the view for now; the bar under the toolbar then offers
+              {' '}<span className={T.listBold}>Reset</span>, <span className={T.listBold}>Save as new view</span> and
+              {' '}<span className={T.listBold}>Save</span> (on All, Save as new view only).
+              The table opens on the view you last used there. Use
+              {' '}<span className={T.listBold}>New view</span> to start one from All.
+            </p>
+            <p className={T.listItem}>
+              Grouped by asset, scene, shot, level or experience,
+              {' '}<span className={T.listBold}>Create grouping</span> makes a group
+              for items that belong together, saved for the project and shown
+              even while empty; drag tasks into it. Remove one from its
+              group&apos;s menu with <span className={T.listBold}>Remove grouping</span>.
+              {' '}<span className={T.listBold}>Hide empty groups</span>, in the
+              Group card, hides the other empty groups. Reviewers can change a
+              view for the moment but not save one.
+            </p>
+          </div>
           <div className={T.notesBox}>
             <div className={T.notesTitle}>Empty phases still render</div>
             <p className={T.listItem}>

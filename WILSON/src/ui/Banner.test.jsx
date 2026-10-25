@@ -17,6 +17,17 @@ describe('Banner', () => {
     }
   })
 
+  // VW1-KR-4 (VW1d): live={false} drops the live role in every tone, the
+  // danger tone's `alert` too. CONTROL: the default keeps each tone's role.
+  it('live={false} drops its own live role in every tone, and only then', () => {
+    for (const tone of BANNER_TONES) {
+      const { unmount } = render(<><Banner tone={tone} live={false}>{tone} quiet</Banner><Banner tone={tone}>{tone} loud</Banner></>)
+      expect(screen.getByText(`${tone} quiet`).closest('.ui-banner').hasAttribute('role')).toBe(false)
+      expect(screen.getByText(`${tone} loud`).closest('.ui-banner').getAttribute('role')).toBe(tone === 'danger' || tone === 'warning' ? 'alert' : 'status')
+      unmount()
+    }
+  })
+
   it('takes an icon, an action and the light surface', () => {
     render(
       <Banner tone="warning" Icon={AlertTriangle} surface="light" action={<button>Fix</button>}>
