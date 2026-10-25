@@ -10,7 +10,8 @@
 // Each rule has a CONTROL that the rule's absence would fail.
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import { Popover } from './Popover'
 import { Dialog } from './Dialog'
@@ -266,5 +267,182 @@ describe('Popover — minLeft (VW1b review round 1, R1-6)', () => {
     render(<Popover anchor={a} label="q" onClose={() => {}}><button type="button">y</button></Popover>)
     expect(document.querySelector('.ui-popover').style.left).toBe('214px')
     a.remove()
+  })
+})
+
+// VW1d step 0 review, finding 2: the Tab rule is for a key INSIDE the card,
+// with no newer layer open. A Menu portalled from inside the card (as a
+// MenuButton portals its kit Menu) sends its keydown up the React tree.
+function MenuInside({ onClose, menuOpen = true }) {
+  const [anchor, setAnchor] = useState(null)
+  return (
+    <div>
+      <button type="button" ref={(el) => { if (el && !anchor) { el.getBoundingClientRect = () => BOX; setAnchor(el) } }}>cell</button>
+      <button type="button">after</button>
+      {anchor && (
+        <Popover anchor={anchor} label="Views" onClose={onClose}>
+          <button type="button">one</button>
+          <MenuLayer open={menuOpen} />
+        </Popover>
+      )}
+    </div>
+  )
+}
+function MenuLayer({ open }) {
+  // A Menu with its own registration, as the kit Menu makes it.
+  if (!open) return null
+  return createPortal(<Registered><div className="ui-menu"><button type="button">Rename</button><button type="button">Delete</button></div></Registered>, document.body)
+}
+function Registered({ children }) {
+  useLayoutEffect(() => menuOpened(), [])
+  return children
+}
+
+describe('Popover — the Tab rule only inside the card (VW1d step 0, finding 2)', () => {
+  it('a Tab in a portalled Menu opened from the card closes nothing and moves nothing', () => {
+    const onClose = vi.fn()
+    render(<MenuInside onClose={onClose} />)
+    const rename = screen.getByRole('button', { name: 'Rename' })
+    rename.focus()
+    fireEvent.keyDown(rename, { key: 'Tab' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(rename)
+  })
+  it('CONTROL: Tab from the card\'s own last control still closes it (no menu open)', () => {
+    const onClose = vi.fn()
+    render(<MenuInside onClose={onClose} menuOpen={false} />)
+    screen.getByRole('button', { name: 'one' }).focus()
+    fireEvent.keyDown(document.activeElement, { key: 'Tab' })
+    expect(onClose).toHaveBeenCalledWith('tab')
+  })
+  it('a Tab inside the card while a Dialog opened after it is up is the Dialog\'s', () => {
+    const onClose = vi.fn()
+    render(<Harness onClose={onClose} dialogAfter />)
+    screen.getByRole('button', { name: 'two' }).focus()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'two' }), { key: 'Tab' })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+// VW1d (2026-10-25), the in-place form (VW1-KR-1; design §4.2, §8): its first
+// caller is the Views dropdown.
+function InPlace({ onClose = () => {}, refuse = false, width = 300, box = BOX }) {
+  const [open, setOpen] = useState(true)
+  const [anchor, setAnchor] = useState(null)
+  return (
+    <div>
+      <button type="button">before</button>
+      <div className="wrap" data-testid="wrap">
+        <button type="button" ref={(el) => { if (el && !anchor) { el.getBoundingClientRect = () => box; setAnchor(el) } }}
+          onClick={() => setOpen((o) => !o)}>Views</button>
+        {open && anchor && (
+          <Popover inPlace anchor={anchor} label="Views" width={width}
+            onClose={(why) => { onClose(why); if (!(refuse && why === 'escape')) setOpen(false) }}>
+            <button type="button">first</button>
+            <button type="button">last</button>
+          </Popover>
+        )}
+      </div>
+      <button type="button">after</button>
+    </div>
+  )
+}
+
+describe('Popover — the in-place form (VW1d)', () => {
+  it('rendered right after its trigger, not portalled; a labelled non-modal dialog; its width the prop\'s, its height the room below less 12px', () => {
+    render(<InPlace />)
+    const c = card()
+    expect(c.parentElement).toBe(screen.getByTestId('wrap'))
+    expect(c.previousElementSibling).toBe(screen.getByRole('button', { name: 'Views' }))
+    expect(c.dataset.place).toBe('inline')
+    expect(c.getAttribute('role')).toBe('dialog')
+    expect(c.getAttribute('aria-modal')).toBeNull()
+    expect(c.style.width).toBe('300px')
+    expect(c.style.maxHeight).toBe(`${innerHeight - BOX.bottom - 4 - 12}px`)
+    // CONTROL: its place is the sheet's, not inline (no left or top written).
+    expect([c.style.left, c.style.top]).toEqual(['', ''])
+  })
+
+  it('VW1d code review round 1 (R1-11): never wider than the room right of its trigger less 12px; CONTROL: with room, its own width', () => {
+    const near = { ...BOX, left: innerWidth - 300, right: innerWidth - 150 }
+    render(<InPlace width={560} box={near} />)
+    expect(card().style.width).toBe(`${300 - 12}px`)
+    cleanup(); _resetOverlaysForTests()
+    render(<InPlace width={560} />)
+    expect(card().style.width).toBe('560px')
+  })
+
+  it('VW1d code review round 2 (R2-10): a trigger at the window\'s edge still gets a card 240px wide, never 0', () => {
+    const edge = { ...BOX, left: innerWidth + 20, right: innerWidth + 120 }
+    render(<InPlace width={560} box={edge} />)
+    expect(card().style.width).toBe('240px')
+  })
+
+  it('takes a new width at a re-render (a card widens it), its left edge the sheet\'s', () => {
+    const { rerender } = render(<InPlace width={300} />)
+    rerender(<InPlace width={560} />)
+    expect(card().style.width).toBe('560px')
+  })
+
+  it('Tab keeps the document\'s order: Tab from its last control is not taken by the card', () => {
+    const onClose = vi.fn()
+    render(<InPlace onClose={onClose} />)
+    screen.getByRole('button', { name: 'last' }).focus()
+    const e = fireEvent.keyDown(document.activeElement, { key: 'Tab' })
+    expect(e).toBe(true) // not prevented: the browser moves focus on
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('focus leaving it closes it (Tab past its end, Shift+Tab onto the trigger); into another kit layer does not', () => {
+    const onClose = vi.fn()
+    render(<InPlace onClose={onClose} />)
+    const last = screen.getByRole('button', { name: 'last' })
+    const menu = document.createElement('div')
+    menu.className = 'ui-menu'
+    const item = document.createElement('button')
+    menu.appendChild(item)
+    document.body.appendChild(menu)
+    fireEvent.blur(last, { relatedTarget: item })
+    fireEvent.blur(last, { relatedTarget: screen.getByRole('button', { name: 'first' }) })
+    fireEvent.blur(last, { relatedTarget: null })
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.blur(last, { relatedTarget: screen.getByRole('button', { name: 'after' }) })
+    expect(onClose).toHaveBeenCalledWith('tab')
+    menu.remove()
+  })
+
+  it('a scroll or a resize does not close it (it moves with its trigger); CONTROL: the portalled form closes', async () => {
+    const onClose = vi.fn()
+    render(<InPlace onClose={onClose} />)
+    await act(() => new Promise((r) => requestAnimationFrame(() => r())))
+    fireEvent.scroll(document)
+    act(() => { window.dispatchEvent(new Event('resize')) })
+    expect(onClose).not.toHaveBeenCalled()
+    cleanup(); _resetOverlaysForTests()
+    const other = vi.fn()
+    render(<Harness onClose={other} />)
+    act(() => { window.dispatchEvent(new Event('resize')) })
+    expect(other).toHaveBeenCalledWith('resize')
+  })
+
+  it('Escape asks its caller, who may keep it open (a card goes back); then Escape again closes it and focus goes back to the trigger', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(<InPlace onClose={onClose} refuse />)
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledWith('escape')
+    expect(card()).not.toBeNull()
+    rerender(<InPlace onClose={onClose} />)
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(card()).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Views' }))
+  })
+
+  it('a press outside closes it; on its trigger it is the trigger\'s', () => {
+    const onClose = vi.fn()
+    render(<InPlace onClose={onClose} />)
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'Views' }))
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'before' }))
+    expect(onClose).toHaveBeenCalledWith('outside')
   })
 })

@@ -770,6 +770,9 @@ const STYLES_ALLOWED = [
   // exactly two custom properties, from tasksTableWidths (tasksTableColumns.js;
   // the design's §4.10), never a state.
   "{{ '--rb-task-fixed': widths.fixed, '--rb-task-grow-n': widths.growN }}",
+  // Post-overhaul VW1d: the Tasks count's least width, in characters from
+  // the total's digits (a geometry, never a state; design §4.1).
+  "{{ '--rb-task-count-ch': countChars }}",
 ]
 /** The spread attributes these files may write: the row's props passed on,
     and the drop handlers. A spread is otherwise a way to hand an element a

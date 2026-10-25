@@ -44,6 +44,9 @@ import {
 } from './tableViewsModel'
 
 export const TABLE_VIEWS_UNAVAILABLE_WORDS = 'Saved views are not on this server yet.'
+// VW1d code review round 2 (R2-2): a view whose settings from another WILSON
+// leave no room for a change.
+export const OTHER_SETTINGS_FILL_WORDS = 'settings from another WILSON fill this view; save your change as a new view'
 export const TABLE_VIEW_LAST_WAIT_MS = 2000
 
 export function tableViewsUnavailableError() {
@@ -395,6 +398,13 @@ export function useTableViewsState({
     if (!before) return { status: 'deleted' }
     const next = writeViewConfig(before.config, config)
     const problem = viewConfigProblem(next)
+    // VW1d code review round 2 (R2-2): the stored view's own settings from
+    // another WILSON (kept on write, design §5.1) can fill the 32 KB alone;
+    // then the change itself fits and only a new view (which carries just
+    // this build's settings) can hold it — said so, not "at most 32 KB".
+    if (problem && !viewConfigProblem(writeViewConfig(null, config))) {
+      throw wordsError(OTHER_SETTINGS_FILL_WORDS, 'table_view_invalid')
+    }
     if (problem) throw wordsError(problem, 'table_view_invalid')
     const projectId = projectIdRef.current
     const visit = projectVisitRef.current
@@ -639,12 +649,27 @@ export function useTableViewsState({
   ), [last, activeProjectId])
 
   // ── The changes for now (Q3b) ──
+  // VW1d (2026-10-25): a change also keeps the view's settings it began
+  // from (`baseConfig`: an empty filter row, or a teammate's save over a
+  // change that changes nothing, is told apart from a real change) and the
+  // view's name (the bar names a view deleted meanwhile, §4.4). A draft with
+  // no `config` only says which view is on screen (chosen, or the last used
+  // one the table opened on), kept across tabs like a change.
   const [drafts, setDrafts] = useState({})
   useEffect(() => { setDrafts({}) }, [activeProjectId, adapterMode])
   const viewDraftOf = useCallback((tableKey) => drafts[tableKey] || null, [drafts])
   const setViewDraft = useCallback((tableKey, draft) => {
     if (!isTableKey(tableKey)) return
-    setDrafts(d => (draft ? { ...d, [tableKey]: { viewId: draft.viewId ?? null, baseRevision: draft.baseRevision ?? null, config: draft.config ?? null } } : d))
+    setDrafts(d => (draft ? {
+      ...d,
+      [tableKey]: {
+        viewId: draft.viewId ?? null,
+        baseRevision: draft.baseRevision ?? null,
+        config: draft.config ?? null,
+        baseConfig: draft.baseConfig ?? null,
+        name: typeof draft.name === 'string' ? draft.name : null,
+      },
+    } : d))
   }, [])
   const clearViewDraft = useCallback((tableKey) => {
     setDrafts(d => {

@@ -42,7 +42,7 @@ import { Dialog, Button, Field, Input, Table, Th, Td, Row, StatusBadge, EmptySta
 import CurrencyDisplay, { formatTenths } from '../../components/CurrencyDisplay'
 import AnswerDialog from '../scenes/AnswerDialog'
 import ListConfirm from '../scenes/ListConfirm'
-import MenuButton from '../scenes/MenuButton'
+import { MenuButton } from '../../../../ui'
 import { showDate } from '../../dates'
 import { readVersion, sortVersionsNewest, selectedVersionOf } from '../../state/budgetVersionModel'
 import { formatShotListLabel } from '../../state/shotListModel'

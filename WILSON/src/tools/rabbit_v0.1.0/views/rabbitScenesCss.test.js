@@ -127,7 +127,7 @@ const FILES = {
     components): the class checks above have nothing to read in them, so
     they get the leak checks alone (section 7e). S3c's three-answer question
     (step 4) is one. */
-const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/MenuButton.jsx', './scenes/AnswerDialog.jsx']
+const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/AnswerDialog.jsx']
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. The file
     writes none: every size is the sheet's, keyed on `data-thumb` (the

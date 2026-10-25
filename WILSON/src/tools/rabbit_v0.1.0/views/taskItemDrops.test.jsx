@@ -20,6 +20,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, act, waitFor, screen, fireEvent, within } from '@testing-library/react'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
+// Each test mounts the real provider over the whole dev dataset. Under a
+// loaded run (CI's runner on 49086256, VW1d, 2026-10-25; this machine with
+// every core busy) the first took 8.5s against the 5s default, and its body,
+// still running after the timeout, dropped on the next test's empty page
+// ("Unable to fire a drop event"). The waits inside each test bound it.
+vi.setConfig({ testTimeout: 20_000 })
 
 vi.mock('../adapters', () => ({
   selectAdapter: () => holder.adapter,

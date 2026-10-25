@@ -50,7 +50,7 @@ import LinkHome, { useHomeIndex } from '../views/scenes/LinkHome'
 import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
 // VW1m (2026-10-16): the Items table's Sort is the shot lists' named button
 // that opens the kit Menu under it (the established one; no new kit piece).
-import MenuButton from '../views/scenes/MenuButton'
+import { MenuButton } from '../../../ui'
 // FX2 (0096): a task's items — the window's Items table, and "the tasks
 // about" a scene, shot, level or experience read from them. VW1m: read
 // through the model's one lookup (live items, display order, names), sorted

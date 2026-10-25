@@ -35,7 +35,7 @@ import { Plus, ArrowLeft, ArchiveRestore } from 'lucide-react'
 import { Dialog, Table, Th, Td, Row, Button, IconButton, StatusBadge, EmptyState } from '../../../../ui'
 import GatedAction from '../../../../permissions/GatedAction'
 import { showDate } from '../../dates'
-import MenuButton from './MenuButton'
+import { MenuButton } from '../../../../ui'
 import { UNLISTED } from './useViewedShotList'
 import '../rabbitScenes.css'
 

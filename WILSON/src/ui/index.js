@@ -48,6 +48,7 @@ export { Dialog, DIALOG_WIDTHS } from './Dialog'
 export { Menu } from './Menu'
 // Post-overhaul VW1b (VW1-KR-1): a non-modal floating card, portalled.
 export { Popover } from './Popover'
+export { MenuButton } from './MenuButton'
 export { Toast, ToastProvider, useToast, TOAST_TONES } from './Toast'
 export { Banner, BANNER_TONES } from './Banner'
 export { EmptyState } from './EmptyState'

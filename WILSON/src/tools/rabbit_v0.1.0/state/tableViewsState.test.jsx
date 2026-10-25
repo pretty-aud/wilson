@@ -393,7 +393,10 @@ describe('the changes for now (Q3b)', () => {
   it('are kept per table, cleared on request, and dropped on a project switch', async () => {
     const { current, hook, adapter } = setup()
     act(() => { current().api.setViewDraft('tasks', { viewId: 'v1', baseRevision: 10, config: { sorts: [] }, extra: 'dropped' }) })
-    expect(current().api.viewDraftOf('tasks')).toEqual({ viewId: 'v1', baseRevision: 10, config: { sorts: [] } })
+    expect(current().api.viewDraftOf('tasks')).toEqual({ viewId: 'v1', baseRevision: 10, config: { sorts: [] }, baseConfig: null, name: null })
+    // VW1d: the settings it began from and the view's name are kept; anything else is dropped (CONTROL: 'extra').
+    act(() => { current().api.setViewDraft('tasks', { viewId: 'v1', baseRevision: 10, config: { sorts: [] }, baseConfig: { sorts: [{ field: 'title', dir: 'asc' }] }, name: 'Shoot week', extra: 'dropped' }) })
+    expect(current().api.viewDraftOf('tasks')).toEqual({ viewId: 'v1', baseRevision: 10, config: { sorts: [] }, baseConfig: { sorts: [{ field: 'title', dir: 'asc' }] }, name: 'Shoot week' })
     expect(current().api.viewDraftOf('assets')).toBe(null)
     act(() => { current().api.setViewDraft('assets', { viewId: 'all', baseRevision: 0, config: {} }) })
     act(() => { current().api.clearViewDraft('assets') })

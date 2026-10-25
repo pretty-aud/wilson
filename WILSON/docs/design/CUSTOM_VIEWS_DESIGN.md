@@ -11,7 +11,10 @@ is reviewed by the session that builds each part, first. VW1b's parts
 KR-2) were reviewed at its step 0 on 2026-10-17 (§11 round 3) and are
 corrected here, with her answers of 2026-10-17 (batches 15 and 16) in them.
 §5, the data, was reviewed against the code at VW1c's step 0 on 2026-10-17
-(§11 round 4) and is corrected here too.
+(§11 round 4) and is corrected here too. VW1d's parts (§4.1 to §4.5, §4.8's
+defects 1, 2 and 5, §4.9, §4.11's *Create grouping* and the Timeline's rows,
+§8's KR-1 in place, KR-3, KR-4) were reviewed at its step 0 on 2026-10-25
+(§11 round 5) and are corrected here.
 **Every question is answered.** Taking the main item out of WILSON is its own
 session, before the build (VW1m, §7), with its own measured list and
 questions.
@@ -139,7 +142,13 @@ repeated piece a kit component (§8 lists the kit requests).
   measures the final numbers in Chromium at 1280 and 1440; at 1280 the
   toolbar already takes two lines. The Tasks count (`.rb-task-count`) gets
   a minimum width sized to its total's figures, so filtering never re-wraps
-  the toolbar.
+  the toolbar. **VW1d step 0 (§11 round 5, finding 16):** the freed room is
+  in the toolbar's RIGHT slot (`.ui-toolbar-right`, `margin-left: auto`)
+  and the Views button and *Create grouping* spend it in the LEFT one, so
+  they share a line only while both slots fit it: the Views button's width
+  is set AFTER measuring with *Create grouping* shown, and the count's
+  minimum width is in `ch`, from the digits of the table's total (it has
+  none today).
 - **Assets, Levels and Experiences** have 220px or more free and take a
   180px button.
 - **Scenes and Shots:** the icon (28px) becomes this button (180px); at
@@ -153,7 +162,20 @@ place right after the button: no toolbar ancestor clips it), anchored under
 the button's left edge, 300px wide while it shows the list, paper-raised,
 6px radius, the one shadow; at most as tall as the room below the button
 less 12px, scrolling inside past that. Opening moves the keyboard to the
-ticked view; closing returns it to the button.
+ticked view; closing returns it to the button. **In place** means
+`position: absolute` under a `position: relative` wrapper around the button
+(today's saved-views menu's `div.relative`; no toolbar ancestor sets
+`overflow`). The dropdown's confirm Dialogs (Delete) are rendered at the
+view's root, as the view's other Dialogs are, never inside the card (step 0
+review, finding 18).
+
+**One Escape path (finding 3).** The Popover hears Escape on the document in
+the capture phase, before any field or card inside it, and calls its
+`onClose('escape')`; the dropdown decides: a name field open (Rename, *New
+view*) is reverted or cancelled and the card stays; a card goes back to the
+list; the list closes. A child Popover (a filter's value picker) is the top
+of the stack and takes Escape first; a Menu or a Dialog opened after the
+dropdown takes it before the dropdown does.
 
 From top to bottom:
 
@@ -171,13 +193,17 @@ From top to bottom:
      dropped without asking** (Q-H): the table shows the chosen view as
      saved, and the bar goes.
    - **The *…* menu** is the kit `MenuButton` (§8 KR-3): **Edit** (applies
-     the view and keeps the dropdown open, the keyboard on *Filters*),
+     the view and keeps the dropdown open, the keyboard on *Filters*; on the
+     view already on screen it keeps the change for now — VW1d code review
+     round 1, R1-5),
      **Rename** (the name becomes a field in the row: Enter keeps, Escape
      reverts), **Duplicate** ("Shoot week copy", placed at the end, Q5c),
      **Delete** (asks: "Delete Shoot week for everyone on this project?" —
      *Cancel* focused / *Delete*; afterwards the keyboard goes to the next
      row, or to the Views button). *All* has no handle, no move buttons and
-     no *…*.
+     no *…*. The kit Dialog gives focus back to what had it at its open (the
+     deleted row's *…*, gone by then), so the list moves the keyboard in an
+     effect after the Dialog has unmounted, never in the click (finding 14).
    - **A seat that cannot write** does not see the handles, the move
      buttons, the *…* or *New view* (Q-F).
 2. **This view** (a section label): four 28px rows, each with the part's
@@ -192,9 +218,12 @@ From top to bottom:
    placed at the end, and applied (Q-G1); its parts are set through the
    cards and kept with *Save* in the bar.
 
-**States.** *Loading*: the kit `Loading` line under *All*; *All* works.
+**States.** No *Loading* row (finding 10): the views come in the project's
+own bundle, so there is no project without them (the tab says "No project
+loaded" until the bundle is there); the one wait is the last used view's
+(§4.5), in the table's body.
 *Error*: "Views could not be loaded." with *Try again* (it reloads the
-project); *All* works. *Not on this server yet* (a database without the
+project, `ctx.reloadActiveProject`); *All* works. *Not on this server yet* (a database without the
 views' migration, or Google Drive): *All* alone, with "Saved views are not
 on this server yet." in place of *New view*. *Empty*: *All* alone, and for
 people who may save views the hint "Change the table, then *Save as new
@@ -206,11 +235,16 @@ with no change of one's own*: the table goes to *All* and a toast says
 
 A card replaces the dropdown's content in place (Q5b): its header a ←
 button ("Back to views") and the part's name; Escape on a card goes back to
-the list, Escape on the list closes the dropdown. The card widens to 480px
-for Filters and Sort, keeping its left edge. Every change applies to the
-table at once, as a change for now. The Filters and Sort cards are plain
-forms in Tab order; the Fields list is a grid like the Views list. A moved
-row is announced in the table's polite live region.
+the list, Escape on the list closes the dropdown (§4.2's one Escape path).
+The card widens to **560px** for Filters and Sort, keeping its left edge:
+today's filter row is about 532px before the card's padding (*Where* 40,
+field 128, condition 160, value 144, ✕ 28, four 8px gaps; step 0 review,
+finding 7), so 480 could not hold "the same row". Every change applies to
+the table at once, as a change for now — the Table / Board tabs too, since
+the layout is part of a view (her Q8; finding 13); the search never is. The
+Filters and Sort cards are plain forms in Tab order; the Fields list is a
+grid like the Views list. A moved row is announced in the table's polite
+live region.
 
 - **Filters** (Q5a, Q13): the view's filters, one row each in today's shape
   — *Where* / *And*, the field, the condition, the value — then *+ Add
@@ -235,6 +269,18 @@ row is announced in the table's polite live region.
   On the Tasks tab the table's grouping and the Board's columns stay apart,
   as today (Q-C); the card shows the one for the layout on screen. Grouped by
   a linked kind, the groups are combination groups (§4.11).
+  **The default is a rule per field (finding 12)**, carried by the table's
+  description: in the Tasks table off for Status and on for every other
+  field; on the Board off for every field. Choosing a field (in the card or
+  the toolbar's Group menu) sets the switch to that field's default. **With
+  the switch off, the empty groups are** (per field): every status; every
+  priority; every phase of the project and "No phase"; every member the
+  table's Assignee cell offers and "Unassigned"; for a linked kind every
+  single live item (the active shot list's scenes and shots) and "No …".
+  **The project's groupings are not touched by the switch (finding 1):** a
+  grouping made with *Create grouping* shows while empty whenever its items
+  are live (§4.11), so a new one is there to drag into at once; the switch
+  hides only the empty single items, combinations and "No …".
 - **Fields** (Q6, Q7, Q-E, Q-J): every field of the table in the view's
   order, each a row: a drag handle button, the field's name and an eye
   switch ("Show <field>"); *Move up* / *Move down* among the hover actions.
@@ -246,6 +292,17 @@ row is announced in the table's polite live region.
   table it also says which columns the nested shot rows show. In Tasks,
   **Show key dates** is a separate switch under the list. *Show all* /
   *Hide all* (all but the name) at the card's foot.
+  **The Tasks Board's cards (VW1d; finding 6):** today's card has fixed
+  lines (status and priority; the assets and the assignee; the start date
+  and the bid), and one `fields` list serves both layouts (§5.1). So on the
+  Board the Fields card lists the card's own fields — *Status*, *Priority*,
+  *Asset*, *Assignee*, *Start*, *Bid* — each with its switch, and a hidden
+  field leaves its part of the card; the card keeps its own order, and a
+  field with no place on the card (Phase, End, the other kinds) is not
+  listed there. Her Q-E words ("allow the user to select what shows in the
+  cards") are what is kept; "in that order" waits for a card that takes any
+  field (§9). Because the list is one, a field hidden on the Board is hidden
+  in the table too, and the other way round.
 
 ### 4.4 The *changed for now* bar (Q3c, Q-A3, Q3d)
 
@@ -253,6 +310,23 @@ The kit `Banner` (its `info` tone; without its own live role, §8 KR-4), in
 the flow after the Filter strip when it is open, directly above the table,
 **present only while the view on screen has unsaved edits** (Q-A3) or news
 about them. Its words are written into the table's polite live region.
+
+**Every row below is derived on render (step 0 review, finding 4)** from
+the change for now (`viewDraftOf`: the view it started from and that view's
+revision), the view's row as it is now (`viewsOf`), the person
+(`ctx.authUserId`), whether the seat may write, whether the backend keeps
+views, and the last save's refusal. Two sources feed the same rule: a
+teammate's save that arrives through the live merge while a change is open
+(her Q3d: the row's revision moves past the change's), and a save the
+backend refused (`changed`, `deleted`, `filtered`, which bring the row in or
+take it out). Who: `revised_by` equal to the person is "you … in another
+window"; another id is named through the workspace roster
+(`useRosterMembers`), "Someone" when it is not there; an empty `revised_by`
+(the signed-out desktop always writes none, `rabbitTableViews.cjs`) is
+"another computer", so the desktop never says "another window" and, with no
+live channel, learns of a teammate's save only from a refused *Save*.
+Nothing is stored but the last refusal (the danger row and its *Try
+again*).
 
 | State | Words | Buttons |
 |---|---|---|
@@ -281,8 +355,12 @@ about them. Its words are written into the table's polite live region.
   the view's settings makes a new revision; a rename or a reorder does not
   raise the bar.
 - **Undo**: every saved change to a view shows the shell's undo toast
-  (`components/UndoToast.jsx`), named; it pauses while it has the keyboard's
-  focus as well as under the pointer. Undo of a settings save is conditional
+  (`components/UndoToast.jsx`), named, and the toast is the save's
+  announcement (the table's region does not say it again: VW1d code review
+  round 1, R1-8); it pauses while it has the keyboard's
+  focus as well as under the pointer (today it pauses under the pointer
+  only: VW1d adds the focus to the shell's toast, for every toast; step 0
+  review, finding 11). Undo of a settings save is conditional
   on the revision it left, of a rename on the name it set; undo of a reorder
   is unconditional; undo of a new view deletes it only while it still has
   the revision it was made with, so a teammate's save in between is never
@@ -540,7 +618,9 @@ browser storage starting empty at every launch.
   keeps a column for every single item, empty or not (Q-I). The project's
   groupings (below; VW1c, VW1d) show even while empty, except while one of
   their items is in the trash (§5.2: hidden with it, back on restore); the
-  *Hide empty groups* switch (VW1d) hides the empty ones for that view.
+  *Hide empty groups* switch (VW1d) hides the empty single items,
+  combinations and "No …" for that view, never the project's groupings
+  (§4.3; VW1d step 0, finding 1).
 - **Dragging a row into a group makes that group's items the row's**
   (Q-D1): any others come off; dragging into "No asset" takes them all off;
   the undo toast puts them back, and is the announcement. Its items in the
@@ -557,7 +637,23 @@ browser storage starting empty at every launch.
   item ticked; a combination that already exists says so instead). Created,
   the grouping shows at once, empty, ready for rows to be dragged in.
 - **Saved for the project** (Q-D2): every view of that table grouped by that
-  kind shows it, for everyone; the Timeline shows the Tasks table's.
+  kind shows it, for everyone; the Timeline shows the Tasks table's. It
+  shows while empty whatever the view's *Hide empty groups* says (step 0
+  review, finding 1), and hides only while one of its items is in the trash
+  or not loaded (`isGroupingLive`).
+- **The Timeline's rows for them (VW1d; finding 8):** the Timeline groups
+  by team, phase, asset, scene, level or experience (no grouping by shot).
+  An asset's, level's or experience's grouping of two or more items is a
+  combination row, empty or not, after the single items' rows (each single
+  item already has a row there, so a grouping of one adds nothing). Scenes:
+  a grouping of two or more scenes is a scene combination row; a grouping of
+  shots sits under its shots' one scene as a shot combination row, or, when
+  its shots span several scenes, under a scene combination row for those
+  scenes made for it. The Timeline reads the ACTIVE shot list (S3c), so a
+  grouping naming a scene or shot outside it is not a Timeline row (the
+  Tasks table, which reads every list, shows it). The touch reaches past the
+  builders by exactly one place: `buildRowsByGrouping` takes the groupings,
+  and its one call site's memo gains them.
 - **Removed from the group's *…* menu** (Q-D5): *Remove grouping* asks
   first; rows keep their items, and a group that still holds rows stays as
   any combination with rows does.
@@ -608,10 +704,27 @@ browser storage starting empty at every launch.
   for one thing (the columns' keys, the Group menu's values `phase` /
   `assignee`, the Filter strip's `phase_id` / `asset_id`) are mapped to it
   once, where the screens hand their state to the views (VW1d); the other
-  tables' keys come with their descriptions (VW1e).
+  tables' keys come with their descriptions (VW1e). **A field that is not a
+  column** (VW1d step 0, finding 5): a table's description may name
+  sortable fields that have no column — the Tasks table's *Created*
+  (`created_at`) — under their own key; nothing else in a config names one.
+  Of several sorts, the FIRST does what today's one sort does besides
+  ordering the rows: it orders the Phase groups by their own dates or names,
+  and a date sort puts the key dates among the rows.
 - A filter's `values` hold ids for linked rows and words for the rest; a
   value whose row is gone matches nothing and the card shows it as "No longer
   in the project".
+- **A stored part this table cannot apply** (VW1d code review round 2,
+  R2-3, R2-4) — a filter row with another build's condition or on a field
+  the table cannot filter, a sort on a field the table lacks — is kept,
+  filters or sorts nothing, is not counted (*Filter (n)*, the summaries),
+  and reads as what it is ("… (unknown)", "… (cannot filter)", "… (not in
+  this table)"), never as the select's first option. **Another WILSON's
+  keys count toward the 32 KB** (they are kept on write): where they alone
+  leave no room for a change, *Save* says so in the bar and *Save as new
+  view*, which carries only this build's settings, holds it (R2-2). A
+  newer WILSON's view cannot be duplicated by this one (its copy would drop
+  that build's settings; R2-6).
 - *All* is never stored. `allViewOf(tableKey)` (§5.5) builds it: no filter,
   no sort, `fields: []` (every field at its default place), the grouping as
   today (the Tasks table none and its Board by Status; Shots by Scene; the
@@ -965,6 +1078,21 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
   elsewhere keeps its own focus). It keeps the Tab order a portal would
   lose: Tab from its last control closes it and moves on to the control
   after the trigger; Shift+Tab from its first returns to the trigger.
+  **VW1d step 0 (§11 round 5, finding 2):** that Tab rule holds only for a
+  key whose target is inside the card, and only while no layer opened after
+  it is open: a kit Menu portalled from a MenuButton inside the card, or a
+  Dialog rendered under it, sends its keydown up the React tree to the card,
+  and the card read a Tab inside them as "from the last control" (its index
+  -1) and closed itself. **The in-place form (VW1d, its first caller the
+  Views dropdown):** no portal; `position: absolute` under the trigger's
+  `position: relative` wrapper, under its left edge; as tall as the room
+  below the trigger less 12px (measured at its open), scrolling inside past
+  that; the Tab order is the document's own (it follows its trigger), and
+  focus leaving it for anything but a kit Menu, Dialog or Popover closes it
+  (Tab past its last control, or Shift+Tab back onto the trigger). A scroll
+  or a resize does not close it (it moves with its trigger). Escape and
+  outside presses as the portalled form, and `onClose(why)` lets its caller
+  decide what Escape does (§4.2).
 - **VW1-KR-2 Table sticky columns** (`src/ui/Table.jsx` + `src/index.css`;
   VW1b; step 0 review, findings 4 and 5): `stickyColumns={n}` (1 to 3) keeps
   the first n columns in place while the table scrolls sideways
@@ -1012,9 +1140,21 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
   `src/ui/`): a button that opens the kit `Menu` with a keyboard model and
   stays shown while its menu is open. Callers: the views' *…*, the Tasks
   toolbar's *New* (Q-A1), the groups' *…* (*Remove grouping*), then the
-  Scenes rows that use it today.
+  Scenes rows that use it today. **What lands (VW1d step 0, finding 9):**
+  the kit Menu has no roles and no arrow keys (its own note: "F2 adds the
+  keyboard model and the roles together"), so MenuButton gives its menu the
+  model itself, without the roles: focus on the first item at the open; ↑ /
+  ↓ (wrapping) and Home / End between the items; Enter or Space chooses (a
+  button's own); Escape closes and gives focus back to the button; Tab past
+  the last item or Shift+Tab before the first closes it (focus leaving the
+  menu). A labelled form (`label`, a kit `Button` with its variant and icon,
+  for *New*) beside the icon form, and `tabIndex`, `aria-label` and
+  `onKeyDown` passed to the button (the views list's roving Tab stop). Its
+  callers' imports move with it.
 - **VW1-KR-4 `Banner` `live` prop** (`src/ui/Banner.jsx`): `live={false}`
-  drops the Banner's own live role. Caller: the bar.
+  drops the Banner's own live role — both of them, `status` and the danger
+  and warning tones' `alert` (finding 17). Caller: the bar, whose three
+  buttons go in the one `action` slot together.
 
 ---
 
@@ -1040,6 +1180,12 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
 - **A Board grouped by Scene or Shot** shows a column for every scene or shot
   of the active list, empty ones included (her Q-I), until the view's *Hide
   empty groups* (VW1d).
+- **A Board card keeps its own order** (VW1d): a view chooses which of the
+  card's six fields show, not their order, and a field with no place on the
+  card (Phase, End, the other kinds) is not offered there (§4.3).
+- **A grouping naming a scene or shot outside the active shot list** shows
+  in the Tasks table and not on the Timeline, which reads the active list
+  (§4.11).
 - **A cell and its group's band can name the same items in two orders**: the
   cell follows the task window's Sort (Q10), the band the display order
   (§4.11).
@@ -1061,7 +1207,7 @@ asked in that session.
 
 ---
 
-## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0; §5 at VW1c's)
+## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0; §5 at VW1c's; VW1d's parts at its step 0)
 
 The two rounds reviewed the design before her answers of 2026-10-16. Their
 findings and corrections stand where her later answers did not replace
@@ -1144,6 +1290,42 @@ keys). Corrected above.
 
 Not verified by the reviewer: the live channel's largest message (a 32 KB
 view sends its old and new rows); staging and production (dev only).
+
+### Round 5 (VW1d's step 0: one Fable reviewer, read-only, 2026-10-25, against the code at `25112cda`) — 18 findings
+
+§4.1 to §4.5, §4.8's defects 1, 2 and 5, §4.9, §4.11's *Create grouping*
+and the Timeline's rows, §6, §8's KR-1 in place, KR-3 and KR-4, against the
+code VW1c left and her answers. Every claim a correction rests on was read
+again by hand first (the Popover's Tab handler, the toast's pause, the
+toolbar's two slots, the shared `.rb-task-menu` class). Corrected above.
+
+| # | Severity | Finding | Taken |
+|---|---|---|---|
+| 1 | high | *Hide empty groups* on by default (Q-I) hid a grouping the moment *Create grouping* made it, empty | the project's groupings are not touched by the switch (§4.3, §4.11) |
+| 2 | high | the Popover's Tab rule ignored newer layers and keys from outside the card: Tab in a portalled *…* menu or a confirm Dialog closed the dropdown | the rule only for a key inside the card with no newer layer open (§8 KR-1); VW1b's picker has the same hole and takes the same fix |
+| 3 | medium | Escape is heard by the Popover in the capture phase, before any field or card inside it | one Escape path, the caller's `onClose('escape')` (§4.2) |
+| 4 | medium | a teammate's save arriving through the live merge was not a source of the bar's states, and the states' derivation was unsaid | every row derived on render from the draft, the row, the person, the seat, the backend and the last refusal; who, by `revised_by` (§4.4) |
+| 5 | medium | the *Created* sort has no column key; which of several sorts orders the phase groups and places the key dates was unsaid | a description may name sortable fields that are not columns; the first sort does both (§5.1) |
+| 6 | medium | the Board's card has fixed lines: "which lines a card shows, in that order" was unbuildable | the card's six fields, each hideable, in the card's order; the order is a known limit (§4.3, §9) |
+| 7 | medium | the filter row (about 532px) does not fit a 480px card | Filters and Sort cards 560px (§4.3) |
+| 8 | medium | the Timeline's rows reach past the builders (the call site's memo); shot groupings and rows outside the active list were undefined | the one extra touch named; where a shot grouping sits; outside the active list, no Timeline row (§4.11, §9) |
+| 9 | medium | KR-3's "keyboard model" does not exist in the kit Menu; MenuButton takes no `tabIndex` or name | what lands, without the roles (§8 KR-3) |
+| 10 | medium | the dropdown's *Loading* state had no signal: views come in the bundle | dropped; the one wait is the last used view's (§4.2) |
+| 11 | low | the undo toast pauses on hover only | VW1d adds the focus, for every toast (§4.4) |
+| 12 | low | Q-I's default per field, and which empty groups exist with the switch off, were unsaid | a per-field rule in the description; the empty groups listed per field (§4.3) |
+| 13 | low | the Table / Board tabs are a change for now (the layout is in the config) | said (§4.3) |
+| 14 | low | the Dialog gives focus back to the deleted row's *…*, gone by then | the list moves focus in an effect after the Dialog unmounts (§4.2) |
+| 15 | low | the old key's one reader; the shared sheet's classes it leaves | taken in the build: `.rb-task-menu` is also the task templates' dependency menu (`rb-tpl-deps-menu`), so only the classes nothing else writes go, in the same commit (rule 3 of `rabbitTasksCss.test.js`) |
+| 16 | low | the freed room and its spenders are in different toolbar slots | the Views width set after measuring with *Create grouping* shown; the count's width in `ch` (§4.1) |
+| 17 | nit | `live={false}` must drop the danger tone's `alert` too | both roles (§8 KR-4) |
+| 18 | nit | the in-place form's box and the Dialogs' place | `position: absolute` under a relative wrapper; the Dialogs at the view's root (§4.2) |
+
+Found sound by the reviewer: the provider's API covers every state the
+screens need (drafts without views, the deleted-since fallback, nothing
+written unless `ready`); Escape's order between Popover, Menu and Dialog;
+§4.10's Tasks half as built; `groupingKeyOf` matching the combination key
+and the Timeline's; defects 1 and 2 where §4.8 says; the three vocabularies;
+the dialog's "already exists" before any request; Q-G3 as one call.
 
 ### What rounds 1 and 2 found sound
 

@@ -1438,6 +1438,15 @@ select option {
     box-shadow: var(--shadow-float);
     animation: ui-fade-in var(--duration-response) var(--ease-response) both;
   }
+  /* The in-place form (post-overhaul VW1d, VW1-KR-1; its first caller the
+     custom views' dropdown): right after its trigger, under its left edge,
+     inside the caller's `position: relative` wrapper; its width and
+     max-height are the component's (inline, as the portalled form's). */
+  .ui-popover[data-place="inline"] {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+  }
 
   /* ── Dialog: one backdrop, one surface, 6px, one shadow; the only motion
      is the 200ms fade (Q17: "keep it minimal") ─────────────────────────── */

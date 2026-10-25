@@ -59,6 +59,9 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
   // focus and a suppressed Tab, which this menu does not implement (the Bins
   // menu it replaces was a plain column of buttons, and stays one — C1,
   // review round 1). F2 adds the keyboard model and the roles together.
+  // Post-overhaul VW1d (VW1-KR-3): opened from the kit MenuButton it has the
+  // arrows, Home / End and Tab-out (MenuButton gives them), still without
+  // the roles, which its context-menu callers do not earn yet.
   return (
     <div
       ref={ref}
