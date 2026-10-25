@@ -97,7 +97,7 @@ function ValuePicker({ def, values, description, onChange }) {
  * move, Space or Enter ticks — the item picker's model, VW1b), the gone
  * values first while chosen. Also *Create grouping*'s list.
  */
-export function TickList({ options, chosen, plural, onChange, searchable = null }) {
+export function TickList({ options, chosen, plural, onChange, searchable = null, autoFocus = false }) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef(null)
@@ -143,7 +143,7 @@ export function TickList({ options, chosen, plural, onChange, searchable = null 
       {withSearch && (
         <div className="rb-tv-values-search">
           <Search aria-hidden="true" className="rb-tv-values-search-icon" />
-          <input ref={searchRef} type="text" value={query} aria-label={`Search ${plural.toLowerCase()}`}
+          <input ref={searchRef} type="text" value={query} aria-label={`Search ${plural.toLowerCase()}`} autoFocus={autoFocus}
             placeholder="Search…" className="ui-input rb-tv-values-input" data-size="sm"
             onChange={e => { setQuery(e.target.value); setActive(0) }}
             onKeyDown={e => { if (e.key === 'ArrowDown' && shown.length) { e.preventDefault(); moveTo(at) } }} />

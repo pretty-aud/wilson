@@ -17,10 +17,6 @@
 // VW1b review round 1 (R1-6): `minLeft`, a viewport x the card's left edge
 // does not go under — a trigger partly covered (the Tasks table's sticky
 // Title over a cell scrolled under it) names where the cover ends.
-// The design's *in place* form (rendered right after its trigger, for the
-// Views dropdown) lands with ITS first caller (VW1d), not before: the kit
-// takes an addition only with a caller.
-//
 // ── The IN-PLACE form (`inPlace`; post-overhaul VW1d, 2026-10-25) ───────────
 // Its first caller is the custom views' dropdown (CUSTOM_VIEWS_DESIGN.md
 // §4.2, §8 KR-1, as VW1d's step 0 review corrected them). No portal: it is
@@ -28,8 +24,10 @@
 // `position: absolute` under the trigger's left edge inside the caller's
 // `position: relative` wrapper (index.css, `[data-place="inline"]`), as wide
 // as `width` says at every render (a card may widen it, keeping its left
-// edge), as tall as the room below the trigger less 12px (measured at its
-// open), scrolling inside past that. The Tab order is the document's own:
+// edge) but never past the window's right edge less 12px (VW1d code review
+// round 1, R1-11: at Electron's 1024px floor a 560px card ran off it), as
+// tall as the room below the trigger less 12px (both measured at its open),
+// scrolling inside past that. The Tab order is the document's own:
 // it follows its trigger, so Tab moves through it and on to the next
 // control, and focus LEAVING it — for anything but a kit Menu, Dialog or
 // Popover — closes it (`onClose('tab')`: Tab past its last control,
@@ -145,7 +143,7 @@ export function Popover({
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1400
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900
     const rect = anchor?.getBoundingClientRect?.() || { left: 0, top: 0, bottom: 0 }
-    if (inPlace) return { side: 'below', maxHeight: Math.max(0, vh - rect.bottom - GAP - EDGE) }
+    if (inPlace) return { side: 'below', maxHeight: Math.max(0, vh - rect.bottom - GAP - EDGE), maxWidth: Math.max(0, vw - rect.left - EDGE) }
     return placePopover(rect, width, vw, vh, minLeft)
   })
 
@@ -276,7 +274,7 @@ export function Popover({
         data-place="inline"
         data-side="below"
         data-surface="dark"
-        style={{ width, maxHeight: place.maxHeight }}
+        style={{ width: Math.min(width, place.maxWidth), maxHeight: place.maxHeight }}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
       >

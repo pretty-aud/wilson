@@ -193,7 +193,9 @@ From top to bottom:
      dropped without asking** (Q-H): the table shows the chosen view as
      saved, and the bar goes.
    - **The *…* menu** is the kit `MenuButton` (§8 KR-3): **Edit** (applies
-     the view and keeps the dropdown open, the keyboard on *Filters*),
+     the view and keeps the dropdown open, the keyboard on *Filters*; on the
+     view already on screen it keeps the change for now — VW1d code review
+     round 1, R1-5),
      **Rename** (the name becomes a field in the row: Enter keeps, Escape
      reverts), **Duplicate** ("Shoot week copy", placed at the end, Q5c),
      **Delete** (asks: "Delete Shoot week for everyone on this project?" —
@@ -353,7 +355,9 @@ again*).
   the view's settings makes a new revision; a rename or a reorder does not
   raise the bar.
 - **Undo**: every saved change to a view shows the shell's undo toast
-  (`components/UndoToast.jsx`), named; it pauses while it has the keyboard's
+  (`components/UndoToast.jsx`), named, and the toast is the save's
+  announcement (the table's region does not say it again: VW1d code review
+  round 1, R1-8); it pauses while it has the keyboard's
   focus as well as under the pointer (today it pauses under the pointer
   only: VW1d adds the focus to the shell's toast, for every toast; step 0
   review, finding 11). Undo of a settings save is conditional

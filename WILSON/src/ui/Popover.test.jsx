@@ -363,6 +363,15 @@ describe('Popover — the in-place form (VW1d)', () => {
     expect([c.style.left, c.style.top]).toEqual(['', ''])
   })
 
+  it('VW1d code review round 1 (R1-11): never wider than the room right of its trigger less 12px; CONTROL: with room, its own width', () => {
+    const near = { ...BOX, left: innerWidth - 300, right: innerWidth - 150 }
+    render(<InPlace width={560} box={near} />)
+    expect(card().style.width).toBe(`${300 - 12}px`)
+    cleanup(); _resetOverlaysForTests()
+    render(<InPlace width={560} />)
+    expect(card().style.width).toBe('560px')
+  })
+
   it('takes a new width at a re-render (a card widens it), its left edge the sheet\'s', () => {
     const { rerender } = render(<InPlace width={300} />)
     rerender(<InPlace width={560} />)

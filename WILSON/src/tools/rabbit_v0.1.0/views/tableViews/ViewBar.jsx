@@ -30,12 +30,23 @@ export function ViewBar({ tv, ask, announce = () => {}, focusViews = () => {} })
   const [naming, setNaming] = useState(null) // { text, error }
   const [busy, setBusy] = useState(false)
   const inputRef = useRef(null)
+  const asNewRef = useRef(null)
   const words = bar?.words || ''
   // The bar's words, said once each time they change (the Banner says nothing itself).
   useEffect(() => { if (words) announce(words) }, [words]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (naming && inputRef.current) { inputRef.current.focus(); inputRef.current.select() } }, [naming === null]) // eslint-disable-line react-hooks/exhaustive-deps
   // The bar goes when its change does: so does a name being typed for it.
   useEffect(() => { if (!bar && naming) setNaming(null) }, [bar, naming])
+  // A name field closed without saving (Escape, Cancel): the keyboard goes
+  // back to *Save as new view* (code review round 1, R1-2: it fell to <body>).
+  const wasNamingRef = useRef(false)
+  useEffect(() => {
+    if (naming) { wasNamingRef.current = true; return }
+    const was = wasNamingRef.current
+    wasNamingRef.current = false
+    const a = document.activeElement
+    if (was && (!a || a === document.body)) asNewRef.current?.focus()
+  }, [naming])
   if (!bar) return null
 
   async function save() {
@@ -48,11 +59,10 @@ export function ViewBar({ tv, ask, announce = () => {}, focusViews = () => {} })
     }
     setBusy(true)
     try {
+      // The undo toast says it (the toast stack is its own live region):
+      // said here too, it was heard twice (code review round 1, R1-8).
       const status = await tv.save({ over })
-      if (status === 'saved') {
-        announce(`${tv.name} saved`)
-        focusViews()
-      }
+      if (status === 'saved') focusViews()
     } finally {
       setBusy(false)
     }
@@ -61,9 +71,8 @@ export function ViewBar({ tv, ask, announce = () => {}, focusViews = () => {} })
     if (!naming || busy) return
     setBusy(true)
     try {
-      const made = await tv.saveAsNew(naming.text)
+      await tv.saveAsNew(naming.text)
       setNaming(null)
-      announce(`${made.name} saved for everyone`)
       focusViews()
     } catch (err) {
       setNaming(n => (n ? { ...n, error: err?.message || String(err) } : n))
@@ -89,7 +98,7 @@ export function ViewBar({ tv, ask, announce = () => {}, focusViews = () => {} })
       {has('retry') && <Button size="sm" variant="primary" loading={busy} onClick={save}>Try again</Button>}
       {has('reset') && <Button size="sm" variant="ghost" onClick={reset}>Reset</Button>}
       {has('saveAsNew') && (
-        <Button size="sm" disabled={!!reason('saveAsNew')} title={reason('saveAsNew') || undefined}
+        <Button ref={asNewRef} size="sm" disabled={!!reason('saveAsNew')} title={reason('saveAsNew') || undefined}
           onClick={() => setNaming({ text: copyName(tv.name), error: null })}>
           Save as new view
         </Button>

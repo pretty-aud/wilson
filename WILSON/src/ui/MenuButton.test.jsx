@@ -237,6 +237,11 @@ describe('MenuButton in the kit — the keyboard model and the labelled form (VW
     expect(menu()).not.toBeNull()
   })
 
+  it('VW1d code review round 1 (R1-15): the button says it opens something (aria-haspopup "true", there being no menu roles)', () => {
+    render(<MenuButton title="More" items={[{ label: 'Edit', onClick: () => {} }]} />)
+    expect(document.querySelector('.ui-iconbtn').getAttribute('aria-haspopup')).toBe('true')
+  })
+
   it('tabIndex, aria-label and onKeyDown reach the button; its ref is forwarded', () => {
     const ref = { current: null }
     const onKeyDown = vi.fn()

@@ -7,10 +7,11 @@
 // config it shows (the view's, or the change for now), the bar's state, and
 // the verbs the Views dropdown, the cards and the bar use. Everything below
 // the provider's API (state/tableViewsState.js) is derived on render
-// (finding 4); the only state of its own is the last save's refusal per view
-// (the bar's danger row and its Try again) and the views seen this visit (a
-// view deleted by a teammate while on screen says so; one the last used map
-// names but is gone opens on *All* without a word, §4.5).
+// (finding 4); its own state is the last save's refusal per view (the bar's
+// danger row and its Try again), the views seen this visit (a view deleted
+// by a teammate while on screen says so; one the last used map names but is
+// gone opens on *All* without a word, §4.5), and, only where the provider
+// has no views API, the change for now itself (code review round 1, R1-14).
 //
 // Her answers: Q3 and Q3b (a change is for the moment, kept across tabs,
 // dropped on a project switch or a reload), Q3d (a teammate's save follows;
@@ -231,18 +232,12 @@ export function useTableView({ ctx, tableKey, description, canWrite = false, nam
     views,
     allView,
     viewId: screen.id,
-    view: row || allView,
-    isAll,
     name,
     deleted: screen.deleted,
     waiting: screen.waiting,
     config,
     // The config on screen is the change for now's (not the view's own).
     fromDraft,
-    saved,
-    newer: read.newer,
-    ownChange,
-    moved,
     changedBy,
     bar,
     canEdit: canWrite && available,

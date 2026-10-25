@@ -155,6 +155,7 @@
   .rb-tv-card { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; min-height: 0; }
   .rb-tv-card-foot { display: flex; align-items: center; gap: 8px; }
   .rb-tv-sort-row { display: flex; align-items: center; gap: 8px; }
+  .rb-tv-sort-row[data-over="true"] { box-shadow: inset 0 2px 0 var(--color-signal); }
   .ui-input.rb-tv-sort-field { width: 160px; }
   .ui-input.rb-tv-sort-dir { width: 128px; }
   .rb-tv-row-field { display: flex; align-items: center; gap: 8px; }

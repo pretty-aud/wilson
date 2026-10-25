@@ -75,6 +75,30 @@ export function fieldsToStore(effective, stored, defaultKeys) {
   return [...list.map(f => ({ key: f.key, visible: f.visible })), ...kept.map(f => ({ key: f.key, visible: f.visible !== false }))]
 }
 
+/**
+ * A field dragged onto another's place (the Fields card's handle, her Q7:
+ * "you drag fields up and down"): it takes the target's place, the rest
+ * close up; the name never moves and nothing goes before it.
+ */
+export function moveFieldTo(effective, key, targetKey) {
+  const list = (Array.isArray(effective) ? effective : []).map(f => ({ ...f }))
+  const from = list.findIndex(f => f.key === key)
+  const to = list.findIndex(f => f.key === targetKey)
+  if (from < 0 || to < 0 || from === to || list[from].fixed || list[to].fixed) return list
+  const [moved] = list.splice(from, 1)
+  list.splice(to, 0, moved)
+  return list
+}
+
+/** A list's item dragged from one place to another (the Sort card's handle). */
+export function moveItemTo(list, from, to) {
+  const out = (Array.isArray(list) ? list : []).slice()
+  if (from < 0 || from >= out.length || to < 0 || to >= out.length || from === to) return out
+  const [moved] = out.splice(from, 1)
+  out.splice(to, 0, moved)
+  return out
+}
+
 /** A field moved up (-1) or down (+1) among the movable ones; the list as it is when it cannot move. */
 export function moveField(effective, key, by) {
   const list = (Array.isArray(effective) ? effective : []).map(f => ({ ...f }))
@@ -309,14 +333,18 @@ export function barStateOf({
   }
   if (isAll) return { tone: 'info', words: 'All: changed for now', actions: ['reset', 'saveAsNew'], disabled: {} }
   const disabled = newer ? { save: BAR_WORDS.newer } : {}
+  // A newer WILSON's view: its reason in the words too (code review round 1,
+  // R1-7: a disabled button's tooltip reaches neither a keyboard nor a
+  // screen reader).
+  const tail = newer ? ` ${BAR_WORDS.newer}` : ''
   if (moved) {
     let words
     if (revisedBy && me && String(revisedBy) === String(me)) words = `You changed ${name} in another window. Your changes here are still on screen.`
     else if (!revisedBy) words = `${name} was changed on another computer. ${still}`
     else words = `${whoName || 'Someone'} changed ${name}. ${still}`
-    return { tone: 'info', words, actions: ['reset', 'saveAsNew', 'save'], disabled, asks: true }
+    return { tone: 'info', words: words + tail, actions: ['reset', 'saveAsNew', 'save'], disabled, asks: true }
   }
-  return { tone: 'info', words: `${name}: changed for now`, actions: ['reset', 'saveAsNew', 'save'], disabled }
+  return { tone: 'info', words: `${name}: changed for now${tail}`, actions: ['reset', 'saveAsNew', 'save'], disabled }
 }
 
 // ── The view on screen (design §4.5) ─────────────────────────────────────

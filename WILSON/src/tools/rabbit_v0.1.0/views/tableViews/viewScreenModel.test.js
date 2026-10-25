@@ -185,6 +185,23 @@ describe('the bar\'s ten rows (design §4.4), derived', () => {
     expect(barStateOf({ ...on, refusal: { kind: 'failed', reason: 'Network down.' } })).toMatchObject({ tone: 'danger', words: 'Shoot week could not be saved: Network down.', actions: ['retry', 'reset'] })
     expect(barStateOf({ ...on, newer: true }).disabled).toEqual({ save: BAR_WORDS.newer })
   })
+  it('code review round 1, R1-7: a newer WILSON\'s view says why Save is greyed in the words too; CONTROL: not newer, it does not', () => {
+    expect(barStateOf({ ...on, newer: true }).words).toBe(`Shoot week: changed for now ${BAR_WORDS.newer}`)
+    expect(barStateOf({ ...on, newer: true, moved: true, revisedBy: 'u2', whoName: 'Mara' }).words).toContain(BAR_WORDS.newer)
+    expect(barStateOf(on).words).not.toContain(BAR_WORDS.newer)
+  })
+})
+
+describe('code review round 1, R1-4: dragging a field or a sort to another\'s place', () => {
+  it('moveFieldTo: the field takes the target\'s place; the name never moves and nothing goes before it', async () => {
+    const { moveFieldTo, moveItemTo } = await import('./viewScreenModel')
+    const def = effectiveFields([], KEYS, { fixed })
+    expect(moveFieldTo(def, 'assignee_id', 'status').map(f => f.key)).toEqual(['title', 'assignee_id', 'status', 'priority', 'asset', 'phase_id'])
+    expect(moveFieldTo(def, 'status', 'title').map(f => f.key)).toEqual(KEYS)
+    expect(moveFieldTo(def, 'title', 'asset').map(f => f.key)).toEqual(KEYS)
+    expect(moveItemTo(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b'])
+    expect(moveItemTo(['a', 'b'], 0, 5)).toEqual(['a', 'b'])
+  })
 })
 
 describe('the view on screen (design §4.5)', () => {

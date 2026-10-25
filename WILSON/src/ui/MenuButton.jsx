@@ -163,6 +163,8 @@ export const MenuButton = forwardRef(function MenuButton({
   const shared = {
     ref: setButton,
     'aria-expanded': !!at,
+    // Without menu roles, the honest hint (VW1d code review round 1, R1-15).
+    'aria-haspopup': 'true',
     'aria-label': ariaLabel,
     tabIndex,
     onKeyDown,

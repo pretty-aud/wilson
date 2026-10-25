@@ -71,13 +71,18 @@ export function CreateGroupingDialog({ tableKey, kind, singular, plural, options
       <p className="rb-tv-ask">
         Tick the {plural.toLowerCase()} that belong together. The group is saved for everyone on the project, and tasks dragged into it take these {plural.toLowerCase()}.
       </p>
-      <div className="rb-tv-group-name" aria-live="polite">
+      {/* Code review round 1, R1-10: only the name is live (a tick says
+          its own state), and the "exists" line's region is always there,
+          its words set when they apply (a region inserted already
+          speaking is not reliably read). */}
+      <div className="rb-tv-group-name">
         <span className="rb-tv-row-label">Name</span>
-        <span className="rb-tv-group-name-text" data-empty={name ? 'false' : 'true'}>{name || `Tick at least one ${String(singular || kind).toLowerCase()}`}</span>
+        <span className="rb-tv-group-name-text" aria-live="polite" data-empty={name ? 'false' : 'true'}>{name || `Tick at least one ${String(singular || kind).toLowerCase()}`}</span>
       </div>
-      {exists && <p className="rb-tv-field-error" role="status">{GROUPING_EXISTS_WORDS}</p>}
+      <p className="rb-tv-field-error" role="status">{exists ? GROUPING_EXISTS_WORDS : ''}</p>
       <div className="rb-tv-group-list">
-        <TickList options={options} chosen={ticked.map(String)} plural={plural} searchable
+        {/* The search has the keyboard on open, as the item picker's (R1-9). */}
+        <TickList options={options} chosen={ticked.map(String)} plural={plural} searchable autoFocus
           onChange={(next) => { setTicked(next.map(v => options.find(o => String(o.value) === String(v))?.value ?? v)); setError(null) }} />
       </div>
     </Dialog>

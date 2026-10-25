@@ -51,7 +51,8 @@ import {
 } from 'lucide-react'
 import { Button, IconButton, Popover, HoverActions, MenuButton, Switch } from '../../../../ui'
 import {
-  effectiveFields, fieldsToStore, moveField, moveItem, filtersSummary, sortSummary, groupSummary, fieldsSummary,
+  effectiveFields, fieldsToStore, moveField, moveFieldTo, moveItem, moveItemTo,
+  filtersSummary, sortSummary, groupSummary, fieldsSummary,
 } from './viewScreenModel'
 import { ViewFilterRow } from './ViewFilterRow'
 import './tableViews.css'
@@ -102,7 +103,7 @@ export function TableViewsMenu({ tv, description, ask, announce = () => {}, onRe
   }
 
   return (
-    <span className="rb-tv-anchor">
+    <div className="rb-tv-anchor">
       <Button
         ref={buttonRef}
         size="sm"
@@ -144,7 +145,7 @@ export function TableViewsMenu({ tv, description, ask, announce = () => {}, onRe
           )}
         </Popover>
       )}
-    </span>
+    </div>
   )
 }
 
@@ -162,9 +163,30 @@ function ViewsList({
   const at = Math.min(activeRow, rows.length - 1)
   const gridRef = useRef(null)
   const partsRef = useRef(null)
-  const [pendingFocus, setPendingFocus] = useState(null) // { id } | { index } | { button: true } | { part }
+  // Where the keyboard goes after the list changed: `{ id, col }` (a row and
+  // the control that acted, else its handle, else its name), `{ index }` (a
+  // deleted row's place), `{ part }` (a part's row). Code review round 1,
+  // R1-2, R1-3, R1-13: a cancel, a move and a Cancel each left it on <body>
+  // or on another row.
+  const [pendingFocus, setPendingFocus] = useState(null)
   const [dragId, setDragId] = useState(null)
   const [overId, setOverId] = useState(null)
+  const newRef = useRef(null)
+
+  // A row's control in a column, when it is there and enabled (R1-12: a
+  // disabled one cannot take the keyboard, and moving the Tab stop onto it
+  // stranded it).
+  const controlIn = (i, col) => {
+    const c = controlOf(gridRef.current?.querySelector(`[data-row="${i}"] [data-col="${col}"]`))
+    return c && !c.disabled ? c : null
+  }
+  const focusIn = (i, cols) => {
+    for (const col of cols) {
+      const c = controlIn(i, col)
+      if (c) { c.focus(); return true }
+    }
+    return false
+  }
 
   // Focus after the list changed (a delete, a duplicate, a new view) or a card closed.
   useLayoutEffect(() => {
@@ -175,33 +197,57 @@ function ViewsList({
   }, [backTo, clearBackTo])
   useEffect(() => {
     if (!pendingFocus) return
-    const grid = gridRef.current
-    let el = null
+    let landed = false
     if (pendingFocus.id != null) {
       const i = rows.findIndex(v => String(v.id) === String(pendingFocus.id))
-      if (i >= 0) { setActiveRow(i); el = grid?.querySelector(`[data-row="${i}"] [data-col="name"]`) }
+      // A move names its control (else its handle, else the name); anything
+      // else lands on the row's name.
+      if (i >= 0) { setActiveRow(i); landed = focusIn(i, pendingFocus.col ? [pendingFocus.col, 'handle', 'name'] : ['name']) }
     } else if (pendingFocus.index != null) {
-      const i = Math.min(pendingFocus.index, rows.length - 1)
+      const i = Math.max(0, Math.min(pendingFocus.index, rows.length - 1))
       setActiveRow(i)
-      el = grid?.querySelector(`[data-row="${i}"] [data-col="name"]`)
+      landed = focusIn(i, ['name'])
     } else if (pendingFocus.part) {
-      el = partsRef.current?.querySelector(`[data-part="${pendingFocus.part}"]`)
+      const el = partsRef.current?.querySelector(`[data-part="${pendingFocus.part}"]`)
+      if (el) { el.focus(); landed = true }
     }
-    if (el) el.focus()
-    else if (pendingFocus.index != null || pendingFocus.id != null) document.querySelector('.rb-tv-button')?.focus()
+    if (!landed && (pendingFocus.index != null || pendingFocus.id != null)) document.querySelector('.rb-tv-button')?.focus()
     setPendingFocus(null)
   }) // after every render until it lands
+
+  // A name field closed without a commit (Escape, a press elsewhere): the
+  // keyboard goes back to its row, or to *New view* (R1-2: it fell to
+  // <body>, and the next Tab began at the top of the page).
+  const renamedRef = useRef(null)
+  useEffect(() => {
+    if (renaming) { renamedRef.current = renaming.id; return }
+    const id = renamedRef.current
+    renamedRef.current = null
+    const a = document.activeElement
+    if (id != null && (!a || a === document.body)) setPendingFocus({ id })
+  }, [renaming])
+  const wasCreatingRef = useRef(false)
+  useEffect(() => {
+    if (creating) { wasCreatingRef.current = true; return }
+    const was = wasCreatingRef.current
+    wasCreatingRef.current = false
+    const a = document.activeElement
+    if (was && (!a || a === document.body)) newRef.current?.focus()
+  }, [creating])
 
   const tabOf = (i) => (i === at ? 0 : -1)
   const positionWords = (v) => `${stored.findIndex(x => x.id === v.id) + 1} of ${stored.length}`
 
-  async function moveTo(v, by) {
+  // A move keeps the keyboard on the moved row's control that made it (R1-3:
+  // the Tab stop stayed at the old place, on another view).
+  async function moveTo(v, by, col = null) {
     const ids = stored.map(x => x.id)
     const i = ids.indexOf(v.id)
     const next = moveItem(ids, i, by)
     if (next.join('|') === ids.join('|')) return
     try {
       await tv.reorder(next)
+      setPendingFocus({ id: v.id, col })
       announce(`${v.name} moved to ${next.indexOf(v.id) + 1} of ${next.length}`)
     } catch (err) {
       announce(`${v.name} could not be moved: ${err?.message || err}`)
@@ -217,6 +263,7 @@ function ViewsList({
     ids.splice(target.builtIn ? 0 : to, 0, moved.id)
     try {
       await tv.reorder(ids)
+      setPendingFocus({ id: moved.id, col: 'handle' })
       announce(`${moved.name} moved to ${ids.indexOf(moved.id) + 1} of ${ids.length}`)
     } catch (err) {
       announce(`${moved.name} could not be moved: ${err?.message || err}`)
@@ -234,18 +281,18 @@ function ViewsList({
     const controls = [...rowEl.querySelectorAll('[data-col]')].filter(el => !controlOf(el)?.disabled)
     const c = controls.indexOf(t.closest('[data-col]'))
     const col = t.closest('[data-col]')?.getAttribute('data-col')
+    // The same column's control in the row, or its name when that one is
+    // absent or disabled (R1-12). The row's controls take the Tab stop in
+    // the next render; focus now.
     const focusRow = (n) => {
       const k = Math.max(0, Math.min(rows.length - 1, n))
       setActiveRow(k)
-      const target = gridRef.current?.querySelector(`[data-row="${k}"] [data-col="${col}"]`)
-        || gridRef.current?.querySelector(`[data-row="${k}"] [data-col="name"]`)
-      // The row's controls take the Tab stop in the next render; focus now.
-      controlOf(target)?.focus()
+      focusIn(k, [col, 'name'])
     }
     if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && col === 'handle') {
       e.preventDefault()
       const v = rows[i]
-      if (v && !v.builtIn) moveTo(v, e.key === 'ArrowUp' ? -1 : 1)
+      if (v && !v.builtIn) moveTo(v, e.key === 'ArrowUp' ? -1 : 1, 'handle')
       return
     }
     if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(i + 1) } else if (e.key === 'ArrowUp') { e.preventDefault(); focusRow(i - 1) } else if (e.key === 'Home') { e.preventDefault(); focusRow(0) } else if (e.key === 'End') { e.preventDefault(); focusRow(rows.length - 1) } else if (e.key === 'ArrowRight' && c >= 0 && c < controls.length - 1) { e.preventDefault(); controlOf(controls[c + 1])?.focus() } else if (e.key === 'ArrowLeft' && c > 0) { e.preventDefault(); controlOf(controls[c - 1])?.focus() }
@@ -284,7 +331,8 @@ function ViewsList({
   async function remove(v) {
     const index = rows.findIndex(x => x.id === v.id)
     const yes = await ask({ title: `Delete ${v.name} for everyone on this project?`, confirm: 'Delete', danger: true })
-    if (!yes) { setPendingFocus({ id: v.id }); return }
+    // Cancel: back to the … it came from (R1-13).
+    if (!yes) { setPendingFocus({ id: v.id, col: 'more' }); return }
     try {
       await tv.remove(v)
       // The kit Dialog gave focus back to the deleted row's …, gone (finding
@@ -367,12 +415,14 @@ function ViewsList({
                   {movable && !isRenaming && (
                     <HoverActions>
                       <IconButton size="sm" Icon={ArrowUp} data-col="up" tabIndex={tab} title={`Move ${v.name} up`}
-                        disabled={stored[0]?.id === v.id} onClick={() => moveTo(v, -1)} />
+                        disabled={stored[0]?.id === v.id} onClick={() => moveTo(v, -1, 'up')} />
                       <IconButton size="sm" Icon={ArrowDown} data-col="down" tabIndex={tab} title={`Move ${v.name} down`}
-                        disabled={stored[stored.length - 1]?.id === v.id} onClick={() => moveTo(v, 1)} />
+                        disabled={stored[stored.length - 1]?.id === v.id} onClick={() => moveTo(v, 1, 'down')} />
                       <span data-col="more" className="rb-tv-more">
                         <MenuButton title={`More for ${v.name}`} tabIndex={tab} minWidth={160} items={[
-                          { label: 'Edit', onClick: () => { tv.choose(v.id); setPendingFocus({ part: 'filters' }) } },
+                          // Edit on the view already on screen keeps the change for now (R1-5:
+                          // it went, unasked): choosing applies only another view (Q-H).
+                          { label: 'Edit', onClick: () => { if (tv.deleted || String(v.id) !== String(tv.viewId)) tv.choose(v.id); setPendingFocus({ part: 'filters' }) } },
                           { label: 'Rename', onClick: () => setRenaming({ id: v.id, text: v.name, error: null }) },
                           { label: 'Duplicate', onClick: () => duplicate(v) },
                           { divider: true },
@@ -427,7 +477,7 @@ function ViewsList({
               {creating.error && <span className="rb-tv-field-error" role="alert">{creating.error}</span>}
             </span>
           ) : (
-            <button type="button" className="rb-tv-new" onClick={() => setCreating({ text: '', error: null })}>
+            <button ref={newRef} type="button" className="rb-tv-new" onClick={() => setCreating({ text: '', error: null })}>
               <Plus aria-hidden="true" />
               <span>New view</span>
             </button>
@@ -480,25 +530,59 @@ function FiltersCard({ tv, description }) {
   )
 }
 
+// The Sort card. Code review round 1: rows keyed by their field (R1-3: keyed
+// by place, a move remounted both rows and the keyboard fell to <body>); a
+// move keeps the keyboard on the control that made it; the handle drags
+// (R1-4: it showed a grab cursor and grabbed nothing).
 function SortCard({ tv, description, announce }) {
   const sorts = tv.config.sorts || []
   const labelOf = (k) => description.field(k)?.label || k
   const set = (next) => tv.update(c => ({ ...c, sorts: next }))
   const unused = description.sortFields.filter(f => !sorts.some(s => s.field === f.key))
-  function move(i, by) {
-    const next = moveItem(sorts, i, by)
-    if (next === sorts || JSON.stringify(next) === JSON.stringify(sorts)) return
+  const ctl = useRef(new Map())
+  const keep = (field, col) => (el) => { if (el) ctl.current.set(`${field}:${col}`, el); else ctl.current.delete(`${field}:${col}`) }
+  const [pending, setPending] = useState(null) // { field, col }
+  useEffect(() => {
+    if (!pending) return
+    const order = [pending.col, 'handle']
+    for (const col of order) {
+      const el = ctl.current.get(`${pending.field}:${col}`)
+      if (el && !el.disabled) { el.focus(); break }
+    }
+    setPending(null)
+  })
+  const [dragField, setDragField] = useState(null)
+  const [overField, setOverField] = useState(null)
+  function moveTo(i, to, col) {
+    const next = moveItemTo(sorts, i, to)
+    if (JSON.stringify(next) === JSON.stringify(sorts)) return
+    const field = sorts[i].field
     set(next)
-    announce(`${labelOf(sorts[i].field)} moved to ${i + by + 1} of ${sorts.length}`)
+    setPending({ field, col })
+    announce(`${labelOf(field)} moved to ${to + 1} of ${sorts.length}`)
+  }
+  function drop(target) {
+    const from = sorts.findIndex(s => s.field === dragField)
+    const to = sorts.findIndex(s => s.field === target)
+    setDragField(null); setOverField(null)
+    if (from >= 0 && to >= 0) moveTo(from, to, 'handle')
   }
   return (
     <div className="rb-tv-card">
       {sorts.length === 0 && <p className="rb-tv-hint">Default order.</p>}
       {sorts.map((s, i) => (
-        <div key={`${s.field}-${i}`} className="rb-tv-sort-row ui-hover-host">
-          <IconButton size="sm" Icon={GripVertical} className="rb-tv-handle"
+        <div key={s.field} className="rb-tv-sort-row ui-hover-host"
+          data-over={overField === s.field ? 'true' : 'false'}
+          draggable={dragField === s.field}
+          onDragStart={(e) => { e.dataTransfer.setData('text/plain', s.field); e.dataTransfer.effectAllowed = 'move' }}
+          onDragEnd={() => { setDragField(null); setOverField(null) }}
+          onDragOver={(e) => { if (dragField != null) { e.preventDefault(); setOverField(s.field) } }}
+          onDrop={(e) => { e.preventDefault(); drop(s.field) }}>
+          <IconButton ref={keep(s.field, 'handle')} size="sm" Icon={GripVertical} className="rb-tv-handle"
             title={`Move ${labelOf(s.field)}, ${i + 1} of ${sorts.length}`}
-            onKeyDown={(e) => { if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); move(i, e.key === 'ArrowUp' ? -1 : 1) } }} />
+            onPointerDown={() => setDragField(s.field)}
+            onPointerUp={() => { if (dragField != null) setDragField(null) }}
+            onKeyDown={(e) => { if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); moveTo(i, i + (e.key === 'ArrowUp' ? -1 : 1), 'handle') } }} />
           <select value={s.field} aria-label="Sort by" className="ui-input rb-tv-sort-field" data-size="sm"
             onChange={e => set(sorts.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))}>
             {description.sortFields.filter(f => f.key === s.field || !sorts.some(x => x.field === f.key)).map(f => (
@@ -511,8 +595,8 @@ function SortCard({ tv, description, announce }) {
             <option value="desc">Descending</option>
           </select>
           <HoverActions>
-            <IconButton size="sm" Icon={ArrowUp} title={`Move ${labelOf(s.field)} up`} disabled={i === 0} onClick={() => move(i, -1)} />
-            <IconButton size="sm" Icon={ArrowDown} title={`Move ${labelOf(s.field)} down`} disabled={i === sorts.length - 1} onClick={() => move(i, 1)} />
+            <IconButton ref={keep(s.field, 'up')} size="sm" Icon={ArrowUp} title={`Move ${labelOf(s.field)} up`} disabled={i === 0} onClick={() => moveTo(i, i - 1, 'up')} />
+            <IconButton ref={keep(s.field, 'down')} size="sm" Icon={ArrowDown} title={`Move ${labelOf(s.field)} down`} disabled={i === sorts.length - 1} onClick={() => moveTo(i, i + 1, 'down')} />
           </HoverActions>
           <IconButton size="sm" Icon={X} danger title={`Remove the sort by ${labelOf(s.field)}`} onClick={() => set(sorts.filter((_, j) => j !== i))} />
         </div>
@@ -556,23 +640,67 @@ function GroupCard({ tv, description }) {
   )
 }
 
+// The Fields card. Code review round 1: its Tab stop starts on the first
+// row with a control (R1-1: it sat on the name's row, whose one switch is
+// disabled, so the grid had no stop at all), the arrows pass over such a
+// row, Home and End go to the ends (R1-16), a move keeps the keyboard on the
+// moved row's control and the stop with it (R1-3), and the handle drags
+// (R1-4; her Q7: "you drag fields up and down in the view's Fields list").
 function FieldsCard({ tv, description, announce }) {
   const board = tv.config.layout === 'board'
   const list = effectiveFields(tv.config.fields, description.fieldKeys, { fixed: description.fixed })
   const labelOf = (k) => description.columns.find(c => c.key === k)?.label || description.field(k)?.label || k
   const store = (next) => tv.update(c => ({ ...c, fields: fieldsToStore(next, c.fields, description.fieldKeys) }))
   const setShown = (key, on) => store(list.map(f => (f.key === key ? { ...f, visible: on } : f)))
-  const [active, setActive] = useState(0)
-  const gridRef = useRef(null)
   // On the Board the card's own fields, in the card's order (finding 6).
   const rows = board ? description.cardFields.map(k => list.find(f => f.key === k)).filter(Boolean) : list
-  const at = Math.min(active, rows.length - 1)
-  function move(key, by) {
+  // A row a keyboard can act in: any on the Board; in the table every one
+  // but the fixed name.
+  const live = (i) => !!rows[i] && (board || !rows[i].fixed)
+  const firstLive = Math.max(0, rows.findIndex((_, i) => live(i)))
+  const [active, setActive] = useState(null)
+  const at = active != null && live(active) ? active : firstLive
+  const gridRef = useRef(null)
+  const [pending, setPending] = useState(null) // { key, col }
+  const [dragKey, setDragKey] = useState(null)
+  const [overKey, setOverKey] = useState(null)
+  const controlAt = (i, col) => {
+    const el = gridRef.current?.querySelector(`[data-row="${i}"] [data-col="${col}"]`)
+    return el && !el.disabled ? el : null
+  }
+  useEffect(() => {
+    if (!pending) return
+    const i = rows.findIndex(f => f.key === pending.key)
+    if (i >= 0) {
+      setActive(i)
+      for (const col of [pending.col, 'handle', 'show']) {
+        const el = controlAt(i, col)
+        if (el) { el.focus(); break }
+      }
+    }
+    setPending(null)
+  })
+  const movable = list.filter(f => !f.fixed)
+  function announceMove(key, next) {
+    const pos = next.filter(f => !f.fixed).findIndex(f => f.key === key)
+    announce(`${labelOf(key)} moved to ${pos + 1} of ${next.filter(f => !f.fixed).length}`)
+  }
+  function move(key, by, col) {
     const next = moveField(list, key, by)
     if (JSON.stringify(next) === JSON.stringify(list)) return
     store(next)
-    const pos = next.filter(f => !f.fixed).findIndex(f => f.key === key)
-    announce(`${labelOf(key)} moved to ${pos + 1} of ${next.filter(f => !f.fixed).length}`)
+    setPending({ key, col })
+    announceMove(key, next)
+  }
+  function drop(targetKey) {
+    const key = dragKey
+    setDragKey(null); setOverKey(null)
+    if (!key) return
+    const next = moveFieldTo(list, key, targetKey)
+    if (JSON.stringify(next) === JSON.stringify(list)) return
+    store(next)
+    setPending({ key, col: 'handle' })
+    announceMove(key, next)
   }
   function onGridKey(e) {
     const t = e.target
@@ -580,24 +708,25 @@ function FieldsCard({ tv, description, announce }) {
     const rowEl = t.closest('[data-row]')
     if (!rowEl) return
     const i = Number(rowEl.getAttribute('data-row'))
-    const controls = [...rowEl.querySelectorAll('[data-col]')]
+    const controls = [...rowEl.querySelectorAll('[data-col]')].filter(el => !el.disabled)
     const c = controls.indexOf(t.closest('[data-col]'))
     const col = t.closest('[data-col]')?.getAttribute('data-col')
-    const focusRow = (n) => {
-      const k = Math.max(0, Math.min(rows.length - 1, n))
+    // The next row a keyboard can act in, that way (the name's row passed over).
+    const focusRow = (from, step) => {
+      let k = from
+      while (k >= 0 && k < rows.length && !live(k)) k += step
+      if (k < 0 || k >= rows.length) return
       setActive(k)
-      const target = gridRef.current?.querySelector(`[data-row="${k}"] [data-col="${col}"]:not(:disabled)`)
-        || gridRef.current?.querySelector(`[data-row="${k}"] [data-col]:not(:disabled)`)
-      target?.focus()
+      const el = controlAt(k, col) || controlAt(k, 'show') || controlAt(k, 'handle')
+      el?.focus()
     }
     if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && col === 'handle') {
       e.preventDefault()
-      move(rows[i].key, e.key === 'ArrowUp' ? -1 : 1)
+      move(rows[i].key, e.key === 'ArrowUp' ? -1 : 1, 'handle')
       return
     }
-    if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(i + 1) } else if (e.key === 'ArrowUp') { e.preventDefault(); focusRow(i - 1) } else if (e.key === 'ArrowRight' && c >= 0 && c < controls.length - 1) { e.preventDefault(); controls[c + 1].focus() } else if (e.key === 'ArrowLeft' && c > 0) { e.preventDefault(); controls[c - 1].focus() }
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(i + 1, 1) } else if (e.key === 'ArrowUp') { e.preventDefault(); focusRow(i - 1, -1) } else if (e.key === 'Home') { e.preventDefault(); focusRow(0, 1) } else if (e.key === 'End') { e.preventDefault(); focusRow(rows.length - 1, -1) } else if (e.key === 'ArrowRight' && c >= 0 && c < controls.length - 1) { e.preventDefault(); controls[c + 1].focus() } else if (e.key === 'ArrowLeft' && c > 0) { e.preventDefault(); controls[c - 1].focus() }
   }
-  const movable = list.filter(f => !f.fixed)
   // Show all / Hide all: every field but the name (on the Board, the card's own).
   function showAll(on) {
     const touches = (f) => !f.fixed && (!board || description.cardFields.includes(f.key))
@@ -613,12 +742,21 @@ function FieldsCard({ tv, description, announce }) {
           const canMove = !board && !f.fixed
           const mi = movable.findIndex(x => x.key === f.key)
           return (
-            <div key={f.key} role="row" data-row={i} className="rb-tv-row ui-hover-host" onFocus={() => setActive(i)}>
+            <div key={f.key} role="row" data-row={i} className="rb-tv-row ui-hover-host"
+              data-over={overKey === f.key ? 'true' : 'false'}
+              draggable={canMove && dragKey === f.key}
+              onDragStart={(e) => { e.dataTransfer.setData('text/plain', f.key); e.dataTransfer.effectAllowed = 'move' }}
+              onDragEnd={() => { setDragKey(null); setOverKey(null) }}
+              onDragOver={(e) => { if (dragKey != null && canMove) { e.preventDefault(); setOverKey(f.key) } }}
+              onDrop={(e) => { e.preventDefault(); drop(f.key) }}
+              onFocus={() => { if (live(i)) setActive(i) }}>
               <div role="gridcell" className="rb-tv-cell rb-tv-cell-handle">
                 {canMove && (
                   <HoverActions>
                     <IconButton size="sm" Icon={GripVertical} data-col="handle" tabIndex={tab} className="rb-tv-handle"
-                      title={`Move ${label}, ${mi + 1} of ${movable.length}`} />
+                      title={`Move ${label}, ${mi + 1} of ${movable.length}`}
+                      onPointerDown={() => setDragKey(f.key)}
+                      onPointerUp={() => { if (dragKey != null) setDragKey(null) }} />
                   </HoverActions>
                 )}
               </div>
@@ -629,9 +767,9 @@ function FieldsCard({ tv, description, announce }) {
                 {canMove && (
                   <HoverActions>
                     <IconButton size="sm" Icon={ArrowUp} data-col="up" tabIndex={tab} title={`Move ${label} up`}
-                      disabled={mi <= 0} onClick={() => move(f.key, -1)} />
+                      disabled={mi <= 0} onClick={() => move(f.key, -1, 'up')} />
                     <IconButton size="sm" Icon={ArrowDown} data-col="down" tabIndex={tab} title={`Move ${label} down`}
-                      disabled={mi >= movable.length - 1} onClick={() => move(f.key, 1)} />
+                      disabled={mi >= movable.length - 1} onClick={() => move(f.key, 1, 'down')} />
                   </HoverActions>
                 )}
                 <Switch data-col="show" tabIndex={tab} checked={f.visible} disabled={f.fixed}

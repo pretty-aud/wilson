@@ -375,7 +375,13 @@ export default function ProjectTasksView() {
   const [dropFailure, setDropFailure] = useState(null)
   // Create grouping's dialog: the kind it makes a grouping of, or null.
   const [groupingKind, setGroupingKind] = useState(null)
-  const viewsButtonRef = useRef(null)
+  // After Remove grouping: the keyboard to the Group menu (R1-6).
+  const [focusGroupMenu, setFocusGroupMenu] = useState(false)
+  useEffect(() => {
+    if (!focusGroupMenu) return
+    document.querySelector('.rb-task-toolbar select[aria-label="Group"]')?.focus({ preventScroll: true })
+    setFocusGroupMenu(false)
+  }, [focusGroupMenu])
   const focusViews = useCallback(() => {
     document.querySelector('.rb-task-toolbar .rb-tv-button')?.focus({ preventScroll: true })
   }, [])
@@ -723,6 +729,10 @@ export default function ProjectTasksView() {
     try {
       const res = await ctx.removeItemGrouping(group.groupingId)
       if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
+      // The group's … is gone with the grouping (and, empty, the group):
+      // the keyboard goes to the Group menu, after the question has closed
+      // (code review round 1, R1-6: it fell to <body>).
+      else setFocusGroupMenu(true)
     } catch (err) {
       setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
     }
