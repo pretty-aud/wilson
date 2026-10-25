@@ -1,0 +1,41 @@
+{
+  "rest": {
+    "height": 45,
+    "left": {
+      "x": 24,
+      "right": 836
+    },
+    "right": {
+      "x": 1013,
+      "right": 1416
+    },
+    "spare": 177,
+    "views": 160
+  },
+  "bar": {
+    "height": 45,
+    "left": {
+      "x": 24,
+      "right": 853
+    },
+    "right": {
+      "x": 1013,
+      "right": 1416
+    },
+    "spare": 160,
+    "views": 160
+  },
+  "grouped": {
+    "height": 45,
+    "left": {
+      "x": 24,
+      "right": 988
+    },
+    "right": {
+      "x": 1013,
+      "right": 1416
+    },
+    "spare": 24,
+    "views": 160
+  }
+}

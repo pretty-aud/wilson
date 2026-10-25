@@ -228,9 +228,13 @@ None this time.
    until it has a value, and *Filter (1)* counts only rows that filter; a
    row's condition and value reset when its field changes (the two defects
    you said to fix, Q21). **Several sorts, in order** (Q14): the toolbar's
-   Sort sets the first, the Sort card holds the rest.
-4. **Fields** (Q6, Q7): hide any column but *Title*, or move it; turn the
-   key dates' rows off with **Show key dates**. On the **Board** the same
+   Sort sets the first, the Sort card holds the rest; drag a sort by its
+   handle to change their order. A filter or a sort written by another
+   WILSON that this table cannot apply says so, *(cannot filter)* or *(not
+   in this table)*, and does nothing.
+4. **Fields** (Q6, Q7): hide any column but *Title*, or move it by its
+   handle (drag it, or its ↑ and ↓); turn the key dates' rows off with
+   **Show key dates**. On the **Board** the same
    card chooses what a card shows (Q-E): Status, Priority, Asset, Assignee,
    Start, Bid.
 5. **Group** (Q15, Q-I): **Hide empty groups**, starting as today (off for
@@ -238,7 +242,10 @@ None this time.
 6. **New view** (Q-G1) is saved for everyone at once, starting as *All*;
    each view's **…** has Edit, Rename, Duplicate and Delete (which asks
    first); drag a view by its handle, or use *Move up* / *Move down*, to
-   reorder them for everyone (Q5c).
+   reorder them for everyone (Q5c). A view saved by a newer WILSON shows
+   as much as this one can: change it and the bar adds *This view was made
+   by a newer WILSON.*, with *Save* greyed, and its *Duplicate* is greyed
+   too, so nothing that WILSON added is lost.
 7. **Each table opens on the view you last used there** (Q4).
 8. **A teammate's save reaches you at once** (Q3d); if you have a change of
    your own, it stays on screen and the bar says who saved; **Save** then
@@ -257,7 +264,9 @@ None this time.
 (`docs/sessions/briefs/po-vw1d-custom-views-tasks.md`): first a review of the
 design's screen parts against the code (18 findings, corrected in
 `docs/design/CUSTOM_VIEWS_DESIGN.md`), then the views on the Tasks table, the
-design's §7 step 4. No database change: it uses part 2's. Assets, Levels,
+design's §7 step 4, then two code reviews (16 findings on use and the
+keyboard, 12 on what a view's filters can hold), each correction proven by a
+test that fails without it. No database change: it uses part 2's. Assets, Levels,
 Experiences, Scenes and Shots get theirs in part 4 (VW1e).
 
 Written 2026-10-25 against `feat/post-overhaul-edit-versioning` (VW1d,
@@ -326,10 +335,18 @@ until then the list says *Saved views are not on this server yet.*
 
 ### 3. Known limits
 
-- **At 1440, grouped by an item and sorted, the toolbar takes two lines**
-  (the Views button keeps 160px for the name, about 14 letters); at rest and
-  grouped it fits one with 24px to spare. At 1280 it now fits one line at
-  rest (it took two), and two when grouped by an item.
+- **The toolbar still takes two lines in some cases** (the Views button
+  keeps 160px for the name, about 14 letters; measured in
+  `po-vw1d-measure-1440x900.json` and `-1280x700.json`):
+
+  | Width | At rest | A filter on | Grouped by an item | Grouped and sorted |
+  |-------|---------|-------------|--------------------|--------------------|
+  | 1440 | one line | one line | one line | two lines |
+  | 1280 | one line (it took two) | two lines | two lines | two lines |
+
+  At 1280 at rest its two halves sit 17px apart and need 8; *Filter (1)* is
+  17px wider than *Filter*, so the count, *Export*, *Deleted key dates* and
+  *New* drop to a second line (`po-vw1d-05-bar-1280x700`).
 - **A Board card keeps its own order**: a view chooses which of its six
   fields show, not their order; Phase, End and the other items have no
   place on a card yet.
@@ -346,8 +363,9 @@ until then the list says *Saved views are not on this server yet.*
 
 1. **The Views button's width**: 160px shows about 14 letters of a view's
    name and keeps the toolbar on one line at 1440 until a sort is chosen
-   while grouped by an item. Keep it, or narrower (about 12 letters) so that
-   case stays on one line too?
+   while grouped by an item. Keep it, or narrower (about 12 letters, 136px)
+   so that case, and 1280 with a filter on, stay on one line too? Grouped by
+   an item, 1280 takes two lines either way.
 2. **The Board's card fields**: hiding Priority on the Board also hides the
    Priority column in that view's table (one list for both). Keep that, or
    should the Board keep its own list of card fields?
