@@ -45,7 +45,7 @@ colour, no new typeface.
 | P12 | **Answered (Q12, 2026-10-17):** the chosen set is kept while WILSON is open, never written to the computer. | Q12, "Same as uploads" |
 | P19 | **Answered (Q19, 2026-10-17):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") could also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out. Put to her in those words, she chose the ticked ones. | Q19, "Only the ones you tick" |
 | P20 | **Answered (Q20, 2026-10-17):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | Q20, "Keep those names" |
-| P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open (the Alt key can flip it from any page: OUTSTANDING DG1b-01). | Q21, "Full deck" |
+| P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open (the Alt key can flip it from any page, kept by her ruling of 2026-10-26: §16). | Q21, "Full deck" |
 | P22 | **Answered (Q22, 2026-10-17):** an item also sends its type, dates and production fields (§3, §9 item 8). | Q22, "Keep them" |
 | P23 | **Answered (Q23, 2026-10-17):** *"to place media in the deck"* shows beside *Use visual assets*, in the hint ink. | Q23, "Shown beside the box" |
 
@@ -212,15 +212,14 @@ subtitle *From Salt Hours, and your notes* (or *Your notes* with no project).
   other in the dim ink, and the knob sits on that side. The switch's own name
   is *Full deck* (`aria-label`; checked is Full deck, unchecked is Single
   page), so a screen reader hears which side is on; the two words are pointer
-  shortcuts to their side, hidden from it and not in the tab order. Space
-  works as on every switch and Left and Right choose a side. Enter does too
-  until there is something to read with no page yet; then it is D.O.G.'s
-  generate key and does not move the switch (the `dog-full-deck` class,
-  `enterGenerates.js`; review round 1, finding 4), and since Q21 that
-  generates a full deck from the moment D.O.G. opens (DG1b review round 2,
-  finding 3). It opens on *Full deck*
+  shortcuts to their side, hidden from it and not in the tab order. Space and
+  Enter work as on every switch and Left and Right choose a side: since FX13
+  (her "Enter moves the switch", 2026-10-26) Enter on the switch moves it and
+  generates nothing (until then it was D.O.G.'s generate key there: review
+  round 1, finding 4; DG1b review round 2, finding 3). It opens on *Full deck*
   (her Q21, 2026-10-17), and the side is then kept while WILSON is open; the
-  Alt key, which toggles it, is heard on every page (OUTSTANDING DG1b-01).
+  Alt key, which toggles it, is heard on every page, kept so by her ruling of
+  2026-10-26 (§16).
 - **The two media boxes**, under the switch, in both modes:
   - **Use visual assets** with *"to place media in the deck"* after it in the
     hint ink (R15): your uploaded pictures and videos, as *Use uploaded assets*
@@ -353,6 +352,8 @@ the estimate against it; past it, amber and the warning, never a block.
 6. **A file is read at Generate or at a Preview the person asks for**, never
    at the choosing. On both backends each read, a preview's included, is
    recorded in the file's activity like any download, and the preview says so
+   when it downloads (a body read once is kept while WILSON is open, and a
+   preview of it says it is not recorded again: FX13, was OUTSTANDING DG1b-02)
    (a PDF is read at Preview so its pages can be counted before Generate); a picture
    over 8 MB is described, not fetched, to preview it. A note's text is read
    when it is ticked (its owner's own, recording nothing), so the meter can
@@ -640,3 +641,17 @@ side flipped back, and a mount-time reset each turned exactly one test red.
 `scripts/ui-walk.mjs --only dog` passes with the new proof and fails with the
 old one ("1 of 1 screens did not come back clean").
 
+## 16. FX13: Enter and Alt, her answers of 2026-10-26
+
+Asked by the controller in chat as multiple choice (walkthrough 75 §4's two
+questions); her words are in `docs/sessions/briefs/po-fx13-dog-enter-key.md`.
+
+| Question | Her answer | Built |
+|---|---|---|
+| Enter at the start, the deck context box | "Enter needs text in the box" | With Full deck on, D.O.G.'s Enter (`enterIsDogs`) starts a full deck only when the box has words (`enterStarts`; whitespace is empty). Empty: nothing starts, the box gets focus (card 3 opens if folded, the box brought to the middle of the page, named by its label since review round 1) and the kit toast stack says why, one toast at a time, with no timer: it goes when it stops being true (review round 2). The box's own Enter does nothing when it is empty. The Generate button, Single page and the regenerate box are untouched. |
+| Enter on the switch | "Enter moves the switch (Recommended)" | The switch left `GENERATE_TOGGLES`: Enter is the kit Switch's own and flips it. The `.dog-check` tick boxes keep "Enter generates" (B-R1-01), under the rule above. |
+| The Alt key | "Keep it as it is" | Nothing; OUTSTANDING DG1b-01 closed by her ruling. |
+
+Also: the preview's "Reading it here is recorded" line is said only when that
+preview downloads (was OUTSTANDING DG1b-02; `useReferences`' `bodyKept`).
+Walkthrough 77.

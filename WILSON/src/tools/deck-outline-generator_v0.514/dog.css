@@ -778,7 +778,8 @@
      names BOTH sides; the side that is on reads in the ink, the other in the
      third ink. The words are pointer shortcuts to their side, hidden from a
      screen reader, which hears the switch's own name, "Full deck"; the Switch
-     keeps `dog-full-deck`, so Enter still generates from it. */
+     keeps `dog-full-deck`, which the scripts find it by (Enter moves it since
+     FX13). */
   .dog-mode { display: flex; align-items: center; gap: 8px; }
   .dog-mode-side {
     padding: 0;
