@@ -56,10 +56,26 @@ let fx = null
 const SC = (n) => fid('scene', n)
 const run = (fn) => act(async () => { await fn() })
 
+// FX15 (OUTSTANDING FX14-01; tasksViews.test.jsx's mount, FX14): the fixtures
+// load the project in microtasks, so ONE commit brings the adapter and the
+// whole project, while the provider's effects for them (the last used views
+// read, which ends the status 'unavailable'; the views' drafts reset; the
+// project's visit count) run in a later task. In that gap the context already has the
+// project while the status still reads 'unavailable',
+// so the waits below could all pass there, and a change for now made then is
+// wiped by the pending drafts reset: with this mount forced into the gap, 1 of this
+// file's 10 tests failed, every run: a view added there offered an Undo that
+// did nothing (the add had taken the visit before the project's, which its
+// effect counts after; read from the code)
+// (FX15's hand-off, §2). So the render runs inside act (React flushes those
+// effects before act returns), and the mount waits for their evidence where
+// the adapter reads a map: a status past 'unavailable', which it holds from
+// the provider's first effect (no adapter yet) until then.
 async function mount(adapter) {
   holder.adapter = adapter
-  render(<RabbitProvider><Probe /></RabbitProvider>)
+  await act(async () => { render(<RabbitProvider><Probe /></RabbitProvider>) })
   await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
+  if (typeof adapter.getTableViewLast === 'function') await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
 }
 
 beforeEach(() => { fx = buildDevFixtures() })
@@ -229,5 +245,38 @@ describe('custom table views through the provider (the dev fixtures)', () => {
     // The fake cloud holds it too (another computer would read it).
     const res = await holder.adapter.getTableViewLast()
     expect(res.map[`${PROJECT_ID}:tasks`]).toMatchObject({ view: 'all' })
+  })
+})
+
+// FX15: the gap `mount` waits out, held open on purpose. A MutationObserver
+// resolves in the microtasks of the commit that draws the project, before
+// that commit's effects run. Its premise (FX14's review round 2, finding 5):
+// React's scheduler runs those effects in a later task because the commit
+// overran its 5 ms slice, which the provider over the whole dataset always
+// does here; the fixed `mount` does not depend on it.
+// No view is drawn here, so a marker carries the project's id into the DOM
+// for the observer to see.
+function Marker() { const c = useRabbit(); return <i data-project={c?.project?.id || ''} /> }
+describe('CONTROL (FX15): the gap `mount` waits out', () => {
+  it('a view added between the project\'s commit and its effects offers an Undo that does nothing; after the effects the Undo takes it back', async () => {
+    holder.adapter = fx.rabbitAdapter()
+    const committed = new Promise((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (ctx?.project?.id === PROJECT_ID) { mo.disconnect(); resolve() }
+      })
+      mo.observe(document.body, { subtree: true, childList: true, attributes: true })
+    })
+    render(<RabbitProvider><Probe /><Marker /></RabbitProvider>)
+    await committed
+    expect(ctx.tableViewLast.status).toBe('unavailable')   // the provider's effects for the adapter not run yet
+    await run(async () => { await ctx.addTableView({ tableKey: 'tasks', name: 'In the gap' }) })
+    expect(ctx.undoToast?.message).toBe('In the gap saved for everyone')
+    await run(() => ctx.undoToast.onUndo())
+    expect(fx.store.tableViews.map(v => v.name)).toEqual(['In the gap'])
+    // CONTROL: after the effects, the same add's Undo takes it back (what `mount` gives every test).
+    await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
+    await run(async () => { await ctx.addTableView({ tableKey: 'tasks', name: 'After' }) })
+    await run(() => ctx.undoToast.onUndo())
+    expect(fx.store.tableViews.map(v => v.name)).toEqual(['In the gap'])
   })
 })

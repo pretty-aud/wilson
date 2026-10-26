@@ -63,12 +63,26 @@ function Probe() { ctx = useRabbit(); return null }
 let fx = null
 
 const run = (fn) => act(async () => { await fn() })
+// FX15 (OUTSTANDING FX14-01; tasksViews.test.jsx's mount, FX14): the fixtures
+// load the project in microtasks, so ONE commit brings the adapter and the
+// whole project, while the provider's effects for them (the last used views
+// read, which ends the status 'unavailable'; the views' drafts reset; the
+// project's visit count) run in a later task. In that gap the Assets table is drawn with its
+// Views button and rows while the status still reads 'unavailable',
+// so the waits below could all pass there, and a change for now made then is
+// wiped by the pending drafts reset: with this mount forced into the gap, 10 of this
+// file's 16 tests failed, every run, each at a grouping, a sort, a tab or a tick
+// (FX15's hand-off, §2). So the render runs inside act (React flushes those
+// effects before act returns), and the mount waits for their evidence where
+// the adapter reads a map: a status past 'unavailable', which it holds from
+// the provider's first effect (no adapter yet) until then.
 async function mount(adapter = fx.rabbitAdapter()) {
   holder.adapter = adapter
-  render(<ToastProvider><RabbitProvider><Probe /><ProjectAssetsView /></RabbitProvider></ToastProvider>)
+  await act(async () => { render(<ToastProvider><RabbitProvider><Probe /><ProjectAssetsView /></RabbitProvider></ToastProvider>) })
   await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
   await waitFor(() => expect(screen.getByRole('button', { name: /^Views: / })).toBeTruthy())
   await waitFor(() => expect(document.querySelectorAll('tr.rb-asset-row').length).toBeGreaterThan(0))
+  if (typeof adapter.getTableViewLast === 'function') await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
 }
 const viewsButton = () => screen.getByRole('button', { name: /^Views: / })
 const openViews = () => fireEvent.click(viewsButton())
@@ -333,5 +347,34 @@ describe('code review round 2', () => {
     await run(() => ctx.updateLevel(last.id, { sort_order: -1 }))
     expect(ctx.levels[ctx.levels.length - 1].id).toBe(last.id)
     expect(bands()[0]).toBe(last.name)
+  })
+})
+
+// FX15: the gap `mount` waits out, held open on purpose. A MutationObserver
+// resolves in the microtasks of the commit that draws the project, before
+// that commit's effects run. Its premise (FX14's review round 2, finding 5):
+// React's scheduler runs those effects in a later task because the commit
+// overran its 5 ms slice, which the provider over the whole dataset always
+// does here; the fixed `mount` does not depend on it.
+describe('CONTROL (FX15): the gap `mount` waits out', () => {
+  it('a grouping made between the project\'s commit and its effects is wiped by the drafts reset: no bar, the Group menu back to none; after the effects it holds', async () => {
+    holder.adapter = fx.rabbitAdapter()
+    const committed = new Promise((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (document.querySelector('.rb-tv-button') && rows().length > 0 && ctx?.project?.id === PROJECT_ID) { mo.disconnect(); resolve() }
+      })
+      mo.observe(document.body, { subtree: true, childList: true })
+    })
+    render(<ToastProvider><RabbitProvider><Probe /><ProjectAssetsView /></RabbitProvider></ToastProvider>)
+    await committed
+    expect(ctx.tableViewLast.status).toBe('unavailable')   // the provider's effects for the adapter not run yet
+    groupBy('status')
+    expect(bar()).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
+    // CONTROL: after the effects, the same grouping holds (what `mount` gives every test).
+    await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
+    groupBy('status')
+    expect(bar()).not.toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('status')
   })
 })
