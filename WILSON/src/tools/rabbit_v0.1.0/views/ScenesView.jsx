@@ -427,8 +427,11 @@ export default function ScenesView({ pageActive = false } = {}) {
   const setOnScreenGroup = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
   const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
   const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
-  const focusViews = useCallback(() => {
-    document.querySelector('.rb-scene-toolbar .rb-tv-button')?.focus({ preventScroll: true })
+  // The keyboard back to the Views button of the table whose bar acted —
+  // never the other table's, when the content tab changed while a save was
+  // on its way (code review round 2, R2-3).
+  const focusViewsOf = useCallback((key) => () => {
+    document.querySelector(`.rb-scene-toolbar .rb-tv-button[data-table="${key}"]`)?.focus({ preventScroll: true })
   }, [])
   // Q17 (her "Start fresh"): this browser's old Scenes views go, once.
   useEffect(() => {
@@ -1203,18 +1206,23 @@ export default function ScenesView({ pageActive = false } = {}) {
       if (!buckets[val]) buckets[val] = []
       buckets[val].push(sh)
     }
+    // The field's own options, in their list's order.
+    const every = field === 'status' ? SCENE_STATUSES : field === 'type' ? SCENE_TYPES
+      : field === 'time_of_day' ? TIME_OF_DAY_OPTIONS
+        : field === 'framing' ? FRAMING_OPTIONS.map(f => f.abbr)
+          : field === 'camera_movement' ? CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) : []
     // VW1e: with *Hide empty groups* off every option, and "Unset".
     if (!shotHideEmpty) {
-      const every = field === 'status' ? SCENE_STATUSES : field === 'type' ? SCENE_TYPES
-        : field === 'time_of_day' ? TIME_OF_DAY_OPTIONS
-          : field === 'framing' ? FRAMING_OPTIONS.map(f => f.abbr)
-            : field === 'camera_movement' ? CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) : []
       for (const v of [...every, ...(field === 'status' ? [] : ['__none__'])]) if (!buckets[v]) buckets[v] = []
     }
+    // In the option list's order, as Scenes, Assets and Levels order theirs
+    // (code review round 2, R2-6: they were A to Z, Not started among them);
+    // a value the list does not know after them, A to Z; "Unset" last.
+    const rank = (k) => { const i = every.indexOf(k); return i < 0 ? every.length : i }
     const keys = Object.keys(buckets).sort((a, b) => {
       if (a === '__none__') return 1
       if (b === '__none__') return -1
-      return a.localeCompare(b)
+      return (rank(a) - rank(b)) || a.localeCompare(b)
     })
     // Sentence case; a framing or movement code keeps its capitals.
     return keys.map(key => ({
@@ -1548,7 +1556,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* Keyed per table, as the Views button is (code review round 1, R1-1):
           a name being typed, or a save in flight, belongs to its own table's
           view, never to the other's bar. */}
-      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={focusViews} />}
+      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={focusViewsOf(shotsMode ? SHOTS_TABLE : SCENES_TABLE)} />}
 
       {/* Bins could not be loaded for the take chips (milestone 2): said here
           on the page with a retry, not only inside a takes dialog she may

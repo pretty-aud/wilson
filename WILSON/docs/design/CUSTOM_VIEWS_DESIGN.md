@@ -799,7 +799,11 @@ shared sort, which sorts a copy, replaces it in VW1e: finding 16.)
   it too, `assetLevelLinksAvailable()` read per load as `tableViewsAvailable`
   is; while absent, the drag into a level or experience group, and Create
   grouping there, are greyed with the reason, on Assets grouped by Level or
-  Experience and on Levels and Experiences grouped by Asset.)* The move to the cloud sends an asset WITHOUT its level
+  Experience and on Levels and Experiences grouped by Asset; round 2, R2-2:
+  so are the asset window's Levels and Experiences, its sidebar's level and
+  experience links, and a level's or experience's window's asset links; R2-5:
+  the table's live region says the reason once, a greyed control's being
+  out of reach of a screen reader.)* The move to the cloud sends an asset WITHOUT its level
   and experience links (the runner carries neither kind) and counts the
   assets that named one in its report as left behind, beside the groupings
   and filters it already counts. The desktop and the fixtures keep the links
@@ -1367,8 +1371,8 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
 - **On the cloud a level's or experience's Assets count was 0** until 0099
   (VW1e) carried assets' level and experience links there (§4.7); a
   database without 0099 still reads 0, and the asset window's level picks
-  are not kept there (the adapter says so in the console; the drag and
-  Create grouping that would write them are greyed, saying why).
+  are not kept there (the adapter says so in the console; every control that
+  would write them is greyed, saying why).
 - **A Gallery card is not dragged between groups** (VW1e): the table's rows
   are; the Gallery shows the groups.
 - **Levels, Experiences and Scenes, grouped, keep one selection per group**:

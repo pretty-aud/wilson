@@ -285,11 +285,14 @@ describe('code review round 1', () => {
     const frames = names().map(n => Number(shotNamed(n)?.frame_count) || 0)
     expect(new Set(frames).size).toBeGreaterThan(1)
     expect(frames).toEqual([...frames].sort((a, b) => a - b))
-    if (values.includes('takes')) {
-      sortBy('takes')
-      const takes = names().map(n => (ctx.shotTakes || []).filter(t => t.shot_id === shotNamed(n)?.id).length)
-      expect(takes).toEqual([...takes].sort((a, b) => a - b))
-    }
+    // Takes, unconditionally where the backend keeps takes (code review
+    // round 2, R2-1: the fixtures do), with its own control.
+    expect(ctx.supportsBins).toBe(true)
+    expect(values).toContain('takes')
+    sortBy('takes')
+    const takes = names().map(n => (ctx.shotTakes || []).filter(t => t.shot_id === shotNamed(n)?.id).length)
+    expect(new Set(takes).size).toBeGreaterThan(1)
+    expect(takes).toEqual([...takes].sort((a, b) => a - b))
   })
   it('R1-8: hiding the Shots arrow takes the nested ticks with the nests; showing it again brings no tick back', async () => {
     await mount()
@@ -306,5 +309,44 @@ describe('code review round 1', () => {
     expect(tick()).toBeNull()
     fireEvent.click(screen.getByRole('switch', { name: 'Show Shots arrow' }))
     expect(tick().getAttribute('aria-pressed')).toBe('false')
+  })
+})
+
+describe('code review round 2', () => {
+  it('R2-3: a save that lands after the content tab changed gives the keyboard to no other table\'s Views button; CONTROL: on its own table, to its Views button', async () => {
+    await mount()
+    groupBy('status')
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as new view' }))
+    const field = within(bar()).getByRole('textbox', { name: 'View name' })
+    fireEvent.change(field, { target: { value: 'Scenes by status' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    toShots()
+    await run(async () => {})
+    await waitFor(() => expect(fx.store.tableViews.find(v => v.name === 'Scenes by status')).toBeTruthy())
+    await run(async () => {})
+    expect(fx.store.tableViews.find(v => v.name === 'Scenes by status').table_key).toBe('scenes')
+    expect(viewsButton().getAttribute('data-table')).toBe('shots')
+    expect(document.activeElement).not.toBe(viewsButton())
+    // CONTROL: the same on Scenes, staying there.
+    toScenes()
+    groupBy('type')
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as new view' }))
+    const again = within(bar()).getByRole('textbox', { name: 'View name' })
+    fireEvent.change(again, { target: { value: 'Scenes by type' } })
+    await run(async () => { fireEvent.keyDown(again, { key: 'Enter' }) })
+    await waitFor(() => expect(document.activeElement).toBe(viewsButton()))
+    expect(viewsButton().getAttribute('data-table')).toBe('scenes')
+  })
+  it('R2-6: the Shots table\'s status groups come in the status list\'s order, Not started first, as on Scenes', async () => {
+    await mount()
+    toShots()
+    groupBy('status')
+    openCard('Group')
+    fireEvent.click(screen.getByRole('switch', { name: 'Hide empty groups' }))
+    escape()
+    escape()
+    const labels = [...document.querySelectorAll('.rb-scene-group-label')].map(n => n.textContent.trim())
+    const order = ['Not started', 'In progress', 'Pending review', 'Needs revisions', 'Approved', 'Final', 'Blocked', 'On hold', 'Omitted']
+    expect(labels.map(l => order.find(o => l.startsWith(o)))).toEqual(order)
   })
 })

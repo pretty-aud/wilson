@@ -124,6 +124,8 @@ export const TASK_STATUSES = [
 // Q17 (her "Start fresh"): the views this browser kept for the Assets table
 // before VW1e, removed on the first load; Expenses' and Team's stay (Q19).
 const OLD_SAVED_VIEWS_KEY = 'rabbit_asset_saved_views'
+/** Rows in their own table's order (sort_order), on a copy. */
+const inOwnOrder = (rows) => (Array.isArray(rows) ? [...rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)) : rows)
 
 // The kit toast stack, or nothing where no ToastProvider is mounted (a test
 // that mounts the tab alone): a passing message, never a failure.
@@ -254,8 +256,10 @@ export default function ProjectAssetsView() {
     scenes: ctx?.allScenes || ctx?.scenes, shots: ctx?.allShots || ctx?.shots,
     levels: ctx?.levels, experiences: ctx?.experiences,
   }), [assets, ctx?.allScenes, ctx?.scenes, ctx?.allShots, ctx?.shots, ctx?.levels, ctx?.experiences])
+  // Levels and experiences in their own tables' order (sort_order, on a
+  // copy: code review round 2, R2-4, the twin of R1-6).
   const kindRows = useMemo(() => ({
-    scene: ctx?.scenes, shot: ctx?.shots, level: ctx?.levels, experience: ctx?.experiences,
+    scene: ctx?.scenes, shot: ctx?.shots, level: inOwnOrder(ctx?.levels), experience: inOwnOrder(ctx?.experiences),
   }), [ctx?.scenes, ctx?.shots, ctx?.levels, ctx?.experiences])
   const kinds = useMemo(() => assetKindsOf(project, assets), [project, assets])
   const taskCountOf = useCallback((a) => taskCountByAsset[a.id] || 0, [taskCountByAsset])
@@ -440,6 +444,9 @@ export default function ProjectAssetsView() {
   // A level or experience group on a cloud without 0099 takes no drop (R1-9).
   const kindKept = linksKept(ctx, groupedKind)
   const canDrag = canWrite && !!groupedKind && kindKept
+  // Said as well as greyed (code review round 2, R2-5): a greyed control's
+  // reason reaches no screen reader, so the live region says it once.
+  useEffect(() => { if (groupedKind && !kindKept) announce(ASSET_LINKS_ABSENT_REASON) }, [groupedKind, kindKept, announce])
 
   // ── New-asset creation popup (deferred until confirm) ──
   const [showNewAssetPopup, setShowNewAssetPopup] = useState(false)
@@ -1753,6 +1760,9 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
   const [showScenePicker, setShowScenePicker] = useState(false)
   const [showShotPicker, setShowShotPicker] = useState(false)
   const [showLevelPicker, setShowLevelPicker] = useState(false)
+  // R2-2: whether this backend keeps an asset's levels and experiences.
+  const levelsKept = linksKept(ctx, 'level')
+  const experiencesKept = linksKept(ctx, 'experience')
   const [showExperiencePicker, setShowExperiencePicker] = useState(false)
   // Post-overhaul S3c, step 1 (S3b-09): the scene and shot pickers offer the
   // ACTIVE shot list's rows (D10), with "Show all lists" for the rest, and
@@ -2089,19 +2099,21 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
                 </GatedAction>
               </PropField>
             )}
+            {/* VW1e code review round 2 (R2-2): a cloud without 0099 keeps no
+                asset levels or experiences: greyed, saying why. */}
             {project?.levels_enabled && (
               <PropField label="Levels">
-                <GatedAction allowed={canWrite} reason={writeReason}>
+                <GatedAction allowed={canWrite && levelsKept} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason}>
                   <RelationBadge icon={Gamepad2} count={linked.levels} label="Levels"
-                    onClick={() => { if (canWrite) setShowLevelPicker(true) }} />
+                    onClick={() => { if (canWrite && levelsKept) setShowLevelPicker(true) }} />
                 </GatedAction>
               </PropField>
             )}
             {project?.experiences_enabled && (
               <PropField label="Experiences">
-                <GatedAction allowed={canWrite} reason={writeReason}>
+                <GatedAction allowed={canWrite && experiencesKept} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason}>
                   <RelationBadge icon={Sparkles} count={linked.experiences} label="Experiences"
-                    onClick={() => { if (canWrite) setShowExperiencePicker(true) }} />
+                    onClick={() => { if (canWrite && experiencesKept) setShowExperiencePicker(true) }} />
                 </GatedAction>
               </PropField>
             )}
@@ -2149,7 +2161,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
               items={ctx?.levels || []}
               selectedIds={asset.level_ids || []}
               onToggle={id => {
-                if (!canWrite) return
+                if (!canWrite || !levelsKept) return
                 const current = asset.level_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { level_ids: next })
@@ -2164,7 +2176,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
               items={ctx?.experiences || []}
               selectedIds={asset.experience_ids || []}
               onToggle={id => {
-                if (!canWrite) return
+                if (!canWrite || !experiencesKept) return
                 const current = asset.experience_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { experience_ids: next })

@@ -204,3 +204,35 @@ describe('code review round 1', () => {
     expect(bands()[0]).toBe(last.name)
   })
 })
+
+describe('code review round 2', () => {
+  const REASON = 'The cloud does not keep an asset\'s levels and experiences yet: it needs migration 0099.'
+  const withoutLinks = (base) => new Proxy(base, { get: (t, k) => (k === 'assetLevelLinksAvailable' ? () => false : Reflect.get(t, k)) })
+  const live = () => document.querySelector('p.sr-only[role="status"]')?.textContent || ''
+  async function mountWith(adapter) {
+    holder.adapter = adapter
+    render(<ToastProvider><RabbitProvider><Probe /><LevelsView /></RabbitProvider></ToastProvider>)
+    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
+    await waitFor(() => expect(document.querySelectorAll('tr.rb-ent-row').length).toBe(4))
+  }
+  it('R2-2, R2-5: on a cloud without 0099 a level\'s window cannot add or remove its assets, saying why, and the table says it when grouped by asset; CONTROL: kept, live', async () => {
+    await mountWith(withoutLinks(fx.rabbitAdapter()))
+    groupBy('asset')
+    expect(live()).toBe(REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Lamp Room' }))
+    const dialog = screen.getByRole('dialog', { name: 'Lamp Room' })
+    const add = within(dialog).getByRole('button', { name: 'Add asset relation', hidden: true })
+    expect(add.closest('[aria-disabled="true"]')?.getAttribute('title')).toBe(REASON)
+    const removes = within(dialog).getAllByRole('button', { name: 'Remove relation', hidden: true })
+    expect(removes.length).toBeGreaterThan(0)
+    for (const r of removes) expect(r.closest('[aria-disabled="true"]')?.getAttribute('title')).toBe(REASON)
+    cleanup()
+    fx = buildDevFixtures({ variant: 'game' })
+    await mountWith(fx.rabbitAdapter())
+    groupBy('asset')
+    expect(live()).not.toBe(REASON)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Lamp Room' }))
+    const kept = screen.getByRole('dialog', { name: 'Lamp Room' })
+    expect(within(kept).getByRole('button', { name: 'Add asset relation' }).closest('[aria-disabled="true"]')).toBeNull()
+  })
+})

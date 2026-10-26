@@ -399,6 +399,8 @@ export default function EntityListView({ entity }) {
   // without 0099 they are not kept, so no drop and no Create grouping (R1-9).
   const kindKept = linksKept(ctx, entity.type)
   const canDrag = canWrite && !!groupedKind && kindKept
+  // Said as well as greyed (code review round 2, R2-5).
+  useEffect(() => { if (groupedKind && !kindKept) announce(ASSET_LINKS_ABSENT_REASON) }, [groupedKind, kindKept, announce])
 
   // ── Render ──
   // P1-74: the kit EmptyState in sentence case, as Scenes, Assets, Tasks,

@@ -789,7 +789,8 @@ describe('surface 6b', () => {
     toGallery()
     fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
     const heads = [...gallery().querySelectorAll('.rb-scene-gallery-head')]
-    expect(heads.map((h) => h.querySelector('.rb-scene-group-label').textContent)).toEqual(['Final', 'In progress'])
+    // In the status list's order (VW1e code review round 2, R2-6; they were A to Z).
+    expect(heads.map((h) => h.querySelector('.rb-scene-group-label').textContent)).toEqual(['In progress', 'Final'])
     // A field group has no scene, so no Open.
     for (const h of heads) expect(within(h).queryByRole('button', { name: /^Open / })).toBeNull()
     expect(error.mock.calls.map((c) => String(c[0])).filter((m) => /unique "key"/.test(m))).toEqual([])

@@ -291,3 +291,47 @@ describe('code review round 1', () => {
     expect(gate()).toBeNull()
   })
 })
+
+describe('code review round 2', () => {
+  const REASON = 'The cloud does not keep an asset\'s levels and experiences yet: it needs migration 0099.'
+  const withoutLinks = (base) => new Proxy(base, { get: (t, k) => (k === 'assetLevelLinksAvailable' ? () => false : Reflect.get(t, k)) })
+  const live = () => document.querySelector('p.sr-only[role="status"]')?.textContent || ''
+  it('R2-2, R2-5: on a cloud without 0099 the asset window\'s Levels and Experiences and the sidebar\'s level links are greyed with the reason, and the table says it; CONTROL: kept, all live', async () => {
+    fx = buildDevFixtures({ variant: 'game' })
+    await mount(withoutLinks(fx.rabbitAdapter()))
+    groupBy('level')
+    expect(live()).toBe(REASON)
+    const name = 'Lighthouse Interior'
+    fireEvent.click(screen.getByRole('button', { name: 'Open ' + name }))
+    const dialog = screen.getByRole('dialog', { name })
+    for (const badge of [/^Levels: /, /^Experiences: /]) {
+      const b = within(dialog).getByRole('button', { name: badge, hidden: true })
+      expect(b.closest('[aria-disabled="true"]')?.getAttribute('title'), String(badge)).toBe(REASON)
+    }
+    const add = within(dialog).getByRole('button', { name: 'Add levels relation', hidden: true })
+    expect(add.closest('[aria-disabled="true"]')?.getAttribute('title')).toBe(REASON)
+    // CONTROL: a scene link is not the cloud's missing column: live.
+    expect(within(dialog).getByRole('button', { name: /^Scenes: / }).closest('[aria-disabled="true"]')).toBeNull()
+    cleanup()
+    fx = buildDevFixtures({ variant: 'game' })
+    await mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Open ' + name }))
+    const kept = screen.getByRole('dialog', { name })
+    expect(within(kept).getByRole('button', { name: /^Levels: / }).closest('[aria-disabled="true"]')).toBeNull()
+    expect(within(kept).getByRole('button', { name: 'Add levels relation' }).closest('[aria-disabled="true"]')).toBeNull()
+  })
+  it('R2-4: grouped by level with Hide empty groups off, every level\'s own group comes in the Levels table\'s order (its sort_order)', async () => {
+    fx = buildDevFixtures({ variant: 'game' })
+    await mount()
+    groupBy('level')
+    openCard('Group')
+    fireEvent.click(screen.getByRole('switch', { name: 'Hide empty groups' }))
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    const last = ctx.levels[ctx.levels.length - 1]
+    expect(bands()[0]).not.toBe(last.name)
+    await run(() => ctx.updateLevel(last.id, { sort_order: -1 }))
+    expect(ctx.levels[ctx.levels.length - 1].id).toBe(last.id)
+    expect(bands()[0]).toBe(last.name)
+  })
+})
