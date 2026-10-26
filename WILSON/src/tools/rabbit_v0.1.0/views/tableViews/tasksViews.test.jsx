@@ -74,11 +74,24 @@ function Tab() {
 }
 
 const run = (fn) => act(async () => { await fn() })
+// FX14 (OUTSTANDING FX13-03, the cause established before the fix): the
+// fixtures load the project in microtasks, so ONE commit brings the adapter
+// and the whole project, while the provider's last used status still reads
+// 'unavailable' from its first effect (no adapter yet), and its effects for
+// the adapter (the read that makes it 'loading', the drafts reset) run in a
+// later task. In between, the table is drawn as All with the Views button, so
+// the two waits below could both pass there: CI's push run 40345201708 found
+// exactly that page (no Loading line, the rows, "Views: All"), and a run with
+// the mount forced into that gap finds it every time. So the render runs
+// inside act (React flushes those effects before act returns), and the mount
+// waits for their evidence where the adapter reads a map: a status past
+// 'unavailable', which it holds before the provider has an adapter.
 async function mount(adapter = fx.rabbitAdapter()) {
   holder.adapter = adapter
-  render(<ToastProvider><RabbitProvider><Probe /><Tab /></RabbitProvider></ToastProvider>)
+  await act(async () => { render(<ToastProvider><RabbitProvider><Probe /><Tab /></RabbitProvider></ToastProvider>) })
   await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
   await waitFor(() => expect(screen.getByRole('button', { name: /^Views: / })).toBeTruthy())
+  if (typeof adapter.getTableViewLast === 'function') await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
 }
 const viewsButton = () => screen.getByRole('button', { name: /^Views: / })
 const openViews = () => fireEvent.click(viewsButton())
@@ -534,13 +547,56 @@ describe('the last used view (Q4, §4.5)', () => {
     // that on CI's runner (2026-10-26, VW1e: "Unable to find … Loading
     // views"), so the wait is held here: this test is about the loading
     // state, not about the clock. The give-up has its own test.
+    // FX14: the hold is what keeps the clock out of it; `mount` now returns
+    // only after the provider's own effects (see there), which is what
+    // VW1e's hold could not reach: the page CI found had passed through
+    // 'unavailable', not the give-up.
     const realSetTimeout = globalThis.setTimeout
-    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => (ms === TABLE_VIEW_LAST_WAIT_MS ? 0 : realSetTimeout(fn, ms, ...rest)))
+    const held = []
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
+      if (ms === TABLE_VIEW_LAST_WAIT_MS) { held.push(ms); return 0 }
+      return realSetTimeout(fn, ms, ...rest)
+    })
     await mount(a)
+    expect(held.length).toBeGreaterThan(0)              // the give-up was armed, and held
+    expect(ctx.tableViewLast.status).toBe('loading')
     expect(screen.getByRole('status', { name: 'Loading views' })).toBeTruthy()
     expect(document.querySelector('.rb-task-table')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /^Filter/ }))
     expect(screen.getByRole('button', { name: 'Add filter' })).toBeTruthy()
+    // …and it stays: the map never answers and nothing else ends the wait.
+    await act(async () => { await new Promise((r) => realSetTimeout(r, 50)) })
+    expect(screen.getByRole('status', { name: 'Loading views' })).toBeTruthy()
+    expect(ctx.tableViewLast.status).toBe('loading')
+  })
+
+  // FX14: the gap the mount now waits out, held open on purpose. The commit
+  // that brings the project draws the table while the status still reads
+  // 'unavailable'; the provider's effects end it. A MutationObserver resolves
+  // in that commit's microtasks, before those effects' task. Its premise
+  // (review round 2, finding 5): React's scheduler runs those effects in a
+  // later task because that commit overran its 5 ms slice, which the whole
+  // table in jsdom always does; the fixed `mount` does not depend on it.
+  it('CONTROL (FX14): in the gap between the project\'s commit and its effects, the body is past Loading views; the effects bring it back', async () => {
+    const a = fx.rabbitAdapter()
+    a.getTableViewLast = () => new Promise(() => {})
+    const realSetTimeout = globalThis.setTimeout
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => (ms === TABLE_VIEW_LAST_WAIT_MS ? 0 : realSetTimeout(fn, ms, ...rest)))
+    holder.adapter = a
+    const committed = new Promise((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (document.querySelector('.rb-tv-button') && ctx?.project?.id === PROJECT_ID) { mo.disconnect(); resolve() }
+      })
+      mo.observe(document.body, { subtree: true, childList: true })
+    })
+    render(<ToastProvider><RabbitProvider><Probe /><Tab /></RabbitProvider></ToastProvider>)
+    await committed
+    expect(ctx.tableViewLast.status).toBe('unavailable')
+    expect(screen.queryByRole('status', { name: 'Loading views' })).toBeNull()
+    expect(document.querySelector('.rb-task-table')).not.toBeNull()
+    expect(viewsButton().textContent).toBe('All')
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Loading views' })).toBeTruthy())
+    expect(ctx.tableViewLast.status).toBe('loading')
   })
 })
 

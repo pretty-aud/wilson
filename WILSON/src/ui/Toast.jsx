@@ -29,7 +29,9 @@
 // The stack sits bottom centre, 24px above the page's BOTTOM BAR, newest at
 // the bottom. A toast auto-dismisses after `duration` (default 5s; 0 =
 // sticky); hovering it pauses the timer (RabbitProvider's UndoToast idiom,
-// which was the best forgiveness pattern in the app). `Toast` itself is
+// which was the best forgiveness pattern in the app), and so does keyboard
+// focus inside it; one that leaves holding focus gives it back (FX14, at
+// TimedToast below). `Toast` itself is
 // presentational so a test, or a surface with its own stack manager, can
 // render one.
 //
@@ -71,7 +73,7 @@
 // both — and keeps a positioning context for its absolute children.
 // =============================================================================
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Info, CheckCircle2, AlertTriangle, XCircle, X } from 'lucide-react'
 
 export const TOAST_TONES = Object.freeze(['info', 'success', 'warning', 'danger'])
@@ -105,18 +107,100 @@ export function Toast({ tone = 'info', title, body, action, onDismiss, className
   )
 }
 
+// ── Keyboard focus holds a toast as the pointer does, and hands focus back ──
+// Post-overhaul FX14 (OUTSTANDING FX13-02, measured by FX13's review round 2:
+// a 5-second toast, Tab to its ×, and when the time ran out the toast went and
+// focus fell to <body>; the next Tab began again at the top of the window).
+//   - The timer runs only while the toast is neither hovered nor holding
+//     focus: focus coming in pauses it, as the pointer coming in does; focus
+//     leaving for somewhere outside it (`relatedTarget` outside, or nowhere)
+//     lets it run again unless the pointer is still over it, and the other
+//     way round.
+//   - A toast that leaves while KEYBOARD focus is inside it (its Dismiss
+//     pressed from the keyboard, its owner's `dismiss(id)`, or the provider
+//     gone) gives focus back to where it came from when it entered
+//     (`relatedTarget` then): that element, or, when it was inside another
+//     toast, that toast's own trail after it. When none of them is still
+//     there, shown and enabled, to the page's main region on screen
+//     (focusable for that one move); with no main region on screen either,
+//     dev says so (never <body> silently). Focus that came from nowhere goes
+//     back there.
+//   - The pointer's behaviour is as before FX14 (review round 1, finding 2):
+//     a × the MOUSE put focus on is not `:focus-visible`, so nothing is given
+//     back and nothing scrolls; focus stays on the page. Chromium decides
+//     `:focus-visible` when focus arrives, so a × reached with Tab and then
+//     clicked with the mouse still gives focus back (review round 2,
+//     finding 2): a keyboard user who reaches for the mouse once keeps their
+//     place.
+//   - Whether to give focus back is decided in a layout clean-up, while the
+//     toast is still in the document; focus is MOVED in the passive clean-up,
+//     after the commit (in a later task when the dismissal was not a
+//     discrete event, such as an owner's `dismiss(id)` from an effect: under
+//     a millisecond on <body>, measured by review round 2, finding 4; if
+//     something takes focus in it, it keeps it). React switches its own events off while it removes
+//     nodes, so a focus moved during that never reached an onFocus: a toast
+//     focus returned to kept running out its time, and an Input's Escape
+//     baseline was never taken (review round 1, finding 1).
+//   - The focus return moves focus only: the toast is gone from the live
+//     region by then, so nothing is said again.
+//   - `duration: 0` (sticky) has no timer to hold; it gets the return.
+// Escape does not close a toast: not in FX14's scope (her rule: nothing beyond
+// the brief without her).
+const shown = (el) => (typeof el.checkVisibility === 'function'
+  ? el.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true })
+  : true)
+/** Each toast's trail, by its node: where focus came from into it, newest first. */
+const trails = new WeakMap()
+/** Where focus goes when a toast that holds it leaves (see above): the first
+    of `from` (an element, or a trail of them) still there, shown and enabled;
+    else the main region on screen; null when `from` is nowhere, or when there
+    is nothing to give it back to. */
+export function toastFocusReturn(from, doc = document) {
+  const trail = (Array.isArray(from) ? from : [from]).filter((el) => el && el !== doc.body)
+  if (!trail.length) return null
+  const there = trail.find((el) => el.isConnected && !el.disabled && !el.closest('[inert], [aria-hidden="true"]') && shown(el))
+  if (there) return there
+  return [...doc.querySelectorAll('main, [role="main"]')].find((m) => !m.closest('[inert], [aria-hidden="true"]') && shown(m)) || null
+}
+function handFocusBack(trail, doc) {
+  if (!trail.length) return            // it came from nowhere: it goes back there
+  const target = toastFocusReturn(trail, doc)
+  if (!target) {
+    if (import.meta.env?.DEV) console.warn('Toast: it left holding focus and there is nothing to give focus back to (no element it came from, no main region on screen); the browser puts it on <body>.')
+    return
+  }
+  if (trail.includes(target)) target.focus()
+  else {
+    // The main region: focusable for this one move, and the page left where it is.
+    if (!target.hasAttribute('tabindex')) {
+      target.setAttribute('tabindex', '-1')
+      target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true })
+    }
+    target.focus({ preventScroll: true })
+  }
+  // (Its own onFocus may pass focus on; only <body> means it was not taken.)
+  if (import.meta.env?.DEV && (!doc.activeElement || doc.activeElement === doc.body)) console.warn('Toast: the element focus was given back to did not take it; the browser puts it on <body>.')
+}
+
 function TimedToast({ item, onDismiss }) {
   const remaining = useRef(item.duration)
   const startedAt = useRef(0)
   const timer = useRef(null)
+  const hovered = useRef(false)
+  const holding = useRef(false)   // focus is inside
+  const cameFrom = useRef([])     // where focus came from when it entered, newest first
+  const node = useRef(null)
+  const leaving = useRef(false)
+  const handBack = useRef(null)   // the trail to give focus back to, decided as it leaves
   // `onDismiss` is a fresh arrow on every stack render; held in a ref so the
   // effect below runs once and a second toast cannot restart the first's
   // timer (review round 1).
   const onDismissRef = useRef(onDismiss); onDismissRef.current = onDismiss
   const start = useCallback(() => {
-    if (!item.duration) return
+    // One timer at a time, and none while the pointer or focus holds it.
+    if (!item.duration || timer.current || hovered.current || holding.current || leaving.current) return
     startedAt.current = Date.now()
-    timer.current = setTimeout(() => onDismissRef.current(), remaining.current)
+    timer.current = setTimeout(() => { timer.current = null; onDismissRef.current() }, remaining.current)
   }, [item.duration])
   const pause = useCallback(() => {
     if (!timer.current) return
@@ -124,7 +208,56 @@ function TimedToast({ item, onDismiss }) {
     timer.current = null
     remaining.current = Math.max(0, remaining.current - (Date.now() - startedAt.current))
   }, [])
-  useEffect(() => { start(); return () => { if (timer.current) clearTimeout(timer.current) } }, [start])
+  useEffect(() => {
+    start()
+    return () => { if (timer.current) { clearTimeout(timer.current); timer.current = null } }
+  }, [start])
+  // As the toast leaves, still in the document: was keyboard focus inside? (FX14)
+  useLayoutEffect(() => () => {
+    const el = node.current
+    const active = el?.ownerDocument.activeElement
+    if (!el || !el.contains(active)) return
+    leaving.current = true
+    let keyboard = true
+    try { keyboard = active.matches(':focus-visible') } catch { /* no :focus-visible: treated as the keyboard's */ }
+    if (keyboard) handBack.current = cameFrom.current
+  }, [])
+  // …and once the commit is over, give it back (see above: React's events are
+  // off while it removes nodes). Unless something else has taken focus since.
+  useEffect(() => () => {
+    const trail = handBack.current
+    if (!trail) return
+    handBack.current = null
+    const doc = node.current?.ownerDocument || document
+    const active = doc.activeElement
+    if (active && active !== doc.body && active.isConnected) return
+    handFocusBack(trail, doc)
+  }, [])
+  const onFocus = (e) => {
+    node.current = e.currentTarget
+    trails.set(e.currentTarget, cameFrom)
+    if (!holding.current) {
+      holding.current = true
+      // From another toast: that element, then that toast's own trail (it may
+      // leave first). Coming back from nowhere (a toast before it left, or
+      // the window left and returned) keeps the trail it had.
+      const from = e.relatedTarget
+      if (from && from !== from.ownerDocument?.body && !e.currentTarget.contains(from)) {
+        const other = from.closest?.('.ui-toast')
+        // (Shuttling between two toasts repeats entries; harmless, the first
+        // one still there wins: review round 2, finding 7.)
+        cameFrom.current = [from, ...((other && trails.get(other)?.current) || [])]
+      }
+    }
+    pause()
+  }
+  const onBlur = (e) => {
+    if (leaving.current || e.currentTarget.contains(e.relatedTarget)) return
+    holding.current = false
+    start()
+  }
+  const onMouseEnter = () => { hovered.current = true; pause() }
+  const onMouseLeave = () => { hovered.current = false; start() }
   return (
     <Toast
       tone={item.tone}
@@ -132,8 +265,10 @@ function TimedToast({ item, onDismiss }) {
       body={item.body}
       action={item.action}
       onDismiss={item.dismissible === false ? undefined : onDismiss}
-      onMouseEnter={pause}
-      onMouseLeave={start}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
+      onBlur={onBlur}
       data-toast-id={item.id}
       aria-label={item.name}
     />

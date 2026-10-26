@@ -121,12 +121,14 @@ No questions are open.
   not show: the box was not what stopped it. With nothing to read, Enter on a
   tick box ticks or unticks it, as before.
 - **The cards' title bars fold only with a pointer** (step 6 uses one), as
-  before: written down to fix (`docs/OUTSTANDING.md`, FX13-01).
+  before: written down to fix (`docs/OUTSTANDING.md`, FX13-01). *Fixed by
+  FX14 (2026-10-26): each bar has a button that Tab reaches; walkthrough 78.*
 - **The Alt key behind a window**: Alt also flips the switch while a window
   (Help, Settings) is open over D.O.G., as before. Your answer was about Alt
   from any page; this stays written down (`docs/OUTSTANDING.md`, P1-04).
 - **A toast that times out with keyboard focus on it** leaves focus at the
   top of the window, everywhere in WILSON, as before (FX13-02). This note has
-  no timer, so it does not.
+  no timer, so it does not. *Fixed by FX14 (2026-10-26): keyboard focus holds
+  a toast, and one that goes gives focus back; walkthrough 78.*
 - **Holding Enter down on the switch** flips it once per repeat, as on any
   button; one press flips it once.

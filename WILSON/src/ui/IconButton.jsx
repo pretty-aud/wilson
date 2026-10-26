@@ -4,7 +4,10 @@
 // The `title` is the tooltip (no tooltip component is added, §3.3) and,
 // unless an explicit `aria-label` is given, the accessible name; a missing
 // title is reported in dev because an icon-only control with no name is a
-// button a screen reader announces as "button". `active` is the one active
+// button a screen reader announces as "button". `aria-labelledby` names it
+// too (post-overhaul FX14: D.O.G.'s card headers name their fold button by
+// the heading's own words), so it silences that report as well; it then wins
+// over any `aria-label`, as the accessible-name rules say. `active` is the one active
 // treatment (the signal as a tint and a 1px edge, the ink unchanged), never
 // the signal as a fill. States are data attributes resolved in index.css.
 //
@@ -51,7 +54,7 @@ export const IconButton = forwardRef(function IconButton(
   if (import.meta.env?.DEV && typeof size !== 'number' && s !== size) {
     console.error(`IconButton: unknown size "${size}" — using "md"`)
   }
-  if (import.meta.env?.DEV && !title && !ariaLabel) {
+  if (import.meta.env?.DEV && !title && !ariaLabel && !rest['aria-labelledby']) {
     console.error('IconButton: `title` is required — it is the tooltip and the accessible name')
   }
   return (

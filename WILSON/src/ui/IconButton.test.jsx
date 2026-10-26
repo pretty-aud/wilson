@@ -45,6 +45,17 @@ describe('IconButton', () => {
     render(<IconButton icon={X} title="Remove file" aria-label="Remove report.pdf" />)
     expect(screen.getByRole('button', { name: 'Remove report.pdf' })).toBeTruthy()
   })
+
+  // FX14: D.O.G.'s card headers name their fold button by the heading's words.
+  it('aria-labelledby names it and is not reported as nameless; CONTROL: with no name at all it still is', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<><span id="fx14-words">Project documentation</span><IconButton icon={X} aria-labelledby="fx14-words" /></>)
+    expect(screen.getByRole('button', { name: 'Project documentation' })).toBeTruthy()
+    expect(err).not.toHaveBeenCalled()
+    render(<IconButton icon={X} />)
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('`title` is required'))
+    err.mockRestore()
+  })
 })
 
 // ── F4: the scale has TWO control heights, and C3b's request 3 is open ──────

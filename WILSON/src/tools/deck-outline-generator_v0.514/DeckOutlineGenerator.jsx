@@ -4099,19 +4099,28 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
-                Project documentation
+                <span id="dog-card1-title">Project documentation</span>
               </h2>
               <div className="ui-panel-actions">
-                {section1Collapsed ? (
-                  <ChevronRight className="dog-chevron" aria-hidden="true" />
-                ) : (
-                  <ChevronDown className="dog-chevron" aria-hidden="true" />
-                )}
+                {/* FX14 (FX13-01): the fold from the keyboard. A real button,
+                    named by the heading's words, the chevron its glyph. It
+                    has no handler of its own: Enter and Space click it, and
+                    the click reaches the bar's one handler above, as a
+                    pointer's does (one fold per press, never two). Enter on
+                    it is the button's, not "Enter generates"
+                    (enterGenerates.js leaves a focused button to itself). */}
+                <IconButton
+                  size="sm"
+                  icon={section1Collapsed ? ChevronRight : ChevronDown}
+                  aria-labelledby="dog-card1-title"
+                  aria-expanded={!section1Collapsed}
+                  aria-controls={section1Collapsed ? undefined : 'dog-card1-body'}
+                />
               </div>
             </header>
 
             {!section1Collapsed && (
-            <div className="dog-card-body">
+            <div className="dog-card-body" id="dog-card1-body">
               {/* Project Selection */}
               <div>
                 <label className="ui-field-label dog-field-label">
@@ -4255,19 +4264,22 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">3</span>
-                Generate outline
+                <span id="dog-card3-title">Generate outline</span>
               </h2>
               <div className="ui-panel-actions">
-                {section2Collapsed ? (
-                  <ChevronRight className="dog-chevron" aria-hidden="true" />
-                ) : (
-                  <ChevronDown className="dog-chevron" aria-hidden="true" />
-                )}
+                {/* FX14 (FX13-01): as card 1's. */}
+                <IconButton
+                  size="sm"
+                  icon={section2Collapsed ? ChevronRight : ChevronDown}
+                  aria-labelledby="dog-card3-title"
+                  aria-expanded={!section2Collapsed}
+                  aria-controls={section2Collapsed ? undefined : 'dog-card3-body'}
+                />
               </div>
             </header>
 
             {!section2Collapsed && (
-            <div className="dog-card-body">
+            <div className="dog-card-body" id="dog-card3-body">
               {/* The switch. Its name is "Full deck" (checked) and nothing else,
                   so a screen reader hears which side is on; the two words are
                   pointer shortcuts to their side, hidden from it. Space and

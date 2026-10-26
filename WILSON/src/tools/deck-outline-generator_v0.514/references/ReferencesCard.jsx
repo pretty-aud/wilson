@@ -148,21 +148,29 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
       >
         <h2 className="ui-panel-title dog-card-title dog-step-title">
           <span className="dog-step">2</span>
-          References
+          <span id="dog-refs-title">References</span>
         </h2>
         <div className="ui-panel-actions">
           <span className="dog-card-note dog-refs-count">
             {count ? `${count} chosen` : 'None chosen'}
             {headWarn && <span className="dog-refs-head-warn">{` · ${headWarn}`}</span>}
           </span>
-          {collapsed
-            ? <ChevronRight className="dog-chevron" aria-hidden="true" />
-            : <ChevronDown className="dog-chevron" aria-hidden="true" />}
+          {/* FX14 (FX13-01): the fold from the keyboard, as D.O.G.'s cards 1
+              and 3 have it. No handler of its own: Enter and Space click it
+              and the click reaches the bar's one handler, as a pointer's
+              does. */}
+          <IconButton
+            size="sm"
+            icon={collapsed ? ChevronRight : ChevronDown}
+            aria-labelledby="dog-refs-title"
+            aria-expanded={!collapsed}
+            aria-controls={collapsed ? undefined : 'dog-refs-body'}
+          />
         </div>
       </header>
 
       {!collapsed && (
-        <div className="dog-card-body">
+        <div className="dog-card-body" id="dog-refs-body">
           {refs.notice && (
             <p className="dog-details-note dog-refs-notice" role="status">
               {refs.notice}
