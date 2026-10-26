@@ -84,11 +84,25 @@ function Harness({ view }) {
   if (view === 'timeline') return <TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive />
   return <ProjectTasksView />
 }
+// FX14 (OUTSTANDING FX13-03, the cause established before the fix): the
+// fixtures load the project in microtasks, so ONE commit brings the adapter
+// and the whole project, and the provider's effects for it (the views' drafts
+// reset for the new project and mode, the read of the last used views) run in
+// a later task. In between, the table is drawn and `ctx.project` is set, so a
+// wait for the project alone can return there. A regroup made then writes its
+// draft first, the pending reset lands after it and wipes it: the Group menu
+// reads "None" and the band never comes, however long the wait (reproduced
+// with the regroup forced into that gap: no band after 1.5 s, the menu empty;
+// CI's run 40362857456 failed at the band's wait). So the render runs inside
+// act (React flushes those effects before act returns), and the mount waits
+// for their evidence too: the last used map read ('ready'), which the
+// provider reaches only once its effects for this adapter have run.
 async function mount(view) {
   fx = buildDevFixtures()
   holder.adapter = fx.rabbitAdapter()
-  render(<RabbitProvider><Harness view={view} /></RabbitProvider>)
+  await act(async () => { render(<RabbitProvider><Harness view={view} /></RabbitProvider>) })
   await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
+  await waitFor(() => expect(ctx.tableViewLast?.status).toBe('ready'))
 }
 afterEach(() => {
   cleanup(); ctx = null; fx = null
@@ -137,9 +151,11 @@ describe('R2-2: a refused drop says why, on the Tasks table, the Board and the T
     globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
     await mount('tasks')
     groupTasksBy('asset')
-    // FX12 (2026-10-25): the grouped rows render after the change; under a
-    // loaded run the drop went to a band not drawn yet ("Unable to fire a
-    // drop event"). Wait for the target, as the Timeline's case waits for text.
+    // FX12 (2026-10-25) waited for the band here; FX14 measured that the
+    // regroup draws it in the same act (16 bands at once), and that a band
+    // missing for 1 s was the regroup wiped by the provider's pending drafts
+    // reset, which `mount` now waits out (a longer timeout would not have
+    // helped). The wait stays as a guard that names what is missing.
     await waitFor(() => expect(band('Lookbook')).toBeTruthy())
     const release = await holdAnUndoOpen()
     await act(async () => { fireEvent.drop(band('Lookbook'), dt(T18)) })
@@ -168,12 +184,49 @@ describe('R2-2: a refused drop says why, on the Tasks table, the Board and the T
     globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
     await mount('timeline')
     fireEvent.click(screen.getByRole('tab', { name: 'Group by asset' }))
+    // FX14, read for the same gap: the Timeline's grouping is its own state,
+    // not a views draft, and `mount` waits the provider's effects out; the
+    // rows it drops between are named here so a miss says which.
+    expect(taskRowEl(T18_TITLE)).toBeTruthy()
+    expect(gutterRow(A(3))).toBeTruthy()
     const release = await holdAnUndoOpen()
     await dropOnRow(T18_TITLE, gutterRow(A(3)))
     await waitFor(() => expect(document.body.textContent).toContain(REFUSAL), { timeout: 2000 })
     expect(document.body.textContent).toContain(`Could not move “${T18_TITLE}”`)
     await release()
     expect(sorted(kinds(T18, 'asset'))).toEqual(sorted([A(7), A(12)]))
+  })
+})
+
+// FX14: why `mount` waits for the provider's own effects. The gap held open
+// on purpose: a MutationObserver resolves in the microtasks of the commit
+// that brings the project, before that commit's effects run. Its premise
+// (review round 2, finding 5): React's scheduler runs those effects in a
+// later task because that commit overran its 5 ms slice, which the whole
+// table in jsdom always does; the fixed `mount` does not depend on it. If the provider
+// ever stops resetting the drafts there (or resets them before the table can
+// be used), this control goes red and the wait in `mount` can be looked at
+// again.
+describe('CONTROL (FX14): the gap `mount` waits out', () => {
+  it('a regroup made between the project\'s commit and its effects is wiped by the drafts reset: no band, the Group menu back to none', async () => {
+    fx = buildDevFixtures()
+    holder.adapter = fx.rabbitAdapter()
+    const committed = new Promise((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (document.querySelector('.rb-task-table') && ctx?.project?.id === PROJECT_ID) { mo.disconnect(); resolve() }
+      })
+      mo.observe(document.body, { subtree: true, childList: true })
+    })
+    render(<RabbitProvider><Harness view="tasks" /></RabbitProvider>)
+    await committed
+    expect(ctx.tableViewLast.status).toBe('unavailable')   // the provider's effects for the adapter not run yet
+    groupTasksBy('asset')
+    expect(band('Lookbook')).toBeFalsy()
+    expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
+    // CONTROL: after the effects, the same regroup holds (what `mount` gives every test).
+    await waitFor(() => expect(ctx.tableViewLast.status).toBe('ready'))
+    groupTasksBy('asset')
+    expect(band('Lookbook')).toBeTruthy()
   })
 })
 

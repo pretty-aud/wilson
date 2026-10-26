@@ -3420,6 +3420,18 @@ page / Full deck switch is the kit Switch's own, so it flips ("Enter moves the
 switch"). Alt flips the switch from any page, kept by her ruling. Walkthrough
 77.
 
+**D.O.G.'s card title bars (post-overhaul FX14).** The three folding cards
+(1 *Project documentation*, 2 *References*, 3 *Generate outline*) each carry a
+kit `IconButton` in their header's `ui-panel-actions`: the chevron its glyph,
+named by the heading's words (`aria-labelledby` on a span in the kept `<h2>`),
+`aria-expanded`, `aria-controls` on the body while it is drawn. It has no
+handler of its own; Enter and Space click it and the click reaches the bar's
+one handler, as a pointer's does. Enter on it folds and generates nothing (a
+focused button is left to itself, `enterIsDogs`). The fold state is where it
+was (`section1Collapsed`, `section2Collapsed`, `ReferencesCard`'s
+`collapsed`). D.O.G.'s note is a kit toast: focus on its × when it goes comes
+back to where it came from (`TimedToast`, FX14). Walkthrough 78.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
