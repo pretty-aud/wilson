@@ -163,6 +163,8 @@ const AI_FILES_CORS = {
 const DELETE_MAX_IDS = 25
 /** Two deletions at a time: the store's file calls share one org-wide limit. */
 const SWEEP_CONCURRENCY = 2
+/** A member's short list, four at a time: the desktop's close waits for it. */
+const DELETE_CONCURRENCY = 4
 
 /**
  * The key a stored file lives under — exactly the one its upload row names.
@@ -224,65 +226,70 @@ async function deleteOwn(
   // EVERY workspace's rows naming these ids, so a file two workspaces' rows
   // claim is seen as contested rather than taken by whichever asked first.
   const rows = await readUploadRowsNaming(admin, ids)
-  const results: DeleteResult[] = []
-  const refused: string[] = []
-  for (const id of ids) {
+  // Each source's key read once per call, not once per id.
+  const keys = new Map<KeySource, Promise<string | null>>()
+  const keyOf = (source: KeySource) => {
+    if (!keys.has(source)) keys.set(source, keyForSource(admin, workspaceId, source))
+    return keys.get(source)!
+  }
+
+  // A few at a time: the desktop app waits for this answer before its window
+  // closes (MEASURED, FX12: a keepalive request dies with the app when its
+  // preflight takes a round trip), so a short list must answer in about a
+  // second, not one file after another.
+  const results = await pooled(ids, DELETE_CONCURRENCY, async (id): Promise<DeleteResult> => {
     const named = rows.filter(r => r.fileId === id)
     const mine = named
       .filter(r => r.workspaceId === workspaceId && r.actorUserId === callerId)
       .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0]
-    if (!mine) { results.push({ id, outcome: 'not_found' }); refused.push(id); continue }
+    if (!mine) return { id, outcome: 'not_found' }
 
-    const key = await keyForSource(admin, workspaceId, mine.keySource)
+    const key = await keyOf(mine.keySource)
     if (!key) {
-      results.push({ id, outcome: 'key_unavailable' })
       await writeCertificate(admin, {
         workspaceId, actorUserId: callerId, ok: false,
         message: 'AI file delete could not read the key the file was uploaded under',
         context: { stage: 'delete', via: 'member', file_id: id, outcome: 'key_unavailable', key_source: mine.keySource },
       })
-      continue
+      return { id, outcome: 'key_unavailable' }
     }
 
     let file: StoredFile | null
     try {
       file = await fileMetadata(key, id)
     } catch (err) {
-      results.push({ id, outcome: 'failed' })
       await writeCertificate(admin, {
         workspaceId, actorUserId: callerId, ok: false,
         message: 'AI file delete could not read the stored file',
         context: { stage: 'delete', via: 'member', file_id: id, outcome: 'failed', status: (err as { status?: number })?.status ?? 0, key_source: mine.keySource },
       })
-      continue
+      return { id, outcome: 'failed' }
     }
     if (!file) {
       // The store has no such file (deleted before, or expired and gone):
       // certified as gone, so "no row" never means "never asked".
-      results.push({ id, outcome: 'gone' })
       await writeCertificate(admin, {
         workspaceId, actorUserId: callerId, ok: true,
         message: 'AI file was already gone from the store',
         context: { stage: 'delete', via: 'member', file_id: id, outcome: 'gone', status: 404, key_source: mine.keySource },
       })
-      continue
+      return { id, outcome: 'gone' }
     }
     const verdict = attribute([file], named)[0]
     if (verdict.kind !== 'attributed' || verdict.owner.workspaceId !== workspaceId || verdict.owner.actorUserId !== callerId) {
-      results.push({ id, outcome: 'not_found' })
-      refused.push(id)
-      continue
+      return { id, outcome: 'not_found' }
     }
 
     const status = await deleteFile(key, id)
     const outcome = deleteOutcome(status)
-    results.push({ id, outcome })
     await writeCertificate(admin, {
       workspaceId, actorUserId: callerId, ok: outcome !== 'failed',
       message: outcome === 'failed' ? 'AI file delete failed' : 'AI file deleted',
       context: { stage: 'delete', via: 'member', file_id: id, outcome, status, key_source: mine.keySource, size_bytes: file.size_bytes },
     })
-  }
+    return { id, outcome }
+  })
+  const refused = results.filter(r => r.outcome === 'not_found').map(r => r.id)
   if (refused.length) {
     // One line per refused call, never per id: a refusal is worth seeing
     // (someone asked for ids that are not theirs), and the ids are the

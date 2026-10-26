@@ -44,6 +44,9 @@ const outsideDev = files.filter((p) => !rel(p).startsWith('dev/'))
 /** The seams: every production file allowed to consult the switch. */
 const SEAMS = [
   'cloud/adminApi.js',
+  // FX12 (2026-10-25): the AI file store's list and sweep (the Admin
+  // Terminal's card) answer from the fixtures; the deletes never run there.
+  'cloud/aiFiles.js',
   'cloud/auth/InviteMemberDialog.jsx',
   // GW1 (2026-10-10): the file gateway's calls answer from the fixtures.
   'cloud/gatewayApi.js',

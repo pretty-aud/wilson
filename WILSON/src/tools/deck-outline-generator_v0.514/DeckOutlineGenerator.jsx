@@ -7,7 +7,8 @@ import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/Project
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments';
 import { callAI } from '../../cloud/aiProxy';
 import { textFromMessage } from '../../cloud/anthropicStream';
-import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
+import { uploadAIFile, deleteAIFiles, holdAIFiles, FILES_BETA } from '../../cloud/aiFiles';
+import { createAIFileCache, ownerOf, liveOwners, retryWithLiveFiles } from './aiFileCache';
 import { modelFor, tuningFor } from '../../lib/activeModel';
 import ModelPicker from '../../components/settings/ModelPicker';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
@@ -1057,7 +1058,36 @@ ${alreadyPlacedContext}`;
   // fingerprint rather than the record's `id` because project documents and
   // picker uploads mint ids differently, and the source list is rebuilt
   // on every render — an identity-keyed cache would miss constantly.
-  const aiFileIdCache = useRef(new Map());
+  //
+  // FX12 (OUTSTANDING DG1-03): the cache knows whose each id is and when it
+  // was uploaded (./aiFileCache.js). An id no upload or chosen reference
+  // owns any more is deleted from the AI's store; everything is deleted
+  // when the app closes or the person signs out (holdAIFiles); an id past
+  // its TTL is uploaded again rather than referenced. NEVER deleted after a
+  // generation: the next "Regenerate" reuses it.
+  const aiFileIdCache = useRef(null);
+  if (!aiFileIdCache.current) aiFileIdCache.current = createAIFileCache();
+
+  /** Delete ids from the AI's store, best-effort: its expiry and the sweep catch a miss. */
+  const letGoOfAIFiles = useCallback((ids) => {
+    if (!ids?.length) return;
+    deleteAIFiles(ids).catch((err) => {
+      console.warn(`[DOG] could not let go of ${ids.length} AI file(s):`, err?.code || err?.message || err);
+    });
+  }, []);
+
+  // The app closing and a sign-out take everything this screen holds.
+  useEffect(() => holdAIFiles(() => aiFileIdCache.current.takeAll()), []);
+
+  // A file removed from the picker, a reference untaken, the References set
+  // cleared (or set aside by choosing another project): the ids nothing owns
+  // are let go of. Never while a generation runs (its calls may still
+  // reference them): the effect runs again when it ends.
+  const generationBusy = isGenerating || isRegenerating;
+  useEffect(() => {
+    if (generationBusy) return;
+    letGoOfAIFiles(aiFileIdCache.current.release(liveOwners(uploadedFiles, refs.chosen)));
+  }, [generationBusy, uploadedFiles, refs.chosen, letGoOfAIFiles]);
 
   const fileFingerprint = useCallback((fileData) => {
     const c = String(fileData.content || '');
@@ -1070,10 +1100,19 @@ ${alreadyPlacedContext}`;
   const ensureAIFileId = useCallback(async (fileData) => {
     // DG1: the references text is rebuilt every generation and opens with a
     // fixed header, so a fingerprint of its ends could match an edited
-    // block: it is never cached.
+    // block: it is never cached. FX12: it is still HELD (owner
+    // `generation`), so it is let go of once its generation has ended.
     const key = fileData.source === 'references' ? null : fileFingerprint(fileData);
-    const cached = key && aiFileIdCache.current.get(key);
-    if (cached) return cached;
+    const owner = ownerOf(fileData);
+    if (key) {
+      const hit = aiFileIdCache.current.get(key, Date.now());
+      if (hit?.id) {
+        aiFileIdCache.current.addOwner(key, owner);
+        return hit.id;
+      }
+      // Past its TTL: uploaded again below, and the old id let go of.
+      if (hit?.expired) letGoOfAIFiles([hit.expired]);
+    }
 
     // Text is read with readAsText, so its `content` is plain text; pdf/image
     // are read with readAsDataURL and hold base64. Getting this backwards
@@ -1089,9 +1128,24 @@ ${alreadyPlacedContext}`;
       filename: fileData.file?.name || 'document',
       mediaType,
     });
-    if (key) aiFileIdCache.current.set(key, uploaded.id);
+    const replaced = aiFileIdCache.current.set(key ?? `once:${uploaded.id}`, uploaded.id, owner, Date.now());
+    if (replaced) letGoOfAIFiles([replaced]);
     return uploaded.id;
-  }, [fileFingerprint]);
+  }, [fileFingerprint, letGoOfAIFiles]);
+
+  /**
+   * One AI call, and once more if the AI's store says a file the call
+   * references is gone (swept, expired, or deleted from another window): that
+   * file is uploaded again, every part that named the old id names the new
+   * one, and the call is repeated. Once per generation (`live.retried`); a
+   * second refusal reaches the person as any failure does.
+   * The store's answer is MEASURED (aiFileCache.deadFileIds); the rule is
+   * aiFileCache.retryWithLiveFiles.
+   */
+  const callWithLiveFiles = useCallback((call, live) => retryWithLiveFiles(call, live, {
+    reupload: ensureAIFileId,
+    forget: (id) => aiFileIdCache.current.forgetId(id),
+  }), [ensureAIFileId]);
 
   /**
    * The source documents, as content blocks plus whatever text stayed inline.
@@ -1115,10 +1169,14 @@ ${alreadyPlacedContext}`;
     const contentParts = [];
     const inlineTextParts = [];
     let usedFileRefs = false;
+    // FX12: which source each referenced id came from, so a call the store
+    // refuses for a gone file can upload that one again (callWithLiveFiles).
+    const fileSources = new Map();
 
     for (const fileData of files) {
       if (fileData.type === 'pdf' || fileData.type === 'image') {
         const fileId = await ensureAIFileId(fileData);
+        fileSources.set(fileId, fileData);
         usedFileRefs = true;
         contentParts.push({
           // The block type must match the file's MIME type — a PDF sent as an
@@ -1132,6 +1190,7 @@ ${alreadyPlacedContext}`;
         // store, which keeps what it is given (DG1): sendsInline says so.
         if (!sendsInline(fileData, INLINE_TEXT_LIMIT)) {
           const fileId = await ensureAIFileId(fileData);
+          fileSources.set(fileId, fileData);
           usedFileRefs = true;
           contentParts.push({ type: 'document', source: { type: 'file', file_id: fileId } });
         } else {
@@ -1142,7 +1201,7 @@ ${alreadyPlacedContext}`;
       // assets, and that was true before this change too.
     }
 
-    return { contentParts, textContents: inlineTextParts.join('\n\n'), usedFileRefs };
+    return { contentParts, textContents: inlineTextParts.join('\n\n'), usedFileRefs, fileSources };
   }, [ensureAIFileId]);
 
   /** Turn an upload failure into something true and readable. */
@@ -1291,10 +1350,10 @@ Generate the outline now:`;
     // Source documents travel as file_id references — see buildSourceParts.
     // Same exposure as the full deck: this path sent the same base64 payload.
     // DG1: the uploads plus the chosen references, read now (resolveSources).
-    let contentParts, textContents, usedFileRefs, srcFiles, srcPlacement, projectContext;
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
     try {
       ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
-      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts(srcFiles));
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
     } catch (err) {
       console.error('Source document upload failed:', err);
       setError(sourceUploadMessage(err));
@@ -1349,7 +1408,9 @@ ${outputInstructions}${placementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const data = await callAI({
+      // FX12: once more, with the file uploaded again, if the store says a
+      // file this call references is gone (callWithLiveFiles).
+      const data = await callWithLiveFiles(() => callAI({
         model: modelFor('dog.pageOutline'),
         // Required on every request that REFERENCES a file_id, not just the
         // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
@@ -1358,7 +1419,7 @@ ${outputInstructions}${placementPrompt.rules}`;
         system: singlePageSystemPrompt,
         messages: messages,
         tool: 'dog',
-      });
+      }), { contentParts, fileSources, retried: false });
       // The reply's words through textFromMessage (anthropicStream.js), never
       // a walk of the content blocks (DG1; the S30 rule).
       const output = textFromMessage(data);
@@ -1431,7 +1492,7 @@ ${outputInstructions}${placementPrompt.rules}`;
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, resolveSources, sourceUploadMessage]);
+  }, [hasFileContent, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Regenerate page with revisions
   const regeneratePage = useCallback(async () => {
@@ -1554,10 +1615,10 @@ Generate the revised outline now:`;
     // Source documents travel as file_id references — see buildSourceParts.
     // Same exposure as the full deck: this path sent the same base64 payload.
     // DG1: the uploads plus the chosen references, read now (resolveSources).
-    let contentParts, textContents, usedFileRefs, srcFiles, srcPlacement, projectContext;
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
     try {
       ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
-      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts(srcFiles));
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
     } catch (err) {
       console.error('Source document upload failed:', err);
       setError(sourceUploadMessage(err));
@@ -1610,7 +1671,9 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const data = await callAI({
+      // FX12: once more, with the file uploaded again, if the store says a
+      // file this call references is gone (callWithLiveFiles).
+      const data = await callWithLiveFiles(() => callAI({
         model: modelFor('dog.regeneratePage'),
         // Required on every request that REFERENCES a file_id, not just the
         // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
@@ -1619,7 +1682,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
         system: singlePageSystemPrompt,
         messages: messages,
         tool: 'dog',
-      });
+      }), { contentParts, fileSources, retried: false });
       // The reply's words through textFromMessage (anthropicStream.js), never
       // a walk of the content blocks (DG1; the S30 rule).
       const output = textFromMessage(data);
@@ -1667,7 +1730,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     } finally {
       setIsRegenerating(false);
     }
-  }, [activeTab, hasFileContent, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, buildAssetPlacementPrompt, buildSourceParts, resolveSources, sourceUploadMessage]);
+  }, [activeTab, hasFileContent, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Undo regeneration
   const undoRegeneration = useCallback(() => {
@@ -1946,10 +2009,10 @@ Generate the complete deck now:`;
     
     // Source documents travel as file_id references — see buildSourceParts.
     // DG1: the uploads plus the chosen references, read now (resolveSources).
-    let contentParts, textContents, usedFileRefs, srcFiles, srcPlacement, projectContext;
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
     try {
       ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
-      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts(srcFiles));
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
     } catch (err) {
       console.error('Source document upload failed:', err);
       setError(sourceUploadMessage(err));
@@ -2007,9 +2070,13 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
       let currentMessages = messages;
       let continuationAttempts = 0;
       const MAX_CONTINUATIONS = 3; // Allow up to 3 continuation calls
+      // FX12: ONE re-upload per generation, shared by every call of the loop.
+      // The continuation messages hold the same content parts, so a file
+      // uploaded again is referenced by every later call too.
+      const liveFiles = { contentParts, fileSources, retried: false };
 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
-        const data = await callAI({
+        const data = await callWithLiveFiles(() => callAI({
           model: modelFor('dog.fullDeck'),
           // Caps how hard the model thinks. Measured, not guessed — the
           // rationale and the numbers are on the REGISTRY entry. Without it
@@ -2026,7 +2093,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
           system: fullDeckSystemPrompt,
           messages: currentMessages,
           tool: 'dog',
-        });
+        }), liveFiles);
         console.log(`API Response (attempt ${continuationAttempts}):`, data);
 
         const chunkOutput = textFromMessage(data);
@@ -2145,7 +2212,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, resolveSources, sourceUploadMessage]);
+  }, [hasFileContent, uploadedFiles, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   const copyToClipboard = useCallback(() => {
     if (!activeTab) return;
