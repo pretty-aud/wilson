@@ -67,6 +67,9 @@ const FRIENDLY = {
   sweep_failed: 'The clean-up stopped part-way — see Logs for WIL-6002.',
   bad_answer: 'The AI’s file store answered something unreadable.',
   store_rate_limited: 'Too many requests to the AI’s file store — try again in a minute.',
+  // An ai-files from before FX12 answers 405 to the store's routes: the
+  // client can reach an environment before its function is deployed.
+  method_not_allowed: 'This environment’s server has not been updated to manage the AI’s file store yet.',
 }
 
 export class AIFileError extends Error {

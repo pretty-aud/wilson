@@ -114,7 +114,8 @@ No questions are open.
 |---|---|
 | A deck call naming a file that was deleted | Refused before the AI reads anything: HTTP 404, *not found*, the message naming the file. No tokens spent. D.O.G.'s "upload it again once" is built to exactly this. |
 | A file asking to expire in an hour | The store set it to expire exactly 3,600 seconds after it was made. |
-| WILSON's receipt, against the store's own clock | Written 229 ms after the store made the file. |
+| WILSON's receipt, against the store's own clock | Written 161 to 365 ms after the store made the file (four CI runs: 229, 225, 161, 365 ms). |
+| A lookup naming an id the store cannot read | Refused outright, so WILSON now asks again without that id and treats it as gone. |
 | Closing the desktop app while deletes are being sent | Sent at the last moment, they die with the app whenever the network takes a round trip; sent first and waited for (at most 4 seconds), they arrive. So WILSON waits for them when it closes. |
 
 ## 5. Left as it is, and why

@@ -216,6 +216,13 @@ describe('deleteAIFiles', () => {
     expect(err.message).toBe('Too many requests to the AI’s file store — try again in a minute.')
   })
 
+  it('an ai-files from before FX12 (405 to these routes) is said in words, not a bare status', async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 405, json: async () => ({ error: 'method_not_allowed' }) }))
+    const err = await listAIFiles().catch(e => e)
+    expect(err.code).toBe('method_not_allowed')
+    expect(err.message).toBe('This environment’s server has not been updated to manage the AI’s file store yet.')
+  })
+
   it('CONTROL: a 200 that is not JSON is a failure, never an empty success', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('x') } }))
     const err = await deleteAIFiles([fid(1)]).catch(e => e)

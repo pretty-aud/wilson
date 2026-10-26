@@ -3391,7 +3391,12 @@ file no row names (another environment's) is left alone. The rules are
 `_shared/aiFileStore.ts`; every deletion leaves a WIL-6001/6002 certificate
 with a `stage`, always in the `admin` stream (members cannot insert it), and a
 404 is `gone` only when such a certificate already says this workspace
-deleted the id (otherwise `not_found`: no oracle). Uploads reach the store
+deleted the id and the caller's row is the earliest naming it (otherwise
+`not_found`: no oracle). Ids a lookup finds missing are noted once (a quiet
+`absent` row) and never asked about again; a lookup batch the store refuses (it
+refuses an id it cannot parse, measured) is split down to that id. The new
+routes spend their own rate buckets (`ai-files-manage` per caller,
+`ai-files-list` per workspace), never the upload's. Uploads reach the store
 under a neutral name (`neutralFileName`: `document.pdf`), never the file's own. 🚨 Attribution lives only
 as long as app_events' 90-day purge keeps the upload row: a file older than
 that, never deleted, is nobody's to WILSON (pre-FX12 uploads from 2026-08-11

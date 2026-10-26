@@ -1829,6 +1829,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul FX12 (2026-10-25; `po/fx12-ai-file-store-cleanup` into `feat/post-overhaul-edit-versioning`) — the AI's file store forgets what D.O.G. sent it (OUTSTANDING DG1-03): `ai-files` gains DELETE (a member's own ids; an admin's sweep of the workspace's files older than 24 h) and GET (this workspace's ids, times and sizes, never a filename), `operator-ai-files` the operator's counts and sweep, both on wilson-dev only; a row counts only when it binds to the stored file, certificates in the admin stream; D.O.G. lets go when a file or reference leaves, at sign-out and when the desktop closes (which waits, measured), never after a generation; uploads expire in 24 h and reach the store under a neutral name; the Admin Terminal's card and the operator's section; the CI probe signed in as the smoke admin. Two review rounds on Fable (8 findings, then 9). No migration. Her three answers verbatim in the hand-off. | FX12-01 (pre-FX12 uploads on staging and production until the deploy and a sweep; attribution ends 2026-11-09), FX12-02 (VW1m's drop test fails under load). Comment markers: 4 → 4. | DG1-03 (closed by FX12: the merge's hash below). |
 | Post-overhaul VW1d (2026-10-25; `po/vw1d-custom-views-tasks` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 3: the views on the Tasks table (the design's §7 step 4, to her answers): step 0's review of the design's screen parts against the code (18 findings, corrected in the design); the Views button with its list and four cards in place, the shared filter row, the *changed for now* bar, the last used view, Create grouping and the project's groupings on Tasks and the Timeline, one New menu; the browser's old Tasks views removed (Q17); kit requests VW1-KR-1 (Popover in place), VW1-KR-3 (MenuButton into the kit) and VW1-KR-4 (Banner `live={false}`), each with its caller; walkthrough 72 part 3; two review rounds on Fable (16 findings on use and the keyboard, then 12 with a security pass on the view's filters), every correction with a failing control; no migration | dated notes on **P1-08** (the Tasks menu replaced) and on *on the desktop, the browser's own storage most likely starts empty at every launch* (the Tasks views no longer kept there) | nothing. Comment markers: 4 → 4. |
 | Post-overhaul VW1c (2026-10-17; `po/vw1c-custom-views-data` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 2: the views' and groupings' data, with no screen yet (her Q1, Q2, Q4, Q-D2): step 0's review of the design's §5 against the code (19 findings, corrected in the design); migration 0098 (`table_views`, `item_groupings`, `user_settings.table_view_last` with `set_table_view_last`; RLS forced, column grants, the SECURITY DEFINER sweep of a deleted item, `reorder_table_views`, the broadcast with eighteen tables) and suite 101, applied on wilson-dev only; the rules (`state/tableViewsModel.js`) and their CommonJS twin, the Local Server's `electron/rabbitTableViews.cjs` and the machine's own settings file, the cloud adapter's probe and verbs, the dev fixtures, Drive, the takeout, the move to the cloud, the provider's `state/tableViewsState.js` and the live merge; walkthrough 72 part 2; two review rounds on Fable, the first with a security pass | nothing | nothing. Comment markers: 4 → 4. |
 | Post-overhaul VW1b (2026-10-17; `po/vw1b-custom-views-build` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 1 (Audrey: "please make sure it either shows all or none. additionally, i can see the levels or scenes or shots related"): step 0's design review (21 findings); the Tasks table's Asset, Scene, Shot, Level and Experience columns, each cell every item by name with "+N" and a picker that ticks several (a draft, committed once, one undo step); combination groups by every kind; the checkbox and Title kept in place while the table scrolls sideways (kit requests VW1-KR-1 Popover and VW1-KR-2 sticky columns); widths from the columns on screen; her Q-N1a and Q-N1b sorts; the Levels, Experiences and scene window counts; walkthrough 72 part 1; two review rounds | nothing | **two:** *the scene window's SHOTS / ASSETS / TASKS line counts no asset* (`aa270f73`: it counts `scene_ids`) and **P1-26** (struck through: the Assets half, `aa270f73`). Comment markers: 4 → 4. |
@@ -3376,18 +3377,6 @@ S4b-11 are untouched and still hers.
   (it says so, and the files table's files are under Files). Fix: teach the
   route the four columns, and list the managed store (with a download route)
   for references. Owner: Track B (the desktop server).
-- **DG1-03 · The AI's file store keeps every PDF and picture D.O.G. sends, and
-  nothing deletes them.** PRE-EXISTING (S19's `ai-files`, the 546 fix): a PDF or
-  picture (an upload or, since DG1, a chosen reference) and any text source over
-  256 KB go to the AI provider's Files API under the one organisation key and are
-  referenced by id; `src/cloud/aiFiles.js` has no delete and `ai-files` relays
-  uploads only. DG1 keeps the chosen notes out of it (they always travel in the
-  request) and says so in the References card's hover, but pre-release material
-  chosen as a reference now joins the uploads there. Would settle it: list the
-  key's stored files after a deck is made. Fix: a DELETE route in `ai-files`
-  and a sweep when a D.O.G. session ends or after N hours (an Edge Function
-  change, so staging and prod need Audrey). Owner: a security or AI session.
-
 ## Post-overhaul DG1b (`po/dg1b-references-answers`) — left open (2026-10-17)
 
 - **DG1b-01 · D.O.G.'s Alt key flips its Single page / Full deck switch from any
@@ -3418,3 +3407,33 @@ S4b-11 are untouched and still hers.
   activity: one *downloaded* row. Fix: say it only when this preview
   downloaded (the id not yet in `readIds`). Owner: a D.O.G. session.
 
+## Post-overhaul FX12 (`po/fx12-ai-file-store-cleanup`) — left open (2026-10-25)
+
+- **FX12-01 · The uploads D.O.G. made before FX12 on staging and production are
+  still in the AI's file store, and from 2026-11-09 nothing can tell whose
+  they are.** INFERRED (no session can read those stores: wilson-dev has no
+  platform operator and the key lives only inside the functions). Every
+  upload since S19's `ai-files` (2026-08-11) went to the store with no expiry
+  and nothing deleted it (DG1-03, closed by FX12). FX12's functions are on
+  wilson-dev only; until the controller deploys `ai-files` and
+  `operator-ai-files` to staging and production, nothing there lets go. A file
+  is tied to its company only by its upload row in `app_events`, which the
+  90-day purge removes: the first rows go on 2026-11-09, and a file whose row
+  is gone is left alone by every sweep for good. Audrey's ruling (2026-10-25,
+  verbatim): *"Clean up before 9 November (Recommended)"*. Would settle it:
+  the operator console's **AI files** on staging and on live, after the
+  deploy, reading *Tied to a company of this environment* before and after
+  its sweep. Fix: the deploy, then the operator's sweep (and each company
+  admin's card, which also reaches a company's own key) on both, before
+  2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
+- **FX12-02 · VW1m's "a refused drop says why" test fails under load.**
+  MEASURED: `src/tools/rabbit_v0.1.0/views/taskItemDrops.test.jsx`, *R2-2 …
+  the Tasks table: a drop refused while an undo still replays …*, failed with
+  *Unable to fire a "drop" event - please provide a DOM element* in CI run
+  40259231607 (Vitest) and in one local `npx vitest run --maxWorkers=4`;
+  it passed alone three times, and CI's next run passed. An element the test
+  reaches for is not rendered yet when the machine is busy (the shape VW1d
+  gave two other files 20 s for). Not FX12's files: no change under
+  `src/tools/rabbit_v0.1.0`. Would settle it: the full suite at
+  `--maxWorkers=4` a few times. Fix: wait for the row (`findBy…`) before
+  the drop. Owner: a R.A.B.B.I.T. session (VW1e's area).
