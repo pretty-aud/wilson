@@ -28,7 +28,7 @@ steps 6 to 11 use that note.
 
 | # | Do | You should see |
 |---|----|----------------|
-| 1 | Open D.O.G. Click an empty part of the page, then press **Tab** until the orange ring reaches the chevron at the right end of **1 Project documentation** (it comes after the top bar's buttons and D.O.G.'s Help and Settings) | The ring on the chevron (`po-fx14-after-02-header-focus`). A screen reader says *"Project documentation, button, expanded"*. |
+| 1 | Open D.O.G. Click an empty part of the page, then press **Tab** until the orange ring reaches the chevron at the right end of **1 Project documentation** (it comes after the top bar's buttons and D.O.G.'s Help and Settings) | The ring on the chevron (`po-fx14-after-02-header-focus`). A screen reader says the card's title in the bar's capitals, *"PROJECT DOCUMENTATION, button, expanded"*, as it says the deck context box's label (walkthrough 77). |
 | 2 | Press **Enter** | Card 1 folds, its chevron points right and the ring stays on it (`po-fx14-after-03-card1-folded-by-key`). Nothing else happens. |
 | 3 | Press **Space** | Card 1 opens again. |
 | 4 | Tab on: **References** has its chevron after the project controls, **Generate outline** after Add references. Fold and open each with Enter or Space, once with the deck context box empty and once with words in it | Each folds and opens. No deck starts. |
@@ -84,6 +84,7 @@ No questions are open.
   (FX14-02).
 - **The chevron is a little smaller and brighter than before**, because it is
   now the kit's small icon button. The ring sits around it.
-- **Closing a note with the pointer** after typing in a box puts focus back in
-  that box. Before, focus went to the top of the window. With nothing focused
-  before, it stays where it was, as before.
+- **Closing a note with the pointer** leaves focus where it was, as before.
+  Only a note left from the keyboard gives focus back.
+- **Alt on a chevron** flips the Single page / Full deck switch, as Alt does
+  on every D.O.G. button, by your answer *"Keep it as it is"*.

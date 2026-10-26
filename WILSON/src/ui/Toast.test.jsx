@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, act, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -159,9 +159,22 @@ describe('a toast and keyboard focus (FX14)', () => {
   let api
   function Grab() { api = useToast(); return null }
   const toastEl = () => document.querySelector('.ui-toast-stack .ui-toast')
-  const xOf = () => within(toastEl()).getByRole('button', { name: 'Dismiss' })
-  function setup(opts = {}, { main = false } = {}) {
-    const origin = <button type="button">origin</button>
+  const xOf = (t = toastEl()) => within(t).getByRole('button', { name: 'Dismiss' })
+  // jsdom never matches :focus-visible (all its focus is a script's). Here the
+  // focused element matches it, as a Tab's does in Chromium; the pointer's
+  // test turns it off (review round 1, finding 2).
+  let keyboard = true
+  beforeEach(() => {
+    keyboard = true
+    const matches = Element.prototype.matches
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (sel) {
+      if (sel === ':focus-visible') return keyboard && this === this.ownerDocument.activeElement
+      return matches.call(this, sel)
+    })
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+  function setup(opts = {}, { main = false, onOriginFocus } = {}) {
+    const origin = <button type="button" onFocus={onOriginFocus}>origin</button>
     render(
       <ToastProvider bar="0px">
         {main ? <main>{origin}</main> : origin}
@@ -301,6 +314,73 @@ describe('a toast and keyboard focus (FX14)', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('nothing to give focus back to'))
     expect(document.activeElement).toBe(document.body)
     warn.mockRestore()
+  })
+
+  // Review round 1, finding 1: focus moved while React removes nodes never
+  // reached an onFocus (React's events are off then). Moved after the commit,
+  // it does.
+  it('the element focus goes back to hears it (its React onFocus runs)', () => {
+    const onOriginFocus = vi.fn()
+    setup({}, { onOriginFocus })
+    act(() => { screen.getByRole('button', { name: 'origin' }).focus() })
+    expect(onOriginFocus).toHaveBeenCalledTimes(1)
+    act(() => { xOf().focus() })
+    fireEvent.click(xOf())
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'origin' }))
+    expect(onOriginFocus).toHaveBeenCalledTimes(2)
+  })
+
+  it('two toasts: closing the newer from the keyboard puts focus on the older\'s ×, which then holds the older; then back to the origin', () => {
+    vi.useFakeTimers()
+    const { origin } = setup()
+    act(() => { api.push({ tone: 'info', title: 'Second', duration: 1000 }) })
+    const [older, newer] = document.querySelectorAll('.ui-toast-stack .ui-toast')
+    act(() => { origin.focus() })
+    act(() => { xOf(older).focus() })
+    act(() => { xOf(newer).focus() })
+    fireEvent.click(xOf(newer))
+    expect(newer.isConnected).toBe(false)
+    expect(document.activeElement).toBe(xOf(older))
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(older.isConnected).toBe(true)                // held by the focus it got back
+    fireEvent.click(xOf(older))
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('two toasts, the older taken down by its owner first: closing the newer goes back along the older\'s trail to the origin (finding 10)', () => {
+    const { origin, id } = setup({ duration: 0 })
+    act(() => { api.push({ tone: 'info', title: 'Second', duration: 0 }) })
+    const [older, newer] = document.querySelectorAll('.ui-toast-stack .ui-toast')
+    act(() => { origin.focus() })
+    act(() => { xOf(older).focus() })
+    act(() => { xOf(newer).focus() })
+    act(() => { api.dismiss(id) })                       // the older goes; focus is not in it
+    expect(document.activeElement).toBe(xOf(newer))
+    fireEvent.click(xOf(newer))
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('the pointer as before FX14: a × clicked with the mouse (not :focus-visible) gives nothing back, moves nothing, says nothing (finding 2)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { origin } = setup({}, { main: true })
+    act(() => { origin.focus() })
+    keyboard = false                                      // the mouse from here on
+    act(() => { xOf().focus() })
+    fireEvent.click(xOf())
+    expect(toastEl()).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+    expect(document.querySelector('main').hasAttribute('tabindex')).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('an element that will not take focus: dev says so (finding 11)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { origin } = setup()
+    act(() => { origin.focus() })
+    act(() => { xOf().focus() })
+    origin.focus = () => {}
+    fireEvent.click(xOf())
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('did not take it'))
   })
 
   it('focus that came from nowhere (a pointer on the × with nothing focused) goes back there: no move, no word', () => {

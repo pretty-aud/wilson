@@ -61,13 +61,23 @@ const STACK = '.ui-toast-stack';
 const CONTEXT = 'A pitch deck for a watch launch, five pages.';
 const DEV_TOAST_MS = 6000;
 
-/** Chromium's own role and name for the focused element (its first ARIA snapshot line). */
+/** Chromium's own role, name and state for the focused element, read from its
+    accessibility tree over CDP, so CSS text-transform shows as a screen reader
+    hears it (review round 1, finding 3: Playwright's ariaSnapshot computes
+    names itself, in mixed case). */
 async function focusedName(page) {
-  const handle = page.locator('*:focus');
-  if (!(await handle.count())) return '(nothing: <body>)';
-  const snap = await handle.first().ariaSnapshot().catch(() => '');
-  const line = (snap.split('\n')[0] || '').replace(/^- /, '').trim();
-  return line.slice(0, 90) || (await page.evaluate(() => document.activeElement?.tagName.toLowerCase()));
+  if (await page.evaluate(() => !document.activeElement || document.activeElement === document.body)) return '(nothing: <body>)';
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Accessibility.enable');
+    const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.activeElement' });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { objectId: result.objectId, fetchRelatives: false });
+    const n = nodes.find((x) => !x.ignored) || nodes[0] || {};
+    const states = (n.properties || []).filter((p) => ['expanded', 'checked'].includes(p.name)).map((p) => `${p.name}=${p.value?.value}`);
+    return `${n.role?.value || '?'} "${n.name?.value || ''}"${states.length ? ` [${states.join(' ')}]` : ''}`.slice(0, 90);
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
 }
 const where = (page) => page.evaluate(() => {
   const el = document.activeElement;
@@ -129,7 +139,6 @@ async function headers(browser) {
       title: h.querySelector('h2')?.textContent.trim(),
       role: h.getAttribute('role'),
       tabStop: h.tabIndex >= 0,
-      keyHandler: typeof h.onkeydown === 'function',
       buttons: [...h.querySelectorAll('button')].map((b) => ({
         labelledBy: b.getAttribute('aria-labelledby'),
         label: b.getAttribute('aria-label'),
@@ -269,6 +278,41 @@ async function toast(browser) {
       await page.locator(`${STACK} .ui-toast button[aria-label="Dismiss"]`).first().click();
       await page.waitForTimeout(300);
       out.pointerTimed = { upAfterItsTimeHovered: heldByHover, upAfterLeaving: afterLeave, upAfterXClick: await toastCount(page), focusAfterX: await where(page) };
+    } finally { await ctx.close(); }
+  }
+  // T6 (review round 1, finding 1): two timed toasts, Tab to the older's ×,
+  // Tab to the newer's ×, Enter: focus on the older's ×, which then holds it.
+  {
+    const { ctx, page } = await openDog(browser);
+    try {
+      await raiseDevToast(page);
+      await page.waitForTimeout(150);
+      await raiseDevToast(page);
+      const reach = await tabIntoStack(page, BOX);
+      await page.keyboard.press('Tab');
+      const onNewer = await page.evaluate((s) => { const ts = [...document.querySelectorAll(`${s} .ui-toast`)]; return ts.length === 2 && ts[1].contains(document.activeElement); }, STACK);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      const onOlder = await page.evaluate((s) => { const ts = [...document.querySelectorAll(`${s} .ui-toast`)]; return ts.length === 1 && ts[0].contains(document.activeElement); }, STACK);
+      await page.waitForTimeout(DEV_TOAST_MS + 1500);
+      const olderUp = await toastCount(page);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      out.stacked = { ...reach, onNewer, focusOnOlderAfterNewerClosed: onOlder, olderUpPastItsTime: olderUp, focusAfterBoth: await where(page) };
+    } finally { await ctx.close(); }
+  }
+  // T5 (review round 1, finding 2): something focused and scrolled out of
+  // view, then the × clicked with the mouse: nothing scrolls, focus is not
+  // taken back to it.
+  {
+    const { ctx, page } = await openDog(browser);
+    try {
+      await page.locator('.dog-main select').first().focus();
+      const top = await page.evaluate(() => { const m = document.querySelector('.dog-main'); m.scrollTop = 99999; return m.scrollTop; });
+      await raiseDevToast(page);
+      await page.locator(`${STACK} .ui-toast button[aria-label="Dismiss"]`).first().click();
+      await page.waitForTimeout(300);
+      out.pointerScrolled = { scrollTopBefore: top, scrollTopAfter: await page.evaluate(() => document.querySelector('.dog-main').scrollTop), focusAfterX: await where(page) };
     } finally { await ctx.close(); }
   }
   {

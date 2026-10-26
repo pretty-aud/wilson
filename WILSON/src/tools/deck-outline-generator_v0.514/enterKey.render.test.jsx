@@ -491,12 +491,12 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
 
   it('one press is one fold (the bar\'s one handler), and the bar itself still folds under the pointer', async () => {
     await openDog()
-    // React's own props on the node: the button has no click handler of its
-    // own. Cards 1 and 3 fold by a value read at render, so a second handler
-    // there would fold once anyway and hide from the count below; the
-    // References card folds by an updater, where two handlers fold twice.
-    const reactProps = (el) => el[Object.keys(el).find((k) => k.startsWith('__reactProps'))]
-    for (const c of CARDS) expect(reactProps(headButton(c.name)).onClick).toBeUndefined()
+    // Counted by the fold itself. Cards 1 and 3 fold by a value read at
+    // render, so a second handler there would set the same value and fold
+    // once anyway (harmless, and invisible here); the References card folds
+    // by an updater, where two handlers fold twice and this goes red. (An
+    // earlier cut read React's own props off the node: dropped, review
+    // round 1, finding 6.)
     for (const c of CARDS) {
       await act(async () => { fireEvent.click(headButton(c.name)) })
       expect(head(c.name).getAttribute('data-collapsed')).toBe('true')   // once, not folded and unfolded

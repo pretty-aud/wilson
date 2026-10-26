@@ -116,43 +116,62 @@ export function Toast({ tone = 'info', title, body, action, onDismiss, className
 //     leaving for somewhere outside it (`relatedTarget` outside, or nowhere)
 //     lets it run again unless the pointer is still over it, and the other
 //     way round.
-//   - A toast that leaves while focus is inside it (its Dismiss, its owner's
-//     `dismiss(id)`, or the provider gone) gives focus back first, to the
-//     element focus came from when it entered (`relatedTarget` then). When
-//     that element is gone, hidden or disabled, to the page's main region on
-//     screen (focusable for that one move); with no main region on screen
-//     either, dev says so (never <body> silently). Focus that came from
-//     nowhere (the page itself: a pointer's click on the × with nothing
-//     focused before) goes back there, as it did before FX14. It happens in
-//     a layout clean-up, so the toast is still in the document and focus
-//     never passes through <body> on the way.
+//   - A toast that leaves while KEYBOARD focus is inside it (its Dismiss
+//     pressed from the keyboard, its owner's `dismiss(id)`, or the provider
+//     gone) gives focus back to where it came from when it entered
+//     (`relatedTarget` then): that element, or, when it was inside another
+//     toast, that toast's own trail after it. When none of them is still
+//     there, shown and enabled, to the page's main region on screen
+//     (focusable for that one move); with no main region on screen either,
+//     dev says so (never <body> silently). Focus that came from nowhere goes
+//     back there.
+//   - The pointer's behaviour is as before FX14 (review round 1, finding 2):
+//     a × clicked with the mouse is not `:focus-visible`, so nothing is given
+//     back and nothing scrolls; focus stays on the page.
+//   - Whether to give focus back is decided in a layout clean-up, while the
+//     toast is still in the document; focus is MOVED in the passive clean-up,
+//     after the commit. React switches its own events off while it removes
+//     nodes, so a focus moved during that never reached an onFocus: a toast
+//     focus returned to kept running out its time, and an Input's Escape
+//     baseline was never taken (review round 1, finding 1).
 //   - The focus return moves focus only: the toast is gone from the live
 //     region by then, so nothing is said again.
 //   - `duration: 0` (sticky) has no timer to hold; it gets the return.
 // Escape does not close a toast: not in FX14's scope (her rule: nothing beyond
 // the brief without her).
-const shown = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : true)
-/** Where focus goes when a toast that holds it leaves (see above); null for
-    nowhere: it came from nowhere, or there is nothing to give it back to. */
+const shown = (el) => (typeof el.checkVisibility === 'function'
+  ? el.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true })
+  : true)
+/** Each toast's trail, by its node: where focus came from into it, newest first. */
+const trails = new WeakMap()
+/** Where focus goes when a toast that holds it leaves (see above): the first
+    of `from` (an element, or a trail of them) still there, shown and enabled;
+    else the main region on screen; null when `from` is nowhere, or when there
+    is nothing to give it back to. */
 export function toastFocusReturn(from, doc = document) {
-  if (!from || from === doc.body) return null
-  if (from.isConnected && !from.disabled && !from.closest('[inert], [aria-hidden="true"]') && shown(from)) return from
+  const trail = (Array.isArray(from) ? from : [from]).filter((el) => el && el !== doc.body)
+  if (!trail.length) return null
+  const there = trail.find((el) => el.isConnected && !el.disabled && !el.closest('[inert], [aria-hidden="true"]') && shown(el))
+  if (there) return there
   return [...doc.querySelectorAll('main, [role="main"]')].find((m) => !m.closest('[inert], [aria-hidden="true"]') && shown(m)) || null
 }
-function handFocusBack(from) {
-  if (!from) return                  // it came from nowhere: it goes back there
-  const target = toastFocusReturn(from)
+function handFocusBack(trail, doc) {
+  if (!trail.length) return            // it came from nowhere: it goes back there
+  const target = toastFocusReturn(trail, doc)
   if (!target) {
     if (import.meta.env?.DEV) console.warn('Toast: it left holding focus and there is nothing to give focus back to (no element it came from, no main region on screen); the browser puts it on <body>.')
     return
   }
-  if (target === from) { target.focus(); return }
-  // The main region: focusable for this one move, and the page left where it is.
-  if (!target.hasAttribute('tabindex')) {
-    target.setAttribute('tabindex', '-1')
-    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true })
+  if (trail.includes(target)) target.focus()
+  else {
+    // The main region: focusable for this one move, and the page left where it is.
+    if (!target.hasAttribute('tabindex')) {
+      target.setAttribute('tabindex', '-1')
+      target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true })
+    }
+    target.focus({ preventScroll: true })
   }
-  target.focus({ preventScroll: true })
+  if (import.meta.env?.DEV && doc.activeElement !== target) console.warn('Toast: the element focus was given back to did not take it; the browser puts it on <body>.')
 }
 
 function TimedToast({ item, onDismiss }) {
@@ -161,9 +180,10 @@ function TimedToast({ item, onDismiss }) {
   const timer = useRef(null)
   const hovered = useRef(false)
   const holding = useRef(false)   // focus is inside
-  const cameFrom = useRef(null)   // the element focus came from when it entered
+  const cameFrom = useRef([])     // where focus came from when it entered, newest first
   const node = useRef(null)
   const leaving = useRef(false)
+  const handBack = useRef(null)   // the trail to give focus back to, decided as it leaves
   // `onDismiss` is a fresh arrow on every stack render; held in a ref so the
   // effect below runs once and a second toast cannot restart the first's
   // timer (review round 1).
@@ -184,21 +204,40 @@ function TimedToast({ item, onDismiss }) {
     start()
     return () => { if (timer.current) { clearTimeout(timer.current); timer.current = null } }
   }, [start])
-  // Before the toast leaves the document: focus inside goes back (FX14).
+  // As the toast leaves, still in the document: was keyboard focus inside? (FX14)
   useLayoutEffect(() => () => {
     const el = node.current
-    if (!el || !el.contains(el.ownerDocument.activeElement)) return
+    const active = el?.ownerDocument.activeElement
+    if (!el || !el.contains(active)) return
     leaving.current = true
-    handFocusBack(cameFrom.current)
+    let keyboard = true
+    try { keyboard = active.matches(':focus-visible') } catch { /* no :focus-visible: treated as the keyboard's */ }
+    if (keyboard) handBack.current = cameFrom.current
+  }, [])
+  // …and once the commit is over, give it back (see above: React's events are
+  // off while it removes nodes). Unless something else has taken focus since.
+  useEffect(() => () => {
+    const trail = handBack.current
+    if (!trail) return
+    handBack.current = null
+    const doc = node.current?.ownerDocument || document
+    const active = doc.activeElement
+    if (active && active !== doc.body && active.isConnected) return
+    handFocusBack(trail, doc)
   }, [])
   const onFocus = (e) => {
     node.current = e.currentTarget
+    trails.set(e.currentTarget, cameFrom)
     if (!holding.current) {
       holding.current = true
-      // Coming back from nowhere (the window was left and focus restored)
-      // keeps the element it first came from.
+      // From another toast: that element, then that toast's own trail (it may
+      // leave first). Coming back from nowhere (a toast before it left, or
+      // the window left and returned) keeps the trail it had.
       const from = e.relatedTarget
-      if (from && from !== from.ownerDocument?.body && !e.currentTarget.contains(from)) cameFrom.current = from
+      if (from && from !== from.ownerDocument?.body && !e.currentTarget.contains(from)) {
+        const other = from.closest?.('.ui-toast')
+        cameFrom.current = [from, ...((other && trails.get(other)?.current) || [])]
+      }
     }
     pause()
   }
