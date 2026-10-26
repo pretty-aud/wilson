@@ -355,6 +355,29 @@ async function shots(browser) {
       await shoot('03', 'card1-folded-by-key');
     }
   } finally { await ctx.close(); }
+  // Review round 2, finding 1: D.O.G.'s note taken down by Alt with focus on
+  // its ×, the button focus came from gone: focus on D.O.G.'s main column,
+  // which wears the kit's ring. Card 1 folded first, so the upload's name is
+  // not on screen.
+  {
+    const { ctx: c2, page: p2 } = await openDog(browser, { upload: true });
+    try {
+      const btn1 = p2.locator(HEADS).first().locator('button');
+      if (await btn1.count()) {
+        await btn1.first().focus();
+        await p2.keyboard.press('Enter');
+        await p2.evaluate(() => document.activeElement?.blur());
+        await p2.keyboard.press('Enter');
+        await p2.waitForTimeout(400);
+        await tabIntoStack(p2, BOX);
+        await p2.keyboard.press('Alt');
+        await p2.waitForTimeout(400);
+        const file = `po-fx14-${TAG}-04-note-gone-main-ring-${W}x${H}.png`;
+        await p2.screenshot({ path: join(OUT, file) });
+        files.push(file);
+      }
+    } finally { await c2.close(); }
+  }
   return files;
 }
 

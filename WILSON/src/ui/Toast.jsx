@@ -126,11 +126,18 @@ export function Toast({ tone = 'info', title, body, action, onDismiss, className
 //     dev says so (never <body> silently). Focus that came from nowhere goes
 //     back there.
 //   - The pointer's behaviour is as before FX14 (review round 1, finding 2):
-//     a × clicked with the mouse is not `:focus-visible`, so nothing is given
-//     back and nothing scrolls; focus stays on the page.
+//     a × the MOUSE put focus on is not `:focus-visible`, so nothing is given
+//     back and nothing scrolls; focus stays on the page. Chromium decides
+//     `:focus-visible` when focus arrives, so a × reached with Tab and then
+//     clicked with the mouse still gives focus back (review round 2,
+//     finding 2): a keyboard user who reaches for the mouse once keeps their
+//     place.
 //   - Whether to give focus back is decided in a layout clean-up, while the
 //     toast is still in the document; focus is MOVED in the passive clean-up,
-//     after the commit. React switches its own events off while it removes
+//     after the commit (in a later task when the dismissal was not a
+//     discrete event, such as an owner's `dismiss(id)` from an effect: under
+//     a millisecond on <body>, measured by review round 2, finding 4; if
+//     something takes focus in it, it keeps it). React switches its own events off while it removes
 //     nodes, so a focus moved during that never reached an onFocus: a toast
 //     focus returned to kept running out its time, and an Input's Escape
 //     baseline was never taken (review round 1, finding 1).
@@ -171,7 +178,8 @@ function handFocusBack(trail, doc) {
     }
     target.focus({ preventScroll: true })
   }
-  if (import.meta.env?.DEV && doc.activeElement !== target) console.warn('Toast: the element focus was given back to did not take it; the browser puts it on <body>.')
+  // (Its own onFocus may pass focus on; only <body> means it was not taken.)
+  if (import.meta.env?.DEV && (!doc.activeElement || doc.activeElement === doc.body)) console.warn('Toast: the element focus was given back to did not take it; the browser puts it on <body>.')
 }
 
 function TimedToast({ item, onDismiss }) {
@@ -236,6 +244,8 @@ function TimedToast({ item, onDismiss }) {
       const from = e.relatedTarget
       if (from && from !== from.ownerDocument?.body && !e.currentTarget.contains(from)) {
         const other = from.closest?.('.ui-toast')
+        // (Shuttling between two toasts repeats entries; harmless, the first
+        // one still there wins: review round 2, finding 7.)
         cameFrom.current = [from, ...((other && trails.get(other)?.current) || [])]
       }
     }

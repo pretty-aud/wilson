@@ -200,7 +200,10 @@ describe('R2-2: a refused drop says why, on the Tasks table, the Board and the T
 
 // FX14: why `mount` waits for the provider's own effects. The gap held open
 // on purpose: a MutationObserver resolves in the microtasks of the commit
-// that brings the project, before that commit's effects run. If the provider
+// that brings the project, before that commit's effects run. Its premise
+// (review round 2, finding 5): React's scheduler runs those effects in a
+// later task because that commit overran its 5 ms slice, which the whole
+// table in jsdom always does; the fixed `mount` does not depend on it. If the provider
 // ever stops resetting the drafts there (or resets them before the table can
 // be used), this control goes red and the wait in `mount` can be looked at
 // again.

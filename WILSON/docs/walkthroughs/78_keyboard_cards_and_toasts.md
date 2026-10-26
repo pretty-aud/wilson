@@ -40,7 +40,7 @@ steps 6 to 11 use that note.
 | 10 | Do step 6 again, Tab to the ×, then press **Shift+Tab** | The ring goes back to Deactivate, and the note goes about six seconds later. |
 | 11 | Do step 6 again and rest the pointer on the note | It stays while the pointer is on it and goes once the pointer leaves, as before. Its × closes it, as before. |
 | 12 | In D.O.G., **Choose file** and pick any small .txt. Click an empty part of the page and press **Enter** | D.O.G.'s note *"Write in the deck context box first"* (walkthrough 77). |
-| 13 | Press **Tab** twice (Generate full deck outline, then the note's ×), then press **Alt** | The switch moves to Single page and the note goes, since it is no longer true. The Generate full deck outline button has gone too, so focus goes to D.O.G.'s main area, not the top of the window. |
+| 13 | Press **Tab** twice (Generate full deck outline, then the note's ×), then press **Alt** | The switch moves to Single page and the note goes, since it is no longer true. The Generate full deck outline button has gone too, so focus goes to D.O.G.'s main area, not the top of the window: the orange focus ring goes round that whole column (`po-fx14-after-04-note-gone-main-ring`). |
 
 ## 2. Your answer (2026-10-26, verbatim)
 
@@ -70,6 +70,16 @@ No questions are open.
   setting-up, so the group it was waiting for never came. FX13's guess, a
   longer wait, would not have fixed the second. Both tests now wait for the
   setting-up to finish.
+- **Two code reviews**, each by a separate reviewer driving Chromium. The
+  first found that focus given back while WILSON was still taking the note
+  away did not register, so a second note that focus went back to still ran
+  out its time. Focus is now given back a moment later, and it registers. It
+  also found that closing a note with the mouse moved focus and could scroll
+  the page; now only a note reached with the keyboard gives focus back. It
+  found the capitals a screen reader hears (now in step 1) and that D.O.G.'s
+  Project dropdown has no name (written down, FX14-04). The second checked
+  those fixes and found the ring round the main column in step 13 (now said,
+  with a picture) and a case with no test (added).
 
 ## 4. Left as it is
 
@@ -84,7 +94,11 @@ No questions are open.
   (FX14-02).
 - **The chevron is a little smaller and brighter than before**, because it is
   now the kit's small icon button. The ring sits around it.
-- **Closing a note with the pointer** leaves focus where it was, as before.
-  Only a note left from the keyboard gives focus back.
+- **Closing a note with the pointer** leaves focus where it was, as before,
+  when it was the pointer that put focus on the note. A note you reached with
+  Tab gives focus back however you close it.
+- **The orange ring round D.O.G.'s main column** (step 13) is the kit's
+  focus ring, showing where focus went. Whether that area should wear it is
+  yours to say; nothing was changed for it.
 - **Alt on a chevron** flips the Single page / Full deck switch, as Alt does
   on every D.O.G. button, by your answer *"Keep it as it is"*.
