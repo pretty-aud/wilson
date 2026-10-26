@@ -348,6 +348,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/hopeful-merkle-b794b2/WILSON --port 5302 --strictPort"
       ],
       "port": 5302
+    },
+    {
+      "_comment": "FX13 (D.O.G.'s Enter key: a full deck from Enter needs text in the deck context box, Enter on the switch moves the switch, the Alt key kept by her ruling, the preview's recorded line; no migration): this worktree's dev server on the bundle's port 5303, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached, so no AI call can be made: a generation stops inside callAI, which says \"Sign in to use AI features\" in the console before any request, and the page shows the generation failed). scripts/fx13-enter-shots.mjs measures every Enter door against it.",
+      "name": "fx13-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/eloquent-rosalind-15dd83/WILSON --port 5303 --strictPort"
+      ],
+      "port": 5303
     }
   ]
 }
