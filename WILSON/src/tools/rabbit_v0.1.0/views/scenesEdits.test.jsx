@@ -185,10 +185,13 @@ describe('S3c step 3: seeing an edit', () => {
   })
   it('the toolbar stands aside: sort, group, filter and view greyed with the reason; New scene and New shot give way to the cut', () => {
     page()
+    // VW1e: the direction shows while the view has a sort, the one it reverses.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
     pickEdit('edit-1')
     expect(screen.getByRole('combobox', { name: 'Sort' }).disabled).toBe(true)
     expect(screen.getByRole('combobox', { name: 'Group' }).disabled).toBe(true)
-    for (const name of ['Filter', 'Sorted ascending — reverse']) {
+    // The Views button too (step 0 finding 2): the view is not what is on screen.
+    for (const name of ['Filter', 'Sorted ascending — reverse', 'Views: All']) {
       const b = screen.getByRole('button', { name })
       expect(b.closest('[aria-disabled="true"]')?.getAttribute('title'), name).toMatch(/^An edit shows its cut order/)
     }

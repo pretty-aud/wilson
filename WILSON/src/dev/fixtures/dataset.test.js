@@ -46,8 +46,9 @@ const memberIds = new Set(MEMBERS.map((m) => m.user_id))
 // an empty <select> — exactly what review round 1 found four times.
 const here = dirname(fileURLToPath(import.meta.url))
 const src = (rel) => readFileSync(resolve(here, '../..', rel), 'utf8')
+// A list as `NAME = [ … ]`, or frozen, `NAME = Object.freeze([ … ])`.
 const quotedList = (text, name) => {
-  const m = text.match(new RegExp(`${name}\\s*=\\s*\\[([^\\]]*)\\]`))
+  const m = text.match(new RegExp(`${name}\\s*=\\s*(?:Object\\.freeze\\()?\\[([^\\]]*)\\]`))
   if (!m) throw new Error(`no ${name} in source`)
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
 }
@@ -57,12 +58,17 @@ const abbrList = (text, name) => {
   return [...m[1].matchAll(/abbr:\s*'([^']+)'/g)].map((x) => x[1])
 }
 const scenesSrc = src('tools/rabbit_v0.1.0/views/ScenesView.jsx')
-const SCENE_STATUSES = quotedList(scenesSrc, 'SCENE_STATUSES')
-const SCENE_TYPES = quotedList(scenesSrc, 'SCENE_TYPES')
-const TIME_OF_DAY = quotedList(scenesSrc, 'TIME_OF_DAY_OPTIONS')
+// VW1e (2026-10-25): the scenes' and shots' vocabularies live in the two
+// tables' description now (ScenesView imports them from it).
+const scenesTableSrc = src('tools/rabbit_v0.1.0/views/tableViews/scenesTableView.js')
+const SCENE_STATUSES = quotedList(scenesTableSrc, 'SCENE_STATUSES')
+const SCENE_TYPES = quotedList(scenesTableSrc, 'SCENE_TYPES')
+const TIME_OF_DAY = quotedList(scenesTableSrc, 'TIME_OF_DAY_OPTIONS')
 const FRAMING = abbrList(scenesSrc, 'FRAMING_OPTIONS')
 const CAMERA_MOVEMENT = abbrList(scenesSrc, 'CAMERA_MOVEMENT_OPTIONS')
-const assetsSrc = src('tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx')
+// VW1e (2026-10-25): the asset statuses live in the Assets table's
+// description (ProjectAssetsView re-exports them).
+const assetsSrc = src('tools/rabbit_v0.1.0/views/tableViews/assetsTableView.js')
 const ASSET_STATUSES = quotedList(assetsSrc, 'export const ASSET_STATUSES')
 // VW1b (2026-10-17): the asset types live in state/assetTypes.js (the view re-exports them).
 const ASSET_TYPES = quotedList(src('tools/rabbit_v0.1.0/state/assetTypes.js'), 'export const ASSET_TYPES')

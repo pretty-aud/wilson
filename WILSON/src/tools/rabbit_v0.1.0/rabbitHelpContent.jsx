@@ -340,6 +340,18 @@ export function RabbitHelpContent({ helpPage, theme }) {
           when two more do not fit. Click a cell to tick or untick several;
           the change is saved when the list closes, and Undo takes it back.
         </p>
+        {/* VW1e (2026-10-25): views on the Assets table, and on a game
+            project's Levels and Experiences (rabbitViewsHelp.test.jsx holds
+            the bold words to the files that draw them). */}
+        <p className={T.bodyText}>
+          The Assets table, and a game project&apos;s Levels and Experiences
+          tables, have the same <span className={T.listBold}>Views</span> button
+          as the Tasks table, each with its own list of views. Grouped by
+          scene, shot, level or experience (on Levels and Experiences, by
+          asset), an item in two sits in one group named for both, and
+          {' '}<span className={T.listBold}>Create grouping</span> makes a group
+          for items that belong together.
+        </p>
       </section>
     </div>
   );
@@ -405,8 +417,24 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <p className={T.listItem}>
               While a list is on screen, List order is the default sort: the
               list's own order, which Move up and Move down in a row's
-              shot-list menu change. Hover a scene's or shot's name to see
-              the lists that hold it.
+              shot-list menu change. They are there only in List order: a
+              sort in the view on screen hides them until it is reset. Hover
+              a scene's or shot's name to see the lists that hold it.
+            </p>
+          </div>
+          {/* VW1e (2026-10-25): two lists of views, one per table (her Q16). */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Views on the scenes and shots tables</h4>
+            <p className={T.listItem}>
+              The Scenes and Shots tables each have their own
+              {' '}<span className={T.listBold}>Views</span> button and their
+              own list of views, shared with everyone on the project: a view
+              saved on one is not on the other. Each keeps its own filters,
+              sort, grouping, fields and Table or Gallery layout, so switching
+              between Scenes and Shots can change the layout. Views saved in
+              this browser before are not carried over. While an edit is on
+              screen its cut is the order, so the view controls wait until
+              List order is back.
             </p>
           </div>
           <div className={T.card}>
@@ -447,7 +475,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Making an edit</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, the drag changes that edit at once: nothing asks, and the bar shows Unsaved until you save it or discard the change.</li>
+              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell, or in its name cell while the view hides the number. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, the drag changes that edit at once: nothing asks, and the bar shows Unsaved until you save it or discard the change.</li>
               <li>• <span className={T.listBold}>New edit from this list</span> — In the bar's More menu: the same question, starting from the list's order.</li>
               <li>• <span className={T.listBold}>A row's edit actions</span> — Move up, Move down, Duplicate in edit, Add shot…, New shot and Remove from edit; a scene's: Move scene up, Move scene down, Duplicate scene in edit and Remove scene from edit. New shot adds a real shot to the list.</li>
               <li>• <span className={T.listBold}>After the first change</span> — Nothing asks again until the edit is saved or discarded. The one exception: a change that would replace an unsaved edit of that list kept from before asks first.</li>

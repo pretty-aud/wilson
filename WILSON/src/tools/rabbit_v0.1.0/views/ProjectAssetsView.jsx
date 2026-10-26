@@ -33,7 +33,7 @@
 // • Law of Prägnanz — clean shapes, minimal decoration
 // • Law of Similarity — consistent treatment matching Tasks tab
 
-import { Fragment, useMemo, useState, useCallback, useRef, useEffect } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Boxes, Plus, Search, Filter, Trash2, AlertTriangle,

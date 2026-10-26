@@ -374,9 +374,10 @@ function ViewsList({
   // VW1e: on the cards (the Board's, the Gallery's) the card's own fields;
   // in the table the columns in front of the name too (her Q-J).
   const cards = board || tv.config.layout === 'gallery'
+  const leadNow = effectiveLeading(tv.config.leading, description.leadingKeys || [])
   const shownFields = cards
-    ? fieldsNow.filter(f => description.cardFields.includes(f.key))
-    : [...effectiveLeading(tv.config.leading, description.leadingKeys || []), ...fieldsNow]
+    ? [...leadNow.filter(f => (description.cardLeading || []).includes(f.key)), ...fieldsNow.filter(f => description.cardFields.includes(f.key))]
+    : [...leadNow, ...fieldsNow]
   const parts = [
     { part: 'filters', label: 'Filters', summary: filtersSummary(tv.config, description) },
     { part: 'sort', label: 'Sort', summary: sortSummary(tv.config, description) },
@@ -703,8 +704,11 @@ function FieldsCard({ tv, description, announce }) {
   }
   // On the cards the card's own fields, in the card's order (finding 6); in
   // the table the leading columns, then the fields.
+  // A card's line that is a leading column (the Shots card's number) is
+  // listed with the card's lines (`cardLeading`).
+  const cardLead = leadingNow.filter(f => (description.cardLeading || []).includes(f.key)).map(f => ({ ...f, leading: true }))
   const rows = cards
-    ? description.cardFields.map(k => list.find(f => f.key === k)).filter(Boolean)
+    ? [...cardLead, ...description.cardFields.map(k => list.find(f => f.key === k)).filter(Boolean)]
     : [...leadingNow.map(f => ({ ...f, leading: true })), ...list]
   // A row a keyboard can act in: any on the cards; in the table every one
   // but the fixed name.

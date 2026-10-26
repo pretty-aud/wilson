@@ -1,0 +1,220 @@
+/** @vitest-environment jsdom */
+// =============================================================================
+// scenesViews.test.jsx — VW1e step 2 (2026-10-25): the custom views on the
+// Scenes and Shots tables, mounted inside the REAL provider over the dev
+// fixtures (the cloud's twin in memory; assetsViews.test.jsx's harness), as a
+// person uses them. docs/design/CUSTOM_VIEWS_DESIGN.md §4.1, §4.3, §4.8 and
+// §6 (the Scenes step), as VW1e's step 0 review corrected them (§11 round 6);
+// her answers by number: Q5 (the bookmark becomes the Views button), Q16 (two
+// lists, one per table), Q17 (the old saved views are not carried over),
+// Q-J (the columns in front of the name), defect 3 (each table keeps its own
+// filters, sorts and grouping). Each rule has a CONTROL its absence fails.
+// =============================================================================
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { render, screen, cleanup, act, waitFor, fireEvent, within } from '@testing-library/react'
+import { _resetOverlaysForTests } from '../../../../ui/overlay'
+import { ToastProvider } from '../../../../ui/Toast'
+
+const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
+const seat = vi.hoisted(() => ({ canWrite: true }))
+// The real provider and the whole Scenes page: the Tasks harness's 20 s.
+vi.setConfig({ testTimeout: 20_000 })
+
+vi.mock('../../adapters', () => ({
+  selectAdapter: () => holder.adapter,
+  ADAPTER_MODES: ['supabase', 'local_server', 'google_drive'],
+  adapterSupportsWrites: () => true,
+}))
+vi.mock('../../adapters/supabaseAdapter', () => ({ resetSupabaseAdapter: () => {} }))
+vi.mock('../../../../cloud/auth/supabaseClient', () => ({
+  supabase: {
+    auth: {
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+      getSession: async () => ({ data: { session: null } }),
+    },
+  },
+  hydrateSupabase: async () => {},
+}))
+vi.mock('../../../../lib/localData', () => ({
+  hasLocalServer: () => false,
+  loadOtterSettings: async () => ({ rabbit: { adapterMode: 'supabase', activeProjectId: holder.projectId } }),
+  saveOtterSettings: async () => {},
+}))
+vi.mock('../../../../dev/devFixtures', async (importOriginal) => ({ ...(await importOriginal()), devFixtures: () => null }))
+vi.mock('../../intake/pipeline', () => ({ runIngestion: vi.fn() }))
+vi.mock('../../../../permissions/usePermissions', () => ({ usePermissions: () => ({ can: () => true, role: 'admin', ready: true }) }))
+vi.mock('../../../../permissions/projectRoleMatrix', async (importOriginal) => ({
+  ...(await importOriginal()),
+  canOnProject: () => seat.canWrite,
+  projectActionDeniedReason: () => (seat.canWrite ? null : 'Only the project\'s editors can change this.'),
+}))
+vi.mock('../../../../components/TeamMembers/useRosterMembers', () => ({
+  useRosterMembers: () => ({ members: [{ id: 'teammate-mara', name: 'Mara Okonkwo' }], mode: 'supabase' }),
+}))
+vi.mock('../../components/EditHistoryDrawer', () => ({ default: () => null }))
+
+const { buildDevFixtures } = await import('../../../../dev/fixtures/install')
+const { PROJECT_ID } = await import('../../../../dev/fixtures/data/project')
+holder.projectId = PROJECT_ID
+const { RabbitProvider, useRabbit } = await import('../../state/RabbitProvider')
+const { default: ScenesView } = await import('../ScenesView')
+
+let ctx = null
+function Probe() { ctx = useRabbit(); return null }
+let fx = null
+
+const run = (fn) => act(async () => { await fn() })
+const sceneRows = () => [...document.querySelectorAll('table.rb-scene-table-scenes > tbody > tr .rb-scene-check')]
+async function mount(adapter = fx.rabbitAdapter()) {
+  holder.adapter = adapter
+  render(<ToastProvider><RabbitProvider><Probe /><ScenesView pageActive /></RabbitProvider></ToastProvider>)
+  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Views: / })).toBeTruthy())
+  await waitFor(() => expect(sceneRows().length).toBeGreaterThan(0))
+}
+const viewsButton = () => screen.getByRole('button', { name: /^Views: / })
+const openViews = () => fireEvent.click(viewsButton())
+const dropdown = () => screen.queryByRole('dialog', { name: /^Views/ })
+const bar = () => document.querySelector('.rb-tv-bar')
+const count = () => document.querySelector('.rb-scene-count').textContent
+const toShots = () => fireEvent.click(screen.getByRole('tab', { name: 'Shots' }))
+const toScenes = () => fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+const groupBy = (value) => fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value } })
+const sortBy = (value) => fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value } })
+const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+const liveScenes = () => fx.store.scenes.filter(s => s.project_id === PROJECT_ID && !s.deleted_at)
+const liveShots = () => fx.store.shots.filter(s => s.project_id === PROJECT_ID && !s.deleted_at)
+const firstSceneName = () => sceneRows()[0].getAttribute('aria-label').replace(/^Select /, '')
+const menuItems = () => [...document.querySelectorAll('.ui-menu .ui-menu-item')].map(b => b.textContent)
+function openCard(name) {
+  openViews()
+  fireEvent.click(within(dropdown()).getByRole('button', { name: new RegExp(`^${name}:`) }))
+}
+async function saveAsNew(name) {
+  fireEvent.click(within(bar()).getByRole('button', { name: 'Save as new view' }))
+  const field = within(bar()).getByRole('textbox', { name: 'View name' })
+  fireEvent.change(field, { target: { value: name } })
+  await run(async () => { fireEvent.keyDown(field, { key: 'Enter' }) })
+}
+
+beforeEach(() => { fx = buildDevFixtures(); seat.canWrite = true })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); ctx = null; fx = null; localStorage.clear(); vi.restoreAllMocks() })
+
+describe('two lists, one per table (Q5, Q16, Q17)', () => {
+  it('the Views button is the list of the table on screen; a view saved on Scenes is on the Scenes list only', async () => {
+    await mount()
+    expect([viewsButton().textContent, viewsButton().getAttribute('data-table')]).toEqual(['All', 'scenes'])
+    groupBy('status')
+    expect(bar().textContent).toContain('All: changed for now')
+    await saveAsNew('By status')
+    const stored = fx.store.tableViews.find(v => v.name === 'By status')
+    expect(stored).toMatchObject({ table_key: 'scenes', project_id: PROJECT_ID })
+    expect(stored.config.group).toMatchObject({ field: 'status' })
+    expect(viewsButton().textContent).toBe('By status')
+    // The Shots table: its own list, its own view on screen, no change of its own.
+    toShots()
+    expect([viewsButton().textContent, viewsButton().getAttribute('data-table')]).toEqual(['All', 'shots'])
+    expect(bar()).toBeNull()
+    openViews()
+    expect(within(dropdown()).getByRole('grid').textContent).not.toContain('By status')
+    escape()
+    // CONTROL: back on Scenes, its view is still the one on screen.
+    toScenes()
+    expect(viewsButton().textContent).toBe('By status')
+  })
+  it('Q17: the browser\'s old Scenes views are removed on the first load; CONTROL: the Assets table\'s key stays until its table loads', async () => {
+    localStorage.setItem('rabbit_scene_saved_views', '[{"id":"1","name":"Old"}]')
+    localStorage.setItem('rabbit_asset_saved_views', '[]')
+    await mount()
+    expect(localStorage.getItem('rabbit_scene_saved_views')).toBeNull()
+    expect(localStorage.getItem('rabbit_asset_saved_views')).toBe('[]')
+    openViews()
+    expect(within(dropdown()).getByRole('grid').textContent).not.toContain('Old')
+  })
+})
+
+describe('each table keeps its own (defect 3)', () => {
+  it('a filter on Shots leaves the Scenes table whole; the change for now is the Shots view\'s alone', async () => {
+    await mount()
+    const scenesAll = `${liveScenes().length}/${liveScenes().length}`
+    expect(count()).toBe(scenesAll)
+    toShots()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }))
+    const row = document.querySelector('.rb-scene-filters .rb-tv-filter-row')
+    fireEvent.change(within(row).getByRole('combobox', { name: 'Field' }), { target: { value: 'name' } })
+    fireEvent.change(within(row).getByRole('textbox', { name: 'Value' }), { target: { value: 'no such shot anywhere' } })
+    expect(count()).toBe(`0/${liveShots().length}`)
+    expect(ctx.viewDraftOf('shots').config.filters).toEqual([{ field: 'name', op: 'contains', values: ['no such shot anywhere'] }])
+    // CONTROL: the Scenes table shows every scene; its view has no change.
+    toScenes()
+    expect(count()).toBe(scenesAll)
+    expect(ctx.viewDraftOf('scenes')).toBeFalsy()
+    expect(screen.getByRole('button', { name: 'Filter' })).toBeTruthy()
+  })
+})
+
+describe('List order and the view\'s sort (S3b; step 0 finding 2)', () => {
+  it('with a list on screen the empty sort reads List order; a sort takes Move up and Move down out of the row\'s shot-list menu; CONTROL: Reset brings them back', async () => {
+    await mount()
+    const sort = screen.getByRole('combobox', { name: 'Sort' })
+    expect([sort.value, sort.options[0].textContent]).toEqual(['', 'List order'])
+    const name = firstSceneName()
+    fireEvent.click(screen.getByRole('button', { name: `Shot list actions for ${name}` }))
+    expect(menuItems()).toEqual(expect.arrayContaining(['Move up', 'Move down', 'Remove from this list']))
+    escape()
+    // The Sort card says what the empty sort is on this page.
+    openCard('Sort')
+    expect(dropdown().textContent).toContain('List order.')
+    escape()
+    escape()
+    sortBy('name')
+    expect(bar()).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: `Shot list actions for ${firstSceneName()}` }))
+    expect(menuItems()).toContain('Remove from this list')
+    expect(menuItems()).not.toContain('Move up')
+    escape()
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Reset' }))
+    expect(bar()).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: `Shot list actions for ${name}` }))
+    expect(menuItems()).toContain('Move up')
+  })
+})
+
+describe('the columns in front of the name (Q-J; step 0 findings 1 and 7)', () => {
+  it('hiding the Number on Scenes is a change kept in leading; the list drag\'s grip moves into the name cell', async () => {
+    await mount()
+    const body = 'table.rb-scene-table-scenes > tbody'
+    expect(document.querySelector(`${body} td.rb-scene-num-cell[data-grip="true"]`)).not.toBeNull()
+    expect(document.querySelector(`${body} td.rb-scene-name-cell[data-grip="true"]`)).toBeNull()
+    openCard('Fields')
+    const grid = within(dropdown()).getByRole('grid', { name: 'Fields' })
+    fireEvent.click(within(grid).getByRole('switch', { name: 'Show Number' }))
+    // The leading list in its one order (the arrow, the picture, the number).
+    expect(ctx.viewDraftOf('scenes').config.leading).toEqual([
+      { key: 'expand', visible: true }, { key: 'thumbnail', visible: true }, { key: 'scene_number', visible: false },
+    ])
+    expect(bar()).not.toBeNull()
+    expect(document.querySelector(`${body} td.rb-scene-num-cell`)).toBeNull()
+    // CONTROL: the grip is still there to drag, before the name's words.
+    expect(document.querySelector(`${body} td.rb-scene-name-cell[data-grip="true"]`)).not.toBeNull()
+  })
+  it('on the Shots gallery the card\'s number is one of the card\'s lines (her Q-P2: one field list): the Card fields list it first, and hiding it takes it off every card', async () => {
+    await mount()
+    toShots()
+    fireEvent.click(screen.getByRole('tab', { name: 'Gallery' }))
+    const nums = () => document.querySelectorAll('.rb-scene-gallery .rb-scene-card-num').length
+    expect(nums()).toBeGreaterThan(0)
+    openCard('Fields')
+    const grid = within(dropdown()).getByRole('grid', { name: 'Card fields' })
+    const first = within(grid).getAllByRole('row')[0]
+    expect(first.textContent).toContain('Number')
+    // A leading column keeps its place: no handle to move it.
+    expect(first.querySelector('.rb-tv-handle')).toBeNull()
+    fireEvent.click(within(first).getByRole('switch', { name: 'Show Number' }))
+    expect(nums()).toBe(0)
+    expect(ctx.viewDraftOf('shots').config.leading).toEqual(expect.arrayContaining([{ key: 'shot_number', visible: false }]))
+    // CONTROL: the Scenes table's leading list is its own, untouched.
+    expect(ctx.viewDraftOf('scenes')).toBeFalsy()
+  })
+})

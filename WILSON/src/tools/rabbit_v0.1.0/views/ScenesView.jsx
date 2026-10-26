@@ -27,7 +27,7 @@ import {
   Layers, ChevronDown, ChevronRight, Trash2, Edit3, FileText,
   Table as TableIcon, ArrowUpDown, Save,
   Maximize2, Minimize2, Clapperboard,
-  BookmarkPlus, CheckSquare, Square, MinusSquare,
+  CheckSquare, Square, MinusSquare,
   Sun, FolderOpen, ImagePlus, ImageOff,
   ArrowUp, ArrowDown, ListMinus, ListPlus, Copy,
 } from 'lucide-react'
@@ -39,7 +39,7 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, RowTitle, Dialog, Badge, Banner,
-  SectionTitle,
+  SectionTitle, Loading, useToast,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -117,19 +117,29 @@ import { binsModeOf } from '../bins/browserCatalogue'
 import BinPoster from './bins/BinPoster'
 // S4a-07 (S3b step 7): the Bins keys' own "is something in front of me?".
 import { visibleOverlayOpen, drawerOnScreen, appQuestionOnScreen } from './bins/binUi'
+// VW1e (2026-10-25): the custom views on Scenes and Shots (the design's §7
+// step 5, its own step: this is the plan's unsafe file). Her Q16, "Two lists
+// (Recommended)": each table has its own views; the content tabs choose
+// which list is on screen. Defect 3 (each keeps its own filters, sorts and
+// grouping) and defect 4 (ticked rows a filter or search hides are unticked:
+// these tables have done so since S3b, R1-05).
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
+import { useTableView } from './tableViews/useTableView'
+import { TableViewsMenu } from './tableViews/TableViewsMenu'
+import { ViewBar } from './tableViews/ViewBar'
+import { ViewFilterRow } from './tableViews/ViewFilterRow'
+import { useAsk } from './tableViews/useAsk'
+import {
+  SCENES_TABLE, SHOTS_TABLE, SCENE_STATUSES, SCENE_TYPES, TIME_OF_DAY_OPTIONS,
+  scenesDescription, shotsDescription, sceneTableMin, nestColumnsOf, nestMin, scenesTableColumns, shotsTableColumns,
+} from './tableViews/scenesTableView'
+import {
+  applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
+} from './tableViews/viewScreenModel'
 
 // ── Status config ──
-const SCENE_STATUSES = [
-  'not_started', 'in_progress', 'pending_review', 'needs_revisions',
-  'approved', 'final', 'blocked', 'on_hold', 'omitted',
-]
-
-const SCENE_TYPES = ['interior', 'exterior', 'int_ext', 'other']
-
-const TIME_OF_DAY_OPTIONS = [
-  'day', 'night', 'dawn', 'morning', 'afternoon', 'dusk',
-  'evening', 'later', 'moments_later', 'continuous', 'same_time',
-]
+// VW1e: the statuses, types and times of day live with the tables'
+// descriptions (views/tableViews/scenesTableView.js), imported above.
 
 // Sentence case (Q2): every label below is a word the user reads in a select
 // or a menu. The abbreviations stay capitals — they are codes, not words.
@@ -192,79 +202,17 @@ function thumbW(h) { return Math.round(h * 16 / 9) }
 // and the cards' (gallery). One list, so the sheet can key each glyph.
 const SIZE_KEYS = ['sm', 'md', 'lg']
 
-// ── Sort config ──
-const SORTABLE_FIELDS = [
-  { value: 'name',         label: 'Name' },
-  { value: 'scene_number', label: 'Scene number' },
-  { value: 'type',         label: 'Type' },
-  { value: 'status',       label: 'Status' },
-  { value: 'time_of_day',  label: 'Time of day' },
-  { value: 'created_at',   label: 'Created' },
-]
+// VW1e (2026-10-25): the sorts, filters and groupings are each table's
+// view's, read through the two descriptions (views/tableViews/
+// scenesTableView.js; her Q16, two lists). Q17 (her "Start fresh"): the views
+// this browser kept for Scenes before VW1e, removed on the first load.
+const OLD_SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 
-const SHOT_SORTABLE_FIELDS = [
-  { value: 'name',             label: 'Name' },
-  { value: 'shot_number',      label: 'Shot number' },
-  { value: 'type',             label: 'Type' },
-  { value: 'status',           label: 'Status' },
-  { value: 'time_of_day',      label: 'Time of day' },
-  { value: 'framing',          label: 'Framing' },
-  { value: 'camera_movement',  label: 'Camera movement' },
-  { value: 'frame_count',      label: 'Frame count' },
-  { value: 'created_at',       label: 'Created' },
-]
-
-const SHOT_FILTER_FIELDS = [
-  { value: 'status',          label: 'Status',          type: 'select', options: SCENE_STATUSES },
-  { value: 'type',            label: 'Type',            type: 'select', options: SCENE_TYPES },
-  { value: 'time_of_day',     label: 'Time of day',     type: 'select', options: TIME_OF_DAY_OPTIONS },
-  { value: 'framing',         label: 'Framing',         type: 'select', options: FRAMING_OPTIONS.map(f => f.abbr) },
-  { value: 'camera_movement', label: 'Camera movement', type: 'select', options: CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) },
-  { value: 'name',            label: 'Name',            type: 'text' },
-]
-
-// ── Group config ──
-const GROUPABLE_FIELDS = [
-  { value: '',       label: 'No grouping' },
-  { value: 'type',   label: 'Type' },
-  { value: 'status', label: 'Status' },
-]
-const SHOT_GROUPABLE_FIELDS = [
-  { value: '',                label: 'No grouping' },
-  { value: 'scene',          label: 'Scene' },
-  { value: 'status',         label: 'Status' },
-  { value: 'type',           label: 'Type' },
-  { value: 'time_of_day',    label: 'Time of day' },
-  { value: 'framing',        label: 'Framing' },
-  { value: 'camera_movement', label: 'Camera movement' },
-]
-
-// ── Filter config ──
-const SCENE_FILTER_FIELDS = [
-  { value: 'status',      label: 'Status',      type: 'select', options: SCENE_STATUSES },
-  { value: 'type',        label: 'Type',        type: 'select', options: SCENE_TYPES },
-  { value: 'time_of_day', label: 'Time of day', type: 'select', options: TIME_OF_DAY_OPTIONS },
-  { value: 'name',        label: 'Name',        type: 'text' },
-]
-
-const FILTER_OPS = {
-  select: [
-    { value: 'is',           label: 'is' },
-    { value: 'is_not',       label: 'is not' },
-    { value: 'is_empty',     label: 'is empty' },
-    { value: 'is_not_empty', label: 'is not empty' },
-  ],
-  text: [
-    { value: 'contains',     label: 'contains' },
-    { value: 'not_contains', label: 'does not contain' },
-    { value: 'is',           label: 'is' },
-    { value: 'is_not',       label: 'is not' },
-    { value: 'is_empty',     label: 'is empty' },
-    { value: 'is_not_empty', label: 'is not empty' },
-  ],
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test
+// that mounts the tab alone): a passing message, never a failure.
+function useOptionalToast() {
+  try { return useToast() } catch { return null }
 }
-
-const SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 
 // Post-overhaul S3c, step 3: while an edit is on screen its cut order IS the
 // view — the toolbar's sort, group, filter and view controls stand aside
@@ -376,31 +324,18 @@ export default function ScenesView({ pageActive = false } = {}) {
   const roleEntries = useMemo(() => { const seen = new Set(); return (rc.entries || []).filter(e => { if (!e.role_slug || seen.has(e.role_slug)) return false; seen.add(e.role_slug); return true }) }, [rc.entries])
 
   // ── View / content state ──
-  const [viewMode, setViewMode] = useState('table')          // 'table' | 'gallery'
+  // VW1e: the content tabs choose which table's view is on screen (her
+  // Q16); they are no part of a view. The search, the two size triples and
+  // the collapsed groups are the tab's own (Q8). The layout, filters, sorts,
+  // grouping and fields are each table's view's (useTableView, below, once
+  // the seat is known).
   const [contentMode, setContentMode] = useState('scenes')    // 'scenes' | 'shots'
   const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState([])
-  const [sortField, setSortField] = useState('')
-  const [sortDir, setSortDir] = useState('asc')
-  const [groupBy, setGroupBy] = useState('')
-  const [shotGroupBy, setShotGroupBy] = useState('scene')
   const [gallerySize, setGallerySize] = useState('md')
   const [thumbSize, setThumbSize] = useState('sm')
   const [thumbRevision, setThumbRevision] = useState(0)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
-  // S3b step 2: "List order" — the list's own positions — is the default
-  // sort while a list is on screen. It is the sort select's empty value, so
-  // a saved view that never chose a sort opens in it; the other sorts are
-  // as they were. Move up / Move down are offered only in it.
-  const listOrder = viewingList && !sortField
-
-  // ── Saved views ──
-  const [savedViews, setSavedViews] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || '[]') } catch { return [] }
-  })
-  const [showSaveDialog, setShowSaveDialog] = useState(false)
-  const [saveName, setSaveName] = useState('')
 
   // ── Popups ──
   const [detailSceneId, setDetailSceneId] = useState(null)
@@ -418,6 +353,94 @@ export default function ScenesView({ pageActive = false } = {}) {
   const canTakes = canOn('project.bins.write')
   const canListWrite = canOn('project.shotlist.write')
   const canListActivate = canOn('project.shotlist.activate')
+
+  // ── The two views (VW1e; her Q16, "Two lists"; step 0, finding 2) ──
+  // Each table's own: its layout, filters, sorts, grouping and fields
+  // (defect 3: "Scenes and Shots each keep their own filters, sorts and
+  // grouping"). The seat is the entity write's (Q2: anyone who can edit the
+  // project saves views; a reviewer writes shot lists, never views).
+  const supportsTakes = !!ctx?.supportsBins
+  // A scene's frames, its shots' sum (order aside): the Runtime and Frames
+  // columns' values for the Scenes description's sorts.
+  const framesByScene = useMemo(() => {
+    const m = new Map()
+    for (const sh of shots) if (sh?.scene_id) m.set(sh.scene_id, (m.get(sh.scene_id) || 0) + (Number(sh.frame_count) || 0))
+    return m
+  }, [shots])
+  // The empty sort's word (finding 14): the Sort select's own.
+  const defaultOrderLabel = viewingList ? 'List order' : 'Default order'
+  const sceneDescription = useMemo(() => scenesDescription({
+    defaultOrderLabel, takes: supportsTakes, framesOf: (sc) => framesByScene.get(sc.id) || 0,
+  }), [defaultOrderLabel, supportsTakes, framesByScene])
+  const shotDescription = useMemo(() => shotsDescription({
+    defaultOrderLabel, takes: supportsTakes, scenes, framings: FRAMING_CHOICES, movements: MOVE_CHOICES,
+  }), [defaultOrderLabel, supportsTakes, scenes])
+  // Who changed a view, by the workspace roster (design §5.5).
+  const { members: rosterMembers } = useRosterMembers()
+  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
+  const nameOf = useCallback((id) => {
+    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
+    return m ? (m.name || m.display_name || m.username || null) : null
+  }, [rosterById])
+  const toast = useOptionalToast()
+  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
+  const { ask, dialog: askDialog } = useAsk()
+  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
+  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
+  // Only the list on screen says a teammate's delete (finding 14): the
+  // other goes to All without a word.
+  const tvScenes = useTableView({ ctx, tableKey: SCENES_TABLE, description: sceneDescription, canWrite: canWriteProject, nameOf, notify: contentMode === 'scenes' ? notify : null })
+  const tvShots = useTableView({ ctx, tableKey: SHOTS_TABLE, description: shotDescription, canWrite: canWriteProject, nameOf, notify: contentMode === 'shots' ? notify : null })
+  const shotsMode = contentMode === 'shots'
+  const tv = shotsMode ? tvShots : tvScenes
+  const description = shotsMode ? shotDescription : sceneDescription
+  const viewMode = tv.config.layout === 'gallery' ? 'gallery' : 'table'
+  const firstSortOf = (cfg, desc) => (cfg.sorts || []).find(s => s && desc.field(s.field)?.sortable) || null
+  const onScreenSort = firstSortOf(tv.config, description)
+  const sortField = onScreenSort?.field || ''
+  const sortDir = onScreenSort?.dir === 'desc' ? 'desc' : 'asc'
+  // S3b step 2: "List order" — the list's own positions — is the default
+  // sort while a list is on screen: the view of the mode on screen has no
+  // sort (VW1e step 0, finding 2). Move up / Move down are offered only in
+  // it, the list drag only then, and the nests and the shot table's scene
+  // groups keep the list's order in it.
+  const listOrder = viewingList && !onScreenSort
+  // Each table's grouping; one its table no longer offers reads as none.
+  const groupOf = (view, desc) => {
+    const g = view.config.group
+    return g && desc.groupFields.some(f => f.key === g.field) ? g.field : ''
+  }
+  const groupBy = groupOf(tvScenes, sceneDescription)
+  const sceneHideEmpty = tvScenes.config.group ? tvScenes.config.group.hideEmpty !== false : true
+  const shotGroupBy = groupOf(tvShots, shotDescription)
+  const shotHideEmpty = tvShots.config.group ? tvShots.config.group.hideEmpty !== false : true
+  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
+  const setOnScreenGroup = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
+  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
+  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
+  const focusViews = useCallback(() => {
+    document.querySelector('.rb-scene-toolbar .rb-tv-button')?.focus({ preventScroll: true })
+  }, [])
+  // Q17 (her "Start fresh"): this browser's old Scenes views go, once.
+  useEffect(() => {
+    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
+  }, [])
+  // The columns each table shows: the view's fields over the table's, the
+  // name first; the leading columns the view shows (her Q-J).
+  const visibleCols = (view, desc) => effectiveFields(view.config.fields, desc.fieldKeys, { fixed: desc.fixed })
+    .filter(f => f.visible).map(f => desc.columns.find(c => c.key === f.key)).filter(Boolean)
+  const leadShown = (view, desc) => new Set(effectiveLeading(view.config.leading, desc.leadingKeys).filter(f => f.visible).map(f => f.key))
+  const sceneCols = visibleCols(tvScenes, sceneDescription)
+  const sceneLead = leadShown(tvScenes, sceneDescription)
+  const shotCols = visibleCols(tvShots, shotDescription)
+  const shotLead = leadShown(tvShots, shotDescription)
+  // The cards' own lines each view shows (her Q-E, Q-P2).
+  const cardShowsOf = (view, desc) => new Set([
+    ...effectiveFields(view.config.fields, desc.fieldKeys, { fixed: desc.fixed }).filter(f => f.visible && desc.cardFields.includes(f.key)).map(f => f.key),
+    ...[...leadShown(view, desc)].filter(k => (desc.cardLeading || []).includes(k)),
+  ])
+  const sceneCardShows = cardShowsOf(tvScenes, sceneDescription)
+  const shotCardShows = cardShowsOf(tvShots, shotDescription)
   const supportsBins = !!ctx?.supportsBins
   const shotTakes = ctx?.shotTakes || []
   const binFiles = ctx?.binFiles || []
@@ -1046,87 +1069,39 @@ export default function ScenesView({ pageActive = false } = {}) {
     }).join(' ')
   }, [ctx, sceneById, shotById, allShotsByScene, viewed.mode, viewed.id, viewed.list, canListWrite, listLabel])
 
-  // ── Saved views ──
-  function saveCurrentView() {
-    if (!saveName.trim()) return
-    const view = { id: Date.now().toString(), name: saveName.trim(), filters, sortField, sortDir, groupBy, viewMode, gallerySize, thumbSize, contentMode }
-    const next = [...savedViews, view]
-    setSavedViews(next)
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
-    setSaveName('')
-    setShowSaveDialog(false)
+  // ── The Filter strip: the view on screen's filters in the shared row
+  // (VW1e; the Filters card draws the same row). A new row is the first
+  // field's first condition and no value: it filters nothing and is not
+  // counted until it has one (defect 1).
+  function addFilter() {
+    const first = description.filterFields[0]
+    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
   }
-  function loadView(view) {
-    setFilters(view.filters || [])
-    setSortField(view.sortField || '')
-    setSortDir(view.sortDir || 'asc')
-    setGroupBy(view.groupBy || '')
-    setViewMode(view.viewMode || 'table')
-    setGallerySize(view.gallerySize || 'md')
-    if (view.thumbSize) setThumbSize(view.thumbSize)
-    if (view.contentMode) setContentMode(view.contentMode)
-  }
-  function deleteView(id) {
-    const next = savedViews.filter(v => v.id !== id)
-    setSavedViews(next)
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
-  }
+  function updateFilter(index, row) { tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === index ? row : f)) })) }
+  function removeFilter(index) { tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== index) })) }
+  const activeFilters = filterCount(tv.config.filters, description)
 
-  // ── Filter helpers ──
-  function addFilter() { setFilters(prev => [...prev, { field: 'status', op: 'is', value: '' }]) }
-  function updateFilter(index, patch) { setFilters(prev => prev.map((f, i) => i === index ? { ...f, ...patch } : f)) }
-  function removeFilter(index) { setFilters(prev => prev.filter((_, i) => i !== index)) }
-
-  function matchesFilter(row, f) {
-    const val = (row[f.field] || '').toString().toLowerCase()
-    const fv = (f.value || '').toString().toLowerCase()
-    switch (f.op) {
-      case 'is':           return val === fv
-      case 'is_not':       return val !== fv
-      case 'contains':     return val.includes(fv)
-      case 'not_contains': return !val.includes(fv)
-      case 'is_empty':     return !val
-      case 'is_not_empty': return !!val
-      default:             return true
-    }
-  }
-
-  // ── Scene filtering + sorting ──
+  // ── Scene filtering + sorting (the Scenes view's own: defect 3) ──
+  // The search (the tab's own) finds a name or a description; every
+  // complete filter must match (Q13); the sorts in order (Q14). No sort: the
+  // rows as they come — in List order, the list's own.
   const filtered = useMemo(() => {
     let list = scenes
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
     }
-    for (const f of filters) {
-      if (!f.value && !['is_empty', 'is_not_empty'].includes(f.op)) continue
-      list = list.filter(s => matchesFilter(s, f))
-    }
-    return list
-  }, [scenes, search, filters])
+    return applyViewFilters(list, tvScenes.config.filters, sceneDescription)
+  }, [scenes, search, tvScenes.config.filters, sceneDescription])
 
-  const sorted = useMemo(() => {
-    if (!sortField) return filtered
-    return [...filtered].sort((a, b) => {
-      let av = a[sortField] ?? '', bv = b[sortField] ?? ''
-      if (sortField === 'status') {
-        av = SCENE_STATUSES.indexOf(av); bv = SCENE_STATUSES.indexOf(bv)
-      } else if (sortField === 'type') {
-        av = SCENE_TYPES.indexOf(av); bv = SCENE_TYPES.indexOf(bv)
-      } else if (sortField === 'time_of_day') {
-        av = TIME_OF_DAY_OPTIONS.indexOf(av); bv = TIME_OF_DAY_OPTIONS.indexOf(bv)
-      } else if (typeof av === 'string') {
-        av = av.toLowerCase(); bv = (bv || '').toLowerCase()
-      }
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filtered, sortField, sortDir])
+  const sorted = useMemo(() => applyViewSorts(filtered, tvScenes.config.sorts, sceneDescription), [filtered, tvScenes.config.sorts, sceneDescription])
 
   // ── Groups ──
   // A group's words in sentence case (a status's are the kit's STATUS
   // labels, which humanizeStatus spells the same). Its colour accent is gone:
-  // a status group carries the kit's StatusDot instead (R3-11).
+  // a status group carries the kit's StatusDot instead (R3-11). VW1e: with
+  // *Hide empty groups* off (her Q15, Q-I) every option shows, in its list's
+  // order, after the groups the rows make.
   const groups = useMemo(() => {
     if (!groupBy) return null
     const map = {}
@@ -1135,50 +1110,34 @@ export default function ScenesView({ pageActive = false } = {}) {
       if (!map[key]) map[key] = { key, label: key === '__empty__' ? 'None' : humanizeStatus(key), scenes: [] }
       map[key].scenes.push(s)
     }
+    if (!sceneHideEmpty) {
+      for (const key of (groupBy === 'status' ? SCENE_STATUSES : SCENE_TYPES)) {
+        if (!map[key]) map[key] = { key, label: humanizeStatus(key), scenes: [] }
+      }
+    }
     return Object.values(map)
-  }, [sorted, groupBy])
+  }, [sorted, groupBy, sceneHideEmpty])
 
-  // ── Shot mode filtering + sorting ──
+  // ── Shot mode filtering + sorting (the Shots view's own: defect 3) ──
   const sceneMap = useMemo(() => {
     const m = {}
     for (const s of scenes) m[s.id] = s
     return m
   }, [scenes])
 
+  // The Shots view's filters and sorts apply to the shot table and gallery
+  // only (a Shots filter never empties the Scenes table: defect 3); the
+  // search, the tab's own, to both.
   const filteredShots = useMemo(() => {
     let list = shots
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
     }
-    if (contentMode === 'shots') {
-      for (const f of filters) {
-        if (!f.value && !['is_empty', 'is_not_empty'].includes(f.op)) continue
-        list = list.filter(s => matchesFilter(s, f))
-      }
-    }
-    return list
-  }, [shots, search, filters, contentMode])
+    return applyViewFilters(list, tvShots.config.filters, shotDescription)
+  }, [shots, search, tvShots.config.filters, shotDescription])
 
-  const sortedShots = useMemo(() => {
-    if (contentMode !== 'shots' || !sortField) return filteredShots
-    return [...filteredShots].sort((a, b) => {
-      let av = a[sortField] ?? '', bv = b[sortField] ?? ''
-      if (sortField === 'status') {
-        av = SCENE_STATUSES.indexOf(av); bv = SCENE_STATUSES.indexOf(bv)
-      } else if (sortField === 'type') {
-        av = SCENE_TYPES.indexOf(av); bv = SCENE_TYPES.indexOf(bv)
-      } else if (sortField === 'time_of_day') {
-        av = TIME_OF_DAY_OPTIONS.indexOf(av); bv = TIME_OF_DAY_OPTIONS.indexOf(bv)
-      } else if (sortField === 'frame_count' || sortField === 'shot_number') {
-        av = Number(av) || 0; bv = Number(bv) || 0
-      } else if (typeof av === 'string') {
-        av = av.toLowerCase(); bv = (bv || '').toLowerCase()
-      }
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filteredShots, sortField, sortDir, contentMode])
+  const sortedShots = useMemo(() => applyViewSorts(filteredShots, tvShots.config.sorts, shotDescription), [filteredShots, tvShots.config.sorts, shotDescription])
 
   const shotGroups = useMemo(() => {
     // No grouping — flat list in one group
@@ -1196,13 +1155,21 @@ export default function ScenesView({ pageActive = false } = {}) {
         if (!buckets[key]) buckets[key] = []
         buckets[key].push(sh)
       }
+      // VW1e: with *Hide empty groups* off (her Q15, Q-I) every scene of the
+      // list on screen has its group, empty or not.
+      if (!shotHideEmpty) for (const sc of scenes) if (!buckets[sc.id]) buckets[sc.id] = []
       let keys
       if (listOrder) {
         const rank = new Map(scenes.map((s, i) => [s.id, i]))
         keys = Object.keys(buckets).sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity))
       } else {
-        for (const key of Object.keys(buckets)) {
-          buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
+        // No sort: each scene's shots by number, as before. VW1e: a view's
+        // sorts order the shots inside each scene (Q14); they reordered the
+        // whole list and each scene then took shot-number order again.
+        if (!firstSortOf(tvShots.config, shotDescription)) {
+          for (const key of Object.keys(buckets)) {
+            buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
+          }
         }
         keys = Object.keys(buckets).sort((a, b) => {
           const scA = sceneMap[a]; const scB = sceneMap[b]
@@ -1227,6 +1194,14 @@ export default function ScenesView({ pageActive = false } = {}) {
       if (!buckets[val]) buckets[val] = []
       buckets[val].push(sh)
     }
+    // VW1e: with *Hide empty groups* off every option, and "Unset".
+    if (!shotHideEmpty) {
+      const every = field === 'status' ? SCENE_STATUSES : field === 'type' ? SCENE_TYPES
+        : field === 'time_of_day' ? TIME_OF_DAY_OPTIONS
+          : field === 'framing' ? FRAMING_OPTIONS.map(f => f.abbr)
+            : field === 'camera_movement' ? CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) : []
+      for (const v of [...every, '__none__']) if (!buckets[v]) buckets[v] = []
+    }
     const keys = Object.keys(buckets).sort((a, b) => {
       if (a === '__none__') return 1
       if (b === '__none__') return -1
@@ -1239,7 +1214,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       groupType: 'field',
       shots: buckets[key],
     }))
-  }, [sortedShots, sceneMap, shotGroupBy, listOrder, scenes])
+  }, [sortedShots, sceneMap, shotGroupBy, shotHideEmpty, listOrder, scenes, tvShots.config, shotDescription]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalFilteredShots = useMemo(() => shotGroups.reduce((n, g) => n + g.shots.length, 0), [shotGroups])
   // S3c step 3: how many of the cut's rows the search finds.
@@ -1293,6 +1268,11 @@ export default function ScenesView({ pageActive = false } = {}) {
   return (
     <WriteReasonProvider reason={writeReason}>
     <div className="rb-scene-page">
+      {/* ── The tab's one polite live region (VW1e, design §4.9): the bar's
+          state and every reorder, always mounted. ── */}
+      <p className="sr-only" role="status" aria-live="polite">
+        <span key={announcement.n}>{announcement.words}</span>
+      </p>
 
       {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
           the Budget's. Stat has no icon slot, so the four icons are gone. ── */}
@@ -1420,11 +1400,11 @@ export default function ScenesView({ pageActive = false } = {}) {
             size="sm"
             Icon={Filter}
             className="rb-scene-tool"
-            data-active={filters.length > 0 ? 'true' : 'false'}
+            data-active={activeFilters > 0 ? 'true' : 'false'}
             aria-expanded={showFilterPanel}
             onClick={() => { if (!editOnScreen) setShowFilterPanel(!showFilterPanel) }}
           >
-            Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+            Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
           </Button>
         </GatedAction>
 
@@ -1442,48 +1422,48 @@ export default function ScenesView({ pageActive = false } = {}) {
             {/* S3b step 2: with a list on screen the empty choice is the
                 list's own order, the default; with none it is "Sort…" as before. */}
             <option value="">{viewingList ? 'List order' : 'Sort…'}</option>
-            {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            {/* VW1e: the view on screen's first sort (her Q14); its card holds the rest. */}
+            {description.sortFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
-          <GatedAction allowed={!editOnScreen} reason={EDIT_ORDER_REASON}>
-            <IconButton
-              size="sm"
-              Icon={ArrowUpDown}
-              title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
-              onClick={() => { if (!editOnScreen) setSortDir(d => d === 'asc' ? 'desc' : 'asc') }}
-            />
-          </GatedAction>
+          {sortField && (
+            <GatedAction allowed={!editOnScreen} reason={EDIT_ORDER_REASON}>
+              <IconButton
+                size="sm"
+                Icon={ArrowUpDown}
+                title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
+                onClick={() => { if (!editOnScreen) reverseSort() }}
+              />
+            </GatedAction>
+          )}
         </span>
 
         <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* Group */}
-        {contentMode === 'scenes' ? (
-          <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            aria-label="Group"
-            className="ui-input rb-scene-tool"
-            data-size="sm"
-            disabled={editOnScreen}
-            title={editOnScreen ? EDIT_ORDER_REASON : undefined}
-            data-active={groupBy ? 'true' : 'false'}>
-            {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
-        ) : (
-          <select value={shotGroupBy} onChange={e => setShotGroupBy(e.target.value)}
-            aria-label="Group"
-            className="ui-input rb-scene-tool"
-            data-size="sm"
-            disabled={editOnScreen}
-            title={editOnScreen ? EDIT_ORDER_REASON : undefined}
-            data-active={shotGroupBy ? 'true' : 'false'}>
-            {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
-        )}
+        {/* Group: the view on screen's grouping (VW1e: each table its own,
+            defect 3). */}
+        {(() => {
+          const value = shotsMode ? shotGroupBy : groupBy
+          return (
+            <select value={value} onChange={e => setOnScreenGroup(e.target.value)}
+              aria-label="Group"
+              className="ui-input rb-scene-tool"
+              data-size="sm"
+              disabled={editOnScreen}
+              title={editOnScreen ? EDIT_ORDER_REASON : undefined}
+              data-active={value ? 'true' : 'false'}>
+              <option value="">No grouping</option>
+              {description.groupFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+            </select>
+          )
+        })()}
 
         <span className="rb-scene-divider" aria-hidden="true" />
 
-        {/* View mode: the kit Tabs; each icon rides in its label. */}
+        {/* View mode: the kit Tabs; each icon rides in its label. VW1e: the
+            layout is the view's (her Q8), each table's own; the group is
+            "Layout" (§4.9). */}
         <Tabs
-          label="View"
+          label="Layout"
           panelId={VIEW_PANEL_ID}
           items={[
             { id: 'table', label: <><TableIcon className="rb-scene-tab-icon" aria-hidden="true" />Table</>, disabled: editOnScreen, title: editOnScreen ? EDIT_ORDER_REASON : undefined },
@@ -1503,13 +1483,14 @@ export default function ScenesView({ pageActive = false } = {}) {
             header: recorded) — the kit Badge, in the second ink. */}
         <Badge className="rb-scene-fps">{fps} fps</Badge>
 
-        {/* Saved views */}
-        <SceneSavedViewsDropdown
-          views={savedViews}
-          onLoad={loadView}
-          onDelete={deleteView}
-          onSaveRequest={() => setShowSaveDialog(true)}
-        />
+        {/* VW1e (her Q5): the bookmark icon becomes the Views button — the
+            list of the table on screen (Q16) — 136px, as on every table
+            (Q-P1); greyed with the reason while an edit is on screen, as the
+            toolbar's other view controls are (finding 2). */}
+        <GatedAction allowed={!editOnScreen} reason={EDIT_ORDER_REASON}>
+          <TableViewsMenu key={tv === tvShots ? 'shots' : 'scenes'} tv={tv} description={description} ask={ask} announce={announce}
+            onRetry={typeof ctx?.reloadActiveProject === 'function' ? () => ctx.reloadActiveProject() : null} />
+        </GatedAction>
 
         <span className="rb-scene-divider" aria-hidden="true" />
 
@@ -1537,32 +1518,25 @@ export default function ScenesView({ pageActive = false } = {}) {
         </span>
       </Toolbar>
 
-      {/* ── Filter panel ── */}
-      {showFilterPanel && (
-        <SceneFilterPanel
-          filters={filters}
-          filterFields={contentMode === 'shots' ? SHOT_FILTER_FIELDS : SCENE_FILTER_FIELDS}
-          onAdd={addFilter}
-          onUpdate={updateFilter}
-          onRemove={removeFilter}
-          onClose={() => setShowFilterPanel(false)}
-        />
-      )}
-
-      {/* ── Save view: the same inline row (the saved-views menu and this
-          row are 6b's), on the kit's field and buttons ── */}
-      {showSaveDialog && (
-        <div className="rb-scene-save">
-          <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            aria-label="View name"
-            className="ui-input rb-scene-save-input"
-            data-size="sm"
-            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
-            autoFocus />
-          <Button size="sm" variant="primary" onClick={saveCurrentView}>Save</Button>
-          <IconButton size="sm" Icon={X} title="Cancel" onClick={() => setShowSaveDialog(false)} />
+      {/* ── The Filter strip: the view on screen's filters in the shared row
+          (VW1e; the Filters card draws the same row). Not while an edit is
+          on screen: its cut is its order. ── */}
+      {showFilterPanel && !editOnScreen && (
+        <div className="rb-scene-filters">
+          {(tv.config.filters || []).map((f, i) => (
+            <ViewFilterRow key={i} row={f} index={i} description={description}
+              onChange={(row) => updateFilter(i, row)} onRemove={() => removeFilter(i)} />
+          ))}
+          <div className="rb-scene-filter-actions">
+            <Button size="sm" Icon={Plus} onClick={addFilter}>Add filter</Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowFilterPanel(false)}>Done</Button>
+          </div>
         </div>
       )}
+
+      {/* ── The *changed for now* bar (design §4.4) of the view on screen;
+          not drawn while an edit is on screen (the cut is the view). ── */}
+      {!editOnScreen && <ViewBar tv={tv} ask={ask} announce={announce} focusViews={focusViews} />}
 
       {/* Bins could not be loaded for the take chips (milestone 2): said here
           on the page with a retry, not only inside a takes dialog she may
@@ -1589,7 +1563,10 @@ export default function ScenesView({ pageActive = false } = {}) {
        <div className="rb-scene-view" id={VIEW_PANEL_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'}>
         {/* Post-overhaul S3c, step 3: an edit on screen is its cut — the
             shots-by-scene table's form, the bands following the cut. */}
-        {editOnScreen ? (
+        {!editOnScreen && tv.waiting ? (
+          // The last used view not known yet (its 2s wait, design §4.5).
+          <div className="rb-scene-waiting"><Loading label="Loading views" /></div>
+        ) : editOnScreen ? (
           <EditTable
             rows={editSession.rows}
             bands={editSession.bands}
@@ -1613,6 +1590,8 @@ export default function ScenesView({ pageActive = false } = {}) {
           viewMode === 'table' ? (
             <ShotTable
               shotGroups={shotGroups}
+              columns={shotCols}
+              leading={shotLead}
               ctx={ctx}
               takes={takesApi}
               fps={fps}
@@ -1636,6 +1615,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           ) : (
             <ShotGallery
               shotGroups={shotGroups}
+              cardShows={shotCardShows}
               gallerySize={gallerySize}
               fps={fps}
               ctx={ctx}
@@ -1672,6 +1652,8 @@ export default function ScenesView({ pageActive = false } = {}) {
                   {!collapsedGroups.has(g.key) && (
                     <SceneTable
                       scenes={g.scenes}
+                      columns={sceneCols}
+                      leading={sceneLead}
                       takes={takesApi}
                       shotsByScene={shotsByScene}
                       sceneTotals={sceneTotals}
@@ -1702,6 +1684,8 @@ export default function ScenesView({ pageActive = false } = {}) {
             ) : (
               <SceneTable
                 scenes={sorted}
+                columns={sceneCols}
+                leading={sceneLead}
                 takes={takesApi}
                 shotsByScene={shotsByScene}
                 sceneTotals={sceneTotals}
@@ -1730,11 +1714,46 @@ export default function ScenesView({ pageActive = false } = {}) {
                 drag={listDragOn ? cutDrag : null}
               />
             )
+          ) : groups ? (
+            // VW1e (step 0, finding 6): every Gallery shows the view's groups,
+            // a band per group as the table draws it, then the group's cards.
+            <div className="rb-scene-groups">
+              {groups.map(g => (
+                <div key={g.key}>
+                  <button type="button" onClick={() => toggleGroup(g.key)}
+                    aria-expanded={!collapsedGroups.has(g.key)}
+                    className="rb-scene-group-toggle rb-scene-band">
+                    {collapsedGroups.has(g.key)
+                      ? <ChevronRight className="rb-scene-group-chevron" aria-hidden="true" />
+                      : <ChevronDown className="rb-scene-group-chevron" aria-hidden="true" />}
+                    {groupBy === 'status' && <StatusDot status={g.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
+                    <span className="rb-scene-group-label">{g.label}</span>
+                    <span className="rb-scene-group-count">({g.scenes.length})</span>
+                  </button>
+                  {!collapsedGroups.has(g.key) && (
+                    <SceneGallery
+                      scenes={g.scenes}
+                      shotsByScene={shotsByScene}
+                      sceneTotals={sceneTotals}
+                      cardShows={sceneCardShows}
+                      gallerySize={gallerySize}
+                      fps={fps}
+                      rowMenu={rowListMenu}
+                      canWrite={canWriteProject}
+                      nameTitle={inListsTitle}
+                      onOpenDetail={setDetailSceneId}
+                      onRequestDelete={setConfirmDelete}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
           ) : (
             <SceneGallery
-              scenes={groups ? groups.flatMap(g => g.scenes) : sorted}
+              scenes={sorted}
               shotsByScene={shotsByScene}
               sceneTotals={sceneTotals}
+              cardShows={sceneCardShows}
               gallerySize={gallerySize}
               fps={fps}
               rowMenu={rowListMenu}
@@ -1870,6 +1889,10 @@ export default function ScenesView({ pageActive = false } = {}) {
         />
       )}
 
+      {/* ── The views' questions (Delete a view, Save over a teammate's),
+          at the view's root (design §4.2, finding 18). ── */}
+      {askDialog}
+
       {/* ── Delete confirmation ── */}
       {confirmDelete && (
         <ConfirmDialog
@@ -1950,8 +1973,25 @@ function deleteAsOneStep(ctx, ids, remove, what, pending) {
 // Post-overhaul S3c, step 6: `drag` (useCutDrag's, or null) — in the list's
 // own order a scene row and a nested shot row are dragged by their number
 // cell; a drop asks D13's question (ScenesView's onCutDrop).
-function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending, drag = null }) {
+// VW1e (2026-10-25): `columns` the Scenes view's visible columns in its order
+// (scenesTableView.js; the nest-only ones choose the nested rows' own), and
+// `leading` the leading columns it shows (her Q-J: the Shots arrow, the
+// picture, the number). The least widths and every span follow them (§4.10,
+// step 0 finding 8).
+const ALL_SCENE_LEAD = new Set(['expand', 'thumbnail', 'scene_number'])
+const scenesTableColumnsAll = scenesTableColumns({ takes: true })
+const ALL_SHOT_LEAD = new Set(['thumbnail', 'shot_number'])
+const shotsTableColumnsAll = shotsTableColumns({ takes: true })
+function SceneTable({ scenes, columns = scenesTableColumnsAll, leading = ALL_SCENE_LEAD, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending, drag = null }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
+  const showExpand = leading.has('expand')
+  const showThumb = leading.has('thumbnail')
+  const showNum = leading.has('scene_number')
+  const cols = columns.filter(c => !c.nest)
+  const nest = new Set(nestColumnsOf(columns.map(c => c.key)).filter(k => k !== 'takes' || takes?.supports))
+  const span = 1 + (showExpand ? 1 : 0) + (showThumb ? 1 : 0) + (showNum ? 1 : 0) + cols.length
+  const widths = sceneTableMin(columns, leading)
+  const nestWidth = nestMin([...nest], leading)
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes', or
   // { shots: ids } — one nest's ticked shots); each was a window.confirm, and
@@ -2033,7 +2073,8 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   }
 
   return (
-    <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
+    <div className="rb-scene-table-wrap" data-thumb={thumbSize} data-grow={widths.grow > 0 ? 'some' : 'none'}
+      style={{ '--rb-scene-min': widths.min, '--rb-scene-nest-min': nestWidth }}>
       {/* The bulk-action bar overlays the header right of the checkbox
           column, where it always did: the raised paper, the signal edge, the
           count at Dense 600 in the ink (it was orange mono), the kit's
@@ -2078,23 +2119,20 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     : <Square aria-hidden="true" />}
               </button>
             </Th>
-            <Th width="var(--rb-scene-col-expand)" className="rb-scene-expand-cell"><span className="sr-only">Shots</span></Th>
-            <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
-            <Th width="var(--rb-scene-col-num)" numeric>#</Th>
-            <Th width="var(--rb-scene-col-name)">Name</Th>
-            <Th width="var(--rb-scene-col-status)">Status</Th>
-            <Th width="var(--rb-scene-col-time)">Time of day</Th>
-            <Th width="var(--rb-scene-col-type)">Type</Th>
-            <Th>Description</Th>
-            <Th width="var(--rb-scene-col-runtime)" numeric>Runtime</Th>
-            <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
+            {/* VW1e: the columns in front of the name, each unless the view
+                hides it (her Q-J); then the view's columns, in its order. */}
+            {showExpand && <Th width="var(--rb-scene-col-expand)" className="rb-scene-expand-cell"><span className="sr-only">Shots</span></Th>}
+            {showThumb && <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>}
+            {showNum && <Th width="var(--rb-scene-col-num)" numeric>#</Th>}
+            {cols.map(c => <Th key={c.key} width={c.width} numeric={c.numeric}>{c.label}</Th>)}
           </Row>
         )}
       >
 
         {scenes.map(sc => {
           const sceneShots = shotsByScene[sc.id] || []
-          const expanded = expandedScenes.has(sc.id)
+          // A view without the Shots arrow is a scenes-only table: no nests (VW1e).
+          const expanded = showExpand && expandedScenes.has(sc.id)
           const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
           const isChecked = selected.has(sc.id)
           // What each unnamed control on the row is named for.
@@ -2111,6 +2149,103 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
           // pointer moves between them.
           const inScene = { block: { kind: 'scene', id: sc.id } }
           const blockRef = drag?.blockRow?.(inScene.block)
+          // The scene's cells by key (VW1e): the view orders and hides them.
+          const cell = {
+            // Name: the row's anchor, 600 in the ink (it was orange). FX8:
+            // the row's buttons right after its words, in the one order —
+            // Open (the page icon), the shot-list menu, Delete last — on
+            // hover and on focus (the kit's RowTitle). VW1e: with the number
+            // column hidden the list drag's grip is here, before the words.
+            name: (
+              <Td key="name" className="rb-scene-name-cell" data-grip={drag && !showNum ? 'true' : undefined}>
+                {drag && !showNum && <Grip drag={drag} kind="scene" id={sc.id} name={name} />}
+                <RowTitle actions={<>
+                  <IconButton size="sm" Icon={FileText} title={`Open ${name}`}
+                    onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
+                  <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
+                  <GatedAction allowed={canWrite}>
+                    <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`}
+                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
+                  </GatedAction>
+                </>}>
+                  <span className="rb-scene-name" onClick={() => onOpenDetail(sc.id)}>
+                    <InlineText
+                      value={sc.name || ''}
+                      placeholder="Untitled scene"
+                      strong
+                      label={`Name for ${name}`}
+                      title={nameTitle?.(sc.id)}
+                      readOnly={!canWrite}
+                      onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
+                    />
+                  </span>
+                </RowTitle>
+              </Td>
+            ),
+            // Status: the kit's StatusDot beside a CellSelect, the words in
+            // the ink, the tone from the one STATUS map (R3-11)
+            status: (
+              <Td key="status" className="rb-scene-status-cell" onClick={e => e.stopPropagation()}>
+                <span className="rb-scene-status">
+                  <StatusDot status={sc.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                  <CellSelect
+                    className="rb-scene-status-select"
+                    value={sc.status || 'not_started'}
+                    onChange={v => ctx?.updateScene?.(sc.id, { status: v })}
+                    options={STATUS_OPTIONS}
+                    disabled={!canWrite}
+                    aria-label={`Status for ${name}`}
+                  />
+                </span>
+              </Td>
+            ),
+            time_of_day: (
+              <Td key="time_of_day" className="rb-scene-time-cell" onClick={e => e.stopPropagation()}>
+                <CellSelect
+                  value={sc.time_of_day || null}
+                  onChange={v => ctx?.updateScene?.(sc.id, { time_of_day: v })}
+                  placeholder="—"
+                  options={TIME_OPTIONS}
+                  disabled={!canWrite}
+                  aria-label={`Time of day for ${name}`}
+                />
+              </Td>
+            ),
+            type: (
+              <Td key="type" className="rb-scene-type-cell" onClick={e => e.stopPropagation()}>
+                <CellSelect
+                  value={sc.type || 'interior'}
+                  onChange={v => ctx?.updateScene?.(sc.id, { type: v })}
+                  options={TYPE_OPTIONS}
+                  disabled={!canWrite}
+                  aria-label={`Type for ${name}`}
+                />
+              </Td>
+            ),
+            description: (
+              <Td key="description" className="rb-scene-desc-cell" onClick={e => e.stopPropagation()}>
+                <InlineText
+                  value={sc.description || ''}
+                  placeholder="Add description…"
+                  size="sm"
+                  label={`Description for ${name}`}
+                  readOnly={!canWrite}
+                  onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
+                />
+              </Td>
+            ),
+            // Runtime: a zero at the third ink, never #44403c (R3-13)
+            runtime: (
+              <Td key="runtime" numeric className="rb-scene-dur-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                {totals.runtime}
+              </Td>
+            ),
+            frames: (
+              <Td key="frames" numeric className="rb-scene-count-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
+                {fmtNumber(totals.totalFrames)}
+              </Td>
+            ),
+          }
           return (
             <Fragment key={sc.id}>
               {/* The kit Row: its one selected treatment (R3-38 — it was an
@@ -2139,144 +2274,67 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
 
                 {/* Expand toggle: a scene with no shots shows no chevron, and
                     still opens onto its Add shot, as before */}
-                <Td className="rb-scene-expand-cell">
-                  <IconButton
-                    size="sm"
-                    Icon={sceneShots.length > 0 ? (expanded ? ChevronDown : ChevronRight) : undefined}
-                    title={expanded ? 'Hide shots' : 'Show shots'}
-                    aria-expanded={expanded}
-                    onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
-                  />
-                </Td>
+                {showExpand && (
+                  <Td className="rb-scene-expand-cell">
+                    <IconButton
+                      size="sm"
+                      Icon={sceneShots.length > 0 ? (expanded ? ChevronDown : ChevronRight) : undefined}
+                      title={expanded ? 'Hide shots' : 'Show shots'}
+                      aria-expanded={expanded}
+                      onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
+                    />
+                  </Td>
+                )}
 
                 {/* Thumbnail */}
-                <Td className="rb-scene-thumb-cell">
-                  {/* S3b step 7: a picture, not a button, for a seat that may not write scenes. */}
-                  <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
-                    onClick={canWrite ? async e => {
-                      e.stopPropagation()
-                      if (!window.electronAPI?.rabbit?.pickImage) return
-                      const imagePath = await window.electronAPI.rabbit.pickImage()
-                      if (!imagePath) return
-                      ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
-                      try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
-                      onThumbChanged?.()
-                    } : undefined}>
-                    {sc.thumbnail_image ? (
-                      <>
-                        <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`} alt="" />
-                        {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
-                      </>
-                    ) : (
-                      <>
-                        <Film className="rb-scene-thumb-mark" aria-hidden="true" />
-                        {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
-                      </>
-                    )}
-                  </div>
-                </Td>
+                {showThumb && (
+                  <Td className="rb-scene-thumb-cell">
+                    {/* S3b step 7: a picture, not a button, for a seat that may not write scenes. */}
+                    <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
+                      onClick={canWrite ? async e => {
+                        e.stopPropagation()
+                        if (!window.electronAPI?.rabbit?.pickImage) return
+                        const imagePath = await window.electronAPI.rabbit.pickImage()
+                        if (!imagePath) return
+                        ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
+                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
+                        onThumbChanged?.()
+                      } : undefined}>
+                      {sc.thumbnail_image ? (
+                        <>
+                          <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                          {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
+                        </>
+                      ) : (
+                        <>
+                          <Film className="rb-scene-thumb-mark" aria-hidden="true" />
+                          {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
+                        </>
+                      )}
+                    </div>
+                  </Td>
+                )}
 
                 {/* Scene # — and, in the list's own order, its grip (S3c step 6) */}
-                <Td numeric className="rb-scene-num-cell" data-empty={sc.scene_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
-                  {drag && <Grip drag={drag} kind="scene" id={sc.id} name={name} />}
-                  {sc.scene_number ?? '—'}
-                </Td>
+                {showNum && (
+                  <Td numeric className="rb-scene-num-cell" data-empty={sc.scene_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
+                    {drag && <Grip drag={drag} kind="scene" id={sc.id} name={name} />}
+                    {sc.scene_number ?? '—'}
+                  </Td>
+                )}
 
-                {/* Name: the row's anchor, 600 in the ink (it was orange).
-                    FX8: the row's buttons right after its words, in the one
-                    order — Open (the page icon), the shot-list menu, Delete
-                    last — on hover and on focus (the kit's RowTitle); they
-                    sat in an actions column at the row's far end. */}
-                <Td className="rb-scene-name-cell">
-                  <RowTitle actions={<>
-                    <IconButton size="sm" Icon={FileText} title={`Open ${name}`}
-                      onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
-                    <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
-                    <GatedAction allowed={canWrite}>
-                      <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`}
-                        onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
-                    </GatedAction>
-                  </>}>
-                    <span className="rb-scene-name" onClick={() => onOpenDetail(sc.id)}>
-                      <InlineText
-                        value={sc.name || ''}
-                        placeholder="Untitled scene"
-                        strong
-                        label={`Name for ${name}`}
-                        title={nameTitle?.(sc.id)}
-                        readOnly={!canWrite}
-                        onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
-                      />
-                    </span>
-                  </RowTitle>
-                </Td>
-
-                {/* Status: the kit's StatusDot beside a CellSelect, the words
-                    in the ink, the tone from the one STATUS map (R3-11) */}
-                <Td className="rb-scene-status-cell" onClick={e => e.stopPropagation()}>
-                  <span className="rb-scene-status">
-                    <StatusDot status={sc.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
-                    <CellSelect
-                      className="rb-scene-status-select"
-                      value={sc.status || 'not_started'}
-                      onChange={v => ctx?.updateScene?.(sc.id, { status: v })}
-                      options={STATUS_OPTIONS}
-                      disabled={!canWrite}
-                      aria-label={`Status for ${name}`}
-                    />
-                  </span>
-                </Td>
-
-                {/* Time of day */}
-                <Td className="rb-scene-time-cell" onClick={e => e.stopPropagation()}>
-                  <CellSelect
-                    value={sc.time_of_day || null}
-                    onChange={v => ctx?.updateScene?.(sc.id, { time_of_day: v })}
-                    placeholder="—"
-                    options={TIME_OPTIONS}
-                    disabled={!canWrite}
-                    aria-label={`Time of day for ${name}`}
-                  />
-                </Td>
-
-                {/* Type */}
-                <Td className="rb-scene-type-cell" onClick={e => e.stopPropagation()}>
-                  <CellSelect
-                    value={sc.type || 'interior'}
-                    onChange={v => ctx?.updateScene?.(sc.id, { type: v })}
-                    options={TYPE_OPTIONS}
-                    disabled={!canWrite}
-                    aria-label={`Type for ${name}`}
-                  />
-                </Td>
-
-                {/* Description */}
-                <Td className="rb-scene-desc-cell" onClick={e => e.stopPropagation()}>
-                  <InlineText
-                    value={sc.description || ''}
-                    placeholder="Add description…"
-                    size="sm"
-                    label={`Description for ${name}`}
-                    readOnly={!canWrite}
-                    onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
-                  />
-                </Td>
-
-                {/* Runtime: a zero at the third ink, never #44403c (R3-13) */}
-                <Td numeric className="rb-scene-dur-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
-                  {totals.runtime}
-                </Td>
-
-                {/* Frame count */}
-                <Td numeric className="rb-scene-count-cell" data-empty={totals.totalFrames > 0 ? undefined : 'true'}>
-                  {fmtNumber(totals.totalFrames)}
-                </Td>
+                {/* The view's columns, in its order (VW1e). */}
+                {cols.map(c => cell[c.key] || null)}
 
               </Row>
 
               {/* Nested shots: one row across the table, indented as before,
                   holding the scene's shots as a table of their own (no
-                  header, as before) on the recessed paper they sat on. */}
+                  header, as before) on the recessed paper they sat on. VW1e
+                  (step 0, finding 7): the nest keeps its own order; a column
+                  with a scene column of its key shows with it, Duration with
+                  Runtime; Takes, Framing and Camera movement by their own
+                  nest-only fields; the span is the columns on screen. */}
               {expanded && (
                 <Row
                   className="rb-scene-nest-row"
@@ -2286,7 +2344,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   onDragLeave={drag ? drag.leave('nest', sc.id, inScene) : undefined}
                   onDrop={drag ? drag.drop('nest', sc.id, inScene) : undefined}
                 >
-                  <Td colSpan={11} className="rb-scene-nest-cell">
+                  <Td colSpan={span} className="rb-scene-nest-cell">
                     <div className="rb-scene-nest">
                       {/* Nested-shot bulk action bar */}
                       {(() => {
@@ -2317,7 +2375,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                         )
                       })()}
                       {sceneShots.length > 0 && (
-                        <Table className="rb-scene-table rb-scene-nest-table" scrollClassName="rb-scene-nest-scroll" data-takes={takes?.supports ? 'true' : 'false'}>
+                        <Table className="rb-scene-table rb-scene-nest-table" scrollClassName="rb-scene-nest-scroll" data-takes={nest.has('takes') ? 'true' : 'false'}>
                           {sceneShots.map(shot => {
                             const isNested = selectedNestedShots.has(shot.id)
                             const shotTakeEntries = takes?.map?.get(shot.id) || []
@@ -2350,44 +2408,49 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                 <Td className="rb-scene-mark-cell">
                                   <Clapperboard className="rb-scene-mark" aria-hidden="true" />
                                 </Td>
-                                {/* Thumbnail */}
-                                <Td className="rb-scene-thumb-cell">
-                                  <div className="rb-scene-thumb" data-nested="true" data-static={canWrite ? undefined : 'true'}
-                                    onClick={canWrite ? async e => {
-                                      e.stopPropagation()
-                                      if (!window.electronAPI?.rabbit?.pickImage) return
-                                      const imagePath = await window.electronAPI.rabbit.pickImage()
-                                      if (!imagePath) return
-                                      ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                                      try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                                      onThumbChanged?.()
-                                    } : undefined}>
-                                    {shot.thumbnail_image ? (
-                                      <>
-                                        <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
-                                        {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
-                                      </>
-                                    ) : takeFallback ? (
-                                      <>
-                                        {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
-                                        <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} className="rb-scene-poster" />
-                                        {canWrite && <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>}
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
-                                        {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
-                                      </>
-                                    )}
-                                  </div>
-                                </Td>
-                                {/* Shot # — and its grip (S3c step 6) */}
-                                <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
-                                  {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
-                                  {shot.shot_number ?? '—'}
-                                </Td>
-                                {/* Name, and the row's buttons right after it (FX8, the kit's RowTitle) */}
-                                <Td className="rb-scene-name-cell">
+                                {/* Thumbnail: with the scene's picture column */}
+                                {showThumb && (
+                                  <Td className="rb-scene-thumb-cell">
+                                    <div className="rb-scene-thumb" data-nested="true" data-static={canWrite ? undefined : 'true'}
+                                      onClick={canWrite ? async e => {
+                                        e.stopPropagation()
+                                        if (!window.electronAPI?.rabbit?.pickImage) return
+                                        const imagePath = await window.electronAPI.rabbit.pickImage()
+                                        if (!imagePath) return
+                                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                                        onThumbChanged?.()
+                                      } : undefined}>
+                                      {shot.thumbnail_image ? (
+                                        <>
+                                          <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                                          {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
+                                        </>
+                                      ) : takeFallback ? (
+                                        <>
+                                          {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} className="rb-scene-poster" />
+                                          {canWrite && <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
+                                          {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
+                                        </>
+                                      )}
+                                    </div>
+                                  </Td>
+                                )}
+                                {/* Shot # — and its grip (S3c step 6): with the scene's number column */}
+                                {showNum && (
+                                  <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
+                                    {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
+                                    {shot.shot_number ?? '—'}
+                                  </Td>
+                                )}
+                                {/* Name, and the row's buttons right after it (FX8, the kit's RowTitle); the grip here when the number is hidden (VW1e) */}
+                                <Td className="rb-scene-name-cell" data-grip={drag && !showNum ? 'true' : undefined}>
+                                  {drag && !showNum && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
                                   <RowTitle actions={<>
                                     <IconButton size="sm" Icon={FileText} title={`Open ${shotName}`} onClick={() => onOpenShotDetail(shot.id)} />
                                     <RowMore name={shotName} items={rowMenu?.('shot', shot, sceneShots.map(s => s.id))} />
@@ -2404,70 +2467,80 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                   </RowTitle>
                                 </Td>
                                 {/* Takes (milestone 2) */}
-                                {takes?.supports && (
+                                {takes?.supports && nest.has('takes') && (
                                   <Td className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
                                     <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 22)} max={3}
                                       canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
                                   </Td>
                                 )}
-                                {/* Status */}
-                                <Td className="rb-scene-status-cell">
-                                  <span className="rb-scene-status">
-                                    <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
-                                    <CellSelect
-                                      className="rb-scene-status-select"
-                                      value={shot.status || 'not_started'}
-                                      onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
-                                      options={STATUS_OPTIONS}
-                                      disabled={!canWrite}
-                                      aria-label={`Status for ${shotName}`}
-                                    />
-                                  </span>
-                                </Td>
-                                {/* Time of day */}
-                                <Td className="rb-scene-time-cell">
-                                  <CellSelect value={shot.time_of_day || null} onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
-                                    placeholder="—" options={TIME_OPTIONS} disabled={!canWrite} aria-label={`Time of day for ${shotName}`} />
-                                </Td>
-                                {/* Type */}
-                                <Td className="rb-scene-type-cell">
-                                  <CellSelect value={shot.type || 'other'} onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
-                                    options={TYPE_OPTIONS} disabled={!canWrite} aria-label={`Type for ${shotName}`} />
-                                </Td>
+                                {nest.has('status') && (
+                                  <Td className="rb-scene-status-cell">
+                                    <span className="rb-scene-status">
+                                      <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                                      <CellSelect
+                                        className="rb-scene-status-select"
+                                        value={shot.status || 'not_started'}
+                                        onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
+                                        options={STATUS_OPTIONS}
+                                        disabled={!canWrite}
+                                        aria-label={`Status for ${shotName}`}
+                                      />
+                                    </span>
+                                  </Td>
+                                )}
+                                {nest.has('time_of_day') && (
+                                  <Td className="rb-scene-time-cell">
+                                    <CellSelect value={shot.time_of_day || null} onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
+                                      placeholder="—" options={TIME_OPTIONS} disabled={!canWrite} aria-label={`Time of day for ${shotName}`} />
+                                  </Td>
+                                )}
+                                {nest.has('type') && (
+                                  <Td className="rb-scene-type-cell">
+                                    <CellSelect value={shot.type || 'other'} onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
+                                      options={TYPE_OPTIONS} disabled={!canWrite} aria-label={`Type for ${shotName}`} />
+                                  </Td>
+                                )}
                                 {/* Framing: the code in the cell, the long names in the list */}
-                                <Td className="rb-scene-framing-cell">
-                                  <span className="rb-scene-framing">
-                                    <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
-                                    <CellSelect className="rb-scene-framing-select" value={shot.framing || null} onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
-                                      placeholder="—" options={FRAMING_CHOICES} disabled={!canWrite} aria-label={`Framing for ${shotName}`} />
-                                  </span>
-                                </Td>
-                                {/* Camera movement */}
-                                <Td className="rb-scene-move-cell">
-                                  <CellSelect value={shot.camera_movement || null} onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
-                                    placeholder="—" options={MOVE_CHOICES} disabled={!canWrite} aria-label={`Camera movement for ${shotName}`} />
-                                </Td>
-                                {/* Description */}
-                                <Td className="rb-scene-desc-cell">
-                                  <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
-                                    label={`Description for ${shotName}`}
-                                    readOnly={!canWrite}
-                                    onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
-                                </Td>
-                                {/* Duration */}
-                                <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
-                                  {framesToTimecode(shot.frame_count || 0, fps)}
-                                </Td>
+                                {nest.has('framing') && (
+                                  <Td className="rb-scene-framing-cell">
+                                    <span className="rb-scene-framing">
+                                      <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
+                                      <CellSelect className="rb-scene-framing-select" value={shot.framing || null} onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
+                                        placeholder="—" options={FRAMING_CHOICES} disabled={!canWrite} aria-label={`Framing for ${shotName}`} />
+                                    </span>
+                                  </Td>
+                                )}
+                                {nest.has('camera_movement') && (
+                                  <Td className="rb-scene-move-cell">
+                                    <CellSelect value={shot.camera_movement || null} onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
+                                      placeholder="—" options={MOVE_CHOICES} disabled={!canWrite} aria-label={`Camera movement for ${shotName}`} />
+                                  </Td>
+                                )}
+                                {nest.has('description') && (
+                                  <Td className="rb-scene-desc-cell">
+                                    <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
+                                      label={`Description for ${shotName}`}
+                                      readOnly={!canWrite}
+                                      onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
+                                  </Td>
+                                )}
+                                {nest.has('duration') && (
+                                  <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
+                                    {framesToTimecode(shot.frame_count || 0, fps)}
+                                  </Td>
+                                )}
                                 {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26),
                                     as the number field (FX1): its own chevrons, five figures and an ellipsis */}
-                                <Td numeric className="rb-scene-frames-cell">
-                                  <NumberField min={0} value={shot.frame_count ?? ''}
-                                    onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
-                                    disabled={!canWrite}
-                                    aria-label={`Frames for ${shotName}`}
-                                    className="rb-scene-frames"
-                                    placeholder="0" />
-                                </Td>
+                                {nest.has('frames') && (
+                                  <Td numeric className="rb-scene-frames-cell">
+                                    <NumberField min={0} value={shot.frame_count ?? ''}
+                                      onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
+                                      disabled={!canWrite}
+                                      aria-label={`Frames for ${shotName}`}
+                                      className="rb-scene-frames"
+                                      placeholder="0" />
+                                  </Td>
+                                )}
                               </Row>
                             )
                           })}
@@ -2529,7 +2602,11 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
 // well said it twice in statusColor's hues; the bar goes, as the Assets
 // cards' did) — and the shot count and runtime in the mono, in the third
 // ink (R3-13: #57534e, 2.3:1). The whole card opens the scene, as it did.
-function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, canWrite = false, rowMenu, nameTitle, onOpenDetail, onRequestDelete }) {
+// VW1e: `cardShows`, the card's own lines the Scenes view shows (her Q-E;
+// Q-P2: description, type, time of day, status, runtime); null shows every
+// line. The shot count has no column and always shows.
+function SceneGallery({ scenes, shotsByScene, sceneTotals, cardShows = null, gallerySize, fps, canWrite = false, rowMenu, nameTitle, onOpenDetail, onRequestDelete }) {
+  const show = (key) => !cardShows || cardShows.has(key)
   if (scenes.length === 0) {
     // The kit's empty state (R3-19), in the same words.
     return <EmptyState Icon={Film} title="No scenes yet" />
@@ -2559,29 +2636,33 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, can
                 <span className="rb-scene-card-name" title={nameTitle?.(sc.id)}>
                   {sc.name || 'Untitled scene'}
                 </span>
-                {sc.description && (
+                {show('description') && sc.description && (
                   <span className="rb-scene-card-desc">
                     {sc.description}
                   </span>
                 )}
-                <div className="rb-scene-card-meta">
-                  <span className="rb-scene-card-tag">
-                    {humanizeStatus(sc.type || '')}
-                  </span>
-                  {sc.time_of_day && (
-                    <span className="rb-scene-card-tag">
-                      {humanizeStatus(sc.time_of_day)}
-                    </span>
-                  )}
-                  <StatusBadge status={sc.status || 'not_started'} />
-                </div>
+                {(show('type') || (show('time_of_day') && sc.time_of_day) || show('status')) && (
+                  <div className="rb-scene-card-meta">
+                    {show('type') && (
+                      <span className="rb-scene-card-tag">
+                        {humanizeStatus(sc.type || '')}
+                      </span>
+                    )}
+                    {show('time_of_day') && sc.time_of_day && (
+                      <span className="rb-scene-card-tag">
+                        {humanizeStatus(sc.time_of_day)}
+                      </span>
+                    )}
+                    {show('status') && <StatusBadge status={sc.status || 'not_started'} />}
+                  </div>
+                )}
                 <div className="rb-scene-card-figures">
                   {sceneShots.length > 0 && (
                     <span className="rb-scene-card-figure">
                       {sceneShots.length} shot{sceneShots.length !== 1 ? 's' : ''}
                     </span>
                   )}
-                  {totals.totalFrames > 0 && (
+                  {show('runtime') && totals.totalFrames > 0 && (
                     <span className="rb-scene-card-figure">
                       {totals.runtime}
                     </span>
@@ -2604,8 +2685,16 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, can
 // Post-overhaul S3c, step 6: `drag` (useCutDrag's, or null) — grouped by
 // scene in the list's own order, a shot row is dragged by its number cell and
 // a scene's band by the grip before its name; a drop asks D13's question.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending, drag = null }) {
+// VW1e (2026-10-25): `columns` the Shots view's visible columns in its order
+// (Takes only while the backend keeps takes), `leading` the leading columns
+// it shows (her Q-J: the picture, the number); the least width and every
+// span follow them (§4.10).
+function ShotTable({ shotGroups, columns = shotsTableColumnsAll, leading = ALL_SHOT_LEAD, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending, drag = null }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
+  const showThumb = leading.has('thumbnail')
+  const showNum = leading.has('shot_number')
+  const cols = columns.filter(c => c.key !== 'name' && (c.key !== 'takes' || takes?.supports))
+  const widths = sceneTableMin(columns.filter(c => c.key !== 'takes' || takes?.supports), new Set([...leading]), { shots: true })
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   // W9: the bulk delete asks on the kit Dialog (it was window.confirm).
@@ -2652,10 +2741,13 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 
   // What a group's band and an Add shot row span: every column (FX8: no
   // actions column; a row's buttons are in its name cell).
-  const span = takes?.supports ? 15 : 14
+  // VW1e: the columns on screen (the checkbox, the leading columns shown,
+  // the name, the view's columns).
+  const span = 2 + (showThumb ? 1 : 0) + (showNum ? 1 : 0) + cols.length
 
   return (
-    <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
+    <div className="rb-scene-table-wrap" data-thumb={thumbSize} data-grow={widths.grow > 0 ? 'some' : 'none'}
+      style={{ '--rb-scene-min': widths.min }}>
       {/* Bulk action bar: over the header, right of the checkbox column */}
       {someSelected && (
         <div className="rb-scene-bulk">
@@ -2699,20 +2791,12 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                     : <Square aria-hidden="true" />}
               </button>
             </Th>
-            <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
-            <Th width="var(--rb-scene-col-num)" numeric>#</Th>
+            {/* VW1e: the leading columns the view shows (her Q-J), the name,
+                then the view's columns in its order. */}
+            {showThumb && <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>}
+            {showNum && <Th width="var(--rb-scene-col-num)" numeric>#</Th>}
             <Th width="var(--rb-scene-col-name)">Shot name</Th>
-            {takes?.supports && <Th width="var(--rb-scene-col-takes)" title="Bin files assigned to the shot; the starred one is the primary take">Takes</Th>}
-            <Th width="var(--rb-scene-col-status)">Status</Th>
-            <Th width="var(--rb-scene-col-time)">Time of day</Th>
-            <Th width="var(--rb-scene-col-type)">Type</Th>
-            <Th width="var(--rb-scene-col-framing)">Framing</Th>
-            <Th width="var(--rb-scene-col-move)">Cam move</Th>
-            <Th>Description</Th>
-            <Th width="var(--rb-scene-col-runtime)" numeric>Duration</Th>
-            <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
-            <Th width="var(--rb-scene-col-date)">Start</Th>
-            <Th width="var(--rb-scene-col-date)">End</Th>
+            {cols.map(c => <Th key={c.key} width={c.width} numeric={c.numeric} title={c.title}>{c.label}</Th>)}
           </Row>
         )}
       >
@@ -2827,47 +2911,53 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       </button>
                     </Td>
 
-                    {/* Thumbnail */}
-                    <Td className="rb-scene-thumb-cell">
-                      <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
-                        onClick={canWrite ? async e => {
-                          e.stopPropagation()
-                          if (!window.electronAPI?.rabbit?.pickImage) return
-                          const imagePath = await window.electronAPI.rabbit.pickImage()
-                          if (!imagePath) return
-                          ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                          try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                          onThumbChanged?.()
-                        } : undefined}>
-                        {shot.thumbnail_image ? (
-                          <>
-                            <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
-                            {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
-                          </>
-                        ) : takeFallback ? (
-                          <>
-                            {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
-                            <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} className="rb-scene-poster" />
-                            {canWrite && <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>}
-                          </>
-                        ) : (
-                          <>
-                            <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
-                            {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
-                          </>
-                        )}
-                      </div>
-                    </Td>
+                    {/* Thumbnail, unless the view hides it (her Q-J) */}
+                    {showThumb && (
+                      <Td className="rb-scene-thumb-cell">
+                        <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
+                          onClick={canWrite ? async e => {
+                            e.stopPropagation()
+                            if (!window.electronAPI?.rabbit?.pickImage) return
+                            const imagePath = await window.electronAPI.rabbit.pickImage()
+                            if (!imagePath) return
+                            ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                            try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                            onThumbChanged?.()
+                          } : undefined}>
+                          {shot.thumbnail_image ? (
+                            <>
+                              <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
+                              {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
+                            </>
+                          ) : takeFallback ? (
+                            <>
+                              {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                              <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} className="rb-scene-poster" />
+                              {canWrite && <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>}
+                            </>
+                          ) : (
+                            <>
+                              <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
+                              {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
+                            </>
+                          )}
+                        </div>
+                      </Td>
+                    )}
 
                     {/* Shot # — and, grouped by scene in the list's own order, its grip (S3c step 6) */}
-                    <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
-                      {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
-                      {shot.shot_number ?? '—'}
-                    </Td>
+                    {showNum && (
+                      <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
+                        {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
+                        {shot.shot_number ?? '—'}
+                      </Td>
+                    )}
 
                     {/* Name: the row's anchor, 600 in the ink; the row's
-                        buttons right after it (FX8, the kit's RowTitle) */}
-                    <Td className="rb-scene-name-cell">
+                        buttons right after it (FX8, the kit's RowTitle).
+                        VW1e: with the number hidden the grip is here. */}
+                    <Td className="rb-scene-name-cell" data-grip={drag && !showNum ? 'true' : undefined}>
+                      {drag && !showNum && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
                       <RowTitle actions={<>
                         <IconButton size="sm" Icon={FileText} title={`Open ${shotName}`} onClick={() => onOpenShotDetail(shot.id)} />
                         <RowMore name={shotName} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
@@ -2888,140 +2978,150 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       </RowTitle>
                     </Td>
 
-                    {/* Takes (milestone 2) */}
-                    {takes?.supports && (
-                      <Td className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
-                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 26)} max={3}
-                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
-                      </Td>
-                    )}
-
-                    {/* Status: the kit's StatusDot beside a CellSelect (R3-11) */}
-                    <Td className="rb-scene-status-cell">
-                      <span className="rb-scene-status">
-                        <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
-                        <CellSelect
-                          className="rb-scene-status-select"
-                          value={shot.status || 'not_started'}
-                          onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
-                          options={STATUS_OPTIONS}
-                          disabled={!canWrite}
-                          aria-label={`Status for ${shotName}`}
-                        />
-                      </span>
-                    </Td>
-
-                    {/* Time of day */}
-                    <Td className="rb-scene-time-cell">
-                      <CellSelect
-                        value={shot.time_of_day || null}
-                        onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
-                        placeholder="—"
-                        options={TIME_OPTIONS}
-                        disabled={!canWrite}
-                        aria-label={`Time of day for ${shotName}`}
-                      />
-                    </Td>
-
-                    {/* Type */}
-                    <Td className="rb-scene-type-cell">
-                      <CellSelect
-                        value={shot.type || 'other'}
-                        onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
-                        options={TYPE_OPTIONS}
-                        disabled={!canWrite}
-                        aria-label={`Type for ${shotName}`}
-                      />
-                    </Td>
-
-                    {/* Framing: the code in the cell, the long names in the list */}
-                    <Td className="rb-scene-framing-cell">
-                      <span className="rb-scene-framing">
-                        <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
-                        <CellSelect
-                          className="rb-scene-framing-select"
-                          value={shot.framing || null}
-                          onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
-                          placeholder="—"
-                          options={FRAMING_CHOICES}
-                          disabled={!canWrite}
-                          aria-label={`Framing for ${shotName}`}
-                        />
-                      </span>
-                    </Td>
-
-                    {/* Camera movement */}
-                    <Td className="rb-scene-move-cell">
-                      <CellSelect
-                        value={shot.camera_movement || null}
-                        onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
-                        placeholder="—"
-                        options={MOVE_CHOICES}
-                        disabled={!canWrite}
-                        aria-label={`Camera movement for ${shotName}`}
-                      />
-                    </Td>
-
-                    {/* Description */}
-                    <Td className="rb-scene-desc-cell">
-                      <InlineText
-                        value={shot.description || ''}
-                        placeholder="Add description…"
-                        size="sm"
-                        label={`Description for ${shotName}`}
-                        readOnly={!canWrite}
-                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
-                      />
-                    </Td>
-
-                    {/* Duration (derived): a zero at the third ink (R3-13) */}
-                    <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
-                      {framesToTimecode(shot.frame_count || 0, fps)}
-                    </Td>
-
-                    {/* Frame count (editable): the kit's small field, as the number field (FX1) */}
-                    <Td numeric className="rb-scene-frames-cell">
-                      <NumberField
-                        min={0}
-                        value={shot.frame_count ?? ''}
-                        onChange={e => {
-                          const n = parseInt(e.target.value, 10)
-                          ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
-                        }}
-                        disabled={!canWrite}
-                        aria-label={`Frames for ${shotName}`}
-                        className="rb-scene-frames"
-                        placeholder="0"
-                      />
-                    </Td>
-
-                    {/* Start date */}
-                    <Td className="rb-scene-date-cell">
-                      <input
-                        type="date"
-                        value={shot.start_date || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
-                        disabled={!canWrite}
-                        aria-label={`Start date for ${shotName}`}
-                        className="ui-input rb-scene-date"
-                        data-size="sm"
-                        data-empty={shot.start_date ? undefined : 'true'}
-                      />
-                    </Td>
-
-                    {/* End date */}
-                    <Td className="rb-scene-date-cell">
-                      <input
-                        type="date"
-                        value={shot.end_date || ''}
-                        onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
-                        disabled={!canWrite}
-                        aria-label={`End date for ${shotName}`}
-                        className="ui-input rb-scene-date"
-                        data-size="sm"
-                        data-empty={shot.end_date ? undefined : 'true'}
-                      />
-                    </Td>
+                    {/* The view's columns, in its order (VW1e). */}
+                    {cols.map(c => {
+                      switch (c.key) {
+                        // Takes (milestone 2)
+                        case 'takes': return takes?.supports ? (
+                          <Td key="takes" className="rb-scene-takes-cell" onClick={e => e.stopPropagation()}>
+                            <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 26)} max={3}
+                              canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                          </Td>
+                        ) : null
+                        // Status: the kit's StatusDot beside a CellSelect (R3-11)
+                        case 'status': return (
+                          <Td key="status" className="rb-scene-status-cell">
+                            <span className="rb-scene-status">
+                              <StatusDot status={shot.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                              <CellSelect
+                                className="rb-scene-status-select"
+                                value={shot.status || 'not_started'}
+                                onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
+                                options={STATUS_OPTIONS}
+                                disabled={!canWrite}
+                                aria-label={`Status for ${shotName}`}
+                              />
+                            </span>
+                          </Td>
+                        )
+                        case 'time_of_day': return (
+                          <Td key="time_of_day" className="rb-scene-time-cell">
+                            <CellSelect
+                              value={shot.time_of_day || null}
+                              onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
+                              placeholder="—"
+                              options={TIME_OPTIONS}
+                              disabled={!canWrite}
+                              aria-label={`Time of day for ${shotName}`}
+                            />
+                          </Td>
+                        )
+                        case 'type': return (
+                          <Td key="type" className="rb-scene-type-cell">
+                            <CellSelect
+                              value={shot.type || 'other'}
+                              onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
+                              options={TYPE_OPTIONS}
+                              disabled={!canWrite}
+                              aria-label={`Type for ${shotName}`}
+                            />
+                          </Td>
+                        )
+                        // Framing: the code in the cell, the long names in the list
+                        case 'framing': return (
+                          <Td key="framing" className="rb-scene-framing-cell">
+                            <span className="rb-scene-framing">
+                              <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
+                              <CellSelect
+                                className="rb-scene-framing-select"
+                                value={shot.framing || null}
+                                onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
+                                placeholder="—"
+                                options={FRAMING_CHOICES}
+                                disabled={!canWrite}
+                                aria-label={`Framing for ${shotName}`}
+                              />
+                            </span>
+                          </Td>
+                        )
+                        case 'camera_movement': return (
+                          <Td key="camera_movement" className="rb-scene-move-cell">
+                            <CellSelect
+                              value={shot.camera_movement || null}
+                              onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
+                              placeholder="—"
+                              options={MOVE_CHOICES}
+                              disabled={!canWrite}
+                              aria-label={`Camera movement for ${shotName}`}
+                            />
+                          </Td>
+                        )
+                        case 'description': return (
+                          <Td key="description" className="rb-scene-desc-cell">
+                            <InlineText
+                              value={shot.description || ''}
+                              placeholder="Add description…"
+                              size="sm"
+                              label={`Description for ${shotName}`}
+                              readOnly={!canWrite}
+                              onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
+                            />
+                          </Td>
+                        )
+                        // Duration (derived): a zero at the third ink (R3-13)
+                        case 'duration': return (
+                          <Td key="duration" numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
+                            {framesToTimecode(shot.frame_count || 0, fps)}
+                          </Td>
+                        )
+                        // Frame count (editable): the kit's small field, as the number field (FX1)
+                        case 'frame_count': return (
+                          <Td key="frame_count" numeric className="rb-scene-frames-cell">
+                            <NumberField
+                              min={0}
+                              value={shot.frame_count ?? ''}
+                              onChange={e => {
+                                const n = parseInt(e.target.value, 10)
+                                ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
+                              }}
+                              disabled={!canWrite}
+                              aria-label={`Frames for ${shotName}`}
+                              className="rb-scene-frames"
+                              placeholder="0"
+                            />
+                          </Td>
+                        )
+                        case 'start_date': return (
+                          <Td key="start_date" className="rb-scene-date-cell">
+                            <input
+                              type="date"
+                              value={shot.start_date || ''}
+                              onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
+                              disabled={!canWrite}
+                              aria-label={`Start date for ${shotName}`}
+                              className="ui-input rb-scene-date"
+                              data-size="sm"
+                              data-empty={shot.start_date ? undefined : 'true'}
+                            />
+                          </Td>
+                        )
+                        case 'end_date': return (
+                          <Td key="end_date" className="rb-scene-date-cell">
+                            <input
+                              type="date"
+                              value={shot.end_date || ''}
+                              onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
+                              disabled={!canWrite}
+                              aria-label={`End date for ${shotName}`}
+                              className="ui-input rb-scene-date"
+                              data-size="sm"
+                              data-empty={shot.end_date ? undefined : 'true'}
+                            />
+                          </Td>
+                        )
+                        default: return null
+                      }
+                    })}
                   </Row>
                 )
               })}
@@ -3071,7 +3171,11 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 // A group's head is the shot table's band in the gallery's shape: the glyph
 // and the count in the third ink, the name at 600 in the ink (they were
 // orange), the named kit IconButton that opens the scene, then a hairline.
-function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, canWrite = false, rowMenu, nameTitle, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+// VW1e: `cardShows`, the card's own lines the Shots view shows (her Q-E;
+// Q-P2: description, number, status, duration, frames, takes); null shows
+// every line.
+function ShotGallery({ shotGroups, cardShows = null, gallerySize, fps, ctx, takes, thumbRevision = 0, canWrite = false, rowMenu, nameTitle, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+  const show = (key) => !cardShows || cardShows.has(key)
   // The sheet sizes the cards (`.rb-scene-gallery[data-card]`, the same three
   // widths and their 16:9 heights); these are what BinPoster is handed.
   const sizeMap = { sm: 160, md: 220, lg: 300 }
@@ -3143,28 +3247,36 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                     <span className="rb-scene-card-name" title={nameTitle?.(shot.id)}>
                       {shot.name || 'Untitled shot'}
                     </span>
-                    {shot.description && (
+                    {show('description') && shot.description && (
                       <span className="rb-scene-card-desc">
                         {shot.description}
                       </span>
                     )}
-                    <div className="rb-scene-card-meta">
-                      <span className="rb-scene-card-num">
-                        #{shot.shot_number ?? '—'}
-                      </span>
-                      <StatusBadge status={shot.status || 'not_started'} />
-                    </div>
-                    {(shot.frame_count || 0) > 0 && (
+                    {(show('shot_number') || show('status')) && (
                       <div className="rb-scene-card-meta">
-                        <span className="rb-scene-card-figure">
-                          {framesToTimecode(shot.frame_count, fps)}
-                        </span>
-                        <span className="rb-scene-card-figure">
-                          {fmtNumber(shot.frame_count)} fr
-                        </span>
+                        {show('shot_number') && (
+                          <span className="rb-scene-card-num">
+                            #{shot.shot_number ?? '—'}
+                          </span>
+                        )}
+                        {show('status') && <StatusBadge status={shot.status || 'not_started'} />}
                       </div>
                     )}
-                    {takes?.supports && (
+                    {(shot.frame_count || 0) > 0 && (show('duration') || show('frame_count')) && (
+                      <div className="rb-scene-card-meta">
+                        {show('duration') && (
+                          <span className="rb-scene-card-figure">
+                            {framesToTimecode(shot.frame_count, fps)}
+                          </span>
+                        )}
+                        {show('frame_count') && (
+                          <span className="rb-scene-card-figure">
+                            {fmtNumber(shot.frame_count)} fr
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {takes?.supports && show('takes') && (
                       <div className="rb-scene-card-takes" onClick={e => e.stopPropagation()}>
                         <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={20} max={4}
                           canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
@@ -4305,134 +4417,10 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop 
 }
 
 
-// ─── Filter panel ───
-// The Tasks, Assets, Levels and Budget pages' filter strip (B2, B4b, B4c,
-// B5), in this lane's classes, at the page's 24px gutter (R3-31): each field
-// a native select or text field in the kit's small well (`ui-input`, not the
-// kit Input, whose own Escape and Enter would break a draft), named for what
-// it is; each row's remove the kit's danger IconButton, named (it had no
-// name); Add filter and Done the kit's Buttons. The same rows, fields,
-// operators and order. Done stays on show with no filter, as it always was
-// here (C1; the other strips never showed it then). The words in sentence
-// case (Q2): a choice humanised from its value (a framing or movement code
-// keeps its capitals), and the value field's hint.
-function SceneFilterPanel({ filters, filterFields, onAdd, onUpdate, onRemove, onClose }) {
-  const fields = filterFields || SCENE_FILTER_FIELDS
-  function getOptions(f) {
-    const def = fields.find(ff => ff.value === f.field)
-    if (!def) return []
-    return (def.options || []).map(o => ({ value: o, label: humanizeStatus(o) }))
-  }
-  function getType(f) {
-    return fields.find(ff => ff.value === f.field)?.type || 'text'
-  }
-  return (
-    <div className="rb-scene-filters">
-      {filters.map((f, i) => {
-        const type = getType(f)
-        const ops = FILTER_OPS[type] || FILTER_OPS.text
-        const needsValue = !['is_empty','is_not_empty'].includes(f.op)
-        return (
-          <div key={i} className="rb-scene-filter-row">
-            <span className="rb-scene-filter-where text-label uppercase">
-              {i === 0 ? 'Where' : 'And'}
-            </span>
-            <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              aria-label="Field" className="ui-input rb-scene-filter-field" data-size="sm">
-              {fields.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
-            </select>
-            <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              aria-label="Condition" className="ui-input rb-scene-filter-op" data-size="sm">
-              {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {needsValue && (
-              type === 'select' ? (
-                <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  aria-label="Value" className="ui-input rb-scene-tool" data-size="sm">
-                  <option value="">Select…</option>
-                  {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ) : (
-                <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  placeholder="Value…"
-                  aria-label="Value"
-                  className="ui-input rb-scene-filter-text" data-size="sm" />
-              )
-            )}
-            <IconButton size="sm" Icon={X} danger title="Remove this filter" onClick={() => onRemove(i)} />
-          </div>
-        )
-      })}
-      <div className="rb-scene-filter-actions">
-        <Button size="sm" Icon={Plus} onClick={onAdd}>Add filter</Button>
-        <Button size="sm" variant="ghost" onClick={onClose}>Done</Button>
-      </div>
-    </div>
-  )
-}
-
-
-// ─── Saved views dropdown ───
-// The Tasks, Assets, Levels and Budget pages' menu (B2's, restyled in place
-// on the kit's floating tokens: the kit Menu has no item with a trailing
-// action — load a view AND delete it from one row, B2's kit request K2), in
-// this lane's classes: a view's row loads it, its delete the kit's danger
-// IconButton named for the view (it had no name), Save current view at the
-// foot; still 180px at least, the list scrolling past 200px, as it did. The
-// same three clicks and no new keys: it still closes on a press outside.
-// Its button stays the icon it was, now the kit's IconButton under the name
-// it always had, "Saved views": the others' "Views" word would take the
-// toolbar to two lines at 1440 in the shots mode (C1). Its glyph takes the
-// signal while views are saved, as it took orange (grey when none, #57534e
-// at 2.3:1; the kit's second ink now).
-function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
-
-  return (
-    <div ref={ref} className="rb-scene-views">
-      <IconButton size="sm" Icon={BookmarkPlus} title="Saved views" aria-expanded={open}
-        className="rb-scene-views-button" data-saved={views.length > 0 ? 'true' : 'false'}
-        onClick={() => setOpen(o => !o)} />
-      {open && (
-        <div className="rb-scene-menu">
-          <div className="rb-scene-menu-list">
-            {views.length === 0 ? (
-              <div className="rb-scene-menu-empty">
-                No saved views yet
-              </div>
-            ) : (
-              views.map(v => (
-                <div key={v.id} className="rb-scene-menu-item"
-                  onClick={() => { onLoad(v); setOpen(false) }}>
-                  <span className="rb-scene-menu-label">{v.name}</span>
-                  <IconButton size="sm" Icon={X} danger title={`Delete the saved view "${v.name}"`}
-                    onClick={e => { e.stopPropagation(); onDelete(v.id) }} />
-                </div>
-              ))
-            )}
-          </div>
-          <div className="rb-scene-menu-foot">
-            <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
-              className="rb-scene-menu-item">
-              <Save className="rb-scene-menu-icon" aria-hidden="true" />
-              <span className="rb-scene-menu-label">Save current view</span>
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// ─── Filter panel and saved views (gone, VW1e) ───
+// The shared filter row (views/tableViews/ViewFilterRow.jsx) and the Views
+// dropdown (TableViewsMenu.jsx) replace SceneFilterPanel and
+// SceneSavedViewsDropdown: each table's own views, her Q16 and Q17.
 
 
 // ─── Bulk select ───
