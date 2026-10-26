@@ -1,0 +1,314 @@
+{
+  "tasks": {
+    "rest": {
+      "height": 45,
+      "rows": 1,
+      "spare": 201,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": false,
+      "createGrouping": false
+    },
+    "filter": {
+      "height": 45,
+      "rows": 1,
+      "spare": 184,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "grouped": {
+      "height": 45,
+      "rows": 1,
+      "spare": 48,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "sorted": {
+      "height": 45,
+      "rows": 1,
+      "spare": 16,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "long": {
+      "height": 45,
+      "rows": 1,
+      "spare": 201,
+      "views": 136,
+      "cut": true,
+      "title": "Lighthouse interiors at dawn",
+      "bar": false,
+      "createGrouping": false
+    }
+  },
+  "assets": {
+    "rest": {
+      "height": 45,
+      "rows": 1,
+      "spare": 340,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": false,
+      "createGrouping": false
+    },
+    "filter": {
+      "height": 45,
+      "rows": 1,
+      "spare": 331,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "grouped": {
+      "height": 45,
+      "rows": 1,
+      "spare": 188,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "sorted": {
+      "height": 45,
+      "rows": 1,
+      "spare": 156,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "long": {
+      "height": 45,
+      "rows": 1,
+      "spare": 340,
+      "views": 136,
+      "cut": true,
+      "title": "Lighthouse interiors at dawn",
+      "bar": false,
+      "createGrouping": false
+    }
+  },
+  "scenes": {
+    "rest": {
+      "height": 45,
+      "rows": 1,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": false,
+      "createGrouping": false
+    },
+    "filter": {
+      "height": 45,
+      "rows": 1,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "grouped": {
+      "height": 45,
+      "rows": 1,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "sorted": {
+      "height": 71,
+      "rows": 2,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "long": {
+      "height": 45,
+      "rows": 1,
+      "spare": 8,
+      "views": 136,
+      "cut": true,
+      "title": "Lighthouse interiors at dawn",
+      "bar": false,
+      "createGrouping": false
+    }
+  },
+  "shots": {
+    "rest": {
+      "height": 71,
+      "rows": 2,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": false,
+      "createGrouping": false
+    },
+    "filter": {
+      "height": 81,
+      "rows": 2,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "grouped": {
+      "height": 71,
+      "rows": 2,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "sorted": {
+      "height": 81,
+      "rows": 2,
+      "spare": 8,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "long": {
+      "height": 71,
+      "rows": 2,
+      "spare": 8,
+      "views": 136,
+      "cut": true,
+      "title": "Lighthouse interiors at dawn",
+      "bar": false,
+      "createGrouping": false
+    }
+  },
+  "levels": {
+    "rest": {
+      "height": 45,
+      "rows": 1,
+      "spare": 467,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": false,
+      "createGrouping": false
+    },
+    "filter": {
+      "height": 45,
+      "rows": 1,
+      "spare": 450,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "grouped": {
+      "height": 45,
+      "rows": 1,
+      "spare": 315,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "sorted": {
+      "height": 45,
+      "rows": 1,
+      "spare": 283,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "long": {
+      "height": 45,
+      "rows": 1,
+      "spare": 467,
+      "views": 136,
+      "cut": true,
+      "title": "Lighthouse interiors at dawn",
+      "bar": false,
+      "createGrouping": false
+    }
+  },
+  "experiences": {
+    "rest": {
+      "height": 45,
+      "rows": 1,
+      "spare": 428,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": false,
+      "createGrouping": false
+    },
+    "filter": {
+      "height": 45,
+      "rows": 1,
+      "spare": 412,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": false
+    },
+    "grouped": {
+      "height": 45,
+      "rows": 1,
+      "spare": 276,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "sorted": {
+      "height": 45,
+      "rows": 1,
+      "spare": 244,
+      "views": 136,
+      "cut": false,
+      "title": "All",
+      "bar": true,
+      "createGrouping": true
+    },
+    "long": {
+      "height": 45,
+      "rows": 1,
+      "spare": 428,
+      "views": 136,
+      "cut": true,
+      "title": "Lighthouse interiors at dawn",
+      "bar": false,
+      "createGrouping": false
+    }
+  }
+}

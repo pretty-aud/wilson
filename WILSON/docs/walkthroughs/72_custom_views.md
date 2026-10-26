@@ -1,9 +1,9 @@
-# 72 — CUSTOM TABLE VIEWS (R.A.B.B.I.T. → a project → Tasks, Levels, Experiences, Scenes)
+# 72 — CUSTOM TABLE VIEWS (R.A.B.B.I.T. → a project → Tasks, Assets, Levels, Experiences, Scenes)
 
 This walkthrough grows with the build: **part 1 (VW1b)** is the Tasks table's
 item columns and the counts; **part 2 (VW1c)** the views' data; **part 3
-(VW1d)** the views on the Tasks table; part 4 (the other tables) is added by
-the session that builds it, and completes it.
+(VW1d)** the views on the Tasks table; **part 4 (VW1e)** the views on
+Assets, Levels, Experiences, Scenes and Shots, which completes it.
 
 ## Part 1 — every item in the Tasks table, and the counts (VW1b, 2026-10-17)
 
@@ -369,3 +369,170 @@ until then the list says *Saved views are not on this server yet.*
 2. **The Board's card fields**: hiding Priority on the Board also hides the
    Priority column in that view's table (one list for both). Keep that, or
    should the Board keep its own list of card fields?
+
+## Part 4 — your views on Assets, Levels, Experiences, Scenes and Shots (VW1e, 2026-10-25)
+
+1. **Every table has the same *Views* button, 136px wide** (your Q-P1):
+   about nine or ten letters of a view's name, then *…* (*Lighthous…*); the
+   list shows more of it, and pointing at either shows it whole. The Tasks
+   table's narrows from 160px to the same 136px.
+2. **Assets** has the Tasks table's list and cards: *All* and the project's
+   views, then *Filters* (several values each), *Sort* (several, in order),
+   *Group* and *Fields*. A change lasts for now, with the slim bar to
+   *Reset*, *Save as new view* or *Save*. **Table / Gallery is the view's**
+   (Q8); the picture size is yours and changes no view.
+3. **Assets grouped by Scene, Shot, Level or Experience** (Q-M3): one group
+   per combination, so an asset in two scenes sits once, under both names
+   (*Lighthouse, dawn, The storm*); *No scene* comes last. **Create
+   grouping** (Q-D3) makes an empty group for the project to drag assets
+   into; dropping an asset there gives it exactly those scenes, one step
+   the undo toast takes back. On the cloud, an asset's levels and
+   experiences are now kept too (migration 0099, on dev; staging's lines in
+   §3 below).
+4. **Levels and Experiences** (a game project) have the same, grouped by
+   Asset the same way. Their *Assets* and *Tasks* counts, and Assets'
+   *Tasks* count, are fields: sort by them, or hide them.
+5. **The columns in front of the name** (Q-J): the Picture on Assets; the
+   shots arrow, the Picture and the Number on Scenes; the Picture and the
+   Number on Shots. *Fields* lists them above the name, each with its
+   switch and no handle (they keep their place). On the Shots cards the
+   Number follows the table's (Q-P2, one list). With the Number hidden, the
+   grip to drag a row sits before the name.
+6. **Scenes and Shots each have their own list of views** (Q16). A filter
+   on Shots no longer empties Scenes (the defect you asked to fix); each
+   keeps its own filters, sorts, grouping, fields and layout, so switching
+   between Scenes and Shots can switch Table and Gallery too. Shots' *All*
+   is grouped by scene, as before. Grouped by status, Shots' groups now come
+   in the status list's order (*Not started* first), as Scenes' do; a shot
+   or scene with no status is *Not started* there too.
+7. **The bookmark is now the Views button** (Q5), where it stood. **The
+   views your browser kept for these five tables are gone** (Q17, *Start
+   fresh*); nothing else is removed.
+8. **List order** (S3b): with a shot list on screen and no sort, a row's
+   shot-list menu has *Move up* and *Move down*, and rows drag. A sort
+   hides them until you reset it. The sort's ↕ (reverse) button shows only
+   while there is a sort to reverse.
+9. **With an edit on screen** its cut is the order: Filter, Sort, Group,
+   Table / Gallery and the Views button are greyed, saying so.
+10. **The help** says which tables have views (the Assets page, and a
+    *Views on the scenes and shots tables* card on the Scenes page).
+
+**What this is.** VW1e, the fifth and last session of the custom views'
+build (`docs/sessions/briefs/po-vw1e-custom-views-tables.md`): first a review
+of the design's parts for these tables against the code (16 findings,
+corrected in `docs/design/CUSTOM_VIEWS_DESIGN.md`), then the cloud's asset
+links (migration 0099), then the views on Assets, Levels and Experiences,
+then on Scenes and Shots (`ScenesView.jsx`, its own step), then two code
+reviews, each correction proven by a test that fails without it. Budget's
+Expenses and Team keep their own saved views (your Q19).
+
+Written 2026-10-25 against `feat/post-overhaul-edit-versioning` (VW1e,
+`po/vw1e-custom-views-tables`). Migration 0099 is applied on dev; staging's
+lines wait for you (§3).
+
+### 1. Step by step
+
+**A. Assets** (the development copy on port 5298, the `vw1e-worktree`
+entry; `/rabbit`, the test data: **Salt Hours → Assets**)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 1 | Look at the toolbar | *Filter, Sort, Group, Table / Gallery*, the three sizes, then the **All** button, then the search (`po-vw1e-assets-rest`). No bar. |
+| 2 | Click **All**, **New view**, type **Lighthouse interiors at dawn**, **Enter** | The button reads *Lighthous…*; the list shows more of it, ticked; point at either for the whole name (`-assets-long`). |
+| 3 | **Group: Scene** | Every asset under *No scene* (the test data links none); **Create grouping** beside the Group menu; the bar: *changed for now* (`-assets-grouped`). |
+| 4 | **Create grouping**, tick **Lighthouse, dawn** and **The storm**, **Create** | An empty group *Lighthouse, dawn, The storm* **0**. |
+| 5 | Drag **Lighthouse Interior** into it, holding the row where no field is (its right end) | It moves there: *Lighthouse, dawn, The storm* **1**, *No scene* **14**; the toast says *Moved "Lighthouse Interior" to Lighthouse, dawn, The storm*, and its **Undo** puts it back. |
+| 6 | **Gallery** | Cards; the bar stays (the layout is the view's). The three size squares change no view. |
+| 7 | **All** → **Fields**: turn off **Show Picture** | The picture column goes; *Name* says *Always shown*. **Reset** in the bar brings it back. |
+
+**B. Levels and Experiences** (open `/rabbit?fixtures=game`; **Salt Hours →
+Levels**, then **Experiences**)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 8 | Look at the toolbar; **Group: Asset** | The same button; one group per combination of assets (*Lamp Room* under *Lighthouse Interior, Storm Lantern, Storyboards*), and **Create grouping** (`po-vw1e-levels-grouped`, `-experiences-grouped`). |
+| 9 | **Sort: Assets** | The levels by how many assets each has (every count sorts as a number; on Shots, *Duration* and *Takes* too). |
+
+**C. Scenes and Shots** (**Salt Hours → Scenes**; the shot list *Shot list
+1 · v1* is on screen)
+
+| # | Do | You should see |
+|---|----|----------------|
+| 10 | Look at the toolbar | **All** where the bookmark was; *Sort* reads *List order*; no ↕ (`po-vw1e-scenes-rest`). |
+| 11 | Point at a row, click the **⋯** after its name | *Move up*, *Move down*, *Remove from this list*. Close it. |
+| 12 | **Sort: Name** | The ↕ appears; the bar: *All: changed for now*; the row menu has no *Move up* now. **Reset**: they are back. |
+| 13 | **Filter** → **Add filter** → **Status** → tick **Final** | One scene, *1/6*; *Filter (1)*. |
+| 14 | **Shots** | Every shot, *16/16*: the scenes' filter is not the shots' (defect 3). The button says *All*, the Shots table's; its list has none of the Scenes views. Shots stays grouped by scene. |
+| 15 | **Gallery** on Shots, then **Scenes** | Scenes is still a table: each keeps its own layout. |
+| 16 | On Scenes, **All** → **Fields** → turn off **Show Number** | The number column goes; the grip sits before each name. |
+| 17 | **Reset** (the Number is back); drag a scene by the grip in its number cell; **Start new edit** | The new edit is on screen: Filter, Sort, Group, the layout tabs and the Views button greyed, *An edit shows its cut order…* when you point. **Discard changes**: back to List order, all of them live. |
+
+**D. On the desktop app and the beta**, when you choose: the same steps on a
+real project. On the beta an asset's levels and experiences need §3's
+staging lines first.
+
+### 2. What changed, place by place
+
+| Where | Before | Now |
+|-------|--------|-----|
+| Assets, Levels, Experiences toolbars | *Views* (this browser's saved views) | the view's name, its list and cards; the bar |
+| Scenes and Shots toolbar | the bookmark (this browser's saved views, shared by both) | the Views button of the table on screen |
+| Filters | one value; Scenes and Shots shared them | several values; each table its own |
+| Sort | one | several, in order; the ↕ only with a sort |
+| Group on Assets | type, phase, status | plus scene, shot, level, experience (combinations), Create grouping |
+| Group on Levels, Experiences | status | plus asset (combinations), Create grouping |
+| Columns | all, always | a view hides any but the name, and the columns in front of it |
+| Gallery cards | fixed lines | a view hides any of them |
+| The cloud | an asset's scenes and shots | its levels and experiences too (0099) |
+
+### 3. Staging (yours, when the beta merges)
+
+Migration 0099 adds an asset's levels and experiences to the cloud. It is on
+dev; the commands for staging are in the Desktop kit
+(`WILSON walkthroughs\Post-overhaul\migrations-to-apply\00_HOW_TO_APPLY.md`,
+the 0099 section, with `hist-0099.sql`). Until staging has it, the beta keeps
+working: it leaves the two links out, and every control that would write
+them (the drag into a level or experience group, Create grouping there, an
+asset's Levels and Experiences, a level's or experience's Assets) is greyed,
+saying why.
+
+### 4. Known limits
+
+- **The toolbars, measured** (`scripts/vw1e-shots.mjs`, the JSON beside the
+  pictures; one line or two):
+
+  | Table | 1440: at rest · a filter on · grouped · grouped and sorted | 1280: the same four |
+  |-------|------------------------------------------------------------|---------------------|
+  | Tasks | one line, all four (16px to spare at the last) | one · one · two · two |
+  | Assets | one line, all four | one · one · one · two (4px short) |
+  | Levels, Experiences | one line, all four | one line, all four |
+  | Scenes | one · one · one · two | two lines, all four |
+  | Shots | two lines, all four | two lines, all four |
+
+  The Tasks toolbar keeps one line now at 1440 grouped and sorted, and at
+  1280 with a filter on (both took two at 160px), as your Q-P1 expected.
+  A view's name fills 70px of the 136: about nine or ten letters
+  (*Lighthous…*, *Shoot we…*), not the twelve VW1d estimated, because the
+  bookmark glyph and the arrow take the rest.
+
+- **Scenes and Shots share a toolbar** with fifteen controls (sixteen with
+  a sort); the Views button's extra 108px (it was a 28px bookmark) puts
+  Shots on two lines at 1440. Shots' Group and Sort menus are wider than Scenes' (*Camera
+  movement*), and its count is longer.
+- **The Shots card's other lines keep their place**: a view chooses which
+  show, not their order.
+- **Levels and Experiences still let any seat delete, rename and change a
+  status** (`docs/OUTSTANDING.md`; older than the views). Saving a view is
+  greyed for a seat that cannot write, as on every table.
+- **A change for now is kept while WILSON is open**, as on Tasks.
+
+### 5. Questions for you
+
+1. **The Views button's name**: at 136px it shows about nine or ten
+   letters, because the bookmark glyph and the arrow sit inside it. Keep
+   it, or drop the glyph so the same 136px shows about twelve?
+2. **The Shots toolbar at 1440** takes two lines (the count drops under):
+   the Views button is 108px wider than the bookmark was, and Shots' Group
+   menu is wider than Scenes' (*Camera movement*). Keep two lines, or move
+   the *24 fps* readout up into the header (an earlier review's idea,
+   R3-25), which gives Shots one line at 1440?
