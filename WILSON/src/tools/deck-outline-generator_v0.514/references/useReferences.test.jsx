@@ -218,3 +218,72 @@ describe('useReferences: code review round 2', () => {
     expect(now(hook).unavailable.size).toBe(0);
   });
 });
+
+// Post-overhaul FX13 (OUTSTANDING DG1b-02): the preview said "Reading it here
+// is recorded" on every read, but a body kept for the session is neither
+// downloaded nor recorded again. Each case counts the downloads beside the
+// line, so the line is checked against what happened.
+describe('useReferences: the preview says "recorded" only when this preview downloads (FX13, DG1b-02)', () => {
+  const RECORDED = 'Reading it here is recorded in the file’s activity, as any download is.';
+  const KEPT = 'Already read while WILSON is open, so showing it here is not recorded again.';
+
+  it('the first preview downloads and says it is recorded; the second downloads nothing and says so', async () => {
+    const { hook, adapter } = setup();
+    await act(async () => { await now(hook).loadPool(); });
+    let shown;
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(adapter.downloadFile).toHaveBeenCalledTimes(1);
+    expect(shown.line).toBe(RECORDED);
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(adapter.downloadFile).toHaveBeenCalledTimes(1);
+    expect(shown.line).toBe(KEPT);
+  });
+
+  it('a body read at Generate is not downloaded again by a later preview, which says so', async () => {
+    const { hook, adapter } = setup();
+    await act(async () => { await now(hook).loadPool(); });
+    act(() => now(hook).tick(['file:f1']));
+    await act(async () => { await now(hook).resolveForGeneration(); });
+    expect(adapter.downloadFile).toHaveBeenCalledTimes(1);
+    let shown;
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(adapter.downloadFile).toHaveBeenCalledTimes(1);
+    expect(shown.line).toBe(KEPT);
+  });
+
+  it('CONTROL: a file changed since its read is downloaded again, and that preview says it is recorded', async () => {
+    const { hook, adapter, files } = setup([fileRow({ id: 'f1', updated_at: '2026-10-16T09:00:00Z' })]);
+    await act(async () => { await now(hook).loadPool(); });
+    let shown;
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(shown.line).toBe(RECORDED);
+    files[0] = { ...files[0], updated_at: '2026-10-26T12:00:00Z' };
+    await act(async () => { await now(hook).loadPool(); });
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(adapter.downloadFile).toHaveBeenCalledTimes(2);
+    expect(shown.line).toBe(RECORDED);
+  });
+
+  it('a PDF\'s line says it the same way, after what it says about its pages', async () => {
+    const { hook, adapter } = setup([fileRow({ id: 'p1', name: 'brief.pdf', mime_type: 'application/pdf' })]);
+    await act(async () => { await now(hook).loadPool(); });
+    let shown;
+    await act(async () => { shown = await now(hook).preview('file:p1'); });
+    expect(shown.line.endsWith(` ${RECORDED}`)).toBe(true);
+    await act(async () => { shown = await now(hook).preview('file:p1'); });
+    expect(adapter.downloadFile).toHaveBeenCalledTimes(1);
+    expect(shown.line.endsWith(` ${KEPT}`)).toBe(true);
+    expect(shown.line).not.toContain(RECORDED);
+  });
+
+  it('a backend that records no downloads says neither line', async () => {
+    const { hook, props } = setup();
+    hook.rerender({ ...props, adapterMode: 'google_drive' });
+    await act(async () => { await now(hook).loadPool(); });
+    let shown;
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(shown.line).toBe(null);
+    await act(async () => { shown = await now(hook).preview('file:f1'); });
+    expect(shown.line).toBe(null);
+  });
+});

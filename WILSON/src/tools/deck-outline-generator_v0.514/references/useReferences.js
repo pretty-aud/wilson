@@ -133,6 +133,9 @@ const listOf = (key) => {
   return kind === 'file' ? 'files' : kind === 'note' ? 'notes' : kind;
 };
 
+/** What a kept body is kept by: the file's size and date (a changed file is read again). */
+const bodySig = (entry) => `${entry.size}:${entry.row?.updated_at || entry.uploadedAt || ''}`;
+
 /**
  * @param {object} args
  * @param {() => object} args.getAdapter  RabbitProvider's stable getter
@@ -416,8 +419,15 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
   }, [chosen, snapshots, unavailable, noteTexts, pdfPages, readIds]);
 
   // ── Reading a body ────────────────────────────────────────────────────────
+  // A body is kept for the session by its size and date; a read that finds it
+  // downloads nothing (and records nothing). `bodyKept` asks that before a
+  // read, for the preview's line (FX13, OUTSTANDING DG1b-02).
+  const bodyKept = useCallback((entry) => {
+    const hit = bodyCache.current.get(entry.id);
+    return !!hit && hit.sig === bodySig(entry);
+  }, []);
   const readBody = useCallback(async (entry) => {
-    const sig = `${entry.size}:${entry.row?.updated_at || entry.uploadedAt || ''}`;
+    const sig = bodySig(entry);
     const hit = bodyCache.current.get(entry.id);
     if (hit && hit.sig === sig) return hit.content;
     const adapter = getAdapter?.();
@@ -461,8 +471,12 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       const words = itemWords(entry, p);
       return { title: entry.name, text: words, tokens: textTokens(words) };
     }
-    const recorded = entry.source === 'stored' && (adapterMode === 'supabase' || adapterMode === 'local_server')
-      ? ' Reading it here is recorded in the file’s activity, as any download is.' : '';
+    // FX13 (DG1b-02): "recorded" only when this preview downloads, asked
+    // before the read; a body already kept is not downloaded or recorded again.
+    const recording = entry.source === 'stored' && (adapterMode === 'supabase' || adapterMode === 'local_server');
+    const recorded = !recording ? ''
+      : bodyKept(entry) ? ' Already read while WILSON is open, so showing it here is not recorded again.'
+        : ' Reading it here is recorded in the file’s activity, as any download is.';
     if (entry.dogType === 'video') {
       return { title: entry.name, line: 'A video is never sent to the AI. With Use project assets ticked it can be placed in a slide.', tokens: 0 };
     }
@@ -483,7 +497,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       return { title: entry.name, image: `data:${entry.mime || 'image/png'};base64,${content}`, line: `Sent as a picture the AI looks at.${recorded}`, tokens: fileTokens('image', entry.size) };
     }
     return { title: entry.name, text: content, line: recorded.trim() || null, tokens: textTokens(content) };
-  }, [pool, freshPool, noteTexts, pdfPages, adapterMode, readNoteText, readBody, notePages]);
+  }, [pool, freshPool, noteTexts, pdfPages, adapterMode, readNoteText, readBody, bodyKept, notePages]);
 
   // ── Generate: read what is chosen, now ────────────────────────────────────
   /**
