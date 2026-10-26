@@ -29,7 +29,7 @@ const summary = (over = {}) => ({
     older_than_hours: 24, pages: 1, truncated: false, malformed: 0,
     counts: {
       all: t(9, 9_000_000, 900), attributed: { ...t(4, 4_000_000, 60), workspaces: 2, sweepable: 3 },
-      no_row: t(4, 4_000_000, 900), unbound: t(1, 1_000_000, 10), contested: t(0, 0, 0), expired: 1,
+      no_row: t(4, 4_000_000, 900), unbound: t(1, 1_000_000, 10), expired: 1,
       ...over,
     },
   },

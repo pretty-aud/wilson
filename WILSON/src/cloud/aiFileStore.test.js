@@ -20,11 +20,11 @@ import {
   SWEEP_AGE_HOURS, BIND_AFTER_MS, BIND_BEFORE_MS, IDS_PER_LOOKUP, SWEEP_MAX_DELETES, SMALL_BODY_MAX,
   isFileId, uploadRowOf, storedFileOf, bindsToFile, attribute, isSweepable, isExpired, publicFile,
   totalsOf, filesOfWorkspace, sweepPlan, operatorCounts, readListPage, listQuery, idLookupQueries,
-  deleteOutcome, readSmallJson,
+  deleteOutcome, readSmallJson, deleteVerdict, certifiedGoneIds,
 } from '../../supabase/functions/_shared/aiFileStore.ts'
 import {
   lookupFiles, listAllFiles, fileMetadata, deleteFile, readUploadRows, readUploadRowsNaming,
-  writeCertificate, pooled, UpstreamError,
+  writeCertificate, readCertifiedGone, pooled, UpstreamError,
 } from '../../supabase/functions/_shared/aiFilesUpstream.ts'
 
 const REPO = join(__dirname, '..', '..')
@@ -101,6 +101,14 @@ describe('storedFileOf / publicFile: the filename never leaves the first touch',
     expect(publicFile(stored(2, { expires: iso(NOW + H) }), NOW).expired).toBe(false)
     expect(isExpired(stored(3), NOW)).toBe(false)
   })
+  it('round 1, note b: a file the store answers without a size is refused, not given size 0 (a forged size_bytes: 0 would bind to it)', () => {
+    const { size_bytes, ...noSize } = file(1)
+    expect(storedFileOf(noSize)).toBe(null)
+    expect(storedFileOf({ ...file(1), size_bytes: 'big' })).toBe(null)
+    // CONTROL: a real size of 0 (an empty file) is a size.
+    expect(storedFileOf({ ...file(1), size_bytes: 0 }).size_bytes).toBe(0)
+    expect(size_bytes).toBe(1001)
+  })
   it('refuses an object with no real id or time', () => {
     expect(storedFileOf({ ...file(1), id: '../x' })).toBe(null)
     expect(storedFileOf({ ...file(1), created_at: 'yesterday' })).toBe(null)
@@ -128,6 +136,13 @@ describe('bindsToFile: a row is believed only when it truly describes the stored
     expect(bindsToFile(upload(1, { at: iso(fileAt - BIND_BEFORE_MS) }), stored(1))).toBe(true)
     expect(bindsToFile(upload(1, { at: iso(fileAt - BIND_BEFORE_MS - 1) }), stored(1))).toBe(false)
   })
+  it('round 1, finding 3: the window is minutes, not an hour (measured: the genuine row lands 229 ms after)', () => {
+    const fileAt = Date.parse(stored(1).created_at)
+    expect(BIND_AFTER_MS).toBeLessThanOrEqual(5 * 60 * 1000)
+    expect(bindsToFile(upload(1, { at: iso(fileAt + 30000) }), stored(1))).toBe(true)
+    // CONTROL: ten minutes after (a person reading Logs and forging) does not.
+    expect(bindsToFile(upload(1, { at: iso(fileAt + 10 * 60 * 1000) }), stored(1))).toBe(false)
+  })
   it('CONTROL: a row naming another file never binds', () => {
     expect(bindsToFile(upload(1), stored(2))).toBe(false)
   })
@@ -145,8 +160,15 @@ describe('attribute: whose each stored file is', () => {
   it('CONTROL: only a forged row: unbound, nobody\'s', () => {
     expect(attribute([stored(1)], [upload(1, { ws: W2, size: 5 })])[0].kind).toBe('unbound')
   })
-  it('CONTROL: two workspaces\' binding rows: contested, nobody\'s', () => {
-    expect(attribute([stored(1)], [upload(1), upload(1, { ws: W2, actor: U2 })])[0].kind).toBe('contested')
+  it('two workspaces\' binding rows: the EARLIEST wins (a forger learns the id from the genuine row, so is later)', () => {
+    const fileAt = Date.parse(stored(1).created_at)
+    const [a] = attribute([stored(1)], [upload(1, { ws: W2, actor: U2, at: iso(fileAt + 60000) }), upload(1, { at: iso(fileAt + 200) })])
+    expect(a.kind).toBe('attributed')
+    expect(a.owner.workspaceId).toBe(W1)
+  })
+  it('CONTROL (round 1, finding 6): no file is "nobody\'s" because two rows bind; there is no contested kind', () => {
+    const kinds = attribute([stored(1), stored(2), stored(3)], [upload(1), upload(1, { ws: W2, actor: U2 }), upload(3, { size: 1 })]).map(a => a.kind)
+    expect(kinds).toEqual(['attributed', 'no_row', 'unbound'])
   })
   it('two binding rows in one workspace attribute to the earliest', () => {
     const fileAt = Date.parse(stored(1).created_at)
@@ -165,6 +187,52 @@ describe('filesOfWorkspace: what one workspace (or one member) may see', () => {
   it('CONTROL: another workspace\'s file is never in the list, whoever asks', () => {
     expect(filesOfWorkspace(atts, W1).map(f => f.file.id)).not.toContain(id(3))
     expect(filesOfWorkspace(atts, W2).map(f => f.file.id)).toEqual([id(3)])
+  })
+})
+
+describe('deleteVerdict: what a member\'s DELETE does with one id (round 1, finding 1)', () => {
+  const ctx = (over = {}) => ({
+    rows: [upload(1)], stored: new Map([[id(1), stored(1)]]), certified: new Set(), workspaceId: W1, callerId: U1, ...over,
+  })
+  it('the caller\'s own upload, stored and bound: delete', () => {
+    expect(deleteVerdict(id(1), ctx())).toBe('delete')
+  })
+  it('a forged row naming an id the store lacks: not_found, never gone (no oracle, no false certificate)', () => {
+    expect(deleteVerdict(id(9), ctx({ rows: [upload(9)], stored: new Map() }))).toBe('not_found')
+  })
+  it('CONTROL: the same absent id that this workspace\'s own certificate deleted before: gone', () => {
+    expect(deleteVerdict(id(9), ctx({ rows: [upload(9)], stored: new Map(), certified: new Set([id(9)]) }))).toBe('gone')
+  })
+  it('a stored file the caller\'s row does not bind to (a guessed size): not_found', () => {
+    expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { size: 5 })] }))).toBe('not_found')
+  })
+  it('another company\'s EARLIER binding row: not_found for the later one, even with a binding forge', () => {
+    const fileAt = Date.parse(stored(1).created_at)
+    const rows = [upload(1, { ws: W2, actor: U2, at: iso(fileAt + 100) }), upload(1, { at: iso(fileAt + 30000) })]
+    expect(deleteVerdict(id(1), ctx({ rows }))).toBe('not_found')
+    // CONTROL: the owner itself.
+    expect(deleteVerdict(id(1), ctx({ rows, workspaceId: W2, callerId: U2 }))).toBe('delete')
+  })
+  it('a colleague\'s upload, or the caller\'s own row in another company: not_found', () => {
+    expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { actor: U2 })] }))).toBe('not_found')
+    expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { ws: W2 })] }))).toBe('not_found')
+  })
+})
+
+describe('certifiedGoneIds: only the function\'s own certificates count (round 1, findings 1 and 4)', () => {
+  const cert = (n, over = {}, ctxOver = {}) => ({
+    workspace_id: W1, event_type: 'admin', code: 'WIL-6001',
+    context: { tool: 'ai-files', stage: 'delete', file_id: id(n), outcome: 'deleted', ...ctxOver }, ...over,
+  })
+  it('a deleted or gone certificate of this workspace, in the admin stream', () => {
+    expect([...certifiedGoneIds([cert(1), cert(2, {}, { outcome: 'gone' })], W1)].sort()).toEqual([id(1), id(2)])
+  })
+  it('CONTROL: a member-written ("system") row of the same shape is a forgery and counts for nothing', () => {
+    expect(certifiedGoneIds([cert(1, { event_type: 'system' })], W1).size).toBe(0)
+  })
+  it('CONTROL: another workspace\'s, a failure, a refusal or another stage counts for nothing', () => {
+    const rows = [cert(1, { workspace_id: W2 }), cert(2, { code: 'WIL-6002' }, { outcome: 'failed' }), cert(3, {}, { stage: 'delete_refused' }), cert(4, {}, { outcome: 'not_found' }), cert(5, {}, { tool: 'ai-proxy' })]
+    expect(certifiedGoneIds(rows, W1).size).toBe(0)
   })
 })
 
@@ -192,14 +260,16 @@ describe('the sweep\'s choice', () => {
 describe('operatorCounts: counts, never ids or names', () => {
   it('splits the store into attributed, no row, unbound and contested', () => {
     const files = [stored(1), stored(2), stored(3), stored(4), stored(5, { at: NOW - H, expires: iso(NOW - 1) })]
-    // File 5's row is written two seconds after ITS upload (an hour ago).
-    const rows = [upload(1), upload(5, { ws: W2, at: iso(NOW - H + 2000) }), upload(3, { size: 1 }), upload(4), upload(4, { ws: W2 })]
+    // File 5's row is written two seconds after ITS upload (an hour ago);
+    // file 4's second row (another company's) a minute after the first.
+    const f4 = Date.parse(stored(4).created_at)
+    const rows = [upload(1), upload(5, { ws: W2, at: iso(NOW - H + 2000) }), upload(3, { size: 1 }), upload(4), upload(4, { ws: W2, at: iso(f4 + 62000) })]
     const c = operatorCounts(attribute(files, rows), NOW)
     expect(c.all.count).toBe(5)
-    expect(c.attributed).toMatchObject({ count: 2, workspaces: 2, sweepable: 1 })
+    expect(c.attributed).toMatchObject({ count: 3, workspaces: 2, sweepable: 2 })
     expect(c.no_row.count).toBe(1)
     expect(c.unbound.count).toBe(1)
-    expect(c.contested.count).toBe(1)
+    expect(c).not.toHaveProperty('contested')
     expect(c.expired).toBe(1)
     const text = JSON.stringify(c)
     expect(text).not.toMatch(/file_/)
@@ -391,7 +461,7 @@ function fakeClient(rows, { failAt = null } = {}) {
           q.range = [a, b]; queries.push(q)
           if (failAt !== null && a >= failAt) return Promise.resolve({ data: null, error: { message: 'read failed' } })
           let out = rows.filter(r => q.filters.every(([op, col, val]) => {
-            const v = col === 'context->>tool' ? r.context?.tool : col === 'context->>file_id' ? r.context?.file_id : r[col]
+            const v = col.startsWith('context->>') ? r.context?.[col.slice('context->>'.length)] : r[col]
             return op === 'eq' ? v === val : val.includes(v)
           }))
           return Promise.resolve({ data: out.slice(a, b + 1), error: null })
@@ -428,10 +498,21 @@ describe('the upload rows', () => {
   it('a certificate always carries tool and stage, and says when it was refused', async () => {
     const { client, inserts } = fakeClient([])
     expect(await writeCertificate(client, { workspaceId: W1, actorUserId: U1, ok: true, message: 'm', context: { stage: 'delete', file_id: id(1), outcome: 'deleted' } })).toBe(true)
-    expect(inserts[0]).toMatchObject({ code: 'WIL-6001', event_type: 'system', context: { tool: 'ai-files', stage: 'delete' } })
+    // Round 1, finding 4: ALWAYS the admin stream, which members cannot insert.
+    expect(inserts[0]).toMatchObject({ code: 'WIL-6001', event_type: 'admin', context: { tool: 'ai-files', stage: 'delete' } })
     expect(uploadRowOf(inserts[0])).toBe(null)
     expect(await writeCertificate(client, { workspaceId: W1, actorUserId: U1, ok: false, message: 'm', context: { stage: 'delete', __x: 1 } })).toBe(true)
     expect(inserts[1].code).toBe('WIL-6002')
+    expect(inserts[1].severity).toBe('warning')
+    expect(inserts[1].event_type).toBe('admin')
+    await writeCertificate(client, { workspaceId: W1, actorUserId: U1, ok: false, quiet: true, message: 'm', context: { stage: 'delete_refused' } })
+    expect(inserts[2]).toMatchObject({ code: 'WIL-6002', severity: 'info', event_type: 'admin' })
+  })
+  it('readCertifiedGone reads this workspace\'s admin-stream delete certificates, nothing else', async () => {
+    const cert = (n, over = {}, ctxOver = {}) => ({ workspace_id: W1, event_type: 'admin', code: 'WIL-6001', context: { tool: 'ai-files', stage: 'delete', file_id: id(n), outcome: 'deleted', ...ctxOver }, ...over })
+    const { client } = fakeClient([cert(1), cert(2, { event_type: 'system' }), cert(3, { workspace_id: W2 }), cert(4, {}, { outcome: 'gone' })])
+    expect([...await readCertifiedGone(client, W1, null)].sort()).toEqual([id(1), id(4)])
+    expect([...await readCertifiedGone(client, W1, [id(4), id(9)])]).toEqual([id(4)])
   })
 })
 
@@ -468,11 +549,33 @@ describe('ai-files: the upload branch is byte-identical, and nothing materialise
     for (const m of ['req.json(', 'req.formData(', 'req.arrayBuffer(', 'req.text(', 'req.blob(']) expect(code).not.toContain(m)
     expect(code).toContain('readSmallJson(req)')
   })
+  it('round 1, finding 2: a delete asks the store once per key (ids[]), never once per id; the list skips certified ids', () => {
+    const code = stripTs(fnSrc)
+    expect(code).not.toContain('fileMetadata(')
+    const own = code.slice(code.indexOf('async function deleteOwn('), code.indexOf('async function isLiveAdmin('))
+    expect(own).toMatch(/lookupFiles\(key, sourceIds\)/)
+    expect(own).toMatch(/deleteVerdict\(id, \{ rows, stored, certified, workspaceId, callerId \}\)/)
+    expect(own).toMatch(/certify_failed: certifyFailed/)
+    const list = code.slice(code.indexOf('async function storedForWorkspace('), code.indexOf('async function handleDelete('))
+    expect(list).toMatch(/readCertifiedGone\(admin, workspaceId, null\)/)
+    expect(list).toMatch(/own\.filter\(r => !gone\.has\(r\.fileId\)\)/)
+  })
+  it('round 1, finding 2: the new routes spend their own per-caller bucket, never the workspace\'s upload budget', () => {
+    const code = stripTs(fnSrc)
+    for (const fn of ['async function handleDelete(', 'async function handleList(']) {
+      const at = code.indexOf(fn)
+      // To the next function, or to Deno.serve (handleList is the last one).
+      const ends = ['\nasync function ', '\nDeno.serve('].map(m => code.indexOf(m, at + 10)).filter(i => i > at)
+      const body = code.slice(at, Math.min(...ends))
+      expect(body, fn).toMatch(/isRateLimited\(admin, 'ai-files-manage', callerId, MANAGE_RPM, 60\)/)
+      expect(body, fn).not.toMatch(/isRateLimited\(admin, 'ai-files', workspaceId/)
+    }
+  })
   it('the sweep takes the admin guard; the member\'s delete only its own ids', () => {
     const code = stripTs(fnSrc)
     const sweepAt = code.indexOf('if (body.sweep === true)')
     expect(code.indexOf('requireWorkspaceAdmin(req)', sweepAt)).toBeGreaterThan(sweepAt)
-    expect(code).toMatch(/r\.workspaceId === workspaceId && r\.actorUserId === callerId/)
+    expect(code).toMatch(/r\.fileId === id && r\.workspaceId === workspaceId && r\.actorUserId === callerId/)
   })
 })
 

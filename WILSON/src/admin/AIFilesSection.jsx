@@ -8,7 +8,7 @@
 // filename) and sweeps what THIS environment's upload rows tie to a company
 // and is older than the sweep's age. Everything else is counted and left
 // alone: another environment's files (its own sweep takes them), a row that
-// does not match its file, a file two companies' rows claim.
+// does not match its file.
 //
 // The same grammar as ModelsSection (the 900px column, the light table, the
 // dark buttons) and the same rule as storage-gc: admin-invoked, a stated
@@ -93,7 +93,6 @@ export default function AIFilesSection({ isActive }) {
     ['Tied to a company of this environment', c.attributed],
     ['No receipt here (another environment’s): left alone', c.no_row],
     ['A receipt that does not match its file: left alone', c.unbound],
-    ['Claimed by two companies: left alone', c.contested],
   ] : []
   const sweepable = c?.attributed?.sweepable ?? 0
 

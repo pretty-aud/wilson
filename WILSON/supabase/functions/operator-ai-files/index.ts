@@ -10,8 +10,8 @@
 //   summary  the platform key's whole list (every page) against this
 //            environment's upload rows, as COUNTS: all, attributed (with how
 //            many companies and how many are past the sweep's age), no row,
-//            unbound, contested, expired. Never an id, never a company's name,
-//            never a filename.
+//            unbound, expired. Never an id, never a company's name, never a
+//            filename.
 //   sweep    deletes the attributed files past SWEEP_AGE_HOURS, oldest first,
 //            at most SWEEP_MAX_DELETES a run. One certificate per file in the
 //            OWNING company's app_events (so its admin reads in Logs that the
@@ -23,7 +23,12 @@
 // one whose row the 90-day app_events purge took): it is counted and never
 // touched. The other environment's own sweep deletes its own. A row that names
 // a file but does not bind to it (_shared/aiFileStore.ts: a member can insert
-// app_events rows) is counted as `unbound` and left alone too.
+// app_events rows) is counted as `unbound` and left alone too. Where rows of
+// several companies bind, the earliest wins (a forger cannot be earlier).
+//
+// Each company's certificate names the operator as its actor (`via:
+// 'operator'`), as storage-gc's do for the admin who ran it: the company's
+// admin reads in Logs that the operator swept its files, and who.
 //
 // Only the PLATFORM key's store is read. A company's own Anthropic key holds
 // that company's uploads (and possibly its other work, which WILSON must never
@@ -126,7 +131,7 @@ Deno.serve(async (req: Request) => {
       const outcome = deleteOutcome(status)
       touched.add(owner.workspaceId)
       const landed = await writeCertificate(ctx.admin, {
-        workspaceId: owner.workspaceId, actorUserId: ctx.callerId, ok: outcome !== 'failed', eventType: 'admin',
+        workspaceId: owner.workspaceId, actorUserId: ctx.callerId, ok: outcome !== 'failed',
         message: outcome === 'failed' ? 'AI file delete failed (operator sweep)' : 'AI file deleted (operator sweep)',
         context: { stage: 'delete', via: 'operator', file_id: file.id, outcome, status, key_source: 'platform', size_bytes: file.size_bytes },
       })
@@ -151,7 +156,7 @@ Deno.serve(async (req: Request) => {
       code: counts.failed === 0 ? 'WIL-6001' : 'WIL-6002',
       severity: counts.failed === 0 ? 'info' : 'warning',
       message: `AI file store sweep: ${counts.deleted} deleted, ${counts.gone} already gone, ${counts.failed} failed, across ${counts.workspaces} compan${counts.workspaces === 1 ? 'y' : 'ies'}`,
-      context: { tool: 'ai-files', stage: 'operator-sweep', ...counts, remaining_attributed: afterCounts.attributed.count, left_alone: afterCounts.no_row.count + afterCounts.unbound.count + afterCounts.contested.count },
+      context: { tool: 'ai-files', stage: 'operator-sweep', ...counts, remaining_attributed: afterCounts.attributed.count, left_alone: afterCounts.no_row.count + afterCounts.unbound.count },
     })
     return reply({ ok: true, counts, after: afterCounts })
   } catch (err) {

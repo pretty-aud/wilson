@@ -18,7 +18,7 @@
 
 import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import {
-  MAX_LIST_PAGES, idLookupQueries, isFileId, listQuery, readListPage, storedFileOf,
+  MAX_LIST_PAGES, certifiedGoneIds, idLookupQueries, isFileId, listQuery, readListPage, storedFileOf,
   uploadRowOf, type ListPage, type StoredFile, type UploadRow,
 } from './aiFileStore.ts'
 
@@ -185,12 +185,43 @@ export async function readUploadRowsNaming(admin: Client, ids: string[]): Promis
 }
 
 /**
+ * The ids this workspace's own certificates say it already deleted or found
+ * gone (aiFileStore.certifiedGoneIds): `admin`-stream rows, which no member
+ * can insert. `ids` narrows the read; null reads them all (the list skips
+ * them before asking the store, review round 1, finding 2).
+ */
+export async function readCertifiedGone(admin: Client, workspaceId: string, ids: string[] | null): Promise<Set<string>> {
+  const raw: unknown[] = []
+  const batches = ids === null ? [null] : (() => {
+    const unique = [...new Set(ids.filter(isFileId))]
+    const out: string[][] = []
+    for (let i = 0; i < unique.length; i += 100) out.push(unique.slice(i, i + 100))
+    return out
+  })()
+  for (const batch of batches) {
+    for (let from = 0; ; from += ROW_PAGE) {
+      let q = admin.from('app_events').select('workspace_id, event_type, code, context')
+        .eq('workspace_id', workspaceId).eq('event_type', 'admin').eq('code', 'WIL-6001')
+        .eq('context->>tool', 'ai-files').eq('context->>stage', 'delete')
+      if (batch) q = q.in('context->>file_id', batch)
+      const { data, error } = await q.order('id', { ascending: true }).range(from, from + ROW_PAGE - 1)
+      if (error) throw new Error(`certificates: ${error.message}`)
+      raw.push(...(data ?? []))
+      if (!data || data.length < ROW_PAGE) break
+    }
+  }
+  return certifiedGoneIds(raw, workspaceId)
+}
+
+/**
  * A certificate row. WIL-6001 / 6002 again (0021's code CHECK is a closed
  * set) with `tool: 'ai-files'` and ALWAYS a `stage`, which is what keeps a
- * certificate from ever reading as an upload (aiFileStore.uploadRowOf).
- * Answers whether it landed: supabase-js reports a refused insert on the
- * error channel, and a deletion with no certificate is the blindness the
- * handbook warns of, so the caller counts the misses.
+ * certificate from ever reading as an upload (aiFileStore.uploadRowOf), and
+ * ALWAYS in the `admin` stream, which 0021 reserves for server-stamped writes
+ * (members cannot insert it), so a certificate cannot be forged (review
+ * round 1, finding 4). Answers whether it landed: supabase-js reports a
+ * refused insert on the error channel, and a deletion with no certificate is
+ * the blindness the handbook warns of, so the caller counts the misses.
  */
 export async function writeCertificate(
   admin: Client,
@@ -198,7 +229,8 @@ export async function writeCertificate(
     workspaceId: string
     actorUserId: string
     ok: boolean
-    eventType?: 'system' | 'admin'
+    /** A refusal or a note, not a failure: severity info. */
+    quiet?: boolean
     message: string
     context: Record<string, unknown> & { stage: string }
   },
@@ -207,9 +239,9 @@ export async function writeCertificate(
     const { error } = await admin.from('app_events').insert({
       workspace_id: fields.workspaceId,
       actor_user_id: fields.actorUserId,
-      event_type: fields.eventType ?? 'system',
+      event_type: 'admin',
       code: fields.ok ? 'WIL-6001' : 'WIL-6002',
-      severity: fields.ok ? 'info' : 'warning',
+      severity: fields.ok || fields.quiet ? 'info' : 'warning',
       message: fields.message,
       // Technical metadata only: ids, counts, outcomes. Never a filename.
       context: { tool: 'ai-files', ...fields.context },

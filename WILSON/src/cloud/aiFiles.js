@@ -100,12 +100,28 @@ export function base64ToBlob(base64, mediaType = 'application/octet-stream') {
   return new Blob(parts, { type: mediaType })
 }
 
+const NEUTRAL_NAMES = {
+  'application/pdf': 'document.pdf',
+  'text/plain': 'document.txt',
+  'image/jpeg': 'image.jpg',
+  'image/png': 'image.png',
+  'image/gif': 'image.gif',
+  'image/webp': 'image.webp',
+}
+
+/** The name the store keeps for an upload: its kind, never the person's file name. */
+export function neutralFileName(mediaType) {
+  const type = String(mediaType || '').split(';')[0].trim().toLowerCase()
+  return NEUTRAL_NAMES[type] || 'document'
+}
+
 /**
  * Upload one document and get back its Anthropic file id.
  *
  * @param {object} input
  * @param {string|Blob} input.data      base64 string (what D.O.G. holds) or a Blob
- * @param {string} input.filename       shown in Anthropic's file list; not content
+ * @param {string} [input.filename]     accepted and NOT sent (FX12): the store keeps
+ *                                      a neutral name, neutralFileName(type)
  * @param {string} [input.mediaType]    MIME type; required when `data` is base64
  * @param {object} [opts]               { signal } — AbortSignal, same as fetch
  * @returns {Promise<{id:string, size_bytes?:number, mime_type?:string}>}
@@ -138,7 +154,14 @@ export async function uploadAIFile({ data, filename, mediaType }, { signal } = {
   form.append('expires_in_seconds', String(UPLOAD_EXPIRY_SECONDS))
   // The field name is Anthropic's contract, not ours. ai-files forwards the
   // multipart stream untouched, so this is the only place it is set.
-  form.append('file', blob, filename || 'document')
+  //
+  // FX12 (review round 1, finding 5): the store KEEPS the name it is given,
+  // listed beside the file for as long as it is there, and a client's file
+  // name is their pre-release material. So it is given a neutral one that
+  // keeps only the kind (`document.pdf`, `image.png`); the part's own type is
+  // what the store reads the file as. `filename` is accepted and not sent.
+  void filename
+  form.append('file', blob, neutralFileName(blob.type || mediaType))
 
   let res
   try {

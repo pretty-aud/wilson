@@ -29,11 +29,28 @@
 // delete another company's (or another environment's) file. So a row counts
 // only when it BINDS to the stored file (`bindsToFile`): the size and type it
 // recorded from the upload's own answer equal the store's, and the row was
-// written within minutes of the file's creation. Size and type of another
-// company's file never leave that company (its rows are read by its own
-// admins only), and the trigger stamps `created_at` on every member insert,
-// so a forger cannot backdate. And a file that rows of two workspaces name is
-// CONTESTED and is never any workspace's to delete.
+// written within BIND_AFTER_MS of the file's creation (MEASURED: the genuine
+// row lands 229 ms after). Size and type of another company's file never
+// leave that company (its rows are read by its own admins only), and the
+// trigger stamps `created_at` on every member insert, so a forger cannot
+// backdate. When rows of several workspaces bind, the EARLIEST wins: a forger
+// learns an id only from the genuine row or its owner, so cannot be earlier
+// (review round 1, finding 6: "contested, nobody's" let a forger pin a file in
+// the store for good).
+//
+// The residual, stated (review round 1, finding 3): a person who is an ADMIN
+// of the owning company (so reads its upload row in Logs) and a member of a
+// workspace in another environment can forge a binding row there inside
+// BIND_AFTER_MS and delete that file early. That is their own company's file;
+// only an upload record no member can write would close it, and the upload
+// branch is pinned byte-identical.
+//
+// Every certificate the functions write is in the `admin` event stream, which
+// 0021's insert policy keeps members out of (review round 1, finding 4), so a
+// certificate is the one record here a member cannot forge. A 404 is reported
+// as `gone` only when such a certificate already says this workspace deleted
+// the id (finding 1): otherwise the route would tell a forger whether an id
+// exists anywhere under the key, and certify a deletion that never was.
 //
 // -----------------------------------------------------------------------------
 // 🚨 A FILENAME IS CONTENT
@@ -48,12 +65,12 @@ export const SWEEP_AGE_HOURS = 24
 
 /**
  * How long after the store's own creation time an upload row may be written
- * and still bind. The row is written after the upload's answer arrives; the
- * store may stamp the file when the upload starts, and a large upload on a
- * slow line takes minutes. Generous on purpose: a forger still needs the
- * file's exact size and type, which never leave its company.
+ * and still bind. MEASURED (the CI probe, 2026-10-25): 229 ms. Five minutes
+ * leaves room for a store that stamps a large upload when it starts; a row
+ * that misses it fails SAFE (the file is unbound: left alone, never deleted
+ * wrongly, and new uploads expire by themselves in 24 h).
  */
-export const BIND_AFTER_MS = 60 * 60 * 1000
+export const BIND_AFTER_MS = 5 * 60 * 1000
 /** Clock skew allowed the other way (the row before the file). */
 export const BIND_BEFORE_MS = 5 * 60 * 1000
 
@@ -145,11 +162,13 @@ export function storedFileOf(obj: unknown): StoredFile | null {
   const o = obj as Record<string, unknown>
   if (!isFileId(o.id)) return null
   if (typeof o.created_at !== 'string' || !Number.isFinite(Date.parse(o.created_at))) return null
-  const size = typeof o.size_bytes === 'number' && Number.isFinite(o.size_bytes) && o.size_bytes >= 0 ? o.size_bytes : 0
+  // No size, no file: a default of 0 would bind to a forged `size_bytes: 0`
+  // row (review round 1, note b). Counted as malformed instead.
+  if (typeof o.size_bytes !== 'number' || !Number.isFinite(o.size_bytes) || o.size_bytes < 0) return null
   return {
     id: o.id,
     created_at: o.created_at,
-    size_bytes: size,
+    size_bytes: o.size_bytes,
     mime_type: typeof o.mime_type === 'string' ? o.mime_type : null,
     expires_at: typeof o.expires_at === 'string' ? o.expires_at : null,
   }
@@ -176,16 +195,15 @@ export type Attribution =
   | { file: StoredFile; kind: 'attributed'; owner: UploadRow }
   | { file: StoredFile; kind: 'no_row' }      // no row of this environment names it
   | { file: StoredFile; kind: 'unbound' }     // rows name it; none binds
-  | { file: StoredFile; kind: 'contested' }   // rows of two workspaces bind
 
 /**
  * Who, in this environment, owns each stored file.
  *
  * `rows` must be EVERY upload row of this environment that names any of
  * these files, across ALL workspaces — never one workspace's alone, or a
- * forged row in that workspace could not be told from a contested file.
- * Two binding rows in ONE workspace (the same file reported twice) still
- * attribute it, to the earliest row.
+ * forged row in that workspace would win by being the only one read.
+ * Among binding rows the EARLIEST wins, in whichever workspace (see the
+ * header: a forger cannot be earlier than the row they learned the id from).
  */
 export function attribute(files: StoredFile[], rows: UploadRow[]): Attribution[] {
   const byId = new Map<string, UploadRow[]>()
@@ -198,11 +216,65 @@ export function attribute(files: StoredFile[], rows: UploadRow[]): Attribution[]
     if (!named.length) return { file, kind: 'no_row' }
     const binding = named.filter(r => bindsToFile(r, file))
     if (!binding.length) return { file, kind: 'unbound' }
-    const workspaces = new Set(binding.map(r => r.workspaceId))
-    if (workspaces.size > 1) return { file, kind: 'contested' }
     const owner = [...binding].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0]
     return { file, kind: 'attributed', owner }
   })
+}
+
+/**
+ * What a member's DELETE does with one id, once the store has been asked
+ * (ai-files' deleteOwn; the key and the lookup's own failures are decided
+ * there, before this):
+ *
+ *   'delete'     the caller's own upload row is the earliest that binds to
+ *                the stored file, in any workspace;
+ *   'gone'       the store has no such file AND this workspace's own
+ *                unforgeable certificate says it deleted it before;
+ *   'not_found'  everything else, alike: no row of the caller's, a row that
+ *                does not bind, an earlier binding row elsewhere, or an id the
+ *                store lacks with no certificate (review round 1, finding 1:
+ *                never an oracle, never a false certificate).
+ */
+export function deleteVerdict(
+  id: string,
+  ctx: {
+    rows: UploadRow[]
+    stored: Map<string, StoredFile>
+    certified: Set<string>
+    workspaceId: string
+    callerId: string
+  },
+): 'delete' | 'gone' | 'not_found' {
+  const named = ctx.rows.filter(r => r.fileId === id)
+  const mine = named.some(r => r.workspaceId === ctx.workspaceId && r.actorUserId === ctx.callerId)
+  if (!mine) return 'not_found'
+  const file = ctx.stored.get(id)
+  if (!file) return ctx.certified.has(id) ? 'gone' : 'not_found'
+  const verdict = attribute([file], named)[0]
+  return verdict.kind === 'attributed'
+    && verdict.owner.workspaceId === ctx.workspaceId
+    && verdict.owner.actorUserId === ctx.callerId
+    ? 'delete' : 'not_found'
+}
+
+/**
+ * The ids this workspace's own certificates say it deleted (or found gone):
+ * function-written rows in the `admin` stream, which no member can insert.
+ * A 404 for one of these is `gone`; for any other id it says nothing a
+ * forger may learn (review round 1, finding 1).
+ */
+export function certifiedGoneIds(rows: unknown[], workspaceId: string): Set<string> {
+  const out = new Set<string>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    if (r.workspace_id !== workspaceId || r.event_type !== 'admin' || r.code !== 'WIL-6001') continue
+    const c = r.context as Record<string, unknown> | null
+    if (!c || c.tool !== 'ai-files' || c.stage !== 'delete') continue
+    if (c.outcome !== 'deleted' && c.outcome !== 'gone') continue
+    if (isFileId(c.file_id)) out.add(c.file_id)
+  }
+  return out
 }
 
 /** Older than the sweep's age, by the STORE's clock (the file's own time). */
@@ -295,7 +367,6 @@ export function operatorCounts(attributions: Attribution[], nowMs: number, ageHo
     },
     no_row: totalsOf(of('no_row')),
     unbound: totalsOf(of('unbound')),
-    contested: totalsOf(of('contested')),
     expired: all.filter(f => isExpired(f, nowMs)).length,
   }
 }

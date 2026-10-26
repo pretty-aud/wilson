@@ -66,12 +66,12 @@ import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { decryptAiKey } from '../_shared/aiKeyCrypto.ts'
 import {
-  SWEEP_AGE_HOURS, attribute, deleteOutcome, filesOfWorkspace, isFileId, isSweepable,
+  SWEEP_AGE_HOURS, attribute, deleteOutcome, deleteVerdict, filesOfWorkspace, isFileId, isSweepable,
   publicFile, readSmallJson, sweepPlan, totalsOf,
   type KeySource, type StoredFile, type UploadRow,
 } from '../_shared/aiFileStore.ts'
 import {
-  deleteFile, fileMetadata, lookupFiles, pooled, readUploadRows, readUploadRowsNaming,
+  deleteFile, lookupFiles, pooled, readCertifiedGone, readUploadRows, readUploadRowsNaming,
   writeCertificate,
 } from '../_shared/aiFilesUpstream.ts'
 
@@ -165,6 +165,12 @@ const DELETE_MAX_IDS = 25
 const SWEEP_CONCURRENCY = 2
 /** A member's short list, four at a time: the desktop's close waits for it. */
 const DELETE_CONCURRENCY = 4
+/**
+ * The let-go and list routes' own limit, per caller (review round 1, finding
+ * 2). A desktop's close sends one call for up to 25 ids; a person removing
+ * files one by one sends one each.
+ */
+const MANAGE_RPM = envInt('AI_FILES_MANAGE_RPM', 30)
 
 /**
  * The key a stored file lives under — exactly the one its upload row names.
@@ -214,75 +220,99 @@ type DeleteResult = { id: string; outcome: 'deleted' | 'gone' | 'not_found' | 'k
 /**
  * DELETE { file_id } | { file_ids }: the caller's own uploads.
  *
+ * Looked up FIRST, attributed, then acted on (review round 1, findings 1, 2
+ * and note e): ONE `ids[]` lookup per key per request, whatever the number of
+ * ids, so a member cannot turn 25 ids into 25 calls on the org-wide file
+ * limit, and the function never reads metadata it then has to ignore.
+ *
  * `not_found` is the one answer for "no such file", "not this workspace's",
- * "not yours" and "a row that does not bind": the route is no oracle for
- * which ids exist elsewhere.
+ * "not yours" and "a row that does not bind", AND for "the store has no such
+ * id" unless this workspace's own certificate says it deleted the id before
+ * (then `gone`): otherwise a forged upload row would turn this route into an
+ * oracle for which ids exist under the key, and a "gone" certificate would
+ * certify a deletion this workspace never made.
  */
 async function deleteOwn(
   ctx: MemberContext,
   ids: string[],
-): Promise<DeleteResult[]> {
+): Promise<{ results: DeleteResult[]; certify_failed: number }> {
   const { admin, workspaceId, callerId } = ctx
-  // EVERY workspace's rows naming these ids, so a file two workspaces' rows
-  // claim is seen as contested rather than taken by whichever asked first.
-  const rows = await readUploadRowsNaming(admin, ids)
-  // Each source's key read once per call, not once per id.
-  const keys = new Map<KeySource, Promise<string | null>>()
-  const keyOf = (source: KeySource) => {
-    if (!keys.has(source)) keys.set(source, keyForSource(admin, workspaceId, source))
-    return keys.get(source)!
+  let certifyFailed = 0
+  const certify = async (fields: Parameters<typeof writeCertificate>[1]) => {
+    if (!(await writeCertificate(admin, fields))) certifyFailed++
   }
+  // EVERY workspace's rows naming these ids (the earliest binding row wins,
+  // in whichever workspace: aiFileStore.attribute).
+  const rows = await readUploadRowsNaming(admin, ids)
+  const mineOf = new Map<string, UploadRow>()
+  for (const id of ids) {
+    const mine = rows
+      .filter(r => r.fileId === id && r.workspaceId === workspaceId && r.actorUserId === callerId)
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0]
+    if (mine) mineOf.set(id, mine)
+  }
+
+  // One lookup per key source the caller's rows name.
+  const bySource = new Map<KeySource, string[]>()
+  for (const [id, row] of mineOf) bySource.set(row.keySource, [...(bySource.get(row.keySource) ?? []), id])
+  const keyOfSource = new Map<KeySource, string | null>()
+  const stored = new Map<string, StoredFile>()
+  const lookupFailed = new Map<string, number>()
+  for (const [source, sourceIds] of bySource) {
+    const key = await keyForSource(admin, workspaceId, source)
+    keyOfSource.set(source, key)
+    if (!key) continue
+    try {
+      for (const f of await lookupFiles(key, sourceIds)) stored.set(f.id, f)
+    } catch (err) {
+      for (const id of sourceIds) lookupFailed.set(id, (err as { status?: number })?.status ?? 0)
+    }
+  }
+  const certified = stored.size === mineOf.size ? new Set<string>()
+    : await readCertifiedGone(admin, workspaceId, [...mineOf.keys()].filter(id => !stored.has(id)))
 
   // A few at a time: the desktop app waits for this answer before its window
   // closes (MEASURED, FX12: a keepalive request dies with the app when its
   // preflight takes a round trip), so a short list must answer in about a
   // second, not one file after another.
   const results = await pooled(ids, DELETE_CONCURRENCY, async (id): Promise<DeleteResult> => {
-    const named = rows.filter(r => r.fileId === id)
-    const mine = named
-      .filter(r => r.workspaceId === workspaceId && r.actorUserId === callerId)
-      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0]
+    const mine = mineOf.get(id)
     if (!mine) return { id, outcome: 'not_found' }
-
-    const key = await keyOf(mine.keySource)
+    const key = keyOfSource.get(mine.keySource)
     if (!key) {
-      await writeCertificate(admin, {
+      await certify({
         workspaceId, actorUserId: callerId, ok: false,
         message: 'AI file delete could not read the key the file was uploaded under',
         context: { stage: 'delete', via: 'member', file_id: id, outcome: 'key_unavailable', key_source: mine.keySource },
       })
       return { id, outcome: 'key_unavailable' }
     }
-
-    let file: StoredFile | null
-    try {
-      file = await fileMetadata(key, id)
-    } catch (err) {
-      await writeCertificate(admin, {
+    if (lookupFailed.has(id)) {
+      await certify({
         workspaceId, actorUserId: callerId, ok: false,
-        message: 'AI file delete could not read the stored file',
-        context: { stage: 'delete', via: 'member', file_id: id, outcome: 'failed', status: (err as { status?: number })?.status ?? 0, key_source: mine.keySource },
+        message: 'AI file delete could not read the store',
+        context: { stage: 'delete', via: 'member', file_id: id, outcome: 'failed', status: lookupFailed.get(id), key_source: mine.keySource },
       })
       return { id, outcome: 'failed' }
     }
-    if (!file) {
-      // The store has no such file (deleted before, or expired and gone):
-      // certified as gone, so "no row" never means "never asked".
-      await writeCertificate(admin, {
+    // The rule (aiFileStore.deleteVerdict): `gone` only when the store lacks
+    // the id AND this workspace's own unforgeable certificate says it deleted
+    // it before; `not_found` for everything that is not the caller's own.
+    const verdict = deleteVerdict(id, { rows, stored, certified, workspaceId, callerId })
+    if (verdict === 'not_found') return { id, outcome: 'not_found' }
+    if (verdict === 'gone') {
+      await certify({
         workspaceId, actorUserId: callerId, ok: true,
         message: 'AI file was already gone from the store',
         context: { stage: 'delete', via: 'member', file_id: id, outcome: 'gone', status: 404, key_source: mine.keySource },
       })
       return { id, outcome: 'gone' }
     }
-    const verdict = attribute([file], named)[0]
-    if (verdict.kind !== 'attributed' || verdict.owner.workspaceId !== workspaceId || verdict.owner.actorUserId !== callerId) {
-      return { id, outcome: 'not_found' }
-    }
+    const file = stored.get(id)!
 
     const status = await deleteFile(key, id)
     const outcome = deleteOutcome(status)
-    await writeCertificate(admin, {
+    await certify({
       workspaceId, actorUserId: callerId, ok: outcome !== 'failed',
       message: outcome === 'failed' ? 'AI file delete failed' : 'AI file deleted',
       context: { stage: 'delete', via: 'member', file_id: id, outcome, status, key_source: mine.keySource, size_bytes: file.size_bytes },
@@ -291,17 +321,18 @@ async function deleteOwn(
   })
   const refused = results.filter(r => r.outcome === 'not_found').map(r => r.id)
   if (refused.length) {
-    // One line per refused call, never per id: a refusal is worth seeing
-    // (someone asked for ids that are not theirs), and the ids are the
-    // caller's own words, so writing them here tells this workspace nothing
-    // it did not already say. `stage` keeps it from ever reading as an upload.
-    await writeCertificate(admin, {
-      workspaceId, actorUserId: callerId, ok: false,
-      message: 'AI file delete refused for ids this member did not upload',
+    // One line per call, never per id. Not an accusation: an upload whose own
+    // row never landed (logUpload is best-effort) and a file the store has
+    // forgotten land here too. The ids are the caller's own words, so this
+    // tells the workspace nothing it did not already say; `stage` keeps it
+    // from ever reading as an upload.
+    await certify({
+      workspaceId, actorUserId: callerId, ok: false, quiet: true,
+      message: 'AI file delete: ids no stored upload of this member matches',
       context: { stage: 'delete_refused', via: 'member', count: refused.length, file_ids: refused.slice(0, DELETE_MAX_IDS) },
     })
   }
-  return results
+  return { results, certify_failed: certifyFailed }
 }
 
 /** The caller's role from the LIVE row (the token's claim can be stale). */
@@ -326,7 +357,12 @@ async function storedForWorkspace(
   onlyActor: string | null,
 ): Promise<{ files: { file: StoredFile; owner: UploadRow }[]; unreachable: number }> {
   const own = await readUploadRows(admin, workspaceId)
-  const scoped = onlyActor === null ? own : own.filter(r => r.actorUserId === onlyActor)
+  // An id this workspace's own certificates say is deleted is never asked
+  // about again (review round 1, finding 2): the lookups touch only ids that
+  // can still be live, not ninety days of every upload.
+  const gone = await readCertifiedGone(admin, workspaceId, null)
+  const live = own.filter(r => !gone.has(r.fileId))
+  const scoped = onlyActor === null ? live : live.filter(r => r.actorUserId === onlyActor)
   const bySource = new Map<KeySource, string[]>()
   for (const r of scoped) {
     const list = bySource.get(r.keySource) ?? []
@@ -353,7 +389,10 @@ async function handleDelete(req: Request): Promise<Response> {
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
-  if (await isRateLimited(admin, 'ai-files', workspaceId, RPM, 60)) {
+  // Its own bucket, per caller (review round 1, finding 2): letting go and
+  // listing never spend the workspace's upload budget, and one member cannot
+  // spend everyone's.
+  if (await isRateLimited(admin, 'ai-files-manage', callerId, MANAGE_RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)
   }
 
@@ -384,7 +423,7 @@ async function handleDelete(req: Request): Promise<Response> {
     }, 400)
   }
   try {
-    return reply({ results: await deleteOwn(guard.ctx, ids) })
+    return reply(await deleteOwn(guard.ctx, ids))
   } catch (err) {
     console.error(`[ai-files] delete failed: ${String((err as Error)?.message ?? err)}`)
     return reply({ error: 'delete_failed' }, 500)
@@ -416,7 +455,7 @@ async function sweep(admin: MemberCtxAdmin, workspaceId: string, callerId: strin
       if (status === 429) stop = true
       const outcome = deleteOutcome(status)
       const landed = await writeCertificate(admin, {
-        workspaceId, actorUserId: callerId, ok: outcome !== 'failed', eventType: 'admin',
+        workspaceId, actorUserId: callerId, ok: outcome !== 'failed',
         message: outcome === 'failed' ? 'AI file delete failed (sweep)' : 'AI file deleted (sweep)',
         context: { stage: 'delete', via: 'sweep', file_id: file.id, outcome, status, key_source: owner.keySource, size_bytes: file.size_bytes },
       })
@@ -433,7 +472,7 @@ async function sweep(admin: MemberCtxAdmin, workspaceId: string, callerId: strin
     const after = await storedForWorkspace(admin, workspaceId, null)
     const totals = totalsOf(after.files.map(f => f.file))
     await writeCertificate(admin, {
-      workspaceId, actorUserId: callerId, ok: counts.failed === 0, eventType: 'admin',
+      workspaceId, actorUserId: callerId, ok: counts.failed === 0,
       message: 'AI file store sweep completed',
       context: { stage: 'sweep', via: 'sweep', ...counts, remaining: totals.count },
     })
@@ -445,7 +484,7 @@ async function sweep(admin: MemberCtxAdmin, workspaceId: string, callerId: strin
   } catch (err) {
     const message = String((err as Error)?.message ?? err).slice(0, 300)
     await writeCertificate(admin, {
-      workspaceId, actorUserId: callerId, ok: false, eventType: 'admin',
+      workspaceId, actorUserId: callerId, ok: false,
       message: 'AI file store sweep failed part-way',
       context: { stage: 'sweep', via: 'sweep', ...counts, detail: message },
     })
@@ -458,7 +497,10 @@ async function handleList(req: Request): Promise<Response> {
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
-  if (await isRateLimited(admin, 'ai-files', workspaceId, RPM, 60)) {
+  // Its own bucket, per caller (review round 1, finding 2): letting go and
+  // listing never spend the workspace's upload budget, and one member cannot
+  // spend everyone's.
+  if (await isRateLimited(admin, 'ai-files-manage', callerId, MANAGE_RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)
   }
 

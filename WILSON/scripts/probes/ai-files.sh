@@ -14,11 +14,13 @@
 #   2. the list (GET) shows it, with its size, an expiry, and no filename
 #      anywhere in the answer; the upload row binds to it (the row's time
 #      against the store's, measured)
-#   3. the sweep (only when nothing here is past its age, so the probe can
+#   3. the sweep (only when the oldest file here is under 20 h, so the probe can
 #      never delete anything by it): our fresh file is SKIPPED as recent
 #   4. delete it                             → deleted, with a certificate
 #   5. delete it again                       → gone (the store's 404), with a
 #      certificate
+#   5b. a forged upload row naming an absent id → not_found, no certificate
+#      (the certificates are in the admin stream, which members cannot write)
 #   6. a messages call that references it    → the dead reference's answer,
 #      measured (status, error type, whether it names the id) — D.O.G.'s
 #      fallback is built to this answer
@@ -132,15 +134,21 @@ fi
 ok "the list shows it ($(printf '%s' "$json" | jq -r '.count') file(s) in this workspace, no filename)"
 
 # ── 3. The sweep never takes a fresh file (run only when it cannot delete) ──
+# Only when the OLDEST file here is under 20 hours old (review round 1,
+# finding 8): a file at 23 h 59 m would cross the sweep's 24 h between the
+# list and the sweep, and a CI job must never be the one that deletes by it.
 sweepable=$(printf '%s' "$json" | jq -r '.sweepable')
-if [ "$sweepable" = "0" ]; then
+oldest=$(printf '%s' "$json" | jq -r '.oldest // empty')
+oldest_h=0
+[ -n "$oldest" ] && oldest_h=$(( ( $(date +%s) - $(date -d "$oldest" +%s) ) / 3600 ))
+if [ "$sweepable" = "0" ] && [ "$oldest_h" -lt 20 ]; then
   resp=$(call DELETE '{"sweep":true}'); code=$(status_of "$resp"); json=$(json_of "$resp")
   [ "$code" = "200" ] || err "the sweep returned $code ($(printf '%s' "$json" | jq -r '.error // "?"'))"
   [ "$(printf '%s' "$json" | jq -r '.counts.deleted')" = "0" ] || err "the sweep deleted something"
   [ "$(printf '%s' "$json" | jq -r '.counts.skipped_recent')" -ge 1 ] || err "the sweep did not count the fresh file as recent"
   ok "the sweep skipped the fresh file ($(printf '%s' "$json" | jq -c '.counts | {deleted, skipped_recent, truncated}'))"
 else
-  echo "::warning title=ai-files probe::${sweepable} file(s) in the probe workspace are past the sweep's age; the probe does not sweep (a person does)"
+  echo "::warning title=ai-files probe::the probe workspace holds a file ${oldest_h} h old (${sweepable} past the sweep's age); the probe does not sweep near the age (a person does)"
 fi
 resp=$(call DELETE '{"sweep":true,"older_than_hours":0}'); code=$(status_of "$resp")
 [ "$code" = "400" ] || err "a sweep with another field must be 400, got $code"
@@ -160,7 +168,29 @@ certs=$(curl -sS "${SUPABASE_URL}/rest/v1/app_events?select=code,context&context
   -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}")
 [ "$(printf '%s' "$certs" | jq -r '[.[] | .context.outcome] | sort | join(",")')" = "deleted,gone" ] \
   || err "the certificates are not one deleted and one gone: $(printf '%s' "$certs" | jq -c '[.[] | .context.outcome]')"
-ok "two certificates (deleted, gone)"
+certs_et=$(curl -sS "${SUPABASE_URL}/rest/v1/app_events?select=event_type&context->>file_id=eq.${fid}&context->>stage=eq.delete" \
+  -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}")
+[ "$(printf '%s' "$certs_et" | jq -r '[.[] | .event_type] | unique | join(",")')" = "admin" ] \
+  || err "certificates must be in the admin stream, which members cannot write"
+ok "two certificates (deleted, gone), both in the admin stream"
+
+# ── 5b. A forged upload row is no key (review round 1, finding 1) ───────────
+# A member may insert app_events rows (0021). One naming an id the store does
+# not hold must get `not_found` (not `gone`) and leave no `gone` certificate:
+# otherwise the route tells a forger which ids exist, and certifies a
+# deletion that never was.
+forged="file_011CIprobeForged$(date +%s)"
+ins=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${SUPABASE_URL}/rest/v1/app_events" \
+  -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" -H 'content-type: application/json' \
+  --data "$(jq -cn --arg f "$forged" '{ event_type: "system", code: "WIL-6001", message: "fx12 probe: a forged upload row", context: { tool: "ai-files", file_id: $f, size_bytes: 1, mime_type: "text/plain", key_source: "platform", probe: "fx12-forged" } }')")
+[ "$ins" = "201" ] || err "the probe could not write its forged row ($ins); 0021's policy changed?"
+resp=$(call DELETE "$(jq -cn --arg f "$forged" '{ file_id: $f }')"); code=$(status_of "$resp"); json=$(json_of "$resp")
+[ "$code" = "200" ] && [ "$(printf '%s' "$json" | jq -r '.results[0].outcome')" = "not_found" ] \
+  || err "a forged row naming an absent id must be not_found, got $code $(printf '%s' "$json" | jq -c '.results // .error')"
+gone_rows=$(curl -sS "${SUPABASE_URL}/rest/v1/app_events?select=id&context->>file_id=eq.${forged}&context->>stage=eq.delete" \
+  -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" | jq 'length')
+[ "$gone_rows" = "0" ] || err "a forged row's delete wrote a certificate"
+ok "a forged upload row gets not_found and no certificate"
 
 # ── 6. A messages call that references the deleted file ─────────────────────
 body=$(jq -cn --arg m "$MODEL" --arg f "$fid" '{

@@ -116,11 +116,27 @@ describe('uploadAIFile', () => {
 
 const {
   UPLOAD_EXPIRY_SECONDS, DELETE_BATCH, deleteAIFiles, deleteAIFile, listAIFiles, sweepAIFiles,
-  holdAIFiles, releaseAllAIFiles, __setCurrentTokenForTests,
+  holdAIFiles, releaseAllAIFiles, __setCurrentTokenForTests, neutralFileName,
 } = await import('./aiFiles.js')
 
 const fid = (n) => `file_011Test${String(n).padStart(12, '0')}`
 const okJson = (body) => ({ ok: true, status: 200, json: async () => body })
+
+describe('uploadAIFile gives the store a neutral name (FX12 review round 1, finding 5)', () => {
+  beforeEach(() => { vi.unstubAllGlobals() })
+  it('the store keeps the kind, never the person\'s file name', async () => {
+    let form = null
+    vi.stubGlobal('fetch', async (_u, init) => { form = init.body; return okJson({ id: 'file_abc' }) })
+    await uploadAIFile({ data: 'AAAA', filename: 'Client-Codename-Treatment-v7.pdf', mediaType: 'application/pdf' })
+    expect(form.get('file').name).toBe('document.pdf')
+    // CONTROL: the type still travels on the part, so the store reads it as a PDF.
+    expect(form.get('file').type).toBe('application/pdf')
+  })
+  it('each kind D.O.G. sends has its neutral name; anything else is "document"', () => {
+    expect(['application/pdf', 'text/plain', 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'text/plain;charset=utf-8', 'video/mp4', '']
+      .map(neutralFileName)).toEqual(['document.pdf', 'document.txt', 'image.jpg', 'image.png', 'image.gif', 'image.webp', 'document.txt', 'document', 'document'])
+  })
+})
 
 describe('uploadAIFile asks the store to expire the file (FX12)', () => {
   beforeEach(() => { vi.unstubAllGlobals() })
