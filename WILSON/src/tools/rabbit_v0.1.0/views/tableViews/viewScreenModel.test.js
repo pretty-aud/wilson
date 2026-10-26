@@ -8,6 +8,7 @@ import {
   effectiveFields, fieldsToStore, moveField, filterCount, matchesFilter, applyViewFilters,
   withFilterField, withFilterOp, applyViewSorts, withFirstSort, withFirstSortReversed, moveItem,
   sameEffect, filtersSummary, sortSummary, groupSummary, fieldsSummary, barStateOf, viewOnScreen, copyName, BAR_WORDS,
+  effectiveLeading, leadingToStore, leadingShown,
 } from './viewScreenModel'
 import { tasksDescription } from './tasksTableView'
 import { defaultViewConfig } from '../../state/tableViewsModel'
@@ -247,5 +248,38 @@ describe('the view on screen (design §4.5)', () => {
   it('copyName stays within 80 characters', () => {
     expect(copyName('Shoot week')).toBe('Shoot week copy')
     expect([...copyName('x'.repeat(80))].length).toBe(80)
+  })
+})
+
+// VW1e (2026-10-25): the columns in front of the name (her Q-J: "Stay in
+// front" — hideable, never movable), and what a change of them does.
+describe('the leading columns (Q-J; VW1e step 0, finding 1)', () => {
+  const LEAD = ['expand', 'thumbnail', 'scene_number']
+  it('every leading column shows unless the view hides it; unknown and repeated keys are ignored', () => {
+    expect(effectiveLeading([], LEAD)).toEqual(LEAD.map(key => ({ key, visible: true })))
+    expect(effectiveLeading([{ key: 'thumbnail', visible: false }, { key: 'thumbnail', visible: true }, { key: 'ghost', visible: false }], LEAD))
+      .toEqual([{ key: 'expand', visible: true }, { key: 'thumbnail', visible: false }, { key: 'scene_number', visible: true }])
+    // Never reordered by a view: the table's own order.
+    expect(effectiveLeading([{ key: 'scene_number', visible: true }, { key: 'expand', visible: true }], LEAD).map(f => f.key)).toEqual(LEAD)
+  })
+  it('leadingToStore keeps nothing while every one shows, else each switch, and a key the table lacks now', () => {
+    expect(leadingToStore(effectiveLeading([], LEAD), [], LEAD)).toEqual([])
+    const hidden = effectiveLeading([{ key: 'expand', visible: false }], LEAD)
+    expect(leadingToStore(hidden, [], LEAD)).toEqual([{ key: 'expand', visible: false }, { key: 'thumbnail', visible: true }, { key: 'scene_number', visible: true }])
+    expect(leadingToStore(effectiveLeading([], ['thumbnail']), [{ key: 'expand', visible: false }], ['thumbnail'])).toEqual([{ key: 'thumbnail', visible: true }, { key: 'expand', visible: false }])
+    expect(leadingShown({ leading: [{ key: 'thumbnail', visible: false }] }, LEAD, 'thumbnail')).toBe(false)
+    expect(leadingShown({}, LEAD, 'thumbnail')).toBe(true)
+    expect(leadingShown({}, LEAD, 'ghost')).toBe(false)
+  })
+  it('a hidden leading column is a change (sameEffect); CONTROL: one the table does not have is not', () => {
+    const base = defaultViewConfig('scenes')
+    const fx = { tableKey: 'scenes', fieldKeys: ['name', 'status'], fixed: ['name'], leadingKeys: LEAD }
+    expect(sameEffect(base, { ...base, leading: [{ key: 'thumbnail', visible: false }] }, fx)).toBe(false)
+    expect(sameEffect(base, { ...base, leading: [{ key: 'ghost', visible: false }] }, fx)).toBe(true)
+    expect(sameEffect(base, { ...base, leading: [{ key: 'thumbnail', visible: true }] }, fx)).toBe(true)
+  })
+  it('sortSummary says the table\'s own word for no sort (step 0, finding 14)', () => {
+    expect(sortSummary({ sorts: [] }, { field: () => null })).toBe('Default order')
+    expect(sortSummary({ sorts: [] }, { field: () => null, defaultOrderLabel: 'List order' })).toBe('List order')
   })
 })

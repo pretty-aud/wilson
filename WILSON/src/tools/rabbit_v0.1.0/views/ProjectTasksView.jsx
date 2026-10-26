@@ -95,11 +95,12 @@ import {
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
-import { ITEM_KINDS, KIND_FIELD, KIND_LABEL, KIND_LABEL_PLURAL, NO_KIND_LABEL, buildItemLookup, isItemKind, sortIdsForDisplay } from '../state/taskItemsModel'
+import { ITEM_KINDS, KIND_FIELD, KIND_LABEL, KIND_LABEL_PLURAL, buildItemLookup, isItemKind, sortIdsForDisplay } from '../state/taskItemsModel'
 import { pickerKinds, useTaskItemSort } from '../components/RelationsPanel'
 import { TaskItemCell, useItemPicker } from './TaskItemCells'
 import { tasksTableColumns, tasksTableWidths } from './tasksTableColumns'
-import { groupingKeyOf, isGroupingLive } from '../state/tableViewsModel'
+import { isGroupingLive } from '../state/tableViewsModel'
+import { combinationGroupsOf } from './tableViews/combinationGroups'
 import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
 import { useTableView } from './tableViews/useTableView'
 import { TableViewsMenu } from './tableViews/TableViewsMenu'
@@ -143,11 +144,6 @@ function groupableFields(kinds = ['asset']) {
   ]
 }
 
-// A combination group's names A to Z, numbers read as numbers ("Shot 2"
-// before "Shot 10"), case ignored: the order item 2 of VW1m's hand-off gives
-// the labels themselves.
-const LABEL_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-
 /**
  * VW1m (2026-10-16), her Q-D: the groups of the tasks grouped by an item
  * kind, one per COMBINATION (the set of a task's live items of that kind), so
@@ -166,41 +162,14 @@ const LABEL_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: '
  * group (`groupingId` on it: its *…* removes the grouping, Q-D5); one no row
  * has shows empty, in the place its kind of group takes, and never hides
  * (VW1d step 0, finding 1).
+ * VW1e (2026-10-25): the rule lives once, in tableViews/combinationGroups.js,
+ * for the four tables her Q-M3 gives it; this is the Tasks table's call.
  */
 function itemGroupsOf(kind, tasks, lookup, rows, everySingle = false, saved = [], hideEmpty = false) {
-  const byKey = new Map()
-  for (const t of tasks) {
-    const c = lookup.combinationOf(t, kind)
-    const key = c.key === '' ? '__none__' : c.key
-    if (!byKey.has(key)) byKey.set(key, { key, ids: c.ids, label: c.label || NO_KIND_LABEL[kind], tasks: [] })
-    byKey.get(key).tasks.push(t)
-  }
-  const groupingOf = new Map()
-  for (const g of Array.isArray(saved) ? saved : []) {
-    const ids = (g.ids || []).filter(id => lookup.isLive(kind, id)).sort(lookup.orderOf(kind))
-    if (ids.length === 0) continue
-    const key = groupingKeyOf(ids)
-    if (!groupingOf.has(key)) groupingOf.set(key, g.id)
-    if (!byKey.has(key)) byKey.set(key, { key, ids, label: ids.map(id => lookup.nameOf(kind, id)).join(', '), tasks: [] })
-  }
-  for (const [key, id] of groupingOf) byKey.get(key).groupingId = id
-  const out = []
-  const placed = new Set()
-  for (const r of Array.isArray(rows) ? rows : []) {
-    if (!r || r.id == null || !lookup.isLive(kind, r.id)) continue
-    const key = String(r.id)
-    if (placed.has(key)) continue
-    const g = byKey.get(key)
-    if (!g && !everySingle) continue
-    out.push(g || { key, ids: [r.id], label: lookup.nameOf(kind, r.id), tasks: [] })
-    placed.add(key)
-  }
-  const rest = [...byKey.values()].filter(g => g.key !== '__none__' && !placed.has(g.key))
-  rest.sort((a, b) => LABEL_ORDER.compare(a.label, b.label) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-  out.push(...rest)
-  if (byKey.has('__none__')) out.push(byKey.get('__none__'))
-  else if (everySingle) out.push({ key: '__none__', ids: [], label: NO_KIND_LABEL[kind], tasks: [] })
-  return hideEmpty ? out.filter(g => g.tasks.length > 0 || g.groupingId) : out
+  return combinationGroupsOf({
+    kind, rows: tasks, combinationOf: (t) => lookup.combinationOf(t, kind), lookup,
+    singles: rows, everySingle, saved, hideEmpty, as: 'tasks',
+  })
 }
 
 /**

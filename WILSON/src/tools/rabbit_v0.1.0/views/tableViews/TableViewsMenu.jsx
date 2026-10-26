@@ -53,6 +53,7 @@ import { Button, IconButton, Popover, HoverActions, MenuButton, Switch } from '.
 import { readViewConfig } from '../../state/tableViewsModel'
 import {
   effectiveFields, fieldsToStore, moveField, moveFieldTo, moveItem, moveItemTo,
+  effectiveLeading, leadingToStore,
   filtersSummary, sortSummary, groupSummary, fieldsSummary,
 } from './viewScreenModel'
 import { ViewFilterRow } from './ViewFilterRow'
@@ -370,7 +371,12 @@ function ViewsList({
   }
 
   const fieldsNow = effectiveFields(tv.config.fields, description.fieldKeys, { fixed: description.fixed })
-  const shownFields = board ? fieldsNow.filter(f => description.cardFields.includes(f.key)) : fieldsNow
+  // VW1e: on the cards (the Board's, the Gallery's) the card's own fields;
+  // in the table the columns in front of the name too (her Q-J).
+  const cards = board || tv.config.layout === 'gallery'
+  const shownFields = cards
+    ? fieldsNow.filter(f => description.cardFields.includes(f.key))
+    : [...effectiveLeading(tv.config.leading, description.leadingKeys || []), ...fieldsNow]
   const parts = [
     { part: 'filters', label: 'Filters', summary: filtersSummary(tv.config, description) },
     { part: 'sort', label: 'Sort', summary: sortSummary(tv.config, description) },
@@ -597,7 +603,7 @@ function SortCard({ tv, description, announce }) {
   }
   return (
     <div className="rb-tv-card">
-      {sorts.length === 0 && <p className="rb-tv-hint">Default order.</p>}
+      {sorts.length === 0 && <p className="rb-tv-hint">{`${description.defaultOrderLabel || 'Default order'}.`}</p>}
       {sorts.map((s, i) => (
         <div key={s.field} className="rb-tv-sort-row ui-hover-host"
           data-over={overField === s.field ? 'true' : 'false'}
@@ -643,7 +649,8 @@ function GroupCard({ tv, description }) {
   const g = board ? tv.config.board : tv.config.group
   const field = g?.field || ''
   const setField = (value) => tv.update(c => {
-    const layout = board ? 'board' : 'table'
+    // The layout on screen (VW1e: a Gallery's default is its own, finding 6).
+    const layout = board ? 'board' : (c.layout === 'gallery' ? 'gallery' : 'table')
     const next = value ? { field: value, hideEmpty: description.hideEmptyDefault(layout, value) } : null
     return board ? { ...c, board: next || c.board } : { ...c, group: next }
   })
@@ -674,17 +681,34 @@ function GroupCard({ tv, description }) {
 // row, Home and End go to the ends (R1-16), a move keeps the keyboard on the
 // moved row's control and the stop with it (R1-3), and the handle drags
 // (R1-4; her Q7: "you drag fields up and down in the view's Fields list").
+// VW1e (2026-10-25): the columns in front of the name (her Q-J, "Stay in
+// front": hideable, not movable) are listed above it, each with its switch
+// and no handle; and the card branch is the Board's AND the Gallery's (her
+// Q-E; Q-P2, "One list for both": a field hidden on the cards is hidden in
+// the table too — VW1d step 0's finding 6, built the same way for the
+// Gallery).
 function FieldsCard({ tv, description, announce }) {
   const board = tv.config.layout === 'board'
+  const cards = board || tv.config.layout === 'gallery'
   const list = effectiveFields(tv.config.fields, description.fieldKeys, { fixed: description.fixed })
-  const labelOf = (k) => description.columns.find(c => c.key === k)?.label || description.field(k)?.label || k
+  const leadingKeys = description.leadingKeys || []
+  const leadingNow = effectiveLeading(tv.config.leading, leadingKeys)
+  const leadingLabel = (k) => (description.leading || []).find(l => l.key === k)?.label || null
+  const labelOf = (k) => leadingLabel(k) || description.columns.find(c => c.key === k)?.label || description.field(k)?.label || k
   const store = (next) => tv.update(c => ({ ...c, fields: fieldsToStore(next, c.fields, description.fieldKeys) }))
-  const setShown = (key, on) => store(list.map(f => (f.key === key ? { ...f, visible: on } : f)))
-  // On the Board the card's own fields, in the card's order (finding 6).
-  const rows = board ? description.cardFields.map(k => list.find(f => f.key === k)).filter(Boolean) : list
-  // A row a keyboard can act in: any on the Board; in the table every one
+  const storeLeading = (next) => tv.update(c => ({ ...c, leading: leadingToStore(next, c.leading, leadingKeys) }))
+  const setShown = (key, on) => {
+    if (leadingKeys.includes(key)) storeLeading(leadingNow.map(f => (f.key === key ? { ...f, visible: on } : f)))
+    else store(list.map(f => (f.key === key ? { ...f, visible: on } : f)))
+  }
+  // On the cards the card's own fields, in the card's order (finding 6); in
+  // the table the leading columns, then the fields.
+  const rows = cards
+    ? description.cardFields.map(k => list.find(f => f.key === k)).filter(Boolean)
+    : [...leadingNow.map(f => ({ ...f, leading: true })), ...list]
+  // A row a keyboard can act in: any on the cards; in the table every one
   // but the fixed name.
-  const live = (i) => !!rows[i] && (board || !rows[i].fixed)
+  const live = (i) => !!rows[i] && (cards || !rows[i].fixed)
   const firstLive = Math.max(0, rows.findIndex((_, i) => live(i)))
   const [active, setActive] = useState(null)
   const at = active != null && live(active) ? active : firstLive
@@ -755,19 +779,24 @@ function FieldsCard({ tv, description, announce }) {
     }
     if (e.key === 'ArrowDown') { e.preventDefault(); focusRow(i + 1, 1) } else if (e.key === 'ArrowUp') { e.preventDefault(); focusRow(i - 1, -1) } else if (e.key === 'Home') { e.preventDefault(); focusRow(0, 1) } else if (e.key === 'End') { e.preventDefault(); focusRow(rows.length - 1, -1) } else if (e.key === 'ArrowRight' && c >= 0 && c < controls.length - 1) { e.preventDefault(); controls[c + 1].focus() } else if (e.key === 'ArrowLeft' && c > 0) { e.preventDefault(); controls[c - 1].focus() }
   }
-  // Show all / Hide all: every field but the name (on the Board, the card's own).
+  // Show all / Hide all: every field but the name (on the cards, the card's
+  // own); in the table the columns in front of the name too, in one change.
   function showAll(on) {
-    const touches = (f) => !f.fixed && (!board || description.cardFields.includes(f.key))
-    store(list.map(f => (touches(f) ? { ...f, visible: on } : f)))
+    const touches = (f) => !f.fixed && (!cards || description.cardFields.includes(f.key))
+    tv.update(c => ({
+      ...c,
+      fields: fieldsToStore(list.map(f => (touches(f) ? { ...f, visible: on } : f)), c.fields, description.fieldKeys),
+      ...(cards || leadingKeys.length === 0 ? {} : { leading: leadingToStore(leadingNow.map(f => ({ ...f, visible: on })), c.leading, leadingKeys) }),
+    }))
   }
   return (
     <div className="rb-tv-card">
-      {board && <p className="rb-tv-hint">What a card shows. The card keeps its own order.</p>}
-      <div ref={gridRef} role="grid" aria-label={board ? 'Card fields' : 'Fields'} className="rb-tv-list" onKeyDown={onGridKey}>
+      {cards && <p className="rb-tv-hint">What a card shows. The card keeps its own order.</p>}
+      <div ref={gridRef} role="grid" aria-label={cards ? 'Card fields' : 'Fields'} className="rb-tv-list" onKeyDown={onGridKey}>
         {rows.map((f, i) => {
           const tab = i === at ? 0 : -1
           const label = labelOf(f.key)
-          const canMove = !board && !f.fixed
+          const canMove = !cards && !f.fixed && !f.leading
           const mi = movable.findIndex(x => x.key === f.key)
           return (
             <div key={f.key} role="row" data-row={i} className="rb-tv-row ui-hover-host"

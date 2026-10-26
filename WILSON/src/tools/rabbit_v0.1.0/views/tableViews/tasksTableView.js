@@ -67,6 +67,31 @@ export function groupFromTab(value) { return value ? (own(CONFIG_GROUP, value) |
 const ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 /**
+ * A linked kind's options for the filter's value picker and Create
+ * grouping: the kind's live rows in the project's own order, each by the
+ * lookup's words, and — only for rows whose name another row shares — what
+ * tells them apart (an asset's type and phase; a scene's number; a shot's
+ * number, its scene already in its name). VW1e: shared by every table's
+ * description (the Tasks table's until then).
+ */
+export function itemKindOptions(kind, kindRows, lookup = null, phaseName = new Map()) {
+  const rows = (Array.isArray(kindRows) ? kindRows : []).filter(r => r && r.id != null && (!lookup || lookup.isLive(kind, r.id)))
+  const named = rows.map(r => ({ value: r.id, label: lookup ? lookup.nameOf(kind, r.id) : (r.name || 'Untitled'), row: r }))
+  const count = new Map()
+  for (const o of named) count.set(o.label, (count.get(o.label) || 0) + 1)
+  return named.map(o => ({ value: o.value, label: o.label, apart: count.get(o.label) > 1 ? itemApartOf(kind, o.row, phaseName) : null }))
+}
+function itemApartOf(kind, row, phaseName) {
+  if (kind === 'asset') return [row.type, phaseName.get(String(row.phase_id))].filter(Boolean).join(' · ') || null
+  if (kind === 'scene' && row.scene_number != null) return `Scene ${row.scene_number}`
+  if (kind === 'shot' && row.shot_number != null) return `Shot ${row.shot_number}`
+  return null
+}
+
+/** Each filter condition a choice / item field offers, and a text field's. */
+export { CHOICE_OPS, TEXT_OPS }
+
+/**
  * The description, from what the tab knows now: the item kinds the project
  * uses (`itemKinds`, the columns' rule), its phases and the people the
  * Assignee cell offers, the items' lookup, each kind's live rows in the
@@ -149,19 +174,9 @@ export function tasksDescription({ itemKinds = ['asset'], phases = [], members =
       default: {
         const kind = byKey.get(key)?.kind
         if (!kind) return []
-        const rows = (Array.isArray(kindRows[kind]) ? kindRows[kind] : []).filter(r => r && r.id != null && (!lookup || lookup.isLive(kind, r.id)))
-        const named = rows.map(r => ({ value: r.id, label: lookup ? lookup.nameOf(kind, r.id) : (r.name || 'Untitled'), row: r }))
-        const count = new Map()
-        for (const o of named) count.set(o.label, (count.get(o.label) || 0) + 1)
-        return named.map(o => ({ value: o.value, label: o.label, apart: count.get(o.label) > 1 ? apartOf(kind, o.row) : null }))
+        return itemKindOptions(kind, kindRows[kind], lookup, phaseName)
       }
     }
-  }
-  function apartOf(kind, row) {
-    if (kind === 'asset') return [row.type, phaseName.get(String(row.phase_id))].filter(Boolean).join(' · ') || null
-    if (kind === 'scene' && row.scene_number != null) return `Scene ${row.scene_number}`
-    if (kind === 'shot' && row.shot_number != null) return `Shot ${row.shot_number}`
-    return null
   }
 
   return Object.freeze({

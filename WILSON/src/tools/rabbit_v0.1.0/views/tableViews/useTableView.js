@@ -57,7 +57,8 @@ export function useTableView({ ctx, tableKey, description, canWrite = false, nam
   const name = row ? row.name : screen.deleted ? (draft?.name || 'This view') : 'All'
   const read = useMemo(() => (row ? readViewConfig(row.config, tableKey) : { config: allView.config, newer: false, unreadable: false }), [row, tableKey, allView])
   const saved = read.config
-  const fx = useMemo(() => ({ tableKey, fieldKeys: description.fieldKeys, fixed: description.fixed }), [tableKey, description])
+  // VW1e: the columns in front of the name count too (her Q-J).
+  const fx = useMemo(() => ({ tableKey, fieldKeys: description.fieldKeys, fixed: description.fixed, leadingKeys: description.leadingKeys || [] }), [tableKey, description])
 
   // A change of one's own: the change for now shows the table otherwise than
   // the view it began from AND otherwise than the view now (a teammate who
