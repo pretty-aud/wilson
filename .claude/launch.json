@@ -358,6 +358,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/eloquent-rosalind-15dd83/WILSON --port 5303 --strictPort"
       ],
       "port": 5303
+    },
+    {
+      "_comment": "FX14 (FX13's leftovers: D.O.G.'s card title bars by keyboard, the kit toast holding for keyboard focus and handing it back, the two flaky R.A.B.B.I.T. tests; no migration): the canonical checkout's dev server on the bundle's port 5304, as the dev fixtures' tester. fx13-worktree's recipe: no .env.local is needed, the four VITE_ variables are set in the process environment, the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made.",
+      "name": "fx14-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON --port 5304 --strictPort"
+      ],
+      "port": 5304
     }
   ]
 }
