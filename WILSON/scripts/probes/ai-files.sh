@@ -62,6 +62,13 @@ token=$(curl -sS -X POST "${SUPABASE_URL}/auth/v1/token?grant_type=password" \
   -H 'content-type: application/json' -H "apikey: ${SUPABASE_ANON_KEY}" \
   --data "$(jq -cn --arg e "$email" --arg p "$PROBE_PASSWORD" '{ email: $e, password: $p }')" | jq -r '.access_token // empty')
 [ -n "$token" ] || err "the probe user could not sign in"
+b64url_json() {
+  local s="${1//-/+}"; s="${s//_//}"
+  while [ $(( ${#s} % 4 )) -ne 0 ]; do s="${s}="; done
+  printf '%s' "$s" | base64 -d
+}
+ws=$(b64url_json "$(printf '%s' "$token" | cut -d. -f2)" | jq -r '.app_metadata.workspace_id // empty')
+[ -n "$ws" ] || err "the probe user's token names no workspace"
 ok "signed in (${#token}-character token)"
 
 # $1 method, $2 body (or empty) -> "<json>\n<status>"
@@ -182,8 +189,15 @@ ok "two certificates (deleted, gone), both in the admin stream"
 forged="file_011CIprobeForged$(date +%s)"
 ins=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${SUPABASE_URL}/rest/v1/app_events" \
   -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" -H 'content-type: application/json' \
-  --data "$(jq -cn --arg f "$forged" '{ event_type: "system", code: "WIL-6001", message: "fx12 probe: a forged upload row", context: { tool: "ai-files", file_id: $f, size_bytes: 1, mime_type: "text/plain", key_source: "platform", probe: "fx12-forged" } }')")
+  --data "$(jq -cn --arg f "$forged" --arg w "$ws" '{ workspace_id: $w, event_type: "system", code: "WIL-6001", message: "fx12 probe: a forged upload row", context: { tool: "ai-files", file_id: $f, size_bytes: 1, mime_type: "text/plain", key_source: "platform", probe: "fx12-forged" } }')")
 [ "$ins" = "201" ] || err "the probe could not write its forged row ($ins); 0021's policy changed?"
+# The other half of the premise: a member can NOT write the admin stream the
+# certificates live in (0021's insert policy), so a certificate is unforgeable.
+ins_admin=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${SUPABASE_URL}/rest/v1/app_events" \
+  -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" -H 'content-type: application/json' \
+  --data "$(jq -cn --arg f "$forged" --arg w "$ws" '{ workspace_id: $w, event_type: "admin", code: "WIL-6001", message: "fx12 probe: a forged certificate", context: { tool: "ai-files", stage: "delete", file_id: $f, outcome: "deleted", probe: "fx12-forged" } }')")
+[ "$ins_admin" != "201" ] || err "a member could write an admin-stream certificate: certificates are forgeable"
+ok "a member can write a forged upload row ($ins) and cannot write a certificate ($ins_admin)"
 resp=$(call DELETE "$(jq -cn --arg f "$forged" '{ file_id: $f }')"); code=$(status_of "$resp"); json=$(json_of "$resp")
 [ "$code" = "200" ] && [ "$(printf '%s' "$json" | jq -r '.results[0].outcome')" = "not_found" ] \
   || err "a forged row naming an absent id must be not_found, got $code $(printf '%s' "$json" | jq -c '.results // .error')"
