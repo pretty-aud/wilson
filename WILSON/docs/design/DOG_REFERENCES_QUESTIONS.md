@@ -536,3 +536,15 @@ multiple choice. Your answers, verbatim:
   before; OUTSTANDING DG1b-01 closed by this ruling).
 
 Built in FX13 (`po/fx13-dog-enter-key`); walkthrough 77.
+
+## After FX14: the uploads move into References (2026-10-26, DG2)
+
+**Her ask (in chat, verbatim):** *"one thing id like to fix. lets move the upload documents section in dog tool to the 2 References card. make a session chip for this"*
+
+Three questions asked by the controller in chat as multiple choice (a type-in always possible); her answers verbatim:
+
+- **Card 1 after the move** (it keeps only the Project dropdown, New project and the description): "Keep it, renamed \"1 Project\" (Recommended)" — *three cards stay: 1 Project, 2 References, 3 Generate outline; only the name changes.*
+- **Where in References the uploads sit:** "First, above the chosen items (Recommended)" — *Uploads (n) is the first group, with its Choose file button; then Items, Files, Notes, the meter, Add references.*
+- **How the uploads look:** "Rows like the other references (Recommended)" — *each upload a row with its glyph, name, size and Remove, in the same list style as Items, Files and Notes.*
+
+These supersede R19 ("uploads stay exactly as they are") and §2.1's "Upload Documents: untouched" in `DOG_REFERENCES_DESIGN.md`, and change P20's first name by one word. The build is DG2 (`docs/sessions/briefs/po-dg2-uploads-in-references.md`).
