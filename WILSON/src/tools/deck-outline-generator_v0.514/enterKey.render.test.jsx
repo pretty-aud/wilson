@@ -431,3 +431,137 @@ describe('FX13 on the rendered D.O.G.: Single page is untouched', () => {
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
   })
 })
+
+// =============================================================================
+// FX14 (OUTSTANDING FX13-01): the three card title bars fold from the
+// keyboard. Each header holds a real button named by the heading's words, the
+// chevron its hidden glyph, `aria-expanded` and (while the body is drawn)
+// `aria-controls`; it has no handler of its own, so a press reaches the bar's
+// one handler, as a pointer's click does. Enter on it is the button's: D.O.G.'s
+// "Enter generates" leaves a focused button to itself (enterGenerates.js).
+// Chromium's own Tab walk and names are in the FX14 hand-off
+// (scripts/fx14-keyboard-shots.mjs).
+// =============================================================================
+const CARDS = [
+  { name: 'Project documentation', body: '#dog-card1-body', inside: 'input[type=file][accept*=".txt"]' },
+  { name: 'References', body: '#dog-refs-body', inside: '.dog-refs-contract' },
+  { name: 'Generate outline', body: '#dog-card3-body', inside: 'textarea.dog-context-prompt' },
+]
+/** Space on a button as a browser delivers it: down, up, and the click on the way up. */
+async function pressSpace(target) {
+  let kept
+  await act(async () => { kept = fireEvent.keyDown(target, { key: ' ', code: 'Space' }) })
+  const up = fireEvent.keyUp(target, { key: ' ', code: 'Space' })
+  if (kept && up && target.tagName === 'BUTTON') await act(async () => { fireEvent.click(target) })
+  return kept
+}
+const headButton = (name) => screen.getByRole('button', { name })
+const head = (name) => headButton(name).closest('.dog-card-head')
+
+describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboard', () => {
+  it('each of the three headers holds a button named by the heading\'s words, the chevron its hidden glyph, open and controlling its body', async () => {
+    await openDog()
+    for (const c of CARDS) {
+      const b = headButton(c.name)
+      expect(b.tagName).toBe('BUTTON')
+      expect(b.getAttribute('type')).toBe('button')
+      expect(b.getAttribute('aria-expanded')).toBe('true')
+      const body = document.getElementById(b.getAttribute('aria-controls'))
+      expect(body).toBe(document.querySelector(c.body))
+      expect(body.querySelector(c.inside)).not.toBe(null)
+      expect([...b.querySelectorAll('svg')].every((g) => g.getAttribute('aria-hidden') === 'true')).toBe(true)
+      // The heading stays a heading, with its words.
+      expect(b.closest('.dog-card-head').querySelector('h2').textContent).toContain(c.name)
+    }
+  })
+
+  it('a press folds its card and only its card: aria-expanded both ways, aria-controls only while the body is drawn', async () => {
+    await openDog()
+    for (const c of CARDS) {
+      await act(async () => { fireEvent.click(headButton(c.name)) })
+      expect(headButton(c.name).getAttribute('aria-expanded')).toBe('false')
+      expect(headButton(c.name).hasAttribute('aria-controls')).toBe(false)
+      expect(document.querySelector(c.body)).toBe(null)
+      for (const o of CARDS.filter((x) => x !== c)) expect(headButton(o.name).getAttribute('aria-expanded')).toBe('true')
+      await act(async () => { fireEvent.click(headButton(c.name)) })
+      expect(headButton(c.name).getAttribute('aria-expanded')).toBe('true')
+      expect(document.getElementById(headButton(c.name).getAttribute('aria-controls'))).toBe(document.querySelector(c.body))
+    }
+  })
+
+  it('one press is one fold (the bar\'s one handler), and the bar itself still folds under the pointer', async () => {
+    await openDog()
+    // React's own props on the node: the button has no click handler of its
+    // own. Cards 1 and 3 fold by a value read at render, so a second handler
+    // there would fold once anyway and hide from the count below; the
+    // References card folds by an updater, where two handlers fold twice.
+    const reactProps = (el) => el[Object.keys(el).find((k) => k.startsWith('__reactProps'))]
+    for (const c of CARDS) expect(reactProps(headButton(c.name)).onClick).toBeUndefined()
+    for (const c of CARDS) {
+      await act(async () => { fireEvent.click(headButton(c.name)) })
+      expect(head(c.name).getAttribute('data-collapsed')).toBe('true')   // once, not folded and unfolded
+      await act(async () => { fireEvent.click(head(c.name).querySelector('h2')) })
+      expect(head(c.name).getAttribute('data-collapsed')).toBe('false')
+    }
+  })
+
+  for (const words of [false, true]) {
+    for (const [key, press] of [['Enter', pressEnter], ['Space', pressSpace]]) {
+      it(`${key} on each button, the deck context box ${words ? 'with words' : 'empty'}, Full deck on: folds and unfolds, generates nothing, says nothing, focus stays`, async () => {
+        const d = await openDog()
+        expect(d.sw().getAttribute('aria-checked')).toBe('true')
+        if (words) await type(d.box(), CONTEXT)
+        for (const c of CARDS) {
+          const b = headButton(c.name)
+          await act(async () => { b.focus() })
+          expect(await press(b)).toBe(true)                 // left to the button
+          expect(headButton(c.name).getAttribute('aria-expanded')).toBe('false')
+          expect(document.activeElement).toBe(headButton(c.name))
+          await press(headButton(c.name))
+          expect(headButton(c.name).getAttribute('aria-expanded')).toBe('true')
+        }
+        await new Promise((r) => setTimeout(r, 20))
+        expect(callAI).not.toHaveBeenCalled()
+        expect(d.toasts()).toHaveLength(0)
+        if (words) expect(d.box().value).toBe(CONTEXT)
+      })
+    }
+  }
+
+  it('CONTROL: Enter on the page with words in the box still starts the full deck (the buttons changed nothing else)', async () => {
+    const d = await openDog()
+    await type(d.box(), CONTEXT)
+    await act(async () => { headButton('Project documentation').focus() })
+    await act(async () => { document.activeElement.blur() })
+    await pressEnter(document.body)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+  })
+
+  it('FX13\'s rule, unchanged: card 3 folded from its button, the box empty, Enter on the page opens it and focuses the box', async () => {
+    const d = await openDog()
+    const b = headButton('Generate outline')
+    await act(async () => { b.focus() })
+    await pressEnter(b)
+    expect(d.box()).toBe(null)
+    await act(async () => { document.activeElement.blur() })
+    expect(await pressEnter(document.body)).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(d.box()))
+    expect(headButton('Generate outline').getAttribute('aria-expanded')).toBe('true')
+    expect(callAI).not.toHaveBeenCalled()
+    expect(d.toasts()).toHaveLength(1)
+  })
+
+  it('the Tab order: each button is the first stop of its card, before the controls in its body', async () => {
+    const d = await openDog({ upload: false })
+    const stops = [...d.view.container.querySelectorAll('.dog-main button, .dog-main input, .dog-main select, .dog-main textarea, .dog-main [tabindex]')]
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden]') && !(el.tagName === 'INPUT' && el.type === 'file'))
+    const at = (el) => stops.indexOf(el)
+    const firstIn = (sel) => stops.find((el) => el.closest(sel))
+    for (const c of CARDS) {
+      expect(at(headButton(c.name))).toBeGreaterThan(-1)
+      expect(at(headButton(c.name))).toBeLessThan(at(firstIn(c.body)))
+    }
+    expect(at(headButton('Project documentation'))).toBeLessThan(at(headButton('References')))
+    expect(at(headButton('References'))).toBeLessThan(at(headButton('Generate outline')))
+  })
+})
