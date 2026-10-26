@@ -16,6 +16,7 @@ import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
 // GW3: the gateway's doors in the page (the probe, the tickets, the bytes).
 import { createGatewayDoorsStub } from './gatewayDoors'
+import { createAIFileStoreFixture, aiFilesFixtureMode } from './aiFileStoreFixture'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
 import { PROJECT } from './data/project'
 import { BUILTIN } from '../../lib/aiModels'
@@ -116,6 +117,13 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
       getSettings() { return store.userSettings ? clone(store.userSettings) : null },
       setSettings(s) { store.userSettings = clone(s) },
     },
+
+    /**
+     * FX12: what src/cloud/aiFiles.js's list and sweep answer from (the Admin
+     * Terminal's "The AI's file store" card), since the real store is reached
+     * only signed in. `?aiFiles=empty|error` are the card's other states.
+     */
+    aiFiles: createAIFileStoreFixture({ mode: aiFilesFixtureMode() }),
   }
 }
 

@@ -19,6 +19,7 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { ERROR_CODES, reportAppEvent } from '../../cloud/errorCodes'
 import { copyTextToClipboard } from './CredentialsPopup'
 import StorageCleanupCard from './StorageCleanupCard'
+import AIFileStoreCard from './AIFileStoreCard'
 import Card from '../../ui/Card'
 import Button from '../../ui/Button'
 import Badge from '../../ui/Badge'
@@ -209,6 +210,9 @@ export default function DiagnosticsSection() {
 
       {/* STORAGE CLEANUP (Session 14, Block E) */}
       <StorageCleanupCard />
+
+      {/* THE AI'S FILE STORE (FX12, OUTSTANDING DG1-03) */}
+      <AIFileStoreCard />
     </div>
   )
 }
