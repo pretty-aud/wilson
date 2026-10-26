@@ -102,7 +102,7 @@ export default function AIFilesSection({ isActive }) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-h3 font-semibold text-stone-900">AI files</h2>
-          <p className="text-dense text-stone-950 leading-relaxed">
+          <p className="text-dense text-stone-950">
             What D.O.G. has left in the AI provider&rsquo;s file store under the platform key, as counts.
             The key is shared by every environment, so only files this environment&rsquo;s records tie to a company are ever deleted here.
           </p>

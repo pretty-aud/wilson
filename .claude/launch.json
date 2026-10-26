@@ -328,6 +328,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/charming-bell-705fef/WILSON --port 5298 --strictPort"
       ],
       "port": 5298
+    },
+    {
+      "_comment": "FX12 (the AI's file store clean-up, OUTSTANDING DG1-03; no migration): this worktree's dev server on the bundle's port 5302, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached). The Admin Terminal's Diagnostics shows The AI's file store card from src/dev/fixtures/aiFileStoreFixture.js; ?aiFiles=empty|error are its other states. The real store is reached only signed in to wilson-dev (walkthrough 76 part B).",
+      "name": "fx12-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/hopeful-merkle-b794b2/WILSON --port 5302 --strictPort"
+      ],
+      "port": 5302
     }
   ]
 }

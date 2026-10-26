@@ -112,15 +112,11 @@ export default function AIFileStoreCard() {
         leave the deck, when WILSON closes and at sign-out, and new ones delete
         themselves after a day.
       </p>
-      <p className="at-note">
-        This company’s files only, never another’s. File names are never shown
-        or recorded. Each deletion is recorded in Logs (WIL-6001, ai-files).
-      </p>
 
       {error && <Banner tone="danger" Icon={AlertTriangle}>{error}</Banner>}
 
       {list && (
-        <div className="at-stat-row">
+        <div className="at-stat-row at-stat-row-spaced">
           <Stat label="Files" value={list.count ?? 0} />
           <Stat label="Total size" value={formatBytes(list.total_bytes ?? 0)} />
           <Stat label="Oldest" value={list.count ? ageOf(list.oldest) : '—'} />
@@ -171,6 +167,10 @@ export default function AIFileStoreCard() {
           </Button>
         </div>
       )}
+      <p className="at-note">
+        This company’s files only, never another’s. File names are never shown
+        or recorded. Each deletion is recorded in Logs (WIL-6001, ai-files).
+      </p>
     </Card>
   )
 }
