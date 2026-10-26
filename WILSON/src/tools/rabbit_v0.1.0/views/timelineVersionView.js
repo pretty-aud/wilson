@@ -26,6 +26,11 @@
 //     for a version saved before, which cannot carry it — the row's as it is
 //     now, the one thing such a snapshot cannot say (the brief: resolve only
 //     what a snapshot cannot carry from live data).
+//   · VW1m (2026-10-16), Q-N7 interim: a task's ITEMS as saved — the
+//     snapshot's `items` (every item of every kind), or, for a version saved
+//     before, its single fields, one item each — handed to the Timeline as
+//     task_items-shaped rows (`taskItems`), which it reads as kept items
+//     (its versionTaskItems), so a viewed version groups by its own items.
 // Names a snapshot does not hold — an asset's, a scene's, a level's, a
 // person's — the row builders resolve from the project as it is now, and say
 // "no longer in the project" where it is gone.
@@ -35,12 +40,35 @@ import { readVersion } from '../state/budgetVersionModel'
 
 const idOf = (r) => (r && r.id != null ? String(r.id) : null)
 
+// The five kinds and each one's single field (taskItemsModel's ITEM_KINDS
+// and KIND_FIELD; this view reads only the snapshot's own shape).
+const ITEM_FIELD = { asset: 'asset_id', scene: 'scene_id', shot: 'shot_id', level: 'level_id', experience: 'experience_id' }
+
+/**
+ * VW1m: a viewed version's tasks' items as rows `{ task_id, entity_type,
+ * entity_id }`: a task saved with `items` names each id of each kind; one
+ * saved before names its single fields (the version kept one of each).
+ */
+function savedTaskItems(tasks) {
+  const out = []
+  for (const t of tasks) {
+    const saved = t.items && typeof t.items === 'object' && !Array.isArray(t.items) ? t.items : null
+    for (const [kind, field] of Object.entries(ITEM_FIELD)) {
+      const ids = saved ? (Array.isArray(saved[kind]) ? saved[kind] : []) : [t[field]]
+      for (const id of ids) {
+        if (id != null && id !== '') out.push({ task_id: t.id, entity_type: kind, entity_id: id })
+      }
+    }
+  }
+  return out
+}
+
 /**
  * `version` (a budget_versions row) → { version, tasks, phases, milestones,
- * dependencies } for the Timeline's memos, or null when the version carries
- * no schedule (saved before S5: "no timeline captured", F1 — it cannot be
- * viewed). `live`: { tasks, setAsideTasks, dependencies, setAsideDependencies }
- * as the provider holds them.
+ * dependencies, taskItems } for the Timeline's memos, or null when the
+ * version carries no schedule (saved before S5: "no timeline captured", F1 —
+ * it cannot be viewed). `live`: { tasks, setAsideTasks, dependencies,
+ * setAsideDependencies } as the provider holds them.
  */
 export function versionView(version, { tasks = [], setAsideTasks = [], dependencies = [], setAsideDependencies = [] } = {}) {
   if (!version) return null
@@ -75,7 +103,7 @@ export function versionView(version, { tasks = [], setAsideTasks = [], dependenc
     seen.add(key)
     edges.push(d)
   }
-  return { version, tasks: viewTasks, phases: viewPhases, milestones: viewMilestones, dependencies: edges }
+  return { version, tasks: viewTasks, phases: viewPhases, milestones: viewMilestones, dependencies: edges, taskItems: savedTaskItems(viewTasks) }
 }
 
 /** Whether a version can be viewed on the Timeline (it carries a schedule). */

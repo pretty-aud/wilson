@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ACTION_META, ENTITY_LABELS, RESTORE_META,
   diffLines, snapshotSummary, formatHistoryTimestamp, actorName,
-  softDeleteTransition, entryActionMeta,
+  softDeleteTransition, entryActionMeta, historyEntryShown,
 } from './editHistoryFormat'
 
 const updateEntry = {
@@ -65,6 +65,45 @@ describe('diffLines', () => {
     expect(diffLines({ action: 'delete', diff: { old: { title: 'x' } } })).toEqual([])
     expect(diffLines(null)).toEqual([])
     expect(diffLines({ action: 'update' })).toEqual([])
+  })
+
+  // VW1m review round 1 (R1-2), Q-N8 (batch 16; interim: no history of a
+  // task's items). The cloud still writes the older apps' copy
+  // (tasks.asset_id, scene_id, shot_id) whenever a kind's first item changes,
+  // and 0012's capture records it as a task edit: read in words, removing the
+  // first of two assets said "Asset: Lighthouse → Lantern", a swap that never
+  // happened. A task's link columns show no line, old or new.
+  it("R1-2: a task's link columns show no line, old or new; its other fields keep theirs", () => {
+    const entry = {
+      action: 'update', entity_type: 'tasks',
+      diff: {
+        asset_id: { old: 'a1', new: 'a2' },
+        scene_id: { old: null, new: 's1' },
+        shot_id: { old: 'h1', new: null },
+        level_id: { old: null, new: 'l1' },
+        experience_id: { old: 'x-gone', new: null },
+        title: { old: 'A', new: 'B' },
+      },
+    }
+    expect(diffLines(entry)).toEqual([{ field: 'title', from: 'A', to: 'B' }])
+    expect(diffLines({ action: 'update', entity_type: 'tasks', diff: { asset_id: { old: 'Lighthouse', new: 'Lantern' } } })).toEqual([])
+  })
+  it("R1-2: an entry whose only changes were a task's link columns is not shown; one with anything else to say still is", () => {
+    const task = (diff, action = 'update') => ({ action, entity_type: 'tasks', diff })
+    expect(historyEntryShown(task({ asset_id: { old: 'a1', new: 'a2' } }))).toBe(false)
+    expect(historyEntryShown(task({ scene_id: { old: 's1', new: null }, shot_id: { old: 'h1', new: null }, updated_at: { old: 'x', new: 'y' } }))).toBe(false)
+    expect(historyEntryShown(task({ asset_id: { old: 'a1', new: 'a2' }, title: { old: 'A', new: 'B' } }))).toBe(true)
+    // A soft delete or restore is said by its badge, with no line.
+    expect(historyEntryShown(task({ asset_id: { old: 'a1', new: null }, deleted_at: { old: null, new: '2026-10-16' } }))).toBe(true)
+    expect(historyEntryShown(task({ new: { title: 'x', asset_id: 'a1' } }, 'create'))).toBe(true)
+    expect(historyEntryShown(task({ old: { title: 'x', asset_id: 'a1' } }, 'delete'))).toBe(true)
+    // An entry with no task link column is shown as it always was.
+    expect(historyEntryShown(task({ updated_by: { old: 'u1', new: 'u2' } }))).toBe(true)
+  })
+  it("R1-2 CONTROL: another entity's field of the same name keeps its raw line, and its entry", () => {
+    const entry = { action: 'update', entity_type: 'files', diff: { asset_id: { old: 'a1', new: 'a2' } } }
+    expect(diffLines(entry)).toEqual([{ field: 'asset_id', from: 'a1', to: 'a2' }])
+    expect(historyEntryShown(entry)).toBe(true)
   })
 })
 

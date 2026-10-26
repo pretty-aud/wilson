@@ -60,6 +60,12 @@ import { hasLocalServer } from '../../../lib/localData';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 import { splitSetAside, isSetAside } from '../state/setAside';
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../state/shotListModel';
+// VW1m (2026-10-16): the Dashboard's items, named and ordered as every screen
+// reads them (withMyTaskItems).
+import { ITEM_KINDS, isItemKind, buildItemLookup } from '../state/taskItemsModel';
+// VW1c (2026-10-17, 0098): custom table views and groupings — the words a
+// refused CHECK is read back in come from the one statement of their rules.
+import { viewNameProblem, viewConfigProblem, groupingProblem, normalizeEntityIds } from '../state/tableViewsModel';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
 // Session 37: the workspace's CONFIGURED provider decides where a new body
 // goes (activeWorkspaceProvider over the cached workspace_storage row); 's3'
@@ -389,6 +395,11 @@ const TASK_COLUMNS = new Set([
   // (D9 names scene and shot only), so they keep being dropped and warned.
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'scene_id', 'shot_id',
+  // VW1m (2026-10-16, 0097): asset_id, scene_id and shot_id STAY. They are
+  // the older apps' copy of a task's items (each kind's first item in the
+  // stored order, written by 0097 §4); this app's provider no longer sends
+  // them, and an older app's write of one ADDS that item (0097 §3). A
+  // template's new task still names its asset here and 0096 §7c seeds it.
 ]);
 
 const ASSET_COLUMNS = new Set([
@@ -407,9 +418,16 @@ const ASSET_COLUMNS = new Set([
   // arrays (`updateAsset(id, { scene_ids: next })`, ProjectAssetsView.jsx
   // :2026 / :2040) and were dropped here until now. An array is not an FK, so
   // a deleted scene's id can linger; the client ignores unknown ids (0084 §6c).
-  // level_ids / experience_ids stay OUT, like the task links above.
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'scene_ids', 'shot_ids',
+  // 0099 (VW1e, 2026-10-25; her A9, "the same on the cloud or a NAS"): the
+  // levels and experiences an asset is in, uuid[] like scene_ids. They were
+  // left OUT until now, so on the cloud a level's Assets count read 0 and the
+  // Levels table could not be grouped by asset (design §4.7, §4.11). The
+  // asset window's pickers send whole arrays (ProjectAssetsView.jsx's Levels
+  // and Experiences pickers), the Levels table's drag a whole array per asset.
+  // 🚨 Stripped again on a database without 0099 — see stripUnmigrated.
+  'level_ids', 'experience_ids',
 ]);
 
 // ── Session 24 ──────────────────────────────────────────────────
@@ -653,6 +671,25 @@ const TASK_ITEM_COLUMNS = new Set([
 const TASK_ITEM_SELECT =
   'id, task_id, project_id, workspace_id, entity_type, entity_id, position, created_at, created_by, updated_at, updated_by';
 
+// ── 0098 (VW1c): custom table views and groupings ────────────────────────
+// EXACTLY the column grants 0098 §7 gives a client, and nothing else: a view
+// is created with INSERT (id, project_id, table_key, name, position, config)
+// and saved with UPDATE (name, position, config); a grouping is created with
+// INSERT (id, project_id, table_key, kind, entity_ids) and has no UPDATE (it
+// is made and removed whole). workspace_id, revision, revised_by and the four
+// audit columns are the triggers' — a re-sent row has them stripped first,
+// without a warning (TABLE_VIEW_SERVER_OWNED / ITEM_GROUPING_SERVER_OWNED),
+// and toColumns warns about anything else. 🚨 Never an upsert: ON CONFLICT
+// DO UPDATE needs UPDATE on id, project_id and table_key, which no client
+// holds, so the database refuses one whole.
+const TABLE_VIEW_COLUMNS = new Set(['id', 'project_id', 'table_key', 'name', 'position', 'config']);
+const ITEM_GROUPING_COLUMNS = new Set(['id', 'project_id', 'table_key', 'kind', 'entity_ids']);
+// What every read and write answers: the rows every backend shares
+// (adapters/index.js's typedef), without workspace_id.
+const TABLE_VIEW_SELECT =
+  'id, project_id, table_key, name, position, revision, revised_by, config, created_at, created_by, updated_at, updated_by';
+const ITEM_GROUPING_SELECT = 'id, project_id, table_key, kind, entity_ids, created_at, created_by, updated_at, updated_by';
+
 // ── 0041: the folder tree ────────────────────────────────────────────────
 // `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
 // provider re-sends whole rows on update and PATCH_DROP strips it first.
@@ -847,6 +884,9 @@ export const COLUMN_ALLOWLIST = {
   shot_takes: SHOT_TAKE_COLUMNS,
   // 0096 (FX2): a task's items.
   task_items: TASK_ITEM_COLUMNS,
+  // 0098 (VW1c): custom table views and groupings — the column grants.
+  table_views: TABLE_VIEW_COLUMNS,
+  item_groupings: ITEM_GROUPING_COLUMNS,
 };
 
 /**
@@ -941,7 +981,22 @@ let shotListsAbsent = false;
 // it — a load that finds shot_lists clears the flag by itself.
 export function resetShotListSchemaState() {
   shotListsAbsent = false;
+  assetLevelLinksAbsent = false;
 }
+
+// 0099 (VW1e, 2026-10-25): the same "client ahead of its database" answer for
+// assets.level_ids / experience_ids. A write that carries one to a database
+// without 0099 is refused WHOLE (PGRST204), so while loadProject has found
+// them absent, stripUnmigrated takes them out of every asset write (loudly,
+// as for 0084). The probe is its own one-row read of the two columns in the
+// load (probeAssetLevelLinks): an asset row read with `*` says nothing when
+// the project has no assets yet. Like shotListsAbsent, never cleared by an
+// auth event; a load that reads the columns clears it.
+let assetLevelLinksAbsent = false;
+
+const COLUMNS_ADDED_BY_0099 = {
+  assets: ['level_ids', 'experience_ids'],
+};
 
 const COLUMNS_ADDED_BY_0084 = {
   tasks:           ['scene_id', 'shot_id'],
@@ -959,25 +1014,44 @@ function carriesValue(v) {
 }
 
 function stripUnmigrated(table, row) {
-  const cols = shotListsAbsent ? COLUMNS_ADDED_BY_0084[table] : null;
-  if (!cols || !row || typeof row !== 'object') return row;
+  if (!row || typeof row !== 'object') return row;
+  // 0084's columns while shot_lists is absent; 0099's while its probe found
+  // the asset level links absent (VW1e). Each migration's own words.
+  const absent = [
+    ['0084', shotListsAbsent ? COLUMNS_ADDED_BY_0084[table] : null],
+    ['0099', assetLevelLinksAbsent ? COLUMNS_ADDED_BY_0099[table] : null],
+  ].filter(([, cols]) => cols);
+  if (absent.length === 0) return row;
   const out = { ...row };
-  const lost = [];
-  for (const c of cols) {
-    if (!(c in out)) continue;
-    if (carriesValue(out[c])) lost.push(c);
-    delete out[c];
-  }
-  // Loud, like toColumns: a user linked a task to a scene and the link was
-  // not kept. Silence here would be the S23 sin in a new place.
-  if (lost.length) {
-    console.warn(
-      `[supabase] this database does not have migration 0084 yet, so ` +
-      `${lost.join(', ')} on public.${table} was NOT saved. The rest of the ` +
-      `write proceeded.`
-    );
+  for (const [migration, cols] of absent) {
+    const lost = [];
+    for (const c of cols) {
+      if (!(c in out)) continue;
+      if (carriesValue(out[c])) lost.push(c);
+      delete out[c];
+    }
+    // Loud, like toColumns: a user linked a task to a scene and the link was
+    // not kept. Silence here would be the S23 sin in a new place.
+    if (lost.length) {
+      console.warn(
+        `[supabase] this database does not have migration ${migration} yet, so ` +
+        `${lost.join(', ')} on public.${table} was NOT saved. The rest of the ` +
+        `write proceeded.`
+      );
+    }
   }
   return out;
+}
+
+// loadProject's 0099 probe (VW1e): one row of the two columns. 42703 (no
+// such column) is a database without 0099; any other answer — rows, none, or
+// another refusal — leaves the load alone (a refused read of assets fails the
+// load's own asset read anyway), and only a clean answer clears the flag.
+function probeAssetLevelLinks(result) {
+  const code = result?.error?.code;
+  if (code === '42703' || code === 'PGRST204') { assetLevelLinksAbsent = true; return false; }
+  if (!result?.error) assetLevelLinksAbsent = false;
+  return !assetLevelLinksAbsent;
 }
 
 // Exported for columnAllowlist.test.js. The older adapter tests
@@ -1971,24 +2045,105 @@ function listTaskItemsWith(client, projectId) {
     .order('task_id').order('entity_type').order('position').order('created_at').order('id'), probeTaskItems);
 }
 
+// VW1m (2026-10-16), the Dashboard (her Q-N6, interim: every item, "A, B"):
+// listMyTasks no longer embeds an asset through tasks.asset_id (the older
+// apps' copy, the first asset only). The listed tasks' items are read in one
+// request, then the rows they name, one request per kind, and each task
+// gains `items: [{ kind, id, name }]`: kinds in ITEM_KINDS order, each kind
+// in the model's display order, named as the task window names them (a shot
+// is "Scene › Shot"). Only what the caller's RLS shows is named, so an asset
+// in the trash is left out (her Q-N4: hidden, back on restore). Every read
+// tolerates what listMyTasks' own read tolerates: a database without 0096
+// answers no items; one without a kind's table names none of that kind.
+const MY_TASKS_TOLERATED = new Set(['42P01', 'PGRST205', '42703', 'PGRST204']);
+function unwrapMyTasksRead({ data, error }) {
+  if (error) {
+    if (MY_TASKS_TOLERATED.has(error.code)) return [];
+    lastError = error.message || String(error);
+    throw new Error(`[supabase] ${lastError}`);
+  }
+  return data || [];
+}
+// What each kind's name read selects: the name, and what the display order
+// reads (a scene's number; a shot's number and its scene). VW1m review round
+// 2 (R2-5): an asset's phase too, which its item carries (`phase_id`): the
+// Dashboard's Phase grouping falls back to the phase a task's assets share.
+const MY_TASK_ITEM_ROWS = Object.freeze({
+  asset:      ['assets', 'id, name, phase_id'],
+  scene:      ['scenes', 'id, name, scene_number'],
+  shot:       ['shots', 'id, name, shot_number, scene_id'],
+  level:      ['levels', 'id, name'],
+  experience: ['experiences', 'id, name'],
+});
+// VW1m review round 1 (R1-6): an `.in()` list rides the request's URL, and a
+// long one passes the gateway's limit, failing the whole Dashboard load. Each
+// in-list goes MY_TASKS_IN_CHUNK ids a request, one after another, the
+// answers joined in order.
+const MY_TASKS_IN_CHUNK = 100;
+async function readInChunks(ids, readChunk) {
+  const out = [];
+  for (let at = 0; at < ids.length; at += MY_TASKS_IN_CHUNK) {
+    out.push(...await readChunk(ids.slice(at, at + MY_TASKS_IN_CHUNK)));
+  }
+  return out;
+}
+async function withMyTaskItems(client, tasks) {
+  const taskIds = [...new Set(tasks.map(t => t?.id).filter(id => id != null))];
+  if (taskIds.length === 0) return tasks.map(t => ({ ...t, items: [] }));
+  // Paged in 0096's order (a total order, so no row straddles two pages);
+  // a task's items all come in its own chunk (R1-6).
+  const items = await readInChunks(taskIds, (chunk) => readAllPagesWith(() => client.from('task_items')
+    .select('id, task_id, entity_type, entity_id, position, created_at')
+    .in('task_id', chunk)
+    .order('task_id').order('entity_type').order('position').order('created_at').order('id'), unwrapMyTasksRead));
+  const named = {};
+  for (const i of items) {
+    if (!i || !isItemKind(i.entity_type) || i.entity_id == null) continue;
+    if (!named[i.entity_type]) named[i.entity_type] = new Set();
+    named[i.entity_type].add(String(i.entity_id));
+  }
+  const rowsOf = (kind, ids) => {
+    if (!ids || ids.size === 0) return Promise.resolve([]);
+    const [table, columns] = MY_TASK_ITEM_ROWS[kind];
+    return readInChunks([...ids], (chunk) => readAllPagesWith(() => client.from(table).select(columns)
+      .in('id', chunk).order('id'), unwrapMyTasksRead));
+  };
+  const [assets, shots, levels, experiences] = await Promise.all(
+    ['asset', 'shot', 'level', 'experience'].map(kind => rowsOf(kind, named[kind])));
+  // A shot is named under its scene and ordered by its scene's number, so
+  // the one scenes read takes the listed shots' scenes too.
+  const sceneIds = new Set(named.scene || []);
+  for (const s of shots) if (s?.scene_id != null) sceneIds.add(String(s.scene_id));
+  const scenes = await rowsOf('scene', sceneIds);
+  const lookup = buildItemLookup({ items, available: true, assets, scenes, shots, levels, experiences });
+  const assetPhase = new Map(assets.map(a => [String(a.id), a.phase_id ?? null]));
+  return tasks.map(t => ({
+    ...t,
+    items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => (kind === 'asset'
+      ? { kind, id, name: lookup.nameOf(kind, id), phase_id: assetPhase.get(String(id)) ?? null }
+      : { kind, id, name: lookup.nameOf(kind, id) }))),
+  }));
+}
+
+// VW1m (2026-10-16): this client calls no items function any more (the
+// reorder went with the Move buttons), so only the table is probed.
 function missing0096(error) {
-  if (error?.code === 'PGRST205' || error?.code === 'PGRST202') return true;
-  return (error?.code === '42P01' || error?.code === '42883')
-    && /\b(task_items|reorder_task_items)\b/.test(error.message || '');
+  if (error?.code === 'PGRST205') return true;
+  return error?.code === '42P01' && /\btask_items\b/.test(error.message || '');
 }
 
 // One error shape for every items write: `[supabase] ` + the database's
-// words, the SQLSTATE kept on `err.code`; a missing table or function
-// becomes task_items_unavailable AND records it, so the next write refuses
-// before any request.
-// FX2 review round 1 (R1-3): the two refusals an items write meets, in words.
-// `mainHidden`: 0096's trigger moved the task's main item onto a row the task
-// cannot stand on (a trashed asset hides its task, so the tasks UPDATE it
-// makes is refused). Matched on the table Postgres names; anything else keeps
-// Postgres' own words. err.code keeps the SQLSTATE either way.
+// words, the SQLSTATE kept on `err.code`; a missing table becomes
+// task_items_unavailable AND records it, so the next write refuses before
+// any request.
+// FX2 review round 1 (R1-3): the refusals an items write meets, in words,
+// matched on the table Postgres names; anything else keeps Postgres' own
+// words. err.code keeps the SQLSTATE either way. VW1m (2026-10-16): FX2's
+// third sentence went with the main item (0097 takes the asset arm out of
+// tasks_select, so the copy 0097 §4 writes can no longer hide its task); a
+// refusal on "tasks" keeps Postgres' words, as any refusal not named here.
 export const TASK_ITEMS_REFUSALS = Object.freeze({
   gate: 'You cannot change this task\'s items.',
-  mainHidden: 'WILSON could not make that the task\'s main item: it is in the trash or out of your reach. Remove it from the task first, or restore it.',
   // Review round 2 (R2-5): 0096 §7a locks the task row; a write of the task's
   // single column from another tab locks it first and then its items, so two
   // such writes can deadlock (40P01). Postgres takes one back whole.
@@ -2000,13 +2155,252 @@ function taskItemsWriteError(error) {
     return taskItemsUnavailable();
   }
   const text = String(error?.message || '');
-  const words = error?.code === '42501' && /table "tasks"/.test(text) ? TASK_ITEMS_REFUSALS.mainHidden
-    : error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
+  const words = error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
     : error?.code === '40P01' ? TASK_ITEMS_REFUSALS.collided
     : null;
   const err = new Error(words || `[supabase] ${text || String(error)}`);
   if (error?.code) err.code = error.code;
   return err;
+}
+
+// ── 0098 (VW1c): custom table views and groupings ────────────────────────
+// docs/design/CUSTOM_VIEWS_DESIGN.md §4.4 and §5.3 (as corrected at VW1c's
+// step 0); the rules in state/tableViewsModel.js.
+//
+// A database WITHOUT 0098 (a client ahead of its database): loadProject's
+// reads of public.table_views and public.item_groupings ARE the probe (the
+// 0084 / 0091 / 0096 shape, no extra request). 42P01 / PGRST205 on either
+// answers both empty and marks the feature absent: tableViewsAvailable()
+// says false and every write refuses BEFORE any request with code
+// `table_views_unavailable`. ANY OTHER error of those reads also answers both
+// empty — the project still opens: a missing view must never become a
+// missing project — and tableViewsLoadError() says it in words until a clean
+// load. Not cleared by resetSupabaseAdapter (auth events do not change the
+// schema); cleared by the next load that finds the tables, and by
+// resetTableViewsSchemaState() for tests.
+let tableViewsAbsent = false;
+let tableViewsLoadErrorText = null;
+
+// For tests only: forget what the last load learned about 0098.
+export function resetTableViewsSchemaState() {
+  tableViewsAbsent = false;
+  tableViewsLoadErrorText = null;
+}
+
+const TABLE_VIEWS_UNAVAILABLE_MSG =
+  'Saved views and groupings are not on this database yet (migration 0098).';
+function tableViewsUnavailable() {
+  const err = new Error(`[supabase] ${TABLE_VIEWS_UNAVAILABLE_MSG}`);
+  err.code = 'table_views_unavailable';
+  return err;
+}
+function requireTableViews() {
+  if (tableViewsAbsent) throw tableViewsUnavailable();
+}
+
+// The probe's answer: a missing table, on a READ (a read's 42P01 can only be
+// its own table's: the policies' hop names projects, which every database
+// has).
+function missingTableViewsRead(error) {
+  return error?.code === '42P01' || error?.code === 'PGRST205';
+}
+// A missing 0098 table or function, on a WRITE. PGRST205 / PGRST202 are
+// PostgREST's answers about what the request named; a 42P01 / 42883 can come
+// from inside the statement (a trigger's query, a helper), so it counts only
+// when it names one of 0098's own (the 0084 narrowing).
+function missing0098(error) {
+  if (error?.code === 'PGRST205' || error?.code === 'PGRST202') return true;
+  if (error?.code === '42P01') return /\b(table_views|item_groupings)\b/.test(error.message || '');
+  if (error?.code === '42883') return /\b(reorder_table_views|set_table_view_last)\b/.test(error.message || '');
+  return false;
+}
+
+// What a person reads when the database refuses a view or grouping write.
+// `gate` is the policy (can_write_project, Q2: reviewers use views and never
+// save them) and the bar's own words (design §4.4); the CHECKs are read back
+// in the model's words for what was sent (viewNameProblem, viewConfigProblem,
+// groupingProblem); the caps (54000) and the ids' check (23503) are worded by
+// the database itself, for a person, and pass through as they are. Anything
+// else keeps Postgres' words. err.code keeps the SQLSTATE either way.
+export const TABLE_VIEWS_REFUSALS = Object.freeze({
+  gate: 'You can no longer change views on this project.',
+  groupingGate: 'You can no longer change groupings on this project.',
+  name: 'A view\'s name must be 1 to 80 characters, with no space at either end and no line break or tab.',
+  config: 'A view\'s settings must be an object of at most 32 KB.',
+  position: 'A view\'s place in the list must be a whole number of at least 0.',
+  tableKey: 'A view belongs to one of the six tables: tasks, assets, scenes, shots, levels or experiences.',
+  groupingIds: 'A grouping names 1 to 100 items, each once.',
+  nothingToChange: 'A change to a view names its name, its place in the list or its settings.',
+});
+
+// The model's words for a grouping's set alone (asked with a pair it allows,
+// so the pair's own sentence cannot come first).
+function groupingIdsWords(ids) {
+  return groupingProblem({ table_key: 'tasks', kind: 'asset', entity_ids: ids }) || TABLE_VIEWS_REFUSALS.groupingIds;
+}
+
+function tableViewsRefusalWords(error, table, sent) {
+  const code = error?.code;
+  const text = String(error?.message || '').trim();
+  if (code === '42501') return table === 'item_groupings' ? TABLE_VIEWS_REFUSALS.groupingGate : TABLE_VIEWS_REFUSALS.gate;
+  // The caps' and the ids' check's own sentences; a foreign key's 23503
+  // (the project's composite key) keeps Postgres' words with the prefix.
+  if (code === '54000') return text || null;
+  if (code === '23503') return text && !/violates foreign key constraint/.test(text) ? text : null;
+  if (code !== '23514') return null;
+  const named = /check constraint "([^"]+)"/.exec(text)?.[1];
+  switch (named) {
+    case 'table_views_name_chk':      return viewNameProblem(sent?.name) || TABLE_VIEWS_REFUSALS.name;
+    case 'table_views_config_chk':    return viewConfigProblem(sent?.config) || TABLE_VIEWS_REFUSALS.config;
+    case 'table_views_position_chk':  return TABLE_VIEWS_REFUSALS.position;
+    case 'table_views_table_key_chk': return TABLE_VIEWS_REFUSALS.tableKey;
+    case 'item_groupings_pair_chk':   return `The ${sent?.table_key} table cannot be grouped by ${sent?.kind}.`;
+    case 'item_groupings_ids_chk':    return groupingIdsWords(sent?.entity_ids);
+    default:                          return null;
+  }
+}
+
+// One error shape for every view and grouping write, unwrapShotList's
+// bookkeeping: a missing table or function becomes table_views_unavailable
+// AND records it (the database answered: no sync fault); anything else is
+// worded (tableViewsRefusalWords) or keeps Postgres' words after the
+// `[supabase] ` prefix, its SQLSTATE on err.code.
+function tableViewsWriteError(error, { table = 'table_views', sent = null } = {}) {
+  if (missing0098(error)) {
+    tableViewsAbsent = true;
+    lastError  = null;
+    lastSyncAt = new Date();
+    return tableViewsUnavailable();
+  }
+  const words = tableViewsRefusalWords(error, table, sent);
+  lastError = words || error?.message || String(error);
+  const err = new Error(words || `[supabase] ${lastError}`);
+  if (error?.code) err.code = error.code;
+  return err;
+}
+function tableViewsRefusal(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+// The database answered (unwrap()'s bookkeeping, for the paths that read the
+// answer themselves).
+function tableViewsAnswered() {
+  lastError  = null;
+  lastSyncAt = new Date();
+}
+
+// What a view or grouping write never sends (the triggers stamp them all).
+const TABLE_VIEW_SERVER_OWNED = ['workspace_id', 'revision', 'revised_by', 'created_at', 'created_by', 'updated_at', 'updated_by'];
+const ITEM_GROUPING_SERVER_OWNED = ['workspace_id', 'created_at', 'created_by', 'updated_at', 'updated_by'];
+// The columns a SAVE may change (UPDATE's grant): a view never moves to
+// another project or table, and its id is its own.
+const TABLE_VIEW_UPDATABLE = ['name', 'position', 'config'];
+
+// The row an RPC answers (SETOF table_views, every column) in the shared shape.
+function tableViewRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = {};
+  for (const k of TABLE_VIEW_SELECT.split(', ')) if (k in row) out[k] = row[k];
+  return out;
+}
+
+// One page's answer with its error kept whole, for the reads that are the
+// probe (readAllPagesWith's unwrapPage).
+function tableViewsPage(result) {
+  if (result?.error) {
+    const err = new Error(result.error.message || String(result.error));
+    err.pgError = result.error;
+    throw err;
+  }
+  return result?.data || [];
+}
+// Every view of the project, PAGED (200 views on each of six tables pass
+// PostgREST's 1,000 rows), in 0098's order: table_key, position, created_at,
+// id — a total order, so no row straddles two pages.
+function readTableViewsWith(client, projectId) {
+  return readAllPagesWith(() => client.from('table_views').select(TABLE_VIEW_SELECT)
+    .eq('project_id', projectId)
+    .order('table_key').order('position').order('created_at').order('id'), tableViewsPage);
+}
+// Every grouping of the project, PAGED (500 on each of four tables), by
+// table_key, kind, created_at, id.
+function readItemGroupingsWith(client, projectId) {
+  return readAllPagesWith(() => client.from('item_groupings').select(ITEM_GROUPING_SELECT)
+    .eq('project_id', projectId)
+    .order('table_key').order('kind').order('created_at').order('id'), tableViewsPage);
+}
+
+function tableViewsLoadWords(error) {
+  const text = String(error?.message || error || 'no answer').trim().replace(/[.\s]+$/, '');
+  return `This project's saved views and groupings could not be read: ${text}.`;
+}
+
+// loadProject's two reads — AND the 0098 probe (see tableViewsAbsent). Never
+// throws: whatever the reads meet, the project opens.
+async function loadTableViewsWith(client, projectId) {
+  const settle = (p) => p.then((rows) => ({ rows }), (err) => ({ error: err?.pgError || err }));
+  const [views, groupings] = await Promise.all([
+    settle(readTableViewsWith(client, projectId)),
+    settle(readItemGroupingsWith(client, projectId)),
+  ]);
+  const failed = [views, groupings].filter((r) => r.error);
+  if (failed.some((r) => missingTableViewsRead(r.error))) {
+    tableViewsAbsent = true;
+    tableViewsLoadErrorText = null;
+    return { tableViews: [], itemGroupings: [] };
+  }
+  if (failed.length) {
+    // One read answered: the tables are there, whatever stopped the other.
+    if (failed.length === 1) tableViewsAbsent = false;
+    tableViewsLoadErrorText = tableViewsLoadWords(failed[0].error);
+    return { tableViews: [], itemGroupings: [] };
+  }
+  tableViewsAbsent = false;
+  tableViewsLoadErrorText = null;
+  return { tableViews: views.rows, itemGroupings: groupings.rows };
+}
+
+// listTableViews / listItemGroupings: the same reads, the probe kept (a read
+// that finds the table clears the mark, one that misses it sets it and
+// answers none); any other error throws, because a refused read is not "no
+// views".
+async function listTableViewRows(read, client, projectId) {
+  try {
+    const rows = await read(client, projectId);
+    tableViewsAbsent = false;
+    tableViewsAnswered();
+    return rows;
+  } catch (thrown) {
+    const error = thrown?.pgError || thrown;
+    if (missingTableViewsRead(error)) {
+      tableViewsAbsent = true;
+      return [];
+    }
+    lastError = error?.message || String(error);
+    const err = new Error(`[supabase] ${lastError}`);
+    if (error?.code) err.code = error.code;
+    throw err;
+  }
+}
+
+// A conditional write that wrote nothing (design §4.4, as corrected at VW1c's
+// step 0, finding 13): the row is read ONCE. No row: deleted meanwhile.
+// Another revision — or, for a rename's undo, another name — than the one
+// expected: changed meanwhile (the row read carries who). The same: nothing
+// expected had changed, so the database's access rules filtered the write
+// out without a word (RLS filters an UPDATE or DELETE, it never refuses one)
+// — the person may no longer change views on this project. A read that fails
+// says its own error, never "filtered" (FX4's R2-09).
+async function tableViewAfterMiss(client, id, opts) {
+  const now = await client.from('table_views').select(TABLE_VIEW_SELECT).eq('id', id).maybeSingle();
+  if (now.error) throw tableViewsWriteError(now.error);
+  tableViewsAnswered();
+  const row = now.data;
+  if (!row) return { status: 'deleted' };
+  const otherRevision = opts?.expectRevision != null && String(row.revision) !== String(opts.expectRevision);
+  const otherName = opts?.expectName != null && row.name !== opts.expectName;
+  return { status: otherRevision || otherName ? 'changed' : 'filtered', row };
 }
 
 // The sentences a person reads when the database refuses (the refusal map).
@@ -2303,12 +2697,22 @@ export function supabaseAdapter() {
       // `binRoots` is answered [] (the signed-out desktop's known roots have
       // no cloud shape; a cloud clip is a location + a relative path). The
       // bins read doubles as the 0091 probe — see binsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems] =
+      // VW1c (0098): tableViews / itemGroupings join for the seventh time for
+      // the same reason; their reads are the 0098 probe and never fail the
+      // load — see tableViewsAbsent.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
-          client.from('assets').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
-          client.from('tasks').select('*').eq('project_id', projectId).then(unwrap),
+          // VW1m review round 2 (R2-4): paged, as the scenes and shots are
+          // below. Cut at PostgREST's 1,000 rows, a feature-sized project lost
+          // its 1,001st asset (and VW1m hides an item whose row is not
+          // loaded) or task. Still strict (unwrap): a refusal fails the load.
+          // `id` closes each order, so no row straddles two pages.
+          readAllPagesWith(() => client.from('assets').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id'), unwrap),
+          readAllPagesWith(() => client.from('tasks').select('*').eq('project_id', projectId)
+            .order('id'), unwrap),
           listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           client.from('files').select('*').eq('project_id', projectId).then(unwrap),
@@ -2365,6 +2769,12 @@ export function supabaseAdapter() {
           listBinLocationsWith(client),
           // 0096 (FX2): a task's items, AND the 0096 probe.
           listTaskItemsWith(client, projectId),
+          // 0098 (VW1c): the saved views and groupings, AND the 0098 probe.
+          loadTableViewsWith(client, projectId),
+          // 0099 (VW1e): the asset level links' probe, one row of the two
+          // columns (an empty project says nothing through its assets' rows).
+          client.from('assets').select('level_ids, experience_ids').eq('project_id', projectId)
+            .range(0, 0).then(probeAssetLevelLinks, () => false),
         ]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
@@ -2379,6 +2789,8 @@ export function supabaseAdapter() {
         shotLists, shotListItems, edits,
         bins, binFiles, binRoots: [], shotTakes, binLocations,
         taskItems,
+        tableViews: views.tableViews,
+        itemGroupings: views.itemGroupings,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -2605,8 +3017,9 @@ export function supabaseAdapter() {
 
     // ── A task's items (FX2, migration 0096) ──────────────────
     // Not the URL links above: the assets, scenes, shots, levels and
-    // experiences a task is about. The database keeps tasks.asset_id /
-    // scene_id / shot_id equal to each kind's main item (0096 §7).
+    // experiences a task is about. VW1m (2026-10-16): a task's items are its
+    // items; tasks.asset_id / scene_id / shot_id are only the older apps'
+    // copy (0097 §4), which this client never reads or sends.
     taskItemsAvailable() {
       return !taskItemsAbsent;
     },
@@ -2649,20 +3062,191 @@ export function supabaseAdapter() {
       const { error } = await client.from('task_items').delete().eq('id', id);
       if (error) throw taskItemsWriteError(error);
     },
-    // One kind of one task, in one statement (reorder_task_items, SECURITY
-    // INVOKER): the named ids first, the rest after, dense from 0. Answers
-    // the rows that moved, in the shared shape.
-    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
-      requireTaskItems();
+    // VW1m (2026-10-16): no reorder here. The task window has no Move
+    // buttons (her Q-N1: it sorts instead), and the stored order only says
+    // when each item was added. reorder_task_items (0096 §6) stays in the
+    // database for the older apps that still call it.
+
+    // ── Custom table views and groupings (VW1c, migration 0098) ───────────
+    // adapters/index.js's typedef; design §4.4 and §5.3. A view is created
+    // with INSERT and saved with a conditional UPDATE, a grouping is created
+    // with INSERT — never an upsert (the column grants refuse one). Every
+    // write refuses before any request while a load has found 0098 missing.
+    tableViewsAvailable() {
+      return !tableViewsAbsent;
+    },
+    // VW1e (0099; code review round 1, R1-9): whether this cloud keeps an
+    // asset's levels and experiences. False after a load whose probe found
+    // the columns missing: the screens then offer no drag or Create grouping
+    // that would write them (stripUnmigrated would drop the write).
+    assetLevelLinksAvailable() {
+      return !assetLevelLinksAbsent;
+    },
+    tableViewsLoadError() {
+      return tableViewsLoadErrorText;
+    },
+    async listTableViews(projectId) {
       const client = await requireClient();
-      const { data, error } = await client.rpc('reorder_task_items', {
-        p_task: taskId, p_entity_type: kind, p_ids: Array.isArray(orderedIds) ? orderedIds : [],
+      return listTableViewRows(readTableViewsWith, client, projectId);
+    },
+    // Answers the stored row: its revision (from 0098's one sequence), its
+    // stamps and its creator are the database's.
+    async addTableView(row) {
+      requireTableViews();
+      const client = await requireClient();
+      const insert = toColumns('table_views', sanitize(row || {}, TABLE_VIEW_SERVER_OWNED));
+      if (insert.id == null) delete insert.id;
+      const res = await client.from('table_views').insert(insert).select(TABLE_VIEW_SELECT).single();
+      if (res.error) throw tableViewsWriteError(res.error, { table: 'table_views', sent: insert });
+      tableViewsAnswered();
+      return res.data;
+    },
+    // The SAVE (design §4.4): an UPDATE of the named columns, filtered on the
+    // revision a change for now started from (`expectRevision`) or the name a
+    // rename's undo set (`expectName`), so nothing lands between a check and
+    // the write. A row back is `saved`; none is told apart by one read
+    // (tableViewAfterMiss). `projectId` is the Local Server's URL; the cloud
+    // finds the row by its id.
+    async updateTableView(id, patch, opts = {}) {
+      requireTableViews();
+      const cols = toColumns('table_views', sanitize(patch || {}, TABLE_VIEW_SERVER_OWNED));
+      const set = {};
+      for (const k of TABLE_VIEW_UPDATABLE) if (cols[k] !== undefined) set[k] = cols[k];
+      if (Object.keys(set).length === 0) throw tableViewsRefusal(TABLE_VIEWS_REFUSALS.nothingToChange, 'invalid');
+      const client = await requireClient();
+      let q = client.from('table_views').update(set).eq('id', id);
+      if (opts?.expectRevision != null) q = q.eq('revision', opts.expectRevision);
+      if (opts?.expectName != null) q = q.eq('name', opts.expectName);
+      const res = await q.select(TABLE_VIEW_SELECT);
+      if (res.error) throw tableViewsWriteError(res.error, { table: 'table_views', sent: set });
+      tableViewsAnswered();
+      if (Array.isArray(res.data) && res.data.length) return { status: 'saved', row: res.data[0] };
+      return tableViewAfterMiss(client, id, opts);
+    },
+    // A delete, filtered on the revision when one is expected (a new view's
+    // undo deletes it only while it is still as it was made).
+    async deleteTableView(id, opts = {}) {
+      requireTableViews();
+      const client = await requireClient();
+      let q = client.from('table_views').delete().eq('id', id);
+      if (opts?.expectRevision != null) q = q.eq('revision', opts.expectRevision);
+      const res = await q.select('id');
+      if (res.error) throw tableViewsWriteError(res.error, { table: 'table_views' });
+      tableViewsAnswered();
+      if (Array.isArray(res.data) && res.data.length) return { status: 'removed' };
+      return tableViewAfterMiss(client, id, { expectRevision: opts?.expectRevision });
+    },
+    // reorder_table_views (0098 §8, SECURITY INVOKER): the named views first,
+    // the rest after in their order, positions dense from 0. Every parameter
+    // is NAMED (a missing one is PGRST202, which would read as "0098 is not
+    // here"). Answers the rows it moved, in the shared shape.
+    async reorderTableViews(projectId, tableKey, ids) {
+      requireTableViews();
+      const client = await requireClient();
+      const res = await client.rpc('reorder_table_views', {
+        p_project: projectId ?? null, p_table_key: tableKey ?? null, p_ids: ids ?? null,
       });
-      if (error) throw taskItemsWriteError(error);
-      return (Array.isArray(data) ? data : []).map(r => {
-        const { asset_id: _a, scene_id: _s, shot_id: _h, level_id: _l, experience_id: _x, ...rest } = r || {};
-        return rest;
-      });
+      if (res.error) throw tableViewsWriteError(res.error, { table: 'table_views' });
+      tableViewsAnswered();
+      return Array.isArray(res.data) ? res.data.map(tableViewRow) : [];
+    },
+    async listItemGroupings(projectId) {
+      const client = await requireClient();
+      return listTableViewRows(readItemGroupingsWith, client, projectId);
+    },
+    // An INSERT (no UPDATE grant: a grouping is made and removed whole). A
+    // set already stored for that project, table and kind (the unique key
+    // answers 23505 — a teammate made it, or an undo's re-add meets its own
+    // row) answers the stored row, read by the set itself: contains and is
+    // contained by, so the order the ids were sent in does not matter.
+    async addItemGrouping(row) {
+      requireTableViews();
+      const client = await requireClient();
+      const insert = toColumns('item_groupings', sanitize(row || {}, ITEM_GROUPING_SERVER_OWNED));
+      if (insert.id == null) delete insert.id;
+      const res = await client.from('item_groupings').insert(insert).select(ITEM_GROUPING_SELECT).single();
+      if (!res.error) {
+        tableViewsAnswered();
+        return res.data;
+      }
+      if (res.error.code === '23505' && Array.isArray(insert.entity_ids) && insert.entity_ids.length) {
+        const ids = normalizeEntityIds(insert.entity_ids);
+        const stored = await client.from('item_groupings').select(ITEM_GROUPING_SELECT)
+          .eq('project_id', insert.project_id).eq('table_key', insert.table_key).eq('kind', insert.kind)
+          .contains('entity_ids', ids).containedBy('entity_ids', ids)
+          .maybeSingle();
+        if (stored.error) throw tableViewsWriteError(stored.error, { table: 'item_groupings' });
+        if (stored.data) {
+          tableViewsAnswered();
+          return stored.data;
+        }
+      }
+      throw tableViewsWriteError(res.error, { table: 'item_groupings', sent: insert });
+    },
+    // Answers { removed }: false when there was no such row, or when the
+    // access rules filtered the delete out (RLS filters a DELETE without a
+    // word). `projectId` is the Local Server's URL; the cloud ignores it.
+    // Review round 1 (R1-3): a delete that removed nothing says why, read
+    // once, as a view's delete does — `deleted` (the row is gone: a teammate
+    // removed it, or the sweep) or `filtered` (it is still there: the
+    // policies dropped the delete, so the person may no longer change
+    // groupings), and the provider keeps the row on screen for the second.
+    async removeItemGrouping(id, _projectId) {
+      requireTableViews();
+      const client = await requireClient();
+      const res = await client.from('item_groupings').delete().eq('id', id).select('id');
+      if (res.error) throw tableViewsWriteError(res.error, { table: 'item_groupings' });
+      tableViewsAnswered();
+      if (Array.isArray(res.data) && res.data.length > 0) return { removed: true };
+      const read = await client.from('item_groupings').select('id').eq('id', id).maybeSingle();
+      if (read.error) throw tableViewsWriteError(read.error, { table: 'item_groupings' });
+      return { removed: false, status: read.data ? 'filtered' : 'deleted' };
+    },
+    // The last used view of each table (Q4, design §4.5): the person's own
+    // user_settings row, read by its OWN request (never inside
+    // fetchCloudSettings, which selects only its two columns). The read is
+    // its own probe: a database without 0098's column answers 42703 (or
+    // PGRST204) — not on this server, an empty map. A person who never wrote
+    // one has no row yet: an empty map, available.
+    async getTableViewLast() {
+      const client = await requireClient();
+      const res = await client.from('user_settings').select('table_view_last').maybeSingle();
+      if (res.error) {
+        if (res.error.code === '42703' || res.error.code === 'PGRST204') {
+          tableViewsAnswered();
+          return { available: false, map: {} };
+        }
+        lastError = res.error.message || String(res.error);
+        const err = new Error(`[supabase] ${lastError}`);
+        if (res.error.code) err.code = res.error.code;
+        throw err;
+      }
+      tableViewsAnswered();
+      const map = res.data?.table_view_last;
+      return { available: true, map: map && typeof map === 'object' && !Array.isArray(map) ? map : {} };
+    },
+    // set_table_view_last (0098 §9): one statement that merges the one key
+    // with the server's clock, keeps the 300 newest, and answers the map. A
+    // missing function is the feature missing (code table_views_unavailable);
+    // a key or view it refuses keeps its 22023 and its words.
+    async setTableViewLast(key, view) {
+      requireTableViews();
+      const client = await requireClient();
+      const res = await client.rpc('set_table_view_last', { p_key: key ?? null, p_view: view ?? null });
+      if (res.error) {
+        if (res.error.code === 'PGRST202'
+          || (res.error.code === '42883' && /\bset_table_view_last\b/.test(res.error.message || ''))) {
+          tableViewsAnswered();
+          throw tableViewsUnavailable();
+        }
+        lastError = res.error.message || String(res.error);
+        const err = new Error(`[supabase] ${lastError}`);
+        if (res.error.code) err.code = res.error.code;
+        throw err;
+      }
+      tableViewsAnswered();
+      const map = res.data;
+      return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
     },
 
     // ── Files (Storage + metadata row) ────────────────────────
@@ -3410,8 +3994,9 @@ export function supabaseAdapter() {
     // ── Dashboard: cross-project "my tasks" (Session 8) ───────
     // One indexed query over tasks.assignee_id / reviewer_id (0013) —
     // RLS supplies workspace scoping, trash hiding and trashed-parent
-    // hiding for free. Embeds carry the labels the Dashboard renders so
-    // no per-project bundle load is needed.
+    // hiding for free. The project embed and the items (withMyTaskItems,
+    // VW1m: every item, named) carry the labels the Dashboard renders so no
+    // per-project bundle load is needed.
     async listMyTasks() {
       const client = await requireClient();
       const { data: sess } = await client.auth.getSession();
@@ -3419,7 +4004,7 @@ export function supabaseAdapter() {
       if (!uid) return [];
       const { data, error } = await client
         .from('tasks')
-        .select('*, project:projects(id,title,status), asset:assets(id,name,phase_id)')
+        .select('*, project:projects(id,title,status)')
         .or(`assignee_id.eq.${uid},reviewer_id.eq.${uid}`);
       if (error) {
         // Environment predates migration 0013 — no assignment columns,
@@ -3437,7 +4022,7 @@ export function supabaseAdapter() {
       // hide it (it must stay readable to come back), so it is left out
       // here, on the client side of the read: a database without 0090 has no
       // such column and answers exactly as before.
-      return (data ?? []).filter(t => !isSetAside(t));
+      return withMyTaskItems(client, (data ?? []).filter(t => !isSetAside(t)));
     },
 
     // Phase labels for the Dashboard's phase grouping (assets carry

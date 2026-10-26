@@ -106,6 +106,9 @@ const CLOUD_BUNDLE_KEYS = [
   // load; binRoots is answered [] (the signed-out desktop's known roots have
   // no cloud shape). An omitted key would reset the Bins tab on every load.
   'bins', 'binFiles', 'binRoots', 'shotTakes', 'binLocations',
+  // 0098 (VW1c): the saved views and groupings; their reads are the 0098
+  // probe and never fail the load (tableViewsCloud.test.js).
+  'tableViews', 'itemGroupings',
 ]
 
 describe('supabaseAdapter.loadProject — bundle key coverage', () => {
@@ -130,6 +133,68 @@ describe('supabaseAdapter.loadProject — bundle key coverage', () => {
     expect(bundle.shots).toEqual([{ id: 'sh1', scene_id: 'sc1' }])
     expect(bundle.levels).toEqual([{ id: 'lv1' }])
     expect(bundle.experiences).toEqual([{ id: 'ex1' }])
+  })
+})
+
+// VW1m review round 2 (R2-4): PostgREST answers at most max_rows (1,000,
+// supabase/config.toml) rows a call and says nothing about the rest. The
+// assets and the tasks were read in one call, so a 1,001st asset was never
+// loaded — and VW1m hides an item whose row is not loaded (not live). They
+// are read page by page now, as the scenes and shots already were.
+describe('R2-4: assets and tasks are read page by page', () => {
+  // A table that answers as PostgREST does: a range's rows, never more than
+  // max_rows in one answer, and the first max_rows when no range is asked.
+  function pagedTable(rows, calls) {
+    let from = 0
+    let to = null
+    const b = {
+      select: () => b,
+      eq: () => b,
+      order: () => b,
+      range: (f, t) => { from = f; to = t; return b },
+      then: (resolve, reject) => {
+        calls.push([from, to])
+        const end = Math.min(to == null ? rows.length : to + 1, from + 1000)
+        return Promise.resolve({ data: rows.slice(from, end), error: null }).then(resolve, reject)
+      },
+    }
+    return b
+  }
+  function clientWith(tables) {
+    const rest = makeClient({ projects: { data: { id: 'p1', title: 'Project One' }, error: null } })
+    return { ...rest, from: (table) => (tables[table] ? tables[table]() : rest.from(table)) }
+  }
+
+  it('1,001 assets and 1,001 tasks: every one is loaded', async () => {
+    const assets = Array.from({ length: 1001 }, (_, i) => ({ id: `a${String(i).padStart(4, '0')}`, project_id: 'p1', sort_order: i }))
+    const tasks = Array.from({ length: 1001 }, (_, i) => ({ id: `t${String(i).padStart(4, '0')}`, project_id: 'p1', title: `Task ${i}` }))
+    const calls = { assets: [], tasks: [] }
+    globalThis.__testSupabase = clientWith({
+      assets: () => pagedTable(assets, calls.assets),
+      tasks: () => pagedTable(tasks, calls.tasks),
+    })
+    resetSupabaseAdapter()
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.assets).toHaveLength(1001)
+    expect(bundle.assets[1000].id).toBe('a1000')
+    expect(bundle.tasks).toHaveLength(1001)
+    expect(bundle.tasks.map(t => t.id)).toContain('t1000')
+    // Two pages each: the second short, which ends the read. VW1e (0099):
+    // assets also answer the load's one-row probe of the level links.
+    expect(calls.assets.filter(([f, t]) => !(f === 0 && t === 0))).toEqual([[0, 999], [1000, 1999]])
+    expect(calls.assets.filter(([f, t]) => f === 0 && t === 0)).toHaveLength(1)
+    expect(calls.tasks).toEqual([[0, 999], [1000, 1999]])
+  })
+
+  it('CONTROL: a refused read still fails the load (the tolerance each read had: none)', async () => {
+    globalThis.__testSupabase = clientWith({
+      assets: () => {
+        const b = { select: () => b, eq: () => b, order: () => b, range: () => b, then: (resolve, reject) => Promise.resolve({ data: null, error: { message: 'permission denied for table assets' } }).then(resolve, reject) }
+        return b
+      },
+    })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().loadProject('p1')).rejects.toThrow('permission denied for table assets')
   })
 })
 
@@ -845,6 +910,90 @@ describe('a database WITHOUT 0084 — the load is the probe', () => {
     expect(await adapter.listShotLists('p1')).toEqual([])
     expect(await adapter.listShotListItems('p1')).toEqual([])
     expect(await adapter.listEdits('p1')).toEqual([])
+  })
+})
+
+// VW1e (0099, 2026-10-25): assets.level_ids / experience_ids join the
+// allowlist, and a client ahead of a database without 0099 must not have
+// every asset write refused (PGRST204). The load's own one-row read of the
+// two columns is the probe.
+describe('a database WITHOUT 0099 — the load\'s probe of the asset level links', () => {
+  let warn
+  beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}) })
+
+  const PROBE = 'level_ids, experience_ids'
+  // The assets table: the probe answers `probe`, every other read the rows.
+  const assetsAnswering = (probe) => (q) => (q.select === PROBE ? probe : { data: [], error: null })
+  const MISSING_COLUMN = { data: null, error: { code: '42703', message: 'column assets.level_ids does not exist' } }
+  async function writeAssets(adapter) {
+    await adapter.upsertAsset({ id: 'a1', project_id: 'p1', name: 'Hero', scene_ids: ['sc1'], level_ids: ['l1'], experience_ids: ['x1'] })
+    await adapter.patchAsset('a1', { name: 'Hero v2', level_ids: ['l1', 'l2'] })
+  }
+  const levelKeys = (writes) => writes.filter(w => w.table === 'assets')
+    .map(w => ['scene_ids', 'level_ids', 'experience_ids'].filter(k => k in w.row))
+
+  it('the probe reads exactly the two columns, of this project, one row', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: { data: [], error: null } })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    const probes = rec.readQueries.filter(q => q.table === 'assets' && q.select === PROBE)
+    expect(probes).toHaveLength(1)
+    expect(probes[0].filters).toEqual([['eq', 'project_id', 'p1']])
+  })
+
+  it('after a load whose probe finds the columns MISSING (42703), no asset write sends them; the rest goes, said once per write', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: { data: [], error: null }, assets: assetsAnswering(MISSING_COLUMN) })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    await writeAssets(adapter)
+    expect(levelKeys(rec.writes)).toEqual([['scene_ids'], []])
+    expect(rec.writes.find(w => w.op === 'update').row).toEqual({ name: 'Hero v2' })
+    expect(warn.mock.calls.filter(c => String(c[0]).includes('migration 0099'))).toHaveLength(2)
+    // The screens learn it too (code review round 1, R1-9).
+    expect(adapter.assetLevelLinksAvailable()).toBe(false)
+  })
+
+  it('CONTROL: after a load whose probe answers, both writes carry every link and nothing is said', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: { data: [], error: null }, assets: assetsAnswering({ data: [], error: null }) })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    await writeAssets(adapter)
+    expect(levelKeys(rec.writes)).toEqual([['scene_ids', 'level_ids', 'experience_ids'], ['level_ids']])
+    expect(warn).not.toHaveBeenCalled()
+    expect(adapter.assetLevelLinksAvailable()).toBe(true)
+  })
+
+  it('CONTROL: a probe REFUSED another way (42501) marks nothing absent', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: { data: [], error: null }, assets: assetsAnswering({ data: null, error: { code: '42501', message: 'permission denied' } }) })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    await writeAssets(adapter)
+    expect(levelKeys(rec.writes)[0]).toEqual(['scene_ids', 'level_ids', 'experience_ids'])
+  })
+
+  it('an AUTH EVENT does not forget it; a later load that finds the columns does', async () => {
+    let answer = MISSING_COLUMN
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: { data: [], error: null }, assets: (q) => (q.select === PROBE ? answer : { data: [], error: null }) })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    resetSupabaseAdapter()
+    await adapter.patchAsset('a1', { name: 'X', level_ids: ['l1'] })
+    expect(rec.writes.at(-1).row).toEqual({ name: 'X' })
+    answer = { data: [], error: null }
+    await adapter.loadProject('p1')
+    await adapter.patchAsset('a1', { name: 'Y', level_ids: ['l1'] })
+    expect(rec.writes.at(-1).row).toEqual({ name: 'Y', level_ids: ['l1'] })
+  })
+
+  it('a database without 0084 AND 0099 strips both migrations\' columns, each in its own words', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: MISSING_42P01('shot_lists'), assets: assetsAnswering(MISSING_COLUMN) })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    await writeAssets(adapter)
+    expect(levelKeys(rec.writes)).toEqual([[], []])
+    const said = warn.mock.calls.map(c => String(c[0]))
+    expect(said.some(s => s.includes('migration 0084') && s.includes('scene_ids'))).toBe(true)
+    expect(said.some(s => s.includes('migration 0099') && s.includes('level_ids'))).toBe(true)
   })
 })
 

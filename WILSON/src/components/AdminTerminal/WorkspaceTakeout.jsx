@@ -39,10 +39,18 @@ const TAKEOUT_TABLES = [
   // task edges but not phase edges would look complete and quietly lose half
   // the dependency graph.
   'task_dependencies', 'phase_dependencies', 'task_links',
-  // FX2 (0096): the items each task is about. A takeout without them would
-  // keep each task's first asset, scene and shot (its columns) and quietly
-  // lose the rest.
+  // FX2 (0096): the items each task is about — task_items.csv holds every
+  // one. VW1m (2026-10-16): tasks.csv's asset_id, scene_id and shot_id
+  // columns are only the older apps' copy (each kind's first item, 0097 §4);
+  // a takeout without this table would keep that copy and quietly lose the
+  // rest.
   'task_items',
+  // VW1c (0098): the projects' saved views of their six tables and the
+  // groupings made with Create grouping — the company's, shared with each
+  // project's team (Q1, Q-D2). user_settings.table_view_last (the view each
+  // person last used on each table, Q4) is a person's own and stays out, as
+  // the rest of user_settings does.
+  'table_views', 'item_groupings',
   'files', 'file_events', 'asset_versions', 'comments',
   'rate_cards', 'rate_card_entries',
   'ingestion_runs', 'ingestion_chunks',

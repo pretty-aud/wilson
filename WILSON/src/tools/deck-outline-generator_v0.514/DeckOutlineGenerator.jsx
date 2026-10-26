@@ -1,16 +1,14 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, Chip, Badge, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
-import {
-  isDeckAttachmentRow, dogTypeForRow, documentKindFor,
-  orderAttachmentCandidates, NEW_ATTACHMENT_IS_CORE,
-  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES, DOG_ATTACHMENT_MAX_MIB,
-} from '../../tools/rabbit_v0.1.0/deckAttachments';
+import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments';
 import { callAI } from '../../cloud/aiProxy';
-import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
+import { textFromMessage } from '../../cloud/anthropicStream';
+import { uploadAIFile, deleteAIFiles, holdAIFiles, FILES_BETA } from '../../cloud/aiFiles';
+import { createAIFileCache, ownerOf, liveOwners, retryWithLiveFiles } from './aiFileCache';
 import { modelFor, tuningFor } from '../../lib/activeModel';
 import ModelPicker from '../../components/settings/ModelPicker';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
@@ -27,44 +25,26 @@ import DuplicateResolverModal from './modals/DuplicateResolverModal';
 import './dog.css';
 import HistoryModal from './modals/HistoryModal';
 import { enterIsDogs } from './enterGenerates';
+import { useReferences } from './references/useReferences';
+import ReferencesCard, { useReferencePreview, ReferencePreviewDialog } from './references/ReferencesCard';
+import ReferencesPicker from './references/ReferencesPicker';
+import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } from './references/referenceModel';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Project attachments that live in the file store (Track C, bundle C3;
-// MASTER_PLAN §6 #31).
+// What a deck reads (post-overhaul DG1, 2026-10-16).
 //
-// 🚨 TRAP (c) OF §6 #31, AND IT IS THE ONE THAT MAKES THIS FEATURE WORTH
-// BUILDING. `legacyProjectFiles` below requires an inline `content` payload and
-// skips any entry without one, so routing attachments to storage WITHOUT a
-// download-and-rehydrate step would make them upload successfully and
-// contribute NOTHING to generation — silently, which is worse than the loud
-// throw the cloud path used to give. The rows say a file is there; only the
-// BODY can reach the model. The effect below exists to fetch that body.
+// Until DG1, choosing a project downloaded up to 20 of its attachments on the
+// spot (Track C's C3 effect) and sent them with every generation. Audrey's
+// ruling (docs/design/DOG_REFERENCES_QUESTIONS.md, Q2): "choosing the project
+// should select what files and items he user can choose from to make a deck".
+// So choosing a project sends only its title and description (Q17), and the
+// person ticks the items, files and notes the deck reads in the References
+// card (./references/). Their bodies are read when a deck is generated, never
+// when they are chosen: resolveSources() below, through useReferences.
 //
-// (§6 #31 said `adapter.downloadFile` had "zero call sites anywhere". That was
-// true when it was filed and is not now — S24's InvoiceAttachment and
-// FileManager's download both ride it. Re-measured before relying on it.)
-//
-// WHICH rows count, what each becomes, and the bound on how many are read all
-// live in `deckAttachments.js`, beside the three writers that have to satisfy
-// them — see that file's header for why the reader and the writers are one
-// module and what it cost to learn that.
-
-function blobToDogContent(blob, type) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error('could not read the file'));
-    if (type === 'text') {
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.readAsText(blob);
-    } else {
-      reader.onload = () => {
-        const s = String(reader.result || '');
-        resolve(s.includes(',') ? s.split(',')[1] : s);
-      };
-      reader.readAsDataURL(blob);
-    }
-  });
-}
+// The legacy arrays' default-TRUE Core polarity and the stored rows' strict
+// one (MASTER_PLAN §6 #31 trap (b)) moved with the readers, to
+// references/referenceModel.js, unchanged.
 
 export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
@@ -76,7 +56,13 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   const [uploadedFiles, setUploadedFiles] = useState([]); // Array of {file, content, type}
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isFileLoading, setIsFileLoading] = useState(false);
-  const [fullDeckMode, setFullDeckMode] = useState(false);
+  // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
+  // page mounted, so the side then stays where it is put until WILSON closes,
+  // as the uploads do; the one exception is the Alt toggle below, which hears
+  // Alt on every page (OUTSTANDING DG1b-01). With Full deck on and no page
+  // yet, D.O.G.'s Enter key (enterGenerates.js says where it is D.O.G.'s)
+  // generates the deck whenever its button is enabled.
+  const [fullDeckMode, setFullDeckMode] = useState(true);
 
   // Visual Asset Placement State
   const [useUploadedAssets, setUseUploadedAssets] = useState(false);
@@ -190,275 +176,74 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
     return projects.find(p => p.id === selectedProjectId) || null;
   }, [selectedProjectId, projects]);
 
-  // ── The project's attachments, from BOTH stores (Track C, C3) ────────────
+  // ── References (DG1): what the deck reads besides the uploads ────────────
   //
-  // 🚨 §6 #31 TRAP (b), THE POLARITY, LIVES IN THESE TWO READERS AND NOWHERE
-  // ELSE. The legacy arrays carry `isCore` and default it TRUE
-  // (`doc.isCore !== false`); `files.is_core_definer` is NOT NULL DEFAULT
-  // false. A 1:1 map would flip every previously-unmarked legacy file from
-  // CORE to REF and change generation output for every existing project —
-  // which is the one consequence §6 #31's disposition row calls out by name.
-  //
-  // So the two readers keep their OWN polarity, deliberately:
-  //   * a legacy-array row  -> isCore = f.isCore !== false   (default TRUE)
-  //   * a stored files row  -> isCore = is_core_definer === true (from data)
-  //
-  // Nothing is inferred across the boundary. The only place the two meet is
-  // runAttachmentMigration, which writes `isCore !== false` into
-  // is_core_definer when it MOVES a row — so a legacy file that was CORE is
-  // still CORE after the move, and the outline does not change. That is what
-  // the polarity diff in this bundle's commit message measures.
-  //
-  // Legacy half first: unchanged since S12 apart from this comment.
-  const legacyProjectFiles = useMemo(() => {
-    if (!selectedProject) return [];
-    const files = [];
-    // Add project documents
-    (selectedProject.documents || []).forEach(doc => {
-      if (!doc.content) return;
-      const isCore = doc.isCore !== false;
-      const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
-      const base64Data = doc.content.includes(',') ? doc.content.split(',')[1] : doc.content;
-      if (doc.type?.startsWith('image/')) {
-        files.push({
-          id: `proj-${doc.id}`,
-          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
-          content: base64Data,
-          type: 'image',
-          mediaType: doc.type,
-          isCore,
-          source: 'legacy',
-          category: 'documents',
-          rowId: doc.id,
-        });
-      } else if (doc.type === 'application/pdf' || doc.name?.endsWith('.pdf')) {
-        files.push({
-          id: `proj-${doc.id}`,
-          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
-          content: base64Data,
-          type: 'pdf',
-          mediaType: 'application/pdf',
-          isCore,
-          source: 'legacy',
-          category: 'documents',
-          rowId: doc.id,
-        });
-      } else {
-        // Text-based files — decode base64 to text if needed
-        let textContent = base64Data;
-        try { textContent = atob(base64Data); } catch { /* already text */ }
-        files.push({
-          id: `proj-${doc.id}`,
-          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
-          content: textContent,
-          type: 'text',
-          mediaType: 'text/plain',
-          isCore,
-          source: 'legacy',
-          category: 'documents',
-          rowId: doc.id,
-        });
-      }
-    });
-    // Add project visual assets
-    (selectedProject.visualAssets || []).forEach(asset => {
-      if (!asset.content) return;
-      const isCore = asset.isCore !== false;
-      const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
-      const base64Data = asset.content.includes(',') ? asset.content.split(',')[1] : asset.content;
-      const isVideo = asset.type?.startsWith('video/') || asset.name?.match(/\.(mp4|mov|webm|avi|mkv)$/i);
-      files.push({
-        id: `proj-${asset.id}`,
-        file: { name: `${labelPrefix} ${asset.name}`, size: asset.size || 0 },
-        content: base64Data,
-        type: isVideo ? 'video' : 'image',
-        mediaType: asset.type || (isVideo ? 'video/mp4' : 'image/png'),
-        isCore,
-        source: 'legacy',
-        category: 'visualAssets',
-        rowId: asset.id,
-      });
-    });
-    return files;
-  }, [selectedProject]);
-
-  // ── The stored half: rows in public.files / bundle.files, rehydrated ──────
-  //
-  // Asynchronous, so it cannot be a useMemo: the rows come from the adapter
-  // and each body is a separate download. See the module header for the bound
-  // and for why trap (c) makes the download mandatory rather than an
-  // optimisation.
-  const [storedProjectFiles, setStoredProjectFiles] = useState([]);
+  // The chosen items, files and notes and the picker's pool live in
+  // useReferences (./references/). Choosing a project sends nothing on its
+  // own (Audrey's Q2); bodies are read only when a deck is generated, by
+  // resolveSources below. The C3 effect that downloaded up to 20 attachments
+  // the moment a project was chosen, and recorded a download for each, is
+  // gone with the automatic set it fed.
+  const refs = useReferences({ getAdapter, adapterMode, projectId: selectedProjectId, project: selectedProject });
+  const resolveReferences = refs.resolveForGeneration;
+  const adoptUploadedFiles = refs.adoptUploadedFiles;
+  const [showRefsPicker, setShowRefsPicker] = useState(false);
+  // One reference's preview, opened from the card; drawn after </main>
+  // with D.O.G.'s other windows.
+  const refPreview = useReferencePreview(refs);
+  // The New project window's own upload state (C3): its busy line and its
+  // failure line sit under the project. The failure is its own state, so
+  // nothing else can overwrite it (C3 review round 2).
   const [storedFilesBusy, setStoredFilesBusy] = useState(false);
-  const [storedFilesNote, setStoredFilesNote] = useState('');
-  // 🚨 SEPARATE FROM THE NOTE, and round 2 is why. Round 1 put the create
-  // modal's upload failure into `storedFilesNote` — the same state the fetch
-  // effect ends by overwriting with '' — so the message it promised was "NOT
-  // silent" could be erased by a listFiles round trip that landed after it.
-  // An error the effect never writes cannot be raced.
   const [storedFilesError, setStoredFilesError] = useState('');
+  // The reference pictures and videos read at the last generation: "Use
+  // project assets" places them, and the placed-asset export writes them, as
+  // the project's media were before.
+  const [referenceMedia, setReferenceMedia] = useState([]);
+  // What was chosen and could not be read at the last generation: not sent,
+  // and said (amber, beside the theme generator's message).
+  const [refsWarning, setRefsWarning] = useState('');
 
-  useEffect(() => {
-    // 🚨 A REQUEST TOKEN, NOT A BOOLEAN. Selecting project A then B while A's
-    // downloads are in flight must not let A's bodies land in B's panel; a
-    // plain `cancelled` flag closes over the right effect run but this state
-    // is also written from the reload path below, so the token is compared on
-    // every setState rather than only at the end.
-    let live = true;
-    const adapter = getAdapter?.();
-    if (!selectedProjectId || !adapter?.listFiles || !adapter?.downloadFile) {
-      setStoredProjectFiles([]);
-      setStoredFilesNote('');
-      // 🚨 R1: CLEARED HERE TOO. It used to be set only on the live path and
-      // cleared only at the end of it, so an aborted run (`if (!live) return`)
-      // followed by an early return left "Reading project attachments…" on
-      // screen for the rest of the session, hiding the real count.
-      setStoredFilesBusy(false);
-      return () => { live = false; };
-    }
-    setStoredFilesBusy(true);
-    setStoredFilesError('');
-    (async () => {
-      let rows;
-      try {
-        rows = await adapter.listFiles(selectedProjectId);
-      } catch (err) {
-        // A backend that cannot list is not an error here — the legacy arrays
-        // still render and still generate. Never silent, though: this is the
-        // layer that eats it (S30's rule).
-        console.warn('[DOG] project files not listed:', err?.message || err);
-        if (live) { setStoredProjectFiles([]); setStoredFilesNote(''); setStoredFilesBusy(false); }
-        return;
-      }
-      // 🚨 R1: ORDERED BY KIND FIRST, then date. A single date sort spends
-      // the budget on whatever is newest, which on a working project is media
-      // — so the brief the deck is about falls off the end and is reported
-      // only as "N more files are not included". See
-      // deckAttachments.orderAttachmentCandidates.
-      const candidates = orderAttachmentCandidates((rows || []).filter(isDeckAttachmentRow));
-
-      const out = [];
-      let bytes = 0;
-      let skippedTooBig = 0;
-      let failed = 0;
-      for (const row of candidates) {
-        if (out.length >= DOG_ATTACHMENT_MAX_FILES) break;
-        const size = row.size_bytes ?? 0;
-        // Skipped, never truncated: half a brief is worse than no brief,
-        // because nothing downstream can tell it is half.
-        if (bytes + size > DOG_ATTACHMENT_MAX_BYTES) { skippedTooBig++; continue; }
-        const type = dogTypeForRow(row);
-        try {
-          const blob = await adapter.downloadFile(row);
-          if (!live) return;
-          const content = await blobToDogContent(blob, type);
-          if (!live) return;
-          // 🚨 THE POLARITY, from DATA: strict === true against a NOT NULL
-          // boolean. Never `!== false`, which is the legacy default-TRUE idiom
-          // and would mark every stored file CORE.
-          const isCore = row.is_core_definer === true;
-          const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
-          out.push({
-            id: `file-${row.id}`,
-            file: { name: `${labelPrefix} ${row.name}`, size },
-            content,
-            type,
-            mediaType: row.mime_type
-              || (type === 'pdf' ? 'application/pdf'
-                : type === 'text' ? 'text/plain'
-                : type === 'video' ? 'video/mp4' : 'image/png'),
-            isCore,
-            source: 'stored',
-            rowId: row.id,
-          });
-          bytes += size;
-        } catch (err) {
-          // One unreadable body must not take the whole panel down — a
-          // relinked Local Server file whose disk path is gone answers 410,
-          // and `fetch` resolves for every status (the standing trap), which
-          // downloadFile turns into a throw. Counted, then reported.
-          console.warn('[DOG] attachment body not read:', row.name, err?.message || err);
-          failed++;
-        }
-      }
-      if (!live) return;
-      // 🚨 R1: `left` ALREADY INCLUDES the two counted causes, so listing all
-      // three side by side double-counted them. Only the remainder — files the
-      // COUNT cut off — is reported as its own number, and the size figure
-      // comes from the constant rather than a literal beside it.
-      const left = candidates.length - out.length - skippedTooBig - failed;
-      const parts = [];
-      if (left > 0) {
-        parts.push(`${left} more file${left === 1 ? '' : 's'} on this project ` +
-          `${left === 1 ? 'is' : 'are'} not included — D.O.G. reads ` +
-          `${DOG_ATTACHMENT_MAX_FILES} attachments at most, documents first, ` +
-          `up to ${DOG_ATTACHMENT_MAX_MIB} MiB in total`);
-      }
-      if (skippedTooBig > 0) {
-        // ⚠️ "did not fit" rather than "over the budget": this counts files
-        // that did not fit the REMAINING budget, so a 400 KB reference photo
-        // behind a 31 MiB document lands here too. Round 1 made this more
-        // specific and less true; round 2 made it true again.
-        parts.push(`${skippedTooBig} did not fit in the remaining space`);
-      }
-      if (failed > 0) parts.push(`${failed} could not be read`);
-      setStoredProjectFiles(out);
-      setStoredFilesNote(parts.join(' · '));
-      setStoredFilesBusy(false);
-    })();
-    return () => { live = false; };
-    // 🚨 `adapterMode`, not the adapter object: getAdapter returns
-    // adapterRef.current and keeps ONE identity across a backend switch, so
-    // without the mode in this list a switch from Local Server to Supabase
-    // would leave the previous backend's bodies on screen.
-    //
-    // ⚠️ NO RELOAD KEY. Round 1 added one and then removed both of its
-    // bumpers in the same commit (the Core toggle reconciles locally now, and
-    // the create modal selects the project, which re-runs this effect on its
-    // own) — leaving dead state with a comment naming two callers that no
-    // longer existed, and a source pin holding it in place. Round 2 removed
-    // it. If a future write needs to force a re-read, add the trigger and its
-    // caller together.
-  }, [selectedProjectId, getAdapter, adapterMode]);
-
-  // Both stores, one list. Legacy first so an existing project's ordering —
-  // and therefore its generation output — is untouched by the new source.
-  const projectFiles = useMemo(
-    () => [...legacyProjectFiles, ...storedProjectFiles],
-    [legacyProjectFiles, storedProjectFiles],
-  );
-
-  // Combined files: uploaded + project (for use in generation)
-  const allFiles = useMemo(() => {
-    return [...uploadedFiles, ...projectFiles];
-  }, [uploadedFiles, projectFiles]);
-
-  // Visual assets eligible for placement into deck frames
-  const placementAssets = useMemo(() => {
+  /**
+   * The media the slides may place (Audrey's Q14: the two boxes "allow using
+   * images/videos from a project or uploaded in the outline like before").
+   * "Use visual assets" (was "Use uploaded assets"): the uploads' pictures
+   * and videos. "Use project assets": the pictures and videos among the
+   * chosen references (Audrey's Q19, 2026-10-17: "Only the ones you tick";
+   * a picture or video not ticked is never placed or sent to the AI).
+   */
+  const placementFrom = useCallback((refMedia) => {
     const assets = [];
     if (useUploadedAssets) {
       assets.push(...uploadedFiles.filter(f => f.type === 'image' || f.type === 'video'));
     }
     if (useProjectAssets) {
-      assets.push(...projectFiles.filter(f => f.type === 'image' || f.type === 'video'));
+      assets.push(...refMedia.filter(f => f.type === 'image' || f.type === 'video'));
     }
     return assets;
-  }, [useUploadedAssets, useProjectAssets, uploadedFiles, projectFiles]);
+  }, [useUploadedAssets, useProjectAssets, uploadedFiles]);
+
+  // Visual assets eligible for placement into deck frames
+  const placementAssets = useMemo(() => placementFrom(referenceMedia), [placementFrom, referenceMedia]);
 
   const assetPlacementActive = placementAssets.length > 0;
 
-  // Project description context for injection into prompts.
-  // Includes an explicit CORE / REFERENCE file split so the model
-  // knows which sources actually define the project concept and which
-  // are supporting context only.
-  const projectContext = useMemo(() => {
+  /**
+   * PROJECT CONTEXT for one generation: the project's title and description,
+   * always (Q17), and the FILE ROLES split over the project files actually
+   * sent, so the model knows which define the project concept and which are
+   * supporting context only. CORE is each file's own mark: D.O.G. reads it,
+   * R.A.B.B.I.T.'s Files table sets it (Q15).
+   */
+  const projectContextFor = useCallback((refFiles) => {
     if (!selectedProject) return '';
     const parts = [];
     if (selectedProject.title) parts.push(`Project: ${selectedProject.title}`);
     if (selectedProject.description) parts.push(`Description: ${selectedProject.description}`);
 
-    const coreNames = projectFiles.filter(f => f.isCore).map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, ''));
-    const refNames  = projectFiles.filter(f => !f.isCore).map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, ''));
+    const projectFiles = (refFiles || []).filter(f => f.source === 'stored' || f.source === 'legacy');
+    const coreNames = projectFiles.filter(f => f.isCore).map(f => bareAssetName(f.file.name));
+    const refNames  = projectFiles.filter(f => !f.isCore).map(f => bareAssetName(f.file.name));
 
     if (coreNames.length > 0 || refNames.length > 0) {
       parts.push('');
@@ -478,82 +263,71 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
     }
 
     return parts.length > 0 ? parts.join('\n') : '';
-  }, [selectedProject, projectFiles]);
+  }, [selectedProject]);
 
   /**
-   * Flip a project file's CORE / REFERENCE flag and persist it.
-   *
-   * TWO STORES, TWO WRITES, and the entry says which it is. A legacy row's
-   * flag lives on the object inside `documents[]` / `visualAssets[]` on the
-   * project row; a stored row's lives in `files.is_core_definer`. Writing the
-   * wrong one is silent — the array write on a stored row would be refused by
-   * ATTACHMENTS_MSG in cloud mode and would invent an array entry on Local
-   * Server — so the branch is on `entry.source`, which
-   * legacyProjectFiles/storedProjectFiles both stamp at the point they are
-   * built rather than on anything inferred here.
-   *
-   * 🚨 The two polarities are preserved on the way OUT as well as in: a legacy
-   * flip reads `f.isCore !== false` (default TRUE) and a stored flip reads
-   * `is_core_definer === true`. See the note above legacyProjectFiles.
+   * Everything one generation reads: the uploads, then the chosen references,
+   * read NOW (a fresh list, so an item edited or a file gated since it was
+   * chosen is current). Videos are read only when "Use project assets" may
+   * place them: they are never sent to the AI. A reference that cannot be
+   * read is left out and named in the amber line; the rest go.
    */
-  const toggleProjectFileCore = useCallback(async (entry) => {
-    if (!entry) return;
-
-    if (entry.source === 'stored') {
-      // 🚨 R1, §6 #31 trap (f) AGAIN, at the one gate this bundle missed.
-      // `if (!adapter?.updateFile)` is the typeof check the trap names:
-      // googleDriveAdapter sets `updateFile: readOnly('updateFile')`, a
-      // FUNCTION THAT THROWS, so on Drive the guard passed, the tag flipped
-      // optimistically, the write threw into a console line and the reload
-      // flipped it back — a silent revert. The mode is the gate here as
-      // everywhere else, and the button is disabled to match.
-      if (!canStoreFiles) return;
-      const adapter = getAdapter?.();
-      if (!adapter?.updateFile) return;
-      const next = !entry.isCore;
-      const relabel = (f, core) => ({
-        ...f, isCore: core,
-        file: { ...f.file,
-          name: `${core ? '[Project · CORE]' : '[Project · REF]'} ` +
-                `${f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')}` },
-      });
-      // Optimistic, and reconciled LOCALLY rather than by a reload.
-      setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, next) : f)));
-      try {
-        await adapter.updateFile(entry.rowId, {
-          is_core_definer: next,
-          project_id: selectedProjectId,
-        });
-      } catch (err) {
-        // 🚨 R1: DO NOT BUMP THE RELOAD KEY HERE. It is a dependency of the
-        // fetch effect, so every click re-ran the effect and re-DOWNLOADED
-        // every attachment body — up to 20 files and 32 MiB per toggle. Worse
-        // than the bandwidth: supabaseAdapter.downloadFile calls the
-        // log_file_downloaded RPC and Local Server's route appends a
-        // `downloaded` event, so each click wrote N audit rows for downloads
-        // nobody performed, into the very stream 0047 exists to keep honest.
-        // One flag changed; only that flag is reconciled.
-        console.error('[DOG] toggle core flag failed:', err);
-        setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, !next) : f)));
-        setStoredFilesError(`That file's role could not be saved: ${err?.message || err}`);
-      }
-      return;
+  const resolveSources = useCallback(async () => {
+    const { files: refFiles, referencesSource, notesSource, unreadable } = await resolveReferences({ includeVideo: useProjectAssets });
+    // Each entry names the file and why ("brief.pdf (could not be read)").
+    setRefsWarning(unreadable.length ? `Not sent: ${unreadable.join(', ')}.` : '');
+    const media = refFiles.filter(f => f.type === 'image' || f.type === 'video');
+    setReferenceMedia(media);
+    const files = [
+      ...uploadedFiles, ...refFiles,
+      ...(referencesSource ? [referencesSource] : []),
+      ...(notesSource ? [notesSource] : []),
+    ];
+    // References chosen and nothing of them readable, and no upload: stop.
+    // Uploads alone behave as before DG1 (a video upload is placed, the
+    // deck generates), as "leave that how it was" asks.
+    const refsReadable = refFiles.some(f => f.type !== 'video') || !!referencesSource || !!notesSource;
+    if (!uploadedFiles.length && !refsReadable) {
+      // Everything chosen turned out unreadable: the project's text alone
+      // does not start a deck (design §4), so say so instead.
+      throw Object.assign(new Error('nothing readable'), { code: 'DOG_NOTHING_READABLE' });
     }
+    return {
+      files,
+      placement: placementFrom(media),
+      projectContext: projectContextFor(refFiles),
+    };
+  }, [resolveReferences, useProjectAssets, uploadedFiles, placementFrom, projectContextFor]);
 
-    if (!selectedProject || !updateUnifiedProject) return;
-    const category = entry.category;
-    const list = Array.isArray(selectedProject[category]) ? selectedProject[category] : [];
-    const next = list.map(f => {
-      if (f.id !== entry.rowId) return f;
-      const current = f.isCore !== false; // default true
-      return { ...f, isCore: !current };
-    });
-    try {
-      await updateUnifiedProject(selectedProject.id, { [category]: next });
-    } catch (err) {
-      console.error('[DOG] toggle core flag failed:', err);
+  // An uploaded PDF's pages, counted once from its body in memory: the meter
+  // counts a PDF by its pages, never its bytes (design review round 1, HIGH).
+  const [uploadPdfPages, setUploadPdfPages] = useState(() => new Map());
+  // Each upload is counted ONCE: an id is marked when its count starts, so a
+  // result landing (which changes uploadPdfPages) never restarts the others
+  // (code review round 1, finding 3). A late result for a removed upload is
+  // harmless: nothing reads its id.
+  const pdfCounting = useRef(new Set());
+  useEffect(() => {
+    for (const f of uploadedFiles) {
+      if (f.type !== 'pdf' || pdfCounting.current.has(f.id)) continue;
+      pdfCounting.current.add(f.id);
+      countPdfPages(f.content).then(n => setUploadPdfPages(m => new Map(m).set(f.id, n)));
     }
-  }, [selectedProject, selectedProjectId, updateUnifiedProject, getAdapter, canStoreFiles]);
+  }, [uploadedFiles]);
+
+  // What else goes with the references, for the meter: the uploads, the deck
+  // text, the page request and the project's own words. An uploaded PDF whose
+  // pages cannot be told is not guessed; the meter says how many there are.
+  const { baseTokens, baseUncounted } = useMemo(() => {
+    let tokens = textTokens(systemPrompt) + textTokens(pagePrompt)
+      + textTokens(`${selectedProject?.title || ''} ${selectedProject?.description || ''}`);
+    let uncounted = 0;
+    for (const f of uploadedFiles) {
+      const t = uploadTokens(f, uploadPdfPages.get(f.id) || null);
+      if (t == null) uncounted++; else tokens += t;
+    }
+    return { baseTokens: tokens, baseUncounted: uncounted };
+  }, [uploadedFiles, uploadPdfPages, systemPrompt, pagePrompt, selectedProject]);
 
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
@@ -652,9 +426,12 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
         const adapter = getAdapter?.();
         if (adapter?.uploadFile) {
           setStoredFilesBusy(true);
+          // DG1: the files added here were added for this deck, so they start
+          // ticked in References (the design's §9 item 2).
+          const uploadedRows = [];
           for (const f of pending) {
             if (!f.raw) continue;
-            await adapter.uploadFile(created.id, {
+            const row = await adapter.uploadFile(created.id, {
               // Total by construction — see deckAttachments.documentKindFor.
               // `detectDocumentKind(name) || null` here would write NULL for a
               // PDF whose name matches no heuristic, and the row would then
@@ -670,7 +447,9 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
               // deckAttachments.NEW_ATTACHMENT_IS_CORE.
               isCoreDefiner: NEW_ATTACHMENT_IS_CORE,
             }, f.raw);
+            if (row && row.id) uploadedRows.push(row);
           }
+          adoptUploadedFiles(uploadedRows);
         }
       }
       // Only cleared once everything that needed them has succeeded: the
@@ -684,7 +463,7 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
     } finally {
       setStoredFilesBusy(false);
     }
-  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal, canStoreFiles, getAdapter]);
+  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal, canStoreFiles, getAdapter, adoptUploadedFiles]);
 
   // Editable System Prompts
   const [singlePageSystemPrompt, setSinglePageSystemPrompt] = useState(DEFAULT_SINGLE_PAGE_SYSTEM);
@@ -825,7 +604,7 @@ Generate 3 color themes for this deck.`;
         messages: [{ role: 'user', content: userMsg }],
         tool: 'dog',
       });
-      const text = data.content.map(i => i.text || '').join('').trim();
+      const text = textFromMessage(data).trim();
       console.log('Theme gen response:', text.substring(0, 200));
       const jsonStart = text.indexOf('[');
       const jsonEnd = text.lastIndexOf(']');
@@ -908,9 +687,22 @@ Generate 3 color themes for this deck.`;
   }, [activeTabId]);
 
   // Check if we have any file content for API calls
-  const hasFileContent = useMemo(() => {
-    return uploadedFiles.length > 0 || allFiles.length > 0;
-  }, [uploadedFiles, allFiles]);
+  // Q13 ("Both still apply"): out of sight in Single page, the full deck
+  // context and the theme setting still shape each page, so the page box
+  // says so.
+  const appliedFromFullDeck = useMemo(() => {
+    const ctx = systemPrompt.trim().replace(/\s+/g, ' ');
+    const quoted = ctx ? `your context (\u201C${ctx.length > 60 ? `${ctx.slice(0, 60).trimEnd()}\u2026` : ctx}\u201D) and ` : '';
+    return `Also applied here, from Full deck: ${quoted}the theme generator (${enableThemeGen ? 'on' : 'off'}; set it under Full deck).`;
+  }, [systemPrompt, enableThemeGen]);
+
+  // A deck needs a source: an upload, or a chosen reference that can still be
+  // read. DG1: references alone are enough ("pull from files, from databases,
+  // and from notes"); before, only a file could start a deck.
+  const hasFileContent = useMemo(() => (
+    uploadedFiles.length > 0
+    || refs.chosenList.some(s => !refs.unavailable.has(s.key) && s.dogType !== 'video')
+  ), [uploadedFiles, refs.chosenList, refs.unavailable]);
 
   const handleFileUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -1217,7 +1009,9 @@ ${contentBody}
     if (!assets || assets.length === 0) return { instructions: '', assetList: '', rules: '' };
 
     const assetList = assets.map((f, i) => {
-      const cleanName = (f.file?.name || '').replace(/^\[Project\]\s*/, '');
+      // DG1: the bare name, whatever D.O.G.'s label ([Project], [Project · CORE],
+      // [Project · REF]); the visualizer and the export find a file by it.
+      const cleanName = bareAssetName(f.file?.name);
       return `${i + 1}. ${cleanName} (${f.type})`;
     }).join('\n');
 
@@ -1262,9 +1056,38 @@ ${alreadyPlacedContext}`;
   // Cached per file so a re-generation, and every call of the continuation
   // loop, reuse the same id instead of re-uploading. Keyed on a content
   // fingerprint rather than the record's `id` because project documents and
-  // picker uploads mint ids differently, and `allFiles` is rebuilt by useMemo
+  // picker uploads mint ids differently, and the source list is rebuilt
   // on every render — an identity-keyed cache would miss constantly.
-  const aiFileIdCache = useRef(new Map());
+  //
+  // FX12 (OUTSTANDING DG1-03): the cache knows whose each id is and when it
+  // was uploaded (./aiFileCache.js). An id no upload or chosen reference
+  // owns any more is deleted from the AI's store; everything is deleted
+  // when the app closes or the person signs out (holdAIFiles); an id past
+  // its TTL is uploaded again rather than referenced. NEVER deleted after a
+  // generation: the next "Regenerate" reuses it.
+  const aiFileIdCache = useRef(null);
+  if (!aiFileIdCache.current) aiFileIdCache.current = createAIFileCache();
+
+  /** Delete ids from the AI's store, best-effort: its expiry and the sweep catch a miss. */
+  const letGoOfAIFiles = useCallback((ids) => {
+    if (!ids?.length) return;
+    deleteAIFiles(ids).catch((err) => {
+      console.warn(`[DOG] could not let go of ${ids.length} AI file(s):`, err?.code || err?.message || err);
+    });
+  }, []);
+
+  // The app closing and a sign-out take everything this screen holds.
+  useEffect(() => holdAIFiles(() => aiFileIdCache.current.takeAll()), []);
+
+  // A file removed from the picker, a reference untaken, the References set
+  // cleared (or set aside by choosing another project): the ids nothing owns
+  // are let go of. Never while a generation runs (its calls may still
+  // reference them): the effect runs again when it ends.
+  const generationBusy = isGenerating || isRegenerating;
+  useEffect(() => {
+    if (generationBusy) return;
+    letGoOfAIFiles(aiFileIdCache.current.release(liveOwners(uploadedFiles, refs.chosen)));
+  }, [generationBusy, uploadedFiles, refs.chosen, letGoOfAIFiles]);
 
   const fileFingerprint = useCallback((fileData) => {
     const c = String(fileData.content || '');
@@ -1275,9 +1098,21 @@ ${alreadyPlacedContext}`;
   }, []);
 
   const ensureAIFileId = useCallback(async (fileData) => {
-    const key = fileFingerprint(fileData);
-    const cached = aiFileIdCache.current.get(key);
-    if (cached) return cached;
+    // DG1: the references text is rebuilt every generation and opens with a
+    // fixed header, so a fingerprint of its ends could match an edited
+    // block: it is never cached. FX12: it is still HELD (owner
+    // `generation`), so it is let go of once its generation has ended.
+    const key = fileData.source === 'references' ? null : fileFingerprint(fileData);
+    const owner = ownerOf(fileData);
+    if (key) {
+      const hit = aiFileIdCache.current.get(key, Date.now());
+      if (hit?.id) {
+        aiFileIdCache.current.addOwner(key, owner);
+        return hit.id;
+      }
+      // Past its TTL: uploaded again below, and the old id let go of.
+      if (hit?.expired) letGoOfAIFiles([hit.expired]);
+    }
 
     // Text is read with readAsText, so its `content` is plain text; pdf/image
     // are read with readAsDataURL and hold base64. Getting this backwards
@@ -1293,9 +1128,24 @@ ${alreadyPlacedContext}`;
       filename: fileData.file?.name || 'document',
       mediaType,
     });
-    aiFileIdCache.current.set(key, uploaded.id);
+    const replaced = aiFileIdCache.current.set(key ?? `once:${uploaded.id}`, uploaded.id, owner, Date.now());
+    if (replaced) letGoOfAIFiles([replaced]);
     return uploaded.id;
-  }, [fileFingerprint]);
+  }, [fileFingerprint, letGoOfAIFiles]);
+
+  /**
+   * One AI call, and once more if the AI's store says a file the call
+   * references is gone (swept, expired, or deleted from another window): that
+   * file is uploaded again, every part that named the old id names the new
+   * one, and the call is repeated. Once per generation (`live.retried`); a
+   * second refusal reaches the person as any failure does.
+   * The store's answer is MEASURED (aiFileCache.deadFileIds); the rule is
+   * aiFileCache.retryWithLiveFiles.
+   */
+  const callWithLiveFiles = useCallback((call, live) => retryWithLiveFiles(call, live, {
+    reupload: ensureAIFileId,
+    forget: (id) => aiFileIdCache.current.forgetId(id),
+  }), [ensureAIFileId]);
 
   /**
    * The source documents, as content blocks plus whatever text stayed inline.
@@ -1308,7 +1158,7 @@ ${alreadyPlacedContext}`;
    *
    * Throws on upload failure; every caller catches and clears its own busy flag.
    */
-  const buildSourceParts = useCallback(async () => {
+  const buildSourceParts = useCallback(async (files) => {
     // Text small enough to stay in the prompt does, so a normal deck sends
     // byte-for-byte what it always did and its output cannot drift. Only text
     // large enough to threaten the request body is diverted to an upload.
@@ -1319,10 +1169,14 @@ ${alreadyPlacedContext}`;
     const contentParts = [];
     const inlineTextParts = [];
     let usedFileRefs = false;
+    // FX12: which source each referenced id came from, so a call the store
+    // refuses for a gone file can upload that one again (callWithLiveFiles).
+    const fileSources = new Map();
 
-    for (const fileData of allFiles) {
+    for (const fileData of files) {
       if (fileData.type === 'pdf' || fileData.type === 'image') {
         const fileId = await ensureAIFileId(fileData);
+        fileSources.set(fileId, fileData);
         usedFileRefs = true;
         contentParts.push({
           // The block type must match the file's MIME type — a PDF sent as an
@@ -1332,8 +1186,11 @@ ${alreadyPlacedContext}`;
         });
       } else if (fileData.type === 'text') {
         const body = String(fileData.content || '');
-        if (body.length > INLINE_TEXT_LIMIT) {
+        // The notes travel in the request itself, never in the AI's file
+        // store, which keeps what it is given (DG1): sendsInline says so.
+        if (!sendsInline(fileData, INLINE_TEXT_LIMIT)) {
           const fileId = await ensureAIFileId(fileData);
+          fileSources.set(fileId, fileData);
           usedFileRefs = true;
           contentParts.push({ type: 'document', source: { type: 'file', file_id: fileId } });
         } else {
@@ -1344,19 +1201,23 @@ ${alreadyPlacedContext}`;
       // assets, and that was true before this change too.
     }
 
-    return { contentParts, textContents: inlineTextParts.join('\n\n'), usedFileRefs };
-  }, [allFiles, ensureAIFileId]);
+    return { contentParts, textContents: inlineTextParts.join('\n\n'), usedFileRefs, fileSources };
+  }, [ensureAIFileId]);
 
   /** Turn an upload failure into something true and readable. */
   const sourceUploadMessage = useCallback((err) => (
-    err?.status === 546
+    err?.code === 'DOG_NOTHING_READABLE'
+      ? 'Nothing you chose could be read, so nothing was generated. Remove what is greyed in References, choose something else, or upload a document.'
+      : err?.code === 'DOG_LIST_FAILED'
+      ? 'The project could not be listed just now, so nothing was generated and nothing you chose was dropped. Try again.'
+      : err?.status === 546
       ? 'WILSON could not pass your source documents through to the AI. This is a limit in WILSON’s AI relay, not in your work.'
       : `Could not prepare your source documents: ${err?.message || 'the upload failed'}`
   ), []);
 
   const generatePageOutline = useCallback(async () => {
     if (!hasFileContent || !pagePrompt || !selectedLayout) {
-      setError('Please upload a document, select a layout, and enter a page request');
+      setError('Please upload a document or choose a reference, select a layout, and enter a page request');
       return;
     }
 
@@ -1488,9 +1349,11 @@ Generate the outline now:`;
     
     // Source documents travel as file_id references — see buildSourceParts.
     // Same exposure as the full deck: this path sent the same base64 payload.
-    let contentParts, textContents, usedFileRefs;
+    // DG1: the uploads plus the chosen references, read now (resolveSources).
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
     try {
-      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts());
+      ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
     } catch (err) {
       console.error('Source document upload failed:', err);
       setError(sourceUploadMessage(err));
@@ -1499,7 +1362,7 @@ Generate the outline now:`;
     }
 
     // Build the text prompt
-    const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
+    const fileDescriptions = srcFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
 
     // Include existing deck pages for cohesion context
     const existingPages = history.length > 0
@@ -1513,10 +1376,10 @@ Generate the outline now:`;
       : '';
 
     // Build asset placement context if active
-    const placementPrompt = assetPlacementActive ? buildAssetPlacementPrompt(placementAssets) : { instructions: '', rules: '' };
+    const placementPrompt = srcPlacement.length > 0 ? buildAssetPlacementPrompt(srcPlacement) : { instructions: '', rules: '' };
 
     // Build already-placed context from existing history
-    const alreadyPlacedList = assetPlacementActive && history.length > 0
+    const alreadyPlacedList = srcPlacement.length > 0 && history.length > 0
       ? history.map(h => {
           const p = parseSlideContent(h.output || h.content || '');
           const placed = parsePlacedAssets(p.placedAssets);
@@ -1534,7 +1397,7 @@ IMPORTANT: You MUST use the exact format specified below. Do NOT use markdown # 
 ${projectContext ? `PROJECT CONTEXT:\n${projectContext}\n\n` : ''}${systemPrompt ? `DECK CONTEXT & GUIDELINES:\n${systemPrompt}\n\n` : ''}${existingPages}UPLOADED FILES:
 ${fileDescriptions}
 
-${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${allFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${placementPrompt.instructions}${alreadyPlacedText}SELECTED SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
+${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${srcFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${placementPrompt.instructions}${alreadyPlacedText}SELECTED SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
 
 USER REQUEST: ${pagePrompt}
 
@@ -1545,7 +1408,9 @@ ${outputInstructions}${placementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const data = await callAI({
+      // FX12: once more, with the file uploaded again, if the store says a
+      // file this call references is gone (callWithLiveFiles).
+      const data = await callWithLiveFiles(() => callAI({
         model: modelFor('dog.pageOutline'),
         // Required on every request that REFERENCES a file_id, not just the
         // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
@@ -1554,11 +1419,10 @@ ${outputInstructions}${placementPrompt.rules}`;
         system: singlePageSystemPrompt,
         messages: messages,
         tool: 'dog',
-      });
-      const output = data.content
-        .filter(item => item.type === 'text')
-        .map(item => item.text)
-        .join('\n');
+      }), { contentParts, fileSources, retried: false });
+      // The reply's words through textFromMessage (anthropicStream.js), never
+      // a walk of the content blocks (DG1; the S30 rule).
+      const output = textFromMessage(data);
 
       // Parse output into pages
       const pages = parseOutputToPages(output);
@@ -1628,7 +1492,7 @@ ${outputInstructions}${placementPrompt.rules}`;
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, assetPlacementActive, placementAssets, buildAssetPlacementPrompt, buildSourceParts, sourceUploadMessage]);
+  }, [hasFileContent, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Regenerate page with revisions
   const regeneratePage = useCallback(async () => {
@@ -1750,9 +1614,11 @@ Generate the revised outline now:`;
     // Build message content array with all files (uploaded + project)
     // Source documents travel as file_id references — see buildSourceParts.
     // Same exposure as the full deck: this path sent the same base64 payload.
-    let contentParts, textContents, usedFileRefs;
+    // DG1: the uploads plus the chosen references, read now (resolveSources).
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
     try {
-      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts());
+      ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
     } catch (err) {
       console.error('Source document upload failed:', err);
       setError(sourceUploadMessage(err));
@@ -1761,7 +1627,7 @@ Generate the revised outline now:`;
     }
 
     // Build the text prompt
-    const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
+    const fileDescriptions = srcFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
 
     // Include existing deck pages for cohesion context
     const existingPagesRegen = history.length > 0
@@ -1776,7 +1642,7 @@ Generate the revised outline now:`;
       : '';
 
     // Build asset placement context for regeneration
-    const regenAlreadyPlaced = assetPlacementActive
+    const regenAlreadyPlaced = srcPlacement.length > 0
       ? history.filter(h => h.id !== activeTab.id).map(h => {
           const p = parseSlideContent(h.output || h.content || '');
           return parsePlacedAssets(p.placedAssets).map(a => `${a.filename} (Slide #${h.pageNum})`);
@@ -1785,8 +1651,8 @@ Generate the revised outline now:`;
     const regenAlreadyPlacedText = regenAlreadyPlaced.length > 0
       ? `\nALREADY PLACED ON OTHER SLIDES (do not reuse unless user requests):\n${regenAlreadyPlaced.join('\n')}\n`
       : '';
-    const regenPlacementPrompt = assetPlacementActive
-      ? buildAssetPlacementPrompt(placementAssets, regenAlreadyPlacedText)
+    const regenPlacementPrompt = srcPlacement.length > 0
+      ? buildAssetPlacementPrompt(srcPlacement, regenAlreadyPlacedText)
       : { instructions: '', rules: '' };
 
     const textPrompt = `You are a presentation deck outline generator. Revise this slide outline based on the user's request.
@@ -1796,7 +1662,7 @@ IMPORTANT: You MUST use the exact format specified below. Do NOT use markdown # 
 ${projectContext ? `PROJECT CONTEXT:\n${projectContext}\n\n` : ''}${systemPrompt ? `DECK CONTEXT & GUIDELINES:\n${systemPrompt}\n\n` : ''}${existingPagesRegen}UPLOADED FILES:
 ${fileDescriptions}
 
-${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${allFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${regenPlacementPrompt.instructions}TARGET SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
+${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${srcFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${regenPlacementPrompt.instructions}TARGET SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
 
 ${outputInstructions}${regenPlacementPrompt.rules}`;
 
@@ -1805,7 +1671,9 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const data = await callAI({
+      // FX12: once more, with the file uploaded again, if the store says a
+      // file this call references is gone (callWithLiveFiles).
+      const data = await callWithLiveFiles(() => callAI({
         model: modelFor('dog.regeneratePage'),
         // Required on every request that REFERENCES a file_id, not just the
         // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
@@ -1814,11 +1682,10 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
         system: singlePageSystemPrompt,
         messages: messages,
         tool: 'dog',
-      });
-      const output = data.content
-        .filter(item => item.type === 'text')
-        .map(item => item.text)
-        .join('\n');
+      }), { contentParts, fileSources, retried: false });
+      // The reply's words through textFromMessage (anthropicStream.js), never
+      // a walk of the content blocks (DG1; the S30 rule).
+      const output = textFromMessage(data);
 
       // Parse the output to extract the new content
       const pages = parseOutputToPages(output);
@@ -1863,7 +1730,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     } finally {
       setIsRegenerating(false);
     }
-  }, [activeTab, hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, assetPlacementActive, placementAssets, buildAssetPlacementPrompt, buildSourceParts, sourceUploadMessage]);
+  }, [activeTab, hasFileContent, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Undo regeneration
   const undoRegeneration = useCallback(() => {
@@ -1960,7 +1827,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     console.log('generateFullDeck called', { hasFileContent, uploadedFiles: uploadedFiles.length });
     
     if (!hasFileContent) {
-      setError('Please upload a document first');
+      setError('Please upload a document or choose a reference first');
       return;
     }
 
@@ -2141,9 +2008,11 @@ RULES:
 Generate the complete deck now:`;
     
     // Source documents travel as file_id references — see buildSourceParts.
-    let contentParts, textContents, usedFileRefs;
+    // DG1: the uploads plus the chosen references, read now (resolveSources).
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
     try {
-      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts());
+      ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
     } catch (err) {
       console.error('Source document upload failed:', err);
       setError(sourceUploadMessage(err));
@@ -2152,11 +2021,11 @@ Generate the complete deck now:`;
     }
 
     // Build the text prompt
-    const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
+    const fileDescriptions = srcFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
 
     // Build asset placement context for full deck
-    const fullDeckPlacementPrompt = assetPlacementActive
-      ? buildAssetPlacementPrompt(placementAssets)
+    const fullDeckPlacementPrompt = srcPlacement.length > 0
+      ? buildAssetPlacementPrompt(srcPlacement)
       : { instructions: '', rules: '' };
 
     const textPrompt = `You are a presentation deck outline generator. Create a complete deck outline with multiple slides based on the project documentation.
@@ -2166,7 +2035,7 @@ IMPORTANT: You MUST use the exact format specified below. Do NOT use markdown # 
 ${projectContext ? `PROJECT CONTEXT:\n${projectContext}\n\n` : ''}${systemPrompt ? `DECK CONTEXT & GUIDELINES:\n${systemPrompt}\n\n` : ''}UPLOADED FILES:
 ${fileDescriptions}
 
-${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${allFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${fullDeckPlacementPrompt.instructions}${outputInstructions}${fullDeckPlacementPrompt.rules}`;
+${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${srcFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${fullDeckPlacementPrompt.instructions}${outputInstructions}${fullDeckPlacementPrompt.rules}`;
 
     contentParts.push({ type: 'text', text: textPrompt });
 
@@ -2201,9 +2070,13 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       let currentMessages = messages;
       let continuationAttempts = 0;
       const MAX_CONTINUATIONS = 3; // Allow up to 3 continuation calls
+      // FX12: ONE re-upload per generation, shared by every call of the loop.
+      // The continuation messages hold the same content parts, so a file
+      // uploaded again is referenced by every later call too.
+      const liveFiles = { contentParts, fileSources, retried: false };
 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
-        const data = await callAI({
+        const data = await callWithLiveFiles(() => callAI({
           model: modelFor('dog.fullDeck'),
           // Caps how hard the model thinks. Measured, not guessed — the
           // rationale and the numbers are on the REGISTRY entry. Without it
@@ -2220,13 +2093,10 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
           system: fullDeckSystemPrompt,
           messages: currentMessages,
           tool: 'dog',
-        });
+        }), liveFiles);
         console.log(`API Response (attempt ${continuationAttempts}):`, data);
 
-        const chunkOutput = data.content
-          .filter(item => item.type === 'text')
-          .map(item => item.text)
-          .join('\n');
+        const chunkOutput = textFromMessage(data);
 
         fullOutput += chunkOutput;
 
@@ -2342,7 +2212,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, assetPlacementActive, placementAssets, buildAssetPlacementPrompt, buildSourceParts, sourceUploadMessage]);
+  }, [hasFileContent, uploadedFiles, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   const copyToClipboard = useCallback(() => {
     if (!activeTab) return;
@@ -3402,7 +3272,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         messages: [{ role: 'user', content: userContent }],
         tool: 'dog',
       });
-      const rewrittenText = data.content.map(i => i.text || '').join('').trim();
+      const rewrittenText = textFromMessage(data).trim();
       setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
     } catch (err) {
       console.error('Rewrite error:', err);
@@ -3479,7 +3349,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
           messages: [{ role: 'user', content: userContent }],
           tool: 'dog',
         });
-        const rewrittenText = data.content.map(i => i.text || '').join('').trim();
+        const rewrittenText = textFromMessage(data).trim();
         setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
       } catch (err) {
         setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
@@ -3780,7 +3650,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         messages: [{ role: 'user', content: userMessage }],
         tool: 'dog',
       });
-      const rawOutput = data.content.map(i => i.text || '').join('').trim();
+      const rawOutput = textFromMessage(data).trim();
 
       // 6. Parse output lines
       const promptLines = rawOutput.split('\n').filter(l => l.trim().startsWith('SLIDE #'));
@@ -3983,7 +3853,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           if (placedFiles.has(fname)) continue;
           const fileData = placementAssets.find(f => {
             const name = f.file?.name || '';
-            const cleanName = name.replace(/^\[Project\]\s*/, '');
+            const cleanName = bareAssetName(name);
             return cleanName.toLowerCase() === fname.toLowerCase() || name.toLowerCase() === fname.toLowerCase();
           });
           if (fileData) placedFiles.set(fname, fileData);
@@ -3995,7 +3865,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         if (placedFiles.has(pa.filename)) return;
         const fileData = placementAssets.find(f => {
           const name = f.file?.name || '';
-          const cleanName = name.replace(/^\[Project\]\s*/, '');
+          const cleanName = bareAssetName(name);
           return cleanName === pa.filename || name === pa.filename;
         });
         if (fileData) placedFiles.set(pa.filename, fileData);
@@ -4052,7 +3922,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }],
         tool: 'dog',
       });
-      const desc = data.content.map(i => i.text || '').join('').trim();
+      const desc = textFromMessage(data).trim();
       setDeckVisualDesc(desc);
     } catch (err) {
       console.error('Deck desc generation error:', err);
@@ -4166,7 +4036,20 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </Banner>
           )}
 
-          {/* Section 1: Document & Context Input */}
+          {/* DG1: chosen references that could not be read at the last
+              generation. Amber like the theme message beside it: the deck
+              was made, without them. */}
+          {refsWarning && (
+            <Banner
+              tone="warning"
+              action={<IconButton size="sm" icon={X} title="Dismiss the references message" onClick={() => setRefsWarning('')} />}
+            >
+              {refsWarning}
+            </Banner>
+          )}
+
+          {/* Section 1: the project and the uploads. The deck context box and
+              the boxes beside it moved to Section 3 (DG1, Audrey's brief). */}
           <Card pad={false} className="dog-card">
             <header
               className="ui-panel-head dog-card-head"
@@ -4176,7 +4059,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
-                Project documentation & deck context
+                Project documentation
               </h2>
               <div className="ui-panel-actions">
                 {section1Collapsed ? (
@@ -4194,7 +4077,9 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <label className="ui-field-label dog-field-label">
                   Project
                 </label>
-                <p className="ui-field-hint dog-field-hint">Link a project to include its documents and assets in generation</p>
+                {/* DG1: choosing a project no longer sends its files (Q2); its
+                    title and description always go (Q17). */}
+                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else in References.</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
@@ -4215,85 +4100,26 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     New project
                   </Button>
                 </div>
-                {selectedProject && (
+                {selectedProject && (selectedProject.description || storedFilesBusy || storedFilesError) && (
                   <div className="dog-project-details">
                     {selectedProject.description && (
                       <p className="dog-details-desc">{selectedProject.description}</p>
                     )}
-                    {/* C3: one count for one list. Before this, cloud
-                        projects were told their attachments "arrive with the
-                        storage work" and local ones were counted out of the
-                        two legacy arrays — two different sentences for what is
-                        now one store on both backends. */}
-                    <p className="dog-details-note">
-                      {storedFilesBusy
-                        ? 'Reading project attachments…'
-                        : `${projectFiles.length} attachment${projectFiles.length !== 1 ? 's' : ''}` +
-                          (projectFiles.filter(f => f.isCore).length > 0
-                            ? ` · ${projectFiles.filter(f => f.isCore).length} core`
-                            : '')}
-                    </p>
-                    {storedFilesNote && (
-                      <p className="dog-details-note">{storedFilesNote}</p>
+                    {/* The New project window's files: saving, or why they
+                        were not saved (C3: the one place that failure is said). */}
+                    {storedFilesBusy && (
+                      <p className="dog-details-note">Saving the new project&rsquo;s files&hellip;</p>
                     )}
                     {storedFilesError && (
                       <p className="dog-details-note" data-tone="danger" role="alert">
                         {storedFilesError}
                       </p>
                     )}
-
-                    {/* CORE / REFERENCE classifier — tells the AI which files
-                        actually define the project concept vs. which are just
-                        supporting reference. Click a tag to flip it.
-                        C3: driven by projectFiles, so a stored row and a legacy
-                        row appear in the same list and each writes back to the
-                        store it came from. */}
-                    {projectFiles.length > 0 && (
-                      <div className="dog-roles">
-                        <p className="ui-field-label dog-roles-label">
-                          File roles · click to toggle
-                        </p>
-                        <div className="space-y-0.5">
-                          {projectFiles.map(entry => {
-                            const isCore = entry.isCore;
-                            const bareName = entry.file.name
-                              .replace(/^\[Project · (CORE|REF)\]\s*/, '');
-                            return (
-                              <div key={entry.id} className="flex items-center gap-1.5">
-                                <Chip
-                                  active={isCore}
-                                  aria-pressed={undefined}
-                                  onClick={() => toggleProjectFileCore(entry)}
-                                  // R1: a stored row's flag can only be written
-                                  // on a backend that supports writes. A legacy
-                                  // row's lives on the project record and
-                                  // follows updateProject's own rules.
-                                  disabled={entry.source === 'stored' && !canStoreFiles}
-                                  className="dog-role-chip"
-                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
-                                >
-                                  {isCore ? 'Core' : 'Ref'}
-                                </Chip>
-                                <span className="dog-role-name">{bareName}</span>
-                                {entry.source === 'legacy' && (
-                                  <Badge
-                                    className="dog-role-source"
-                                    title={`Stored on the project record. Settings → Storage → "Move deck attachments into project files" moves these into the project's files.`}
-                                  >
-                                    Legacy
-                                  </Badge>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
 
-              {/* File Upload and Full Deck Toggle Row */}
+              {/* File Upload (untouched by DG1: "leave that how it was") */}
               <div className="flex items-start gap-8">
                 {/* File Upload - Multiple files support */}
                 <div className="flex-1">
@@ -4361,124 +4187,38 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   )}
                 </div>
               </div>
-
-              {/* System Prompt with Full Deck Toggle aligned to title */}
-              <div>
-                <div className="flex items-center justify-between mb-0.5">
-                  <div className="flex items-center gap-3">
-                    <label className="ui-field-label">
-                      Deck Context & Guidelines
-                    </label>
-                    {/* "Theme generator" checkbox */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setEnableThemeGen(!enableThemeGen)}
-                        className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
-                      >
-                        {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
-                      </button>
-                      <span className="dog-check-label">Theme generator</span>
-                    </div>
-                    {/* "Use uploaded assets" checkbox */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                        className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use uploaded assets"
-                      >
-                        {useUploadedAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
-                      </button>
-                      <span className="dog-check-label">Use uploaded assets</span>
-                    </div>
-                    {/* "Use project assets" checkbox */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setUseProjectAssets(!useProjectAssets)}
-                        className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use project assets"
-                      >
-                        {useProjectAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
-                      </button>
-                      <span className="dog-check-label">Use project assets</span>
-                    </div>
-                  </div>
-                  {/* Full Deck Toggle (`dog-full-deck`: enterGenerates.js
-                      keeps "Enter generates" on it, as before S2a) */}
-                  <Switch
-                    className="dog-full-deck"
-                    checked={fullDeckMode}
-                    label="Full deck"
-                    onChange={(newMode) => {
-                      setFullDeckMode(newMode);
-                      // Auto-collapse section 2 when enabling full deck, expand when disabling
-                      if (newMode) {
-                        setSection2Collapsed(true);
-                      } else {
-                        setSection2Collapsed(false);
-                      }
-                    }}
-                  />
-                </div>
-                <p className="ui-field-hint dog-field-hint">
-                  Set the overall tone, style, and objectives for the deck
-                  {fullDeckMode && <span className="dog-hint-emph"> • Include desired page count</span>}
-                </p>
-                <textarea
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  onFocus={() => setSystemPromptFocused(true)}
-                  onBlur={() => setSystemPromptFocused(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && fullDeckMode) {
-                      e.preventDefault();
-                      if (!isGenerating && hasFileContent) {
-                        generateFullDeck();
-                      }
-                    }
-                  }}
-                  placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
-                  className="ui-input dog-context-prompt" data-surface="dark" data-focused={systemPromptFocused}
-                />
-              </div>
-
-              {/* Generate Full Deck Button - Only visible in Full Deck Mode */}
-              {fullDeckMode && (
-                <Button
-                  variant="primary"
-                  className="dog-generate"
-                  onClick={generateFullDeck}
-                  disabled={isGenerating || !hasFileContent}
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden="true" />
-                      Generating full deck...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles aria-hidden="true" />
-                      Generate full deck outline
-                    </>
-                  )}
-                </Button>
-              )}
             </div>
             )}
           </Card>
 
-          {/* Section 2: Page Generation */}
-          <Card pad={false} className="dog-card dog-s2" data-full-deck={fullDeckMode}>
+          {/* Section 2: what the deck reads (DG1; ./references/) */}
+          <ReferencesCard
+            refs={refs}
+            projectChosen={!!selectedProject}
+            extraTokens={baseTokens}
+            extraUncounted={baseUncounted}
+            onAdd={() => setShowRefsPicker(true)}
+            onPreview={refPreview.open}
+          />
+
+          {/* Section 3: one card for a single page and a full deck (DG1,
+              Audrey's brief): the switch names both sides; Full deck shows
+              the full deck box and the theme generator; Single page shows the
+              layout, the page number and the single page box; the two media
+              boxes show in both. Every hint and example is as it was. */}
+          <Card pad={false} className="dog-card dog-s2">
             <header
               className="ui-panel-head dog-card-head"
-              data-collapsible={!fullDeckMode}
-              data-collapsed={section2Collapsed || fullDeckMode}
-              onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
+              data-collapsible="true"
+              data-collapsed={section2Collapsed}
+              onClick={() => setSection2Collapsed(!section2Collapsed)}
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
-                <span className="dog-step">2</span>
-                Generate page outline
-                {fullDeckMode && <span className="dog-card-note">(Disabled in full deck mode)</span>}
+                <span className="dog-step">3</span>
+                Generate outline
               </h2>
               <div className="ui-panel-actions">
-                {(section2Collapsed || fullDeckMode) ? (
+                {section2Collapsed ? (
                   <ChevronRight className="dog-chevron" aria-hidden="true" />
                 ) : (
                   <ChevronDown className="dog-chevron" aria-hidden="true" />
@@ -4486,101 +4226,214 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
             </header>
 
-            {!section2Collapsed && !fullDeckMode && (
+            {!section2Collapsed && (
             <div className="dog-card-body">
-              <div className="dog-field-row">
-                {/* Layout Dropdown */}
-                <div>
-                  <label className="ui-field-label dog-field-label">
-                    Slide Layout Type
-                  </label>
-                  <p className="ui-field-hint dog-field-hint">Choose how content will be arranged on the slide</p>
-                  <div className="dog-layout-select">
-                    <select
-                      value={selectedLayout}
-                      onChange={(e) => setSelectedLayout(e.target.value)}
-                      disabled={fullDeckMode}
-                      className="ui-input dog-select" data-size="md" data-surface="dark" data-empty={!selectedLayout}
-                    >
-                      <option value="">Select layout...</option>
-                      {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id}>
-                          {layout.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="dog-select-chevron" aria-hidden="true" />
-                  </div>
-                  {selectedLayout && !fullDeckMode && (
-                    <p className="ui-field-hint dog-layout-desc">
-                      {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
-                    </p>
-                  )}
-                </div>
-
-                {/* Page Number */}
-                <div>
-                  <label className="ui-field-label dog-field-label">
-                    Page #
-                  </label>
-                  <p className="ui-field-hint dog-field-hint">Single number or range (e.g. 3-7)</p>
-                  <input
-                    type="text"
-                    value={pageNumber}
-                    onChange={(e) => setPageNumber(e.target.value)}
-                    disabled={fullDeckMode}
-                    placeholder="5 or 1-10"
-                    className="ui-input dog-page-number" data-size="md" data-surface="dark"
-                  />
-                </div>
-              </div>
-
-              {/* Page Request Prompt - Full Width */}
-              <div>
-                <label className="ui-field-label dog-field-label">
-                  Page Request
-                </label>
-                <p className="ui-field-hint dog-field-hint">
-                  Describe the specific content you want on this slide
-                </p>
-                <textarea
-                  value={pagePrompt}
-                  onChange={(e) => setPagePrompt(e.target.value)}
-                  onFocus={() => setPagePromptFocused(true)}
-                  onBlur={() => setPagePromptFocused(false)}
+              {/* The switch. Its name is "Full deck" (checked) and nothing else,
+                  so a screen reader hears which side is on; the two words are
+                  pointer shortcuts to their side, hidden from it. Space and
+                  Enter work as on every switch, and Left and Right choose a
+                  side. `dog-full-deck` keeps Enter generating from it
+                  (enterGenerates.js). */}
+              <div className="dog-mode">
+                <span className="dog-mode-side" data-active={!fullDeckMode} aria-hidden="true"
+                  onClick={() => setFullDeckMode(false)}>Single page</span>
+                <span id="dog-mode-desc" hidden>Off is Single page.</span>
+                <Switch
+                  className="dog-full-deck"
+                  checked={fullDeckMode}
+                  aria-label="Full deck"
+                  aria-describedby="dog-mode-desc"
+                  onChange={setFullDeckMode}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !fullDeckMode) {
-                      e.preventDefault();
-                      if (!isGenerating && hasFileContent && pagePrompt && selectedLayout) {
-                        generatePageOutline();
-                      }
-                    }
+                    if (e.key === 'ArrowLeft') { e.preventDefault(); setFullDeckMode(false); }
+                    if (e.key === 'ArrowRight') { e.preventDefault(); setFullDeckMode(true); }
                   }}
-                  disabled={fullDeckMode}
-                  placeholder="Example: I need a page listing all the main characters with summaries for each..."
-                  className="ui-input dog-page-request" data-surface="dark" data-focused={pagePromptFocused}
                 />
+                <span className="dog-mode-side" data-active={fullDeckMode} aria-hidden="true"
+                  onClick={() => setFullDeckMode(true)}>Full deck</span>
               </div>
 
-              {/* Generate Button */}
-              <Button
-                variant="primary"
-                className="dog-generate"
-                onClick={generatePageOutline}
-                disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout || fullDeckMode}
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="animate-spin" aria-hidden="true" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles aria-hidden="true" />
-                    Generate page outline
-                  </>
-                )}
-              </Button>
+              {/* The two media boxes, in both modes. "Use uploaded assets" reads
+                  "Use visual assets", "to place media in the deck" (her words). */}
+              <div className="dog-checks">
+                <span className="dog-check-row">
+                  <button
+                    onClick={() => setUseUploadedAssets(!useUploadedAssets)}
+                    className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use visual assets"
+                    aria-describedby="dog-visual-assets-hint"
+                  >
+                    {useUploadedAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
+                  </button>
+                  <span className="dog-check-label">Use visual assets</span>
+                  <span id="dog-visual-assets-hint" className="dog-check-hint">to place media in the deck</span>
+                </span>
+                <span className="dog-check-row">
+                  <button
+                    onClick={() => setUseProjectAssets(!useProjectAssets)}
+                    className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use project assets"
+                  >
+                    {useProjectAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
+                  </button>
+                  <span className="dog-check-label">Use project assets</span>
+                </span>
+              </div>
+
+              {fullDeckMode ? (
+                <>
+                  <div>
+                    <div className="flex items-center gap-3 mb-0.5">
+                      <label className="ui-field-label">
+                        Deck Context & Guidelines
+                      </label>
+                      {/* "Theme generator" checkbox: with Full deck (her brief) */}
+                      <span className="dog-check-row">
+                        <button
+                          onClick={() => setEnableThemeGen(!enableThemeGen)}
+                          className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
+                        >
+                          {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
+                        </button>
+                        <span className="dog-check-label">Theme generator</span>
+                      </span>
+                    </div>
+                    <p className="ui-field-hint dog-field-hint">
+                      Set the overall tone, style, and objectives for the deck
+                      <span className="dog-hint-emph"> • Include desired page count</span>
+                    </p>
+                    <textarea
+                      value={systemPrompt}
+                      onChange={(e) => setSystemPrompt(e.target.value)}
+                      onFocus={() => setSystemPromptFocused(true)}
+                      onBlur={() => setSystemPromptFocused(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && fullDeckMode) {
+                          e.preventDefault();
+                          if (!isGenerating && hasFileContent) {
+                            generateFullDeck();
+                          }
+                        }
+                      }}
+                      placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
+                      className="ui-input dog-context-prompt" data-surface="dark" data-focused={systemPromptFocused}
+                    />
+                  </div>
+
+                  <Button
+                    variant="primary"
+                    className="dog-generate"
+                    onClick={generateFullDeck}
+                    disabled={isGenerating || !hasFileContent}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                        Generating full deck...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles aria-hidden="true" />
+                        Generate full deck outline
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="dog-field-row">
+                    {/* Layout Dropdown */}
+                    <div>
+                      <label className="ui-field-label dog-field-label">
+                        Slide Layout Type
+                      </label>
+                      <p className="ui-field-hint dog-field-hint">Choose how content will be arranged on the slide</p>
+                      <div className="dog-layout-select">
+                        <select
+                          value={selectedLayout}
+                          onChange={(e) => setSelectedLayout(e.target.value)}
+                          className="ui-input dog-select" data-size="md" data-surface="dark" data-empty={!selectedLayout}
+                        >
+                          <option value="">Select layout...</option>
+                          {SLIDE_LAYOUTS.map((layout) => (
+                            <option key={layout.id} value={layout.id}>
+                              {layout.name}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="dog-select-chevron" aria-hidden="true" />
+                      </div>
+                      {selectedLayout && (
+                        <p className="ui-field-hint dog-layout-desc">
+                          {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Page Number */}
+                    <div>
+                      <label className="ui-field-label dog-field-label">
+                        Page #
+                      </label>
+                      <p className="ui-field-hint dog-field-hint">Single number or range (e.g. 3-7)</p>
+                      <input
+                        type="text"
+                        value={pageNumber}
+                        onChange={(e) => setPageNumber(e.target.value)}
+                        placeholder="5 or 1-10"
+                        className="ui-input dog-page-number" data-size="md" data-surface="dark"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Page Request Prompt - Full Width */}
+                  <div>
+                    <label className="ui-field-label dog-field-label">
+                      Page Request
+                    </label>
+                    <p className="ui-field-hint dog-field-hint">
+                      Describe the specific content you want on this slide
+                    </p>
+                    <textarea
+                      value={pagePrompt}
+                      onChange={(e) => setPagePrompt(e.target.value)}
+                      onFocus={() => setPagePromptFocused(true)}
+                      onBlur={() => setPagePromptFocused(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !fullDeckMode) {
+                          e.preventDefault();
+                          if (!isGenerating && hasFileContent && pagePrompt && selectedLayout) {
+                            generatePageOutline();
+                          }
+                        }
+                      }}
+                      placeholder="Example: I need a page listing all the main characters with summaries for each..."
+                      className="ui-input dog-page-request" data-surface="dark" data-focused={pagePromptFocused}
+                    />
+                    {/* Q13: the full deck context and the theme setting still
+                        shape single pages; out of sight here, so said here. */}
+                    <p className="dog-applied-line">{appliedFromFullDeck}</p>
+                  </div>
+
+                  {/* Generate Button */}
+                  <Button
+                    variant="primary"
+                    className="dog-generate"
+                    onClick={generatePageOutline}
+                    disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles aria-hidden="true" />
+                        Generate page outline
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
             </div>
             )}
           </Card>
@@ -4880,6 +4733,22 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       </div>
       
       {/* History Modal */}
+      {/* DG1: the references window and one reference's preview, mounted
+          with D.O.G.'s other windows, outside the scrolling column. */}
+      {showRefsPicker && (
+        <ReferencesPicker
+          refs={refs}
+          projectTitle={selectedProject?.title || ''}
+          extraTokens={baseTokens}
+          extraUncounted={baseUncounted}
+          localServer={adapterMode === 'local_server'}
+          onClose={() => setShowRefsPicker(false)}
+        />
+      )}
+      {refPreview.preview && (
+        <ReferencePreviewDialog preview={refPreview.preview} onClose={refPreview.close} />
+      )}
+
       <HistoryModal
         isOpen={showHistoryModal}
         onClose={() => setShowHistoryModal(false)}

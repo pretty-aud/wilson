@@ -267,7 +267,10 @@ describe('TaskDetailPopup: a link to another shot list\'s shot (S3c step 1)', ()
 
   it('the linked shot resolves: its files column, its name in the picker (not "—"), and its list printed under the field', () => {
     popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' })
-    expect(screen.getByText('Shot: SC002_SH010')).toBeTruthy()
+    // VW1m (2026-10-16): a Files section per item, the scene's and the
+    // shot's both (her Q-N2), each named as the Items table names it.
+    expect(screen.getByText('Scene: Lighthouse')).toBeTruthy()
+    expect(screen.getByText('Shot: Lighthouse › SC002_SH010')).toBeTruthy()
     expect(screen.getByLabelText('Shot').value).toBe('b1')
     expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010'])
     expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
@@ -322,7 +325,7 @@ describe('TaskDetailPopup: a link to another shot list\'s shot (S3c step 1)', ()
   })
   it('CONTROL: without the provider\'s lookups (the old path) the shot does not resolve — no files column, an empty picker', () => {
     popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' }, { sceneById: undefined, shotById: undefined, allScenes: undefined, allShots: undefined })
-    expect(screen.queryByText('Shot: SC002_SH010')).toBeNull()
+    expect(screen.queryByText(/^Shot: /)).toBeNull()
   })
 })
 

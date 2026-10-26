@@ -1,11 +1,15 @@
 /** @vitest-environment jsdom */
-// ProjectContextBar — the two named slots (Q10; B1, 2026-09-23).
+// ProjectContextBar — what the bar holds (Q10, B1 2026-09-23; FX11 2026-10-16).
 //
-// Lane B6 removes the Bins footer bar on the strength of this contract: the
-// storage adapter dot and the presence pill are docked in the context bar,
-// not floating over the view body. If the slots stop rendering, the two
-// indicators vanish from every view but Summary and nothing else in the suite
-// would notice, because no test mounts Rabbit.jsx.
+// Since FX11 (Audrey: "the project bar has three green dots and its
+// confusing. remove the live and additional green dot. just leave the icons
+// that appear for users"; "i just want the project status there on that bar
+// next to project name. leave to the right the switch dropdown"): the
+// project's name and status on the left; the faces of who else has the
+// project open, then Switch, on the right. No LIVE / Sync pill, no adapter
+// dot — the connection is ONE dot in the shell's bottom-left corner
+// (ConnectionDot.jsx; its own test). No test mounts Rabbit.jsx, so the
+// shell's half is pinned on its source below.
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { addLeaveGuard, _resetLeaveGuardsForTests } from '../state/leaveGuard'
@@ -29,31 +33,39 @@ afterEach(cleanup)
 const here = dirname(fileURLToPath(import.meta.url))
 const rabbitSrc = readFileSync(resolve(here, '../Rabbit.jsx'), 'utf8').replace(/\r\n/g, '\n')
 
-describe('ProjectContextBar: the two named slots', () => {
-  it('renders presence then adapter, each in its named wrapper, before the Switch button', () => {
-    const { container } = render(
-      <ProjectContextBar presenceSlot={<i data-testid="p">LIVE</i>} adapterSlot={<i data-testid="a" />} />,
-    )
-    const status = container.querySelector('[data-slot="status"]')
-    expect(status).not.toBeNull()
-    expect(status.querySelector('[data-slot="presence"] [data-testid="p"]')).not.toBeNull()
-    expect(status.querySelector('[data-slot="adapter"] [data-testid="a"]')).not.toBeNull()
-    // Order: presence, adapter, then the Switch control.
-    const order = [...container.querySelectorAll('[data-testid], button')].map((n) => n.dataset.testid || n.textContent.trim())
-    expect(order).toEqual(['p', 'a', 'Switch'])
+describe('ProjectContextBar (FX11): the name and status left; the faces, then Switch, right', () => {
+  const rightOf = (container) => container.querySelector('.ui-toolbar.rb-ctx > .ui-toolbar-slot:last-child')
+  it('the right holds the faces in their wrapper, then Switch, and nothing else', () => {
+    const { container } = render(<ProjectContextBar presenceSlot={<i data-testid="p" />} />)
+    const right = rightOf(container)
+    expect(right.querySelector('[data-slot="presence"] [data-testid="p"]')).not.toBeNull()
+    const order = [...right.querySelectorAll('[data-testid], button')].map((n) => n.dataset.testid || n.textContent.trim())
+    expect(order).toEqual(['p', 'Switch'])
   })
 
-  it('an empty slot takes no box: the wrappers are display: contents', () => {
+  it('the right draws no status of its own: no pill, no dot, no adapter slot', () => {
+    const { container } = render(<ProjectContextBar presenceSlot={<i data-testid="p" />} />)
+    const right = rightOf(container)
+    expect(right.querySelector('.ui-status, .ui-status-dot, [data-slot="adapter"], [data-slot="status"]')).toBeNull()
+    expect(right.textContent).not.toMatch(/\b(Live|Sync)\b/i)
+    // The left keeps the project's status beside its name (her "project
+    // status there on that bar next to project name").
+    const left = container.querySelector('.ui-toolbar.rb-ctx > .ui-toolbar-slot:first-child')
+    expect([...left.querySelectorAll('.ui-status')].map((s) => s.textContent)).toEqual(['Active'])
+  })
+
+  it('the faces wrapper takes no box (display: contents); with no faces there is no wrapper at all', () => {
+    const { container } = render(<ProjectContextBar presenceSlot={<i data-testid="p" />} />)
+    expect(container.querySelector('[data-slot="presence"]').classList.contains('contents')).toBe(true)
+    const bare = render(<ProjectContextBar />)
+    expect(bare.container.querySelector('[data-slot="presence"]')).toBeNull()
+    expect(bare.container.textContent).toContain('Salt Hours')
+  })
+
+  it('the bar takes no adapter slot any more (an adapterSlot prop is ignored)', () => {
     const { container } = render(<ProjectContextBar adapterSlot={<i data-testid="a" />} />)
-    for (const w of container.querySelectorAll('[data-slot="presence"], [data-slot="adapter"]')) {
-      expect(w.classList.contains('contents')).toBe(true)
-    }
-  })
-
-  it('with no slots the bar renders no status group at all', () => {
-    const { container } = render(<ProjectContextBar />)
-    expect(container.querySelector('[data-slot="status"]')).toBeNull()
-    expect(container.textContent).toContain('Salt Hours')
+    expect(container.querySelector('[data-testid="a"]')).toBeNull()
+    expect(readFileSync(resolve(here, 'ProjectContextBar.jsx'), 'utf8')).not.toMatch(/adapterSlot/)
   })
 })
 
@@ -101,34 +113,58 @@ describe('FX7: PROJECT is the kit\'s label, first on the gutter, with no icon be
   })
 })
 
-describe('Rabbit.jsx docks the dot and the pill instead of floating them', () => {
-  it('passes both to the context bar', () => {
-    expect(rabbitSrc).toMatch(/<ProjectContextBar adapterSlot=\{adapterDot\} presenceSlot=\{presence\} \/>/)
+describe('Rabbit.jsx (FX11): the faces on the bar, one connection dot in the corner', () => {
+  it('passes the faces, and only the faces, to the context bar', () => {
+    expect(rabbitSrc).toMatch(/<ProjectContextBar presenceSlot=\{presence\} \/>/)
+    expect(rabbitSrc).not.toMatch(/adapterSlot|adapterDot|AdapterStatusDot/)
   })
 
-  it('on Summary, where no context bar is drawn, docks them in the tab bar instead (C1: hidden on no view)', () => {
+  it('on Summary, where no context bar is drawn, docks the faces alone in the tab bar (C1: hidden on no view)', () => {
     expect(rabbitSrc).toMatch(/activeView !== 'summary' && \(\s*<ProjectContextBar/)
     expect(rabbitSrc).toMatch(/const statusInTabBar = activeView === 'summary'/)
-    // On Summary the compact strip (three faces and "+N"; R2 finding 3).
-    expect(rabbitSrc).toMatch(/\{statusInTabBar && \([\s\S]{0,200}\{presenceCompact\}[\s\S]{0,120}\{adapterDot\}/)
+    // On Summary the compact strip (three faces and "+N"; R2 finding 3), and
+    // nothing else in its wrapper.
+    expect(rabbitSrc).toMatch(/\{statusInTabBar && \(\s*<span className="rb-tabbar-status" data-slot="presence">\{presenceCompact\}<\/span>\s*\)\}/)
   })
 
-  it('renders each once per view: one dot, one strip per dock, no stray floating copy', () => {
-    expect(rabbitSrc.match(/<AdapterStatusDot /g)).toHaveLength(1)
+  it('the faces carry no LIVE / Sync pill: the strip draws no StatusBadge and says neither word', () => {
+    const strip = rabbitSrc.slice(rabbitSrc.indexOf('function RealtimePresenceStrip'), rabbitSrc.indexOf('function NoProjectPlaceholder'))
+    expect(strip.length).toBeGreaterThan(200)
+    expect(strip).not.toMatch(/StatusBadge|StatusDot/)
+    expect(strip).not.toMatch(/'Live'|'Sync'|Sync error/)
+    expect(rabbitSrc).not.toMatch(/import \{ StatusBadge \}|import \{ StatusDot \}/)
+  })
+
+  it('renders each once: one strip per dock, one connection dot for every tab', () => {
     // `presence` for the context bar, `presenceCompact` for Summary's tab strip —
     // the two docks are never on screen together (activeView decides).
     expect(rabbitSrc.match(/<RealtimePresenceStrip /g)).toHaveLength(2)
     expect(rabbitSrc.match(/\{presence\}|presenceSlot=\{presence\}/g)).toHaveLength(1)
     expect(rabbitSrc.match(/\{presenceCompact\}/g)).toHaveLength(1)
+    expect(rabbitSrc.match(/<ConnectionDot /g)).toHaveLength(1)
+    // Outside the view body (so every tab has it, Summary included) and never
+    // behind a view or project condition.
+    const body = rabbitSrc.indexOf('role="tabpanel"')
+    const at = rabbitSrc.indexOf('<ConnectionDot ')
+    const bodyEnd = rabbitSrc.indexOf('{/* ── Settings slide-out')
+    expect(at).toBeGreaterThan(body)
+    expect(at).toBeLessThan(bodyEnd)
+    expect(rabbitSrc).toMatch(/\n {6}<ConnectionDot active=\{currentPage === 'rabbit'\} \/>/)
   })
 
-  it('neither component positions itself over the view body any more', () => {
-    const dot = rabbitSrc.slice(rabbitSrc.indexOf('function AdapterStatusDot'), rabbitSrc.indexOf('function RealtimePresenceStrip'))
+  it('the faces show only while the channel is live (review round 1, R1-11: a list left over from a channel error is not people here)', () => {
     const strip = rabbitSrc.slice(rabbitSrc.indexOf('function RealtimePresenceStrip'), rabbitSrc.indexOf('function NoProjectPlaceholder'))
-    for (const body of [dot, strip]) {
-      expect(body).not.toMatch(/\babsolute\b/)
-      expect(body).not.toMatch(/\b(left|bottom|zIndex)\s*:/)
-    }
+    const body = strip.replace(/^\s*\/\/.*$/gm, '')
+    expect(body).toMatch(/\n\s*if \(realtimeStatus !== 'live'\) return null\n/)
+    expect(body).toMatch(/if \(list\.length === 0\) return null/)
+    // And the group names them (the faces carry names only in their titles).
+    expect(body).toMatch(/role="group" aria-label=\{`Also on this project: \$\{names\}`\}/)
+  })
+
+  it('the faces strip never positions itself over the view body', () => {
+    const strip = rabbitSrc.slice(rabbitSrc.indexOf('function RealtimePresenceStrip'), rabbitSrc.indexOf('function NoProjectPlaceholder'))
+    expect(strip).not.toMatch(/\babsolute\b/)
+    expect(strip).not.toMatch(/\b(left|bottom|zIndex)\s*:/)
   })
 })
 

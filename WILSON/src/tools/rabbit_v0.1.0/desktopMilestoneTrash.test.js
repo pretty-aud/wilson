@@ -518,7 +518,13 @@ describe('MilestoneTrashModal is mounted on the Tasks tab too', () => {
     const head = TASKS.slice(0, open)
     const lastGateOpen  = head.lastIndexOf('<GatedAction')
     const lastGateClose = head.lastIndexOf('</GatedAction>')
-    expect(lastGateOpen, 'the Deleted Key Dates button is inside an open <GatedAction>')
-      .toBeLessThan(lastGateClose)
+    // VW1d (2026-10-25, her Q-A1): the Phase and Key date buttons that sat
+    // before it are in the one New menu now, after it, so no gate need open
+    // before it at all: not inside one is "none opened, or the last closed".
+    const insideAGate = (open, close) => open > -1 && open > close
+    expect(insideAGate(lastGateOpen, lastGateClose), 'the Deleted Key Dates button is inside an open <GatedAction>').toBe(false)
+    // CONTROL: a gate opened before it and not closed is caught.
+    const gated = TASKS.slice(0, open) + '<GatedAction allowed={canWrite}>'
+    expect(insideAGate(gated.lastIndexOf('<GatedAction'), gated.lastIndexOf('</GatedAction>'))).toBe(true)
   })
 })

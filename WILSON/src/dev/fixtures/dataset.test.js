@@ -27,7 +27,9 @@ import {
 } from './data/project'
 import {
   SCENES, SHOTS, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
+  TASK_ITEMS, GAME_TASK_ITEMS, GAME_LEVELS, GAME_EXPERIENCES,
 } from './data/scenes'
+import { createStore } from './store'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS, EXPENSES, PROJECT_RATE_OVERRIDES,
@@ -44,8 +46,9 @@ const memberIds = new Set(MEMBERS.map((m) => m.user_id))
 // an empty <select> — exactly what review round 1 found four times.
 const here = dirname(fileURLToPath(import.meta.url))
 const src = (rel) => readFileSync(resolve(here, '../..', rel), 'utf8')
+// A list as `NAME = [ … ]`, or frozen, `NAME = Object.freeze([ … ])`.
 const quotedList = (text, name) => {
-  const m = text.match(new RegExp(`${name}\\s*=\\s*\\[([^\\]]*)\\]`))
+  const m = text.match(new RegExp(`${name}\\s*=\\s*(?:Object\\.freeze\\()?\\[([^\\]]*)\\]`))
   if (!m) throw new Error(`no ${name} in source`)
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
 }
@@ -55,14 +58,20 @@ const abbrList = (text, name) => {
   return [...m[1].matchAll(/abbr:\s*'([^']+)'/g)].map((x) => x[1])
 }
 const scenesSrc = src('tools/rabbit_v0.1.0/views/ScenesView.jsx')
-const SCENE_STATUSES = quotedList(scenesSrc, 'SCENE_STATUSES')
-const SCENE_TYPES = quotedList(scenesSrc, 'SCENE_TYPES')
-const TIME_OF_DAY = quotedList(scenesSrc, 'TIME_OF_DAY_OPTIONS')
+// VW1e (2026-10-25): the scenes' and shots' vocabularies live in the two
+// tables' description now (ScenesView imports them from it).
+const scenesTableSrc = src('tools/rabbit_v0.1.0/views/tableViews/scenesTableView.js')
+const SCENE_STATUSES = quotedList(scenesTableSrc, 'SCENE_STATUSES')
+const SCENE_TYPES = quotedList(scenesTableSrc, 'SCENE_TYPES')
+const TIME_OF_DAY = quotedList(scenesTableSrc, 'TIME_OF_DAY_OPTIONS')
 const FRAMING = abbrList(scenesSrc, 'FRAMING_OPTIONS')
 const CAMERA_MOVEMENT = abbrList(scenesSrc, 'CAMERA_MOVEMENT_OPTIONS')
-const assetsSrc = src('tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx')
+// VW1e (2026-10-25): the asset statuses live in the Assets table's
+// description (ProjectAssetsView re-exports them).
+const assetsSrc = src('tools/rabbit_v0.1.0/views/tableViews/assetsTableView.js')
 const ASSET_STATUSES = quotedList(assetsSrc, 'export const ASSET_STATUSES')
-const ASSET_TYPES = quotedList(assetsSrc, 'export const ASSET_TYPES')
+// VW1b (2026-10-17): the asset types live in state/assetTypes.js (the view re-exports them).
+const ASSET_TYPES = quotedList(src('tools/rabbit_v0.1.0/state/assetTypes.js'), 'export const ASSET_TYPES')
 const BUDGET_TIERS = [...src('components/RateCard/useRateCard.js').matchAll(/value:\s*'(tier_\d)'/g)].map((x) => x[1])
 const BUDGET_SHEETS = ['crew', 'talent', 'expenses_travel']
 const PROJECT_STATUSES = quotedList(src('tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx'), 'STATUS_OPTIONS')
@@ -454,6 +463,65 @@ describe('the rate card and the budget', () => {
       for (const id of e.asset_ids) expect(ids(ASSETS).has(id)).toBe(true)
       for (const id of e.task_ids) expect(ids(TASKS).has(id)).toBe(true)
       for (const id of e.file_ids) expect(ids(FILES).has(id)).toBe(true)
+    }
+  })
+
+  // VW1m (2026-10-16): the two seeded bids stay OLDER versions, saved before
+  // a version kept every item of every kind (her Q-N7, interim) — the
+  // material for opening an older version: each task carries its single
+  // fields only, one asset (and scene, shot) each, never `items`.
+  it('the two bid versions are older versions: single fields only, never items', () => {
+    expect(BUDGET_VERSIONS).toHaveLength(2)
+    for (const v of BUDGET_VERSIONS) {
+      expect(v.snapshot.tasks.length, v.name).toBeGreaterThan(0)
+      for (const t of v.snapshot.tasks) {
+        expect(t, `${v.name}: ${t.title}`).not.toHaveProperty('items')
+        expect(ids(ASSETS).has(t.asset_id), `${v.name}: ${t.title}`).toBe(true)
+      }
+    }
+    // Task 18 holds two assets now; the version saved one, its first.
+    const v2 = BUDGET_VERSIONS.find((v) => v.is_active)
+    const t18 = v2.snapshot.tasks.find((t) => t.id === fid('task', 18))
+    expect(t18.asset_id).toBe(fid('asset', 7))
+    expect(t18.scene_id).toBe(fid('scene', 4))
+  })
+})
+
+// FX2 (0096) and VW1m (2026-10-16): a task's items. The seeded material the
+// Timeline's combination rows and the Budget's split are walked on: task 18
+// on two assets (Lighthouse Interior, Sea Spray Comp), and, in
+// `?fixtures=game`, tasks 17 and 18 on levels and experiences.
+describe('a task\'s items', () => {
+  it('every item names a real task and a real row of its kind, once', () => {
+    const rows = { asset: ASSETS, scene: SCENES, shot: SHOTS, level: GAME_LEVELS, experience: GAME_EXPERIENCES }
+    const seen = new Set()
+    for (const i of [...TASK_ITEMS, ...GAME_TASK_ITEMS]) {
+      expect(ids(TASKS).has(i.task_id), i.id).toBe(true)
+      expect(ids(rows[i.entity_type]).has(i.entity_id), i.id).toBe(true)
+      const key = `${i.task_id}|${i.entity_type}|${i.entity_id}`
+      expect(seen.has(key), key).toBe(false)
+      seen.add(key)
+    }
+  })
+
+  it('task 18 is about two assets; the game variant\'s tasks 17 and 18 about levels and experiences', () => {
+    const of = (list, n, kind) => list.filter((i) => i.task_id === fid('task', n) && i.entity_type === kind).map((i) => i.entity_id).sort()
+    expect(of(TASK_ITEMS, 18, 'asset')).toEqual([fid('asset', 7), fid('asset', 12)].sort())
+    expect(of(GAME_TASK_ITEMS, 17, 'level')).toEqual([fid('level', 2)])
+    expect(of(GAME_TASK_ITEMS, 17, 'experience')).toEqual([fid('experience', 1)])
+    expect(of(GAME_TASK_ITEMS, 18, 'level')).toEqual([fid('level', 2), fid('level', 3)].sort())
+    expect(of(GAME_TASK_ITEMS, 18, 'experience')).toEqual([fid('experience', 2)])
+  })
+
+  it('each task\'s columns in the store are the older apps\' copy: each kind\'s first item in the stored order', () => {
+    const store = createStore()
+    const first = (taskId, kind) => store.taskItems
+      .filter((i) => i.task_id === taskId && i.entity_type === kind)
+      .sort((a, b) => (a.position - b.position) || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))[0]?.entity_id ?? null
+    for (const t of store.tasks) {
+      expect(t.asset_id, t.title).toBe(first(t.id, 'asset'))
+      expect(t.scene_id ?? null, t.title).toBe(first(t.id, 'scene'))
+      expect(t.shot_id ?? null, t.title).toBe(first(t.id, 'shot'))
     }
   })
 })

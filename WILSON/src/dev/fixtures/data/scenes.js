@@ -420,10 +420,12 @@ export const GAME_LINKS = [
 
 // ── A task's items (FX2, migration 0096) ────────────────────────────────────
 // Every task's asset, scene and shot is its first item of that kind (the
-// backfill's rule: position 0; project.js puts the four tasks' main scene and
-// shot on their rows), and four tasks are about several things, so the task
-// window's Items table and every reader that lists "the tasks about this"
-// have something to show:
+// backfill's rule: position 0; project.js puts the four tasks' first scene
+// and shot on their rows), and four tasks are about several things, so the
+// task window's Items table and every reader that lists "the tasks about
+// this" have something to show. VW1m (2026-10-16): no item counts for more
+// than another, so task 18 is the Timeline's "Lighthouse Interior, Sea Spray
+// Comp" row and splits half and half in the Budget's By asset:
 //   18 Glass and rain rig test  — Lighthouse Interior, then Sea Spray Comp;
 //                                 sc 04; sh 010
 //   21 Weather cover plan       — Cliff Path; sc 02, then sc 06

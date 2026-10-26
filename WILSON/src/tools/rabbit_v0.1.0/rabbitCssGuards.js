@@ -363,6 +363,9 @@ export const B2_FILES = {
   detail: '../components/TaskDetailPopup.jsx',
   create: '../components/NewTaskPopup.jsx',
   templates: '../../../components/TaskTemplates/TaskTemplateManager.jsx',
+  // Post-overhaul VW1b (2026-10-17): the Tasks table's item cells and their
+  // picker, on this lane's sheet.
+  cells: 'TaskItemCells.jsx',
 }
 /** A literal string as a RegExp source. */
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -605,6 +608,12 @@ const neverSelected = (els) => {
 export function kitFights(css, kit = indexCss, els = b2Elements(), prefix = B2_LANE) {
   const kitRules = rulesOf(kit).flatMap(({ sel, body }) => selectorsOf(sel).map((s) => ({ sel: s, fams: new Set(propsOf(body).map(family)) })))
   const never = neverSelected(els)
+  // Post-overhaul VW1b (the kit request VW1-KR-2): the kit's sticky-column
+  // rules key on the TABLE's `data-sticky` / `data-sticky-columns`, which only
+  // a <Table stickyColumns={n}> carries. A lane none of whose tables passes
+  // the prop cannot meet them; a lane that does must outrank them (or lose
+  // them deliberately), as any other kit rule.
+  const sticky = els.some((e) => /\sstickyColumns=/.test(e.own ?? e.attrs ?? ''))
   const out = []
   for (const { sel, body } of rulesOf(css)) {
     for (const one of selectorsOf(sel)) {
@@ -618,6 +627,7 @@ export function kitFights(css, kit = indexCss, els = b2Elements(), prefix = B2_L
       const fams = new Set(propsOf(body).map(family))
       for (const k of kitRules) {
         if (notHere(k.sel)) continue
+        if (!sticky && /\[data-sticky(?:-columns)?="/.test(k.sel)) continue
         const kt = lastCompound(stripNot(k.sel))
         if (!kitCls.some((c) => new RegExp(`\\.${c}(?![\\w-])`).test(kt))) continue
         if (![...fams].some((f) => k.fams.has(f))) continue
@@ -641,6 +651,10 @@ export function kitFights(css, kit = indexCss, els = b2Elements(), prefix = B2_L
         if (/\[data-selected="true"\]/.test(k.sel) && [...never].some((c) => new RegExp(`\\.${c}(?![\\w-])`).test(one))) continue
         const deliberate = (/:hover/.test(one) && /\[data-selected="true"\]/.test(k.sel))
           || (state !== null && !stripNot(one).includes(state))
+          // VW1b: a sticky cell keeps the kit's paint (its opaque ground, its
+          // place): a lane's row fill must LOSE to it, and reaches the cell as
+          // an image (another property) instead.
+          || /\[data-sticky(?:-columns)?="/.test(k.sel)
         const cmp = gt(specificity(one), specificity(k.sel))
         if (deliberate ? cmp >= 0 : cmp <= 0) out.push(`${one} ${deliberate ? 'ties or beats' : 'ties or loses to'} ${k.sel}`)
       }
@@ -752,6 +766,13 @@ const STYLES_ALLOWED = [
   "{{ '--rb-ms': milestone.color }}",
   "{{ gap: 12, alignItems: 'center' }}",
   '{{ left: pos.left, top: pos.top, maxHeight: pos.maxHeight }}',
+  // Post-overhaul VW1b: the Tasks table's widths from the columns on screen —
+  // exactly two custom properties, from tasksTableWidths (tasksTableColumns.js;
+  // the design's §4.10), never a state.
+  "{{ '--rb-task-fixed': widths.fixed, '--rb-task-grow-n': widths.growN }}",
+  // Post-overhaul VW1d: the Tasks count's least width, in characters from
+  // the total's digits (a geometry, never a state; design §4.1).
+  "{{ '--rb-task-count-ch': countChars }}",
 ]
 /** The spread attributes these files may write: the row's props passed on,
     and the drop handlers. A spread is otherwise a way to hand an element a
@@ -1122,7 +1143,9 @@ export function kitOffsetRules(cls, kit = indexCss) {
     land; `:not(x)` excludes only where x is decided by what the element is
     known by — `:not([data-empty="true"])` may hold or not, so it excludes
     nothing (it had read as excluding every field). */
-const KNOWN_ATTRS = ['type', 'data-size', 'data-surface']
+// VW1b: `data-col` (the Tasks table keys its Bid and Title cells on it) is
+// known: a cell that does not carry it is not met by a rule that needs it.
+const KNOWN_ATTRS = ['type', 'data-size', 'data-surface', 'data-col']
 const decidable = (one) => {
   const t = one.trim()
   if (!t || /[\s>+~:]/.test(t)) return false

@@ -19,6 +19,7 @@ import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
 import { fetchWorkspaceStorage, clearWorkspaceStorageCache } from './cloud/workspaceStorage'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
+import { releaseAllAIFiles } from './cloud/aiFiles'
 import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
 import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
@@ -620,6 +621,11 @@ export default function App() {
           context: { reason: expiry, surface: 'app' },
         }), 4000, 'WIL-1002').catch(() => { /* best-effort */ }));
       }
+      // FX12 (OUTSTANDING DG1-03): what D.O.G. holds in the AI's file store
+      // leaves with the person, while the token can still say whose it is.
+      // keepalive, so a window closed mid-sign-out still sends; bounded like
+      // the writes beside it, and the store's own expiry takes a miss.
+      writes.push(withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files').catch(() => { /* best-effort */ }));
       if (writes.length) await Promise.all(writes);
       try {
         await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
@@ -713,7 +719,29 @@ export default function App() {
     });
     return cleanup;
   }, []);
-  const closeNow = () => { setShowCloseDialog(false); window.electronAPI?.forceClose(); };
+  // FX12 (OUTSTANDING DG1-03): what D.O.G. holds in the AI's file store is
+  // deleted BEFORE the window closes, and the close waits for the answer,
+  // bounded. MEASURED (Electron 33, the deletes' exact request): sent from
+  // pagehide, a keepalive request dies with the app, which quits the moment
+  // its last window closes, whenever its CORS preflight takes a round trip;
+  // sent and awaited first, it arrives. Nothing held: no wait at all. A miss
+  // is the store's own 24-hour expiry's (aiFiles.js) and the sweep's.
+  const closingRef = useRef(false);
+  const closeNow = async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setCloseBusy(true);
+    try {
+      await withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files');
+    } catch { /* bounded and best-effort */ }
+    setShowCloseDialog(false);
+    try {
+      await window.electronAPI?.forceClose();
+    } finally {
+      closingRef.current = false;
+      setCloseBusy(false);
+    }
+  };
   // S3c review round 1 (R1-11): C1 is lifted for the post-overhaul sessions,
   // and D12 says Escape = Keep editing. While the question is up it is on the
   // kit's overlay stack (a kit Dialog under it stops answering Escape and

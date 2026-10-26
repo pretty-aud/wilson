@@ -214,39 +214,50 @@ describe('ProjectAssetsView — the page on the kit', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
-  it('saving a view asks on the kit Dialog, and the view lands in the Views menu', () => {
+  // VW1m (2026-10-16), her Q-M2 ("The tasks stay"): deleting an asset never
+  // deletes a task, and the question says so whenever an asset it asks about
+  // has one; an asset with no task has nothing to say.
+  it('VW1m: the bulk question says the tasks stay — "Their" for several, "Its" for one, nothing for assets with no task', () => {
     page()
-    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save current view' }))
-    const dialog = screen.getByRole('dialog', { name: 'Save current view' })
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'View name' }), { target: { value: 'Pre only' } })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
-    expect(screen.getByText('Pre only')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Delete the saved view "Pre only"' })).toBeTruthy()
+    const ask = (...names) => {
+      for (const n of names) fireEvent.click(screen.getByRole('button', { name: `Select ${n}` }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      const text = screen.getByRole('dialog', { name: 'Delete assets' }).querySelector('.rb-asset-confirm').textContent
+      fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete assets' })).getByRole('button', { name: 'Cancel' }))
+      for (const n of names) fireEvent.click(screen.getByRole('button', { name: `Select ${n}` }))
+      return text
+    }
+    expect(ask('Mara', 'Festival DCP')).toBe('Delete 2 assets? Their tasks stay.')
+    expect(ask('Cliff Path')).toBe('Delete 1 asset? Its tasks stay.')
+    expect(ask('Festival DCP')).toBe('Delete 1 asset?')
   })
 
-  it('the save dialog hands focus back to Views, however it closes — its menu item is gone by then (B4c review round two: it fell to <body>)', () => {
+  it('VW1m: an asset counts as having tasks by every item, not a task\'s first (the copy is never read where items are kept)', () => {
+    page({
+      tasks: [{ id: 't1', status: 'in_progress', asset_id: 'a1' }],
+      taskItemsAvailable: true,
+      taskItems: [
+        { id: 'i1', task_id: 't1', entity_type: 'asset', entity_id: 'a1', position: 0 },
+        { id: 'i2', task_id: 't1', entity_type: 'asset', entity_id: 'a3', position: 1 },
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Select Festival DCP' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete assets' }).querySelector('.rb-asset-confirm').textContent).toBe('Delete 1 asset? Its tasks stay.')
+  })
+
+  // VW1e (2026-10-25): the browser's saved views (the *Save current view*
+  // dialog and the old Views menu) are gone (her Q17, "Start fresh"); the
+  // project's views on this table are views/tableViews/assetsViews.test.jsx's.
+  it('VW1e: the Views button names the view on screen, All at first, and the old menu and its dialog are gone', () => {
     page()
-    const views = screen.getByRole('button', { name: 'Views' })
-    for (const close of ['Cancel', 'Escape', 'Save']) {
-      views.focus()
-      fireEvent.click(views)
-      const item = screen.getByRole('button', { name: 'Save current view' })
-      item.focus()
-      fireEvent.click(item)
-      const dialog = screen.getByRole('dialog', { name: 'Save current view' })
-      // Its own field has focus while it is up, as before.
-      expect(document.activeElement).toBe(within(dialog).getByRole('textbox', { name: 'View name' }))
-      if (close === 'Escape') fireEvent.keyDown(document.activeElement, { key: 'Escape' })
-      else {
-        if (close === 'Save') fireEvent.change(document.activeElement, { target: { value: 'Kept' } })
-        fireEvent.click(within(dialog).getByRole('button', { name: close }))
-      }
-      expect(screen.queryByRole('dialog'), close).toBeNull()
-      expect(document.activeElement, close).toBe(views)
-    }
+    const views = screen.getByRole('button', { name: 'Views: All' })
+    expect(views.getAttribute('data-table')).toBe('assets')
+    expect(views.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(screen.queryByRole('button', { name: 'Views' })).toBeNull()
+    fireEvent.click(views)
+    expect(screen.queryByRole('button', { name: 'Save current view' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Views' })).toBeTruthy()
   })
 
   it('grouped by status, each group is one band: a button with the kit StatusDot, its words and its count', () => {
@@ -297,8 +308,9 @@ describe('ProjectAssetsView — the page on the kit', () => {
 
   it('an empty project says so with the kit EmptyState, in sentence case', () => {
     page({ assets: [] })
-    const empty = screen.getByRole('status')
-    expect(empty.className).toContain('ui-empty')
+    // VW1e: the table's polite live region is the page's other status.
+    const empty = screen.getAllByRole('status').find(el => el.className.includes('ui-empty'))
+    expect(empty).toBeTruthy()
     expect(empty.querySelector('.ui-empty-title').textContent).toBe('No assets yet')
     expect(empty.textContent).toContain('to get started')
   })
@@ -655,7 +667,9 @@ describe('V2: an asset type reads in sentence case, its acronyms in capitals', (
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'ProjectAssetsView.jsx'), 'utf8').replace(/\r\n/g, '\n')
     expect(src).toMatch(/const TYPE_OPTIONS = ASSET_TYPES\.map\(t => \(\{ value: t, label: TYPE_LABELS\[t\] \}\)\)/)
     expect(src).toMatch(/if \(field === 'type'\) return assetTypeLabel\(key\)/)
-    expect(src).toMatch(/def\.value === 'type' \? TYPE_LABELS\[o\]/)
+    // VW1e: the filter's values are the table's description's.
+    const desc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'tableViews', 'assetsTableView.js'), 'utf8').replace(/\r\n/g, '\n')
+    expect(desc).toMatch(/case 'type': return ASSET_TYPES\.map\(t => \(\{ value: t, label: assetTypeLabel\(t\) \}\)\)/)
     expect(src).toMatch(/<AssetBulkSelect label="Type" options=\{ASSET_TYPES\} labels=\{TYPE_LABELS\}/)
     expect(src).toMatch(/<span>\{assetTypeLabel\(asset\.type\)\}<\/span>/)
     expect(src).toMatch(/<option key=\{t\} value=\{t\}>\{TYPE_LABELS\[t\]\}<\/option>/)

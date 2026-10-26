@@ -12,6 +12,8 @@
 //   • NewTaskSidePopup — task creation form (appears to left)
 //   • AssetRelationsSidebar — left sidebar for asset popup
 //   • TaskItemsTable — the task window's Items, on its left (FX2, 0096)
+//   • useTaskItemsView, useTaskItemSort, ITEM_GLYPH — what the task window's
+//     Items table and its Files sections share (VW1m, 2026-10-16)
 //
 // UI overhaul B4b, surface 4 (2026-09-25): on the shared kit (src/ui) and
 // lane B4's sheet, rabbitFiles.css (`rb-rel-`). Both sidebars are the kit
@@ -28,27 +30,37 @@
 // (R4-27). Every state is a `data-*` attribute or a real :hover resolved in
 // the sheet.
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Boxes, ListChecks, Plus, X, Search,
   ChevronDown, ChevronRight, Square, CheckSquare,
   Film, Clapperboard, Gamepad2, Sparkles,
-  ListTree, ArrowUp, ArrowDown,
+  ListTree, ArrowUpDown, Check,
 } from 'lucide-react'
 import {
   Panel, Dialog, Button, IconButton, Field, EmptyState, HoverActions,
-  StatusDot, statusMeta, Switch, Badge,
+  StatusDot, statusMeta, Switch,
 } from '../../../ui'
 // Post-overhaul S3c, step 1: a seat that may not write sees the relations'
 // verbs greyed with the reason (S3b-01); a linked scene or shot names the
 // shot list that holds it; the pickers offer the active list by default.
 import GatedAction from '../../../permissions/GatedAction'
+import { ASSET_LINKS_ABSENT_REASON, linksKept } from '../views/tableViews/assetsTableView'
 import LinkHome, { useHomeIndex } from '../views/scenes/LinkHome'
 import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
+// VW1m (2026-10-16): the Items table's Sort is the shot lists' named button
+// that opens the kit Menu under it (the established one; no new kit piece).
+import { MenuButton } from '../../../ui'
 // FX2 (0096): a task's items — the window's Items table, and "the tasks
-// about" a scene, shot, level or experience read from them.
-import { ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, itemsOfTask, tasksAbout } from '../state/taskItemsModel'
+// about" a scene, shot, level or experience read from them. VW1m: read
+// through the model's one lookup (live items, display order, names), sorted
+// by the window's Sort.
+import {
+  ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, ITEM_SORTS, ITEM_SORT_LABEL,
+  itemsOfTask, tasksAbout, buildItemLookup, sortItemsForDisplay, typeRunsOf,
+} from '../state/taskItemsModel'
+import { assetTypeLabel } from '../state/assetTypes'
 import '../views/rabbitFiles.css'
 
 // A priority's words, in sentence case ("low" -> "Low"). A status's words
@@ -174,6 +186,12 @@ export default function RelationsPanel({
 
   // Field name on asset for this entity type
   const assetField = `${entityType}_ids` // e.g. "scene_ids"
+  // VW1e code review round 2 (R2-2): a level's or experience's assets are
+  // its links on the ASSETS, which a cloud without 0099 does not keep: the
+  // add and the removes are greyed there, saying why (as the drag is, R1-9).
+  const kept = linksKept(ctx, entityType)
+  const canLink = canWrite && kept
+  const linkReason = canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason
   // Field name on task for this entity type
   const taskField = `${entityType}_id`   // e.g. "scene_id"
 
@@ -194,9 +212,17 @@ export default function RelationsPanel({
     [tasks, taskField, entityId, entityType, ctx?.taskItems, ctx?.taskItemsAvailable]
   )
 
+  // VW1m (2026-10-16): a related task's line names EVERY asset it is about
+  // ("A, B": its live ones, A to Z), cut short by the row and whole on hover;
+  // it named the task's main asset only. Without items, its one asset field.
+  const itemLookup = useMemo(
+    () => buildItemLookup({ items: ctx?.taskItems, available: ctx?.taskItemsAvailable === true, assets }),
+    [ctx?.taskItems, ctx?.taskItemsAvailable, assets],
+  )
+
   // Add asset relation (refused for a seat that may not write: S3b-01)
   function addAssetRelation(assetId) {
-    if (!canWrite) return
+    if (!canLink) return
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
     const current = asset[assetField] || []
@@ -207,7 +233,7 @@ export default function RelationsPanel({
 
   // Remove asset relation
   function removeAssetRelation(assetId) {
-    if (!canWrite) return
+    if (!canLink) return
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
     const current = asset[assetField] || []
@@ -231,8 +257,8 @@ export default function RelationsPanel({
           collapsed={collapsedAssets}
           onToggle={() => setCollapsedAssets(!collapsedAssets)}
           actions={(
-            <GatedAction allowed={canWrite} reason={writeReason}>
-              <IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => { if (canWrite) setShowAssetPicker(true) }} />
+            <GatedAction allowed={canLink} reason={linkReason}>
+              <IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => { if (canLink) setShowAssetPicker(true) }} />
             </GatedAction>
           )}
         >
@@ -248,7 +274,7 @@ export default function RelationsPanel({
                 {a.name || 'Untitled'}
               </span>
               <StatusWord status={a.status || 'not_started'} />
-              <RemoveButton title="Remove relation" allowed={canWrite} reason={writeReason}
+              <RemoveButton title="Remove relation" allowed={canLink} reason={linkReason}
                 onClick={e => { e.stopPropagation(); removeAssetRelation(a.id) }} />
             </div>
           ))}
@@ -267,7 +293,7 @@ export default function RelationsPanel({
           {relatedTasks.length === 0 ? (
             <p className="rb-rel-empty">No tasks linked</p>
           ) : relatedTasks.map(t => {
-            const linkedAsset = t.asset_id ? assets.find(a => a.id === t.asset_id) : null
+            const assetWords = itemLookup.idsOf(t, 'asset').map(id => itemLookup.nameOf('asset', id)).join(', ')
             return (
               <div key={t.id}
                 onClick={() => onOpenTask?.(t.id)}
@@ -278,9 +304,9 @@ export default function RelationsPanel({
                   <span className="rb-rel-name" title={t.title || 'Untitled'}>
                     {t.title || 'Untitled'}
                   </span>
-                  {linkedAsset && (
-                    <span className="rb-rel-sub">
-                      {linkedAsset.name}
+                  {assetWords && (
+                    <span className="rb-rel-sub" title={assetWords}>
+                      {assetWords}
                     </span>
                   )}
                 </span>
@@ -793,15 +819,17 @@ export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason
     return experiences.filter(e => ids.includes(e.id))
   }, [experiences, asset?.experience_ids])
 
+  // R2-2: an asset's levels and experiences only where the backend keeps them.
+  const fieldKept = (field) => linksKept(ctx, field === 'level_ids' ? 'level' : field === 'experience_ids' ? 'experience' : field)
   function toggleRelation(field, id) {
-    if (!canWrite) return
+    if (!canWrite || !fieldKept(field)) return
     const current = asset?.[field] || []
     const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
     ctx?.updateAsset?.(asset.id, { [field]: next })
   }
 
   function removeRelation(field, id) {
-    if (!canWrite) return
+    if (!canWrite || !fieldKept(field)) return
     const current = asset?.[field] || []
     ctx?.updateAsset?.(asset.id, { [field]: current.filter(x => x !== id) })
   }
@@ -948,9 +976,9 @@ export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason
             collapsed={collapsed[sec.key]}
             onToggle={() => toggle(sec.key)}
             actions={(
-              <GatedAction allowed={canWrite} reason={writeReason}>
+              <GatedAction allowed={canWrite && fieldKept(sec.field)} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason}>
                 <IconButton size="sm" Icon={Plus} title={`Add ${sec.label.toLowerCase()} relation`}
-                  onClick={() => { if (canWrite) setShowPicker(sec.key) }} />
+                  onClick={() => { if (canWrite && fieldKept(sec.field)) setShowPicker(sec.key) }} />
               </GatedAction>
             )}
           >
@@ -963,7 +991,7 @@ export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason
                   {item.name || 'Untitled'}
                 </span>
                 <StatusWord status={item.status || 'not_started'} />
-                <RemoveButton title="Remove relation" allowed={canWrite} reason={writeReason} onClick={() => removeRelation(sec.field, item.id)} />
+                <RemoveButton title="Remove relation" allowed={canWrite && fieldKept(sec.field)} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason} onClick={() => removeRelation(sec.field, item.id)} />
               </div>
             ))}
           </RelSection>
@@ -1163,31 +1191,46 @@ export function RelationBadge({ icon: Icon, count, label, onClick }) {
 
 
 // ═════════════════════════════════════════════════════════
-// TaskItemsTable — the task window's ITEMS, on its left (FX2, 0096)
+// TaskItemsTable — the task window's ITEMS, on its left (FX2, 0096; VW1m)
 // ═════════════════════════════════════════════════════════
 //
 // Audrey (2026-10-11): "a task may be related to multiple items … we could do
 // it how assets work in the scene system where its the table on the left side
 // of the window." So this is the scene window's Assets group, in the same
 // parts (Jakob): the group head (chevron, glyph, "Items (n)", ONE + for all
-// five kinds — Hick), the rows (dot, name, status words), the remove at the
-// row's end in the kit's hover slot (Fitts), and the in-column picker (one
-// search over the project's assets, scenes, shots, levels and experiences,
-// grouped by kind). The rows group by kind (Proximity), each kind in its
-// order; the FIRST of a kind is the task's MAIN item of that kind — the one
-// the Timeline and the Budget put the task under — marked with the kit Badge
-// where a kind holds more than one (Von Restorff, and only where it is a
-// choice). Move up / Move down reorder within a kind, the keyboard's way (as
-// the edit table's). Removing the task's LAST item asks first (Cancel
-// focused); any other remove is one click and one Ctrl+Z. A scene's or a
-// shot's row names the shot list that holds it (LinkHome, S3c's words). An
-// item whose row the project no longer shows (a trashed asset) reads "No
-// longer in the project" and can be removed. A seat that may not write (a
-// reviewer) sees every verb greyed with the reason.
+// five kinds — Hick), the rows (glyph, dot, name, status words), the remove
+// at the row's end in the kit's hover slot (Fitts), and the in-column picker
+// (one search over the project's assets, scenes, shots, levels and
+// experiences, grouped by kind). A scene's or a shot's row names the shot
+// list that holds it (LinkHome, S3c's words).
+//
+// VW1m (2026-10-16), her rulings (docs/design/CUSTOM_VIEWS_QUESTIONS.md,
+// batches 12 and 14): "lets not have main asset be a thing. thats not needed
+// and i dont like." A task's items are its items, none counting for more:
+//   · no Main badge, no Move up / Move down, and none of the guards that kept
+//     a row from becoming main: every row keeps Remove, alone in its slot;
+//   · her Q-N1, "allow user to sort select order by date of creation/upload,
+//     alphabetical, type": ONE Sort menu beside the + (three choices in one
+//     place, where two buttons sat on every row — Hick). *Type*, where it
+//     starts, keeps a run of rows per kind under its name, each in the
+//     display order (names A to Z, scenes and shots by number) — VW1b, her
+//     Q-N1b of 2026-10-17: the assets a run per asset type ("Assets ·
+//     Character"); *A to Z* and *Date created* (her Q-N1a: when each item
+//     itself was made) are one list, each row keeping its kind's glyph (named
+//     for a screen reader there, where no kind heads it). The choice is
+//     remembered on that computer, and the Files sections under the table
+//     follow it (her Q-N2). Sort shows once there are two items to order;
+//   · her Q-N4: an item whose row the project does not show (a trashed asset,
+//     a row not loaded) is HIDDEN — not listed, not in "Items (n)", never the
+//     "last item" — and shows again when its row comes back.
+// Removing the task's last item asks first (Cancel focused); any other remove
+// is one click and one Ctrl+Z. A seat that may not write (a reviewer) sees
+// the + and every Remove greyed with the reason; Sort writes nothing and
+// stays open to it.
 
-const ITEM_GLYPH = { asset: Boxes, scene: Film, shot: Clapperboard, level: Gamepad2, experience: Sparkles }
+export const ITEM_GLYPH = { asset: Boxes, scene: Film, shot: Clapperboard, level: Gamepad2, experience: Sparkles }
 
-// The rows each kind's names and statuses are read from: every scene and
+// The rows each kind's statuses and own names are read from: every scene and
 // shot (a link may be to a row only another shot list holds, S3c), the
 // project's assets, levels and experiences.
 function useItemRows(ctx) {
@@ -1202,17 +1245,88 @@ function useItemRows(ctx) {
   }, [assets, scenes, shots, levels, experiences])
 }
 
-// A row's words: a shot is "Scene › Shot", as the Budget names it.
-function itemName(kind, row, rows) {
-  if (!row) return null
-  if (kind === 'shot') {
-    const scene = row.scene_id ? rows.scene.get(row.scene_id) : null
-    return `${scene ? `${scene.name || 'Untitled scene'} › ` : ''}${row.name || 'Untitled shot'}`
-  }
-  return row.name || `Untitled ${kind}`
+// VW1m (2026-10-16): the one reading of a task's items the task window's two
+// halves share — this table and the Files sections under it — through the
+// model's lookup (buildItemLookup): the LIVE items only (her Q-N4), named as
+// the project names them (a shot is "Scene › Shot"). Where the backend keeps
+// no items (a cloud before 0096, the Dashboard's window) the task's own
+// single fields are its items, one each, as the lookup reads them. Returns
+// `{ rows, lookup, live }`: the rows by kind and id (statuses, own names),
+// the lookup, and the live items in task_items' shape, in the stored order.
+export function useTaskItemsView(task, ctx) {
+  const rows = useItemRows(ctx)
+  const items = ctx?.taskItems
+  const available = ctx?.taskItemsAvailable === true && Array.isArray(items)
+  const assets = ctx?.assets
+  const scenes = ctx?.allScenes || ctx?.scenes
+  const shots = ctx?.allShots || ctx?.shots
+  const levels = ctx?.levels
+  const experiences = ctx?.experiences
+  const lookup = useMemo(
+    () => buildItemLookup({ items, available, assets, scenes, shots, levels, experiences }),
+    [items, available, assets, scenes, shots, levels, experiences],
+  )
+  const live = useMemo(() => {
+    if (!task || task.id == null) return []
+    if (available) return itemsOfTask(items, task.id).filter(i => lookup.isLive(i.entity_type, i.entity_id))
+    return ITEM_KINDS.flatMap(kind => lookup.idsOf(task, kind)
+      .map(id => ({ id: `${kind}:${id}`, task_id: task.id, entity_type: kind, entity_id: id })))
+  }, [task, items, available, lookup])
+  return { rows, lookup, live }
 }
 
-const GONE_WORDS = 'No longer in the project'
+// VW1m (2026-10-16), her Q-N1: the Sort's choice, ONE key for every task's
+// window on that computer (a person's habit, not a task's). Every read and
+// write is tried: a private window, blocked site data or a full store throws,
+// and the window then starts at *Type* and keeps the choice while it is open.
+// VW1b (2026-10-17): ONE choice on screen too. The Tasks table's item cells
+// list a task's items in the order its window does (her Q10: "the order ...
+// stay as the task's window sets them"), so every reader subscribes to the
+// one store: a Sort chosen in a task's window reorders the cells behind it at
+// once (it was each component's own copy, read at its mount).
+const ITEM_SORT_KEY = 'rabbit_task_items_sort'
+const itemSortListeners = new Set()
+// The choice when the browser's store refused it (blocked, or full): kept for
+// this page only, as before.
+let itemSortHeld = null
+function readItemSort() {
+  if (itemSortHeld != null) return itemSortHeld
+  try {
+    const kept = window.localStorage.getItem(ITEM_SORT_KEY)
+    return ITEM_SORTS.includes(kept) ? kept : ITEM_SORTS[0]
+  } catch {
+    return ITEM_SORTS[0]
+  }
+}
+function chooseItemSort(next) {
+  if (!ITEM_SORTS.includes(next)) return
+  try {
+    window.localStorage.setItem(ITEM_SORT_KEY, next)
+    itemSortHeld = null
+  } catch {
+    itemSortHeld = next
+  }
+  for (const heard of [...itemSortListeners]) heard()
+}
+function onItemSort(heard) {
+  itemSortListeners.add(heard)
+  // Another window of WILSON on this computer chose one.
+  const fromElsewhere = (e) => { if (e.key === ITEM_SORT_KEY || e.key === null) heard() }
+  window.addEventListener('storage', fromElsewhere)
+  return () => { itemSortListeners.delete(heard); window.removeEventListener('storage', fromElsewhere) }
+}
+export function useTaskItemSort() {
+  const sort = useSyncExternalStore(onItemSort, readItemSort, readItemSort)
+  return [sort, chooseItemSort]
+}
+/** Tests only: forget a choice the store refused (module state, one page). */
+export function _resetTaskItemSortForTests() {
+  itemSortHeld = null
+}
+
+// The Sort menu's unchosen rows hold the check's room, so the three words
+// start at one edge: an empty glyph, at the kit Menu's icon size.
+function NoCheck() { return <svg aria-hidden="true" /> }
 
 // "assets, scenes or shots": the kinds a project's picker offers, in words.
 function kindsInWords(kinds) {
@@ -1220,130 +1334,99 @@ function kindsInWords(kinds) {
   return words.length < 2 ? (words[0] || 'assets') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`
 }
 
-export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null }) {
+export function TaskItemsTable({ task, ctx, sort, onSort, canWrite = true, writeReason = null }) {
   const [collapsed, setCollapsed] = useState(false)
   const [picking, setPicking] = useState(false)
   // The item whose remove asks first: the task's last.
   const [lastOne, setLastOne] = useState(null)
-  const rows = useItemRows(ctx)
+  const { rows, lookup, live } = useTaskItemsView(task, ctx)
   const homeOf = useHomeIndex(ctx)
   const listsKnown = Array.isArray(ctx?.shotLists)
-  const taskId = task?.id
-  const items = useMemo(() => itemsOfTask(ctx?.taskItems || [], taskId), [ctx?.taskItems, taskId])
-  const groups = useMemo(
-    () => ITEM_KINDS.map(kind => ({ kind, items: items.filter(i => i.entity_type === kind) })).filter(g => g.items.length > 0),
-    [items],
-  )
+  const current = ITEM_SORTS.includes(sort) ? sort : ITEM_SORTS[0]
+  // *Type*: a run of rows per kind under its name; VW1b (her Q-N1b, "The
+  // asset's own type"), the assets one run per asset type, named "Assets ·
+  // Character", so the order the Sort chose can be read. *A to Z*, *Date
+  // created*: one run, no kind names.
+  const byKind = current === 'type'
+  const shown = useMemo(() => sortItemsForDisplay(live, current, lookup), [live, current, lookup])
+  const kinds = useMemo(() => (byKind ? typeRunsOf(shown, lookup) : []), [shown, byKind, lookup])
   if (!task) return null
 
   // Every verb reports its own failure (the provider's banner); the window
   // does not throw on top of it.
   const quiet = (p) => { if (p && typeof p.catch === 'function') p.catch(() => {}) }
-  // Review round 1, R1-3: an item whose row the project no longer shows (on
-  // the cloud, in the trash) never becomes the task's main one from here. The
-  // cloud refuses it (a task's main asset decides whether the task can be
-  // seen), and a main scene or shot that is gone would leave the Timeline and
-  // the Budget on a row nobody sees. The verbs that would make it main (the
-  // main's remove and move down, its own move up) are greyed with the reason;
-  // removing it first stays open.
-  const goneAt = (kindItems, i) => !!kindItems[i] && !rows[kindItems[i].entity_type]?.get(kindItems[i].entity_id)
-  const nextGoneWords = (kind) => `The next ${KIND_LABEL[kind].toLowerCase()} is no longer in the project: remove it first, so it does not become this task's main ${KIND_LABEL[kind].toLowerCase()}.`
-  const selfGoneWords = (kind) => `This ${KIND_LABEL[kind].toLowerCase()} is no longer in the project, so it cannot become this task's main ${KIND_LABEL[kind].toLowerCase()}.`
   function remove(item) {
     if (!canWrite) return
-    if (items.length === 1) { setLastOne(item); return }
-    const kindItems = items.filter(i => i.entity_type === item.entity_type)
-    if (kindItems[0]?.id === item.id && goneAt(kindItems, 1)) return
+    if (live.length === 1) { setLastOne(item); return }
     quiet(ctx?.removeTaskItem?.(item.id))
-  }
-  function move(kind, kindItems, index, delta) {
-    if (!canWrite) return
-    const j = index + delta
-    if (j < 0 || j >= kindItems.length) return
-    if (Math.min(index, j) === 0 && goneAt(kindItems, Math.max(index, j))) return
-    const order = kindItems.map(i => i.id)
-    ;[order[index], order[j]] = [order[j], order[index]]
-    quiet(ctx?.reorderTaskItems?.(task.id, kind, order))
   }
   function pick(kind, entityId) {
     if (!canWrite) return
     quiet(ctx?.addTaskItem?.({ task_id: task.id, entity_type: kind, entity_id: entityId }))
   }
-  const lastName = lastOne ? (itemName(lastOne.entity_type, rows[lastOne.entity_type]?.get(lastOne.entity_id), rows) || GONE_WORDS) : null
+  const nameOf = (item) => lookup.nameOf(item.entity_type, item.entity_id) || `Untitled ${item.entity_type}`
+  const lastName = lastOne ? nameOf(lastOne) : null
+  const sortChoices = [
+    { header: 'Sort items by' },
+    ...ITEM_SORTS.map(s => ({ label: ITEM_SORT_LABEL[s], Icon: s === current ? Check : NoCheck, onClick: () => onSort?.(s) })),
+  ]
+
+  function itemRow(item) {
+    const kind = item.entity_type
+    const Glyph = ITEM_GLYPH[kind]
+    const row = rows[kind]?.get(item.entity_id) || null
+    const name = nameOf(item)
+    return (
+      <div key={item.id} className="rb-rel-row ui-hover-host">
+        {byKind
+          ? <Glyph aria-hidden="true" className="rb-rel-glyph" />
+          : <Glyph role="img" aria-label={KIND_LABEL[kind]} className="rb-rel-glyph" />}
+        <QuietDot status={row?.status || 'not_started'} />
+        <span className="rb-rel-stack">
+          <span className="rb-rel-name" title={name}>{name}</span>
+          {listsKnown && (kind === 'scene' || kind === 'shot') && (
+            <LinkHome homeOf={homeOf} id={item.entity_id} name={row?.name || 'Untitled'} />
+          )}
+        </span>
+        <StatusWord status={row?.status || 'not_started'} />
+        <RemoveButton title={`Remove ${name}`} allowed={canWrite} reason={writeReason} onClick={() => remove(item)} />
+      </div>
+    )
+  }
 
   return (
     <div className="rb-rel-list rb-rel-items">
       <RelSection
         Icon={ListTree}
-        title={`Items (${items.length})`}
+        title={`Items (${live.length})`}
         collapsed={collapsed}
         onToggle={() => setCollapsed(c => !c)}
         actions={(
-          <GatedAction allowed={canWrite} reason={writeReason}>
-            <IconButton size="sm" Icon={Plus} title="Add an item" onClick={() => { if (canWrite) setPicking(true) }} />
-          </GatedAction>
+          <>
+            {live.length > 1 && (
+              <MenuButton title={`Sort items: ${ITEM_SORT_LABEL[current]}`} Icon={ArrowUpDown} minWidth={160} items={sortChoices} />
+            )}
+            <GatedAction allowed={canWrite} reason={writeReason}>
+              <IconButton size="sm" Icon={Plus} title="Add an item" onClick={() => { if (canWrite) setPicking(true) }} />
+            </GatedAction>
+          </>
         )}
       >
-        {items.length === 0 ? (
-          <p className="rb-rel-empty">{`No items yet. Add the ${kindsInWords(pickerKinds(ctx, items))} this task is about.`}</p>
-        ) : groups.map(g => {
-          const Glyph = ITEM_GLYPH[g.kind]
+        {live.length === 0 ? (
+          <p className="rb-rel-empty">{`No items yet. Add the ${kindsInWords(pickerKinds(ctx, live))} this task is about.`}</p>
+        ) : byKind ? kinds.map(g => {
+          const words = g.type == null ? KIND_LABEL_PLURAL[g.kind] : `${KIND_LABEL_PLURAL.asset} · ${assetTypeLabel(g.type)}`
           return (
-            <div key={g.kind} className="rb-rel-kind" role="group" aria-label={KIND_LABEL_PLURAL[g.kind]}>
-              <span className="rb-rel-kind-label" aria-hidden="true">{KIND_LABEL_PLURAL[g.kind]}</span>
-              {g.items.map((item, index) => {
-                const row = rows[g.kind].get(item.entity_id) || null
-                const name = itemName(g.kind, row, rows)
-                const words = name || GONE_WORDS
-                const main = index === 0 && g.items.length > 1
-                // R1-3: what would make a gone row main, and why it is greyed.
-                const nextGone = index === 0 && goneAt(g.items, 1)
-                const selfGone = index === 1 && !row
-                return (
-                  <div key={item.id} className="rb-rel-row ui-hover-host rb-rel-item"
-                    data-gone={row ? undefined : 'true'}>
-                    <Glyph aria-hidden="true" className="rb-rel-glyph" />
-                    {row ? <QuietDot status={row.status || 'not_started'} /> : <span className="rb-rel-dot-gap" aria-hidden="true" />}
-                    <span className="rb-rel-stack">
-                      <span className="rb-rel-name" title={words}>{words}</span>
-                      {row && listsKnown && (g.kind === 'scene' || g.kind === 'shot') && (
-                        <LinkHome homeOf={homeOf} id={row.id} name={row.name || 'Untitled'} />
-                      )}
-                    </span>
-                    {main && (
-                      <Badge className="rb-rel-main"
-                        title={`The main ${KIND_LABEL[g.kind].toLowerCase()}: the Timeline and the Budget show this task under it`}>
-                        Main
-                      </Badge>
-                    )}
-                    {row && <StatusWord status={row.status || 'not_started'} />}
-                    <HoverActions className="rb-rel-item-acts">
-                      {g.items.length > 1 && (
-                        <>
-                          <GatedAction allowed={canWrite && !selfGone} reason={canWrite ? selfGoneWords(g.kind) : writeReason}>
-                            <IconButton size="sm" Icon={ArrowUp} title={`Move ${words} up`}
-                              disabled={index === 0} onClick={() => move(g.kind, g.items, index, -1)} />
-                          </GatedAction>
-                          <GatedAction allowed={canWrite && !nextGone} reason={canWrite ? nextGoneWords(g.kind) : writeReason}>
-                            <IconButton size="sm" Icon={ArrowDown} title={`Move ${words} down`}
-                              disabled={index === g.items.length - 1} onClick={() => move(g.kind, g.items, index, 1)} />
-                          </GatedAction>
-                        </>
-                      )}
-                      <GatedAction allowed={canWrite && !nextGone} reason={canWrite ? nextGoneWords(g.kind) : writeReason}>
-                        <IconButton size="sm" Icon={X} danger title={`Remove ${words}`} onClick={() => remove(item)} />
-                      </GatedAction>
-                    </HoverActions>
-                  </div>
-                )
-              })}
+            <div key={g.key} className="rb-rel-kind" role="group" aria-label={words}>
+              <span className="rb-rel-kind-label" aria-hidden="true">{words}</span>
+              {g.items.map(itemRow)}
             </div>
           )
-        })}
+        }) : shown.map(itemRow)}
       </RelSection>
 
       {picking && (
-        <TaskItemPickerOverlay ctx={ctx} items={items} rows={rows}
+        <TaskItemPickerOverlay ctx={ctx} items={live} lookup={lookup}
           onPick={pick} onClose={() => setPicking(false)} />
       )}
 
@@ -1373,8 +1456,11 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
 
 // The kinds a project's picker offers: assets always; scenes and shots, levels
 // and experiences where the project turns them on (the window's old pickers'
-// rule) or the task already names one.
-function pickerKinds(ctx, items) {
+// rule) or the task already names one. VW1b (2026-10-17): the Tasks table's
+// item columns and its Group menu read the same rule over every task's items
+// (`items` is any list of `{ entity_type }`), so a column is there exactly
+// when the window would offer its kind.
+export function pickerKinds(ctx, items) {
   const p = ctx?.project
   const has = (kind) => items.some(i => i.entity_type === kind)
   return ITEM_KINDS.filter(kind => {
@@ -1385,35 +1471,89 @@ function pickerKinds(ctx, items) {
   })
 }
 
+// ── What the window's picker and the Tasks table's item cells share ──────────
+// VW1b (2026-10-17; the design's §4.6, step 0 review finding 9): the window's
+// picker adds (every kind, a row the task names not offered); the cell's
+// picker ticks (one kind, every row, the task's ticked). They share these,
+// so neither forks the other: whether "Show all lists" adds anything, each
+// kind's rows (the ACTIVE shot list's scenes and shots unless all lists are
+// shown, D10, and any row in `keep` whatever its list), the search's match,
+// and the lookup's words for a row.
+
+/** Whether "Show all lists" has scenes or shots to add (another list holds some). */
+export function itemPickerScopeOn(ctx) {
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  return otherListRows({ active: scenes, all: ctx?.allScenes || scenes })
+    || otherListRows({ active: shots, all: ctx?.allShots || shots })
+}
+
+/** A row's words in the pickers: the lookup's (a shot "Scene › Shot"). */
+function offerName(lookup, kind, row) {
+  return lookup?.nameOf(kind, row.id) || row.name || `Untitled ${kind}`
+}
+
+// What tells two rows apart when their names are the same (her Q10: "two
+// assets with the same name show their type and phase"): an asset's type and
+// phase; a scene's number; a shot's number (its scene is already in its
+// name). Nothing for a level or an experience.
+function tellApart(kind, row, phaseById) {
+  if (kind === 'asset') {
+    const phase = row.phase_id ? phaseById.get(row.phase_id)?.name : null
+    return [assetTypeLabel(row.type), phase || 'No phase'].join(' · ')
+  }
+  if (kind === 'scene' && row.scene_number != null && row.scene_number !== '') return `Scene ${row.scene_number}`
+  if (kind === 'shot' && row.shot_number != null && row.shot_number !== '') return `Shot ${row.shot_number}`
+  return null
+}
+
+/**
+ * The rows a picker offers for one kind, in the project's order, matched by
+ * the search (`query`, any case), each `{ row, name, apart }`: `apart` says
+ * what tells it from another row of the same name, null when its name is its
+ * own.
+ */
+export function itemPickerOffers(ctx, kind, { lookup, showAll = false, keep = [], query = '' } = {}) {
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  const rows = {
+    asset: () => ctx?.assets || [],
+    scene: () => pickerRows({ active: scenes, all: ctx?.allScenes || scenes, showAll, keep }),
+    shot: () => pickerRows({ active: shots, all: ctx?.allShots || shots, showAll, keep }),
+    level: () => ctx?.levels || [],
+    experience: () => ctx?.experiences || [],
+  }[kind]?.() || []
+  const named = rows.filter(r => r && r.id != null).map(r => ({ row: r, name: offerName(lookup, kind, r) }))
+  const seen = new Map()
+  for (const o of named) {
+    const k = o.name.toLowerCase()
+    seen.set(k, (seen.get(k) || 0) + 1)
+  }
+  const phaseById = new Map((ctx?.phases || []).map(p => [p.id, p]))
+  const q = String(query || '').trim().toLowerCase()
+  return named
+    .filter(o => !q || o.name.toLowerCase().includes(q))
+    .map(o => ({ ...o, apart: seen.get(o.name.toLowerCase()) > 1 ? tellApart(kind, o.row, phaseById) : null }))
+}
+
 // AssetPickerOverlay's shell, over the same column, for all five kinds: one
 // search, then a group per kind, each row an add. A row the task already
 // names is not offered. Scenes and shots are the ACTIVE shot list's (D10),
 // with "Show all lists" for the rest, as the window's old pickers were.
-function TaskItemPickerOverlay({ ctx, items, rows, onPick, onClose }) {
+// VW1m (2026-10-16): a row's words are the model's lookup's, as the table's.
+// VW1b: its rows, scope and match are the shared ones above.
+function TaskItemPickerOverlay({ ctx, items, lookup, onPick, onClose }) {
   const [search, setSearch] = useState('')
   const [showAllLists, setShowAllLists] = useState(false)
   useFocusBackOnClose()
   const kinds = pickerKinds(ctx, items)
-  const scenes = ctx?.scenes || []
-  const shots = ctx?.shots || []
-  const allScenes = ctx?.allScenes || scenes
-  const allShots = ctx?.allShots || shots
-  const scopeOn = kinds.includes('scene') && (otherListRows({ active: scenes, all: allScenes }) || otherListRows({ active: shots, all: allShots }))
+  const scopeOn = kinds.includes('scene') && itemPickerScopeOn(ctx)
   const taken = new Set(items.map(i => `${i.entity_type}:${i.entity_id}`))
   const q = search.trim().toLowerCase()
-  const source = {
-    asset: () => ctx?.assets || [],
-    scene: () => pickerRows({ active: scenes, all: allScenes, showAll: showAllLists }),
-    shot: () => pickerRows({ active: shots, all: allShots, showAll: showAllLists }),
-    level: () => ctx?.levels || [],
-    experience: () => ctx?.experiences || [],
-  }
   const groups = kinds.map(kind => ({
     kind,
-    offers: source[kind]()
-      .filter(r => r && !taken.has(`${kind}:${r.id}`))
-      .map(r => ({ row: r, name: itemName(kind, r, rows) }))
-      .filter(o => !q || o.name.toLowerCase().includes(q)),
+    offers: itemPickerOffers(ctx, kind, { lookup, showAll: showAllLists, query: search })
+      .filter(o => !taken.has(`${kind}:${o.row.id}`)),
   })).filter(g => g.offers.length > 0)
   const total = groups.reduce((n, g) => n + g.offers.length, 0)
 

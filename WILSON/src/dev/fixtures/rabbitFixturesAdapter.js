@@ -29,6 +29,10 @@
 // addendum, sections A, C, D, E). Round 2 reverted round 1's frozen
 // membership of an archived list (R2-1) and added the positions-only reorder,
 // which never inserts (R2-2).
+//
+// Custom table views and groupings (VW1c, migration 0098) keep 0098's rules
+// the same way and answer as the cloud adapter does — see the note above
+// tvError.
 // =============================================================================
 
 import { devWriteRefused } from '../devFixtures'
@@ -41,11 +45,18 @@ import {
 } from './store'
 // FX2 (0096): a task's items — the one statement of their rules (pure).
 import {
-  COLUMN_KINDS, KIND_FIELD, isItemKind, itemShapeProblem, mainItemOf,
-  planReorder, applyPositions, planSingleFieldWrite, seedItemsFor,
+  ITEM_KINDS, COLUMN_KINDS, KIND_FIELD, isItemKind, itemShapeProblem, compareItems,
+  planLegacyFieldWrite, seedItemsFor, buildItemLookup,
 } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
+// VW1c (0098): custom table views and groupings — the one statement of their
+// rules (pure, imports nothing; devFixtures.test.js allows it).
+import {
+  VIEWS_PER_TABLE_MAX, GROUPINGS_PER_TABLE_MAX, isTableKey, viewNameProblem, viewConfigProblem, configsEqual,
+  groupingProblem, normalizeEntityIds, findGroupingBySet, compareViewRows, compareGroupingRows,
+  planReorderViews, planForgetItem, tableViewLastKeyProblem, isViewIdOrAll, mergeTableViewLast,
+} from '../../tools/rabbit_v0.1.0/state/tableViewsModel'
 
 const PRIMARY = 'primary'
 
@@ -140,6 +151,28 @@ const FIXTURES_BROWSER_BINS_CAPABILITIES = Object.freeze({ ...FIXTURES_BINS_CAPA
 // For binsAdapterParity.test.js: the sentences and the capability object,
 // pinned against the cloud adapter's.
 export { BINS_SENTENCES as FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES, FIXTURES_BROWSER_BINS_CAPABILITIES }
+
+// VW1c (0098): what the cloud ADAPTER answers when the database refuses a view
+// or grouping write — supabaseAdapter's TABLE_VIEWS_REFUSALS, restated because
+// devFixtures.test.js allow-lists what src/dev may import
+// (rabbitFixturesAdapter.contract.test.js pins the two) — and the database's
+// own words for its caps and its ids' check (0098 §4a, §4c; the contract test
+// holds them to the migration), which the adapter passes through as they are.
+// A CHECK's words are the model's, on both sides.
+const TABLE_VIEWS_SENTENCES = Object.freeze({
+  gate: 'You can no longer change views on this project.',
+  groupingGate: 'You can no longer change groupings on this project.',
+  position: 'A view\'s place in the list must be a whole number of at least 0.',
+  tableKey: 'A view belongs to one of the six tables: tasks, assets, scenes, shots, levels or experiences.',
+  groupingIds: 'A grouping names 1 to 100 items, each once.',
+  nothingToChange: 'A change to a view names its name, its place in the list or its settings.',
+})
+// Postgres' initcap, for the one-word lowercase table keys the caps name.
+const initcap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1).toLowerCase()
+const viewsCapWords = (tableKey) => `A project's ${initcap(tableKey)} table holds at most ${VIEWS_PER_TABLE_MAX} saved views.`
+const groupingsCapWords = (tableKey) => `A project's ${initcap(tableKey)} table holds at most ${GROUPINGS_PER_TABLE_MAX} groupings.`
+const groupingIdsCheckWords = (kind, notFound, named) => `A grouping can name only this project's own ${kind}s: ${notFound} of the ${named} named are not in it (or are in the trash).`
+export { TABLE_VIEWS_SENTENCES as FIXTURES_TABLE_VIEWS_SENTENCES, viewsCapWords, groupingsCapWords, groupingIdsCheckWords }
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
 // write on an archived list too, and round 2 reverted that (R2-1, below).
@@ -249,7 +282,7 @@ function validateVersioned(row, noun) {
 // `browser` (BC3): answer the bins as the cloud does in a browser — the
 // capability object above with `resolveFiles` false, and no `online` on any
 // clip row (the provider marks them from the capability object).
-export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }, { browser = false } = {}) {
+export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }, { browser = false, connection = null } = {}) {
   const by = userId
   const binsCaps = browser ? FIXTURES_BROWSER_BINS_CAPABILITIES : FIXTURES_BINS_CAPABILITIES
   // A clip row as this backend hands it out: answered for (online) where the
@@ -293,14 +326,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     return row
   }
 
-  // ── A task's items (FX2, migration 0096): the fake cloud runs the
-  // database's rules. An item names a row of its task's own project (the
+  // ── A task's items (FX2, migration 0096; VW1m, 0097): the fake cloud runs
+  // the database's rules. An item names a row of its task's own project (the
   // composite keys: 23503), a task names an item once (the unique key: the
   // stored row is answered, as ON CONFLICT DO NOTHING then a read), a
   // trashed task's items are hidden and refused (the task hop: 42501), and
-  // each task's asset_id / scene_id / shot_id is its main item of that kind
-  // (§7) — levels and experiences have no column on the cloud.
+  // each task's asset_id / scene_id / shot_id is the OLDER APPS' COPY, its
+  // first item of that kind in the stored order (0097 §4) — levels and
+  // experiences have no column on the cloud. VW1m (2026-10-16, her batch 12
+  // and 13 rulings): no item counts for more than another; an older app's
+  // write of one column ADDS that item and never moves or replaces one (0097
+  // §3); a task whose asset is in the trash stays (0097 §2: the screens hide
+  // the item while it is there and show it again on restore, her Q-N4).
   const ITEM_ROWS = { asset: 'assets', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences' }
+  const COLUMN_FIELDS = COLUMN_KINDS.map(k => KIND_FIELD[k])
   const itemError = (code, message) => { const err = new Error(`[supabase] ${message}`); err.code = code; return err }
   const liveTaskOf = (id) => { const t = findById(store.tasks, id); return t && !t.deleted_at ? t : null }
   const entityIn = (kind, id, projectId) => !!(store[ITEM_ROWS[kind]] || [])
@@ -309,24 +348,27 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     id: newId(), project_id: task.project_id, workspace_id: workspaceId,
     created_at: now(), created_by: by, updated_at: now(), updated_by: by, ...base,
   })
+  // `insert`: one row (planLegacyFieldWrite's) or a list (seedItemsFor's).
   function applyItemPlan(plan) {
     if (plan.remove.length) {
       const gone = new Set(plan.remove.map(i => i.id))
       store.taskItems = store.taskItems.filter(i => !gone.has(i.id))
     }
-    if (plan.insert) store.taskItems.push(plan.insert)
-    if (plan.order) {
-      const first = store.taskItems.find(i => i.id === plan.order[0])
-      if (first) store.taskItems = applyPositions(store.taskItems, planReorder(store.taskItems, first.task_id, first.entity_type, plan.order))
-    }
+    for (const row of [].concat(plan.insert || [])) store.taskItems.push(row)
   }
-  // §7b / §7c for a task row just written: each of the three columns the
-  // write changed moves, replaces or removes the main item; a new task's set
-  // columns become its first items. Another project's row is refused before
-  // anything changes (the composite key).
+  // 0097 §3 and §5 for a task row just written. Each of the three columns
+  // the write CHANGED is an older app's write of one item (this app sends
+  // none): ADD-ONLY against the value the column held (planLegacyFieldWrite:
+  // a new value is added at the end of its kind, a cleared column removes
+  // only the item it named, nothing moves). A NEW task's set columns become
+  // its items (§5, 0096 §7c: templates, older apps). Another project's row
+  // is refused before anything changes (the composite key). Then the written
+  // kinds' columns read the copy again: an older app that writes asset B
+  // over a task holding A reads A back, and the task holds A and B.
   function itemsAfterTaskWrite(before, after) {
     const task = findById(store.tasks, after.id)
     if (!task) return
+    const written = []
     for (const kind of COLUMN_KINDS) {
       const f = KIND_FIELD[kind]
       const was = before ? (before[f] ?? null) : null
@@ -339,40 +381,45 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         else store.tasks = store.tasks.filter(t => t.id !== task.id)
         throw itemError('23503', `insert or update on table "task_items" violates foreign key constraint "task_items_${kind}_fk"`)
       }
-      const main = mainItemOf(store.taskItems, task.id, kind)
+      written.push([kind, was, is])
+    }
+    for (const [kind, was, is] of written) {
       applyItemPlan(before
-        ? planSingleFieldWrite(store.taskItems, task.id, kind, is, main ? main.entity_id : was, makeItem(task))
-        : { remove: [], insert: null, order: null, ...seedPlan(task, kind) })
+        ? planLegacyFieldWrite(store.taskItems, task.id, kind, is, was, makeItem(task))
+        : { remove: [], insert: seedItemsFor(task, store.taskItems, makeItem(task), [KIND_FIELD[kind]]) })
     }
-    syncTaskItemColumns(store, [task.id])
+    if (written.length) syncTaskItemColumns(store, [task.id], written.map(([kind]) => kind))
   }
-  function seedPlan(task, kind) {
-    const seeded = seedItemsFor(task, store.taskItems, makeItem(task), [KIND_FIELD[kind]])
-    return seeded.length ? { insert: seeded[0], order: [seeded[0].id, ...store.taskItems
-      .filter(i => i.task_id === task.id && i.entity_type === kind).sort((a, b) => a.position - b.position).map(i => i.id)] } : {}
-  }
-  // The database's invariant (0096 post-condition 10h): every same-project
-  // single column has its item, and each column is its kind's main item. A
-  // test or a variant that writes a task's columns straight into the store
-  // gets, at the next read, the items the database would hold: seeded as the
-  // main item, as the backfill and §7b do (nothing is removed).
+  // A load reconciles as the database's keys and 0096's backfill would have
+  // it, and NEVER reorders (VW1m, 2026-10-16): an item whose task or whose
+  // row is not in the store, or is another project's, and the second copy
+  // of one (task, kind, entity), go (the cloud's CASCADEs, composite keys and
+  // unique key); a column naming a same-project row its task has no item for
+  // (a test or a variant that writes a task's columns straight into the
+  // store) becomes an item, as the backfill made them (seedItemsFor); then
+  // every column reads the copy. An item whose row is in the TRASH stays:
+  // the screens hide it, and it shows again on restore (her Q-N4).
   function reconcileTaskItems(projectId) {
-    const ids = []
-    for (const t of store.tasks) {
-      if (t.project_id !== projectId) continue
-      ids.push(t.id)
-      for (const kind of COLUMN_KINDS) {
-        const v = t[KIND_FIELD[kind]]
-        if (v == null || v === '' || !entityIn(kind, v, t.project_id)) continue
-        const main = mainItemOf(store.taskItems, t.id, kind)
-        if (main && main.entity_id === v) continue
-        applyItemPlan(planSingleFieldWrite(store.taskItems, t.id, kind, v, null, makeItem(t)))
-      }
+    const tasksHere = new Map(store.tasks.filter(t => t.project_id === projectId).map(t => [t.id, t]))
+    const keep = new Set()
+    const seen = new Set()
+    for (const i of store.taskItems.filter(x => x.project_id === projectId).sort(compareItems)) {
+      const key = `${i.task_id}|${i.entity_type}|${i.entity_id}`
+      if (!tasksHere.has(i.task_id) || !isItemKind(i.entity_type) || !entityIn(i.entity_type, i.entity_id, projectId) || seen.has(key)) continue
+      seen.add(key)
+      keep.add(i.id)
     }
-    syncTaskItemColumns(store, ids)
+    store.taskItems = store.taskItems.filter(i => i.project_id !== projectId || keep.has(i.id))
+    for (const t of tasksHere.values()) {
+      const seeds = seedItemsFor(t, store.taskItems, makeItem(t), COLUMN_FIELDS)
+        .filter(i => entityIn(i.entity_type, i.entity_id, projectId))
+      applyItemPlan({ remove: [], insert: seeds })
+    }
+    syncTaskItemColumns(store, [...tasksHere.keys()])
   }
   // A hard delete's CASCADE: the row's items leave every task, and each task
-  // that had one takes its next item as main (0096 §7a, §7b).
+  // that had one reads its copy again (0097 §3, §4: the next item in the
+  // stored order, or none).
   function sweepTaskItemsOf(kind, id) {
     const touched = store.taskItems.filter(i => i.entity_type === kind && i.entity_id === id).map(i => i.task_id)
     if (!touched.length) return
@@ -543,11 +590,79 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     return patch(list, row.id, { archived_at, archived_by, updated_by: by })
   }
 
+  // ── Custom table views and groupings (VW1c, migration 0098) ────────────────
+  // The fake cloud keeps 0098's rules and answers as the cloud ADAPTER does
+  // (adapters/index.js's typedef): its statuses, its codes (the SQLSTATEs it
+  // keeps on err.code) and its words. A write meets the database's checks in
+  // the database's order — a type it cannot read, then the BEFORE triggers
+  // (the cap, the pin, the grouping's ids' check), then the policy, then the
+  // NOT NULLs and the CHECKs (Postgres tests those by name), then the keys.
+  //
+  // WHO MAY WRITE: the fixtures model no roles for writes (they sign in as
+  // Mara, a workspace admin and the project's manager — see the shot lists'
+  // note below), so can_write_project is always true here and a conditional
+  // write is never 'filtered'. A project that is gone or in the trash is out
+  // of the policy's reach, as on the cloud (the policies' hop to a live
+  // project): its views and groupings are not visible, and a write is refused.
+  const tvError = (code, message) => { const err = new Error(message); err.code = code; return err }
+  const viewsIn = (projectId) => (liveProject(projectId) ? store.tableViews.filter(v => v.project_id === projectId) : [])
+  const groupingsIn = (projectId) => (liveProject(projectId) ? store.itemGroupings.filter(g => g.project_id === projectId) : [])
+  const visibleView = (id) => { const v = findById(store.tableViews, id); return v && liveProject(v.project_id) ? v : null }
+  // `position` is an INTEGER column: a value it cannot read is refused before
+  // anything else (22P02), as PostgREST hands it to Postgres.
+  function positionUnreadable(position) {
+    return position !== undefined && !Number.isInteger(position)
+      ? tvError('22P02', `[supabase] invalid input syntax for type integer: "${position}"`)
+      : null
+  }
+  // The NOT NULLs, then the CHECKs by name: config, name, position, table_key.
+  function viewRowRefusal(row) {
+    for (const col of ['name', 'config']) {
+      if (row[col] == null) return tvError('23502', `[supabase] null value in column "${col}" of relation "table_views" violates not-null constraint`)
+    }
+    const problem = viewConfigProblem(row.config) || viewNameProblem(row.name)
+      || (row.position < 0 ? TABLE_VIEWS_SENTENCES.position : null)
+      || (isTableKey(row.table_key) ? null : TABLE_VIEWS_SENTENCES.tableKey)
+    return problem ? tvError('23514', problem) : null
+  }
+  // A conditional write that wrote nothing: the row read once, as the cloud
+  // adapter reads it (no row: deleted; another revision or name: changed).
+  // The third answer, 'filtered', needs a policy that refuses Mara: never here.
+  function tableViewMiss(row, opts) {
+    if (!row) return { status: 'deleted' }
+    const otherRevision = opts?.expectRevision != null && String(row.revision) !== String(opts.expectRevision)
+    const otherName = opts?.expectName != null && row.name !== opts.expectName
+    return { status: otherRevision || otherName ? 'changed' : 'filtered', row: clone(row) }
+  }
+  // 0098 §5's sweep, for a row deleted for good: its id leaves every grouping
+  // of its kind in its project; a grouping left empty, or naming another's
+  // set, goes (the model's planForgetItem, in the cloud loop's id order); one
+  // that shrinks is stamped as fn_audit_touch stamps an UPDATE (now, and the
+  // person whose delete it was). An asset in the TRASH is not deleted, and
+  // changes nothing (her Q-N4).
+  function sweepGroupingsOf(kind, id, projectId) {
+    const here = store.itemGroupings.filter(g => g.project_id === projectId)
+    const { remove: gone, update } = planForgetItem(here, kind, id)
+    if (!gone.length && !update.length) return
+    const out = new Set(gone)
+    const shrunk = new Map(update.map(u => [u.id, u.entity_ids]))
+    const at = now()
+    store.itemGroupings = store.itemGroupings.filter(g => !out.has(g.id))
+      .map(g => (shrunk.has(g.id) ? { ...g, entity_ids: shrunk.get(g.id), updated_at: at, updated_by: by } : g))
+  }
+
   const adapter = {
     mode: 'fixtures',
 
     async status() {
       return { online: true, lastSyncAt: new Date(), error: null }
+    },
+
+    // FX11: the connection dot's question, answered in memory — there is no
+    // database and no storage to ask. `connection` is store.connectionFixtureMode
+    // (`?connection=files-down|offline`); the default answers both parts.
+    async connectionProbe() {
+      return { database: connection !== 'offline', files: connection === null }
     },
 
     // ── Projects ─────────────────────────────────────────────────────────────
@@ -604,6 +719,11 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         edits: inProject(store.edits).sort(byCreated),
         // FX2 (0096): a task's items, a trashed task's hidden (the task hop).
         taskItems: inProject(store.taskItems).filter(i => liveTaskOf(i.task_id)),
+        // VW1c (0098): the saved views and groupings, in the cloud's order
+        // (table_key, position, created_at, id; table_key, kind, created_at,
+        // id). None is seeded (Q20).
+        tableViews: viewsIn(projectId).sort(compareViewRows),
+        itemGroupings: groupingsIn(projectId).sort(compareGroupingRows),
       }))
     },
     async createProject(payload) {
@@ -730,17 +850,191 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       store.taskItems = store.taskItems.filter(i => i.id !== id)
       syncTaskItemColumns(store, [row.task_id], [row.entity_type])
     },
-    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
-      if (!isItemKind(kind)) throw itemError('22023', `reorder_task_items: ${kind} is not a kind of item (asset, scene, shot, level, experience)`)
-      const ids = Array.isArray(orderedIds) ? orderedIds : []
-      if (new Set(ids).size !== ids.length) throw itemError('22023', 'reorder_task_items: an item is named twice')
-      const task = liveTaskOf(taskId)
-      if (!task || task.project_id !== projectId) return []
-      const changes = planReorder(store.taskItems, taskId, kind, ids)
-      store.taskItems = applyPositions(store.taskItems, changes)
-      syncTaskItemColumns(store, [taskId], [kind])
-      const moved = new Set(changes.map(c => c.id))
-      return clone(store.taskItems.filter(i => moved.has(i.id)))
+    // VW1m (2026-10-16): no reorder, as the cloud adapter has none (her
+    // Q-N1: the task window sorts; it has no Move buttons).
+
+    // ── Custom table views and groupings (VW1c, migration 0098) ──────────────
+    // The cloud's verbs and answers, in memory (see the note above
+    // tvError). The fake cloud has 0098: available, and a load never fails
+    // to read them.
+    tableViewsAvailable() { return true },
+    tableViewsLoadError() { return null },
+    // VW1e (0099; code review round 1, R1-9): the fake cloud has 0099, so an
+    // asset's levels and experiences are kept.
+    assetLevelLinksAvailable() { return true },
+    async listTableViews(projectId) {
+      return clone(viewsIn(projectId).sort(compareViewRows))
+    },
+    // An INSERT: the revision from the one counter, the stamps and the
+    // creator are the backend's (0098's pin), whatever the row carries.
+    async addTableView(row) {
+      const body = isPlainObject(row) ? row : {}
+      const projectId = body.project_id
+      const tableKey = body.table_key
+      const unreadable = positionUnreadable(body.position)
+      if (unreadable) throw unreadable
+      // trg_table_views_cap: at most 200 views of a table in a project.
+      if (viewsIn(projectId).filter(v => v.table_key === tableKey).length >= VIEWS_PER_TABLE_MAX) {
+        throw tvError('54000', viewsCapWords(tableKey))
+      }
+      if (!liveProject(projectId)) throw tvError('42501', TABLE_VIEWS_SENTENCES.gate)
+      const draft = {
+        project_id: projectId, table_key: tableKey, name: body.name,
+        position: body.position === undefined ? 0 : body.position,
+        config: body.config === undefined ? {} : body.config,
+      }
+      const refused = viewRowRefusal(draft)
+      if (refused) throw refused
+      if (body.id != null && findById(store.tableViews, body.id)) {
+        throw tvError('23505', '[supabase] duplicate key value violates unique constraint "table_views_pkey"')
+      }
+      store.tableViewRevision += 1
+      const at = now()
+      // The row as the cloud's select answers it, key for key.
+      const stored = {
+        id: body.id != null ? body.id : newId(), project_id: projectId, table_key: tableKey, name: draft.name,
+        position: draft.position, revision: store.tableViewRevision, revised_by: by, config: clone(draft.config),
+        created_at: at, created_by: by, updated_at: at, updated_by: by,
+      }
+      store.tableViews.push(stored)
+      return clone(stored)
+    },
+    // The SAVE: written only where the view still has the revision (or, for
+    // a rename's undo, the name) expected; a change of config takes a new
+    // revision, a rename or a move never (0098 §4b, compared as jsonb is:
+    // key order ignored).
+    async updateTableView(id, patch, opts = {}) {
+      const set = {}
+      for (const k of ['name', 'position', 'config']) if (patch && patch[k] !== undefined) set[k] = patch[k]
+      if (Object.keys(set).length === 0) throw tvError('invalid', TABLE_VIEWS_SENTENCES.nothingToChange)
+      const unreadable = positionUnreadable(set.position)
+      if (unreadable) throw unreadable
+      const row = visibleView(id)
+      const holds = row
+        && (opts?.expectRevision == null || String(row.revision) === String(opts.expectRevision))
+        && (opts?.expectName == null || row.name === opts.expectName)
+      if (!holds) return tableViewMiss(row, opts)
+      const next = { ...row, ...set }
+      const refused = viewRowRefusal(next)
+      if (refused) throw refused
+      if (!configsEqual(next.config, row.config)) {
+        store.tableViewRevision += 1
+        next.revision = store.tableViewRevision
+        next.revised_by = by
+      }
+      next.config = clone(next.config)
+      next.updated_at = now()
+      next.updated_by = by
+      store.tableViews = store.tableViews.map(v => (v.id === id ? next : v))
+      return { status: 'saved', row: clone(next) }
+    },
+    async deleteTableView(id, opts = {}) {
+      const row = visibleView(id)
+      if (!row || (opts?.expectRevision != null && String(row.revision) !== String(opts.expectRevision))) {
+        return tableViewMiss(row, { expectRevision: opts?.expectRevision })
+      }
+      store.tableViews = store.tableViews.filter(v => v.id !== id)
+      return { status: 'removed' }
+    },
+    // reorder_table_views (0098 §8) by the model's planReorderViews: the
+    // named views first, the rest after in their order, positions dense from
+    // 0; its refusals are the function's 22023, in its words. A reorder never
+    // makes a new revision. Answers the rows it moved.
+    async reorderTableViews(projectId, tableKey, ids) {
+      if (!isTableKey(tableKey)) {
+        throw tvError('22023', `[supabase] reorder_table_views: ${tableKey} is not a table with views (tasks, assets, scenes, shots, levels, experiences)`)
+      }
+      if (ids == null) return []
+      let changes
+      try {
+        changes = planReorderViews(viewsIn(projectId), tableKey, ids)
+      } catch (err) {
+        if (err?.code !== 'table_view_invalid') throw err
+        throw tvError('22023', `[supabase] reorder_table_views: ${err.message}`)
+      }
+      const at = now()
+      const moved = []
+      for (const { id, position } of changes) {
+        const v = findById(store.tableViews, id)
+        if (!v) continue
+        v.position = position
+        v.updated_at = at
+        v.updated_by = by
+        moved.push(clone(v))
+      }
+      return moved
+    },
+    async listItemGroupings(projectId) {
+      return clone(groupingsIn(projectId).sort(compareGroupingRows))
+    },
+    // An INSERT. 0098's order: the cap; the pin (the set sorted, each id
+    // once); the ids' check as the caller sees the project — each a LIVE row
+    // of its kind in it, so an asset in the trash is refused (23503); the
+    // policy; the CHECKs by name (the set, then the pair). A set already
+    // stored for that table and kind answers the stored row, as the cloud
+    // adapter answers its unique key's 23505; an id taken by another set is
+    // the primary key's 23505.
+    async addItemGrouping(row) {
+      const body = isPlainObject(row) ? row : {}
+      const projectId = body.project_id
+      const tableKey = body.table_key
+      const kind = body.kind
+      if (groupingsIn(projectId).filter(g => g.table_key === tableKey).length >= GROUPINGS_PER_TABLE_MAX) {
+        throw tvError('54000', groupingsCapWords(tableKey))
+      }
+      const raw = Array.isArray(body.entity_ids) ? body.entity_ids : null
+      const readable = raw && raw.length > 0 && raw.every(x => typeof x === 'string' && x !== '')
+      const ids = readable ? normalizeEntityIds(raw) : raw
+      if (readable && ITEM_ROWS[kind]) {
+        const live = new Set((store[ITEM_ROWS[kind]] || [])
+          .filter(r => r.project_id === projectId && !r.deleted_at && liveProject(projectId)).map(r => r.id))
+        const notFound = ids.filter(x => !live.has(x)).length
+        if (notFound) throw tvError('23503', groupingIdsCheckWords(kind, notFound, ids.length))
+      }
+      if (!liveProject(projectId)) throw tvError('42501', TABLE_VIEWS_SENTENCES.groupingGate)
+      if (raw == null || tableKey == null || kind == null) {
+        const col = raw == null ? 'entity_ids' : tableKey == null ? 'table_key' : 'kind'
+        throw tvError('23502', `[supabase] null value in column "${col}" of relation "item_groupings" violates not-null constraint`)
+      }
+      const idsProblem = groupingProblem({ table_key: 'tasks', kind: 'asset', entity_ids: raw })
+      if (idsProblem) throw tvError('23514', idsProblem)
+      const pairProblem = groupingProblem({ table_key: tableKey, kind, entity_ids: ids })
+      if (pairProblem) throw tvError('23514', pairProblem)
+      const stored = findGroupingBySet(groupingsIn(projectId), tableKey, kind, ids)
+      if (stored) return clone(stored)
+      if (body.id != null && findById(store.itemGroupings, body.id)) {
+        throw tvError('23505', '[supabase] duplicate key value violates unique constraint "item_groupings_pkey"')
+      }
+      const at = now()
+      const created = {
+        id: body.id != null ? body.id : newId(), project_id: projectId, table_key: tableKey, kind,
+        entity_ids: ids, created_at: at, created_by: by, updated_at: at, updated_by: by,
+      }
+      store.itemGroupings.push(created)
+      return clone(created)
+    },
+    // Review round 1 (R1-3): the cloud's answer; no roles here, so nothing
+    // removed means gone (or out of sight in a trashed project).
+    async removeItemGrouping(id, _projectId) {
+      const g = findById(store.itemGroupings, id)
+      if (!g || !liveProject(g.project_id)) return { removed: false, status: 'deleted' }
+      store.itemGroupings = store.itemGroupings.filter(x => x.id !== id)
+      return { removed: true }
+    },
+    // The last used view of each table (Q4), in memory for the session.
+    async getTableViewLast() {
+      return { available: true, map: clone(store.tableViewLast) }
+    },
+    // set_table_view_last (0098 §9): one key merged with the backend's clock,
+    // the 300 newest kept (the model's mergeTableViewLast); its refusals the
+    // function's 22023, in its words.
+    async setTableViewLast(key, view) {
+      if (tableViewLastKeyProblem(key)) {
+        throw tvError('22023', `[supabase] set_table_view_last: ${key} is not a project id and a table (tasks, assets, scenes, shots, levels, experiences)`)
+      }
+      if (!isViewIdOrAll(view)) throw tvError('22023', `[supabase] set_table_view_last: ${view} is not a view id or "all"`)
+      store.tableViewLast = mergeTableViewLast(store.tableViewLast, key, view, Date.now())
+      return clone(store.tableViewLast)
     },
 
     // ── Files ────────────────────────────────────────────────────────────────
@@ -864,18 +1158,33 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
 
     // ── Dashboard ────────────────────────────────────────────────────────────
+    // VW1m (2026-10-16): as the cloud's — the project embed and every item,
+    // `items: [{ kind, id, name }]` (kinds in ITEM_KINDS order, each in the
+    // display order, an asset in the trash left out as RLS leaves it out),
+    // and no asset embed: that rode the older apps' copy, the first asset.
+    // Review round 2 (R2-5): an asset's item carries its `phase_id`, as the
+    // cloud's (the Dashboard's Phase grouping reads it).
     async listMyTasks() {
-      return clone(live(store.tasks).filter(t => !isSetAside(t))
+      const mine = live(store.tasks).filter(t => !isSetAside(t))
         .filter(t => t.assignee_id === by || t.reviewer_id === by)
-        .map(t => {
-          const p = projectOf(t.project_id)
-          const a = findById(store.assets, t.asset_id)
-          return {
-            ...t,
-            project: p ? { id: p.id, title: p.title, status: p.status } : null,
-            asset: a ? { id: a.id, name: a.name, phase_id: a.phase_id } : null,
-          }
-        }))
+      const ids = new Set(mine.map(t => t.id))
+      const assets = live(store.assets)
+      const lookup = buildItemLookup({
+        items: store.taskItems.filter(i => ids.has(i.task_id)),
+        assets, scenes: store.scenes, shots: store.shots,
+        levels: store.levels, experiences: store.experiences,
+      })
+      const assetPhase = new Map(assets.map(a => [String(a.id), a.phase_id ?? null]))
+      return clone(mine.map(t => {
+        const p = projectOf(t.project_id)
+        return {
+          ...t,
+          project: p ? { id: p.id, title: p.title, status: p.status } : null,
+          items: ITEM_KINDS.flatMap(kind => lookup.idsOf(t, kind).map(id => (kind === 'asset'
+            ? { kind, id, name: lookup.nameOf(kind, id), phase_id: assetPhase.get(String(id)) ?? null }
+            : { kind, id, name: lookup.nameOf(kind, id) }))),
+        }
+      }))
     },
     async listPhasesByProjects(projectIds) {
       const ids = new Set(projectIds || [])
@@ -1046,28 +1355,51 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // left a shot with a dangling scene_id still listed in other lists, a
     // state the cloud cannot hold — and a walkthrough on the fixtures could
     // never show the stale item a cloud list write would then trip over.
+    // VW1c (0098): each row deleted for good also leaves the groupings that
+    // name it (sweepGroupingsOf, the twin of fn_item_groupings_forget, which
+    // fires for the scene and for each shot its CASCADE takes).
     async deleteScene(id, _projectId) {
-      const shotIds = store.shots.filter(s => s.scene_id === id).map(s => s.id)
+      const scene = findById(store.scenes, id)
+      // Review round 1 (R1-2): the shots in id order (code unit), so two
+      // groupings that shrink to one set keep the same survivor here, on the
+      // desktop and on screen (the cloud's cascade order is its own; the live
+      // channel brings its answer).
+      const shots = store.shots.filter(s => s.scene_id === id)
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
       remove(store.scenes, id)
       sweepShotListLinks('scene_id', id)
       sweepTaskItemsOf('scene', id)
-      for (const shotId of shotIds) {
-        remove(store.shots, shotId)
-        sweepShotListLinks('shot_id', shotId)
-        sweepTaskItemsOf('shot', shotId)
+      if (scene) sweepGroupingsOf('scene', id, scene.project_id)
+      for (const shot of shots) {
+        remove(store.shots, shot.id)
+        sweepShotListLinks('shot_id', shot.id)
+        sweepTaskItemsOf('shot', shot.id)
+        sweepGroupingsOf('shot', shot.id, shot.project_id)
       }
     },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
     // BC2: a shot's takes go with it, as 0091's shot_takes_shot_fk CASCADE
     // takes them on the cloud (the provider's undo puts them back).
-    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id); sweepTaskItemsOf('shot', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id) },
+    async deleteShot(id, _projectId) {
+      const shot = findById(store.shots, id)
+      remove(store.shots, id); sweepShotListLinks('shot_id', id); sweepTaskItemsOf('shot', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id)
+      if (shot) sweepGroupingsOf('shot', id, shot.project_id)
+    },
     async listLevels(projectId) { return clone(store.levels.filter(s => s.project_id === projectId)) },
     async upsertLevel(level) { return clone(upsert(store.levels, { workspace_id: workspaceId, created_by: by, ...level, updated_by: by })) },
-    async deleteLevel(id) { remove(store.levels, id); sweepTaskItemsOf('level', id) },
+    async deleteLevel(id) {
+      const level = findById(store.levels, id)
+      remove(store.levels, id); sweepTaskItemsOf('level', id)
+      if (level) sweepGroupingsOf('level', id, level.project_id)
+    },
     async listExperiences(projectId) { return clone(store.experiences.filter(s => s.project_id === projectId)) },
     async upsertExperience(exp) { return clone(upsert(store.experiences, { workspace_id: workspaceId, created_by: by, ...exp, updated_by: by })) },
-    async deleteExperience(id) { remove(store.experiences, id); sweepTaskItemsOf('experience', id) },
+    async deleteExperience(id) {
+      const experience = findById(store.experiences, id)
+      remove(store.experiences, id); sweepTaskItemsOf('experience', id)
+      if (experience) sweepGroupingsOf('experience', id, experience.project_id)
+    },
 
     // ── Shot lists, items, edits (0084; the S3a contract's nine methods plus
     //    round 1's two membership deltas and round 2's reorder) ──────────────

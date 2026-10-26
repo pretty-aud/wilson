@@ -22,10 +22,18 @@
 //
 // Constants are local rather than imported from the view, matching
 // TaskDetailPopup, which defines its own TASK_STATUSES for the same reason.
+//
+// VW1m (2026-10-16): a task made from a group of the Tasks table or a column
+// of its Board carries that group's items (`defaults.items`, `{ asset: [ids],
+// scene: [...], … }`): shown read-only here, by name in the display order,
+// and passed to ctx.addTask as `items`. Q-N5's interim keeps one of each
+// kind on this form: the one-asset choice stays for a task with one asset or
+// none, and more are added in the task's window.
 // =============================================================================
 
 import { useState } from 'react'
 import { Dialog, Button, Field, StatusDot, statusMeta } from '../../../ui'
+import { ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL } from '../state/taskItemsModel'
 // Priority as a status tone, from the one place that decides it (the
 // Dashboard's task table, and the popup, say the same thing).
 import { priorityTone } from '../../../components/Dashboard/dashboardTaskModel'
@@ -48,10 +56,25 @@ export default function NewTaskPopup({
   defaults = {},
   phases = [],
   assets = [],
+  itemLookup = null,
   members = [],
   onCreated,
   onClose,
 }) {
+  // The items the group carried, each kind's ids in the display order (a
+  // kind with none is left out). Fixed for the draft: they are the group's.
+  const [carried] = useState(() => {
+    const out = []
+    for (const kind of ITEM_KINDS) {
+      const ids = Array.isArray(defaults.items?.[kind]) ? defaults.items[kind].filter(id => id != null && id !== '') : []
+      if (ids.length === 0) continue
+      const sorted = itemLookup ? ids.slice().sort(itemLookup.orderOf(kind)) : ids
+      const names = sorted.map(id => itemLookup?.nameOf(kind, id) || 'Untitled').join(', ')
+      out.push({ kind, ids: sorted, names })
+    }
+    return out
+  })
+  const carriesAsset = carried.some(c => c.kind === 'asset')
   const [draft, setDraft] = useState({
     // Seeded, NOT blank: the Board's inline column input passes the title the
     // user already typed (ProjectTasksView commitAdd). Hardcoding '' here
@@ -77,17 +100,21 @@ export default function NewTaskPopup({
     setCreating(true)
     setError(null)
     try {
-      await ctx.addTask({
+      const row = {
         title:       draft.title.trim(),
         phase_id:    draft.phase_id    || null,
-        asset_id:    draft.asset_id    || null,
         start_date:  draft.start_date  || null,
         end_date:    draft.end_date    || null,
         bid_days:    draft.bid_days === '' || draft.bid_days == null ? null : Number(draft.bid_days),
         assignee_id: draft.assignee_id || null,
         priority:    draft.priority,
         status:      draft.status,
-      })
+      }
+      // The one-asset choice, as before; carried items go as `items` (the
+      // provider writes them as the task's items), never as a single field.
+      if (!carriesAsset) row.asset_id = draft.asset_id || null
+      if (carried.length) row.items = Object.fromEntries(carried.map(c => [c.kind, c.ids]))
+      await ctx.addTask(row)
       onCreated?.()
     } catch (err) {
       // Keep the dialog open with the user's input so they can retry.
@@ -151,17 +178,28 @@ export default function NewTaskPopup({
           </select>
         </Field>
 
-        <Field label="Asset" hint="Optional — narrows the task to one deliverable">
-          <select
-            value={draft.asset_id}
-            onChange={e => patch({ asset_id: e.target.value })}
-            className="ui-input rb-task-prop"
-            data-empty={draft.asset_id ? 'false' : 'true'}
-          >
-            <option value="">(no asset &mdash; task lives directly under the phase)</option>
-            {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
-          </select>
-        </Field>
+        {!carriesAsset && (
+          <Field label="Asset" hint="Optional — narrows the task to one deliverable">
+            <select
+              value={draft.asset_id}
+              onChange={e => patch({ asset_id: e.target.value })}
+              className="ui-input rb-task-prop"
+              data-empty={draft.asset_id ? 'false' : 'true'}
+            >
+              <option value="">(no asset &mdash; task lives directly under the phase)</option>
+              {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
+            </select>
+          </Field>
+        )}
+
+        {/* VW1m: the group's items, read-only (more are added in the task's
+            window once it exists). */}
+        {carried.map(c => (
+          <Field key={c.kind} label={c.ids.length === 1 ? KIND_LABEL[c.kind] : KIND_LABEL_PLURAL[c.kind]}
+            hint="From the group it is made in. Add more in the task's window.">
+            <div className="rb-task-readout" title={c.names}>{c.names}</div>
+          </Field>
+        ))}
 
         <div className="rb-task-prop-grid">
           <Field label="Start date">

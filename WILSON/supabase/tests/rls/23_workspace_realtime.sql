@@ -241,8 +241,10 @@ SELECT ok(pg_temp.ws_task_skip_status() IN ('skipped-ok', 'no-schema'),
 SELECT ok(pg_temp.ws_asset_skip_status() IN ('skipped-ok', 'no-schema'),
   'asset reorder churn (sort_order) adds nothing to the workspace topic');
 
--- Asset trash must broadcast (the transitive-hide path: hides child tasks
--- without touching any tasks row). Via the RPC as an authed persona —
+-- Asset trash must broadcast. Until 0097 it also hid the asset's tasks
+-- without touching any tasks row; since 0097 (VW1m, 2026-10-16: "The tasks
+-- stay") the tasks stay visible, and the broadcast is how an open Dashboard
+-- learns the asset's state and name. Via the RPC as an authed persona —
 -- fn_trash_authz rejects claimless callers.
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',

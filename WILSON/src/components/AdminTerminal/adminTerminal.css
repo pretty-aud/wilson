@@ -638,6 +638,8 @@
 
   /* ═══ COMPANY ══════════════════════════════════════════════════════════ */
   .at-stat-row { display: flex; gap: 24px; }
+  /* FX12: the AI file store card's tiles sit above a banner and a strip. */
+  .at-stat-row-spaced { margin-bottom: 12px; }
   .at-dept-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
   .at-dept { gap: 6px; padding-right: 2px; }
   /* 🚨 THE KIT'S `sm` ICON BUTTON IS 28px AND `.ui-badge` IS 20px TALL, so the

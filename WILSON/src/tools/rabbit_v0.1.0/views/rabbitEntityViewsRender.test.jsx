@@ -94,7 +94,9 @@ function mount(View, extra = {}) {
       { id: 'e1', name: 'First Light', status: 'approved', sort_order: 0 },
       { id: 'e2', name: 'Night Market', status: 'not_started', sort_order: 1 },
     ],
-    assets: [{ id: 'a1', level_id: 'l1', experience_id: 'e2' }],
+    // VW1b: an asset's links are the arrays the Assets tab writes. a2 carries
+    // only single fields no asset really has: a CONTROL the count must not read.
+    assets: [{ id: 'a1', level_ids: ['l1'], experience_ids: ['e2'] }, { id: 'a2', level_id: 'l2', experience_id: 'e1' }],
     tasks: [{ id: 't1', level_id: 'l1', experience_id: 'e1' }, { id: 't2', level_id: 'l1' }],
     phases: [], teamAssignments: [],
     addLevel: vi.fn(async () => {}), updateLevel: vi.fn(), deleteLevel: vi.fn(async () => {}),
@@ -111,6 +113,33 @@ const row = (name) => screen.getByText(name).closest('tr')
 /** Tick a row's checkbox: the named button in its first cell. */
 const tick = (name) => fireEvent.click(within(row(name)).getByRole('button', { name: `Select ${name}` }))
 
+// VW1b (2026-10-17; her Q12, "Fix counts, no new columns"; the design's
+// §4.7; OUTSTANDING P1-26's assets half): a level's (an experience's) Assets
+// count counts the assets whose level_ids (experience_ids) hold it — what the
+// Assets tab writes and the window's Assets list reads; the window's Linked
+// counts line reads the same number. It read `level_id`, which no asset
+// carries, so every level read 0 assets while its window listed them.
+describe.each(PAGES)('VW1b: $page counts its assets by the arrays an asset carries', (p) => {
+  const arrays = p.noun === 'level' ? 'level_ids' : 'experience_ids'
+  it('an asset in two rows counts in both; one naming a row twice counts once; the stale single field counts nowhere', () => {
+    mount(p.View, {
+      assets: [
+        { id: 'a1', [arrays]: [p.ids[0], p.ids[1]] },
+        { id: 'a2', [arrays]: [p.ids[0], p.ids[0]] },
+        { id: 'a3', [p.link]: p.ids[1] },
+      ],
+    })
+    expect(row(p.names[0]).children[3].textContent).toBe('2')
+    expect(row(p.names[1]).children[3].textContent).toBe('1')
+  })
+  it('the window\'s Linked counts line reads the same number as the row', () => {
+    mount(p.View, { assets: [{ id: 'a1', [arrays]: [p.ids[0]] }, { id: 'a2', [arrays]: [p.ids[0]] }] })
+    expect(row(p.names[0]).children[3].textContent).toBe('2')
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: `Open ${p.names[0]}` }))
+    expect(screen.getByRole('dialog').textContent.replace(/\s+/g, ' ')).toMatch(/Linked counts ?2 assets \/ /)
+  })
+})
+
 describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
   it('shows its own noun and its own rows, none of the other entity\'s, counted by its own link key', () => {
     mount(p.View)
@@ -126,6 +155,25 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(screen.getByText('2/2')).toBeTruthy()
     fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: 'zzz' } })
     expect(screen.getByText(`No ${p.nouns} yet`)).toBeTruthy()
+  })
+
+  // VW1m (2026-10-16): a task counts under every level (or experience) it is
+  // about, not only its first: OUTSTANDING P1-26's tasks half, the fixtures'
+  // task 18 that names "Cliff Path" second. Where items are kept the screen
+  // reads them (ctx.tasks carries no link field there); each task's stale
+  // copy below is a CONTROL the old count read. The Assets count is VW1b's.
+  it('VW1m: the Tasks count reads every item — a task about two counts under both, and the stale copy is not read', () => {
+    const [first, second] = p.ids
+    const kind = p.link.replace(/_id$/, '')
+    const ti = (id, task, entity, position) => ({ id, task_id: task, entity_type: kind, entity_id: entity, position })
+    mount(p.View, {
+      taskItemsAvailable: true,
+      tasks: [{ id: 't1', [p.link]: first }, { id: 't2', [p.link]: first }],
+      taskItems: [ti('i1', 't1', first, 0), ti('i2', 't1', second, 1), ti('i3', 't2', second, 0)],
+    })
+    // t1 is about both; t2 only the second (its copy says the first).
+    expect(row(p.names[0]).children[4].textContent).toBe('1')
+    expect(row(p.names[1]).children[4].textContent).toBe('2')
   })
 
   it('a row\'s status change calls its own update method with { status }', () => {
@@ -246,23 +294,19 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(within(section).getByRole('button', { name: 'Add files' })).toBeTruthy()
   })
 
-  it('the saved views read and write its own storage key, and only that', () => {
+  // VW1e (2026-10-25), her Q17 ("Start fresh"): the browser's old saved views
+  // are removed on the first load; the project's views replace them (the
+  // Views button names the view on screen; views/tableViews/ tests them).
+  it('Q17: its own old saved views are removed on the first load, and only those; the Views button names the view on screen', () => {
     localStorage.setItem(p.key, JSON.stringify([{ id: 'v1', name: 'By status', groupBy: 'status' }]))
     localStorage.setItem(p.otherKey, JSON.stringify([{ id: 'v2', name: 'Theirs' }]))
     mount(p.View)
-    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
-    expect(screen.queryByText('Theirs')).toBeNull()
-    // Loading it applies it: the group control reads Status.
-    fireEvent.click(screen.getByText('By status'))
-    expect(screen.getByDisplayValue('Status')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save current view' }))
-    fireEvent.change(screen.getByPlaceholderText('View name...'), { target: { value: 'Mine' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    const saved = JSON.parse(localStorage.getItem(p.key))
-    expect(saved.map((v) => v.name)).toEqual(['By status', 'Mine'])
-    expect(saved[1]).toMatchObject({ groupBy: 'status', viewMode: 'table' })
+    expect(localStorage.getItem(p.key)).toBeNull()
+    // CONTROL: the other entity's key stays until its own page loads.
     expect(JSON.parse(localStorage.getItem(p.otherKey)).map((v) => v.name)).toEqual(['Theirs'])
+    const views = screen.getByRole('button', { name: 'Views: All' })
+    expect(views.getAttribute('data-table')).toBe(p.nouns)
+    expect(screen.queryByRole('button', { name: 'Views' })).toBeNull()
   })
 
   it('deleting a row asks first (the ConfirmDialog), then calls its own delete method', async () => {
@@ -348,6 +392,8 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     or a state (the rows' status spine and every hex went with R4-05). */
 const onlyWidths = (root) => [...root.querySelectorAll('[style]')]
   .filter((el) => !(el.tagName === 'TH' && /^width: var\(--rb-ent-[a-z]+\);$/.test(el.getAttribute('style'))))
+  // VW1e (§4.10): the wrap's fixed sum from the columns on screen, a geometry.
+  .filter((el) => !(el.classList.contains('rb-ent-table-wrap') && /^--rb-ent-fixed: calc\([^;]*\);$/.test(el.getAttribute('style'))))
   .map((el) => `${el.tagName} ${el.getAttribute('style')}`)
 
 /** A kit Dialog raised into <body>, outside the page's own tree. */
@@ -377,7 +423,9 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     expect([filter.getAttribute('data-active'), filter.getAttribute('aria-expanded')]).toEqual(['false', 'false'])
     fireEvent.click(filter)
     fireEvent.click(screen.getByRole('button', { name: 'Add filter' }))
-    expect([filter.getAttribute('data-active'), filter.getAttribute('aria-expanded')]).toEqual(['true', 'true'])
+    // VW1e (defect 1, Q21): a new row has no value yet, so it filters
+    // nothing and Filter is not marked doing something.
+    expect([filter.getAttribute('data-active'), filter.getAttribute('aria-expanded')]).toEqual(['false', 'true'])
     const sort = within(toolbar).getByRole('combobox', { name: 'Sort' })
     expect(sort.getAttribute('data-active')).toBe('false')
     fireEvent.change(sort, { target: { value: 'name' } })
@@ -420,9 +468,13 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
 
   it('every icon-only control is named — the sort direction for what a click does, each checkbox for its row, each card\'s delete for its card', () => {
     mount(p.View)
+    // VW1e: the direction is the view's first sort's, so the button shows
+    // with a sort (as on Assets and Tasks).
+    expect(screen.queryByRole('button', { name: 'Sorted ascending — reverse' })).toBeNull()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
     const reverse = screen.getByRole('button', { name: 'Sorted ascending — reverse' })
     fireEvent.click(reverse)
-    expect(reverse.getAttribute('title')).toBe('Sorted descending — reverse')
+    expect(screen.getByRole('button', { name: 'Sorted descending — reverse' })).toBeTruthy()
     expect(screen.getByRole('button', { name: `Select every ${p.noun}` })).toBeTruthy()
     for (const n of p.names) expect(screen.getByRole('button', { name: `Select ${n}` })).toBeTruthy()
     // FX8: a row's buttons are named for their row — Open (the page icon,
@@ -923,7 +975,7 @@ describe('Levels and Experiences are one component', () => {
       rabbit.current = {
         project: { id: 'p1', name: 'Salt Hours', levels_enabled: true, experiences_enabled: true },
         levels: rows(), experiences: rows(),
-        assets: [{ id: 'a1', level_id: 'r1', experience_id: 'r1' }],
+        assets: [{ id: 'a1', level_ids: ['r1'], experience_ids: ['r1'] }],
         tasks: [{ id: 't1', level_id: 'r2', experience_id: 'r2' }],
         phases: [], teamAssignments: [],
       }

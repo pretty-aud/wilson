@@ -29,6 +29,7 @@ import {
   arrayValues, scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset,
   specificity, gt, winningInsets, classReach,
 } from '../rabbitCssGuards.js'
+import { sceneTableMin as viewTableMin, scenesTableColumns } from './tableViews/scenesTableView.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
@@ -127,13 +128,23 @@ const FILES = {
     components): the class checks above have nothing to read in them, so
     they get the leak checks alone (section 7e). S3c's three-answer question
     (step 4) is one. */
-const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/MenuButton.jsx', './scenes/AnswerDialog.jsx']
+const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/AnswerDialog.jsx']
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. The file
     writes none: every size is the sheet's, keyed on `data-thumb` (the
     tables) and `data-card` (the galleries); the popups' 896px is the kit
     Dialog's `width`, a prop (the kit writes it). */
-const STYLES = {}
+// VW1e (2026-10-25; the design's §4.10, step 0 finding 8): each table's
+// least width from the columns on screen, set on its wrap — exactly these
+// custom properties, from one pure function each (sceneTableMin, nestMin in
+// views/tableViews/scenesTableView.js), never a state. Until VW1e the file
+// wrote no style at all.
+const STYLES = {
+  scenes: [
+    "{{ '--rb-scene-min': widths.min, '--rb-scene-nest-min': nestWidth }}",
+    "{{ '--rb-scene-min': widths.min }}",
+  ],
+}
 
 /** A source with the named top-level functions taken out. A function starts
     at a column-0 `function NAME(` or `export default function NAME(` and runs
@@ -219,7 +230,9 @@ describe('a staged function is read out of the guards, and only a staged one', (
   it('every function surfaces 6a, 6b and 6c restyled is still read, and nothing is staged', () => {
     for (const name of [
       'ScenesView', 'BigTile', 'SceneTable', 'ShotTable', 'ConfirmDialog', 'SceneBulkSelect', 'InlineText',
-      'SceneGallery', 'ShotGallery', 'SceneFilterPanel', 'SceneSavedViewsDropdown',
+      // VW1e: SceneFilterPanel and SceneSavedViewsDropdown are gone (the shared
+      // filter row and the Views dropdown replace them).
+      'SceneGallery', 'ShotGallery',
       'SceneDetailPopup', 'ShotDetailPopup', 'PopupInlineText', 'FieldLabel',
     ]) {
       expect(source.scenes, name).toMatch(new RegExp(`^(?:export default )?function ${name}\\(`, 'm'))
@@ -625,7 +638,10 @@ describe('R1-03: the nested shots end inside the window they did', () => {
   // the 192px the name always had, and the 112px column is gone. The scene
   // table's fixed columns and its description's floor must still fit 1280
   // inside the gutters, or the table scrolls sideways there.
-  const sceneTableMin = () => rulesOf(sheet).find(({ sel }) => sel === '.ui-table.rb-scene-table-scenes').body.match(/min-width:\s*([^;]+);/)[1]
+  // VW1e: the sum is the description's for every column and leading column
+  // (the sheet's static sum went: each table sets its own from the columns
+  // on screen).
+  const sceneTableMin = () => viewTableMin(scenesTableColumns({ takes: true }), new Set(['expand', 'thumbnail', 'scene_number'])).min
   it('FX8: the name column is the 192px the name had plus its three buttons, there is no actions column, and the scene table, its description at its floor, fits a 1280px window inside the two gutters', () => {
     expect(own['--rb-scene-col-acts']).toBeUndefined()
     expect(sheet).not.toMatch(/--rb-scene-col-acts/)

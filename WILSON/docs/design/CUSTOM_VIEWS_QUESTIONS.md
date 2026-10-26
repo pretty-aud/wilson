@@ -616,6 +616,590 @@ each with its choices, the recommended one first, and the **interim choice**
 a build session uses until she answers. Ask them four at a time, as above,
 and record her answers here, verbatim, under "Her answers, batch 9" and on.
 
+### Her answers, batch 9 (asked as a numbered list 1–12 in VW1's close-out of 2026-10-13; answered by number in the chat on 2026-10-16; recorded verbatim)
+
+| # | Question (design §10) | Her answer |
+|---|---|---|
+| 1 | Q-A, room for the view's name on the Tasks toolbar | "can we try make more room in the toolbar for the views name. if its the button lets just make it longer. what did you mean by a dot?" |
+| 2 | Q-B, Scenes and Shots on two lines at 1440 | "keep" |
+| 3 | Q-C, the Tasks tab's two groupings | "keep" |
+| 4 | Q-D, dragging a task onto another item's group | "what main item?" |
+| 5 | Q-E, fields on cards | "yes. allow the user to select what shows in the cards" |
+| 6 | Q-F, reviewers and the editing controls | "hidden" |
+| 7 | Q-G1, a *New view* saved at once, starting as *All* | "yes" |
+| 8 | Q-G2, the item columns after Priority at 150px | "yes" |
+| 9 | Q-G3, *Save* over a teammate's newer save | "go with your pick" |
+| 10 | Q-H, switching views with a change for now | "dont ask" |
+| 11 | Q-I, empty groups when a table is first grouped | "go with your pick" |
+| 12 | Q-J, the pictures and numbers in front of the name | "what are you asking? elaborate" |
+
+### What follows from batch 9 (say if any is wrong)
+
+- **Scenes and Shots** keep their search box and count on a second line at
+  1440 once the Views button names the view (Q-B).
+- **The Tasks tab keeps two groupings**: the table's and the Board's
+  columns, each with its own *Hide empty groups* switch (Q-C).
+- **A view's fields also choose what shows on cards** (Q-E): on the Board,
+  in the Gallery and on the Scenes table's nested shot rows, the Fields card
+  is where you pick which lines a card shows, in the view's order.
+- **A seat that cannot write does not see** *New view*, the move buttons,
+  the handles or the *…* menus (Q-F); the bar shows it *Reset* only.
+- **A *New view* is saved for everyone at once, starting as *All*** (Q-G1);
+  **the item columns sit after Priority, 150px each** (Q-G2); ***Save* over a
+  teammate's newer save asks first** (Q-G3).
+- **Switching views drops a change for now without asking** (Q-H): the
+  table shows the chosen view as it is saved.
+- **Empty groups start as today** (Q-I): in tables only the Tasks Status
+  grouping shows its empty groups, and the Board shows every column; the
+  switch changes it per view.
+- **Q-A, Q-D and Q-J are explained and asked again** (batch 10, below).
+
+---
+
+## Batch 10 — three of batch 9 explained, and asked again
+
+**Q-A1. How do we make room for the view's name on the Tasks toolbar?**
+(Her words: "can we try make more room in the toolbar for the views name.
+if its the button lets just make it longer.") Measured at 1440: the Tasks
+toolbar has about 42px to spare, so making the Views button longer needs
+room taken from somewhere, or a second line.
+- **"Deleted key dates" becomes an icon** *(Recommended)*: today it is a
+  156px text button; as an icon (its name on hover) it frees about 128px, so
+  the Views button can be about 250px: about 17 letters of the view's name
+  plus *edited*, on one line. (It opens the bin of deleted key dates.)
+- **Phase, Key date and New task become one *New* button with a menu**
+  (Task, Phase, Key date): frees about 196px, but making a phase or a key
+  date takes one more click.
+- **The toolbar takes two lines at 1440**, as it already does at 1280: the
+  name gets 20 letters or more and nothing else changes.
+
+**Q-A2. How does the button show that the view has unsaved changes?** ("A
+dot", her question: instead of the word *edited* after the view's name, a
+small orange dot ● after the name means "this view has changes you have
+not saved"; the bar under the toolbar says it in words either way.)
+- **The word *edited*** *(Recommended)*: "Shoot week · edited"; with Q-A1's
+  room it fits, and a word needs no learning.
+- **A dot**: "Shoot week ●"; about five more letters of the name.
+
+**Q-D. Dragging a task onto another asset's group** (her question: "what
+main item?"). Since FX2 a task can be linked to several assets (and scenes,
+shots, levels, experiences). The first one in its list is its **main**
+asset: the task's window marks it *Main*, and you change which one is main
+by reordering there. The Timeline and the Budget place the task under its
+main asset only (its bar and its days count once, there), and so does the
+Tasks table when you group it by asset (your Q11a). So when the Tasks table
+is grouped by asset and you drag a task from one asset's group to another's:
+- **The new asset is added as the main one** *(Recommended)*: the task
+  keeps its other assets; nothing is lost. A task about *Lighthouse
+  Interior* and *Storm Lantern* dropped on *Mara*'s group becomes about
+  *Mara* (main), *Lighthouse Interior* and *Storm Lantern*.
+- **The new asset replaces the main one** (what dragging does today): the
+  old main asset comes off the task. The same task becomes about *Mara*
+  (main) and *Storm Lantern*.
+- **No dragging between these groups.**
+The same for scene, shot, level and experience groups.
+
+**Q-J. The columns in front of the name** (her question: "what are you
+asking? elaborate"). In three tables some columns sit to the left of the
+item's name: in **Assets** the picture; in **Scenes** the arrow that opens
+a scene's shots, the picture and the scene number; in **Shots** the picture
+and the shot number. A view lets you hide columns and change their order,
+and the name always comes first among them, because it is the column that
+stays in place when a wide table scrolls sideways (your Q6a). What happens
+to the columns in front of it?
+- **They stay in front of the name** *(Recommended)*: a view can hide them
+  (a Scenes view without pictures, say) but not move them; tables look as
+  they do today.
+- **They become ordinary columns after the name**: the name is the first
+  column (after the tick box), and you can place the picture or the number
+  anywhere after it.
+
+### Her answers, batch 10 (2026-10-16; asked in chat as multiple choice, Q-A1, Q-A2, Q-D and Q-J with pictures; recorded verbatim)
+
+- **Q-A1:** "One 'New' button with a menu"
+- **Q-A2:** "add a button that only appears when their is edits made. the button should say "save view". if the view has no edits made just hide the button overall"
+- **Q-D:** "no what i want is make a group for the assets grouped together. example: so asset A, Asset B, Asset C if they have the a shared task. there should be a group called  Asset A, Asset B, Asset C. so dragging is just moving it around. when in grouping. create a button called create grouping. so if the user wants to create a grouping give them a button that allows them to do this with a window with boolean check boxes for each item.
+
+  same for scene, shot, level and experience groups."
+- **Q-J:** "Stay in front (Recommended)"
+
+### What follows from batch 10 (say if any is wrong)
+
+- **The Tasks toolbar's Phase, Key date and New task become one *New*
+  button with a menu** (Task, Phase, Key date) (Q-A1); the room it frees
+  (about 196px) goes to a longer Views button and to Q-A2's *Save view*
+  button.
+- **Unsaved changes show as a *Save view* button** that appears only while
+  the view has edits and is hidden otherwise (Q-A2): no *edited* word and no
+  dot on the Views button. How it fits with the bar under the toolbar is
+  batch 11's first question.
+- **Grouping the Tasks table by Asset (or Scene, Shot, Level, Experience)
+  makes one group per combination of items** (Q-D): a task linked to Asset
+  A, Asset B and Asset C sits in the group "Asset A, Asset B, Asset C"; a
+  task linked to Asset A alone sits in "Asset A". This replaces "once, under
+  its main one" (her Q11a) for the Tasks table and the Board; the Timeline
+  and the Budget still place a task under its main item (FX2's rule), as
+  they do today. Dragging moves a task between groups. A *Create grouping*
+  button opens a window with a check box for each item, to make a group for
+  a combination. Batch 11 asks the details.
+- **The columns in front of the name stay in front** (Q-J): Assets'
+  picture; Scenes' expand arrow, picture and number; Shots' picture and
+  number. A view can hide them but not move them.
+
+---
+
+## Batch 11 — the *Save view* button and the combination groups
+
+**Q-A3. The *Save view* button and the bar under the toolbar** (her Q3c
+chose a bar with *Reset*, *Save as new view* and *Save*; her Q-A2 asks for a
+*Save view* button that appears only with edits).
+- **The button does the saving; the bar only gives news** *(Recommended)*:
+  while there are edits, *Save view* appears right after the Views button;
+  clicking it saves the change into the view for everyone; its small arrow
+  offers *Save as new view* and *Reset changes* (on *All*, which cannot
+  change, the button reads *Save as new view*). The slim bar under the
+  toolbar appears only with news: a teammate changed or deleted the view, or
+  a save failed. A reviewer sees *Reset changes* in the button's place (they
+  cannot save, her Q3a).
+- **Both, as chosen before plus the button**: the *Save view* button and the
+  bar with its words and *Reset*, *Save as new view*, *Save*.
+- **The button only, no bar**: the news (a teammate's change, a failed save)
+  shows as a short message that fades.
+
+*Why my pick:* one place to save, beside the view's name (law of
+proximity), and the bar's words only when something happened that you need
+to know.
+
+**Q-D1. Dragging a task into another group** (grouped by asset).
+- **Its assets become the group's** *(Recommended)*: dragging a task into
+  the group "Asset A, Asset B, Asset C" makes A, B and C its assets (any
+  others come off; Undo puts them back); dragging it into "No asset" takes
+  them all off. Its main asset becomes the first of the group's.
+- **The group's assets are added**: the task keeps its other assets too, so
+  it lands in the group of its new, larger combination (not always where you
+  dropped it).
+- **No dragging between these groups.**
+
+**Q-D2. A grouping made with *Create grouping*** (a group for a combination
+no task has yet, to drag tasks into).
+- **Part of the view** *(Recommended)*: it belongs to the view's grouping
+  like a filter: kept for everyone when you save the view, gone if you
+  reset; it shows even while empty, so you can drag tasks into it.
+- **Only for the moment**: it lasts while WILSON is open; once a task is in
+  it, it shows like any other group.
+- **Saved for the project**: every view grouped by that kind shows it.
+
+**Q-D3. Where the *Create grouping* button sits** (only while the table is
+grouped by Asset, Scene, Shot, Level or Experience).
+- **After the last group** *(Recommended)*: a "+ Create grouping" row at the
+  end of the groups, where the eye finishes reading them; on the Board, at
+  the end of the columns.
+- **In the toolbar**, beside the Group dropdown.
+- **In the Group card** of the Views dropdown.
+
+### Her answers, batch 11 (2026-10-16; asked in chat as multiple choice, Q-A3, Q-D1 and Q-D3 with pictures; recorded verbatim)
+
+- **Q-A3:** "sorry i forgot we added the bar that appears. just to confirm that bar with those three buttons should only appear on a view that has unsaved edits"
+- **Q-D1:** "option 1 but what do you mean by main one about the asset?"
+- **Q-D2:** "Saved for the project"
+- **Q-D3:** "In the toolbar"
+
+### What follows from batch 11 (say if any is wrong)
+
+- **Confirmed: the bar under the toolbar, with *Reset*, *Save as new view*
+  and *Save*, appears only while the view on screen has unsaved edits**, and
+  is gone otherwise (Q3c, Q-A3). It is the *Save view* button her Q-A2 asked
+  for: there is no separate *Save view* button, and the Views button shows
+  only the view's name (no *edited* word, no dot). The room Q-A1's *New*
+  menu frees goes to the Views button's name and to Q-D3's *Create
+  grouping* button.
+- **Dragging a task into a combination group makes that group's items the
+  task's items** (Q-D1): any others come off (the undo toast puts them
+  back); dragging it into "No asset" takes them all off. Which item becomes
+  its main one is batch 12's first question.
+- **A combination is the set of items, in no order**: "Lighthouse Interior,
+  Storm Lantern" is one group whichever of the two is main; its name lists
+  the items A to Z.
+- **A grouping made with *Create grouping* is saved for the project**
+  (Q-D2): every view of the Tasks table grouped by that kind shows it, even
+  while empty, for everyone. Like views (her Q2), it is created by anyone who
+  can edit the project; reviewers do not see *Create grouping* (Q-F).
+- ***Create grouping* sits in the toolbar** beside the Group dropdown (Q-D3),
+  shown only while the table is grouped by Asset, Scene, Shot, Level or
+  Experience; it opens a window with a check box for each item of that kind
+  (with a search box) and a name made from the ticked items.
+
+---
+
+## Batch 12 — the main item after a drag, and removing a grouping
+
+**What "main" means** (her question, twice: "what do you mean by main one
+about the asset?"). When a task has several assets, a few places can show
+the task only once: the Timeline grouped by asset puts each task's bar in one
+row, and the Budget's *By asset* tab counts a task's days and money under one
+asset (counting them under every asset would add the money twice). For those
+places WILSON uses one asset per task, its **main** asset: the first in the
+task's list (the task's window marks it *Main*, and you change it by moving
+another asset to the top there). With the combination groups, the Tasks
+table no longer uses it; the Timeline and the Budget still do.
+
+**Q-D4. After a drag changes a task's assets, which is its main asset?**
+- **Keep the old main one if it is still there** *(Recommended)*: if the
+  task's main asset is in the new group, it stays main (the Timeline and
+  the Budget do not move the task); otherwise the group's first (A to Z)
+  becomes main.
+- **Always the group's first** (A to Z).
+
+**Q-D5. Removing a grouping made with *Create grouping*.**
+- **From the group's own menu** *(Recommended)*: the group's header has a
+  *…* with *Remove grouping* (it asks first). Tasks keep their items; a
+  group that still holds tasks stays, as any combination with tasks does.
+- **It goes by itself** when it is empty and nobody has dragged a task into
+  it for the visit.
+- **It cannot be removed.**
+
+### Her answers, batch 12 (2026-10-16; asked in chat as multiple choice, Q-D4 with pictures; recorded verbatim)
+
+- **Q-D4:** "lets not have main asset be a thing. thats not needed and i dont like. instead lets do the same as the grouping option. make the grouping a group in the timeline as well. do not add a new group button in timeline view though. creating of a grouping should only be in the other tabs (assets, tasks, levels, etc.)"
+- **Q-D5:** "From the group's menu (Recommended)"
+
+### What follows from batch 12 (say if any is wrong)
+
+- **There is no main asset (or main scene, shot, level, experience) any
+  more, anywhere she sees it.** A task's items are its items, with no first
+  one that counts for more. This reverses FX2's "main item" (her FX2 brief
+  never ruled on it; FX2's question 7 was still open).
+- **The Timeline groups the same way as the Tasks table**: grouped by asset
+  (or scene, shot, level, experience), a task's bar sits in the row of its
+  combination ("Lighthouse Interior, Storm Lantern"); the project's saved
+  groupings (Q-D2) show there as rows too. **The Timeline has no *Create
+  grouping* button**; groupings are created only in the other tabs.
+- **A grouping made with *Create grouping* is removed from its group's
+  *…* menu** (*Remove grouping*, which asks first); tasks keep their items,
+  and a group that still holds tasks stays, as any combination with tasks
+  does (Q-D5).
+- **Taking "main" out reaches past the views.** Today the main item also
+  decides: where a task's days and money count in the Budget's *By asset*,
+  *By scene* and *By shot* tabs; what deleting an asset does (the tasks whose
+  main asset it is are deleted with it, migration 0034's rule); which files
+  the task's window shows under its Items table; what a bid version
+  remembers; the asset the Dashboard's task window shows; and the database
+  keeps each task's main asset, scene and shot in its own columns, kept in
+  step by migration 0096's triggers. Batch 13 asks the decisions that change
+  what she sees, and when the work happens.
+
+---
+
+## Batch 13 — taking out the main item: the Budget, deleting, which tabs, and when
+
+**Q-M1. The Budget's *By asset* tab** (and *By scene*, *By shot*): with no
+main asset, how does it count a task that has several assets?
+- **Under its combination** *(Recommended)*: one row per combination, like
+  the grouping: "Lighthouse Interior, Storm Lantern" is a row holding that
+  task's days and money; every row adds up to the project's total.
+- **Split between its assets**: half its days and money to each of two
+  assets, a third to each of three; the totals add up, but rows show
+  fractions of a day.
+- **Under each asset**: the task's days and money appear under every one of
+  its assets; the rows add up to more than the project's total.
+
+**Q-M2. Deleting an asset that tasks are linked to.** Today the tasks whose
+main asset it is are deleted with it. With no main asset:
+- **The tasks stay** *(Recommended)*: the asset comes off its tasks; they
+  keep their other assets, or none.
+- **A task goes only if it was its one asset**: a task linked to that asset
+  alone is deleted with it; the others lose it and stay.
+- **Ask each time**: the delete question lists the tasks and lets you choose.
+
+**Q-M3. Which tables get combination groups and *Create grouping*?** (Her
+words: "creating of a grouping should only be in the other tabs (assets,
+tasks, levels, etc.)".)
+- **The Tasks table** *(Recommended)*: grouped by asset, scene, shot, level or
+  experience, with *Create grouping*; the Timeline shows the same groups;
+  the other tables keep grouping by their own fields (type, phase, status).
+- **Tasks and Assets**: Assets also groups by the scenes, shots, levels and
+  experiences an asset is in, with combination groups and *Create grouping*.
+- **Tasks, Assets, Levels and Experiences**: Levels and Experiences also
+  group by their assets.
+
+**Q-M4. When does taking out the main item happen?** It touches the
+Timeline (the file the plan calls unsafe to edit), the Budget, deleting, the
+task window, bid versions and the database (a migration).
+- **Its own session first** *(Recommended)*: one session takes the main item
+  out everywhere, with its own measured list of every place it is read (as
+  FX2 had) and the questions that list raises, before the views are built,
+  because the Tasks table's columns and grouping stand on it.
+- **Inside the next session**, with the Tasks table's item columns.
+- **After the views**: the views come first, with combination groups in the
+  Tasks table only; the rest of "main" goes later.
+
+### Her answers, batch 13 (2026-10-16; asked in chat as multiple choice, Q-M1 with pictures; recorded verbatim)
+
+- **Q-M1:** "Split between its assets"
+- **Q-M2:** "The tasks stay (Recommended)"
+- **Q-M3:** "Tasks, Assets, Levels, Exp."
+- **Q-M4:** "Its own session first (Recommended)"
+
+### What follows from batch 13 (say if any is wrong)
+
+- **The Budget's *By asset*, *By scene* and *By shot* views split a task's
+  days and money evenly between its items** (half each for two, a third
+  each for three); the totals add up, and rows can show fractions of a day.
+- **Deleting an asset never deletes a task**: the asset comes off the tasks
+  linked to it, which keep their other items, or none.
+- **Combination groups and *Create grouping* come to four tables**: the
+  Tasks table (grouped by asset, scene, shot, level or experience), Assets
+  (grouped by the scenes, shots, levels or experiences an asset is in),
+  Levels and Experiences (grouped by their assets). The Timeline shows the
+  Tasks table's combination groups, with no *Create grouping* there.
+- **On the cloud, assets carry no level or experience links today** (the
+  cloud adapter drops them), so Levels and Experiences could not group by
+  asset there. Her standing rule (A9: the same on the cloud or a NAS) means
+  the cloud gains those links, in the session that builds that grouping.
+- **Taking out the main item is its own session, before the views are
+  built** (VW1m, `docs/sessions/briefs/po-vw1m-no-main-item.md`): every place
+  "main" is read, measured first as FX2 did, the questions that list raises
+  (the task window's Items table without *Main*, the files under it, what a
+  bid version keeps, the Dashboard's task window, the Timeline's rows), the
+  database change, the Timeline's combination rows, the Budget's split, the
+  delete rule. Then VW1b builds the Tasks table's columns and combination
+  groups on it.
+
+**Every question this session can ask is answered (2026-10-16).** The
+design (`CUSTOM_VIEWS_DESIGN.md`) carries batches 9–13; the questions about
+taking out the main item that need the measured list first are VW1m's own.
+
+---
+
+## Batch 14 onward — taking out the main item (VW1m, 2026-10-16)
+
+VW1m measured every place WILSON reads a task's main item first (289
+places; the hand-off `docs/sessions/handoffs/po-vw1m-2026-10-16.md`, item
+1). Most of them her answers of batches 12 and 13 already decide. These are
+the ones they do not reach, in plain words, asked four at a time.
+
+## Batch 14 — the task's window: its items, its files, an asset in the trash
+
+**Q-N1. The order of a task's items in its window, and *Move up* / *Move
+down*.** Today each kind lists its items in the order you put them, and the
+two buttons exist to choose which one is *main* (the first). With no main,
+the order changes nothing anywhere else.
+- **A fixed order, no *Move* buttons** *(Recommended)*: each kind lists its
+  items A to Z (scenes and shots by their number), the same order the group
+  names use ("Lighthouse Interior, Storm Lantern") and the Tasks table's
+  cells will use; each row keeps only *Remove*.
+- **Your own order, the buttons kept**: *Move up* / *Move down* only arrange
+  this list (and the cell's order); group names still read A to Z.
+- **The order they were added**, no buttons.
+
+*Why my pick:* the same task reads the same way in its window, its cell and
+its group, and every row loses two buttons that no longer do anything you
+can see (Hick's law).
+
+**Q-N2. The files under the Items table.** Today the left column shows the
+files of the task's first asset only (and of its first shot or scene, which
+is broken: it lists none of the shot's files).
+- **A Files section for each item** *(Recommended)*: one folding section per
+  asset, scene, shot, level and experience the task is about, each listing
+  that item's files; the first open, the others closed.
+- **One *Task files* section**: only the files added from this task's
+  window, whichever item they belong to.
+- **Assets only**: a section per asset; scenes, shots, levels and
+  experiences show no files here.
+
+**Q-N3. Where a file added in the task's window is filed.** Today: in the
+first asset's folder (`ASSETS/<asset>`), named after the task.
+- **The folder of the section you add it in** *(Recommended)*: added in the
+  *Storm Lantern* section, it is filed under `ASSETS/Storm Lantern`, named
+  after the task, as today. If that asset is deleted later, the file goes to
+  the trash with its folder, as today.
+- **A folder of the task's own**: a new `TASKS/<task>` folder (a new
+  category in the Files tab); the file stays when an asset is deleted.
+- **A copy in every item's folder.**
+
+**Q-N4. A task whose asset is in the trash.** Deleting an asset puts it in
+the trash for 30 days on the cloud (on the computer it is removed at once,
+with Undo). Today a task whose first asset is in the trash disappears with
+it. By your ruling the task now stays; what does it show for the asset in
+the trash? (The same for a scene, shot, level or experience in the trash.)
+- **Hidden while it is in the trash, back on restore** *(Recommended)*: the
+  task shows its other items (or sits under *No asset*); the Timeline, the
+  groups and the Budget's split leave the trashed asset out; restoring the
+  asset puts it back on its tasks; emptying the trash takes it off for good.
+  The cloud and the computer then look the same.
+- **Shown in the task's window, marked *In the trash***: greyed in the
+  Items table; the Timeline, the groups and the split still leave it out.
+- **Taken off its tasks at once, for good**: restoring the asset does not
+  put it back.
+
+### Her answers, batch 14 (2026-10-16; asked in chat as multiple choice, Q-N1 and Q-N2 with pictures; recorded verbatim)
+
+- **Q-N1:** "allow user to sort select order by date of creation/upload, alphabetical, type"
+- **Q-N2:** "A section per item (Recommended)"
+- **Q-N3:** "Folder of its section (Recommended)"
+- **Q-N4:** "Hidden, back on restore (Recommended)"
+
+Then, before batch 15 could be asked: *"i am going to bed continue
+working"*. Batches 15 and 16 below are prepared and not yet asked; each has
+an **interim choice** the build uses until she answers, chosen to be the
+cheapest to change and never a database change her answer could take back.
+
+### What follows from batch 14 (say if any is wrong)
+
+- **No *Move up* / *Move down*.** The task's window gets a *Sort* choice for
+  its Items: by **date**, **A to Z**, or by **type** (Q-N1). What "date" and
+  "type" mean is batch 15's Q-N1a and Q-N1b; until then (interim) *date* is
+  when the item was added to the task, *type* keeps today's sections by kind
+  (assets, then scenes, shots, levels, experiences; A to Z inside each), and
+  *type* is where the window starts. Group names still read A to Z (her
+  batch 11). The choice is remembered for you on that computer.
+- **A Files section for each item** (Q-N2): one folding section per asset,
+  scene, shot, level and experience the task is about, the first open; the
+  shot's and scene's sections show their own files (they were broken).
+- **A file added in a section is filed in that item's folder** (Q-N3),
+  named after the task, as today.
+- **An item in the trash is hidden from its tasks and comes back on
+  restore** (Q-N4): the task's window, the Timeline, the groups and the
+  Budget's split leave it out; emptying the trash takes it off for good.
+- **Already decided from her rulings, written in the chat before batch 14**
+  (she did not object before bed; say if any is wrong): the Timeline's single
+  rows stay as today and the combination rows follow them, *No …* last;
+  dragging a bar onto a row gives the task that row's items; a new task made
+  from a row starts with its items and phase (fixing today's first-asset
+  default); the Tasks table and the Board group by combination now; the
+  Budget splits By level and By experience too, gains a *No asset* row, and
+  its rows add exactly to the total; a task's phase is its own everywhere;
+  deleting an asset says *Its tasks stay.*; *Asset is X* means the task has
+  X; an older build that writes one asset adds it, never removes one.
+
+## Batch 15 — your sort, and the editors that set one asset (Q-N1a and Q-N1b asked by the controller in chat on 2026-10-17 as multiple choice; answered)
+
+**Her answers, 2026-10-17 (verbatim):**
+- **Q-N1a (which date):** "The item's own creation date" — NOT the interim (added to the task). VW1b changes `sortItemsForDisplay` (`taskItemsModel.js`): by date = when the asset, scene, shot, level or experience itself was created.
+- **Q-N1b (which type):** "The asset's own type" — NOT the interim (by kind). VW1b: by type = the asset's own type (character, prop, environment…) for assets; the kind for the other item kinds.
+- **Q-N5 (the Asset cell)** was not asked: VW1b replaces the cell with the item columns, and her 2026-10-13 answer ("shows all or none") already rules it.
+
+**Q-N1a. Sorting a task's items "by date": which date?**
+- **When the item was added to this task** *(Recommended; interim)*: the
+  newest link last.
+- **When the item itself was made in the project** (the asset's, scene's or
+  shot's own creation date).
+
+**Q-N1b. Sorting a task's items "by type": which type?**
+- **By kind** *(Recommended; interim)*: assets, then scenes, shots, levels,
+  experiences, each kind its own section, as the window shows today.
+- **By the asset's own type** (Character, Prop, Environment, …), with
+  scenes, shots, levels and experiences after the assets.
+
+**Q-N5. The editors that set one asset** (until VW1b's tick-list cell):
+the Tasks table's *Asset* cell, and the one-of-each pickers of *New task*,
+the Timeline's new-task window and the scene, shot, level and experience
+windows' *New task*.
+- **The cell shows every asset by name; a click opens the task's window at
+  its Items; the *New task* forms keep one of each kind** *(Recommended;
+  interim)*: more are added in the task's window. A task made from a
+  combination row or group carries all of its items.
+- **The cell is a one-asset choice that makes that asset the task's only
+  asset** (the others come off; Undo puts them back).
+- **The cell adds the chosen asset** to the task's others.
+
+**Q-N6. The Dashboard (your tasks across projects).** Its *Asset* column,
+its cards and its read-only task window show one asset, the first.
+- **Every asset, "A, B"**, and the window lists all of the task's items
+  *(Recommended; interim)*.
+- **No asset column** on the Dashboard.
+
+## Batch 16 — bid versions and the history (Q-N7 and Q-N8 asked by the controller in chat on 2026-10-17 as multiple choice; answered)
+
+**Her answers, 2026-10-17 (verbatim):**
+- **Q-N7 (a bid version):** "Keep every item (Recommended)" — the interim, built; nothing changes.
+- **Q-N8 (item history):** "No item history (Recommended)" — the interim, built; no migration.
+- **Q-N6 (the Dashboard names every asset)** was not asked; the interim (yes) stands unless she says otherwise.
+
+**Q-N7. What a bid version keeps about a task's items.** Today it keeps the
+first asset, scene, shot, level and experience only; opening it swaps the
+task's first asset, and adding a second asset is not an unsaved change.
+- **Every item of every kind** *(Recommended; interim)*: any item added or
+  removed is an unsaved change; opening a version gives each task exactly
+  the version's items; opening an older version (saved before this change)
+  puts its saved item back where the task lost it and removes nothing.
+- **No items at all**: versions keep the schedule and the money; a task's
+  items are never part of a bid.
+
+**Q-N8. A task's history of its items.** Today the history drawer shows
+*asset_id: <id> → <id>* only when the first asset changed, and *Revert*
+swapped the first asset back.
+- **Record each item added and removed, in words** ("Added asset Storm
+  Lantern") *(Recommended)*: a database change.
+- **No history of items** *(interim)*: a task's asset, scene and shot
+  lines leave its history drawer (they only ever recorded the first item
+  changing, which means nothing now); nothing new is shown.
+
+*Interim for Q-N8 is the second choice only because the first is a database
+change. Review round 1 (2026-10-16) found that the database still writes
+the older apps' copy of a task's first asset, scene and shot, and the
+drawer read each change of it as a swap that never happened ("Asset:
+Lighthouse → Lantern"); so those lines are hidden, old and new, until her
+answer.*
+
+---
+
+## Batch 17 — the Views button's width, the Board's card fields, the order inside a cell (walkthrough 72 part 3's two questions and part 1's first, asked by the controller in chat on 2026-10-25 as multiple choice; answered)
+
+**Her answers, 2026-10-25 (verbatim):**
+- **Q-P1 (the Views button's width):** "Narrower, 136px (Recommended)" — VW1e makes the button 136px on EVERY table, the Tasks table's included (VW1d shipped 160px; §4.10's 180px for Assets, Levels and Experiences and the Scenes bookmark's 180px are superseded): about 12 letters of the view's name, an ellipsis after, the full name in the dropdown and on hover.
+- **Q-P2 (the Board's card fields):** "One list for both (Recommended)" — one Fields card per view; hiding a field on the Board's cards hides its column in that view's table too; a Board with fewer fields and a table with more are two saved views. VW1d step 0's finding 6 stands; nothing changes.
+- **Q-P3 (the order inside a cell, walkthrough 72 part 1's question 1, open since VW1b):** "Keep the task's own order (Recommended)" — a cell lists a task's items as the task window's Sort gives them (her Q10) while the group names read A to Z; VW1e keeps the same rule on Assets, Levels, Experiences, Scenes and Shots.
+- **Walkthrough 72 part 1's question 2** (the 1440 width: keep *All* until the views let you hide columns?) was not asked: VW1d's Fields card now hides columns, which is what the recommended answer waited for.
+
+**Q-P1. The Views button's width.** 160px shows about 14 letters of a
+view's name and keeps the toolbar on one line at 1440 until a sort is
+chosen while grouped by an item; at 1280 one filter wraps it.
+- **Narrower, 136px** *(Recommended)*: about 12 letters; 1440 grouped and
+  sorted, and 1280 with a filter on, stay on one line.
+- **Keep 160px**: about 14 letters; the two cases above take two lines.
+
+**Q-P2. The Board's card fields.** A view has one list of fields.
+- **One list for both** *(Recommended)*: hiding Priority on the Board's
+  cards hides the Priority column when the same view is shown as a table.
+- **The Board keeps its own list**: a view carries the table's columns and
+  the Board's card fields apart.
+
+**Q-P3. The order inside a cell** when tasks are grouped by an item.
+- **Keep the task's own order** *(Recommended)*: the cell lists the items
+  as the task window's Sort gives them (Q10), so the table matches the
+  window.
+- **Always A to Z**, like the group names.
+
+---
+
+## Batch 18 — the Views button's glyph, the Shots toolbar at 1440 (walkthrough 72 part 4's two questions, asked by VW1e in chat on 2026-10-26 as multiple choice with a type-in; answered)
+
+**Her answers, 2026-10-26 (verbatim):**
+
+> 1. b
+> 2. b
+
+- **Q-Q1 (the Views button's name):** "b" — drop the bookmark glyph, so the same 136px shows
+  about twelve letters of the view's name before the ellipsis. Built by VW1e on every table
+  (`views/tableViews/TableViewsMenu.jsx`).
+- **Q-Q2 (the Shots toolbar at 1440):** "b" — move the *24 fps* readout out of the toolbar into
+  the page's head (R3-25's idea). Built by VW1e: the runtime tile's label says the rate it is
+  counted at, *Total runtime · 24 fps* (*Edit runtime · 24 fps* with an edit on screen); the
+  toolbar no longer holds it.
+
+**Q-Q1. The Views button's name.** At 136px it shows about nine or ten letters
+(*Lighthous…*), because the bookmark glyph and the arrow sit inside it.
+- **a)** Keep it as it is.
+- **b)** Drop the bookmark glyph, so the same 136px shows about twelve letters.
+
+**Q-Q2. The Shots toolbar takes two lines at 1440** (the count drops to a
+second line): the Views button is 108px wider than the bookmark was, and
+Shots' Group menu is wider than Scenes' (*Camera movement*).
+- **a)** Keep two lines.
+- **b)** Move the *24 fps* readout up into the header, which puts Shots on
+  one line at 1440.
+
 ---
 
 ## Not asked, because nothing you see depends on it

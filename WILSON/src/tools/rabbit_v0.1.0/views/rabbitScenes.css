@@ -169,10 +169,6 @@
   .rb-scene-size > .rb-scene-size-glyph[data-thumb="md"] { width: 13px; height: 13px; }
   .rb-scene-size > .rb-scene-size-glyph[data-thumb="lg"] { width: var(--icon-md); height: var(--icon-md); }
 
-  /* The FPS readout, where it always was: the kit Badge (it was orange words
-     on a #292524 chip). It does not give way when the row is tight. */
-  .ui-badge.rb-scene-fps { flex-shrink: 0; }
-
   /* Search: the glyph inside the field, the clear button at its end; as wide
      as the old field could be (240px) when the row has room, and the first
      to give way when it has not — down to 96px, so the count keeps the first
@@ -261,18 +257,6 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
   }
-
-  /* Save view: the same inline row under the toolbar, at the gutter, on the
-     kit's field and buttons (6b owns the saved-views menu it saves into). */
-  .rb-scene-save {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 8px;
-    padding: 8px var(--spacing-gutter);
-    border-bottom: 1px solid var(--color-rule);
-  }
-  .ui-input.rb-scene-save-input { width: 192px; }
 
   /* The bins notice: the kit Banner in the warning tone (amber words on the
      paper before). Its words keep to one line, as they did. */
@@ -390,6 +374,9 @@
        with the kit cell's 12px a side: a 120px well, the date's room 102,
        and Firefox cut the year under its calendar button in every row. */
     --rb-scene-col-date: 150px;
+    /* VW1e: the table's least width, set inline by the Scenes and Shots
+       tables from the columns on screen (below); none until they set it. */
+    --rb-scene-min: 0px;
     --rb-scene-nest-min: calc(var(--rb-scene-col-check) + var(--rb-scene-col-mark) + var(--rb-scene-col-nest-thumb)
       + var(--rb-scene-col-nest-num) + var(--rb-scene-col-nest-name) + var(--rb-scene-col-status)
       + var(--rb-scene-col-time) + var(--rb-scene-col-nest-type) + var(--rb-scene-col-nest-framing)
@@ -426,27 +413,26 @@
     scroll-padding-bottom: 4px;
   }
 
-  .ui-table.rb-scene-table-scenes {
-    min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-expand) + var(--rb-scene-col-thumb)
-      + var(--rb-scene-col-num) + var(--rb-scene-col-name) + var(--rb-scene-col-status) + var(--rb-scene-col-time)
-      + var(--rb-scene-col-type) + var(--rb-scene-col-desc) + var(--rb-scene-col-runtime)
-      + var(--rb-scene-col-frames));
-  }
-  .ui-table.rb-scene-table-shots {
-    min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-thumb) + var(--rb-scene-col-num)
-      + var(--rb-scene-col-name) + var(--rb-scene-col-status) + var(--rb-scene-col-time) + var(--rb-scene-col-type)
-      + var(--rb-scene-col-framing) + var(--rb-scene-col-move)
-      + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-date) * 2);
-  }
-  .ui-table.rb-scene-table-shots[data-takes="true"] {
-    min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-thumb) + var(--rb-scene-col-num)
-      + var(--rb-scene-col-name) + var(--rb-scene-col-takes) + var(--rb-scene-col-status)
-      + var(--rb-scene-col-time) + var(--rb-scene-col-type) + var(--rb-scene-col-framing)
-      + var(--rb-scene-col-move) + var(--rb-scene-col-runtime)
-      + var(--rb-scene-col-frames) + var(--rb-scene-col-date) * 2);
-  }
+  /* VW1e (the design's §4.10, step 0 finding 8): each table's least width
+     is the columns on screen's, set inline on its wrap (`--rb-scene-min`,
+     sceneTableMin in views/tableViews/scenesTableView.js: the checkbox, the
+     leading columns the view shows, every column's own width; Takes while
+     it is there). The sums these rules held were every column's. The name
+     is a fixed column here and Description the auto one, so with
+     Description hidden the table is never wider than that sum: the fixed
+     columns do not stretch. */
+  .ui-table.rb-scene-table-scenes,
+  .ui-table.rb-scene-table-shots { min-width: var(--rb-scene-min, 0px); }
+  .rb-scene-table-wrap[data-grow="none"] .ui-table.rb-scene-table-scenes,
+  .rb-scene-table-wrap[data-grow="none"] .ui-table.rb-scene-table-shots { width: min(100%, var(--rb-scene-min, 100%)); }
+  /* The nest's least width: the wrap's `--rb-scene-nest-min` (above, every
+     nested column's) is set inline from the columns on screen too (nestMin);
+     Takes adds its own width while it shows. */
   .ui-table.rb-scene-nest-table { min-width: var(--rb-scene-nest-min); }
   .ui-table.rb-scene-nest-table[data-takes="true"] { min-width: calc(var(--rb-scene-nest-min) + var(--rb-scene-col-nest-takes)); }
+  /* With the number column hidden the list drag's grip sits before the
+     name's words (VW1e, finding 7), as it sits in the number cell. */
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-name-cell[data-grip="true"] { position: relative; padding-left: 28px; }
 
   /* The bulk-action bar overlays the header right of the checkbox column,
      where it always did. The kit has no bulk bar: this is the lane's, in the
@@ -1153,60 +1139,15 @@
     padding: 12px var(--spacing-gutter);
     border-bottom: 1px solid var(--color-rule);
   }
-  .rb-scene-filter-row { display: flex; align-items: center; gap: 8px; }
-  /* "Where" / "And": the Label step (its utilities) in the third ink
-     (#78716c before), 40px as it was. */
-  .rb-scene-filter-where { flex-shrink: 0; width: 40px; color: var(--color-ink-3); }
-  .ui-input.rb-scene-filter-field { width: 160px; }
-  .ui-input.rb-scene-filter-op { width: 160px; }
-  .ui-input.rb-scene-filter-text { width: 128px; }
   .rb-scene-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  /* VW1e (2026-10-25): the strip's rows are the shared filter row
+     (views/tableViews/ViewFilterRow.jsx, the views' own sheet); the old
+     row's classes, the saved-views menu (the bookmark icon is the Views
+     button now, her Q5) and the save row went with them. */
 
-  /* ═══ Saved views (surface 6b) ════════════════════════════════════════════
-     The button stays the icon it was, the kit's IconButton; its glyph takes
-     the signal while views are saved (it was orange; 4.9:1 on the paper).
-     (0,4,0): over the kit's hover ink (0,3,0). The menu is the other pages'
-     on the kit's floating tokens (the kit Menu has no trailing action, B2's
-     kit request K2), under the button at its right edge where it always
-     opened: 180px at least, its old width, the list scrolling past 200px. */
-  .rb-scene-views { position: relative; display: inline-flex; flex-shrink: 0; }
-  .rb-scene-views > .ui-iconbtn.rb-scene-views-button[data-saved="true"] { color: var(--color-signal); }
-  .rb-scene-menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    z-index: 40;
-    min-width: 180px;
-    max-width: 320px;
-    padding: 4px 0;
-    background-color: var(--color-paper-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-float);
-    box-shadow: var(--shadow-float);
-  }
-  .rb-scene-menu-list { max-height: 200px; overflow-y: auto; }
-  /* None saved: the third ink, 4.66:1 on the raised paper (#57534e italic, 2.3:1). */
-  .rb-scene-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
-  .rb-scene-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    min-height: var(--control-sm);
-    padding: 0 4px 0 12px;
-    font-size: var(--text-dense);
-    text-align: left;
-    color: var(--color-ink);
-    background-color: transparent;
-    border: 0;
-    cursor: pointer;
-    transition: background-color var(--duration-state) ease-out;
-  }
-  .rb-scene-menu-item:hover { background-color: var(--color-hover); }
-  .rb-scene-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Save current view, under a hairline, in the ink (it was orange). */
-  .rb-scene-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
-  .rb-scene-menu-icon { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+  /* The last used view not known yet (its 2s wait, the design's §4.5): the
+     kit Loading line where the table goes. */
+  .rb-scene-waiting { padding: 16px var(--spacing-gutter); }
 
   /* ═══ The detail popups (surface 6c) ══════════════════════════════════════
      SceneDetailPopup and ShotDetailPopup: the kit Dialog at their old 896px,
@@ -1920,7 +1861,6 @@
     .rb-scene-inline { transition: none; }
     .rb-scene-add { transition: none; }
     .rb-scene-card { transition: none; }
-    .rb-scene-menu-item { transition: none; }
     .rb-scene-detail-thumb-set { transition: none; }
     .rb-scene-detail-thumb-hint { transition: none; }
     .rb-scene-detail-thumb-glyph { transition: none; }

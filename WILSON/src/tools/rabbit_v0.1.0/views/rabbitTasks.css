@@ -70,7 +70,11 @@
   /* The toolbar: the kit's Toolbar with `wrap`. Its left slot wraps too, so
      at Electron's 1024px floor nothing is pushed off the row's end. */
   .rb-task-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
+  /* VW1d (design §4.1): at least as wide as "12/240" at the total's digits
+     (`--rb-task-count-ch`, set on it), so filtering never re-wraps the
+     toolbar. */
   .rb-task-count {
+    min-width: calc(var(--rb-task-count-ch) * 1ch + 8px);
     padding: 0 4px;
     font-family: var(--font-mono);
     font-size: calc(var(--text-caption) * var(--mono-size-adjust));
@@ -113,6 +117,9 @@
   .rb-task-search-clear { position: absolute; right: 0; }
 
   .rb-task-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  /* VW1d (design §4.5): the last used view not known yet — the kit Loading
+     line where the table will be. */
+  .rb-task-waiting { padding: 16px var(--spacing-gutter); }
 
   /* The filter strip under the toolbar. */
   .rb-task-filters {
@@ -123,15 +130,14 @@
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
-  .rb-task-filter-row { display: flex; align-items: center; gap: 8px; }
-  .rb-task-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
-  .ui-input.rb-task-filter-text { width: 144px; }
-  .ui-input.rb-task-filter-field { width: 128px; }
-  .ui-input.rb-task-filter-op { width: 160px; }
+  /* VW1d: its rows are the custom views' shared filter row (the Filters
+     card draws the same one; views/tableViews/tableViews.css). */
   .rb-task-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
-  /* Saved views: on the kit's floating tokens (the kit Menu has no item with
-     a trailing action; kit request K2). */
+  /* A floating list on the kit's floating tokens: the task templates'
+     dependency list. (VW1d: the Tasks tab's old saved-views menu, its first
+     user, is gone with its empty row, foot and icon; the custom views'
+     dropdown is the kit Popover.) */
   .rb-task-menu {
     position: absolute;
     right: 0;
@@ -145,7 +151,6 @@
     border-radius: var(--radius-float);
     box-shadow: var(--shadow-float);
   }
-  .rb-task-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
   .rb-task-menu-item {
     display: flex;
     align-items: center;
@@ -163,8 +168,6 @@
   }
   .rb-task-menu-item:hover { background-color: var(--color-hover); }
   .rb-task-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rb-task-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
-  .rb-task-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
 
   /* ── The table: the kit's Table, dense ─────────────────────────────────── */
   /* The columns (FX8). The title takes the width the others leave, between
@@ -187,7 +190,9 @@
        drew `09 / 26 / 202` under it in every row (her screenshot). */
     --rb-task-col-date: 144px;
     --rb-task-col-bid: 64px;
-    --rb-task-asset-min: 150px;
+    /* VW1b (2026-10-17): every item column (Asset, Scene, Shot, Level,
+       Experience) is at least 150px (her Q-G2) and grows, as Asset did. */
+    --rb-task-item-min: 150px;
     --rb-task-phase-min: 124px;
     --rb-task-assignee-min: 124px;
     /* A title's words and its three 28px buttons (open, history, delete):
@@ -206,11 +211,17 @@
        instead, 54 more of their names would (FX10 review round 2, R2-06). */
     --rb-task-title-min: 216px;
     --rb-task-title-max: 360px;
+    /* VW1b (the design's §4.10, Tasks half): the fixed sum and the number of
+       columns that share the spare come from the columns on screen
+       (tasksTableColumns.js): the view sets both inline on this element. These
+       two are the asset-only table's — the sheet's own answer when nothing is
+       set — so its numbers are FX10's: 1022px fixed, three growing. */
     --rb-task-fixed: calc(var(--rb-task-col-check) + var(--rb-task-col-status) + var(--rb-task-col-priority)
-      + var(--rb-task-asset-min) + var(--rb-task-phase-min) + var(--rb-task-assignee-min)
+      + var(--rb-task-item-min) + var(--rb-task-phase-min) + var(--rb-task-assignee-min)
       + var(--rb-task-col-date) * 2 + var(--rb-task-col-bid));
-    --rb-task-spare: max(0px, (100cqw - var(--rb-task-fixed) - var(--rb-task-title-max)) / 3);
-    --rb-task-col-asset: calc(var(--rb-task-asset-min) + var(--rb-task-spare));
+    --rb-task-grow-n: 3;
+    --rb-task-spare: max(0px, (100cqw - var(--rb-task-fixed) - var(--rb-task-title-max)) / var(--rb-task-grow-n));
+    --rb-task-col-item: calc(var(--rb-task-item-min) + var(--rb-task-spare));
     --rb-task-col-phase: calc(var(--rb-task-phase-min) + var(--rb-task-spare));
     --rb-task-col-assignee: calc(var(--rb-task-assignee-min) + var(--rb-task-spare));
     position: relative;
@@ -228,13 +239,21 @@
      (V1-06). It fits a 1280 window (1256px of scroller, 1238 or more beside
      a scrollbar up to 18px); only Electron's 1024px floor scrolls. */
   .rb-task-table { min-width: calc(var(--rb-task-fixed) + var(--rb-task-title-min)); }
+  /* VW1b: with no growable column on screen (a view that hides them, VW1d)
+     nothing takes the spare: the table is never wider than its fixed columns
+     and a 360px title, and no filler column appears (the design's §4.10). */
+  .rb-task-table-wrap[data-grow="none"] .ui-table.rb-task-table { width: min(100%, calc(var(--rb-task-fixed) + var(--rb-task-title-max))); }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
+  /* VW1b review round 1 (R1-1): z-index 4, over the kit's sticky head
+     cells (3 at the corner, VW1-KR-2), which it lies across from the
+     checkbox column's edge (48px: the sticky Title's head); at 3 the head
+     painted over "1 selected" and the Status select. */
   .rb-task-bulk {
     position: absolute;
     top: 0;
     left: 48px;
-    z-index: 3;
+    z-index: 4;
     height: var(--table-head);
     display: flex;
     align-items: center;
@@ -268,9 +287,11 @@
      (it is a control; C1). Keyed by position — Bid is the last column (FX8:
      the actions column it stood before is gone, its buttons in the title
      cell) — because the kit's `numeric` prop sets the attribute out of the
-     scanner's sight. */
-  .rb-task-table-wrap .ui-table.rb-task-table .ui-th:last-child,
-  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms > .ui-td:last-child { padding-right: 27px; }
+     scanner's sight. VW1b: keyed on the COLUMN (`data-col="bid"`), not on
+     its place, so a view that hides or moves columns keeps it (the design's
+     §4.10). */
+  .rb-task-table-wrap .ui-table.rb-task-table .ui-th[data-col="bid"],
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms > .ui-td[data-col="bid"] { padding-right: 27px; }
 
   /* Hover. (0,3,0): the kit's selected row is (0,4,0) and wins. */
   .rb-task-row:hover > .ui-td,
@@ -286,6 +307,15 @@
   .rb-task-row[data-ticked="true"] .rb-task-cell-select[data-empty="true"],
   .rb-task-row:hover .rb-task-cell-text[data-empty="true"],
   .rb-task-row[data-ticked="true"] .rb-task-cell-text[data-empty="true"] { color: var(--color-ink-2); }
+  /* VW1b (the kit request VW1-KR-2): the checkbox and Title cells stay in
+     place while the table scrolls sideways (the kit Table's stickyColumns),
+     on the kit's opaque paper; the row's hover reaches them as an image over
+     that paper, as the kit's own fills do — a fill would let the cells
+     scrolling under them read through. */
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-row:hover > .rb-task-check-cell,
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-row:hover > .ui-td[data-col="title"],
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms:hover > .rb-task-check-cell,
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms:hover > .ui-td[data-col="title"] { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
   .rb-task-row[data-draggable="true"],
   .rb-task-card[data-draggable="true"] { cursor: grab; }
   .rb-task-row[data-draggable="true"]:active,
@@ -336,7 +366,11 @@
        measured: a 16-row group dragged over near its end showed no mark). */
     position: sticky;
     top: var(--table-head);
-    z-index: 1;
+    /* VW1b review round 1 (R1-3): 2, over the body's sticky cells (1,
+       VW1-KR-2): at 1 a row scrolled up under the stuck band painted its
+       checkbox and title over the band's words. It sits under the head's
+       height, so the head (2 and 3) never meets it. */
+    z-index: 2;
   }
   .rb-task-group-row:hover .rb-task-group-count,
   .rb-task-group-row:hover .rb-task-phase-date,
@@ -423,6 +457,61 @@
   .rb-task-cell-text[data-empty="true"] { color: var(--color-ink-3); }
   .rb-task-cell-text[data-static="true"] { cursor: default; }
   .ui-input.rb-task-cell-input[data-size="sm"] { padding: 0 6px; }
+
+  /* VW1b (2026-10-17, her Q9 "All of them" and Q10 "Pick several there"): an
+     item cell — the task's assets (or scenes, shots, levels, experiences) by
+     name, as many as fit, then "+N" (the kit Badge, the muted ink). It is the
+     cell text's box (the same 6px in, one line); the names are a row of
+     their own, cut where the box ends, the first one with "…" when even it
+     does not fit (and every one until the cell is measured, so nothing
+     jumps). */
+  .rb-task-items { position: relative; display: flex; align-items: center; gap: 6px; }
+  .rb-task-items-names { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-task-items-more { flex-shrink: 0; }
+  /* The ruler (VW1b review round 2, R2-1): a kit Badge the measuring copies
+     to learn each "+N" badge's own width. Out of the row, never painted,
+     kept inside its cell (the cell is its containing block). */
+  .rb-task-items-ruler { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; }
+  /* A seat that may not write: the same names, hidden from a screen reader
+     (the whole list is said once, in its visually hidden span). */
+  .rb-task-items-shown { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  button.rb-task-items[aria-expanded="true"] { background-color: var(--color-hover); }
+
+  /* VW1b: the item picker, in the kit Popover (portalled into <body>, so
+     these rules hang off the picker's own classes, never the table's). A
+     search, "Show all lists" for scenes and shots, then a dense row per item
+     (32px, as the task window's picker rows), ticked as the table's own rows
+     are: the same Square and CheckSquare, the selection colour when ticked.
+     What tells two same-named rows apart is in the second ink. */
+  /* VW1b review round 1 (R1-7): the picker fills the card and its LIST is
+     the scroller, so the search and "Show all lists" stay in view (the card
+     scrolled as a whole, the search with it). */
+  .rb-task-pick { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .rb-task-pick-search { position: relative; display: flex; align-items: center; padding: 8px; border-bottom: 1px solid var(--color-rule); }
+  .rb-task-pick-search-icon { position: absolute; left: 16px; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); pointer-events: none; }
+  .ui-input.rb-task-pick-input[data-size="sm"] { width: 100%; padding-left: 28px; }
+  .rb-task-pick-scope { display: flex; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--color-rule); }
+  .rb-task-pick-list { display: flex; flex-direction: column; min-height: 0; padding: 4px 0; overflow-y: auto; overscroll-behavior: contain; }
+  .rb-task-pick-empty { padding: 8px 12px; font-size: var(--text-dense); color: var(--color-ink-2); }
+  .rb-task-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: var(--row-dense);
+    padding: 0 12px;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    cursor: pointer;
+    outline-offset: -2px;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-task-pick-row:hover { background-color: var(--color-hover); }
+  .rb-task-pick-tick { display: inline-flex; flex-shrink: 0; color: var(--color-ink-3); }
+  .rb-task-pick-tick > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-task-pick-row[data-ticked="true"] .rb-task-pick-tick { color: var(--color-signal); }
+  .rb-task-pick-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-task-pick-apart { flex-shrink: 0; color: var(--color-ink-2); }
   /* The title cell's controls (the words and the row's buttons, FX8) sit
      2px from the dense row's top and 1px from its bottom, inside a cell
      that clips: the kit's ring, 3px outside, lost 1px above and 2px below.
@@ -934,6 +1023,6 @@
   @media (prefers-reduced-motion: reduce) {
     .rb-task-menu-item, .rb-task-check, .rb-task-cell-text, .rb-task-cell-select,
     .rb-task-cell-editor::after, .rb-task-add, .rb-task-col, .rb-task-card,
-    .rb-task-textblock, .rb-task-section-head { transition: none; }
+    .rb-task-textblock, .rb-task-section-head, .rb-task-pick-row { transition: none; }
   }
 }

@@ -13,6 +13,8 @@
 // Drawer, Stat, HoverActions). There is no ShortcutBar (Q10, ruled).
 // Post-overhaul FX8 adds RowTitle (FX8-KR-1): a row's words and its
 // HoverActions right after them.
+// Post-overhaul VW1b adds Popover (VW1-KR-1): a non-modal floating card,
+// portalled out of a scroller that would clip it (the Tasks item picker).
 // =============================================================================
 
 export * from './tokens'
@@ -44,6 +46,9 @@ export { Select } from './Select'
 export { CellSelect } from './CellSelect'
 export { Dialog, DIALOG_WIDTHS } from './Dialog'
 export { Menu } from './Menu'
+// Post-overhaul VW1b (VW1-KR-1): a non-modal floating card, portalled.
+export { Popover } from './Popover'
+export { MenuButton } from './MenuButton'
 export { Toast, ToastProvider, useToast, TOAST_TONES } from './Toast'
 export { Banner, BANNER_TONES } from './Banner'
 export { EmptyState } from './EmptyState'

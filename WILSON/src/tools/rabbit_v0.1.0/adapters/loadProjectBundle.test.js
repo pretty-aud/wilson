@@ -59,6 +59,10 @@ const EXPECTED_KEYS = [
   // FX2 (0096): a task's items. Omitted, the EMPTY_BUNDLE spread would reset
   // them on every load, and every task would read as about nothing.
   'taskItems',
+  // VW1c (0098): the project's saved views and groupings. Omitted, the
+  // EMPTY_BUNDLE spread would reset them on every load, and every table would
+  // open on All with no saved view in its dropdown.
+  'tableViews', 'itemGroupings',
 ]
 
 /** A server bundle with one identifiable row in every collection. */
@@ -529,8 +533,56 @@ describe('localServerAdapter — set-aside rows (S5b)', () => {
   it('the Drive loader returns its bundle through the same split', async () => {
     const { readFileSync } = await import('node:fs')
     const src = readFileSync(new URL('./googleDriveAdapter.js', import.meta.url), 'utf-8')
-    expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],[\s\S]*?taskItems:\s+bundle\.taskItems \|\| \[\],\s*\}\);/)
+    // VW1c (0098): the LAST keys are the views' two, answered empty whatever
+    // the export holds (Drive keeps no views: design §5.5).
+    expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],[\s\S]*?taskItems:\s+bundle\.taskItems \|\| \[\],[\s\S]*?tableViews:\s+\[\],\s*itemGroupings:\s+\[\],\s*\}\);/)
     expect(src).toMatch(/import \{ splitSetAside \} from '\.\.\/state\/setAside';/)
+  })
+})
+
+
+// ── Custom table views on Google Drive (VW1c, 0098) ─────────────────────────
+//
+// Drive keeps no saved views and no groupings (design §5.5: it loads both
+// empty and unavailable; the screens say "not on this server yet" up front).
+// None of these touches a network: the reads answer without a request, and
+// the writes are loud read-only stubs carrying the code every backend without
+// views answers.
+
+describe('googleDriveAdapter — custom table views are not on this server', () => {
+  const VIEW_WRITES = ['addTableView', 'updateTableView', 'deleteTableView', 'reorderTableViews', 'addItemGrouping', 'removeItemGrouping', 'setTableViewLast']
+
+  it('says it keeps none, with no load error, and the reads answer none without a request', async () => {
+    const { googleDriveAdapter } = await import('./googleDriveAdapter')
+    globalThis.fetch = vi.fn(async () => { throw new Error('no request expected') })
+    const drive = googleDriveAdapter()
+    expect(drive.tableViewsAvailable()).toBe(false)
+    expect(drive.tableViewsLoadError()).toBeNull()
+    expect(await drive.listTableViews('p1')).toEqual([])
+    expect(await drive.listItemGroupings('p1')).toEqual([])
+    expect(await drive.getTableViewLast()).toEqual({ available: false, map: {} })
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('every write throws the read-only sentence with code table_views_unavailable, before any request', async () => {
+    const { googleDriveAdapter } = await import('./googleDriveAdapter')
+    globalThis.fetch = vi.fn(async () => { throw new Error('no request expected') })
+    const drive = googleDriveAdapter()
+    for (const name of VIEW_WRITES) {
+      expect(typeof drive[name], name).toBe('function')
+      const err = await drive[name]('p1', {}, {}).catch(e => e)
+      expect(err, name).toBeInstanceOf(Error)
+      expect(err.message, name).toBe(`[gdrive] ${name}() — Google Drive adapter is read-only in v0.1 — see RABBIT_v0.6_post_build_notes.md for the write plan`)
+      expect(err.code, name).toBe('table_views_unavailable')
+    }
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('CONTROL: an older read-only write still throws without a code (the new argument is optional)', async () => {
+    const { googleDriveAdapter } = await import('./googleDriveAdapter')
+    const err = await googleDriveAdapter().addTaskItem({}).catch(e => e)
+    expect(err.message).toMatch(/^\[gdrive\] addTaskItem\(\) — Google Drive adapter is read-only/)
+    expect(err.code).toBeUndefined()
   })
 })
 

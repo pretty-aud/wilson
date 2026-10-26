@@ -403,40 +403,51 @@ function pruneDanglingShotListItems(bundle) {
 /**
  * The desktop's copy of 0084's foreign-key actions when a scene or shot is
  * deleted: its items leave EVERY list (shot_list_items_*_fk ON DELETE
- * CASCADE — the shared-row rule, D3) and every task that pointed at it is
- * unlinked (tasks_scene_fk / tasks_shot_fk ON DELETE SET NULL, and an FK
- * action is an UPDATE, so the task's updated_at moves as the audit trigger
- * would move it). Runs in the SAME write that removes the scene or shot, on
- * the bundle the _DATABASES mirrors are rendered from.
+ * CASCADE — the shared-row rule, D3). Runs in the SAME write that removes the
+ * scene or shot, on the bundle the _DATABASES mirrors are rendered from.
+ *
+ * The tasks about it are NOT changed here. VW1m (2026-10-16): a task's
+ * scenes and shots are its items (electron/rabbitTaskItems.cjs), and the
+ * factory's item hook, later in the same write, takes the gone row off every
+ * task's items and refreshes each task's older builds' copy (scene_id /
+ * shot_id, stamping updated_at where it moves, as the cloud's FK action is an
+ * UPDATE). Nulling the field here as well would let the copy say what the
+ * items do not.
  *
  * NOT swept, on purpose, exactly as in the cloud: assets.scene_ids /
  * shot_ids (arrays are not foreign keys — 0084 §6c) and edits' items (D17: a
  * deleted shot stays in an edit as "Missing shot").
  *
- * kind: 'scene' | 'shot'. Returns { items, tasks } — how many of each moved.
+ * kind: 'scene' | 'shot'. Returns { items, tasks }: the list items removed,
+ * and how many tasks were about it (an item of it, or the copy naming it) —
+ * the tasks its delete unlinks.
  */
 function sweepShotListLinks(bundle, kind, id) {
   const field = kind === 'scene' ? 'scene_id' : (kind === 'shot' ? 'shot_id' : null);
   if (!field) throw new Error(`sweepShotListLinks: kind must be 'scene' or 'shot', not ${kind}`);
   let items = 0;
-  let tasks = 0;
-  if (!bundle || id == null || id === '') return { items, tasks };
+  if (!bundle || id == null || id === '') return { items, tasks: 0 };
   if (Array.isArray(bundle.shotListItems)) {
     const before = bundle.shotListItems.length;
     bundle.shotListItems = bundle.shotListItems.filter(i => !(i && i[field] === id));
     items = before - bundle.shotListItems.length;
   }
-  if (Array.isArray(bundle.tasks)) {
-    const now = new Date().toISOString();
-    for (let n = 0; n < bundle.tasks.length; n++) {
-      const t = bundle.tasks[n];
-      if (t && t[field] === id) {
-        bundle.tasks[n] = { ...t, [field]: null, updated_at: now };
-        tasks++;
-      }
-    }
+  return { items, tasks: tasksAboutRow(bundle, kind, id).size };
+}
+
+// VW1m (2026-10-16): the ids of the tasks about a scene or shot — an item of
+// it in bundle.taskItems, or the older builds' copy naming it (a bundle the
+// read has not reconciled yet). Read only.
+function tasksAboutRow(bundle, kind, id) {
+  const field = kind === 'scene' ? 'scene_id' : 'shot_id';
+  const out = new Set();
+  for (const i of Array.isArray(bundle.taskItems) ? bundle.taskItems : []) {
+    if (i && i.entity_type === kind && i.entity_id === id && i.task_id != null) out.add(String(i.task_id));
   }
-  return { items, tasks };
+  for (const t of Array.isArray(bundle.tasks) ? bundle.tasks : []) {
+    if (t && t.id != null && t[field] === id) out.add(String(t.id));
+  }
+  return out;
 }
 
 /**
@@ -453,8 +464,10 @@ function sweepShotListLinks(bundle, kind, id) {
  *                  the scene. Answers { items, tasks, shots }: items removed
  *                  from every list (archived lists included, as the FK
  *                  CASCADE reaches them in the cloud),
- *                  DISTINCT tasks changed (a task linked to both the scene
- *                  and one of its shots counts once), shots deleted.
+ *                  DISTINCT tasks about the scene or its shots (a task
+ *                  linked to both the scene and one of its shots counts
+ *                  once; VW1m: the item hook unlinks them, not this), shots
+ *                  deleted.
  *
  * Why here and not in ScenesView: since D10, ctx.shots holds only the ACTIVE
  * list's shots, so a screen that deletes "the scene's shots, then the scene"
@@ -470,25 +483,25 @@ function sweepShotListLinks(bundle, kind, id) {
  */
 function cascadeSceneOrShotDelete(bundle, kind, id) {
   if (kind !== 'scene') return sweepShotListLinks(bundle, kind, id);
-  const tasksBefore = bundle && Array.isArray(bundle.tasks) ? bundle.tasks.slice() : null;
   let shots = 0;
   let items = 0;
+  // VW1m (2026-10-16): DISTINCT tasks about the scene or one of its shots,
+  // each counted once (the item hook unlinks them later in the write).
+  const tasks = new Set();
   if (bundle && named(id) && Array.isArray(bundle.shots)) {
     const doomed = bundle.shots.filter(s => s && s.scene_id === id);
     if (doomed.length) {
       bundle.shots = bundle.shots.filter(s => !(s && s.scene_id === id));
       shots = doomed.length;
-      for (const sh of doomed) items += sweepShotListLinks(bundle, 'shot', sh.id).items;
+      for (const sh of doomed) {
+        items += sweepShotListLinks(bundle, 'shot', sh.id).items;
+        for (const t of tasksAboutRow(bundle, 'shot', sh.id)) tasks.add(t);
+      }
     }
   }
   items += sweepShotListLinks(bundle, 'scene', id).items;
-  // sweepShotListLinks REPLACES a changed task object in place (never
-  // reorders or removes), so identity against the copy counts each task once.
-  let tasks = 0;
-  if (tasksBefore) {
-    for (let n = 0; n < bundle.tasks.length; n++) if (bundle.tasks[n] !== tasksBefore[n]) tasks++;
-  }
-  return { items, tasks, shots };
+  if (bundle && named(id)) for (const t of tasksAboutRow(bundle, 'scene', id)) tasks.add(t);
+  return { items, tasks: tasks.size, shots };
 }
 
 // ── row shapes (0084 §3–§5; the Local Server has no workspace and no users,

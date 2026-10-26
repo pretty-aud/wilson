@@ -87,11 +87,32 @@ and the window loads `http://127.0.0.1:<that port>`; a browser keeps
 empty store. What lives there today and would reset: the Scenes tab's
 remembered shot list (`rabbit_scene_viewed_lists`), the unsaved edit copies
 (`rabbit_edit_drafts`), Budget's and Team's saved views, the Timeline's
-settings and collapsed phases, the holidays. (The five tables' saved views
-move into the project with VW1.) Would settle it: change one of them in the
+settings and collapsed phases, the holidays, and (since VW1m, 2026-10-16) the
+task window's Sort for its items. (The five tables' saved views
+move into the project with VW1.) *(2026-10-25, VW1d: the Tasks table's
+views and the last view each person used are no longer there: the views
+are the project's (in the cloud, or signed out in the project's own data on
+the desktop) and the last used view the person's (signed out, the machine's
+settings file), and the old key is removed (Q17). A change for now is held in memory,
+for as long as WILSON is open, on purpose (Q3b).)* *(2026-10-25, VW1e: the
+same for the Assets, Levels, Experiences, Scenes and Shots tables; their old
+keys are removed when each table first loads.)* Would settle it: change one of them in the
 packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
 protocol or a remembered port), or these stores moved into the machine's
 settings file.
+
+### The Dashboard shows a task's assets as of its last load
+**INFERRED (VW1m, 2026-10-16; from the code, not measured on the cloud).**
+The Dashboard's *My tasks* names every asset of a task (VW1m), read when the
+list loads. It reloads on the workspace channel's task, project, asset and
+member events (`useMyTasks.js`); a task's items are broadcast on the
+project's channel only (0096 §9), so a second asset added to one of my tasks
+in another window shows on the Dashboard at its next load, not at once (the
+first asset does show at once: the older apps' copy on `tasks` changes and
+its event reloads the list). Would settle it: two browsers on the cloud, add
+a second asset to a task assigned to the other. Fix shape: `task_items` on
+the workspace channel (a migration restating `fn_workspace_realtime_broadcast`),
+or the Dashboard joining each of its projects' channels.
 
 ### The Tasks CSV export leaves out the asset and the bid, and writes statuses as stored
 **INFERRED (VW1's research, 2026-10-13; from the code).**
@@ -108,20 +129,16 @@ mounts; a project switch from the context bar keeps the tab mounted, so the
 menu lists the previous project's views and the next save writes them under
 the new project. Ruled for later (VW1's Q19, Q21).
 
-### Grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list
+### Grouping Tasks by Phase or Assignee drops a task whose value is not in the project's list
 **INFERRED (VW1's research, 2026-10-13; from the code, not measured).** The
 Tasks table's `groups` builds one group per asset, phase or project member
 plus *Unassigned*; a task assigned to someone not staffed on the project (or
 pointing at a phase or asset the project no longer lists) lands in no group
 and vanishes from the grouped table while the count still includes it.
 Would settle it: assign a fixture task to a person outside the project,
-group by Assignee.
+group by Assignee. *(2026-10-16, VW1m: grouping by Asset no longer drops
+one: a task sits in the group of its combination of assets, or in No asset.)*
 
-### The Assets table sorts the provider's own array in place
-**INFERRED (VW1's research, 2026-10-13; from the code).** With no filter or
-search, `ProjectAssetsView.jsx`'s `applyFilters` returns `ctx.assets`
-itself and `applySort` calls `.sort()` on it, reordering the shared array
-other views read. Levels and Experiences copy first.
 ### Under a minimum font size the tables' dates are cut again, the calendar over the year
 **MEASURED (FX10 review round 1, R1-07, 2026-10-13; re-run by the session).**
 Firefox 157 at 1280x700 with `font.minimum-size.x-western` set to 16 (its
@@ -212,7 +229,10 @@ says. Settle it by signing in as a staffed project's reviewer on the cloud
 (the fixtures have no such seat for these pages) and deleting a level. Fix
 shape: the Scenes rows' gate (`GatedAction allowed={canWrite}` with the
 reason) on every write control of the two pages. Older than FX8; FX8 left
-the controls' behaviour as it was.
+the controls' behaviour as it was. *(2026-10-25, VW1e: the page reads the
+write permission now, for its views (a seat that cannot write cannot save
+one, as on every table) and for the drag between groupings; Delete, the
+rename, the status, the description and New are still live for every seat.)*
 
 ### Under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined
 **MEASURED (FX6, 2026-10-12, in Chromium's emulation of forced colours,
@@ -247,32 +267,6 @@ none` that keeps the tone) and `.ui-tab:not([data-active="true"])` given
 `border-bottom-color: Canvas`; then re-measure in the emulation and on a real
 Windows High Contrast theme, which no session has tried. Found by FX6's
 review round 1 (R1-04).
-
-### The scene window's SHOTS / ASSETS / TASKS line counts no asset
-**MEASURED (FX2, 2026-10-12, on the test data, port 5291).** Scenes → The
-storm's window: after Sea Spray Comp is linked in the window's own Assets
-table (*Assets (1)*), the line under SHOTS / ASSETS / TASKS still reads
-`3 / 0 / 2`. `ScenesView.jsx` → `assetCountByScene` counts `a.scene_id`, a
-field no asset has: since 0084 an asset names its scenes in `scene_ids`. So
-the count is 0 for every scene, on every backend. Fix shape: count each
-asset once for each id in its `scene_ids` (and decide whether an asset linked
-only to one of the scene's shots counts too). Found in passing by FX2, which
-changed only the TASKS count beside it.
-
-### On the desktop, a deleted asset's tasks come back when the project is read again
-**INFERRED (FX2, 2026-10-12; read from `electron/main.cjs` and
-`RabbitProvider.jsx`, not seen in the desktop app).** The provider's
-`deleteAsset` takes the asset's tasks off the screen with it on every
-backend, as the cloud's `ON DELETE CASCADE` deletes them (0034). The Local
-Server's asset DELETE route removes the asset and its managed files only: the
-tasks stay in the bundle, and the next read of the project shows them again.
-Before FX2 they came back pointing at an asset that no longer exists; since
-FX2 the asset leaves their items, so each comes back under its next asset, or
-under no asset if that was its only one. Settle it by deleting an asset that
-has tasks in the desktop app and opening the project again. Fix shape: the
-route removes the tasks whose `asset_id` is the asset (with their
-dependencies and items, as the generic task DELETE does), and the provider's
-undo, which re-inserts them on the desktop, is unchanged.
 
 ### The Tasks table's Bid days field hides a figure's first characters behind the browser's arrows
 **MEASURED (FX1, 2026-10-12).** Playwright on the dev fixtures at
@@ -1835,6 +1829,15 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul VW1e (2026-10-25; `po/vw1e-custom-views-tables` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 4, the last: the views on Assets, Levels, Experiences, Scenes and Shots (the design's §7 step 5, to her answers): step 0's review of the design's parts against the code (16 findings, corrected in the design); migration 0099 / suite 102 (an asset's levels and experiences on the cloud; applied to wilson-dev by query, staging's lines in the Desktop kit), the adapter's probe and the move to the cloud; the shared piece on the five tables (combination groups and Create grouping, the columns in front of the name, the Gallery's card fields, two lists on Scenes and Shots, List order, defects 3 and 4); the browser's old views removed (Q17); walkthrough 72 part 4; two review rounds on Fable (10 findings, then 6 attacking the first's corrections), every correction with a failing control | dated notes on **P1-08** (narrowed to Budget's Expenses and Team), on *on the desktop, the browser's own storage most likely starts empty at every launch* (the five tables' keys removed) and on *Levels and Experiences have no write gate* (the views and the drag read it now) | **The Assets table sorts the provider's own array in place** (fixed by step 1, `dcc898b8`; proven in `19b40ad9`). Comment markers: 4 → 4. |
+| Post-overhaul FX12 (2026-10-25; `po/fx12-ai-file-store-cleanup` into `feat/post-overhaul-edit-versioning`) — the AI's file store forgets what D.O.G. sent it (OUTSTANDING DG1-03): `ai-files` gains DELETE (a member's own ids; an admin's sweep of the workspace's files older than 24 h) and GET (this workspace's ids, times and sizes, never a filename), `operator-ai-files` the operator's counts and sweep, both on wilson-dev only; a row counts only when it binds to the stored file, certificates in the admin stream; D.O.G. lets go when a file or reference leaves, at sign-out and when the desktop closes (which waits, measured), never after a generation; uploads expire in 24 h and reach the store under a neutral name; the Admin Terminal's card and the operator's section; the CI probe signed in as the smoke admin. Two review rounds on Fable (8 findings, then 9). No migration. Her three answers verbatim in the hand-off. | FX12-01 (pre-FX12 uploads on staging and production until the deploy and a sweep; attribution ends 2026-11-09). VW1m's drop test, which failed under this branch's heavier run, now waits for its drop target (a commit, not an entry). Comment markers: 4 → 4. | DG1-03 (closed by FX12: the merge `07f30a4f` into `feat/post-overhaul-edit-versioning`). |
+| Post-overhaul VW1d (2026-10-25; `po/vw1d-custom-views-tasks` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 3: the views on the Tasks table (the design's §7 step 4, to her answers): step 0's review of the design's screen parts against the code (18 findings, corrected in the design); the Views button with its list and four cards in place, the shared filter row, the *changed for now* bar, the last used view, Create grouping and the project's groupings on Tasks and the Timeline, one New menu; the browser's old Tasks views removed (Q17); kit requests VW1-KR-1 (Popover in place), VW1-KR-3 (MenuButton into the kit) and VW1-KR-4 (Banner `live={false}`), each with its caller; walkthrough 72 part 3; two review rounds on Fable (16 findings on use and the keyboard, then 12 with a security pass on the view's filters), every correction with a failing control; no migration | dated notes on **P1-08** (the Tasks menu replaced) and on *on the desktop, the browser's own storage most likely starts empty at every launch* (the Tasks views no longer kept there) | nothing. Comment markers: 4 → 4. |
+| Post-overhaul VW1c (2026-10-17; `po/vw1c-custom-views-data` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 2: the views' and groupings' data, with no screen yet (her Q1, Q2, Q4, Q-D2): step 0's review of the design's §5 against the code (19 findings, corrected in the design); migration 0098 (`table_views`, `item_groupings`, `user_settings.table_view_last` with `set_table_view_last`; RLS forced, column grants, the SECURITY DEFINER sweep of a deleted item, `reorder_table_views`, the broadcast with eighteen tables) and suite 101, applied on wilson-dev only; the rules (`state/tableViewsModel.js`) and their CommonJS twin, the Local Server's `electron/rabbitTableViews.cjs` and the machine's own settings file, the cloud adapter's probe and verbs, the dev fixtures, Drive, the takeout, the move to the cloud, the provider's `state/tableViewsState.js` and the live merge; walkthrough 72 part 2; two review rounds on Fable, the first with a security pass | nothing | nothing. Comment markers: 4 → 4. |
+| Post-overhaul VW1b (2026-10-17; `po/vw1b-custom-views-build` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 1 (Audrey: "please make sure it either shows all or none. additionally, i can see the levels or scenes or shots related"): step 0's design review (21 findings); the Tasks table's Asset, Scene, Shot, Level and Experience columns, each cell every item by name with "+N" and a picker that ticks several (a draft, committed once, one undo step); combination groups by every kind; the checkbox and Title kept in place while the table scrolls sideways (kit requests VW1-KR-1 Popover and VW1-KR-2 sticky columns); widths from the columns on screen; her Q-N1a and Q-N1b sorts; the Levels, Experiences and scene window counts; walkthrough 72 part 1; two review rounds | nothing | **two:** *the scene window's SHOTS / ASSETS / TASKS line counts no asset* (`aa270f73`: it counts `scene_ids`) and **P1-26** (struck through: the Assets half, `aa270f73`). Comment markers: 4 → 4. |
+| Post-overhaul DG1b (2026-10-17; `po/dg1b-references-answers` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s references, Audrey's last six answers (batches 5 and 6 of `docs/design/DOG_REFERENCES_QUESTIONS.md`, asked in chat as multiple choice, verbatim there, Q19's conflict between her Q14 and Q2 put in plain words): five confirmed DG1's provisional picks; Q21 changed one, D.O.G. opens on Full deck. No migration (Q12 needed none; 0099 / suite 102 stay unused). Walkthrough 75 §6. | DG1b-01 (D.O.G.'s Alt key flips its switch from any page; found while checking Q21), DG1b-02 (the preview says a cached read is recorded; found by review round 2); neither fixed, both outside her answers | nothing |
+| Post-overhaul VW1m (2026-10-16; `po/vw1m-no-main-item` into `feat/post-overhaul-edit-versioning`) — no main item (Audrey: "lets not have main asset be a thing. thats not needed and i dont like."): every place a task's main item was read measured first (289), her batch 14 answered (batches 15-16 to interim choices), migration 0097 and suite 100 on wilson-dev (deleting an asset never deletes a task; an older app's single write adds), the Timeline's combination rows, the Budget's even split, the task window's Sort and Files per item, the Tasks table and Board by combination, the Dashboard, bid versions keeping every item; walkthrough 74; two review rounds | **one entry under Broken features:** *the Dashboard shows a task's assets as of its last load* (INFERRED); dated notes on *the desktop's browser storage* (the Items sort is kept there too), *grouping Tasks by Phase or Assignee* (its Asset half fixed) and P1-26 (its Tasks half fixed) | **two:** *on the desktop, a deleted asset's tasks come back when the project is read again* (no backend deletes or hides a task with its asset now: 0097, the provider, the live merge) and **S5b-07** (*an asset whose task is set aside cannot be deleted*: the refusal went with its reason). Comment markers: 4 → 4. |
+| Post-overhaul DG1 (2026-10-16; `po/dg1-dog-references` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s references (Audrey: "a robust way to choose ... items in the rabbit tool ... files or personal notes"; "lets make the Full Deck and Single Page interfaces one"): research, her answers (batches 1 to 4 verbatim; 5 and 6 left for tomorrow at her request, built on the recommended picks), the design reviewed twice, the build reviewed twice. | DG1-01 (the cloud lists a project's first 1,000 files only), DG1-02 (on the Local Server an item's own files are not linked to it), DG1-03 (the AI's file store keeps what D.O.G. sends) | — |
+| Post-overhaul FX11 (2026-10-16; `po/fx11-connection-dot` into `feat/post-overhaul-edit-versioning`) — one connection dot in the bottom-left corner of every R.A.B.B.I.T. tab, just above the orange bar (Audrey: "this green dot should clarify that the system is connected to the storage solution not just the databases on supabase"): green when the database AND where the files are kept answer (a real, bounded, abortable probe of each: Petal cloud's bucket, a company bucket through storage-presign, the desktop's new `GET /api/rabbit/connection` for the Local Server and a NAS), amber when only the database does, red offline, a diamond and a square besides the colour, the words on hover and on a press (a toggletip), a change announced once; the project bar keeps the name and status left and the faces then Switch right (no LIVE, no adapter dot); the Dashboard's Live badge gone; the Bins counter 24px up (walkthrough 73); two review rounds on Opus, every finding fixed | **nothing.** Every finding of the two rounds was fixed in the session; the trade the corner makes (its cell sits over the left of a list's very bottom row) is the walkthrough's known limit, by her placement, not a fault | nothing |
 | Post-overhaul VW1 (2026-10-13; `po/vw1-custom-views` into `feat/post-overhaul-edit-versioning`) — custom table views, research and questions first (Audrey: "lets do a research phase first, then ask me any questions to clarify things and not make any assumptions"): how Notion builds views (`docs/design/CUSTOM_VIEWS_RESEARCH.md`), the five tables measured at 1280 and 1440 (`scripts/vw1-shots.mjs`), 25 questions answered in eight batches and recorded verbatim (`docs/design/CUSTOM_VIEWS_QUESTIONS.md`), the design written to her answers (`docs/design/CUSTOM_VIEWS_DESIGN.md`); no product code (the build is VW1b onward) | **five entries under Broken features, found by the research and ruled for later (her Q19, Q21):** *on the desktop, the browser's own storage most likely starts empty at every launch* (INFERRED); *the Tasks CSV export leaves out the asset and the bid* (INFERRED); *Budget's Expenses: the Linked task filter's "Untitled" and the stale per-project views* (INFERRED); *grouping Tasks by Asset, Phase or Assignee drops a task whose value is not in the project's list* (INFERRED); *the Assets table sorts the provider's own array in place* (INFERRED). **P1-08 and P1-26 are wider than recorded** (dated notes on each, MEASURED); the defects inside the views' own controls (a new filter row empties the table, MEASURED; a filter row keeps the wrong condition; Scenes and Shots share filters and sorts; ticked rows hidden by a filter) are scheduled in the design's §4.8, not entered here | nothing |
 | Post-overhaul FX10 (2026-10-13; `po/fx10-date-fields` into `feat/post-overhaul-edit-versioning`) — the date fields (Audrey: "the calendar icon is covering the dates when it has all the space to space them out"): every date and the empty `mm / dd / yyyy` whole, the calendar icon clear and spaced, in the desktop app and in Firefox (her screenshot's), by one kit rule — a date field's floor, the date's room plus its own padding (FX10-KR-1) — with the Tasks, Assets and Shots date columns widened and four windows' rows reshaped; display only, no migration; walkthrough 71; two review rounds | **three entries under Broken features:** *under a minimum font size the tables' dates are cut again* (MEASURED, round 1's R1-07: FX10's floor and the tables' columns are px); *the project control panel's 24 fields have no accessible name* (MEASURED; older than FX10; round 1's R1-12 named the dates); *in the smallest desktop window, an open task form leaves a shot's take notes no room* (MEASURED by the measuring script's neighbours pass; older than FX10). Round 2's R2-03, the desktop app's table dates losing the keyboard's focus at their calendar glyph (older than FX10), was fixed, not entered | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX9 (2026-10-12; `po/fx9-reach-test-race` into `feat/post-overhaul-edit-versioning`) — the gateway's reach-proof test holds the gateway's syncs instead of racing them (`gateway/test/runtime.test.mjs` only; no product code): the race measured (the sync a `check_reach_now` asks for when its reach check lands, 17 ms after it idle; not the 10 s heartbeat), the window read whole in one assertion, two planted door faults caught, 200 loaded runs with no reach failure; one review round (opus) | **nothing under Broken features.** A dated FX9 line on FX3's gateway-load entry (two 5 s time-outs at a heavier load, one echo-probe miss in 200 runs with its cause not established; not FX9's code) | **one entry:** *The gateway's reach-proof test races the gateway's own sync, and fails CI now and then* — the test holds the syncs (`54472510`) |
@@ -2004,7 +2007,7 @@ defines them; a row's "owner" is who acts first.
 - **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
 - **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
 - **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
-- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22. **Wider (VW1's research, 2026-10-13, MEASURED with `scripts/vw1-shots.mjs`):** all six saved-views menus have it — Tasks, Assets, Scenes, Levels and Experiences (each saved row a `div` with no role and no tab stop; only its delete ✕ is a button) and Team (from the code); Escape closes none of the five measured. VW1 replaces the five tables' menus with the new Views dropdown (its build sessions, `docs/design/CUSTOM_VIEWS_DESIGN.md` §4.9); Expenses and Team keep theirs (Audrey, VW1's Q19).
+- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `TeamSavedViewsDropdown`; the five tables' menus replaced by VW1d and VW1e). MEASURED. From B5b-9, B5b-22. **Wider (VW1's research, 2026-10-13, MEASURED with `scripts/vw1-shots.mjs`):** all six saved-views menus have it — Tasks, Assets, Scenes, Levels and Experiences (each saved row a `div` with no role and no tab stop; only its delete ✕ is a button) and Team (from the code); Escape closes none of the five measured. VW1 replaces the five tables' menus with the new Views dropdown (its build sessions, `docs/design/CUSTOM_VIEWS_DESIGN.md` §4.9); Expenses and Team keep theirs (Audrey, VW1's Q19). *(2026-10-25, VW1d: the Tasks table's menu is gone, replaced by the Views dropdown, a grid with one Tab stop, the arrows between its rows and Escape closing it, tested in `views/tableViews/tasksViews.test.jsx`; Assets', Scenes', Levels' and Experiences' menus follow with VW1e; Expenses' and Team's stay.)* *(2026-10-25, VW1e: the Assets, Levels, Experiences, Scenes and Shots menus are gone too, replaced by the same dropdown (`views/tableViews/assetsViews.test.jsx`, `entityViews.test.jsx`, `scenesViews.test.jsx`). Left: Budget's Expenses (`ExpenseSavedViewsDropdown`) and Team (`TeamSavedViewsDropdown`), kept by her Q19.)*
 - **P1-09 · Escape discards unsaved drafts** in ~~the Scenes popups,~~ `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d. **The Scenes popups' part FIXED by post-overhaul S3b** (2026-10-01, `po/s3b-shot-lists-ui`, D21): closing a scene or shot popup (✕, Close, Escape, the backdrop) with a changed description or notes, or Escape in a changed box, asks "Discard your changes?" first, Cancel focused. Left there: S3b-04 and S3b-05 below.
 - **P1-10 · Keyboard scrolling hides the focused row or cell** (the Bins list under its sticky head; Crew/Talent period cells past the scroller's edge). MEASURED. Owner: a session and the kit (scroll padding, B5b-KR-5). From B4c-13, B5b-7.
 - **P1-11 · A minimap bar drag does not save.** MEASURED. Owner: Audrey (C1). From B3d. After S1 the minimap drag is a true no-op for a phase drawn over exactly its own dates (post-overhaul S1, 2026-09-30; the minimap draws phases only): its mouse-up writes the DRAWN dates back, and those are now the stored ones, so it no longer stores a day early on this machine. It still rewrites a phase drawn over a different span — one with no dates or one date (drawn over its tasks' span, or today to +14 / padded 14 days when it has none), or a parent widened to cover its sub-phases — with that drawn span. Why the drag moves nothing, confirmed in the running app by S1's review round 2: `OverviewBar`'s move handler writes to `e.currentTarget`, which React 19 sets to null after dispatch, so it throws ("Cannot set properties of null (setting '_draftStart')"), and the mouse-up then writes the unmoved drawn span.
@@ -2027,7 +2030,7 @@ defines them; a row's "owner" is who acts first.
 - ~~**P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.~~ — FIXED by post-overhaul S3b: the popups' own label went; FileManager's head says it once.
 - (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1; walkthrough 47 Q192.)
 - **P1-25 · React logs duplicate keys (26×) after a take is unassigned or undone** (`rabbitFixturesAdapter.js:68-74`, `RabbitProvider.jsx:2919`; dev fixtures). MEASURED.
-- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED. **Wider (VW1's research, 2026-10-13, MEASURED on `?fixtures=game`):** the Tasks count is wrong too — it counts a task only under its first level (`taskCountById` reads the task's main `level_id`), so "Cliff Path", which fixture task 18 names second, reads 0 assets and 0 tasks in the table and in its window's *Linked counts* line while the window lists *Assets (2)* and *Tasks (1)* (`docs/sessions/handoffs/img/po-vw1-levels-05-window-counts-*.png`). Audrey ruled the fix (VW1's Q12); it is step 2 of `docs/design/CUSTOM_VIEWS_DESIGN.md` §7.
+- ~~**P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED. **Wider (VW1's research, 2026-10-13, MEASURED on `?fixtures=game`):** the Tasks count is wrong too — it counts a task only under its first level (`taskCountById` reads the task's main `level_id`), so "Cliff Path", which fixture task 18 names second, reads 0 assets and 0 tasks in the table and in its window's *Linked counts* line while the window lists *Assets (2)* and *Tasks (1)* (`docs/sessions/handoffs/img/po-vw1-levels-05-window-counts-*.png`). Audrey ruled the fix (VW1's Q12); it is step 2 of `docs/design/CUSTOM_VIEWS_DESIGN.md` §7. *(2026-10-16, VW1m: the Tasks count now counts every task with an item of that level or experience; the Assets count is still VW1b's.)*~~ — FIXED by post-overhaul VW1b (2026-10-17, `aa270f73`): the Assets count and the window's *Linked counts* line read an asset's `level_ids` / `experience_ids` (Cliff Path reads 2 assets in its row and its window, `docs/sessions/handoffs/img/po-vw1b-*-08-levels-*.png`); the Tasks half was VW1m's.
 - **P1-27 · Two tests import `@babel/parser` / `@babel/traverse` undeclared** (`otterCss.test.js`, `authSelectors.test.js`; resolved through plugin-react). MEASURED by reading `package.json`. Declaring them is a lock change: the lock's owner.
 - **P1-28 · A missing thumbnail draws the browser's broken-image icon** in a light 1px frame (`FileThumbnail`, the entity popups, Scenes rows; the asset detail draws initials instead). MEASURED.
 
@@ -3004,10 +3007,6 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   reloading the project). None of them opens a version, so nothing is set
   aside from there, but a version deleted from that table skips constraint
   10's question (review round 1, R1-08). Owner: the continuation (step 3).
-- **S5b-07 · An asset whose task is set aside cannot be deleted** (review
-  round 1, R1-01): the cloud sees a task through its asset and cascades the
-  asset's delete onto it, so the delete is refused with the tasks named.
-  Decided by S5b. Owner: Audrey (or delete them with it, named?).
 - **S5b-08 · 0090's guard refuses a member's whole-row UPSERT that carries
   an unchanged set-aside stamp** (its INSERT arm reads NEW before ON
   CONFLICT); the UPDATE re-send passes. Harmless today: every S5b write
@@ -3357,3 +3356,75 @@ S4b-11 are untouched and still hers.
   history, with names and notes in the diff. Would settle it: read
   `edit_history` for a private project's task as a workspace manager who
   did not create it. Owner: a session on private projects.
+
+## Post-overhaul DG1 (`po/dg1-dog-references`) — left open (2026-10-16)
+
+- **DG1-01 · The cloud lists a project's first 1,000 files, and D.O.G.'s quick
+  choices inherit the cut.** PRE-EXISTING (the Files tab reads the same way).
+  `supabaseAdapter.listFiles` is `select('*').eq('project_id', …)` with no
+  paging, and PostgREST answers 1,000 rows by default (the codebase pages
+  folders and bins for exactly this). Past 1,000 files in one project, D.O.G.'s
+  *All Core files*, a folder's tick and the rail's count reach only the first
+  thousand, silently. Would settle it: a project with 1,001 files, *All Core
+  files* with the last one Core. Fix: read through `readAllPages` as
+  `listFoldersWith` does (one shared read; the Files tab gains it too).
+  Owner: a files session.
+- **DG1-02 · On the Local Server, a scene's, shot's, level's or experience's own
+  files are not linked to it.** PRE-EXISTING (stated in `deckAttachments.js`):
+  the Express upload route writes `phase_id`, `asset_id` and `task_id` and
+  drops `scene_id`, `shot_id`, `level_id` and `experience_id`, and the entity
+  file managers write the managed store, which `listFiles` never returns. So
+  D.O.G.'s *Add references* shows no files under such an item on the desktop
+  (it says so, and the files table's files are under Files). Fix: teach the
+  route the four columns, and list the managed store (with a download route)
+  for references. Owner: Track B (the desktop server).
+## Post-overhaul DG1b (`po/dg1b-references-answers`) — left open (2026-10-17)
+
+- **DG1b-01 · D.O.G.'s Alt key flips its Single page / Full deck switch from any
+  page.** PRE-EXISTING (the "Alt key toggle for Full Deck mode" effect in
+  `DeckOutlineGenerator.jsx`). The handler listens on the whole document and
+  never asks which page is showing, and App keeps D.O.G. mounted behind every
+  other page, so one Alt press and release outside a text field on any page
+  flips D.O.G.'s hidden switch. MEASURED in the development copy (2026-10-17):
+  on R.A.B.B.I.T., one Alt release turned Full deck into Single page. From the
+  code: it also fires on the release that ends an Alt+key shortcut (it ignores
+  only Ctrl, Shift and Meta), such as the Files tab's own Alt+← (up a folder,
+  `ProjectFilesExplorer.jsx`). INFERRED: Alt+Tab back into WILSON may deliver
+  that release too. Since Audrey's Q21 (D.O.G. opens on Full deck, then keeps
+  its side while WILSON is open) this is the one way the side changes unseen,
+  and a flipped side changes what Enter generates. S2a gave Enter a page guard
+  for the same reason (`enterIsDogs`, her C12). Would settle it: on
+  R.A.B.B.I.T., press and release Alt, then open D.O.G. Fix: return unless
+  `currentPage === 'dog'` (with `currentPage` in the effect's dependencies,
+  empty today), and ignore a release that ended a shortcut; whether Alt should
+  toggle at all is hers. Owner: a D.O.G. session.
+- **DG1b-02 · D.O.G.'s preview says "Reading it here is recorded in the file's
+  activity" when nothing new is recorded.** PRE-EXISTING (DG1).
+  `useReferences.readBody` keeps each file's body for the session (by size and
+  date), so a second read, by a preview or at Generate, is neither downloaded
+  nor recorded; the preview's line is chosen before the read and says it is
+  recorded either way. From the code (DG1b's review round 2, 2026-10-17).
+  Would settle it: on the cloud, preview a chosen PDF twice, then open its
+  activity: one *downloaded* row. Fix: say it only when this preview
+  downloaded (the id not yet in `readIds`). Owner: a D.O.G. session.
+
+## Post-overhaul FX12 (`po/fx12-ai-file-store-cleanup`) — left open (2026-10-25)
+
+- **FX12-01 · The uploads D.O.G. made before FX12 on staging and production are
+  still in the AI's file store, and from 2026-11-09 nothing can tell whose
+  they are.** INFERRED (no session can read those stores: wilson-dev has no
+  platform operator and the key lives only inside the functions). Every
+  upload since S19's `ai-files` (2026-08-11) went to the store with no expiry
+  and nothing deleted it (DG1-03, closed by FX12). FX12's functions are on
+  wilson-dev only; until the controller deploys `ai-files` and
+  `operator-ai-files` to staging and production, nothing there lets go. A file
+  is tied to its company only by its upload row in `app_events`, which the
+  90-day purge removes: the first rows go on 2026-11-09, and a file whose row
+  is gone is left alone by every sweep for good. Audrey's ruling (2026-10-25,
+  verbatim): *"Clean up before 9 November (Recommended)"*. Would settle it:
+  the operator console's **AI files** on staging and on live, after the
+  deploy, reading *Tied to a company of this environment* before and after
+  its sweep. Fix: the deploy, then the operator's sweep (and each company
+  admin's card, which also reaches a company's own key) on both, before
+  2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
+

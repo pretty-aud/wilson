@@ -44,6 +44,9 @@ const outsideDev = files.filter((p) => !rel(p).startsWith('dev/'))
 /** The seams: every production file allowed to consult the switch. */
 const SEAMS = [
   'cloud/adminApi.js',
+  // FX12 (2026-10-25): the AI file store's list and sweep (the Admin
+  // Terminal's card) answer from the fixtures; the deletes never run there.
+  'cloud/aiFiles.js',
   'cloud/auth/InviteMemberDialog.jsx',
   // GW1 (2026-10-10): the file gateway's calls answer from the fixtures.
   'cloud/gatewayApi.js',
@@ -177,7 +180,12 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       'tools/rabbit_v0.1.0/state/shotListModel',
       // FX2 (0096): a task's items' rules (taskItemsModel.js, pure), so the
       // fake cloud keeps a task's columns and items as 0096's triggers do.
-      'tools/rabbit_v0.1.0/state/taskItemsModel']
+      'tools/rabbit_v0.1.0/state/taskItemsModel',
+      // VW1c (0098): custom table views' and groupings' rules
+      // (tableViewsModel.js, pure), so the fake cloud keeps 0098's caps,
+      // CHECKs, revisions, reorder, sweep and last used map as the database
+      // does.
+      'tools/rabbit_v0.1.0/state/tableViewsModel']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -199,8 +207,15 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     expect(importsSomething(read(join(SRC, 'components/settings/gatewayWords.js')))).toBe(false)
     // The GW3 loosening, proven the same way: gatewayDoors imports nothing.
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/bins/gatewayDoors.js')))).toBe(false)
-    // The FX2 loosening, proven the same way: taskItemsModel imports nothing.
-    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/taskItemsModel.js')))).toBe(false)
+    // The VW1c loosening, proven the same way: tableViewsModel imports nothing.
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/tableViewsModel.js')))).toBe(false)
+    // The FX2 loosening, proven the same way. VW1b (2026-10-17): taskItemsModel
+    // imports assetTypes.js and only it (her Q-N1b sorts by an asset's own
+    // type, in the Assets table's order), which imports nothing — so neither
+    // can carry the fixtures anywhere either (budgetVersionModel's shape, below).
+    const itemModelImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/taskItemsModel.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])
+    expect(itemModelImports).toEqual(["from './assetTypes'"])
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/assetTypes.js')))).toBe(false)
     // The S5 loosening, proven the same way: budgetMath imports nothing, and
     // budgetVersionModel imports dates.js and only dates.js, which imports
     // nothing — so neither can carry the fixtures anywhere either.

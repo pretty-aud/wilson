@@ -12,7 +12,10 @@
 // bottom-center where attention lands after a row action (Fitts).
 //
 // Auto-dismisses after 8s. Hovering pauses BOTH the timer and the
-// countdown bar so the deadline never sneaks past a reading user;
+// countdown bar so the deadline never sneaks past a reading user; so does
+// the keyboard's focus inside it (post-overhaul VW1d: a keyboard user who
+// Tabs to Undo is reading it too — docs/design/CUSTOM_VIEWS_DESIGN.md §4.4,
+// step 0 review finding 11);
 // the thin bar along the bottom edge makes the deadline visible.
 // A new toast (key change) replaces the previous and restarts the
 // countdown.
@@ -44,6 +47,7 @@ export default function UndoToast() {
   const held = ctx?.undoHeld || null
 
   const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
   const [busy, setBusy] = useState(false)
   // Banked countdown: the timer effect below subtracts elapsed time on
   // every pause (hover) so resuming picks up where it left off — in
@@ -56,14 +60,15 @@ export default function UndoToast() {
   useEffect(() => {
     remainingRef.current = dismissAfterMs()
     setHovered(false)
+    setFocused(false)
     setBusy(false)
   }, [toast?.key])
 
-  // Auto-dismiss timer. Paused while hovered (or mid-undo): cleanup
+  // Auto-dismiss timer. Paused while hovered or focused (or mid-undo): cleanup
   // banks the remaining time, the next run resumes from it. None for a
   // held toast.
   useEffect(() => {
-    if (!toast || toast.hold || hovered || busy || held) return undefined
+    if (!toast || toast.hold || hovered || focused || busy || held) return undefined
     startedAtRef.current = Date.now()
     timerRef.current = setTimeout(() => dismiss?.(), remainingRef.current)
     return () => {
@@ -73,7 +78,7 @@ export default function UndoToast() {
         remainingRef.current - (Date.now() - startedAtRef.current),
       )
     }
-  }, [toast, toast?.key, hovered, busy, held, dismiss])
+  }, [toast, toast?.key, hovered, focused, busy, held, dismiss])
 
   if (!toast) return null
 
@@ -90,7 +95,7 @@ export default function UndoToast() {
     }
   }
 
-  const paused = hovered || busy || !!held
+  const paused = hovered || focused || busy || !!held
 
   // The kit toast stack's PINNED row (ToastProvider `pinned`, App.jsx): the
   // anchor (24px above the page's bottom bar) and the layer (index.css
@@ -118,6 +123,8 @@ export default function UndoToast() {
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false) }}
     >
       {/* Message */}
       <span className="flex-1 text-dense truncate" style={{ color: '#e7e5e4' }}>

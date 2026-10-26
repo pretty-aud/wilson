@@ -34,9 +34,10 @@
 //
 //   • Phases are ALWAYS rendered as group headers, even with
 //     no children, so the user can see what they just created.
-//   • A task can attach to a phase directly (phase_id) OR to
-//     an asset inside a phase (asset_id). Asset wins for
-//     visual nesting when both are set.
+//   • A task can attach to a phase directly (phase_id). VW1m
+//     (2026-10-16): one with no phase of its own sits in the
+//     phase all its assets share, else under Unphased
+//     (phaseOfTask, below).
 //   • Orphan tasks (no asset, no phase) get an "Orphan tasks"
 //     bucket at the bottom.
 //
@@ -90,6 +91,13 @@ import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list reads
 // as not assigned in group-by-scene, never dropped, and says where it points.
 import { activeIdsOf, linksInActive, NO_SCENE_GROUP } from './scenes/linkHomes'
+// VW1m (2026-10-16), Audrey: "lets not have main asset be a thing ... make
+// the grouping a group in the timeline as well". A task's items are read one
+// way (buildItemLookup), and grouped by asset, scene, shot, level or
+// experience a task sits in the row of its combination of them.
+import { ITEM_KINDS, KIND_FIELD, NO_KIND_LABEL, buildItemLookup, itemsOfTask, tasksAbout } from '../state/taskItemsModel'
+// VW1d (2026-10-25): the project's groupings as rows (design §4.11).
+import { isGroupingLive } from '../state/tableViewsModel'
 // Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
@@ -490,16 +498,17 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   //
   // Unlike the edit funnels below, these do not fall back to a read-only view:
   // a blank form nobody can save has nothing to read.
+  //
+  // VW1m (2026-10-16): the draft starts with what the row it came from gives
+  // (prefillFromRow, below) and nothing else. It started with the project's
+  // FIRST asset and FIRST phase whatever the row: emptyTaskDraft read
+  // camelCase keys and every caller sent snake_case.
   const openNewTask = (prefill = {}) => {
     if (!canWrite) return
     setEditor({
       mode:   'task',
       taskId: null,
-      draft:  emptyTaskDraft({
-        assetId: assets[0]?.id || '',
-        phaseId: phases[0]?.id || '',
-        ...prefill,
-      }),
+      draft:  emptyTaskDraft(prefill),
     })
   }
   const openNewPhase = (prefill = {}) => {
@@ -591,9 +600,33 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     return new Set(path)
   }, [ctx, view])
 
+  // VW1m (2026-10-16): a task's items, read one way — its LIVE items (her
+  // Q-N4: an item in the trash is hidden, back on restore), through the
+  // model's lookup over every row the project shows. A viewed bid version
+  // reads its own snapshot's items (versionTaskItems). `taskItemsAvailable`
+  // is the provider's yes or no: where the backend keeps no items (and a
+  // stand-in ctx that does not say), a task's single fields are its items.
+  const taskItems = ctx?.taskItems
+  const taskItemsOn = ctx?.taskItemsAvailable === true
+  const allScenes = ctx?.allScenes || scenes
+  const allShots = ctx?.allShots || shots
+  const itemLookup = useMemo(
+    () => buildItemLookup({
+      items: view ? versionTaskItems(view) : taskItems,
+      available: view ? true : taskItemsOn,
+      assets, scenes: allScenes, shots: allShots, levels, experiences,
+    }),
+    [view, taskItems, taskItemsOn, assets, allScenes, allShots, levels, experiences]
+  )
+  // VW1m review round 1 (R1-3): while a version is viewed, its saved ids
+  // (live or since gone), so a link to a row the project no longer has says
+  // so in the task's tooltip again, as S5d made it; the live Timeline hands
+  // none over.
+  const savedIdsOf = useMemo(() => (view ? savedIdsReader(versionTaskItems(view)) : null), [view])
+
   const schedule = useMemo(
-    () => buildSchedule({ phases, assets, tasks, dependencies }),
-    [phases, assets, tasks, dependencies]
+    () => buildSchedule({ phases, assets, tasks, dependencies, itemLookup }),
+    [phases, assets, tasks, dependencies, itemLookup]
   )
 
   // Post-overhaul S3c: group-by-scene reads the ACTIVE list (D10). A task
@@ -604,17 +637,113 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   const sceneById = ctx?.sceneById
   const shotById = ctx?.shotById
   const homeOf = useHomeIndex(ctx)
+  // VW1d (2026-10-25; design §4.11, step 0 review finding 8): the project's
+  // groupings on the Tasks table (her Q-D2; Q-D4: "make the grouping a group
+  // in the timeline as well. do not add a new group button in timeline view
+  // though"), each with every item live (Q-N4), as rows even while empty.
+  // The builders' one extra input, and this memo's. Not while a bid version
+  // is viewed: its rows are its own snapshot's (S5d), and a grouping is the
+  // live project's.
+  const groupingsOf = ctx?.groupingsOf
+  const taskGroupings = useMemo(() => {
+    if (typeof groupingsOf !== 'function' || view) return null
+    const out = {}
+    for (const kind of ITEM_KINDS) {
+      out[kind] = groupingsOf('tasks', kind).filter(g => isGroupingLive(g, itemLookup.isLive)).map(g => g.entity_ids.map(String))
+    }
+    return out
+  }, [groupingsOf, itemLookup, view])
   const rows = useMemo(
     () => buildRowsByGrouping({
       groupBy, phases, assets, tasks, schedule,
       sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds,
       teamAssignments, teamMembers: tm?.members || [],
       scenes, shots, levels, experiences,
-      sceneById, shotById, homeOf,
+      sceneById, shotById, homeOf, itemLookup, savedIdsOf, groupings: taskGroupings,
     }),
     [groupBy, phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds,
-     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf]
+     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf, itemLookup, savedIdsOf, taskGroupings]
   )
+  // VW1m (2026-10-16): each group's header row by the id its drop target,
+  // its drop zone and its tasks' rows carry (phaseHint): what a drop on it
+  // or a new task from it reads (its `items`, whether it only groups).
+  const groupRowById = useMemo(() => {
+    const m = new Map()
+    for (const r of rows) if (r.kind === 'phase' && r.phase?.id != null) m.set(r.phase.id, r)
+    return m
+  }, [rows])
+
+  // VW1m (2026-10-16): what a new task made from a row starts with (her
+  // batch 14 note: "a new task made from a row starts with its items and
+  // phase"). Grouped by phase, the row's phase; grouped by asset, scene,
+  // shot, level or experience, the row's items (an item's row: that item; a
+  // combination's: all of them; a No … row: none) and no phase; grouped by
+  // team, neither. The row's id was passed as the new task's phase whatever
+  // the grouping (an asset's id in phase_id, which the cloud refuses).
+  const prefillFromRow = (rowId) => {
+    if (groupBy === 'phase') return { phase_id: rowId && phases.some(p => p.id === rowId) ? rowId : '' }
+    return { items: (rowId != null && groupRowById.get(rowId)?.items) || null }
+  }
+
+  // VW1m (2026-10-16): a task's stored item ids of a kind (every one, shown
+  // or not), and the ones the Timeline does not show: an item not live (her
+  // Q-N4: in the trash, hidden, back on restore) or, grouped by scene, a
+  // scene or shot outside the active list (Audrey's rule of 2026-10-02: its
+  // link kept). Where the backend keeps no items, the task's one field.
+  const storedIdsOf = (taskId, kind) => {
+    if (taskItemsOn) return itemsOfTask(taskItems, taskId, kind).map(i => i.entity_id)
+    const v = liveTasks.find(t => t.id === taskId)?.[KIND_FIELD[kind]]
+    return v == null || v === '' ? [] : [v]
+  }
+  const activeIds = { scene: new Set(scenes.map(s => s.id)), shot: new Set(shots.map(s => s.id)) }
+  const notShownIdsOf = (taskId, kind) => (taskItemsOn
+    ? storedIdsOf(taskId, kind).filter(id => !itemLookup.isLive(kind, id) || (activeIds[kind] && !activeIds[kind].has(id)))
+    : [])
+
+  // VW1m (2026-10-16): a task dropped on another row (its bar, or the grip
+  // in the label column). Grouped by phase it takes that phase, as before.
+  // Grouped by asset, scene, shot, level or experience it takes that row's
+  // items, kind by kind, through the provider's one undoable verb (her
+  // ruling: "dragging a bar onto a row gives the task that row's items"; a
+  // No … row: none of the kind) — the items it has that the Timeline does
+  // not show are kept. It wrote the row's id into phase_id. Grouped by team
+  // there is nothing to take (the bar's drop changes its dates only), so the
+  // pane is given no handler.
+  // VW1m review round 2 (R2-2): a drop refused or failed says why, in this
+  // tab's "Not saved" strip, as a dependency's failed write does. It was
+  // swallowed: the provider's ctx.error is shown on the Scenes tab only.
+  const onMoveError = (taskId) => (err) => {
+    const why = err?.message || String(err)
+    const title = liveTasks.find(t => t.id === taskId)?.title || 'Untitled task'
+    setDepError({ message: `Could not move “${title}”: ${why}`, detail: why })
+  }
+  const moveTaskToRow = groupBy === 'team' ? undefined : (taskId, rowId) => {
+    if (groupBy === 'phase') {
+      ctx.updateTask(taskId, { phase_id: rowId || null }).then(undefined, onMoveError(taskId))
+      return
+    }
+    const want = rowId != null ? groupRowById.get(rowId)?.items : null
+    if (!want) return
+    const same = (a, b) => a.length === b.length && a.every(id => b.some(x => String(x) === String(id)))
+    const writes = []
+    for (const [kind, ids] of Object.entries(want)) {
+      const next = [...ids, ...notShownIdsOf(taskId, kind)]
+      if (!same(next, storedIdsOf(taskId, kind))) writes.push([kind, next])
+    }
+    if (writes.length === 0) return
+    // Review round 1 (R1-4): where the backend keeps no items (a cloud
+    // before 0096) setTaskItemsOfKind refuses (requireTaskItemsOn), and a
+    // task has one item of a kind at most, its own field: the drop writes
+    // the fields, in one patch, as the Tasks table's drop does.
+    if (!taskItemsOn) {
+      ctx.updateTask(taskId, Object.fromEntries(writes.map(([kind, ids]) => [KIND_FIELD[kind], ids[0] ?? null]))).then(undefined, onMoveError(taskId))
+      return
+    }
+    // Review round 2 (R2-3): every kind in ONE step queued whole
+    // (ctx.setTaskItemsOfKinds). ctx.runBatch around the queued verb opened
+    // the batch at the drop, before the step's turn came.
+    Promise.resolve(ctx.setTaskItemsOfKinds(taskId, writes)).then(undefined, onMoveError(taskId))
+  }
   // The group-by-scene header's read-only "Shot list: Title · vN" (D18; S5
   // owns any selector here).
   const activeListLabel = ctx?.activeShotList ? ctx.formatShotListLabel?.(ctx.activeShotList) || '' : ''
@@ -1089,6 +1218,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         phases={phases}
         assets={assets}
         tasks={tasks}
+        itemLookup={itemLookup}
         schedule={schedule}
         criticalSet={criticalSet}
         span={minimapSpan}
@@ -1179,12 +1309,12 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         todayDays={todayDays}
         dependencies={dependencies}
         phases={phases}
-        onCreateTaskFromDates={(startDate, endDate, phaseId, assetId) =>
+        groupBy={groupBy}
+        onCreateTaskFromDates={(startDate, endDate, rowId) =>
           openNewTask({
+            ...prefillFromRow(rowId),
             start_date: toDateInputValue(startDate),
             end_date:   toDateInputValue(endDate),
-            phase_id:   phaseId || '',
-            asset_id:   assetId || '',
           })
         }
         onUpdateTask={(taskId, patch) => ctx.updateTask(taskId, patch).catch(() => {})}
@@ -1196,6 +1326,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
           // The whole composite is wrapped in ctx.runBatch so it
           // commits as a SINGLE undo step (one Ctrl+Z reverts the
           // entire drag, not one task at a time).
+          // VW1m (2026-10-16): only a phase moves as a phase. A header that
+          // only groups (a combination, a scene, shot, level, experience,
+          // team member or No … row) passed its own id to updatePhase.
+          if (groupRowById.get(phaseId)?.groupOnly) return undefined
           if (!deltaDays) {
             return ctx.updatePhase(phaseId, phasePatch).catch(() => {})
           }
@@ -1212,20 +1346,19 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
                 }
               }
             }
-            // Build an asset → phase lookup so we catch tasks attached
-            // via asset_id rather than phase_id directly.
-            const assetPhaseById = {}
-            for (const a of assets) assetPhaseById[a.id] = a.phase_id || null
+            // VW1m (2026-10-16): a task's phase by the one rule (its own,
+            // else the phase its assets share), so the tasks that move are
+            // the ones the rows draw inside the phase. It read the task's
+            // main asset's phase.
+            const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
+            const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
             // Find every task whose effective phase id is inside the
             // affected set, and that has at least one explicit date to
             // shift. Tasks with no explicit dates derive from the DAG
             // and will follow naturally on the next render.
             const taskUpdates = []
             for (const t of tasks) {
-              const effectivePhaseId =
-                t.phase_id ||
-                (t.asset_id ? assetPhaseById[t.asset_id] : null) ||
-                null
+              const effectivePhaseId = phaseOfTask(t, { phaseById, assetById, lookup: itemLookup })
               if (!effectivePhaseId || !affectedPhaseIds.has(effectivePhaseId)) continue
               const tStart = parseDate(t.start_date)
               const tEnd   = parseDate(t.end_date)
@@ -1246,21 +1379,21 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
           undefined, onDependencyError('link those phases'))}
         onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).then(
           undefined, onDependencyError('remove that dependency'))}
-        onMoveTaskToPhase={(taskId, phaseId) => {
-          // Drag-drop a task into another phase row in the label gutter.
-          // We update the task's phase_id; the buildSchedule pass will
-          // re-derive the phase span on the next render.
-          ctx.updateTask(taskId, { phase_id: phaseId || null }).catch(() => {})
-        }}
-        onNewTaskInPhase={(phaseId, startDate, endDate) => {
+        // Drag-drop a task onto another row: moveTaskToRow above (VW1m: a
+        // phase by phase, the row's items by asset, scene, shot, level or
+        // experience, nothing by team). The buildSchedule pass re-derives
+        // the phase span on the next render.
+        onMoveTaskToPhase={moveTaskToRow}
+        onNewTaskInPhase={(rowId, startDate, endDate) => {
           // Clicking the empty drop zone under an expanded phase
-          // opens a blank task editor prefilled with that phase.
+          // opens a blank task editor prefilled with that phase (VW1m:
+          // or, under a group of items, with that group's items).
           // If the user clicked on a specific X position in the
           // chart area, the start/end dates are derived from the
           // cursor position so the new task begins where the user
           // intends.
           openNewTask({
-            phase_id:   phaseId || '',
+            ...prefillFromRow(rowId),
             start_date: startDate ? toDateInputValue(startDate) : '',
             end_date:   endDate   ? toDateInputValue(endDate)   : '',
           })
@@ -1343,6 +1476,9 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
 
 export const OverviewPane = forwardRef(function OverviewPane({
   groupBy, phases, assets, tasks, schedule, criticalSet,
+  // VW1m (2026-10-16): the task items' lookup, for a phase's task count
+  // (phaseOfTask); none (the minimap's own tests) reads the single fields.
+  itemLookup = null,
   span, dayPx, sortOrder,
   visibleStartDate, visibleEndDate,
   zoomMinDays = 183, zoomMaxDays = 3650,
@@ -1397,8 +1533,8 @@ export const OverviewPane = forwardRef(function OverviewPane({
   // minimap should always reflect them so the user can orient
   // within the timeline at a glance.
   const overviewRows = useMemo(
-    () => buildOverviewRows({ phases, assets, tasks, schedule, sortOrder }),
-    [phases, assets, tasks, schedule, sortOrder]
+    () => buildOverviewRows({ phases, assets, tasks, schedule, sortOrder, itemLookup }),
+    [phases, assets, tasks, schedule, sortOrder, itemLookup]
   )
 
   // Hover popup state. When the mouse enters a phase bar we
@@ -2399,6 +2535,8 @@ export function DetailPane({
   canWrite = true, writeReason = null,
   milestones = [],
   onEditMilestone,
+  // VW1m review round 2 (R2-9): what the new-task row's title names.
+  groupBy = 'phase',
 }) {
   // When weekends are hidden in day view Sat/Sun day columns are masked
   // out: their day-pixel width collapses to 0 (a prefix sum, so X positions
@@ -2408,6 +2546,12 @@ export function DetailPane({
   // days with the same one; the pane built its own and was the only part of
   // the Timeline that knew which columns were hidden. No mask: weekends shown.
   const hideWeekends = !!dayMask
+  // VW1m review round 2 (R2-9): grouped by asset, scene, shot, level,
+  // experience or team the new-task row adds to a row, not a phase (its
+  // title said "this phase" in every grouping).
+  const newTaskRowTitle = groupBy === 'phase'
+    ? 'Click to add a new task to this phase'
+    : 'Click to add a new task to this row'
 
   // Helper: convert a day-offset to its visible X coordinate honoring
   // the weekend mask. Used everywhere a bar would otherwise just
@@ -2670,7 +2814,9 @@ export function DetailPane({
           })
           return
         }
-        onCreateTaskFromDates(startDate, endDate, row.phaseHint || null, row.assetHint || null)
+        // VW1m (2026-10-16): the row's id alone; the Timeline reads what a
+        // new task from it starts with (its phase, or its group's items).
+        onCreateTaskFromDates(startDate, endDate, row.phaseHint || null)
       }
       window.addEventListener('mousemove', onMove)
       window.addEventListener('mouseup', onUp)
@@ -2775,7 +2921,9 @@ export function DetailPane({
   function startTaskDrag(e, task) {
     // Reparenting a task writes phase_id. Same reasoning as
     // makeBackgroundMouseDown: a gesture cannot be greyed, so it is withdrawn.
-    if (!canWrite) return
+    // VW1m (2026-10-16): and where a drop takes nothing (grouped by team,
+    // no handler is given), there is no drag to start.
+    if (!canWrite || !onMoveTaskToPhase) return
     if (e.button !== 0) return
     // preventDefault here is CRITICAL: it blocks the browser's
     // default text-selection drag behavior so our mousemove
@@ -2800,7 +2948,9 @@ export function DetailPane({
         taskId,
         start: taskRow.start,
         end:   taskRow.end,
-        currentPhaseId: task.phase_id || taskRow.phaseHint || null,
+        // VW1m (2026-10-16): the row it sits in first — grouped by an item
+        // kind, the task's own phase is never a row there.
+        currentPhaseId: taskRow.phaseHint || task.phase_id || null,
       })
     }
 
@@ -2849,9 +2999,11 @@ export function DetailPane({
       return
     }
     // Post-overhaul S5d: a viewed bid version hands no handler down (nothing
-    // opens over it), so each is optional.
+    // opens over it), so each is optional. VW1m (2026-10-16): a header that
+    // only groups opens nothing — it opened Edit phase on a stand-in phase
+    // (a scene's, a level's, a team member's, a combination's id).
     if (row.kind === 'phase' && row.assetRef) onEditAsset?.(row.assetRef)
-    else if (row.kind === 'phase' && row.phase) onEditPhase?.(row.phase)
+    else if (row.kind === 'phase' && row.phase && !row.groupOnly) onEditPhase?.(row.phase)
     if (row.kind === 'task'  && row.task)  onEditTask?.(row.task)
   }
 
@@ -2945,7 +3097,7 @@ export function DetailPane({
                     // disabled ink, so the two still differ.)
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
-                  title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
+                  title={canWrite ? newTaskRowTitle : writeReason || undefined}
                 >
                   {/* The icon is a glyph (the 3:1 floor), the LABEL text
                       (4.5:1): their inks are the sheet's, `.rb-tl-dz-icon`
@@ -2979,7 +3131,7 @@ export function DetailPane({
                 draggable={false}
                 className="relative flex items-center transition-colors rb-tl-row"
                 data-shape={r.kind !== 'phase' ? 'task' : r.isSubgroup ? 'subgroup' : 'phase'}
-                data-grab={isTaskRow && canWrite ? 'true' : 'false'}
+                data-grab={isTaskRow && canWrite && onMoveTaskToPhase ? 'true' : 'false'}
                 data-drop-hover={isHoverTarget ? 'true' : 'false'}
                 data-hover={hoverRowKey === r.key ? 'true' : 'false'}
                 style={{
@@ -2996,8 +3148,10 @@ export function DetailPane({
                   // Grouped by scene, a task linked outside the active list
                   // says first what it points at (Audrey's rule of
                   // 2026-10-02: it reads as not assigned, its link kept).
+                  // VW1m (2026-10-16): a drop moves it to another row of any
+                  // grouping but team's (a phase, or a row's items).
                   ? ([r.tooltip, canWrite
-                      ? 'Click to edit · drag to move to another phase'
+                      ? (onMoveTaskToPhase ? 'Click to edit · drag to move to another row' : 'Click to edit')
                       // S5d: "Click to view" only where a click opens the task.
                       : (onEditTask ? 'Click to view' : null)].filter(Boolean).join('\n') || undefined)
                   // A scene or shot row (group by scene): its name and the
@@ -4201,6 +4355,11 @@ function DetailBar({
     ? (row?.assetRef?.status || row?.phase?.status)
     : (phaseStyle ? row?.phase?.status : row?.task?.status)) || undefined
   const toneLife = subgroupStyle && !toneStatus ? lifecycleState(start, end) : undefined
+  // VW1m (2026-10-16): a header that only groups (a scene's, shot's,
+  // level's, experience's or team member's dates) is drawn and does not
+  // move or open: it moved and opened as a phase, by its own id. An asset's
+  // row keeps its asset's dates and its asset editor.
+  const fixed = !!(phaseStyle && row.groupOnly && !assetRef)
 
   function onMouseDown(e) {
     if (e.button !== 0) return
@@ -4249,7 +4408,7 @@ function DetailBar({
       // leaves onUp on its click path, so click-to-view keeps working while
       // move and resize simply never engage. Gating onMouseDown instead would
       // have taken the read affordance away with the write one.
-      if (!canWrite) return
+      if (!canWrite || fixed) return
       const dx = ev.clientX - startMouseX
       if (Math.abs(dx) > MIN_DRAG_PX) moved = true
       const ddays = Math.round(dx / dayPx)
@@ -4322,7 +4481,7 @@ function DetailBar({
       }
       if (!moved) {
         if (phaseStyle && assetRef) onEditAsset?.(assetRef)
-        else if (phaseStyle && row.phase) onEditPhase?.(row.phase)
+        else if (phaseStyle && row.phase && !fixed) onEditPhase?.(row.phase)
         else if (!phaseStyle && row.task) onEditTask?.(row.task)
         return
       }
@@ -4416,13 +4575,15 @@ function DetailBar({
       data-status={toneStatus}
       data-life={toneLife}
       data-critical={critical ? 'true' : 'false'}
-      data-writable={canWrite ? 'true' : 'false'}
+      data-writable={canWrite && !fixed ? 'true' : 'false'}
       style={{
         left, width,
         top: subgroupStyle ? 4 : (phaseStyle ? 3 : 5),
         height: subgroupStyle ? rowPx - 8 : (phaseStyle ? rowPx - 6 : rowPx - 10),
       }}
-      title={canWrite
+      title={fixed
+        ? `${label} · ${lengthDays.toFixed(1)}d`
+        : canWrite
         ? `${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`
         // "click to view" only where a click opens something (S5d: a viewed
         // bid version's bars open nothing).
@@ -4704,6 +4865,26 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     setDraft(d => ({ ...d, [field]: value }))
   }
 
+  // VW1m (2026-10-16): a task made from a combination row carries all of
+  // that row's items. A kind it carries several of is shown by name, read
+  // only, in place of that kind's picker (her Q-N5, interim: the one-of-each
+  // pickers stay; more are added in the task's window).
+  const carriedOf = (kind) => (draft.items?.[kind]?.length > 1 ? draft.items[kind] : null)
+  const carriedNames = (kind, list) => carriedOf(kind)
+    .map(id => list.find(r => r.id === id)?.name || 'Untitled')
+    .join(', ')
+  const carriedField = (kind, label, list) => (
+    <Field label={label}>
+      <div
+        className="w-full px-3 py-2 text-dense rounded-control"
+        style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}
+        title="From the row this task is made from. Change them in the task's window once it is saved."
+      >
+        {carriedNames(kind, list)}
+      </div>
+    </Field>
+  )
+
   // Phase 7 (Track A A2): warn before a phase or task is saved INTO a
   // completion status over unfinished predecessors, then save if asked. This phase
   // editor is the ONLY phase-status surface in the product. Existing tasks
@@ -4781,12 +4962,21 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         }
       } else {
         if (!draft.title?.trim()) throw new Error('Task title is required.')
-        // Resolve phase from asset if asset is set and phase isn't.
-        const asset = assets.find(a => a.id === draft.asset_id)
-        const phaseId = draft.phase_id || asset?.phase_id || null
+        // VW1m (2026-10-16): the new task's items, kind by kind: the row's
+        // several carried as they came (a combination's), else the picker's
+        // one. They go to addTask as `items`; the single fields are the
+        // backends' copy for older apps and are not sent.
+        const items = {}
+        for (const kind of ITEM_KINDS) {
+          const ids = carriedOf(kind) || (draft[KIND_FIELD[kind]] ? [draft[KIND_FIELD[kind]]] : [])
+          if (ids.length) items[kind] = ids
+        }
+        // Resolve phase from the assets if they are set and phase isn't:
+        // the phase they all share (VW1m: the rows' one rule), else none.
+        const phaseId = draft.phase_id || sharedAssetPhase(items.asset || [],
+          Object.fromEntries(assets.map(a => [a.id, a])), Object.fromEntries(phases.map(p => [p.id, p]))) || null
         const payload = {
           title:              draft.title.trim(),
-          asset_id:           draft.asset_id || null,
           phase_id:           phaseId,
           start_date:         draft.start_date || null,
           end_date:           draft.end_date || null,
@@ -4798,15 +4988,11 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
           assignee_id:        draft.assignee_id || null,
           priority:           draft.priority || 'medium',
           status:             draft.status || 'waiting_to_start',
-          scene_id:           draft.scene_id || null,
-          shot_id:            draft.shot_id || null,
-          level_id:           draft.level_id || null,
-          experience_id:      draft.experience_id || null,
         }
         if (editor.taskId) {
           await ctx.updateTask(editor.taskId, payload)
         } else {
-          await ctx.addTask(payload)
+          await ctx.addTask(Object.keys(items).length ? { ...payload, items } : payload)
         }
       }
       onClose()
@@ -4822,10 +5008,17 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
   // second sentence two of them carried is the body. Nothing is deleted
   // until the answer, exactly as before; an editor with no id to delete
   // closes as it always did.
+  // VW1m review round 1 (R1-7), her Q-M2 ("The tasks stay"): the asset's
+  // body says its tasks stay, in the Assets tab's words (it said what the
+  // cascade VW1m took out did to them). Review round 2 (R2-7): only when the
+  // asset has a task, counted as the Assets tab counts (tasksStayWords: its
+  // tasks through ctx.taskItems); an asset with none has nothing to say.
   const [askDelete, setAskDelete] = useState(null)
+  const assetTasksStay = editor.mode === 'asset' && editor.assetId != null
+    && tasksAbout(ctx?.tasks, ctx?.taskItems, 'asset', editor.assetId, ctx?.taskItemsAvailable === true).length > 0
   const DELETE_ASK = {
     milestone: { id: editor.milestoneId, title: 'Delete this milestone?', body: null, label: 'Delete milestone' },
-    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: 'Tasks linked to it will lose their asset reference.', label: 'Delete asset' },
+    asset:     { id: editor.assetId,     title: 'Delete this asset?', body: assetTasksStay ? 'Its tasks stay.' : null, label: 'Delete asset' },
     phase:     { id: editor.phaseId,     title: 'Delete this phase?', body: 'Tasks linked to it will become orphans.', label: 'Delete phase' },
     task:      { id: editor.taskId,      title: 'Delete this task?', body: null, label: 'Delete task' },
   }
@@ -5186,6 +5379,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   ))}
                 </select>
               </Field>
+              {carriedOf('asset') ? carriedField('asset', 'Assets', assets) : (
               <Field label="Asset (optional — narrows the task to one deliverable)">
                 <select
                   value={draft.asset_id || ''}
@@ -5204,9 +5398,11 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   })}
                 </select>
               </Field>
+              )}
               {/* ── Conditional relation fields ── */}
               {project?.scenes_enabled && (
                 <div className="grid grid-cols-2 gap-2">
+                  {carriedOf('scene') ? carriedField('scene', 'Scenes', scenes) : (
                   <Field label="Scene">
                     <select
                       value={draft.scene_id || ''}
@@ -5218,6 +5414,8 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                       {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                     </select>
                   </Field>
+                  )}
+                  {carriedOf('shot') ? carriedField('shot', 'Shots', shots) : (
                   <Field label="Shot">
                     <select
                       value={draft.shot_id || ''}
@@ -5230,9 +5428,11 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                         .map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                     </select>
                   </Field>
+                  )}
                 </div>
               )}
-              {project?.levels_enabled && (
+              {project?.levels_enabled && carriedOf('level') && carriedField('level', 'Levels', levels)}
+              {project?.levels_enabled && !carriedOf('level') && (
                 <Field label="Level">
                   <select
                     value={draft.level_id || ''}
@@ -5245,7 +5445,8 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   </select>
                 </Field>
               )}
-              {project?.experiences_enabled && (
+              {project?.experiences_enabled && carriedOf('experience') && carriedField('experience', 'Experiences', experiences)}
+              {project?.experiences_enabled && !carriedOf('experience') && (
                 <Field label="Experience">
                   <select
                     value={draft.experience_id || ''}
@@ -5477,13 +5678,25 @@ function Field({ label, children }) {
 // Empty draft helpers
 // ============================================================
 
-function emptyTaskDraft({ assetId = '', phaseId = '', start_date, end_date } = {}) {
+// VW1m (2026-10-16): `phase_id` and `items` are what the row the task is made
+// from gives (TimelineView's prefillFromRow; the toolbar's + Task gives
+// neither). A kind the row has one of fills that kind's picker; a kind it has
+// several of is carried in `items` and shown read only (TaskEditor). The
+// keys were camelCase and every caller sent snake_case, so the draft started
+// with the project's first asset and first phase, whatever the row.
+function emptyTaskDraft({ phase_id = '', items = null, start_date, end_date } = {}) {
   const today  = new Date()
   const inWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
+  const one = (kind) => (items?.[kind]?.length === 1 ? items[kind][0] : '')
   return {
     title:      '',
-    asset_id:   assetId || '',
-    phase_id:   phaseId || '',
+    asset_id:   one('asset'),
+    scene_id:   one('scene'),
+    shot_id:    one('shot'),
+    level_id:   one('level'),
+    experience_id: one('experience'),
+    items:      items || null,
+    phase_id:   phase_id || '',
     start_date: start_date ?? toDateInputValue(today),
     end_date:   end_date   ?? toDateInputValue(inWeek),
     bid_days:    '',
@@ -6455,12 +6668,177 @@ function lifecycleState(start, end, status) {
 // Schedule + row builders
 // ============================================================
 
+// ── A task's items, as the builders read them (VW1m, 2026-10-16) ──────────
+// Audrey (2026-10-16): "lets not have main asset be a thing. thats not needed
+// and i dont like. instead lets do the same as the grouping option. make the
+// grouping a group in the timeline as well." Grouped by asset (scene, shot,
+// level, experience) a task sits in the row of its COMBINATION of them: one
+// item, that item's row (every item keeps its row, as before, even empty);
+// two or more, a row named for them all ("Lighthouse Interior, Storm
+// Lantern"), after the single rows, A to Z; none, No asset, last. One row per
+// task, so the tk- keys, the arrows and the phase-drag ghosts are untouched.
+// The contract: item 2 of docs/sessions/handoffs/po-vw1m-2026-10-16.md.
+//
+// `lookup` is the model's buildItemLookup (a task's LIVE items, in the
+// display order). Without one (a caller that has none, the tests), a task's
+// one item of a kind is its own single field, read as before.
+function itemIdsOf(lookup, task, kind) {
+  if (lookup) return lookup.idsOf(task, kind)
+  const id = task?.[KIND_FIELD[kind]]
+  return id == null || id === '' ? [] : [id]
+}
+
+// VW1m review round 1 (R1-3): a task row's words when a link of `kind` names
+// a row the project no longer has (post-overhaul S5d: a viewed bid version
+// points at the rows of its day), else undefined. Read from the single field
+// with no lookup, as S5d read it; through the lookup, which reads live items
+// only, from `savedIdsOf` — a viewed version's saved ids, which the Timeline
+// hands over while viewing and only then (live, an item in the trash is
+// hidden without a word, her Q-N4).
+function goneLinkTip(kind, word, rowById, itemLookup, savedIdsOf) {
+  return (t) => {
+    const ids = itemLookup ? (savedIdsOf ? savedIdsOf(t, kind) : []) : itemIdsOf(null, t, kind)
+    return ids.some(id => !rowById[id]) ? `${word}: no longer in the project` : undefined
+  }
+}
+
+// R1-3: a viewed version's saved item ids, every one (live or since gone),
+// by task and kind, from its task_items-shaped rows (versionTaskItems).
+function savedIdsReader(items) {
+  const byTask = new Map()
+  for (const i of items || []) {
+    if (!i || i.task_id == null) continue
+    const k = String(i.task_id)
+    if (!byTask.has(k)) byTask.set(k, {})
+    const kinds = byTask.get(k)
+    ;(kinds[i.entity_type] || (kinds[i.entity_type] = [])).push(i.entity_id)
+  }
+  return (task, kind) => byTask.get(String(task?.id))?.[kind] || []
+}
+
+// A combination's key, the model's: its ids sorted, joined with '|'.
+const combinationKey = (ids) => ids.map(String).sort().join('|')
+// Combination rows read A to Z by their names, numbers as numbers.
+const LABEL_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const byLabel = (a, b) => LABEL_ORDER.compare(a.label, b.label) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+
+// VW1m (2026-10-16): a task's phase — its own, when it names a phase; else
+// the phase every one of its live assets is in, when they share one; else
+// none (Unphased). The one rule for the rows, the schedule, the minimap's
+// counts, a phase bar's drag and the new-task form (it was the task's main
+// asset's phase).
+function sharedAssetPhase(assetIds, assetById, phaseById) {
+  let shared = null
+  for (const id of assetIds) {
+    const pid = assetById[id]?.phase_id
+    if (!pid || !phaseById[pid] || (shared && shared !== pid)) return null
+    shared = pid
+  }
+  return shared
+}
+function phaseOfTask(task, { phaseById, assetById, lookup = null }) {
+  if (task.phase_id && phaseById[task.phase_id]) return task.phase_id
+  return sharedAssetPhase(itemIdsOf(lookup, task, 'asset'), assetById, phaseById)
+}
+
+// VW1m (2026-10-16): a viewed bid version groups by its own snapshot's items
+// (Q-N7, interim: a version keeps every item): the item rows the version
+// view hands over when it has them; else each saved task's `items` (kind →
+// ids); else, a version saved before, its single fields. Exported for
+// timelineCombinationRows.test.jsx.
+export function versionTaskItems(view) {
+  if (Array.isArray(view?.taskItems)) return view.taskItems
+  const out = []
+  for (const t of view?.tasks || []) {
+    if (!t || t.id == null) continue
+    const saved = t.items && typeof t.items === 'object' ? t.items : null
+    for (const kind of ITEM_KINDS) {
+      const ids = saved ? (Array.isArray(saved[kind]) ? saved[kind] : []) : itemIdsOf(null, t, kind)
+      for (const id of ids) out.push({ task_id: t.id, entity_type: kind, entity_id: id })
+    }
+  }
+  return out
+}
+
+// VW1m (2026-10-16): tasks bucketed by their combination of one kind, among
+// the rows `rowById` holds — `one` (an item's id → its tasks), `many` (each
+// combination of two or more: { key, ids, label, tasks }, A to Z by label)
+// and `none`.
+// VW1d (2026-10-25; design §4.11, step 0 review finding 8): `saved`, the
+// project's groupings of the kind on the Tasks table (her Q-D2, Q-D4: "make
+// the grouping a group in the timeline as well"), each an id list with every
+// item live: one of two or more items the rows hold is a combination row,
+// empty or not (a grouping of one adds nothing: each item has its row).
+function bucketByCombination(tasks, kind, rowById, lookup, nameOf, saved = []) {
+  const one = {}
+  const many = new Map()
+  const none = []
+  for (const t of tasks) {
+    const ids = itemIdsOf(lookup, t, kind).filter(id => rowById[id])
+    if (ids.length === 1) {
+      if (!one[ids[0]]) one[ids[0]] = []
+      one[ids[0]].push(t)
+    } else if (ids.length > 1) {
+      const key = combinationKey(ids)
+      if (!many.has(key)) many.set(key, { key, ids, label: ids.map(id => nameOf(rowById[id])).join(', '), tasks: [] })
+      many.get(key).tasks.push(t)
+    } else {
+      none.push(t)
+    }
+  }
+  for (const raw of Array.isArray(saved) ? saved : []) {
+    const ids = (raw || []).filter(id => rowById[id])
+    if (ids.length < 2 || ids.length !== raw.length) continue
+    const ordered = lookup ? ids.slice().sort(lookup.orderOf(kind)) : ids
+    const key = combinationKey(ordered)
+    if (!many.has(key)) many.set(key, { key, ids: ordered, label: ordered.map(id => nameOf(rowById[id])).join(', '), tasks: [] })
+  }
+  return { one, many: [...many.values()].sort(byLabel), none }
+}
+
+// VW1m (2026-10-16): a combination's rows, after the single items' rows: its
+// header (named for its items, the whole name on hover; no bar, opens
+// nothing, never moves as a phase: `groupOnly`), its tasks, anything nested
+// (`inner`: group by scene's shots) and its "+ New task". `items` are what a
+// drop on it or a new task from it takes. Its id is its row key, so it never
+// meets an item's own id.
+function pushCombinationRows(rows, combo, { prefix, depth = 0, items, collapsedSet, sortTasks, schedule, tooltipOf = () => undefined, inner = null }) {
+  const id = `grp-${prefix}-${combo.key}`
+  const collapsed = collapsedSet?.has(id)
+  rows.push({
+    key: id, kind: 'phase', isSubgroup: true, groupOnly: true,
+    label: combo.label, tooltip: combo.label,
+    phase: { id, name: combo.label },
+    phaseHint: id, depth, collapsed, hasChildren: true, items,
+  })
+  if (collapsed) return
+  for (const t of sortTasks(combo.tasks)) {
+    const sched = schedule.tasks[t.id]
+    rows.push({
+      key: `tk-${t.id}`, kind: 'task',
+      label: t.title || 'Untitled task', task: t,
+      tooltip: tooltipOf(t),
+      phaseHint: id, depth: depth + 1,
+      start: sched?.start, end: sched?.end,
+    })
+  }
+  if (inner) inner()
+  rows.push({
+    key: `dz-${id}`,
+    kind: 'drop-zone',
+    label: '+ New task',
+    phase: { id, name: combo.label },
+    phaseHint: id,
+    depth: depth + 1,
+  })
+}
+
 // buildSchedule returns { tasks: { id → { start, end } }, phases: { id → { start, end } } }.
 // Tasks: explicit start/end if set, otherwise lay out from the
 // dependency DAG with bid_days. Phases: explicit start/end if
 // set, otherwise derived from earliest child start to latest
 // child end.
-function buildSchedule({ phases, assets, tasks, dependencies }) {
+function buildSchedule({ phases, assets, tasks, dependencies, itemLookup = null }) {
   const taskMap = {}
   const taskById = Object.fromEntries(tasks.map(t => [t.id, t]))
   const successors = {}
@@ -6518,6 +6896,7 @@ function buildSchedule({ phases, assets, tasks, dependencies }) {
   // hugs whatever its sub-phases / assets actually contain.
   const phaseMap = {}
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+  const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
   const childrenByParent = groupPhasesByParent(phases)
 
   function descendantPhaseIds(rootId) {
@@ -6549,13 +6928,13 @@ function buildSchedule({ phases, assets, tasks, dependencies }) {
       phaseMap[p.id] = { start: explicitStart, end: explicitEnd }
       continue
     }
-    // Derive from any task whose phase_id (direct or via asset) is
-    // this phase OR any of its descendants.
+    // Derive from any task whose phase (its own, else the one its assets
+    // share: phaseOfTask, VW1m) is this phase OR any of its descendants.
     const includedPhases = descendantPhaseIds(p.id)
     let min = null
     let max = null
     for (const t of tasks) {
-      const tPhaseId = t.phase_id || (t.asset_id && assetById[t.asset_id]?.phase_id) || null
+      const tPhaseId = phaseOfTask(t, { phaseById, assetById, lookup: itemLookup })
       if (!tPhaseId || !includedPhases.has(tPhaseId)) continue
       const sched = taskMap[t.id]
       if (!sched) continue
@@ -6609,27 +6988,36 @@ function buildSchedule({ phases, assets, tasks, dependencies }) {
 // ============================================================
 
 // Exported for timelineShotLists.test.jsx (post-overhaul S3c), which holds
-// group-by-scene's resolution of another list's rows to account.
+// group-by-scene's resolution of another list's rows to account, and
+// timelineCombinationRows.test.jsx (VW1m). `itemLookup` (VW1m, optional): the
+// model's buildItemLookup over the task items; without it each builder reads
+// a task's single fields, as before. `savedIdsOf` (review round 1, R1-3,
+// optional): while a version is viewed, its saved ids of a kind for a task
+// (savedIdsReader), so a link to a row the project no longer has is said.
+// `groupings` (VW1d, optional): the project's groupings on the Tasks table,
+// `{ asset, scene, shot, level, experience }` each a list of id lists with
+// every item live — rows even while empty (design §4.11, finding 8).
 export function buildRowsByGrouping({
   groupBy, phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null,
   teamAssignments = [], teamMembers = [],
   scenes = [], shots = [], levels = [], experiences = [],
   sceneById = null, shotById = null, homeOf = null,
+  itemLookup = null, savedIdsOf = null, groupings = null,
 }) {
   switch (groupBy) {
     case 'team':
       return buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder, collapsedSet, teamAssignments, teamMembers })
     case 'asset':
-      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet })
+      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf, saved: groupings?.asset })
     case 'scene':
-      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf })
+      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf, itemLookup, savedIdsOf, saved: groupings })
     case 'level':
-      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet })
+      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf, saved: groupings?.level })
     case 'experience':
-      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet })
+      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet, itemLookup, savedIdsOf, saved: groupings?.experience })
     case 'phase':
     default:
-      return buildRows({ phases, assets, tasks, schedule, sortOrder, collapsedSet })
+      return buildRows({ phases, assets, tasks, schedule, sortOrder, collapsedSet, itemLookup })
   }
 }
 
@@ -6647,14 +7035,15 @@ export function buildRowsByGrouping({
 //   Phase B                          (depth 0)
 //   Unphased                         (depth 0, only if any tasks)
 //
-// A task's effective phase is:
+// A task's effective phase is (phaseOfTask, VW1m 2026-10-16):
 //     task.phase_id                   (if set), else
-//     asset.phase_id via task.asset_id (if that asset has one), else
+//     the phase all its live assets share (if they share one), else
 //     null (lives under the Unphased bucket).
+// It was the phase of the task's main asset (its first).
 //
 // Empty phases still render so the user can see the structure they
 // built and drag bars into them.
-function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null }) {
+function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null, itemLookup = null }) {
   const childrenByParent = groupPhasesByParent(phases)
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
   const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
@@ -6662,12 +7051,7 @@ function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collaps
 
   // Compute a task's effective phase_id.
   function effectivePhaseOf(task) {
-    if (task.phase_id && phaseById[task.phase_id]) return task.phase_id
-    if (task.asset_id && assetById[task.asset_id]?.phase_id) {
-      const apid = assetById[task.asset_id].phase_id
-      if (phaseById[apid]) return apid
-    }
-    return null
+    return phaseOfTask(task, { phaseById, assetById, lookup: itemLookup })
   }
 
   // Bucket tasks flat-by-phase. No asset nesting.
@@ -6745,7 +7129,6 @@ function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collaps
         label: t.title || 'Untitled task',
         task:  t,
         phaseHint: phase.id,
-        assetHint: t.asset_id || null,
         depth: depth + 1,
         start: sched?.start,
         end:   sched?.end,
@@ -6791,7 +7174,6 @@ function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collaps
         kind:  'task',
         label: t.title || 'Untitled task',
         task:  t,
-        assetHint: t.asset_id || null,
         depth: 1,
         start: sched?.start,
         end:   sched?.end,
@@ -6866,6 +7248,9 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
       key: `grp-tm-${member.id}`,
       kind: 'phase',
       isSubgroup: true,
+      // VW1m (2026-10-16): a team member's row only groups — no Edit
+      // phase, no phase move (it did both, by the member's id).
+      groupOnly: true,
       label: member.name || 'Unnamed',
       phase: { id: member.id, name: member.name || 'Unnamed', start_date: assignment?.start_date, end_date: assignment?.end_date },
       phaseHint: member.id,
@@ -6902,6 +7287,7 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
       key: 'grp-tm-unassigned',
       kind: 'phase',
       isSubgroup: true,
+      groupOnly: true,
       label: 'Unassigned',
       phase: { id: '__unassigned__', name: 'Unassigned' },
       phaseHint: '__unassigned__',
@@ -6935,7 +7321,7 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
 
 // ── buildRowsByAsset ────────────────────────────────────────
 // Asset → Tasks (flat — no phase wrappers)
-function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet }) {
+function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null, saved = [] }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
@@ -6951,21 +7337,20 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
     })
   }
 
-  // Bucket tasks by asset id. A link to an asset the project no longer has
-  // reads under No Asset, and its row says so (post-overhaul S5d: a viewed
-  // bid version points at the assets of its day).
-  const tasksByAsset = {}     // { assetId: Task[] }
-  const noAssetTasks = []
-  for (const t of tasks) {
-    const aid = t.asset_id && assetById[t.asset_id] ? t.asset_id : null
-    if (aid) {
-      if (!tasksByAsset[aid]) tasksByAsset[aid] = []
-      tasksByAsset[aid].push(t)
-    } else {
-      noAssetTasks.push(t)
-    }
-  }
-  const goneTip = (t) => (t.asset_id ? 'Asset: no longer in the project' : undefined)
+  // Bucket tasks by their combination of assets (VW1m: one asset, its row;
+  // several, their combination's row; none, No asset). A link to an asset
+  // the project no longer has reads under No asset, and — read from the
+  // single field, with no lookup — its row says so (post-overhaul S5d: a
+  // viewed bid version points at the assets of its day). Through the
+  // lookup such an asset is not live and is left out (her Q-N4); review
+  // round 1 (R1-3): a viewed version's task says so again, on whichever row
+  // it sits (goneLinkTip).
+  const {
+    one: tasksByAsset,      // { assetId: Task[] }
+    many: assetCombos,      // [{ key, ids, label, tasks }]
+    none: noAssetTasks,
+  } = bucketByCombination(tasks, 'asset', assetById, itemLookup, a => a.name || 'Untitled asset', saved)
+  const goneTip = goneLinkTip('asset', 'Asset', assetById, itemLookup, savedIdsOf)
 
   // Sort assets by start_date then name
   const sortedAssets = assets.slice().sort((a, b) => {
@@ -6995,6 +7380,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
       collapsed,
       hasChildren: true,
       start: aStart, end: aEnd,
+      items: { asset: [asset.id] },
     })
     if (collapsed) continue
     for (const t of sortTasks(assetTasks)) {
@@ -7002,7 +7388,8 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
       rows.push({
         key: `tk-${t.id}`, kind: 'task',
         label: t.title || 'Untitled task', task: t,
-        phaseHint: asset.id, assetHint: asset.id, depth: 1,
+        tooltip: goneTip(t),
+        phaseHint: asset.id, depth: 1,
         start: sched?.start, end: sched?.end,
       })
     }
@@ -7018,19 +7405,28 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
     })
   }
 
-  // Tasks with no asset
+  // VW1m (2026-10-16): each combination of two or more assets that holds a
+  // task, after the single rows, A to Z by its name.
+  for (const combo of assetCombos) {
+    pushCombinationRows(rows, combo, { prefix: 'as', items: { asset: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf: goneTip })
+  }
+
+  // Tasks with no asset (last; VW1m: it only groups, and a drop on it or a
+  // new task from it takes no asset)
   if (noAssetTasks.length > 0) {
     const noAssetCollapsed = collapsedSet?.has('__noasset__')
     rows.push({
       key: 'grp-as-noasset',
       kind: 'phase',
       isSubgroup: true,
-      label: 'No Asset',
-      phase: { id: '__noasset__', name: 'No Asset' },
+      groupOnly: true,
+      label: NO_KIND_LABEL.asset,
+      phase: { id: '__noasset__', name: NO_KIND_LABEL.asset },
       phaseHint: '__noasset__',
       depth: 0,
       collapsed: noAssetCollapsed,
       hasChildren: true,
+      items: { asset: [] },
     })
     if (!noAssetCollapsed) {
       for (const t of sortTasks(noAssetTasks)) {
@@ -7047,7 +7443,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
         key: 'dz-__noasset__',
         kind: 'drop-zone',
         label: '+ New task',
-        phase: { id: '__noasset__', name: 'No Asset' },
+        phase: { id: '__noasset__', name: NO_KIND_LABEL.asset },
         phaseHint: '__noasset__',
         depth: 1,
       })
@@ -7072,7 +7468,15 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
 // EVERY row, and `homeOf` for the lists that hold it). Every scene and shot
 // row names its list in its tooltip: the gutter is too dense to print it
 // (S3c brief, step 1).
-function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null }) {
+//
+// VW1m (2026-10-16): a task's scenes and shots are its items. Its scene row
+// is the combination of the scenes of its shots in the active list when it
+// has any, else of its own scenes there; inside a scene row, its shot row is
+// the combination of those shots. Single scenes and shots keep their rows
+// as before; combinations follow them, A to Z. Each link is resolved alone
+// (linksInActive with one field), so every one outside the active list is
+// named in the task's tooltip, as before.
+function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null, itemLookup = null, savedIdsOf = null, saved = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const tip = (row) => (homeOf ? homeOf(row.id).title(row.name || null) : undefined)
@@ -7100,26 +7504,92 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
   }
 
   // Bucket tasks by scene and shot (flat — ignore phases). Every task lands
-  // in exactly one bucket: under its shot when the active list holds the
-  // shot (and the shot's scene), else under its scene when the active list
-  // holds that, else under NO_SCENE_GROUP — never nowhere.
+  // in exactly one bucket: under its shots when the active list holds them
+  // (and their scenes), else under its scenes when the active list holds
+  // them, else under NO_SCENE_GROUP — never nowhere. VW1m: one scene or shot,
+  // its own row; several, their combination's.
   const tasksByScene = {}   // { sceneId: Task[] }
   const tasksByShot = {}    // { shotId: Task[] }
+  const shotCombosOf = {}   // { sceneId: Map(key → { key, ids, label, tasks }) }
+  const sceneCombos = new Map() // key → { key, ids, label, tasks, shots: Map }
   const noSceneTasks = []
   const outsideOf = new Map() // { taskId: what its outside links point at }
+  const sceneRowById = Object.fromEntries(scenes.map(s => [s.id, s]))
+  const shotRowById = Object.fromEntries(shots.map(s => [s.id, s]))
+  const inOrder = (kind, ids) => (itemLookup ? ids.slice().sort(itemLookup.orderOf(kind)) : ids.slice())
+  const comboOf = (map, kind, ids, nameOf, extra = {}) => {
+    const key = combinationKey(ids)
+    if (!map.has(key)) {
+      const ordered = inOrder(kind, ids)
+      map.set(key, { key, ids: ordered, label: ordered.map(nameOf).join(', '), tasks: [], ...extra })
+    }
+    return map.get(key)
+  }
+  const sceneName = (id) => sceneRowById[id]?.name || 'Untitled scene'
+  const shotName = (id) => shotRowById[id]?.name || 'Untitled shot'
+  // Review round 1 (R1-3): a viewed version's links are its saved ids, gone
+  // ones too, so one to a scene or shot the project no longer has is named in
+  // the task's tooltip ("Shot: no longer in the project", S5d) and the task
+  // reads as not assigned; live, the lookup's live items alone (her Q-N4).
+  const linksOf = (t, kind) => (itemLookup && savedIdsOf ? savedIdsOf(t, kind) : itemIdsOf(itemLookup, t, kind))
   for (const t of tasks) {
-    const { sceneId, shotId, outside } = linksInActive(t, { active, sceneById, shotById, homeOf })
+    const outside = []
+    const inScenes = []
+    for (const id of linksOf(t, 'scene')) {
+      const { sceneId, outside: o } = linksInActive({ scene_id: id }, { active, sceneById, shotById, homeOf })
+      if (sceneId) inScenes.push(sceneId)
+      outside.push(...o)
+    }
+    const inShots = []
+    for (const id of linksOf(t, 'shot')) {
+      const { shotId, outside: o } = linksInActive({ shot_id: id }, { active, sceneById, shotById, homeOf })
+      if (shotId && sceneOfShot.has(shotId)) inShots.push(shotId)
+      outside.push(...o)
+    }
     if (outside.length) outsideOf.set(t.id, outside.join('\n'))
-    if (shotId && sceneOfShot.has(shotId)) {
-      if (!tasksByShot[shotId]) tasksByShot[shotId] = []
-      tasksByShot[shotId].push(t)
-    } else if (sceneId) {
-      if (!tasksByScene[sceneId]) tasksByScene[sceneId] = []
-      tasksByScene[sceneId].push(t)
-    } else {
+    const sceneIds = inShots.length ? [...new Set(inShots.map(id => sceneOfShot.get(id)))] : inScenes
+    if (sceneIds.length === 0) {
       noSceneTasks.push(t)
+    } else if (sceneIds.length === 1) {
+      const sid = sceneIds[0]
+      if (inShots.length === 1) {
+        if (!tasksByShot[inShots[0]]) tasksByShot[inShots[0]] = []
+        tasksByShot[inShots[0]].push(t)
+      } else if (inShots.length > 1) {
+        if (!shotCombosOf[sid]) shotCombosOf[sid] = new Map()
+        comboOf(shotCombosOf[sid], 'shot', inShots, shotName).tasks.push(t)
+      } else {
+        if (!tasksByScene[sid]) tasksByScene[sid] = []
+        tasksByScene[sid].push(t)
+      }
+    } else {
+      const combo = comboOf(sceneCombos, 'scene', sceneIds, sceneName, { shots: new Map() })
+      if (inShots.length) comboOf(combo.shots, 'shot', inShots, shotName).tasks.push(t)
+      else combo.tasks.push(t)
     }
   }
+  // VW1d (design §4.11, finding 8): the project's groupings, rows even while
+  // empty. Two or more scenes: a scene combination. Shots: under their one
+  // scene as a shot combination (two or more shots), or, spanning several
+  // scenes, under a scene combination for those scenes. A grouping naming a
+  // scene or shot outside the active list is no row here (S3c reads the
+  // active list; the Tasks table, which reads every list, shows it).
+  for (const ids of saved?.scene || []) {
+    if (ids.length < 2 || !ids.every(id => sceneRowById[id] && active.sceneIds.has(id))) continue
+    comboOf(sceneCombos, 'scene', ids, sceneName, { shots: new Map() })
+  }
+  for (const ids of saved?.shot || []) {
+    if (ids.length === 0 || !ids.every(id => sceneOfShot.has(id))) continue
+    const sceneIds = [...new Set(ids.map(id => sceneOfShot.get(id)))]
+    if (sceneIds.length === 1) {
+      if (ids.length < 2) continue
+      if (!shotCombosOf[sceneIds[0]]) shotCombosOf[sceneIds[0]] = new Map()
+      comboOf(shotCombosOf[sceneIds[0]], 'shot', ids, shotName)
+    } else {
+      comboOf(comboOf(sceneCombos, 'scene', sceneIds, sceneName, { shots: new Map() }).shots, 'shot', ids, shotName)
+    }
+  }
+  const tooltipOf = (t) => outsideOf.get(t.id)
 
   // Sort scenes by scene_number then name
   const sortedScenes = scenes.slice().sort((a, b) => {
@@ -7139,11 +7609,16 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
     rows.push({
       key: `grp-sc-${scene.id}`, kind: 'phase',
       isSubgroup: true,
+      // VW1m (2026-10-16): a scene's row only groups (no Edit phase, no
+      // phase move); a drop on it or a new task from it takes this scene and
+      // no shot of the active list.
+      groupOnly: true,
       label: scene.name || 'Untitled scene',
       tooltip: tip(scene),
       phase: { id: scene.id, name: scene.name, start_date: scene.start_date, end_date: scene.end_date, status: scene.status },
       phaseHint: scene.id, depth: 0,
       collapsed, hasChildren: true, start: sStart, end: sEnd,
+      items: { scene: [scene.id], shot: [] },
     })
     if (collapsed) continue
     for (const t of sortTasks(directTasks)) {
@@ -7158,12 +7633,14 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
       rows.push({
         key: `grp-sh-${shot.id}`, kind: 'phase',
         isSubgroup: true,
+        groupOnly: true,
         label: shot.name || 'Untitled shot',
         tooltip: tip(shot),
         phase: { id: shot.id, name: shot.name, start_date: shot.start_date, end_date: shot.end_date, status: shot.status },
         phaseHint: shot.id, depth: 1,
         collapsed: shotCollapsed, hasChildren: true,
         start: parseDate(shot.start_date), end: parseDate(shot.end_date),
+        items: { scene: [scene.id], shot: [shot.id] },
       })
       if (shotCollapsed) continue
       for (const t of sortTasks(shotTasks)) {
@@ -7182,6 +7659,10 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
         phaseStart: parseDate(shot.start_date), phaseEnd: parseDate(shot.end_date),
       })
     }
+    // VW1m: then each combination of this scene's shots, A to Z.
+    for (const combo of [...(shotCombosOf[scene.id]?.values() || [])].sort(byLabel)) {
+      pushCombinationRows(rows, combo, { prefix: 'sh', depth: 1, items: { scene: [scene.id], shot: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf })
+    }
     // Scene-level drop zone (after shots)
     rows.push({
       key: `dz-${scene.id}`,
@@ -7194,14 +7675,28 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
     })
   }
 
+  // VW1m (2026-10-16): each combination of two or more scenes, after the
+  // single scenes, A to Z; inside it, its tasks' combinations of shots.
+  for (const combo of [...sceneCombos.values()].sort(byLabel)) {
+    pushCombinationRows(rows, combo, {
+      prefix: 'sc', items: { scene: combo.ids, shot: [] }, collapsedSet, sortTasks, schedule, tooltipOf,
+      inner: () => {
+        for (const shotCombo of [...combo.shots.values()].sort(byLabel)) {
+          pushCombinationRows(rows, shotCombo, { prefix: 'sh', depth: 1, items: { scene: combo.ids, shot: shotCombo.ids }, collapsedSet, sortTasks, schedule, tooltipOf })
+        }
+      },
+    })
+  }
+
   // Tasks with no scene
   if (noSceneTasks.length > 0) {
     const noSceneCollapsed = collapsedSet?.has('__noscene__')
     rows.push({
-      key: 'grp-noscene', kind: 'phase', isSubgroup: true, label: NO_SCENE_GROUP,
+      key: 'grp-noscene', kind: 'phase', isSubgroup: true, groupOnly: true, label: NO_SCENE_GROUP,
       phase: { id: '__noscene__', name: NO_SCENE_GROUP },
       phaseHint: '__noscene__',
       depth: 0, collapsed: noSceneCollapsed, hasChildren: true,
+      items: { scene: [], shot: [] },
     })
     if (!noSceneCollapsed) {
       for (const t of sortTasks(noSceneTasks)) {
@@ -7224,21 +7719,17 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
 }
 
 // ── buildRowsByLevel ────────────────────────────────────────
-function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet }) {
+function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null, saved = [] }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const levelById = Object.fromEntries(levels.map(l => [l.id, l]))
 
-  const tasksByLevel = {}
-  const noLevel = []
-  for (const t of tasks) {
-    if (t.level_id && levelById[t.level_id]) {
-      if (!tasksByLevel[t.level_id]) tasksByLevel[t.level_id] = []
-      tasksByLevel[t.level_id].push(t)
-    } else {
-      noLevel.push(t)
-    }
-  }
+  // VW1m (2026-10-16): by the task's combination of levels, as by asset.
+  const { one: tasksByLevel, many: levelCombos, none: noLevel } =
+    bucketByCombination(tasks, 'level', levelById, itemLookup, l => l.name || 'Untitled level', saved)
+  // Post-overhaul S5d: a level the project no longer has, said (R1-3: a
+  // viewed version's too, on whichever row its task sits).
+  const goneTip = goneLinkTip('level', 'Level', levelById, itemLookup, savedIdsOf)
 
   function sortTasks(list) {
     return list.slice().sort((a, b) => {
@@ -7269,6 +7760,9 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
       key: `grp-lv-${level.id}`,
       kind: 'phase',
       isSubgroup: true,
+      // VW1m (2026-10-16): a level's row only groups (no Edit phase, no
+      // phase move); a drop on it or a new task from it takes this level.
+      groupOnly: true,
       label: level.name || 'Untitled level',
       phase: { id: level.id, name: level.name, start_date: level.start_date, end_date: level.end_date },
       phaseHint: level.id,
@@ -7276,6 +7770,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
       collapsed,
       hasChildren: true,
       start, end,
+      items: { level: [level.id] },
     })
     if (collapsed) continue
     for (const t of sortTasks(levelTasks)) {
@@ -7283,6 +7778,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
       rows.push({
         key: `tk-${t.id}`, kind: 'task',
         label: t.title || 'Untitled task', task: t,
+        tooltip: goneTip(t),
         phaseHint: level.id, depth: 1,
         start: sched?.start, end: sched?.end,
       })
@@ -7298,13 +7794,18 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
     })
   }
 
+  for (const combo of levelCombos) {
+    pushCombinationRows(rows, combo, { prefix: 'lv', items: { level: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf: goneTip })
+  }
+
   if (noLevel.length > 0) {
     const noLevelCollapsed = collapsedSet?.has('__nolevel__')
     rows.push({
-      key: 'grp-nolevel', kind: 'phase', isSubgroup: true, label: 'No Level',
-      phase: { id: '__nolevel__', name: 'No Level' },
+      key: 'grp-nolevel', kind: 'phase', isSubgroup: true, groupOnly: true, label: NO_KIND_LABEL.level,
+      phase: { id: '__nolevel__', name: NO_KIND_LABEL.level },
       phaseHint: '__nolevel__',
       depth: 0, collapsed: noLevelCollapsed, hasChildren: true,
+      items: { level: [] },
     })
     if (!noLevelCollapsed) {
       for (const t of sortTasks(noLevel)) {
@@ -7312,8 +7813,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
-          // Post-overhaul S5d: a level the project no longer has, said.
-          tooltip: t.level_id ? 'Level: no longer in the project' : undefined,
+          tooltip: goneTip(t),
           phaseHint: '__nolevel__', depth: 1,
           start: sched?.start, end: sched?.end,
         })
@@ -7322,7 +7822,7 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
         key: 'dz-__nolevel__',
         kind: 'drop-zone',
         label: '+ New task',
-        phase: { id: '__nolevel__', name: 'No Level' },
+        phase: { id: '__nolevel__', name: NO_KIND_LABEL.level },
         phaseHint: '__nolevel__',
         depth: 1,
       })
@@ -7332,21 +7832,17 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
 }
 
 // ── buildRowsByExperience ───────────────────────────────────
-function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet }) {
+function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet, itemLookup = null, savedIdsOf = null, saved = [] }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const expById = Object.fromEntries(experiences.map(e => [e.id, e]))
 
-  const tasksByExp = {}
-  const noExp = []
-  for (const t of tasks) {
-    if (t.experience_id && expById[t.experience_id]) {
-      if (!tasksByExp[t.experience_id]) tasksByExp[t.experience_id] = []
-      tasksByExp[t.experience_id].push(t)
-    } else {
-      noExp.push(t)
-    }
-  }
+  // VW1m (2026-10-16): by the task's combination of experiences, as by asset.
+  const { one: tasksByExp, many: expCombos, none: noExp } =
+    bucketByCombination(tasks, 'experience', expById, itemLookup, e => e.name || 'Untitled experience', saved)
+  // Post-overhaul S5d: an experience the project no longer has, said (R1-3:
+  // a viewed version's too, on whichever row its task sits).
+  const goneTip = goneLinkTip('experience', 'Experience', expById, itemLookup, savedIdsOf)
 
   function sortTasks(list) {
     return list.slice().sort((a, b) => {
@@ -7377,6 +7873,9 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
       key: `grp-xp-${exp.id}`,
       kind: 'phase',
       isSubgroup: true,
+      // VW1m (2026-10-16): an experience's row only groups (no Edit phase,
+      // no phase move); a drop on it or a new task from it takes it.
+      groupOnly: true,
       label: exp.name || 'Untitled experience',
       phase: { id: exp.id, name: exp.name, start_date: exp.start_date, end_date: exp.end_date },
       phaseHint: exp.id,
@@ -7384,6 +7883,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
       collapsed,
       hasChildren: true,
       start, end,
+      items: { experience: [exp.id] },
     })
     if (collapsed) continue
     for (const t of sortTasks(expTasks)) {
@@ -7391,6 +7891,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
       rows.push({
         key: `tk-${t.id}`, kind: 'task',
         label: t.title || 'Untitled task', task: t,
+        tooltip: goneTip(t),
         phaseHint: exp.id, depth: 1,
         start: sched?.start, end: sched?.end,
       })
@@ -7406,13 +7907,18 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
     })
   }
 
+  for (const combo of expCombos) {
+    pushCombinationRows(rows, combo, { prefix: 'xp', items: { experience: combo.ids }, collapsedSet, sortTasks, schedule, tooltipOf: goneTip })
+  }
+
   if (noExp.length > 0) {
     const noExpCollapsed = collapsedSet?.has('__noexp__')
     rows.push({
-      key: 'grp-noexp', kind: 'phase', isSubgroup: true, label: 'No Experience',
-      phase: { id: '__noexp__', name: 'No Experience' },
+      key: 'grp-noexp', kind: 'phase', isSubgroup: true, groupOnly: true, label: NO_KIND_LABEL.experience,
+      phase: { id: '__noexp__', name: NO_KIND_LABEL.experience },
       phaseHint: '__noexp__',
       depth: 0, collapsed: noExpCollapsed, hasChildren: true,
+      items: { experience: [] },
     })
     if (!noExpCollapsed) {
       for (const t of sortTasks(noExp)) {
@@ -7420,8 +7926,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
-          // Post-overhaul S5d: an experience the project no longer has, said.
-          tooltip: t.experience_id ? 'Experience: no longer in the project' : undefined,
+          tooltip: goneTip(t),
           phaseHint: '__noexp__', depth: 1,
           start: sched?.start, end: sched?.end,
         })
@@ -7430,7 +7935,7 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
         key: 'dz-__noexp__',
         kind: 'drop-zone',
         label: '+ New task',
-        phase: { id: '__noexp__', name: 'No Experience' },
+        phase: { id: '__noexp__', name: NO_KIND_LABEL.experience },
         phaseHint: '__noexp__',
         depth: 1,
       })
@@ -7439,117 +7944,28 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
   return rows
 }
 
-// buildOverviewRowsByGrouping — dispatches overview rows by groupBy
-function buildOverviewRowsByGrouping({
-  groupBy, phases, assets, tasks, schedule, sortOrder = 'asc',
-  scenes = [], shots = [], levels = [], experiences = [],
-  teamAssignments = [], teamMembers = [],
-}) {
-  if (groupBy === 'phase' || !groupBy) {
-    return buildOverviewRows({ phases, assets, tasks, schedule, sortOrder })
-  }
-
-  // Generic overview builder for non-phase groupings
-  const sign = sortOrder === 'desc' ? -1 : 1
-  const out = []
-
-  function sortByDate(list, dateFn) {
-    return list.slice().sort((a, b) => {
-      const as = dateFn(a)
-      const bs = dateFn(b)
-      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
-      if (as && !bs) return -1
-      if (!as && bs) return 1
-      return sign * String(a.name || '').localeCompare(String(b.name || ''))
-    })
-  }
-
-  function countTasksFor(field, id) {
-    let n = 0
-    for (const t of tasks) { if (t[field] === id && schedule.tasks[t.id]) n++ }
-    return n
-  }
-
-  if (groupBy === 'team') {
-    const memberById = Object.fromEntries(teamMembers.map(m => [m.id, m]))
-    const assignmentByMember = Object.fromEntries(teamAssignments.map(a => [a.member_id, a]))
-    const ids = [...new Set([...teamAssignments.map(a => a.member_id)])]
-    for (const id of ids) {
-      const m = memberById[id]
-      if (!m) continue
-      const a = assignmentByMember[id]
-      out.push({
-        key: `ovr-tm-${id}`, kind: 'phase',
-        label: m.name, phase: { id, name: m.name },
-        phaseId: id,
-        taskCount: countTasksFor('assignee_id', id),
-        start: parseDate(a?.start_date), end: parseDate(a?.end_date),
-      })
-    }
-  } else if (groupBy === 'asset') {
-    for (const a of sortByDate(assets, x => parseDate(x.start_date))) {
-      out.push({
-        key: `ovr-as-${a.id}`, kind: 'phase',
-        label: a.name, phase: { id: a.id, name: a.name },
-        phaseId: a.id,
-        taskCount: countTasksFor('asset_id', a.id),
-        start: parseDate(a.start_date), end: parseDate(a.due_date),
-      })
-    }
-  } else if (groupBy === 'scene') {
-    for (const s of sortByDate(scenes, x => parseDate(x.start_date))) {
-      out.push({
-        key: `ovr-sc-${s.id}`, kind: 'phase',
-        label: s.name, phase: { id: s.id, name: s.name },
-        phaseId: s.id,
-        taskCount: countTasksFor('scene_id', s.id),
-        start: parseDate(s.start_date), end: parseDate(s.end_date),
-      })
-    }
-  } else if (groupBy === 'level') {
-    for (const l of sortByDate(levels, x => parseDate(x.start_date))) {
-      out.push({
-        key: `ovr-lv-${l.id}`, kind: 'phase',
-        label: l.name, phase: { id: l.id, name: l.name },
-        phaseId: l.id,
-        taskCount: countTasksFor('level_id', l.id),
-        start: parseDate(l.start_date), end: parseDate(l.end_date),
-      })
-    }
-  } else if (groupBy === 'experience') {
-    for (const e of sortByDate(experiences, x => parseDate(x.start_date))) {
-      out.push({
-        key: `ovr-xp-${e.id}`, kind: 'phase',
-        label: e.name, phase: { id: e.id, name: e.name },
-        phaseId: e.id,
-        taskCount: countTasksFor('experience_id', e.id),
-        start: parseDate(e.start_date), end: parseDate(e.end_date),
-      })
-    }
-  }
-  return out
-}
-
 // buildOverviewRows: a flatter, less-indented list for the
 // minimap. The minimap shows PHASES ONLY — tasks are a detail-
 // pane concern, and cluttering the minimap with individual task
 // pills makes the project shape hard to read at a glance. Each
 // phase row carries a pre-computed taskCount so the hover popup
 // can show "N tasks" without reshipping the task list.
-function buildOverviewRows({ phases, assets, tasks, schedule, sortOrder = 'asc' }) {
+function buildOverviewRows({ phases, assets, tasks, schedule, sortOrder = 'asc', itemLookup = null }) {
   const out = []
   const childrenByParent = groupPhasesByParent(phases)
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+  const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
   const sign = sortOrder === 'desc' ? -1 : 1
 
   // Count tasks that belong to each phase — directly via phase_id
-  // or indirectly through an asset that lives in that phase.
+  // or indirectly through the phase their assets share (phaseOfTask,
+  // VW1m: the rows' one rule).
   // Only tasks the scheduler has actually placed count, so the
   // number matches what the user sees in the detail pane.
   const taskCountByPhase = {}
   for (const t of tasks) {
     if (!schedule.tasks[t.id]) continue
-    const pid = t.phase_id || (t.asset_id && assetById[t.asset_id]?.phase_id) || null
+    const pid = phaseOfTask(t, { phaseById, assetById, lookup: itemLookup })
     if (!pid) continue
     taskCountByPhase[pid] = (taskCountByPhase[pid] || 0) + 1
   }

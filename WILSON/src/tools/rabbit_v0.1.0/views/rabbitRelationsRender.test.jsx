@@ -296,9 +296,10 @@ describe('RelationsPanel — the Level, Experience and Scene popups\' column', (
     fireEvent.click(add)
     expect(onCreateTask).toHaveBeenCalledTimes(1)
     // The asset row opens the asset; its remove removes and opens nothing.
-    // (Mara is the task row's asset line too: the asset row's name carries
-    // the whole name as its title.)
-    const row = screen.getByTitle('Mara').closest('.rb-rel-row')
+    // (Mara is the task row's asset line too, and since VW1m that line
+    // carries its whole list as its title: the asset row is the one whose
+    // NAME carries it.)
+    const row = screen.getAllByTitle('Mara').find(el => el.classList.contains('rb-rel-name')).closest('.rb-rel-row')
     expect(row.getAttribute('data-clickable')).toBe('true')
     expect(row.querySelector('.rb-rel-status').textContent).toBe('Approved')
     fireEvent.click(row)
@@ -306,9 +307,11 @@ describe('RelationsPanel — the Level, Experience and Scene popups\' column', (
     fireEvent.click(within(row).getByRole('button', { name: 'Remove relation' }))
     expect(ctx.updateAsset).toHaveBeenCalledWith('a1', { scene_ids: [] })
     expect(onOpenAsset).toHaveBeenCalledTimes(1)
-    // The task row: the task, the asset it is for, the kit's badge; it opens the task.
+    // The task row: the task, the assets it is for (VW1m: every one, the
+    // whole list on hover), the kit's badge; it opens the task.
     const task = screen.getByText('Wardrobe pass').closest('.rb-rel-row')
     expect(task.querySelector('.rb-rel-sub').textContent).toBe('Mara')
+    expect(task.querySelector('.rb-rel-sub').getAttribute('title')).toBe('Mara')
     expect(task.querySelector('.rb-rel-status').textContent).toBe('Pending review')
     fireEvent.click(task)
     expect(onOpenTask).toHaveBeenCalledWith('t1')

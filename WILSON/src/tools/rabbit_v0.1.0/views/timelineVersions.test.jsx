@@ -370,6 +370,26 @@ describe('viewing a version (F2: read-only — nothing written, nothing set asid
     expect({ writes, setAside: ctx.setAsideTasks.length, open: ctx.project.open_budget_version_id }).toEqual({ writes: [], setAside: 0, open: null })
     expect(t2.start_date).not.toBe('2026-11-02')
   })
+  // VW1m review round 1 (R1-3): S5d said where a viewed version's link names
+  // a row the project no longer has; read through VW1m's lookup (live items
+  // only) it went quiet. Live, an asset in the trash is hidden from its task
+  // without a word (her Q-N4: back on restore).
+  it('R1-3: grouped by asset, a viewed version\'s task whose saved asset has been deleted says so; live, the asset in the trash is hidden without a word', async () => {
+    await mount()
+    await reset()
+    const saved = BUDGET_VERSIONS.find(v => v.id === BV1).snapshot.tasks.find(t => t.id === TASK_ID(18))
+    expect(saved.asset_id).toBe(fid('asset', 7)) // Lighthouse Interior: Bid v1 is an older version, one asset a task
+    await run(() => ctx.deleteAsset(fid('asset', 7)))
+    fireEvent.click(screen.getByRole('tab', { name: 'Group by asset' }))
+    const tipOf = () => rowOf(saved.title)?.getAttribute('title') || ''
+    expect(tipOf()).not.toMatch(/no longer in the project/)
+    await choose(BV1)
+    expect(bar().dataset.mode).toBe('viewing')
+    expect(rowOf(saved.title)).toBeTruthy()
+    expect(tipOf()).toMatch(/^Asset: no longer in the project/)
+    await press(verb('Current'))
+    expect(tipOf()).not.toMatch(/no longer in the project/)
+  })
   it('the bar says what is shown — "Viewing bid version: Bid v1 · date", Read-only — and offers Edit this version and Current, never the save verbs', async () => {
     await mount()
     await reset()

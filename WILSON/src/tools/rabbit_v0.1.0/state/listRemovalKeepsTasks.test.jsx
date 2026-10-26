@@ -52,6 +52,7 @@ vi.mock('../../../components/TaskTemplates/TaskTemplateManager', () => ({ defaul
 
 const { RabbitProvider, useRabbit } = await import('./RabbitProvider')
 const { buildRowsByGrouping } = await import('../views/TimelineView.jsx')
+const { buildItemLookup } = await import('./taskItemsModel')
 const { bySceneRows, byShotRows } = await import('../views/BudgetView.jsx')
 const { homeIndexOf, NO_SCENE_GROUP, NO_SHOT_GROUP } = await import('../views/scenes/linkHomes')
 
@@ -182,9 +183,15 @@ const WHOLE = { tasks: N, days: 10, cost: 5000 }
 function measure() {
   const ctx = ctxRef
   const homeOf = homeIndexOf(ctx)
+  // VW1m (2026-10-16): the Timeline reads a task's items through the model's
+  // lookup over every row the project shows, as TimelineView builds it.
+  const itemLookup = buildItemLookup({
+    items: ctx.taskItems, available: ctx.taskItemsAvailable === true,
+    assets: ctx.assets, scenes: ctx.allScenes, shots: ctx.allShots, levels: ctx.levels, experiences: ctx.experiences,
+  })
   const rows = buildRowsByGrouping({
     groupBy: 'scene', phases: [], assets: [], tasks: ctx.tasks, schedule: { tasks: {}, phases: {} },
-    scenes: ctx.scenes, shots: ctx.shots, sceneById: ctx.sceneById, shotById: ctx.shotById, homeOf,
+    scenes: ctx.scenes, shots: ctx.shots, sceneById: ctx.sceneById, shotById: ctx.shotById, homeOf, itemLookup,
   })
   const total = (rs) => ({
     tasks: rs.reduce((a, r) => a + r.taskCount, 0),

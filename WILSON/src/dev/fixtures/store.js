@@ -24,7 +24,7 @@ import {
 import { fid } from './ids'
 // FX2 (0096): the one statement of a task's items' rules (pure, imports
 // nothing), so the fake cloud keeps a task's columns as the database does.
-import { COLUMN_KINDS, KIND_FIELD, mainItemOf } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
+import { COLUMN_KINDS, KIND_FIELD, copyFieldsFromItems, indexItemsByTask } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS, GAME_FOLDERS, GAME_FILES } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
@@ -127,6 +127,16 @@ export function binsFixtureMode(search = typeof location === 'undefined' ? '' : 
   return new URLSearchParams(search).get('bins') === 'browser' ? 'browser' : null
 }
 
+// FX11: what R.A.B.B.I.T.'s connection dot hears from the fake cloud.
+// `?connection=files-down` — the database answers and the files' storage does
+// not (amber); `?connection=offline` — neither answers (red). The default:
+// both answer (green). The fixtures' realtime and data are untouched, as a
+// project already open stays open when the network goes.
+export function connectionFixtureMode(search = typeof location === 'undefined' ? '' : location.search) {
+  const v = new URLSearchParams(search).get('connection')
+  return v === 'files-down' || v === 'offline' ? v : null
+}
+
 export function createStore() {
   const progress = {}
   progress[COURSE.id] = clone(PROGRESS)
@@ -169,6 +179,16 @@ export function createStore() {
     shotLists: clone(SHOT_LISTS),
     shotListItems: clone(SHOT_LIST_ITEMS),
     edits: clone(EDITS),
+    // VW1c (0098): custom table views and groupings. Nothing is seeded (Q20:
+    // each table comes with the built-in All only, which is never stored).
+    // `tableViewRevision` is 0098's table_views_revision_seq: one counter for
+    // every view, never reused, so a view made again with its id takes a
+    // number no view ever had. `tableViewLast` is the person's
+    // user_settings.table_view_last (Q4), in memory for the session.
+    tableViews: [],
+    itemGroupings: [],
+    tableViewRevision: 0,
+    tableViewLast: {},
 
     folders: clone(FOLDERS),
     files: clone(FILES),
@@ -195,24 +215,30 @@ export function createStore() {
     quizAttempts: clone(QUIZ_ATTEMPTS),
   }
   // FX2 (0096): each task's asset_id / scene_id / shot_id is its first item
-  // of that kind, as the database's triggers keep the cloud's three columns.
+  // of that kind, as the database's triggers keep the cloud's three columns
+  // (VW1m: the older apps' copy, which this app never reads).
   syncTaskItemColumns(store)
   return store
 }
 
-/** Every task's three cloud columns set to its main items (0096 §7a's rule). */
+/**
+ * Every task's three cloud columns set to the older apps' copy of its items:
+ * each kind's first item in the stored order (0097 §4, which restates 0096
+ * §7a's rule; VW1m, 2026-10-16). Levels and experiences have no column on
+ * the cloud, so the fake cloud keeps none either.
+ */
 // `kinds`: the kinds a write touched (0096 §7a recomputes the column of the
 // item's kind only; review round 2, R2-7). Null: every column (a load's
 // reconcile, as 0096's backfill and post-condition 10h).
 export function syncTaskItemColumns(store, taskIds = null, kinds = null) {
   const only = taskIds ? new Set(taskIds) : null
   const which = kinds ? COLUMN_KINDS.filter(k => kinds.includes(k)) : COLUMN_KINDS
+  if (!which.length) return store
+  const byTask = indexItemsByTask(store.taskItems)
   for (const t of store.tasks) {
     if (only && !only.has(t.id)) continue
-    for (const kind of which) {
-      const main = mainItemOf(store.taskItems, t.id, kind)
-      t[KIND_FIELD[kind]] = main ? main.entity_id : null
-    }
+    const copy = copyFieldsFromItems(byTask.get(String(t.id)))
+    for (const kind of which) t[KIND_FIELD[kind]] = copy[KIND_FIELD[kind]]
   }
   return store
 }

@@ -3339,6 +3339,71 @@ D.O.G.'s `isCore` defaults **true** while `files.is_core_definer` defaults
 **false**, so a naive 1:1 mapping would flip every previously-unmarked file
 from CORE to REF and change generation output.
 
+**References (post-overhaul DG1, 2026-10-16) — supersedes the paragraph
+above.** Choosing a project no longer sends its attachments: it sends only the
+project's title and description, and the person ticks what else the deck
+reads in the **References** card (`references/`: `referenceModel.js` pure,
+`useReferences.js` the I/O, `ReferencesCard.jsx`, `ReferencesPicker.jsx`) —
+R.A.B.B.I.T. items (assets, scenes, shots, levels, experiences, tasks, phases,
+milestones), files, and the person's own Dashboard notes (read through
+`src/components/Dashboard/noteText.js`, the Notes page's own editor, never
+`body_preview`). Bodies are read only at Generate or a Preview
+(`resolveForGeneration`, which lists the pool again through the same gate
+first), cached per file; Legal and money files and trashed rows are never
+offered (`isDeckReferenceFile`), nor a file D.O.G. cannot read
+(`readableType`: PDF, text, JPEG/PNG/GIF/WebP, video for placement). Nothing
+chosen is written to the computer. The items' and notes' words travel as one
+text source through `buildSourceParts`. A meter estimates the size (a PDF by
+its pages) and warns past 200,000 tokens; it never blocks. The two Core
+polarities moved with the readers into `referenceModel.js`, unchanged; D.O.G.
+no longer writes a file's Core mark (R.A.B.B.I.T.'s Files table does). Design:
+`docs/design/DOG_REFERENCES_DESIGN.md`; walkthrough 75.
+
+**The AI's file store, and letting go of it (post-overhaul FX12,
+2026-10-25; was OUTSTANDING DG1-03).** A PDF, a picture or a text over 256 KB
+goes to Anthropic's Files API through `ai-files` (S19's 546 fix) under the
+platform key, which backs all three environments and every company, and
+travels as a `file_id`. D.O.G.'s cache (`aiFileCache.js`) keeps each id with
+its owners (`upload:<id>`, `ref:<key>`, or `generation` for the references'
+own text) and its upload time: an id no picker upload or chosen reference owns
+any more is deleted (never while a generation runs, never because one ended:
+re-generation and the continuation loop reuse it); an entry past 20 h is
+uploaded again; a call the store refuses for a gone file (MEASURED: HTTP 404
+`not_found_error` naming the id, refused before inference) uploads that file
+again once (`retryWithLiveFiles`). Sign-out and the desktop's close let go of
+everything (`releaseAllAIFiles` in `src/cloud/aiFiles.js`, `keepalive`); the
+close WAITS for the answer, bounded at 4 s, because a keepalive request sent
+from `pagehide` dies with the Electron app whenever its CORS preflight takes a
+round trip (measured); a browser tab's `pagehide` is the web build's path.
+Every upload asks `expires_in_seconds` = 24 h (honoured under the beta header,
+measured), which bounds any miss. `ai-files` `DELETE` takes a member's OWN ids
+(a short list) and, with `{ sweep: true }` and the admin guard, a workspace's
+files older than 24 h; `GET` lists this workspace's (a member: their own),
+looked up by `ids[]` so another company's metadata is never fetched;
+`operator-ai-files` reads the platform key's whole list as counts and sweeps
+across this environment's companies. The only line between "ours" and
+"someone else's" is this environment's upload rows (WIL-6001, `tool:
+ai-files`, no `stage`), and a row counts only when it BINDS to the stored file
+(its recorded size and type equal the store's, written within five minutes;
+measured 229 ms), since 0021 lets any member insert app_events rows; where
+rows of several workspaces bind the earliest wins (a forger is later), and a
+file no row names (another environment's) is left alone. The rules are
+`_shared/aiFileStore.ts`; every deletion leaves a WIL-6001/6002 certificate
+with a `stage`, always in the `admin` stream (members cannot insert it), and a
+404 is `gone` only when such a certificate already says this workspace
+deleted the id and the caller's row is the earliest naming it (otherwise
+`not_found`: no oracle). Ids a lookup finds missing are noted once (a quiet
+`absent` row) and never asked about again; a lookup batch the store refuses (it
+refuses an id it cannot parse, measured) is split down to that id. The new
+routes spend their own rate buckets (`ai-files-manage` per caller,
+`ai-files-list` per workspace), never the upload's. Uploads reach the store
+under a neutral name (`neutralFileName`: `document.pdf`), never the file's own. 🚨 Attribution lives only
+as long as app_events' 90-day purge keeps the upload row: a file older than
+that, never deleted, is nobody's to WILSON (pre-FX12 uploads from 2026-08-11
+reach it on 2026-11-09; Audrey's ruling: sweep staging and prod before then).
+Admin Terminal → Diagnostics → *The AI's file store*; operator console →
+*AI files*; the CI probe `scripts/probes/ai-files.sh`; walkthrough 76.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
@@ -4991,22 +5056,37 @@ of a session — this section is limits by design, that file is faults.
   lose in one request and deletes in another (a take assigned in between is
   lost, said in the hand-off).
 
-**A task's items (FX2, migration 0096 — 2026-10-11)**
+**A task's items (FX2, migration 0096 — 2026-10-11; no main item since VW1m, migration 0097 — 2026-10-16; the Tasks table's item columns, VW1b — 2026-10-17)**
 
 - **A task relates to many items through `task_items`: assets, scenes,
-  shots, levels and experiences, ordered within each kind. The single
-  columns stay.** `tasks.asset_id`, `scene_id` and `shot_id` are each the
-  task's MAIN item of that kind (the first by position, then created_at,
-  then id), kept in step in both directions by triggers
-  (`fn_task_items_sync_task` on the items, `fn_tasks_sync_items` and
-  `fn_tasks_seed_items` on the tasks, under the transaction-local flag
-  `wilson.task_items_sync`). A writer of a single column (the beta, a
-  template applied to an asset, a bid version opened, the agent) moves an
-  item the task already has to first, replaces the main item with a new one,
-  or removes the main item when it clears the column. `tasks` has no level
-  or experience column: on the cloud those live only as items, and the
-  provider derives all five single fields from the items. The Local Server
-  (`electron/rabbitTaskItems.cjs`) and the fixtures run the same rules.
+  shots, levels and experiences, and no item counts for more than another**
+  (Audrey, 2026-10-16: "lets not have main asset be a thing"). Every screen
+  reads the items through `buildItemLookup` (`taskItemsModel.js`): a task's
+  LIVE items (an item whose row is in the trash is hidden from its tasks and
+  comes back on restore), a kind's **combination** (its set, keyed by the
+  sorted ids, named in the display order), and three sorts for the task
+  window, kept per computer in one store (`useTaskItemSort`): Type (the
+  assets by their own type, in the Assets table's order, then the other
+  kinds), A to Z, and Date created (when each row itself was made) — her
+  answers of 2026-10-17; the Tasks table's item cells list a task's items in
+  the same Sort. Grouped by an item, the Timeline, the
+  Tasks table and the Board show one row or group per combination; the
+  Budget splits a task's days and money evenly between its items; a task's
+  phase is its own, else the one its live assets share. `ctx.tasks` carries
+  no link field where items are kept.
+- **The single columns are a copy for older apps only.** `tasks.asset_id`,
+  `scene_id` and `shot_id` (and the five fields on the desktop's and the
+  fixtures' rows) hold each kind's first item in the stored order (position,
+  created_at, id: the order items were added), written by
+  `fn_task_items_sync_task` and its twins and read by nothing in this app.
+  An older app's write of one ADDS that item and never removes another
+  (`fn_tasks_sync_items` since 0097, `planLegacyFieldWrite` on the desktop
+  and the fixtures); `fn_tasks_seed_items` makes a new task's columns its
+  items. **Deleting an asset never deletes or hides a task** (0097: the key
+  is `ON DELETE SET NULL`; `tasks_select` hops to the task's own project for
+  every task). `tasks` has no level or experience column: on the cloud
+  those live only as items. The Local Server (`electron/rabbitTaskItems.cjs`)
+  and the fixtures run the same rules; the desktop's read never reorders.
 - **RLS.** Reads hop to `projects` and `tasks` under the caller's own RLS (a
   private project's items stay hidden; a task the caller cannot see hides its
   items); writes add `has_active_membership` and `can_write_project` (a
@@ -5015,7 +5095,7 @@ of a session — this section is limits by design, that file is faults.
   UPDATE `position` only (a column grant); `reorder_task_items` is SECURITY
   INVOKER. The table is on the project's live channel (`fn_realtime_broadcast`,
   sixteen tables), pinned by suites 72 and 99. §7a locks the task row before
-  it reads the main item (two writers of one task's items take turns; a
+  it reads the first item (two writers of one task's items take turns; a
   single-column write from an older tab can deadlock with one, and Postgres
   takes one back whole). 0096 refuses to run again after a later migration is
   recorded, and refuses a broadcast body that is neither 0091's nor its own
@@ -5024,16 +5104,158 @@ of a session — this section is limits by design, that file is faults.
   items write with code `task_items_unavailable`**: the load's read of
   `public.task_items` is the probe, and nothing is stripped (0096 adds no
   column to a table the client upserts).
-- **The client re-reads a task's single links from its items only when a
-  write changes that task's items**; a task the backend brings back outside a
-  load (a bid version's open, an undo from the trash) keeps its row's links
-  and has its items read (review round 2). No editor makes a row the project
-  no longer shows a task's main one.
-- **Known limits, by design:** sums and grouped rows (the Budget, the
-  Timeline, the Tasks table's groups) count a task once, under its main item;
-  lists and per-row counts name every item. A bid version keeps the main
-  items only; templates name no items; the edit history sees an item change
-  only as a change of the task's main asset, scene or shot.
+- **The Tasks table** (VW1b) has a column per kind the project uses (Asset,
+  Scene, Shot, Level, Experience: `views/tasksTableColumns.js`, the window's
+  picker rule `pickerKinds` over every task): each cell names every live
+  item, "+N" past what fits, and opens a picker (the kit `Popover`,
+  portalled) that ticks several; the ticks are a draft, committed once when
+  it closes and shown in the cell until that write lands (a second close
+  before then builds on it: `views/TaskItemCells.jsx`). The table scrolls
+  sideways with the checkbox and Title kept in place (the kit Table's
+  `stickyColumns`); its widths come from the columns on screen. Levels',
+  Experiences' and the scene window's asset counts read an asset's
+  `level_ids`, `experience_ids` and `scene_ids` (on the cloud an asset
+  carries no level or experience link yet).
+- **Writes**: the task window adds and removes items; a drop on a group or a
+  Timeline row sets a kind to that group's items (`setTaskItemsOfKind`, one
+  undoable write that keeps the task's hidden items; the Tasks table's
+  picker commits through it too); a task made from a
+  combination carries its items (`addTask` with `items`). A bid version
+  keeps every item of every task; opening one saved before 0097 adds its
+  saved item where the task lost it and removes nothing.
+- **Known limits:** a task's history records no item change (Audrey's
+  answer to VW1m's Q-N8, 2026-10-17: "No item history"; the copy's lines are
+  hidden in the drawer); the
+  Dashboard shows a task's assets as of its last load (`docs/OUTSTANDING.md`);
+  templates name no items; a split shows fractions of a day.
+
+**Custom table views' data (VW1c, migration 0098 — 2026-10-17; the screens are VW1d's and VW1e's)**
+
+- **Two tables, one rule file.** `table_views` (a named, saved way of
+  showing one of six tables — tasks, assets, scenes, shots, levels,
+  experiences — in one project: its `config` a JSON object of at most 32 KB
+  as jsonb prints it, which the client and the desktop measure alike,
+  its `position` the dropdown's order, its `revision` from
+  `table_views_revision_seq`, taken on insert and on every change of config,
+  never on a rename or a reorder) and `item_groupings` (a set of 1 to 100
+  items of one kind, sorted and distinct, unique per project, table and
+  kind; it holds no rows). The rules are `state/tableViewsModel.js`, pure;
+  the Local Server's copy is `electron/rabbitTableViews.cjs`, held to it by
+  `tableViewsParity.test.js`; the provider's half is
+  `state/tableViewsState.js`. The design is
+  `docs/design/CUSTOM_VIEWS_DESIGN.md` §5.
+- **Who:** RLS forced, four policies each, every arm restated (workspace,
+  membership, the project hop under the caller's RLS — private projects
+  hide — and `can_write_project` for writes: reviewers read views, never
+  save them). Column grants: a view is made with INSERT and saved with
+  UPDATE of `name`, `position`, `config` (an upsert is refused); a grouping
+  has no UPDATE. Caps: 200 views and 500 groupings a project and table
+  (`54000`, in words). A grouping's ids are checked as the caller (`23503`):
+  an asset in the trash or another project's row is refused.
+- **The sweep:** `fn_item_groupings_forget` (SECURITY DEFINER, on the five
+  item tables) takes a deleted row's id out of every grouping of its kind; a
+  grouping left empty, or naming another's set, is deleted (so the nightly
+  purge cannot roll back on the unique key). An asset in the trash stays
+  named, and the client hides the grouping while it is there. The provider's
+  deletes mirror the sweep and their undo puts the groupings back, going by
+  the backend's answers: of two groupings shrunk onto one set, the one kept
+  is the backend's (the cloud walks a scene's shots in its own order).
+- **The conditional save:** an UPDATE carries `.eq('revision', …)`; nothing
+  written means the row is read once — gone (`deleted`), another revision
+  (`changed`: a teammate saved), or the same (`filtered`: RLS dropped the
+  write without a word, so the person may no longer change views).
+- **The last used view** is `user_settings.table_view_last` (the person's
+  300 newest tables, written only through `set_table_view_last`, one
+  statement); on the signed-out desktop the machine's own
+  `rabbit-machine-settings.json` (the page's address changes at every
+  launch, so never `localStorage`).
+- **Live:** both tables are on the project channel (eighteen tables;
+  `realtimeMerge.js` maps them to `tableViews` and `itemGroupings`). A
+  client ahead of its database reads both empty and unavailable (the load's
+  reads are the probe: `42P01` / `PGRST205`); any other read error is an
+  error state, never a failed load.
+- **Known limits:** the signed-out desktop has no roles and no live
+  channel; a grouping hides while one of its items is in the trash; a view
+  sends its old and new config on the live channel (32 KB at most each, the
+  channel's ceiling not measured).
+
+**Custom table views on screen (VW1d — 2026-10-25: the Tasks table; the other tables below, VW1e)**
+
+- **One shared piece, a description per table.** `views/tableViews/`: the
+  rules on screen (`viewScreenModel.js`, pure: fields' order and visibility,
+  several filter values, several sorts, the bar's rows derived on render,
+  the view on screen), one table's hook (`useTableView.js`), the Views
+  button and its in-place dropdown with the four cards
+  (`TableViewsMenu.jsx`), the filter row the toolbar's strip and the
+  Filters card share (`ViewFilterRow.jsx`), the bar (`ViewBar.jsx`),
+  *Create grouping* (`CreateGroupingDialog.jsx`), the root's questions
+  (`useAsk.jsx`), one sheet (`tableViews.css`, `rb-tv-`, its guards in
+  `tableViewsCss.test.js`). A table gives it a description
+  (`tasksTableView.js`: every key a column key; a sort may name a field
+  with no column, Tasks' `created_at`).
+- **The view on screen** is the change for now's (the provider's draft,
+  kept across tabs; a draft with no `config` only says which view), else the
+  person's last used view while that map is `ready`, else *All*; a view
+  deleted since opens on *All* quietly; one deleted while on screen says so
+  (a toast with no change, the bar with one).
+- **A change** is what shows the table otherwise than the view (an empty
+  filter row, a field list equal to the default, a value order do not);
+  Save is conditional on the revision the change began from, and over a
+  teammate's newer save only after asking (Q-G3). The bar is derived from
+  the draft, the row, the person, the seat, the backend and the last
+  refusal; the live merge and a refused save feed the same rule.
+- **Groupings** show even while empty, whatever *Hide empty groups* says,
+  hidden only while an item is in the trash; the Timeline shows the Tasks
+  table's (its builders take `groupings`; a shot grouping sits under its
+  scene or a scene combination made for it; outside the active list, none).
+- **A stored config is data from anyone on the project** (code review round
+  2): one rule says whether a row filters (`appliesFilter`: the count, the
+  summaries and the table); a filter or sort the table cannot apply reads as
+  what it is and does nothing; stored keys are looked up as own keys only (no
+  prototype-shaped grouping or person); a value stored twice is one; a newer
+  WILSON's view greys Save and Duplicate; another WILSON's kept settings that
+  fill the 32 KB cap say so on Save. A save's refusal holds for the revision
+  it met, so a teammate's later save is said instead.
+- **The kit**: Popover's in-place form (`inPlace`; Escape asks the caller;
+  focus leaving it closes it; its own StrictMode hand-back is not "leaving";
+  at least 240px wide and never past the window),
+  MenuButton in `src/ui` (its keyboard model without roles, a labelled form),
+  Banner `live={false}`. The undo toast pauses while focused.
+
+**Custom table views on the other tables (VW1e — 2026-10-25: Assets, Levels, Experiences, Scenes, Shots)**
+
+- **A description each**, beside Tasks': `assetsTableView.js`,
+  `entityTableView.js` (Levels and Experiences), `scenesTableView.js` (two:
+  Scenes and Shots). New in a description: the columns in front of the name
+  (`leading`, `leadingKeys`; hideable, never movable, kept in
+  `config.leading`, which `sameEffect` compares), a card line that is one of
+  them (`cardLeading`: the Shots card's number), a column drawn only in the
+  Scenes table's nested shot rows (`nest`: a switch, no handle), the empty
+  sort's word (`defaultOrderLabel`: *List order* while a shot list is on
+  screen), and `combinationOf` for the item groupings.
+- **Combination groups** are one rule for every table (`combinationGroups.js`,
+  moved from the Tasks table): one group per combination of items, the
+  project's groupings among them, *No …* last; a drop writes the row's links
+  in one undo step.
+- **The Scenes page holds two views** (her Q16): `useTableView` once for
+  Scenes and once for Shots; the content tab chooses which is on screen, and
+  the Views button, the bar and the filter strip are that table's (keyed per
+  table, so nothing typed or in flight crosses over). *List order* is a list
+  on screen and no sort in the view on screen: Move up / Move down and the
+  list drag only then. With an edit on screen every view control is greyed.
+- **Widths** follow the columns on screen, set inline as custom properties
+  (`--rb-asset-fixed`, `--rb-ent-fixed`, `--rb-scene-min`,
+  `--rb-scene-nest-min`), the lane guards' STYLES entries naming each one.
+- **The cloud's asset links (migration 0099)**: `level_ids` and
+  `experience_ids` on `assets`. The cloud adapter learns their absence at
+  each load and strips them from writes, loudly; the provider's
+  `assetLevelLinksAvailable` (read per load) greys every control that would
+  write them, with the reason (`linksKept`, `ASSET_LINKS_ABSENT_REASON` in
+  `assetsTableView.js`), and the table's live region says it once.
+- **The browser's old saved views** (`rabbit_asset_saved_views`,
+  `rabbit_level_saved_views`, `rabbit_experience_saved_views`,
+  `rabbit_scene_saved_views`) are removed when each table first loads (Q17).
+  Budget's Expenses and Team keep their own menus (Q19).
 
 **Security-adjacent**
 

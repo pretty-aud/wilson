@@ -157,6 +157,33 @@ describe('buildRevertPlan — create / delete entries', () => {
   })
 })
 
+// VW1m (2026-10-16), Q-N8 (batch 16; interim: no history of a task's items,
+// the old lines without Revert; review round 1, R1-2: not shown at all,
+// editHistoryDrawerLinks.test.jsx). A task's link columns are the
+// older apps' copy of its items: their Revert swapped the task's first asset.
+describe('a task\'s link lines (VW1m, Q-N8 interim)', () => {
+  const task = { entity_type: 'tasks', entity_id: 't1', action: 'update' }
+  it('a link-only entry has no Revert, for each of the five', () => {
+    for (const f of ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']) {
+      const entry = { ...task, diff: { [f]: { old: 'x1', new: 'x2' } } }
+      expect(buildRevertPlan(entry), f).toEqual({ kind: 'noop' })
+      expect(canRevertEntry(entry), f).toBe(false)
+    }
+  })
+  it('a mixed entry reverts its other fields and leaves the links out of both patches', () => {
+    const plan = buildRevertPlan({ ...task, diff: { title: { old: 'A', new: 'B' }, asset_id: { old: 'a1', new: 'a2' } } })
+    expect(plan).toEqual({ kind: 'inverse-patch', table: 'tasks', id: 't1', patch: { title: 'A' }, forwardPatch: { title: 'B' } })
+  })
+  it('a hard-deleted task is recreated WITH its links (addTask writes them as its items)', () => {
+    const plan = buildRevertPlan({ ...task, action: 'delete', diff: { old: { id: 't1', title: 'T', asset_id: 'a1', scene_id: 's1' } } })
+    expect(plan.row).toEqual({ id: 't1', title: 'T', asset_id: 'a1', scene_id: 's1' })
+  })
+  it('CONTROL: another table\'s field of the same name still reverts (only a task\'s links are the copy)', () => {
+    const plan = buildRevertPlan({ entity_type: 'assets', entity_id: 'a1', action: 'update', diff: { scene_id: { old: 's1', new: 's2' } } })
+    expect(plan.patch).toEqual({ scene_id: 's1' })
+  })
+})
+
 describe('buildRevertPlan — support boundaries', () => {
   it('supports exactly projects/phases/assets/tasks', () => {
     expect(Object.keys(REVERTABLE_TABLES).sort())

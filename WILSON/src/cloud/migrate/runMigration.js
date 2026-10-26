@@ -13,7 +13,8 @@
 // dropped on the floor before 2026-09-06), files, then — BC3 (Audrey's B9,
 // "bins move with the project") — scenes, shots, bins, bin_locations,
 // bin_files, shot_takes, and the clips' pictures to rabbit-thumbnails while
-// the company's switch is on. The migration is:
+// the company's switch is on; then — VW1c (0098) — the project's saved views
+// and groupings, through the cloud adapter's own INSERTs. The migration is:
 //   - idempotent: already-migrated rows are detected by id and skipped
 //   - resumable: a mid-flight failure leaves the cloud in a consistent
 //                state; re-running picks up only the missing rows
@@ -27,7 +28,9 @@
 import { supabase } from '../auth/supabaseClient'
 // The edge tables' routing rule and column allowlist come from the adapter
 // that owns them — one vocabulary, not a restatement (Track A A2, 2026-09-06).
-import { DEPENDENCY_TABLE, dependencyKind, toColumns } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
+import { DEPENDENCY_TABLE, dependencyKind, toColumns, supabaseAdapter } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
+// VW1c (0098): a view's config read as every screen reads it (never throws).
+import { readViewConfig } from '../../tools/rabbit_v0.1.0/state/tableViewsModel'
 // B3 (Track B): the desktop loopback API refuses /api without the per-launch
 // token; localFetch attaches it (same-origin URLs only).
 import { localFetch } from '../../lib/localServerFetch.js'
@@ -53,6 +56,16 @@ export const ORPHAN_TAKES = (n) => `${n} take${n === 1 ? '' : 's'} of a shot or 
 // What the migration does not carry, said under the report BEFORE the
 // archive is offered (review round 2).
 export const NOT_CARRIED_SENTENCE = (list) => `Stays on this computer (the migration does not carry it): ${list.map(x => `${x.count} ${x.label}`).join(', ')}. Archive and clear local keeps a copy in the archive file only.`
+// VW1c (0098): the views' part's sentences (the panel and the tests quote them).
+// A view filtering by a level or an experience goes up; the rows its filter
+// names do not (levels and experiences are not carried), so it matches nothing.
+export const VIEW_FILTERS_LEFT_BEHIND = (n) => `${n} saved view${n === 1 ? '' : 's'} filter${n === 1 ? 's' : ''} by a level or an experience, which the migration does not carry: in the cloud ${n === 1 ? 'that filter matches' : 'those filters match'} nothing`
+export const TABLE_VIEWS_NOT_IN_CLOUD = (views, groupings) => `${views} saved view${views === 1 ? '' : 's'} and ${groupings} grouping${groupings === 1 ? '' : 's'} stay on this computer: this cloud does not keep saved views yet (migration 0098) — run the migration again once it does`
+export const TABLE_VIEWS_UNREAD = (message) => `could not read the saved views and groupings already in the cloud, so none was written (run the migration again): ${message}`
+// The NOT_CARRIED entry for the groupings of levels and experiences (the
+// report's words, binsMigration's notCarriedLabel shape).
+const LEVEL_GROUPINGS_KEY = 'levelGroupings'
+const levelGroupingsLabel = (n) => (n === 1 ? 'grouping of levels or experiences' : 'groupings of levels or experiences')
 
 async function fetchLocalProjectsList() {
   const res = await localFetch(`${RABBIT_BASE}/projects`)
@@ -162,36 +175,83 @@ async function insertOrSkip(table, row, ours = null) {
   throw new Error(`${table}: ${error.message}`)
 }
 
+// VW1c (0098): a view or grouping write the cloud adapter refused, said as
+// insertOrSkip says its own. Its ids are read first (a row of THIS project is
+// skipped without a write), so a duplicate key here is another project's row.
+function viewWriteMessage(table, err) {
+  if (err?.code === '23505') return `${table}: a row with this id is in the cloud but is not this project's, so nothing was written for it (${err.message})`
+  return `${table}: ${err?.message || err}`
+}
+const hasId = (row) => row?.id != null && row.id !== ''
+const NO_ID = 'no id recorded, so it was not carried (a second run could not tell it apart from a new one)'
+
 // FX2 (0096): the kinds of a task's item the runner carries — the rows it
 // carries (levels and experiences are NOT_CARRIED).
 const ITEMS_CARRIED = new Set(['asset', 'scene', 'shot'])
+
+// VW1c (0098): the same three kinds for a grouping (a grouping of levels or
+// of experiences names rows the runner leaves here: it stays, counted), and
+// the filter fields that name levels and experiences (design §5.1: a linked
+// kind's column key is its kind's name).
+const GROUPINGS_CARRIED = ITEMS_CARRIED
+const LEFT_BEHIND_FILTER_FIELDS = new Set(['level', 'experience'])
+
+/** Does a view filter by a level or an experience (its complete filters, as the screens read them)? */
+export function viewFiltersLeftBehind(view) {
+  const { config } = readViewConfig(view?.config, view?.table_key)
+  return config.filters.some(f => LEFT_BEHIND_FILTER_FIELDS.has(f.field))
+}
 
 // FX2 review round 1 (R1-2): a desktop task goes up WITHOUT its scene, shot,
 // level and experience links. The cloud has no level or experience column (a
 // key it does not know refuses the whole insert, PGRST204), and the tasks land
 // before the scenes and shots (BC3) while tasks_scene_fk / tasks_shot_fk are
-// not deferrable (23503); FX2's desktop writes all five keys on a task whose
-// main item changed. The task's scenes and shots arrive as its items after the
-// shots, and 0096 §7a sets the two columns from them; its asset stays on the
-// row (the assets are in first) and 0096 seeds that item. Every other key goes
-// up as it always has.
+// not deferrable (23503). VW1m (2026-10-16, her ruling: a task's items are its
+// items): WITHOUT ITS ASSET too. The five fields on a desktop row are only the
+// older builds' copy of its first item of each kind; every item, its assets
+// included, arrives as an item after the rows it names (itemsToCarry), and
+// 0097 §4 writes the cloud's copy from them. So a task whose first asset
+// failed to go up is no longer refused whole by tasks.asset_id's key: the
+// task lands, and only that asset's item fails, in the report. Every other
+// key goes up as it always has.
 export function taskRowForCloud(t) {
   const row = withoutSetAside(t)
   if (!row || typeof row !== 'object') return row
-  const { scene_id: _scene, shot_id: _shot, level_id: _level, experience_id: _experience, ...rest } = row
+  const {
+    asset_id: _asset, scene_id: _scene, shot_id: _shot, level_id: _level, experience_id: _experience, ...rest
+  } = row
   return rest
 }
 
+// VW1e (0099, 2026-10-25): a desktop asset goes up WITHOUT its level and
+// experience links. The runner carries no levels or experiences
+// (NOT_CARRIED), so the ids would name rows the cloud does not have — an
+// array is no foreign key, so nothing would refuse them, and the asset would
+// sit in a level nobody can open. Before 0099 the cloud had no such column at
+// all, and a desktop asset that named a level was refused WHOLE (PGRST204).
+// Its scene and shot links go up as they always have (BC3 carries both).
+export function assetRowForCloud(a) {
+  if (!a || typeof a !== 'object') return a
+  const { level_ids: _levels, experience_ids: _experiences, ...rest } = a
+  return rest
+}
+// Whether an asset names a level or an experience (what assetRowForCloud
+// leaves here), and the not-carried line's words for those assets.
+const namesLevelOrExperience = (a) => ['level_ids', 'experience_ids'].some(k => Array.isArray(a?.[k]) && a[k].length > 0)
+const ASSET_LEVEL_LINKS_KEY = 'assetLevelLinks'
+const assetLevelLinksLabel = (n) => (n === 1 ? "asset's links to levels or experiences" : "assets' links to levels or experiences")
+
 // The items a project's move carries (and counts): the bundle's own, plus one
-// for a scene or a shot a task row names that no item does (a bundle no Local
-// Server reconciled), so taskRowForCloud's dropping the column loses nothing.
+// for an asset, a scene or a shot a task row names that no item does (a
+// bundle no Local Server reconciled), so taskRowForCloud's dropping the
+// column loses nothing.
 export function itemsToCarry(bundle) {
   const items = Array.isArray(bundle?.taskItems) ? bundle.taskItems.filter(i => i && typeof i === 'object') : []
   const named = new Set(items.map(i => `${i.task_id}|${i.entity_type}|${i.entity_id}`))
   const extra = []
   for (const t of Array.isArray(bundle?.tasks) ? bundle.tasks : []) {
     if (!t || t.id == null) continue
-    for (const [field, kind] of [['scene_id', 'scene'], ['shot_id', 'shot']]) {
+    for (const [field, kind] of [['asset_id', 'asset'], ['scene_id', 'scene'], ['shot_id', 'shot']]) {
       const id = t[field]
       if (id == null || id === '') continue
       const key = `${t.id}|${kind}|${id}`
@@ -293,7 +353,9 @@ function makeReport() {
     workspaceId: null,
     projects:      { total: 0, inserted: 0, skipped: 0, failed: 0 },
     phases:        { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    assets:        { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    // VW1e (0099): `linksLeftBehind` counts the assets that named a level or
+    // an experience — those links stay here with the rows they name.
+    assets:        { total: 0, inserted: 0, skipped: 0, failed: 0, linksLeftBehind: 0 },
     tasks:         { total: 0, inserted: 0, skipped: 0, failed: 0 },
     taskLinks:     { total: 0, inserted: 0, skipped: 0, failed: 0 },
     phaseLinks:    { total: 0, inserted: 0, skipped: 0, failed: 0 },
@@ -313,6 +375,14 @@ function makeReport() {
     // `leftBehind`: its levels and experiences, which the runner does not
     // carry (NOT_CARRIED), so their items stay here too.
     taskItems:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
+    // VW1c (0098): the saved views and groupings. `tableViews.filtersLeftBehind`
+    // counts the views (carried like any other) that filter by a level or an
+    // experience: those rows stay here, so in the cloud the filter matches
+    // nothing (VIEW_FILTERS_LEFT_BEHIND). `itemGroupings.leftBehind`: the
+    // groupings of levels or experiences, which stay with them (and are
+    // named in `notCarried`).
+    tableViews:    { total: 0, inserted: 0, skipped: 0, failed: 0, filtersLeftBehind: 0 },
+    itemGroupings: { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
     posters:       { total: 0, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
     // What the bundles hold that the runner does not carry (notCarriedOf),
     // summed over the projects: `[{ key, label, count }]`.
@@ -440,6 +510,60 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     return hit.id
   }
 
+  // VW1c (0098): the views' part. The cloud adapter writes the rows (its
+  // column allowlist, its refusals in words: one vocabulary) and reads what
+  // the cloud already holds of a project's views and groupings — its paged
+  // reads, which are its probe too (a cloud without 0098 answers none, and
+  // says so through tableViewsAvailable).
+  const viewsAdapter = supabaseAdapter()
+  const viewsPartOf = (bundle) => {
+    const groupings = (bundle.itemGroupings ?? []).filter(g => g && typeof g === 'object')
+    return {
+      views: (bundle.tableViews ?? []).filter(v => v && typeof v === 'object'),
+      carried: groupings.filter(g => GROUPINGS_CARRIED.has(g.kind)),
+      left: groupings.filter(g => !GROUPINGS_CARRIED.has(g.kind)),
+    }
+  }
+  // `{ views, groupings }` (the ids the cloud holds for the project, as
+  // Sets), `{ absent: true }` (no 0098 there) or `{ error }` (a read that
+  // failed is said, never read as "none there").
+  const cloudViewIds = async (projectId) => {
+    try {
+      const [views, groupings] = await Promise.all([viewsAdapter.listTableViews(projectId), viewsAdapter.listItemGroupings(projectId)])
+      if (!viewsAdapter.tableViewsAvailable()) return { absent: true }
+      return { views: new Set(views.map(r => r.id)), groupings: new Set(groupings.map(r => r.id)) }
+    } catch (err) {
+      return { error: err }
+    }
+  }
+  // Counted alike by the dry run and the real one: the groupings that stay
+  // (and the not-carried line that names them), and the views whose level or
+  // experience filter will match nothing up there.
+  const countViewsLeftBehind = (part) => {
+    report.itemGroupings.total += part.left.length
+    report.itemGroupings.leftBehind += part.left.length
+    report.tableViews.filtersLeftBehind += part.views.filter(viewFiltersLeftBehind).length
+    if (!part.left.length) return
+    const e = notCarried.get(LEVEL_GROUPINGS_KEY) || { key: LEVEL_GROUPINGS_KEY, count: 0 }
+    e.count += part.left.length
+    e.label = levelGroupingsLabel(e.count)
+    notCarried.set(LEVEL_GROUPINGS_KEY, e)
+  }
+  // VW1e (0099), counted alike by the dry run and the real one: the assets
+  // whose level and experience links stay here (assetRowForCloud sends the
+  // asset without them), and the not-carried line that says so.
+  const countAssetLinksLeftBehind = (assets) => {
+    const n = (assets ?? []).filter(namesLevelOrExperience).length
+    report.assets.linksLeftBehind += n
+    if (!n) return
+    const e = notCarried.get(ASSET_LEVEL_LINKS_KEY) || { key: ASSET_LEVEL_LINKS_KEY, count: 0 }
+    e.count += n
+    e.label = assetLevelLinksLabel(e.count)
+    notCarried.set(ASSET_LEVEL_LINKS_KEY, e)
+  }
+  const viewsNote = (part, views, groupings, where = '') => `  ${plural(views, 'saved view')} and ${plural(groupings, 'grouping')}${where}` +
+    (part.left.length ? `; ${plural(part.left.length, 'grouping')} of levels or experiences ${part.left.length === 1 ? 'stays' : 'stay'} on this computer` : '')
+
   // Fetch the local project list. On a fresh install there may be no local
   // server — handle a 404/network error as "nothing to migrate".
   let localProjects
@@ -477,6 +601,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       bumpInserted(report.projects)
       report.phases.total += (bundle.phases ?? []).length
       report.assets.total += (bundle.assets ?? []).length
+      countAssetLinksLeftBehind(bundle.assets)
       report.tasks.total  += (bundle.tasks  ?? []).length
       report.files.total  += (bundle.files  ?? []).length
       // FX2 (0096): the items, as the real run will take them.
@@ -579,6 +704,28 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           else { report.posters.switchOff += toUpload; note(`  ${plural(toUpload, 'picture')}: ${POSTERS_SWITCH_OFF}`) }
         }
       }
+      // VW1c (0098): what the views' part will do, counted against what the
+      // cloud already holds (a row there is skipped; the rest would be
+      // inserted), and what stays.
+      const viewsPart = viewsPartOf(bundle)
+      if (viewsPart.views.length || viewsPart.carried.length || viewsPart.left.length) {
+        countViewsLeftBehind(viewsPart)
+        const toCarry = [...viewsPart.views, ...viewsPart.carried]
+        const have = toCarry.length ? await cloudViewIds(projectId) : { views: new Set(), groupings: new Set() }
+        if (have.absent || have.error) {
+          report.errors.push({ scope: 'table_views', projectId, message: have.absent ? TABLE_VIEWS_NOT_IN_CLOUD(viewsPart.views.length, viewsPart.carried.length) : TABLE_VIEWS_UNREAD(have.error.message || have.error) })
+          report.tableViews.total += viewsPart.views.length
+          report.itemGroupings.total += viewsPart.carried.length
+        } else {
+          for (const [rows, bucket, there, scope] of [[viewsPart.views, report.tableViews, have.views, 'table_view'], [viewsPart.carried, report.itemGroupings, have.groupings, 'item_grouping']]) {
+            for (const row of rows) {
+              if (!hasId(row)) { report.errors.push({ scope, projectId, message: NO_ID }); bumpFailed(bucket); continue }
+              if (there.has(row.id)) bumpSkipped(bucket); else bumpInserted(bucket)
+            }
+          }
+        }
+        note(viewsNote(viewsPart, viewsPart.views.length, viewsPart.carried.length + viewsPart.left.length))
+      }
       report.footageRoots = mergeRoots(binsState.roots).map(r => ({ ...r, resolved: (resolvedAnswers.get(r.key) || { kind: 'unanswered' }).kind }))
       continue
     }
@@ -620,9 +767,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         bumpFailed(report.phases)
       }
     }
+    countAssetLinksLeftBehind(bundle.assets)
     for (const a of bundle.assets ?? []) {
       try {
-        const r = await insertOrSkip('assets', a)
+        const r = await insertOrSkip('assets', assetRowForCloud(a))
         r.status === 'inserted' ? bumpInserted(report.assets) : bumpSkipped(report.assets)
       } catch (err) {
         report.errors.push({ scope: 'asset', projectId, id: a.id, message: err.message })
@@ -932,13 +1080,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       }
     }
     // FX2 (0096): a task's items, after every row they can name is in — the
-    // tasks and assets (above), the scenes and shots (BC3, above). A task's
-    // FIRST asset is in already (0096's seed makes it from the task's
-    // asset_id), so the desktop's copy answers 23505 and reads as skipped;
-    // its scenes and shots, which went up without their columns
-    // (taskRowForCloud), land here and 0096 §7a sets the columns; every item
-    // keeps its id and position. Levels and experiences are not carried, so
-    // their items stay on this computer and are counted.
+    // tasks and assets (above), the scenes and shots (BC3, above). VW1m
+    // (2026-10-16): every one, its assets included, lands here (the task
+    // went up without its links, taskRowForCloud) and 0097 §4 writes the
+    // cloud's copy from them; every item keeps its id and position. An item
+    // the cloud has already (a move run again) answers 23505 and reads as
+    // skipped; one whose asset did not go up fails alone, in the report. Levels and
+    // experiences are not carried, so their items stay on this computer and
+    // are counted.
     for (const it of itemsToCarry(bundle)) {
       report.taskItems.total++
       if (!ITEMS_CARRIED.has(it?.entity_type)) { report.taskItems.leftBehind++; continue }
@@ -954,6 +1103,62 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         report.errors.push({ scope: 'task_item', projectId, id: it.id, message: err.message })
         report.taskItems.failed++
       }
+    }
+    // VW1c (0098): the project's saved views and groupings, with their ids,
+    // after every row a grouping can name is in (the assets above, BC3's
+    // scenes and shots). By INSERT through the cloud adapter (addTableView /
+    // addItemGrouping): never an upsert, its column allowlist strips the
+    // workspace, the revision and the stamps, which the cloud makes its own
+    // (each view takes a new revision there, made by whoever runs the move).
+    // What the cloud holds of the project is read first, so a second run
+    // skips by id; a grouping whose set the cloud holds under another id (a
+    // teammate made it) is skipped too — the cloud answers that row. A
+    // grouping of levels or experiences stays (the runner carries neither),
+    // counted, as are the views that filter by one. A cloud without 0098, or
+    // a read that fails, writes none of the project's and says so once; they
+    // count as failed, so the panel does not call the run done, and a later
+    // run brings them.
+    const viewsPart = viewsPartOf(bundle)
+    if (viewsPart.views.length || viewsPart.carried.length || viewsPart.left.length) {
+      countViewsLeftBehind(viewsPart)
+      const toCarry = [...viewsPart.views, ...viewsPart.carried]
+      const have = toCarry.length ? await cloudViewIds(projectId) : { views: new Set(), groupings: new Set() }
+      let viewsThere = 0
+      let groupingsThere = 0
+      if (have.absent || have.error) {
+        report.errors.push({ scope: 'table_views', projectId, message: have.absent ? TABLE_VIEWS_NOT_IN_CLOUD(viewsPart.views.length, viewsPart.carried.length) : TABLE_VIEWS_UNREAD(have.error.message || have.error) })
+        report.tableViews.total += viewsPart.views.length
+        report.tableViews.failed += viewsPart.views.length
+        report.itemGroupings.total += viewsPart.carried.length
+        report.itemGroupings.failed += viewsPart.carried.length
+      } else {
+        for (const v of viewsPart.views) {
+          if (!hasId(v)) { report.errors.push({ scope: 'table_view', projectId, message: NO_ID }); bumpFailed(report.tableViews); continue }
+          if (have.views.has(v.id)) { bumpSkipped(report.tableViews); viewsThere++; continue }
+          try {
+            await viewsAdapter.addTableView({ id: v.id, project_id: projectId, table_key: v.table_key, name: v.name, position: v.position, config: v.config })
+            bumpInserted(report.tableViews)
+            viewsThere++
+          } catch (err) {
+            report.errors.push({ scope: 'table_view', projectId, id: v.id, message: viewWriteMessage('table_views', err) })
+            bumpFailed(report.tableViews)
+          }
+        }
+        for (const g of viewsPart.carried) {
+          if (!hasId(g)) { report.errors.push({ scope: 'item_grouping', projectId, message: NO_ID }); bumpFailed(report.itemGroupings); continue }
+          if (have.groupings.has(g.id)) { bumpSkipped(report.itemGroupings); groupingsThere++; continue }
+          try {
+            const stored = await viewsAdapter.addItemGrouping({ id: g.id, project_id: projectId, table_key: g.table_key, kind: g.kind, entity_ids: g.entity_ids })
+            if (stored && stored.id !== g.id) bumpSkipped(report.itemGroupings)
+            else bumpInserted(report.itemGroupings)
+            groupingsThere++
+          } catch (err) {
+            report.errors.push({ scope: 'item_grouping', projectId, id: g.id, message: viewWriteMessage('item_groupings', err) })
+            bumpFailed(report.itemGroupings)
+          }
+        }
+      }
+      note(viewsNote(viewsPart, viewsThere, groupingsThere, ' in the cloud'))
     }
     // Pictures: only while the company's switch is on (B4) — asked once;
     // off, the desktop keeps them and the report says so. The desktop makes

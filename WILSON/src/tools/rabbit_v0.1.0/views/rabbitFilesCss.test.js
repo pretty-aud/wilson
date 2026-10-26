@@ -84,6 +84,12 @@ const STYLES = {
   filesTable: ["{{ '--rb-files-max': maxHeight ? `${maxHeight}px` : undefined }}"],
   fileManager: ["{{ '--rb-fm-pct': `${copyProgress.percent}%` }}"],
   msTrash: ["{{ '--rb-warn-glyph': row.color }}"],
+  // VW1e (2026-10-25; the design's §4.10, step 0 finding 8): the Assets and
+  // the Levels / Experiences tables' fixed sums from the columns on screen —
+  // exactly one custom property each, from one pure function
+  // (assetsTableWidths, entityTableWidths), never a state.
+  assets: ["{{ '--rb-asset-fixed': widths.fixed }}"],
+  entity: ["{{ '--rb-ent-fixed': widths.fixed }}"],
 }
 // Every file is read whole. (B4c's STAGED — a file part-way onto the sheet,
 // read without the functions a later step restyled — emptied at surface 6's
@@ -378,7 +384,8 @@ describe('LevelsView and ExperiencesView are config only (B4c, R4-11)', () => {
     })
   }
   it('the two configs have the same fields, and the date ring R4-11 carried is not one of them', () => {
-    const fields = ['type', 'noun', 'nouns', 'Noun', 'Icon', 'collection', 'linkKey', 'addMethod', 'updateMethod', 'deleteMethod', 'savedViewsKey']
+    // VW1b (2026-10-17): `assetsKey`, the arrays an asset carries (the Assets count).
+    const fields = ['type', 'noun', 'nouns', 'Noun', 'Icon', 'collection', 'linkKey', 'assetsKey', 'addMethod', 'updateMethod', 'deleteMethod', 'savedViewsKey']
     expect(configKeys(read(WRAPPERS.levels))).toEqual(fields)
     expect(configKeys(read(WRAPPERS.experiences))).toEqual(fields)
   })

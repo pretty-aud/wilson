@@ -39,9 +39,14 @@ const {
   pruneDanglingShotListItems,
   cascadeSceneOrShotDelete,
 } = require('./rabbitShotLists.cjs');
-// FX2 (0096's twin): a task's items — bundle.taskItems, each task's five
-// single fields kept equal to its main item of each kind.
+// FX2 (0096's twin): a task's items — bundle.taskItems. VW1m (0097's twin):
+// each task's five single fields are only the older builds' copy (each
+// kind's first item added); nothing in this build reads them.
 const rabbitTaskItems = require('./rabbitTaskItems.cjs');
+// VW1c (0098's twin): custom table views, saved groupings and this machine's
+// last used view — bundle.tableViews / bundle.itemGroupings, and
+// <data folder>/rabbit-machine-settings.json.
+const rabbitTableViews = require('./rabbitTableViews.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -255,13 +260,22 @@ function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 // retargets its own disk splits the company's storage worse than a visible
 // failure does.
 function resolveConfiguredRootDir() {
+  return configuredRoot().root;
+}
+
+// The same answer with WHICH root it is (post-overhaul FX11): the connection
+// dot names the place — the demo folder, the company's NAS, this computer —
+// and electron/connectionProbe.cjs asks the root it names. One order, here.
+function configuredRoot() {
   // Demo sprint (2026-09-10): an open local demo folder outranks everything —
   // it is an explicit, per-machine choice and the Storage card shows it —
   // and its projects/ subfolder is the files root, COMPUTED from the folder
   // rather than stored, so a copied folder still resolves.
   const demoProjects = localDemoProjectsDir();
-  if (demoProjects) return demoProjects;
-  return workspaceRootDir || readFilesConfig().defaultRootDir || null;
+  if (demoProjects) return { root: demoProjects, kind: 'demo' };
+  if (workspaceRootDir) return { root: workspaceRootDir, kind: 'workspace' };
+  const machine = readFilesConfig().defaultRootDir;
+  return machine ? { root: machine, kind: 'machine' } : { root: null, kind: null };
 }
 
 // Session 35 (TPN-NET-015): the ONE decision about whether a candidate
@@ -1476,11 +1490,22 @@ function startLocalServer(distPath) {
       // FX2 (0096's twin): a bundle from before a task's items gains them
       // from each task's single fields (deterministic ids, so a failed
       // write-back mints the same rows next read); dangling items go, as the
-      // cloud's CASCADE drops them; every task's five single fields are its
-      // main items. Converges: once in step it changes nothing.
+      // cloud's CASCADE drops them. VW1m (2026-10-16): a field set with no
+      // item for it gains that item and a read never reorders; the five
+      // single fields are only the older builds' copy (each kind's first
+      // item in the stored order). Converges: once in step it changes nothing.
       try {
         if (rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId })) dirty = true;
       } catch (e) { console.error('task items reconcile failed:', e.message); }
+      // VW1c (0098's twin): a bundle from before custom table views gains
+      // `tableViews` and `itemGroupings`; a grouping naming an item no longer
+      // in the bundle (deleted by a build without the sweep) loses it, as
+      // the cloud's fn_item_groupings_forget would have taken it (a grouping
+      // left empty, or naming another's set, goes). Converges: once nothing
+      // dangles it changes nothing.
+      try {
+        if (rabbitTableViews.reconcileTableViewsOnRead(bundle)) dirty = true;
+      } catch (e) { console.error('table views reconcile failed:', e.message); }
       // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
       // is stored absolute (the project POST writes <root>/<slug>), so a folder
       // moved or copied elsewhere would keep pointing at where it USED to be —
@@ -1609,6 +1634,9 @@ function startLocalServer(distPath) {
         taskLinks:       [],
         // FX2 (0096's twin): a task's items.
         taskItems:       [],
+        // VW1c (0098's twin): the project's saved table views and groupings.
+        tableViews:      [],
+        itemGroupings:   [],
         files:           [],
         assetVersions:   [],
         comments:        [],
@@ -2021,11 +2049,23 @@ function startLocalServer(distPath) {
           taskLinks:    liveLinks,
           taskItems:    liveItems,
         });
-        // timeline.json — phases + scheduling data
+        // timeline.json — phases + scheduling data. VW1m (2026-10-16): each
+        // task lists every asset it is about (`asset_ids`, in the order they
+        // were added: position, then created_at, then id), not the single
+        // field, which is only the older builds' copy now.
+        const byAdded = (a, b) => ((Number(a.position) || 0) - (Number(b.position) || 0))
+          || ((Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0))
+          || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+        const assetIdsOf = new Map();
+        for (const i of liveItems.filter(x => x.entity_type === 'asset').sort(byAdded)) {
+          const k = String(i.task_id);
+          if (!assetIdsOf.has(k)) assetIdsOf.set(k, []);
+          if (!assetIdsOf.get(k).includes(i.entity_id)) assetIdsOf.get(k).push(i.entity_id);
+        }
         writeJSON(path.join(dbDir, 'timeline.json'), {
           phases:       livePhases,
           tasks:        liveTasks.map(t => ({
-            id: t.id, name: t.name, asset_id: t.asset_id,
+            id: t.id, name: t.name, asset_ids: assetIdsOf.get(String(t.id)) || [],
             assigned_role_slug: t.assigned_role_slug,
             status: t.status, bid_days: t.bid_days,
             start_date: t.start_date, end_date: t.end_date,
@@ -2542,9 +2582,10 @@ function startLocalServer(distPath) {
       // unasked; the stamp is dropped from every ordinary body here.
       const scheduleRow = !!(opts && opts.scheduleRow);
       // FX2 (0096's twin): `taskItems: taskItemHooks` (tasks, scenes, shots,
-      // levels, experiences). A task write runs 0096 §7b / §7c's rules on the
-      // task's items (onWrite); a hard DELETE takes every item the row ends
-      // and hands "main" to the next item (onRemoved), in the same write.
+      // levels, experiences). A task write runs 0097's add-only §7b and 0096's
+      // §7c on the task's items (onWrite); a hard DELETE takes every item the
+      // row ends and refreshes the older builds' copy (onRemoved), in the same
+      // write. The task itself always stays.
       const taskItemHooks = (opts && opts.taskItems) || null;
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
@@ -2831,15 +2872,25 @@ function startLocalServer(distPath) {
         }
       }
       rabbitRemoveFrom(bundle.assets, req.params.id);
-      // FX2 (0096's twin): the asset leaves every task's items, and a task
-      // that had it as its main asset takes its next asset as main.
+      // VW1c (0098's sweep twin): the asset leaves every saved grouping that
+      // names it, in this write; a grouping left empty, or naming another's
+      // set, goes. The desktop has no asset trash: this delete is for good.
+      rabbitTableViews.forgetGoneItems(bundle);
+      // FX2 (0096's twin): the asset leaves every task's items, in this
+      // write. VW1m (2026-10-16), her Q-M2 "The tasks stay": no task is
+      // deleted with it; each keeps its other items (or none), and its older
+      // builds' copy is refreshed from them.
       rabbitTaskItems.afterRowRemoved(bundle);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true });
     });
 
-    // FX2 (0096's twin): the item hooks the generic routes call.
-    const taskItemHooks = rabbitTaskItems.makeTaskItemHooks({ newId: uuidv4 });
+    // FX2 (0096's twin): the item hooks the generic routes call. VW1c (0098's
+    // sweep twin): wrapped, so a scene, shot, level or experience deleted
+    // through them also leaves every saved grouping that names it, in the
+    // same write (a scene's shots, gone with it, too). The registrations
+    // below are unchanged.
+    const taskItemHooks = rabbitTableViews.withItemGroupingSweep(rabbitTaskItems.makeTaskItemHooks({ newId: uuidv4 }));
     rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true, taskItems: taskItemHooks });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
@@ -4516,6 +4567,16 @@ function startLocalServer(distPath) {
     rabbitTaskItems.mountRabbitTaskItems(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4,
     });
+    // VW1c (0098's twin): GET / POST /table-views, POST /table-views/reorder,
+    // PATCH and DELETE /table-views/:viewId, GET / POST /item-groupings,
+    // DELETE /item-groupings/:groupingId — every write { touch: false } (a
+    // saved view does not move the project up the list, and the _DATABASES
+    // mirrors carry no views) — and this machine's last used view, GET
+    // /machine-settings and POST /machine-settings/table-view-last, in
+    // getDataDir() (app data: per computer, never the demo folder).
+    rabbitTableViews.mountRabbitTableViews(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4, getDataDir, readJSON, writeJSON,
+    });
     mountRabbitShotLists(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitNotFound, uuidv4,
     });
@@ -4527,6 +4588,19 @@ function startLocalServer(distPath) {
     require('./localMedia.cjs').mountLocalMedia(expressApp, {
       getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
       log: (line) => console.info(line),
+    });
+
+    // ── The connection dot's question (post-overhaul FX11) — electron/connectionProbe.cjs ──
+    // GET /api/rabbit/connection: the data folder and the files root, each
+    // asked with one bounded, single-flight async stat. With no root set,
+    // project files fall back to app data (getRabbitFilesDir, under the data
+    // folder), so the data folder is the files root asked.
+    require('./connectionProbe.cjs').mountConnectionProbe(expressApp, {
+      getDataDir: getRabbitDataDir,
+      getFilesRoot: () => {
+        const at = configuredRoot();
+        return at.root ? at : { root: getRabbitDataDir(), kind: 'app' };
+      },
     });
 
     // ── Streamed project-file upload (demo 2026-09-11) — electron/projectFileStream.cjs ──

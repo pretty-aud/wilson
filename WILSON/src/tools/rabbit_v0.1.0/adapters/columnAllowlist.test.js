@@ -21,6 +21,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
 
@@ -677,12 +678,23 @@ describe('the four lists 0084 widens', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('assets still drops level_ids, which has no column', () => {
-    const out = toColumns('assets', { id: 'a1', shot_ids: ['h1'], level_ids: ['lv1'] })
-    expect(out).toEqual({ id: 'a1', shot_ids: ['h1'] })
+  // VW1e (0099, 2026-10-25): the cloud keeps an asset's levels and
+  // experiences too (her A9; design §4.7, §4.11). Until 0099 this test said
+  // "assets still drops level_ids, which has no column".
+  it('assets keeps level_ids / experience_ids (0099) — the Levels and Experiences pickers\' whole arrays', () => {
+    expect(COLUMN_ALLOWLIST.assets.has('level_ids'), 'assets allowlist is missing level_ids (0099)').toBe(true)
+    expect(COLUMN_ALLOWLIST.assets.has('experience_ids'), 'assets allowlist is missing experience_ids (0099)').toBe(true)
+    const payload = { id: 'a1', shot_ids: ['h1'], level_ids: ['lv1'], experience_ids: [] }
+    expect(toColumns('assets', payload)).toEqual(payload)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('assets still drops a key it has no column for (a task\'s level_id sent to an asset)', () => {
+    const out = toColumns('assets', { id: 'a1', level_ids: ['lv1'], level_id: 'lv1' })
+    expect(out).toEqual({ id: 'a1', level_ids: ['lv1'] })
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn.mock.calls[0][0]).toContain('public.assets')
-    expect(warn.mock.calls[0][0]).toContain('level_ids')
+    expect(warn.mock.calls[0][0]).toContain('level_id')
   })
 
   it('budget_versions keeps shot_list_id and summary — the whole-row re-send', () => {
@@ -848,5 +860,75 @@ describe('task_items: a task’s items (FX2, migration 0096)', () => {
     expect(toColumns('task_items', echoed)).toEqual({ id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 })
     expect(warn).toHaveBeenCalled()
     expect(warn.mock.calls[0][0]).toContain('public.task_items')
+  })
+})
+
+describe('tasks keeps the older apps\' copy of its items (VW1m, migration 0097)', () => {
+  // Audrey (2026-10-16): "lets not have main asset be a thing". The columns
+  // stay all the same: they are the copy older apps read and write (each
+  // kind's first item, 0097 §4; an older app's write of one ADDS that item,
+  // §3), and a template's new task still names its asset there (§5 seeds it).
+  // Dropping them from the allowlist would turn every older write into a
+  // warning and a lost link.
+  it('asset_id, scene_id and shot_id are still columns a write may name', () => {
+    for (const c of ['asset_id', 'scene_id', 'shot_id']) expect(COLUMN_ALLOWLIST.tasks.has(c), c).toBe(true)
+    const template = { id: 't1', project_id: 'p1', title: 'Model', asset_id: 'a1', scene_id: null, shot_id: null }
+    expect(toColumns('tasks', template)).toEqual(template)
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+// VW1c (migration 0098): a view is created with INSERT and saved with UPDATE,
+// a grouping created with INSERT and never updated, each by COLUMN grant. The
+// allowlist is exactly those grants, read from the migration itself, so a
+// column the triggers own (the workspace, a view's revision and who made it,
+// the four stamps) can never reach a write — the database would refuse the
+// whole request (42501) — and a grant the migration changes fails here.
+describe('table_views and item_groupings: exactly 0098\'s column grants (VW1c)', () => {
+  const SQL = readFileSync(new URL('../../../../supabase/migrations/0098_table_views.sql', import.meta.url), 'utf8')
+  const granted = (verb, table) => {
+    const m = new RegExp(`GRANT ${verb} \\(([^)]*)\\) ON public\\.${table} TO authenticated`).exec(SQL)
+    return m ? m[1].split(',').map(s => s.trim()).sort() : null
+  }
+  const sorted = (x) => [...x].sort()
+
+  it('table_views is its INSERT grant, which holds its UPDATE grant', () => {
+    const insert = granted('INSERT', 'table_views')
+    const update = granted('UPDATE', 'table_views')
+    expect(insert).toEqual(['config', 'id', 'name', 'position', 'project_id', 'table_key'])
+    expect(update).toEqual(['config', 'name', 'position'])
+    expect(sorted(COLUMN_ALLOWLIST.table_views)).toEqual(sorted(new Set([...insert, ...update])))
+  })
+
+  it('item_groupings is its INSERT grant; there is no UPDATE grant at all', () => {
+    expect(granted('INSERT', 'item_groupings')).toEqual(['entity_ids', 'id', 'kind', 'project_id', 'table_key'])
+    expect(granted('UPDATE', 'item_groupings')).toBeNull()
+    expect(sorted(COLUMN_ALLOWLIST.item_groupings)).toEqual(granted('INSERT', 'item_groupings'))
+  })
+
+  it('keeps every column a client writes and drops, with the warning, every column the triggers own', () => {
+    const view = { id: 'v1', project_id: 'p1', table_key: 'tasks', name: 'Shoot week', position: 0, config: { version: 1, filters: [] } }
+    expect(toColumns('table_views', view)).toEqual(view)
+    const grouping = { id: 'g1', project_id: 'p1', table_key: 'tasks', kind: 'asset', entity_ids: ['a1', 'a2'] }
+    expect(toColumns('item_groupings', grouping)).toEqual(grouping)
+    expect(warn).not.toHaveBeenCalled()
+    const echoed = { ...view, workspace_id: 'w1', revision: 7, revised_by: 'u1', created_at: 'x', created_by: 'u1', updated_at: 'x', updated_by: 'u1' }
+    expect(toColumns('table_views', echoed)).toEqual(view)
+    expect(toColumns('item_groupings', { ...grouping, workspace_id: 'w1', created_at: 'x', created_by: 'u1' })).toEqual(grouping)
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls[0][0]).toContain('public.table_views')
+    expect(warn.mock.calls[0][0]).toContain('revision')
+    expect(warn.mock.calls[1][0]).toContain('public.item_groupings')
+  })
+
+  it('CONTROL: the migration is read for real — a grant it does not make is null, and a planted fault in the entry is seen', () => {
+    expect(granted('INSERT', 'no_such_table')).toBeNull()
+    COLUMN_ALLOWLIST.table_views.add('revision')
+    try {
+      expect(sorted(COLUMN_ALLOWLIST.table_views)).not.toEqual(granted('INSERT', 'table_views'))
+    } finally {
+      COLUMN_ALLOWLIST.table_views.delete('revision')
+    }
+    expect(COLUMN_ALLOWLIST.table_views.has('revision')).toBe(false)
   })
 })

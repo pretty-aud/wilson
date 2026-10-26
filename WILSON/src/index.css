@@ -1414,6 +1414,39 @@ select option {
      3.96:1 at 11px (O.T.T.E.R.'s "Undo delete (1)", A3 review round 2); the
      second measures 6.67:1. */
   .ui-menu-item:hover:not(:disabled) .ui-menu-hint { color: var(--color-ink-2); }
+  /* ── Popover: a non-modal floating card (post-overhaul VW1b, the kit
+     request VW1-KR-1; Popover.jsx). The Menu's surface, 6px, the one shadow;
+     its motion the Dialog's fade, opacity only (stopped under reduced
+     motion, below). z-index 70, the Dialog's own: equal layers stack in
+     document order, so a Dialog opened after it (the picker's "Remove the
+     last item") covers it, and one opened from a Dialog sits over that. The
+     portalled form places itself (left, top or bottom, width, max-height
+     inline, as the Menu does) and scrolls inside past its room. ── */
+  .ui-popover {
+    position: fixed;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    /* A wheel over the card scrolls its list, never the table behind it. */
+    overscroll-behavior: contain;
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+    animation: ui-fade-in var(--duration-response) var(--ease-response) both;
+  }
+  /* The in-place form (post-overhaul VW1d, VW1-KR-1; its first caller the
+     custom views' dropdown): right after its trigger, under its left edge,
+     inside the caller's `position: relative` wrapper; its width and
+     max-height are the component's (inline, as the portalled form's). */
+  .ui-popover[data-place="inline"] {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+  }
 
   /* ── Dialog: one backdrop, one surface, 6px, one shadow; the only motion
      is the 200ms fade (Q17: "keep it minimal") ─────────────────────────── */
@@ -1886,6 +1919,92 @@ select option {
     border-top-color: var(--color-rule-light);
     background-color: var(--color-surface-light-solid);
     color: var(--color-ink-light);
+  }
+  /* ── Sticky columns (post-overhaul VW1b, the kit request VW1-KR-2; Table.jsx
+     measures the insets) ─────────────────────────────────────────────────
+     `stickyColumns={n}` keeps the first n columns in place while the table
+     scrolls sideways. `border-collapse: separate` above is what makes a
+     sticky cell possible at all: keep it.
+       · Paint: the head over the body. Every head cell 2, the sticky head
+         cells 3 (the corner), the body's sticky cells 1: a row scrolled up
+         under the head never covers it, and a cell scrolled left never covers
+         a sticky one.
+       · Ground: a sticky body cell is the surface's paper at EVERY state, or
+         the cells scrolling under it would read through a translucent fill;
+         a state's tint reaches it as a background-image over that paper (the
+         Tasks drag mark's pattern). The kit's own fills (selected, the
+         interactive hover) are re-pointed here; a lane re-points its own row
+         fills for its sticky cells.
+       · The gutter: the scroller's padding (`--ui-sticky-gutter`, measured)
+         is covered by the first column's cells, so nothing scrolls past in
+         it; the selected and highlighted rows keep their 2px edge there.
+       · A spanning cell is never sticky (it spans the scrolling columns); its
+         first child is, at most the scroller's content wide
+         (`--ui-sticky-room`), and the cell lets it out (`overflow: visible`):
+         under `.ui-td`'s `overflow: hidden` the cell would be the child's own
+         scroll container, and the child would never move. */
+  .ui-table[data-sticky="true"] {
+    --ui-sticky-ground: var(--color-paper);
+    --ui-sticky-head-ground: var(--color-paper-raised);
+  }
+  .ui-table[data-sticky="true"][data-surface="light"] {
+    --ui-sticky-ground: var(--color-surface-light-solid);
+    --ui-sticky-head-ground: var(--color-surface-light-solid);
+  }
+  .ui-table[data-sticky="true"] > thead > .ui-tr > .ui-th { z-index: 2; }
+  .ui-table[data-sticky="true"] > * > .ui-tr > .ui-th:not([colspan]):nth-child(1),
+  .ui-table[data-sticky="true"] > * > .ui-tr > .ui-td:not([colspan]):nth-child(1) { position: sticky; left: var(--ui-sticky-0, 0px); }
+  .ui-table[data-sticky-columns="2"] > * > .ui-tr > .ui-th:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="2"] > * > .ui-tr > .ui-td:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"] > * > .ui-tr > .ui-th:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"] > * > .ui-tr > .ui-td:not([colspan]):nth-child(2) { position: sticky; left: var(--ui-sticky-1, 0px); }
+  .ui-table[data-sticky-columns="3"] > * > .ui-tr > .ui-th:not([colspan]):nth-child(3),
+  .ui-table[data-sticky-columns="3"] > * > .ui-tr > .ui-td:not([colspan]):nth-child(3) { position: sticky; left: var(--ui-sticky-2, 0px); }
+  .ui-table[data-sticky="true"] > thead > .ui-tr > .ui-th:not([colspan]):nth-child(1),
+  .ui-table[data-sticky-columns="2"] > thead > .ui-tr > .ui-th:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"] > thead > .ui-tr > .ui-th:not([colspan]):nth-child(-n+3) { z-index: 3; }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td:not([colspan]):nth-child(1),
+  .ui-table[data-sticky-columns="2"] > tbody > .ui-tr > .ui-td:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"] > tbody > .ui-tr > .ui-td:not([colspan]):nth-child(-n+3) {
+    z-index: 1;
+    background-color: var(--ui-sticky-ground);
+  }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr[data-interactive="true"]:hover > .ui-td:not([colspan]):nth-child(1),
+  .ui-table[data-sticky-columns="2"] > tbody > .ui-tr[data-interactive="true"]:hover > .ui-td:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"] > tbody > .ui-tr[data-interactive="true"]:hover > .ui-td:not([colspan]):nth-child(-n+3) {
+    background-image: linear-gradient(var(--color-hover), var(--color-hover));
+  }
+  .ui-table[data-sticky="true"][data-surface="light"] > tbody > .ui-tr[data-interactive="true"]:hover > .ui-td:not([colspan]):nth-child(1),
+  .ui-table[data-sticky-columns="2"][data-surface="light"] > tbody > .ui-tr[data-interactive="true"]:hover > .ui-td:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"][data-surface="light"] > tbody > .ui-tr[data-interactive="true"]:hover > .ui-td:not([colspan]):nth-child(-n+3) {
+    background-image: linear-gradient(var(--color-hover-light), var(--color-hover-light));
+  }
+  /* Selected after the hover, at its specificity, so a selected row under
+     the pointer keeps its tint (the rule the table's own fills follow). */
+  .ui-table[data-sticky="true"] > tbody > .ui-tr[data-selected="true"][data-selected="true"] > .ui-td:not([colspan]):nth-child(1),
+  .ui-table[data-sticky-columns="2"] > tbody > .ui-tr[data-selected="true"][data-selected="true"] > .ui-td:not([colspan]):nth-child(2),
+  .ui-table[data-sticky-columns="3"] > tbody > .ui-tr[data-selected="true"][data-selected="true"] > .ui-td:not([colspan]):nth-child(-n+3) {
+    background-color: var(--ui-sticky-ground);
+    background-image: linear-gradient(var(--color-signal-tint), var(--color-signal-tint));
+  }
+  .ui-table[data-sticky="true"] > thead > .ui-tr > .ui-th:not([colspan]):first-child {
+    box-shadow: calc(-1 * var(--ui-sticky-gutter, 0px)) 0 0 0 var(--ui-sticky-head-ground);
+  }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td:not([colspan]):first-child {
+    box-shadow: calc(-1 * var(--ui-sticky-gutter, 0px)) 0 0 0 var(--ui-sticky-ground);
+  }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr[data-highlighted="true"] > .ui-td:not([colspan]):first-child {
+    box-shadow: inset 2px 0 0 0 var(--color-ink-3), calc(-1 * var(--ui-sticky-gutter, 0px)) 0 0 0 var(--ui-sticky-ground);
+  }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr[data-selected="true"] > .ui-td:not([colspan]):first-child {
+    box-shadow: inset 2px 0 0 0 var(--color-signal), calc(-1 * var(--ui-sticky-gutter, 0px)) 0 0 0 var(--ui-sticky-ground);
+  }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td[colspan] { overflow: visible; }
+  .ui-table[data-sticky="true"] > tbody > .ui-tr > .ui-td[colspan] > :first-child {
+    position: sticky;
+    left: var(--ui-sticky-0, 0px);
+    width: max-content;
+    max-width: var(--ui-sticky-room, none);
   }
 
   /* ── Toolbar ────────────────────────────────────────────────────────── */
@@ -2428,6 +2547,7 @@ select option {
   .ui-drawer { animation: none; }
   .ui-toast { animation: none; }
   .ui-dialog-backdrop { animation: none; }
+  .ui-popover { animation: none; }
   .ui-skeleton { animation: none; }
 }
 

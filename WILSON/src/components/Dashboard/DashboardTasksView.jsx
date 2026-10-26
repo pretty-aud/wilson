@@ -49,7 +49,7 @@ import { canOnProject } from '../../permissions/projectRoleMatrix'
 import {
   TASK_STATUSES, PRIORITIES, GROUP_OPTIONS, SORT_OPTIONS, FILTER_FIELDS,
   TASK_COLUMNS, applyTaskFilters, applyTaskSort, groupTasks, buildGroupPatch,
-  priorityTone, fmt, statusLabel, myRoleOnTask,
+  priorityTone, fmt, statusLabel, myRoleOnTask, itemNamesOf,
 } from './dashboardTaskModel'
 import {
   Badge, Banner, Button, Card, Chip, Dialog, EmptyState, IconButton, Input,
@@ -212,8 +212,11 @@ export default function DashboardTasksView() {
       // assets/phases stay EMPTY on purpose: a populated assets list mounts
       // the FileManager left column (active-project writes), and the phase
       // select would write tasks.phase_id — a column that does not exist
-      // (review findings C3/C4; the popup shows the embedded asset name
-      // read-only instead).
+      // (review findings C3/C4). VW1m (Q-N6's interim): no items either
+      // (`taskItemsAvailable` unset), so the window's Items table and its
+      // Files sections never mount here; the task's own row carries every
+      // item's name (`items`, listMyTasks'), which the window lists
+      // read-only by kind (dashboardTaskModel's itemNamesOf).
       assets: [],
       phases: [],
       project: { id: pid, title: mt.projectsById[pid]?.title || '' },
@@ -639,8 +642,10 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
           <Td title={task.project?.title || undefined}>
             {task.project?.title || <span className="dash-empty-value">—</span>}
           </Td>
-          <Td title={task.asset?.name || undefined}>
-            {task.asset?.name || <span className="dash-empty-value">—</span>}
+          {/* VW1m (Q-N6's interim): every asset of the task, "A, B", cut
+              short by the cell, the whole list on hover. */}
+          <Td title={itemNamesOf(task, 'asset') || undefined}>
+            {itemNamesOf(task, 'asset') || <span className="dash-empty-value">—</span>}
           </Td>
           <Td>
             <StatusCell
@@ -737,6 +742,8 @@ function KanbanColumn({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
 // `data-wide`, which no rule read (review round 1, finding 9).
 function TaskCard({ task, mt, onOpen, draggable = false }) {
   const tone = priorityTone(task.priority)
+  // VW1m: every asset of the task, "A, B" (it was the first one only).
+  const assets = itemNamesOf(task, 'asset')
   return (
     <Card
       pad={false}
@@ -751,7 +758,7 @@ function TaskCard({ task, mt, onOpen, draggable = false }) {
       <div className="dash-card-body">
         <div className="dash-card-title">{task.title}</div>
         <div className="dash-card-meta">
-          {task.project?.title || '—'}{task.asset?.name ? ` · ${task.asset.name}` : ''}
+          {task.project?.title || '—'}{assets ? ` · ${assets}` : ''}
         </div>
         <div className="dash-card-foot">
           <span className="dash-card-status">{statusLabel(task.status)}</span>

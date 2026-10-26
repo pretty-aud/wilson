@@ -212,10 +212,12 @@ const TASK_ROWS = [
 
 const PRIORITY_OK = new Set(['low', 'medium', 'high', 'urgent'])
 
-// FX2 (0096): four tasks are about a scene (and a shot) too. Their MAIN scene
-// and shot sit on the row itself, as the database keeps the columns, so the
-// seeded bid versions (money.js, snapshotted from these rows) carry them;
-// their other items are in scenes.js (TASK_ITEMS).
+// FX2 (0096): four tasks are about a scene (and a shot) too. Their FIRST
+// scene and shot sit on the row itself, as the database keeps the columns
+// (VW1m, 2026-10-16: the older apps' copy, which this app never reads), so
+// the seeded bid versions (money.js, snapshotted from these rows) carry
+// them as OLDER versions do, one of each; their other items are in
+// scenes.js (TASK_ITEMS).
 const TASK_SCENE_SHOT = {
   // task n: [scene n, shot n | null]
   18: [4, 10],

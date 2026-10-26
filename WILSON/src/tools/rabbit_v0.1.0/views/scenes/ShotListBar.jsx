@@ -35,7 +35,7 @@ import { Plus } from 'lucide-react'
 import { Toolbar, Button, StatusBadge, Select } from '../../../../ui'
 import GatedAction from '../../../../permissions/GatedAction'
 import { showDate } from '../../dates'
-import MenuButton from './MenuButton'
+import { MenuButton } from '../../../../ui'
 import '../rabbitScenes.css'
 
 /** The words for what is on screen when it is not one list. */

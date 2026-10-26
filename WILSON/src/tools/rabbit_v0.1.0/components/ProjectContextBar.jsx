@@ -8,29 +8,27 @@
 //   • The PROJECT label + title + status pill
 //   • A "switch project" dropdown listing every project in the
 //     workspace, with the active one marked
-//   • Two named slots, `presenceSlot` and `adapterSlot` (below)
+//   • One named slot, `presenceSlot` (below)
 // Reads from RabbitProvider.
 //
-// ── The two named slots (Q10; B1, 2026-09-23) ───────────────────────────────
-// Audrey ruled "no shortcut bar anywhere" (Q10). The Bins footer bar goes in
-// B6, and the two things that sat on it — the storage adapter's status dot
-// and the realtime presence pill, both drawn by Rabbit.jsx as corner overlays
-// — dock HERE instead, so they sit on a surface on every view rather than
-// over content (V1-08).
+// ── The faces, and nothing else on the right (FX11, 2026-10-16) ─────────────
+// Audrey: "the project bar has three green dots and its confusing. remove the
+// live and additional green dot. just leave the icons that appear for users"
+// … "i just want the project status there on that bar next to project name.
+// leave to the right the switch dropdown". So: the project's name and status
+// on the left; the faces of who else has the project open, then Switch, on
+// the right. The LIVE / Sync pill and the adapter dot, which B1 (Q10) docked
+// here from the old corner overlays, are gone: the connection is one dot in
+// the bottom-left corner of every tab now (ConnectionDot.jsx).
 //
-//   presenceSlot  any node; rendered first. Rabbit.jsx passes the LIVE / SYNC
-//                 pill plus the avatars of who else has the project open. It
-//                 renders nothing while realtime is off (Local Server mode).
-//   adapterSlot   any node; rendered after presence, before Switch. Rabbit.jsx
-//                 passes the adapter dot (online / offline / unconfigured,
-//                 with its mode in the tooltip).
+//   presenceSlot  any node, rendered before Switch in a `[data-slot="presence"]`
+//                 wrapper that is `display: contents`, so an empty slot takes
+//                 no room and adds no gap. Rabbit.jsx passes the faces, which
+//                 render nothing while realtime is off (Local Server mode) or
+//                 nobody else is here.
 //
-// Both render inside `[data-slot="status"]`, each in its own
-// `[data-slot="presence"]` / `[data-slot="adapter"]` wrapper. The wrappers
-// are `display: contents`, so an empty slot takes no room and adds no gap.
-// Omit both and the bar renders exactly as it did without them. The bar is
-// drawn on every view except Summary; on Summary Rabbit.jsx docks the same two
-// nodes at the tab bar's right end (see its comment).
+// The bar is drawn on every view except Summary; on Summary Rabbit.jsx docks
+// the same faces at the tab bar's right end (see its comment).
 //
 // ── The look (B1 restyle) ────────────────────────────────────────────────────
 // The kit's Toolbar: 44px, the 24px page gutter, one hairline, every control
@@ -59,7 +57,7 @@ import { Button } from '../../../ui/Button'
 import { StatusBadge } from '../../../ui/StatusBadge'
 import '../rabbitShell.css'
 
-export default function ProjectContextBar({ presenceSlot = null, adapterSlot = null } = {}) {
+export default function ProjectContextBar({ presenceSlot = null } = {}) {
   const ctx = useRabbit()
   const project = ctx?.project
   const projectsIndex = ctx?.projectsIndex || {}
@@ -89,13 +87,8 @@ export default function ProjectContextBar({ presenceSlot = null, adapterSlot = n
 
   const right = (
     <>
-      {/* The two named slots (Q10): presence, then the adapter dot. */}
-      {(presenceSlot || adapterSlot) && (
-        <div className="rb-ctx-status-group" data-slot="status">
-          <span className="contents" data-slot="presence">{presenceSlot}</span>
-          <span className="contents" data-slot="adapter">{adapterSlot}</span>
-        </div>
-      )}
+      {/* The faces of who else has the project open (FX11), before Switch. */}
+      {presenceSlot && <span className="contents" data-slot="presence">{presenceSlot}</span>}
 
       {/* Switcher dropdown */}
       <div ref={wrapperRef} className="relative">

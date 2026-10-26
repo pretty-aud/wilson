@@ -5,8 +5,12 @@
 // what kind of source block each becomes, and — the part that would be silent
 // — the two polarities that must NOT be unified.
 //
+// DG1 (2026-10-16): the automatic set is gone (Audrey's Q2: choosing a
+// project sends nothing on its own); the readers and their polarities moved
+// to references/referenceModel.js unchanged, and the pins below follow them.
+//
 // The contract's exported helpers are driven directly. The polarity itself
-// lives inside the component's readers, so it is held here by a SOURCE PIN,
+// lives inside the readers, so it is held here by a SOURCE PIN,
 // which is the only instrument available for logic inside a 5700-line
 // component's hooks. 🚨 The pin normalises CRLF before matching: the working tree is CRLF
 // under core.autocrlf and CI's checkout is LF, so a multi-line regex that
@@ -25,6 +29,8 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url))
 const read = (p) => readFileSync(join(HERE, p), 'utf8').replace(/\r\n/g, '\n')
 const SRC = read('DeckOutlineGenerator.jsx')
+const MODEL = read('references/referenceModel.js')
+const HOOK = read('references/useReferences.js')
 const CONTRACT = read('../rabbit_v0.1.0/deckAttachments.js')
 
 // ── Which rows are deck attachments ─────────────────────────────────────────
@@ -205,50 +211,56 @@ describe('dogTypeForRow', () => {
 
 // ── §6 #31 trap (b): TWO polarities, deliberately not unified ───────────────
 
-describe('the CORE polarity, pinned in source', () => {
+describe('the CORE polarity, pinned in source (references/referenceModel.js since DG1)', () => {
   it('the LEGACY reader still defaults to CORE (isCore !== false)', () => {
     // Changing this to `=== true` would demote every previously-unmarked
     // attachment on every existing local project and change generation output
     // — the exact consequence §6 #31's disposition row names.
-    expect(SRC).toMatch(/const isCore = doc\.isCore !== false;/)
-    expect(SRC).toMatch(/const isCore = asset\.isCore !== false;/)
+    expect(MODEL).toMatch(/isCore: f\.isCore !== false,/)
   })
 
   it('the STORED reader reads the column strictly (is_core_definer === true)', () => {
-    // `!== false` here would mark every stored file CORE, because
-    // files.is_core_definer is NOT NULL — there is no third state to default
-    // from. The two readers look similar and mean opposite things, which is
-    // why both are pinned rather than described.
-    expect(SRC).toMatch(/const isCore = row\.is_core_definer === true;/)
+    // `!== false` here would mark every stored file CORE. The two readers look
+    // similar and mean opposite things, which is why both are pinned.
+    expect(MODEL).toMatch(/isCore: row\.is_core_definer === true,/)
   })
 
-  it('and neither reader is the other one', () => {
-    expect(SRC).not.toMatch(/row\.is_core_definer !== false/)
-    expect(SRC).not.toMatch(/doc\.isCore === true/)
+  it('and neither reader is the other one, in the model or the component', () => {
+    for (const src of [MODEL, SRC]) {
+      expect(src).not.toMatch(/is_core_definer !== false/)
+      expect(src).not.toMatch(/\.isCore === true/)
+    }
   })
 })
 
-// ── The download bound ──────────────────────────────────────────────────────
+// ── DG1: no automatic set; a body is read only for a deck or a preview ──────
 
-describe('the attachment bound', () => {
-  it('is stated as a count and a total size, both used', () => {
-    // A bound that is declared and never applied is the same as no bound. Both
-    // constants must appear in the loop as well as in their declarations.
-    expect(CONTRACT).toMatch(/export const DOG_ATTACHMENT_MAX_FILES = 20;/)
-    expect(CONTRACT).toMatch(/export const DOG_ATTACHMENT_MAX_BYTES = 32 \* 1024 \* 1024;/)
-    expect(SRC).toMatch(/out\.length >= DOG_ATTACHMENT_MAX_FILES/)
-    expect(SRC).toMatch(/bytes \+ size > DOG_ATTACHMENT_MAX_BYTES/)
+describe('choosing a project downloads nothing (DG1, Audrey\'s Q2)', () => {
+  it('the component neither lists nor downloads a file itself', () => {
+    // The C3 effect read up to 20 bodies the moment a project was chosen and
+    // recorded a download for each. Its bound went with it.
+    expect(SRC).not.toMatch(/\.listFiles\(/)
+    expect(SRC).not.toMatch(/\.downloadFile\(/)
+    expect(SRC).not.toMatch(/DOG_ATTACHMENT_MAX_/)
   })
 
-  it('skips an oversized file rather than truncating it', () => {
-    // Half a brief is worse than no brief: nothing downstream can tell it is
-    // half. `continue`, never a slice.
-    expect(SRC).toMatch(/if \(bytes \+ size > DOG_ATTACHMENT_MAX_BYTES\) \{ skippedTooBig\+\+; continue; \}/)
+  it('the hook downloads in ONE place, which only Preview and Generate reach', () => {
+    expect(HOOK.match(/\.downloadFile\(/g)).toHaveLength(1)
+    expect(HOOK.match(/await readBody\(/g)).toHaveLength(2)
+    // CONTROL: the two callers are the two named moments.
+    expect(HOOK).toMatch(/const preview = useCallback\(async \(key\)/)
+    expect(HOOK).toMatch(/const resolveForGeneration = useCallback\(async/)
   })
 
-  it('says how many files it left out', () => {
-    expect(SRC).toMatch(/setStoredFilesNote\(/)
-    expect(SRC).toMatch(/not included/)
+  it('🚨 buildSourceParts sends text through the one transport rule (the notes stay inline)', () => {
+    // sendsInline is tested in the model; this holds the component to it.
+    expect(SRC).toMatch(/if \(!sendsInline\(fileData, INLINE_TEXT_LIMIT\)\) \{/)
+    expect(SRC).not.toMatch(/body\.length > INLINE_TEXT_LIMIT/)
+  })
+
+  it('a chosen reference that cannot be read is named, never dropped in silence', () => {
+    expect(HOOK).toMatch(/unreadable\.push\(/)
+    expect(SRC).toMatch(/Not sent: \$\{unreadable\.join/)
   })
 })
 
@@ -388,27 +400,21 @@ describe('a newly written attachment is CORE', () => {
   })
 })
 
-// ── The effect's dependencies ───────────────────────────────────────────────
+// ── The pool read's dependencies ────────────────────────────────────────────
 
-describe('the fetch effect', () => {
+describe('the pool read (useReferences)', () => {
   it('depends on the STABLE getAdapter, never on the whole context', () => {
-    // 🚨 RabbitProvider's context value is a useMemo over a long dependency
-    // list, so it takes a new identity many times a session. An effect that
-    // downloads file bodies must not depend on it — that re-downloads every
-    // attachment on every provider render.
-    expect(SRC).toMatch(/\}, \[selectedProjectId, getAdapter, adapterMode\]\);/)
-    expect(SRC).not.toMatch(/\}, \[selectedProjectId, rabbitCtx/)
-    // 🚨 AND NOTHING DEAD IN THE LIST. Round 1 added `storedFilesReloadKey`
-    // and removed both of its bumpers in the same commit, leaving state no
-    // code writes — which this very pin then held in place, because a
-    // dependency-array assertion is not a usage a linter can see. Round 2
-    // removed it; this line stops it coming back unaccompanied.
+    // 🚨 RabbitProvider's context value takes a new identity many times a
+    // session; a read keyed on it would re-list on every provider render.
+    expect(SRC).toMatch(/useReferences\(\{ getAdapter, adapterMode, projectId: selectedProjectId, project: selectedProject \}\)/)
+    expect(SRC).not.toMatch(/useReferences\(\{[^}]*rabbitCtx/)
+    expect(HOOK).toMatch(/\}, \[getAdapter, adapterMode, projectId, project\]\);/)
     expect(SRC).not.toMatch(/storedFilesReloadKey/)
   })
 
-  it('guards every setState after an await with the liveness token', () => {
-    // Selecting project A then B while A's downloads are in flight must not
-    // let A's bodies land in B's panel.
-    expect(SRC).toMatch(/if \(!live\) return;/)
+  it('lets only the newest read land (a request sequence, not a boolean)', () => {
+    // Choosing project A then B while A's lists are in flight must not let
+    // A's pool land under B.
+    expect(HOOK).toMatch(/if \(seq !== poolSeq\.current\) return null;/)
   })
 })

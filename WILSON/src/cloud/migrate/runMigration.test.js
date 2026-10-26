@@ -17,9 +17,52 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true, rpcError: null, existing: {}, selectError: null, eqColumns: [] }
+  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true, rpcError: null, existing: {}, selectError: null, eqColumns: [], cloud: {}, viewsReadError: null, revision: 0 }
+  // VW1c (0098): the views' part goes through the cloud ADAPTER (its paged
+  // reads of what the cloud holds, its INSERTs), so its two tables answer as
+  // PostgREST does: a chainable, thenable query over `state.cloud` (the rows
+  // the cloud holds, by project), an insert that lands there with the
+  // database's revision, `state.failWith` for a refusal, `state.viewsReadError`
+  // for a read the cloud refuses. Every other table keeps the fake below.
+  const VIEW_TABLES = new Set(['table_views', 'item_groupings'])
+  const sameSet = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === new Set(b).size && b.every(x => a.includes(x))
+  function viewsBuilder(table) {
+    const ops = []
+    const b = {}
+    for (const op of ['select', 'eq', 'order', 'range', 'single', 'maybeSingle', 'insert', 'contains', 'containedBy']) {
+      b[op] = (...args) => { ops.push([op, ...args]); return b }
+    }
+    b.then = (resolve, reject) => {
+      const op = (name) => ops.find(o => o[0] === name)
+      let answer
+      if (op('insert')) {
+        const row = op('insert')[1]
+        state.log.push(table)
+        const refused = state.failWith?.(table, row)
+        if (refused) answer = { data: null, error: refused }
+        else {
+          ;(state.inserts[table] ||= []).push(row)
+          const stored = { ...row, ...(table === 'table_views' ? { revision: ++state.revision } : {}), created_by: 'u-mover' }
+          ;(state.cloud[table] ||= []).push(stored)
+          answer = { data: stored, error: null }
+        }
+      } else if (state.viewsReadError?.[table]) {
+        answer = { data: null, error: state.viewsReadError[table] }
+      } else {
+        let rows = (state.cloud[table] || []).filter(x => ops.filter(o => o[0] === 'eq').every(([, c, v]) => x[c] === v))
+        if (op('contains')) rows = rows.filter(x => sameSet(x.entity_ids, op('contains')[2]))
+        const range = op('range')
+        answer = op('maybeSingle') ? { data: rows[0] || null, error: null } : { data: range ? rows.slice(range[1], range[2] + 1) : rows, error: null }
+      }
+      return Promise.resolve(answer).then(resolve, reject)
+    }
+    return b
+  }
   const client = {
+    // The adapter's session read (its getClient); the runner never calls it.
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'u-mover' } } } }) },
     from(table) {
+      if (VIEW_TABLES.has(table)) return viewsBuilder(table)
       let id = null
       return {
         // The existence check before an upload (review round 2, R2-BEH-06).
@@ -65,7 +108,9 @@ const fake = vi.hoisted(() => {
 
 vi.mock('../auth/supabaseClient', () => ({ supabase: fake.client }))
 
-const { runMigration } = await import('./runMigration')
+const { runMigration, assetRowForCloud, viewFiltersLeftBehind, VIEW_FILTERS_LEFT_BEHIND, TABLE_VIEWS_NOT_IN_CLOUD, TABLE_VIEWS_UNREAD } = await import('./runMigration')
+const { resetTableViewsSchemaState } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
+const { viewNameProblem } = await import('../../tools/rabbit_v0.1.0/state/tableViewsModel')
 
 function bundle() {
   return {
@@ -97,6 +142,12 @@ beforeEach(() => {
   fake.state.existing = {}
   fake.state.selectError = null
   fake.state.eqColumns = []
+  fake.state.cloud = {}
+  fake.state.viewsReadError = null
+  fake.state.revision = 0
+  // The adapter's memory of what a probe found (module state, on purpose:
+  // an auth event does not change the schema) is forgotten between tests.
+  resetTableViewsSchemaState()
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   globalThis.fetch = vi.fn(async (url) => {
     if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
@@ -194,6 +245,47 @@ describe('the project row leaves the local active shot list behind (0084; S3a re
     expect(fake.state.inserts.projects).toStrictEqual([
       { id: 'p1', title: 'Fixture', status: 'active', workspace_id: 'ws1' },
     ])
+  })
+})
+
+describe('an asset goes up without its level and experience links (VW1e, 0099)', () => {
+  // The runner carries no levels or experiences (NOT_CARRIED): the ids would
+  // name rows the cloud does not have. Before 0099 the cloud had no such
+  // column, and the asset was refused whole (PGRST204).
+  function servesLinkedAsset() {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects') return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        return { ok: true, json: async () => ({ ...bundle(), assets: [{ id: 'a1', project_id: 'p1', name: 'Lantern', scene_ids: ['sc1'], shot_ids: [], level_ids: ['lv1'], experience_ids: ['x1'] }] }) }
+      }
+      return { ok: false, status: 404 }
+    })
+    fake.state.failWith = (table, row) => (table === 'assets' && ('level_ids' in row || 'experience_ids' in row))
+      ? { code: 'PGRST204', message: "Could not find the 'level_ids' column of 'assets' in the schema cache" }
+      : null
+  }
+
+  it('sends the asset with its scene and shot links and without its level and experience links', async () => {
+    servesLinkedAsset()
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.assets).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0, linksLeftBehind: 1 })
+    expect(fake.state.inserts.assets).toStrictEqual([{ id: 'a1', project_id: 'p1', name: 'Lantern', scene_ids: ['sc1'], shot_ids: [] }])
+    // Said: the asset's links to levels stay on this computer.
+    expect(report.notCarried).toContainEqual({ key: 'assetLevelLinks', count: 1, label: "asset's links to levels or experiences" })
+  })
+
+  it('the dry run counts the same, and writes nothing', async () => {
+    servesLinkedAsset()
+    const report = await runMigration({ workspaceId: 'ws1', dryRun: true })
+    expect(report.assets.linksLeftBehind).toBe(1)
+    expect(report.notCarried).toContainEqual(expect.objectContaining({ key: 'assetLevelLinks', count: 1 }))
+    expect(fake.state.inserts.assets || []).toEqual([])
+  })
+
+  it('assetRowForCloud leaves every other key alone, and a row without links as it is', () => {
+    expect(assetRowForCloud({ id: 'a1', name: 'A', level_ids: [], experience_ids: ['x'] })).toEqual({ id: 'a1', name: 'A' })
+    expect(assetRowForCloud({ id: 'a2', name: 'B' })).toEqual({ id: 'a2', name: 'B' })
+    expect(assetRowForCloud(null)).toBe(null)
   })
 })
 
@@ -420,11 +512,12 @@ describe('set-aside desktop rows arrive live on the cloud', () => {
 })
 
 // FX2 (0096): a task's items move with the project — after the rows they name,
-// keeping their ids and positions. A task's FIRST asset is already in the
-// cloud (0096 seeds it from the task's column), so its desktop copy answers
-// 23505 and reads as skipped; a level's item stays (levels are not carried).
+// keeping their ids and positions; a level's item stays (levels are not
+// carried). VW1m (2026-10-16): EVERY item goes up as an item, the assets
+// included, and the task row carries no link field at all; an item the cloud
+// already holds (a move run again) answers 23505 and reads as skipped.
 describe("a task's items move with the project (FX2)", () => {
-  it('lands asset items after the tasks and assets, skips a seeded one, fails a refused one, leaves level items behind', async () => {
+  it('lands asset items after the tasks and assets, skips one already there, fails a refused one, leaves level items behind', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
       if (url === '/api/rabbit/projects/p1') {
@@ -455,10 +548,63 @@ describe("a task's items move with the project (FX2)", () => {
     expect(report.errors.map(e => [e.scope, e.id])).toEqual([['task_item', 'i3']])
   })
 
+  // VW1m (2026-10-16): the row's asset_id was the older builds' copy of the
+  // first asset, and tasks.asset_id's key refused the whole task when that
+  // asset had not gone up. Now the task lands, and only that asset's item
+  // fails. The fake refuses exactly what the cloud's keys refuse.
+  it('VW1m: a task whose first asset failed no longer fails whole; that asset\'s item fails alone and the next lands', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.assets = [{ id: 'a1', project_id: 'p1', name: 'A1' }, { id: 'a2', project_id: 'p1', name: 'A2' }]
+        b.tasks[0] = { ...b.tasks[0], asset_id: 'a1' }
+        b.taskItems = [
+          { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 },
+          { id: 'i2', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a2', position: 1 },
+        ]
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    const landed = (t, id) => (fake.state.inserts[t] || []).some(r => r.id === id)
+    fake.state.failWith = (table, row) => {
+      if (table === 'assets' && row.id === 'a1') return { code: '23514', message: 'new row for relation "assets" violates check constraint "assets_status_check"' }
+      if (table === 'tasks' && row.asset_id && !landed('assets', row.asset_id)) return { code: '23503', message: 'insert or update on table "tasks" violates foreign key constraint "tasks_asset_id_fkey"' }
+      if (table === 'task_items' && row.entity_type === 'asset' && !landed('assets', row.entity_id)) return { code: '23503', message: 'insert or update on table "task_items" violates foreign key constraint "task_items_asset_fk"' }
+      return null
+    }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.assets).toMatchObject({ inserted: 1, failed: 1 })
+    expect(report.tasks).toMatchObject({ total: 3, inserted: 3, failed: 0 })
+    expect(fake.state.inserts.tasks.find(t => t.id === 't1')).not.toHaveProperty('asset_id')
+    expect(report.taskItems).toMatchObject({ total: 2, inserted: 1, failed: 1 })
+    expect(fake.state.inserts.task_items.map(i => `${i.task_id}:${i.entity_id}`)).toEqual(['t1:a2'])
+    expect(report.errors.filter(e => e.scope === 'task' || e.scope === 'task_item').map(e => [e.scope, e.id])).toEqual([['task_item', 'i1']])
+  })
+
+  it('VW1m: an asset a task row names and no item does (a bundle no Local Server reconciled) is carried as an item', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.assets = [{ id: 'a1', project_id: 'p1', name: 'A1' }]
+        b.tasks[1] = { ...b.tasks[1], asset_id: 'a1' }
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    const report = await runMigration({ workspaceId: 'ws1' })
+    for (const t of fake.state.inserts.tasks) expect(t, t.id).not.toHaveProperty('asset_id')
+    expect(fake.state.inserts.task_items).toEqual([{ task_id: 't2', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 }])
+    expect(report.taskItems).toMatchObject({ total: 1, inserted: 1, failed: 0 })
+  })
+
   // Review round 1, R1-2: the tasks land before the scenes and shots (BC3),
   // tasks_scene_fk / tasks_shot_fk are not deferrable, and the cloud has no
-  // level or experience column; FX2's desktop writes all five keys on a task
-  // whose main item changed. The fake refuses exactly what the cloud does.
+  // level or experience column; FX2's desktop wrote all five keys on a task.
+  // The fake refuses exactly what the cloud does. VW1m: the asset goes the
+  // same way (above).
   it('R1-2: a task goes up without its scene, shot, level and experience links; its scene and shot land as items after the shots', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
@@ -491,7 +637,7 @@ describe("a task's items move with the project (FX2)", () => {
     expect(report.errors.filter(e => e.scope === 'task' || e.scope === 'task_item')).toEqual([])
     expect(fake.state.inserts.tasks).toHaveLength(3)
     for (const t of fake.state.inserts.tasks) {
-      for (const f of ['scene_id', 'shot_id', 'level_id', 'experience_id']) expect(t, `${t.id}.${f}`).not.toHaveProperty(f)
+      for (const f of ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']) expect(t, `${t.id}.${f}`).not.toHaveProperty(f)
     }
     expect(fake.state.inserts.task_items.map(i => `${i.task_id}:${i.entity_type}:${i.entity_id}`))
       .toEqual(['t1:scene:s1', 't1:shot:h1', 't2:scene:s1'])
@@ -516,5 +662,158 @@ describe("a task's items move with the project (FX2)", () => {
     const report = await runMigration({ workspaceId: 'ws1', dryRun: true })
     expect(report.taskItems).toMatchObject({ total: 2, leftBehind: 1 })
     expect(fake.state.inserts.task_items).toBeUndefined()
+  })
+})
+
+// VW1c (0098): a project's saved views and groupings move with it — with
+// their ids, by INSERT through the cloud adapter (its column allowlist: the
+// desktop's revision and stamps stay behind, the cloud makes its own), after
+// the scenes and shots they may name. A second run finds them there and skips
+// them; a grouping of levels or experiences stays (the move carries neither),
+// counted and named; a view that filters by one goes, counted (its filter
+// matches nothing up there). A cloud without 0098 takes none, says so once,
+// and the run is not done.
+describe('saved views and groupings move with the project (VW1c, 0098)', () => {
+  const STAMPS = { revision: 41, revised_by: 'desk', created_at: '2026-10-17T09:00:00.000Z', created_by: null, updated_at: '2026-10-17T09:00:00.000Z', updated_by: null }
+  const V1 = { id: 'v1', project_id: 'p1', table_key: 'tasks', name: 'Shoot week', position: 0, config: { version: 1, filters: [{ field: 'status', op: 'is', values: ['blocked'] }] }, ...STAMPS }
+  const V2 = { id: 'v2', project_id: 'p1', table_key: 'assets', name: 'By level', position: 0, config: { version: 1, filters: [{ field: 'level', op: 'is', values: ['l1'] }] }, ...STAMPS }
+  const G1 = { id: 'g1', project_id: 'p1', table_key: 'tasks', kind: 'scene', entity_ids: ['s1'], created_at: STAMPS.created_at, created_by: null }
+  const G2 = { id: 'g2', project_id: 'p1', table_key: 'levels', kind: 'asset', entity_ids: ['a1'], created_at: STAMPS.created_at, created_by: null }
+  const G3 = { id: 'g3', project_id: 'p1', table_key: 'tasks', kind: 'level', entity_ids: ['l1', 'l2'], created_at: STAMPS.created_at, created_by: null }
+  function serves(extra = {}) {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        return { ok: true, json: async () => ({
+          ...bundle(),
+          assets: [{ id: 'a1', project_id: 'p1', name: 'A1' }],
+          scenes: [{ id: 's1', project_id: 'p1', name: 'S1' }],
+          shots: [{ id: 'h1', project_id: 'p1', scene_id: 's1', name: 'H1' }],
+          tableViews: [V1, V2],
+          itemGroupings: [G1, G2, G3],
+          ...extra,
+        }) }
+      }
+      return { ok: false, status: 404 }
+    })
+  }
+  const viewErrors = (report) => report.errors.filter(e => ['table_view', 'table_views', 'item_grouping'].includes(e.scope))
+
+  it('carried with their ids by INSERT through the adapter — the granted columns only — after the assets, scenes and shots', async () => {
+    serves()
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(viewErrors(report)).toEqual([])
+    expect(fake.state.inserts.table_views).toEqual([
+      { id: 'v1', project_id: 'p1', table_key: 'tasks', name: 'Shoot week', position: 0, config: V1.config },
+      { id: 'v2', project_id: 'p1', table_key: 'assets', name: 'By level', position: 0, config: V2.config },
+    ])
+    expect(fake.state.inserts.item_groupings).toEqual([
+      { id: 'g1', project_id: 'p1', table_key: 'tasks', kind: 'scene', entity_ids: ['s1'] },
+      { id: 'g2', project_id: 'p1', table_key: 'levels', kind: 'asset', entity_ids: ['a1'] },
+    ])
+    const log = fake.state.log
+    for (const before of ['assets', 'scenes', 'shots', 'task_items']) {
+      if (log.includes(before)) expect(log.indexOf('item_groupings'), before).toBeGreaterThan(log.lastIndexOf(before))
+    }
+    expect(log.indexOf('item_groupings')).toBeGreaterThan(log.lastIndexOf('shots'))
+    // The desktop's revision and stamps stay behind without a word.
+    expect(warn.mock.calls.filter(c => /table_views|item_groupings/.test(c[0]))).toEqual([])
+    expect(report.tableViews).toEqual({ total: 2, inserted: 2, skipped: 0, failed: 0, filtersLeftBehind: 1 })
+    expect(report.itemGroupings).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1 })
+    // The grouping of levels stays, and is named before the archive is offered.
+    expect(report.notCarried).toContainEqual({ key: 'levelGroupings', label: 'grouping of levels or experiences', count: 1 })
+  })
+
+  it('a second run finds them already there and counts them skipped, writing nothing', async () => {
+    serves()
+    await runMigration({ workspaceId: 'ws1' })
+    fake.state.inserts = {}
+    fake.state.log = []
+    const again = await runMigration({ workspaceId: 'ws1' })
+    expect(fake.state.log.filter(t => t === 'table_views' || t === 'item_groupings')).toEqual([])
+    expect(again.tableViews).toEqual({ total: 2, inserted: 0, skipped: 2, failed: 0, filtersLeftBehind: 1 })
+    expect(again.itemGroupings).toEqual({ total: 3, inserted: 0, skipped: 2, failed: 0, leftBehind: 1 })
+    expect(viewErrors(again)).toEqual([])
+  })
+
+  it('a grouping whose set the cloud holds under another id (a teammate made it) is skipped: the cloud answers its row', async () => {
+    serves()
+    fake.state.cloud.item_groupings = [{ id: 'theirs', project_id: 'p1', table_key: 'tasks', kind: 'scene', entity_ids: ['s1'], created_by: 'mara' }]
+    fake.state.failWith = (table, row) => (table === 'item_groupings' && fake.state.cloud.item_groupings.some(g => g.id !== row.id && g.table_key === row.table_key && g.kind === row.kind && g.entity_ids.join() === [...row.entity_ids].sort().join())
+      ? { code: '23505', message: 'duplicate key value violates unique constraint "item_groupings_set_key"' } : null)
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.itemGroupings).toEqual({ total: 3, inserted: 1, skipped: 1, failed: 0, leftBehind: 1 })
+    expect(viewErrors(report)).toEqual([])
+  })
+
+  it('a refused one fails alone, in the adapter\'s words; an id another project\'s row holds is said so', async () => {
+    serves({ tableViews: [{ ...V1, name: 'Tab\there' }, V2] })
+    fake.state.failWith = (table, row) => {
+      if (table === 'table_views' && row.id === 'v1') return { code: '23514', message: 'new row for relation "table_views" violates check constraint "table_views_name_chk"' }
+      if (table === 'table_views' && row.id === 'v2') return { code: '23505', message: 'duplicate key value violates unique constraint "table_views_pkey"' }
+      if (table === 'item_groupings' && row.id === 'g1') return { code: '23503', message: 'A grouping can name only this project\'s own scenes: 1 of the 1 named are not in it (or are in the trash).' }
+      return null
+    }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(viewErrors(report)).toEqual([
+      { scope: 'table_view', projectId: 'p1', id: 'v1', message: `table_views: ${viewNameProblem('Tab\there')}` },
+      { scope: 'table_view', projectId: 'p1', id: 'v2', message: 'table_views: a row with this id is in the cloud but is not this project\'s, so nothing was written for it ([supabase] duplicate key value violates unique constraint "table_views_pkey")' },
+      { scope: 'item_grouping', projectId: 'p1', id: 'g1', message: 'item_groupings: A grouping can name only this project\'s own scenes: 1 of the 1 named are not in it (or are in the trash).' },
+    ])
+    expect(report.tableViews).toMatchObject({ total: 2, inserted: 0, failed: 2 })
+    expect(report.itemGroupings).toMatchObject({ total: 3, inserted: 1, failed: 1, leftBehind: 1 })
+  })
+
+  it('a cloud without 0098 takes none of them: said once, counted failed (so the run is not done), nothing written', async () => {
+    serves()
+    const missing = (t) => ({ code: 'PGRST205', message: `Could not find the table 'public.${t}' in the schema cache` })
+    fake.state.viewsReadError = { table_views: missing('table_views'), item_groupings: missing('item_groupings') }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(viewErrors(report)).toEqual([{ scope: 'table_views', projectId: 'p1', message: TABLE_VIEWS_NOT_IN_CLOUD(2, 2) }])
+    expect(TABLE_VIEWS_NOT_IN_CLOUD(2, 2)).toMatch(/migration 0098/)
+    expect(report.tableViews).toEqual({ total: 2, inserted: 0, skipped: 0, failed: 2, filtersLeftBehind: 1 })
+    expect(report.itemGroupings).toEqual({ total: 3, inserted: 0, skipped: 0, failed: 2, leftBehind: 1 })
+    expect(fake.state.inserts.table_views).toBeUndefined()
+    expect(fake.state.inserts.item_groupings).toBeUndefined()
+  })
+
+  it('a read of what the cloud holds that fails writes none either, and says why', async () => {
+    serves()
+    fake.state.viewsReadError = { item_groupings: { code: '57014', message: 'canceling statement due to statement timeout' } }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(viewErrors(report)).toEqual([{ scope: 'table_views', projectId: 'p1', message: TABLE_VIEWS_UNREAD('[supabase] canceling statement due to statement timeout') }])
+    expect(report.tableViews.failed).toBe(2)
+    expect(fake.state.inserts.table_views).toBeUndefined()
+  })
+
+  it('the dry run counts what would go, what is there and what stays, and writes nothing', async () => {
+    serves()
+    fake.state.cloud.table_views = [{ ...V1, revision: 3 }]
+    const notes = []
+    const report = await runMigration({ workspaceId: 'ws1', dryRun: true, onProgress: (m) => notes.push(m) })
+    expect(report.tableViews).toEqual({ total: 2, inserted: 1, skipped: 1, failed: 0, filtersLeftBehind: 1 })
+    expect(report.itemGroupings).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1 })
+    expect(report.notCarried).toContainEqual({ key: 'levelGroupings', label: 'grouping of levels or experiences', count: 1 })
+    expect(fake.state.log).toEqual([])
+    expect(notes).toContain('  2 saved views and 3 groupings; 1 grouping of levels or experiences stays on this computer')
+  })
+
+  it('CONTROL: a project with none reads nothing of them, and counts zeros', async () => {
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.tableViews).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0, filtersLeftBehind: 0 })
+    expect(report.itemGroupings).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 })
+    expect(fake.state.log.filter(t => t === 'table_views' || t === 'item_groupings')).toEqual([])
+    expect(report.notCarried.find(n => n.key === 'levelGroupings')).toBeUndefined()
+  })
+
+  it('which views count: a complete filter by a level or an experience; never a malformed config', () => {
+    const v = (filters) => ({ table_key: 'tasks', config: { version: 1, filters } })
+    expect(viewFiltersLeftBehind(v([{ field: 'level', op: 'is', values: ['l1'] }]))).toBe(true)
+    expect(viewFiltersLeftBehind(v([{ field: 'experience', op: 'is_empty' }]))).toBe(true)
+    expect(viewFiltersLeftBehind(v([{ field: 'level', op: 'is', values: [] }]))).toBe(false) // incomplete: never stored, never read
+    expect(viewFiltersLeftBehind(v([{ field: 'scene', op: 'is', values: ['s1'] }]))).toBe(false)
+    expect(viewFiltersLeftBehind({ table_key: 'tasks', config: 'not an object' })).toBe(false)
+    expect(VIEW_FILTERS_LEFT_BEHIND(1)).toBe('1 saved view filters by a level or an experience, which the migration does not carry: in the cloud that filter matches nothing')
+    expect(VIEW_FILTERS_LEFT_BEHIND(2)).toMatch(/^2 saved views filter by .* those filters match nothing$/)
   })
 })

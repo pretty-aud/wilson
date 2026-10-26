@@ -322,12 +322,35 @@ export function RabbitHelpContent({ helpPage, theme }) {
     <div className="space-y-5">
       <section>
         <h3 className={T.sectionTitle}>Assets</h3>
+        {/* VW1m (2026-10-16): no first asset counts for more than another
+            (rabbitNoMainHelp.test.jsx holds these lines). VW1b (2026-10-17):
+            the Tasks table's item columns, in their own words. */}
         <p className={T.bodyText}>
           Assets are the deliverables of a project (a shot, a key art piece,
           a marketing video). They live off the timeline — they don't have
-          their own bar — but tasks can be tagged with an asset id to
-          categorize them. Use the Assets tab to create, rename, and group
-          them by phase.
+          their own bar. A task can be about several assets, scenes and shots
+          at once: add them in the task's window, under Items. Deleting an
+          asset never deletes a task: the asset comes off its tasks, which
+          stay. Use the Assets tab to create, rename, and group them by phase.
+        </p>
+        <p className={T.bodyText}>
+          The Tasks table has a column for each kind the project uses: Asset,
+          Scene, Shot, Level and Experience. A cell names every item of the
+          task, in the order the task's window sorts them, and shows "+2"
+          when two more do not fit. Click a cell to tick or untick several;
+          the change is saved when the list closes, and Undo takes it back.
+        </p>
+        {/* VW1e (2026-10-25): views on the Assets table, and on a game
+            project's Levels and Experiences (rabbitViewsHelp.test.jsx holds
+            the bold words to the files that draw them). */}
+        <p className={T.bodyText}>
+          The Assets table, and a game project&apos;s Levels and Experiences
+          tables, have the same <span className={T.listBold}>Views</span> button
+          as the Tasks table, each with its own list of views. Grouped by
+          scene, shot, level or experience (on Levels and Experiences, by
+          asset), an item in two sits in one group named for both, and
+          {' '}<span className={T.listBold}>Create grouping</span> makes a group
+          for items that belong together.
         </p>
       </section>
     </div>
@@ -394,8 +417,24 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <p className={T.listItem}>
               While a list is on screen, List order is the default sort: the
               list's own order, which Move up and Move down in a row's
-              shot-list menu change. Hover a scene's or shot's name to see
-              the lists that hold it.
+              shot-list menu change. They are there only in List order: a
+              sort in the view on screen hides them until it is reset. Hover
+              a scene's or shot's name to see the lists that hold it.
+            </p>
+          </div>
+          {/* VW1e (2026-10-25): two lists of views, one per table (her Q16). */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Views on the scenes and shots tables</h4>
+            <p className={T.listItem}>
+              The Scenes and Shots tables each have their own
+              {' '}<span className={T.listBold}>Views</span> button and their
+              own list of views, shared with everyone on the project: a view
+              saved on one is not on the other. Each keeps its own filters,
+              sort, grouping, fields and Table or Gallery layout, so switching
+              between Scenes and Shots can change the layout. Views saved in
+              this browser before are not carried over. While an edit is on
+              screen its cut is the order, so the view controls wait until
+              List order is back.
             </p>
           </div>
           <div className={T.card}>
@@ -436,7 +475,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Making an edit</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, the drag changes that edit at once: nothing asks, and the bar shows Unsaved until you save it or discard the change.</li>
+              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell, or in its name cell while the view hides the number. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, the drag changes that edit at once: nothing asks, and the bar shows Unsaved until you save it or discard the change.</li>
               <li>• <span className={T.listBold}>New edit from this list</span> — In the bar's More menu: the same question, starting from the list's order.</li>
               <li>• <span className={T.listBold}>A row's edit actions</span> — Move up, Move down, Duplicate in edit, Add shot…, New shot and Remove from edit; a scene's: Move scene up, Move scene down, Duplicate scene in edit and Remove scene from edit. New shot adds a real shot to the list.</li>
               <li>• <span className={T.listBold}>After the first change</span> — Nothing asks again until the edit is saved or discarded. The one exception: a change that would replace an unsaved edit of that list kept from before asks first.</li>
@@ -762,6 +801,16 @@ export function RabbitHelpContent({ helpPage, theme }) {
               resize it. Click any bar to open its editor.
             </p>
           </div>
+          {/* VW1m (2026-10-16): her batch 12 ruling, the combination rows. */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Grouped by asset</h4>
+            <p className={T.listItem}>
+              A task about two assets sits in one row named for both, as in
+              Lighthouse Interior, Storm Lantern, after the rows of single
+              assets; a task with none sits under No asset, last. Scenes,
+              shots, levels and experiences group the same way.
+            </p>
+          </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Zoom toolbar</h4>
             <p className={T.listItem}>
@@ -830,6 +879,34 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Phases with children show a chevron in the gutter. Click it to
               hide their tasks and sub-phases. Collapse state is persisted on
               the phase record so it survives a reload.
+            </p>
+          </div>
+          {/* Post-overhaul VW1d (2026-10-25): the custom views on the Tasks
+              table, in the controls' own words (rabbitViewsHelp.test.jsx
+              holds them to the files that draw them). */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Views on the tasks table</h4>
+            <p className={T.listItem}>
+              The <span className={T.listBold}>Views</span> button names the
+              view on screen. Its list holds <span className={T.listBold}>All</span> and
+              the project&apos;s views, shared with everyone on the project, then
+              the view&apos;s Filters, Sort, Group and Fields, each opening its own
+              card. Filter, Sort, Group, the Table / Board tabs and the cards
+              change the view for now; the bar under the toolbar then offers
+              {' '}<span className={T.listBold}>Reset</span>, <span className={T.listBold}>Save as new view</span> and
+              {' '}<span className={T.listBold}>Save</span> (on All, Save as new view only).
+              The table opens on the view you last used there. Use
+              {' '}<span className={T.listBold}>New view</span> to start one from All.
+            </p>
+            <p className={T.listItem}>
+              Grouped by asset, scene, shot, level or experience,
+              {' '}<span className={T.listBold}>Create grouping</span> makes a group
+              for items that belong together, saved for the project and shown
+              even while empty; drag tasks into it. Remove one from its
+              group&apos;s menu with <span className={T.listBold}>Remove grouping</span>.
+              {' '}<span className={T.listBold}>Hide empty groups</span>, in the
+              Group card, hides the other empty groups. Reviewers can change a
+              view for the moment but not save one.
             </p>
           </div>
           <div className={T.notesBox}>
@@ -917,6 +994,14 @@ export function RabbitHelpContent({ helpPage, theme }) {
           phase-level and project-level cost summary. Edit role rates in the
           intake wizard or in the asset editor and the budget recalculates
           live.
+        </p>
+        {/* VW1m (2026-10-16): her batch 13 ruling, "Split between its assets". */}
+        <p className={`${T.bodyText} mt-3`}>
+          A task about several assets is split evenly between them in By
+          asset: half its days and money to each of two assets, a third to
+          each of three. By scene, By shot, By level and By experience split
+          the same way, and a task with none sits under No asset, so every
+          tab adds up to the project's total.
         </p>
       </section>
       {/* Post-overhaul S5d (step 9): bid versions, in the controls' own words
