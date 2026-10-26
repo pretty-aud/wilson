@@ -565,3 +565,107 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
     expect(at(headButton('References'))).toBeLessThan(at(headButton('Generate outline')))
   })
 })
+
+// =============================================================================
+// FX15 (OUTSTANDING FX14-02 and FX14-04): D.O.G.'s settings sections say
+// whether they are open, and its two dropdowns answer to their labels. Before
+// FX15 Chromium named both dropdowns "" (a bare combobox), and the drawer's 20
+// folding headers (16 places in the source: 16 on System prompts, 4 on Output
+// format) said nothing of their state (scripts/fx15-landmarks-names.mjs, the
+// FX15 hand-off). jsdom computes a name in the words' own case; Chromium reads
+// a label in the kit's capitals (text-transform), as FX13's box label.
+// =============================================================================
+const SECTIONS = {
+  'System prompts': [
+    'Single Page - API System Message', 'Single Page - Generation Rules', 'Full Deck - API System Message',
+    'Full Deck - Generation Rules', 'Theme Color Generation', 'Shared Rules (All Models)', 'Midjourney Prompt',
+    'Flux Prompt', 'Nano Banana Prompt', 'Chat GPT / DALL-E Prompt', 'Image Prompt - API System Message',
+    'Relaxed', 'Formal', 'Extend', 'Shorten', 'Editor pass',
+  ],
+  'Output format': ['Single Page Export Schema', 'Full Deck Export Schema', 'Visual Deck Export Schema', 'Image Prompt Export Schema'],
+}
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// A header's name is its label and then its line of description.
+const section = (label) => screen.getByRole('button', { name: new RegExp(`^${escapeRe(label)} `) })
+async function openSettings(tab) {
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'D.O.G. settings' })) })
+  await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
+}
+
+describe('FX15 on the rendered D.O.G.: the settings sections say whether they are open', () => {
+  for (const [tab, labels] of Object.entries(SECTIONS)) {
+    it(`${tab}: each of its ${labels.length} headers is a button named by its label, closed, controlling nothing drawn`, async () => {
+      await openDog({ upload: false })
+      await openSettings(tab)
+      const heads = [...document.querySelectorAll('button.dog-acc-head')]
+      expect(heads).toHaveLength(labels.length)
+      expect(labels.map((l) => section(l))).toEqual(heads)          // every header, by role and name, in order
+      for (const h of heads) {
+        expect(h.getAttribute('aria-expanded')).toBe('false')
+        expect(h.hasAttribute('aria-controls')).toBe(false)          // no body drawn, no reference (FX14's rule 3)
+        expect(h.closest('.dog-acc').querySelector('.dog-acc-body')).toBe(null)
+      }
+    })
+  }
+
+  it('each opens and closes from its header: aria-expanded both ways, aria-controls naming the body only while it is drawn; the others unchanged', async () => {
+    await openDog({ upload: false })
+    for (const [tab, labels] of Object.entries(SECTIONS)) {
+      if (tab !== 'System prompts') await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
+      else await openSettings(tab)
+      for (const l of labels) {
+        await act(async () => { fireEvent.click(section(l)) })
+        const h = section(l)
+        expect([l, h.getAttribute('aria-expanded')]).toEqual([l, 'true'])
+        const body = document.getElementById(h.getAttribute('aria-controls'))
+        expect([l, body]).toEqual([l, h.closest('.dog-acc').querySelector('.dog-acc-body')])
+        expect(body.querySelector('textarea')).not.toBe(null)
+        for (const o of labels.filter((x) => x !== l)) expect([o, section(o).getAttribute('aria-expanded')]).toEqual([o, 'false'])
+        await act(async () => { fireEvent.click(section(l)) })
+        expect([l, section(l).getAttribute('aria-expanded'), section(l).hasAttribute('aria-controls')]).toEqual([l, 'false', false])
+        expect(section(l).closest('.dog-acc').querySelector('.dog-acc-body')).toBe(null)
+      }
+    }
+  })
+
+  it('every id a header names is its own: twenty sections open at once, twenty different bodies', async () => {
+    await openDog({ upload: false })
+    const ids = []
+    for (const [tab, labels] of Object.entries(SECTIONS)) {
+      if (tab !== 'System prompts') await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
+      else await openSettings(tab)
+      for (const l of labels) await act(async () => { fireEvent.click(section(l)) })
+      for (const l of labels) ids.push(section(l).getAttribute('aria-controls'))
+    }
+    expect(ids).toHaveLength(20)
+    expect(new Set(ids).size).toBe(20)
+    // CONTROL: the tab on screen draws only its own bodies.
+    for (const id of ids.slice(16)) expect(document.getElementById(id)).not.toBe(null)
+    for (const id of ids.slice(0, 16)) expect(document.getElementById(id)).toBe(null)
+  })
+})
+
+describe('FX15 on the rendered D.O.G.: the dropdowns answer to their labels', () => {
+  it('Full deck: the Project dropdown is named "Project"; no combobox in D.O.G.\'s column is unnamed', async () => {
+    const d = await openDog({ upload: false })
+    expect(d.sw().getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('combobox', { name: 'Project' })).toBe(d.q('select.dog-project-select'))
+    const boxes = screen.getAllByRole('combobox').filter((c) => c.closest('.dog-main'))
+    expect(boxes).toHaveLength(1)
+  })
+  it('Single page: the layout dropdown is named "Slide Layout Type", and the Project dropdown keeps its name', async () => {
+    const d = await openDog({ upload: false })
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.sw().getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByRole('combobox', { name: 'Slide Layout Type' })).toBe(d.q('.dog-layout-select select'))
+    expect(screen.getByRole('combobox', { name: 'Project' })).toBe(d.q('select.dog-project-select'))
+    // CONTROL: the two are the column's only comboboxes, so none is left unnamed.
+    expect(screen.getAllByRole('combobox').filter((c) => c.closest('.dog-main'))).toHaveLength(2)
+  })
+  it('each label is tied to its dropdown (the label\'s own control), as a click on it in a browser uses', async () => {
+    const d = await openDog({ upload: false })
+    expect(d.q('label[for="dog-project"]').control).toBe(d.q('select.dog-project-select'))
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.q('label[for="dog-slide-layout"]').control).toBe(d.q('.dog-layout-select select'))
+  })
+})

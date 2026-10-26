@@ -4123,7 +4123,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="dog-card-body" id="dog-card1-body">
               {/* Project Selection */}
               <div>
-                <label className="ui-field-label dog-field-label">
+                <label className="ui-field-label dog-field-label" htmlFor="dog-project">
                   Project
                 </label>
                 {/* DG1: choosing a project no longer sends its files (Q2); its
@@ -4132,6 +4132,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
+                      id="dog-project"
                       value={selectedProjectId}
                       onChange={(e) => { setSelectedProjectId(e.target.value); refreshProjects(); }}
                       onFocus={refreshProjects}
@@ -4403,12 +4404,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   <div className="dog-field-row">
                     {/* Layout Dropdown */}
                     <div>
-                      <label className="ui-field-label dog-field-label">
+                      <label className="ui-field-label dog-field-label" htmlFor="dog-slide-layout">
                         Slide Layout Type
                       </label>
                       <p className="ui-field-hint dog-field-hint">Choose how content will be arranged on the slide</p>
                       <div className="dog-layout-select">
                         <select
+                          id="dog-slide-layout"
                           value={selectedLayout}
                           onChange={(e) => setSelectedLayout(e.target.value)}
                           className="ui-input dog-select" data-size="md" data-surface="dark" data-empty={!selectedLayout}
@@ -4950,7 +4952,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Single Page System Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.sp_sys} aria-controls={settingsCollapsed.sp_sys ? undefined : 'dog-set-sp_sys'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Single Page - API System Message</span>
                         <p className="dog-acc-desc">Core instruction sent as system message for single page generation</p>
@@ -4958,7 +4960,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_sys} />
                     </button>
                     {!settingsCollapsed.sp_sys && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-sp_sys">
                         <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
                         <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
@@ -4968,7 +4970,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Single Page Instructions */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.sp_rules} aria-controls={settingsCollapsed.sp_rules ? undefined : 'dog-set-sp_rules'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Single Page - Generation Rules</span>
                         <p className="dog-acc-desc">Formatting rules and constraints for single page output</p>
@@ -4976,7 +4978,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_rules} />
                     </button>
                     {!settingsCollapsed.sp_rules && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-sp_rules">
                         <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -4985,7 +4987,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Full Deck System Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.fd_sys} aria-controls={settingsCollapsed.fd_sys ? undefined : 'dog-set-fd_sys'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Full Deck - API System Message</span>
                         <p className="dog-acc-desc">Core instruction sent as system message for full deck generation</p>
@@ -4993,7 +4995,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_sys} />
                     </button>
                     {!settingsCollapsed.fd_sys && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-fd_sys">
                         <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
                         <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
@@ -5003,7 +5005,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Full Deck Instructions */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.fd_rules} aria-controls={settingsCollapsed.fd_rules ? undefined : 'dog-set-fd_rules'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Full Deck - Generation Rules</span>
                         <p className="dog-acc-desc">Formatting rules and constraints for full deck output</p>
@@ -5011,7 +5013,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_rules} />
                     </button>
                     {!settingsCollapsed.fd_rules && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-fd_rules">
                         <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5025,7 +5027,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Theme Color Generation Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.theme_prompt} aria-controls={settingsCollapsed.theme_prompt ? undefined : 'dog-set-theme_prompt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Theme Color Generation</span>
                         <p className="dog-acc-desc">System prompt sent to Haiku for AI theme color generation</p>
@@ -5033,7 +5035,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.theme_prompt} />
                     </button>
                     {!settingsCollapsed.theme_prompt && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-theme_prompt">
                         <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
                         <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
@@ -5043,7 +5045,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Shared Image Prompt Rules (All Models) */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_shared} aria-controls={settingsCollapsed.img_shared ? undefined : 'dog-set-img_shared'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Shared Rules (All Models)</span>
                         <p className="dog-acc-desc">Common formatting and structure rules applied to all image generation models</p>
@@ -5051,7 +5053,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_shared} />
                     </button>
                     {!settingsCollapsed.img_shared && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_shared">
                         <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5060,7 +5062,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Midjourney System Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_midjourney} aria-controls={settingsCollapsed.img_midjourney ? undefined : 'dog-set-img_midjourney'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Midjourney Prompt</span>
                         <p className="dog-acc-desc">Model-specific rules for Midjourney v6</p>
@@ -5068,7 +5070,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_midjourney} />
                     </button>
                     {!settingsCollapsed.img_midjourney && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_midjourney">
                         <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5077,7 +5079,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Flux System Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_flux} aria-controls={settingsCollapsed.img_flux ? undefined : 'dog-set-img_flux'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Flux Prompt</span>
                         <p className="dog-acc-desc">Model-specific rules for Flux</p>
@@ -5085,7 +5087,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_flux} />
                     </button>
                     {!settingsCollapsed.img_flux && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_flux">
                         <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5094,7 +5096,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Nano Banana System Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_nanobanana} aria-controls={settingsCollapsed.img_nanobanana ? undefined : 'dog-set-img_nanobanana'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Nano Banana Prompt</span>
                         <p className="dog-acc-desc">Model-specific rules for Nano Banana</p>
@@ -5102,7 +5104,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_nanobanana} />
                     </button>
                     {!settingsCollapsed.img_nanobanana && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_nanobanana">
                         <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5111,7 +5113,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Chat GPT / DALL-E System Prompt */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_chatgpt} aria-controls={settingsCollapsed.img_chatgpt ? undefined : 'dog-set-img_chatgpt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Chat GPT / DALL-E Prompt</span>
                         <p className="dog-acc-desc">Model-specific rules for ChatGPT / DALL-E 3</p>
@@ -5119,7 +5121,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_chatgpt} />
                     </button>
                     {!settingsCollapsed.img_chatgpt && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_chatgpt">
                         <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5128,7 +5130,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Image Prompt - API System Message */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_api_sys} aria-controls={settingsCollapsed.img_api_sys ? undefined : 'dog-set-img_api_sys'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Image Prompt - API System Message</span>
                         <p className="dog-acc-desc">Core instruction sent as the API system message for image prompt generation</p>
@@ -5136,7 +5138,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_api_sys} />
                     </button>
                     {!settingsCollapsed.img_api_sys && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_api_sys">
                         <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
                         <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
@@ -5153,7 +5155,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     const collapseKey = `rw_${mode}`;
                     return (
                       <div key={mode} className="dog-acc">
-                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head">
+                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head" aria-expanded={!settingsCollapsed[collapseKey]} aria-controls={settingsCollapsed[collapseKey] ? undefined : `dog-set-${collapseKey}`}>
                           <div className="dog-acc-text">
                             <span className="dog-acc-label">{label}</span>
                             <p className="dog-acc-desc">Rewrite prompt for "{label}" mode</p>
@@ -5161,7 +5163,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                           <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed[collapseKey]} />
                         </button>
                         {!settingsCollapsed[collapseKey] && (
-                          <div className="dog-acc-body">
+                          <div className="dog-acc-body" id={`dog-set-${collapseKey}`}>
                             <textarea
                               value={rewritePrompts[mode]}
                               onChange={(e) => setRewritePrompts(prev => ({ ...prev, [mode]: e.target.value }))}
@@ -5187,7 +5189,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <>
                   {/* Single Page Output Format */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.sp_fmt} aria-controls={settingsCollapsed.sp_fmt ? undefined : 'dog-set-sp_fmt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Single Page Export Schema</span>
                         <p className="dog-acc-desc">Markdown structure for individual slide exports</p>
@@ -5195,7 +5197,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_fmt} />
                     </button>
                     {!settingsCollapsed.sp_fmt && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-sp_fmt">
                         <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5204,7 +5206,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Full Deck Output Format */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.fd_fmt} aria-controls={settingsCollapsed.fd_fmt ? undefined : 'dog-set-fd_fmt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Full Deck Export Schema</span>
                         <p className="dog-acc-desc">Markdown structure for complete deck exports</p>
@@ -5212,7 +5214,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_fmt} />
                     </button>
                     {!settingsCollapsed.fd_fmt && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-fd_fmt">
                         <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-96 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
@@ -5221,7 +5223,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   
                   {/* Visual Deck Export Schema */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.vis_fmt} aria-controls={settingsCollapsed.vis_fmt ? undefined : 'dog-set-vis_fmt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Visual Deck Export Schema</span>
                         <p className="dog-acc-desc">Extended export format with theme colors and deck summary. This schema is read-only.</p>
@@ -5229,7 +5231,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.vis_fmt} />
                     </button>
                     {!settingsCollapsed.vis_fmt && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-vis_fmt">
                         <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" data-readonly="true" />
                       </div>
                     )}
@@ -5237,7 +5239,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                   {/* Image Prompt Export Schema */}
                   <div className="dog-acc">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_fmt} aria-controls={settingsCollapsed.img_fmt ? undefined : 'dog-set-img_fmt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Image Prompt Export Schema</span>
                         <p className="dog-acc-desc">Markdown structure for generated image prompts file</p>
@@ -5245,7 +5247,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_fmt} />
                     </button>
                     {!settingsCollapsed.img_fmt && (
-                      <div className="dog-acc-body">
+                      <div className="dog-acc-body" id="dog-set-img_fmt">
                         <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
                         <Button variant="ghost" size="sm" onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
