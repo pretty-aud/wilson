@@ -60,6 +60,7 @@ const { buildDevFixtures } = await import('../../../../dev/fixtures/install')
 const { PROJECT_ID } = await import('../../../../dev/fixtures/data/project')
 holder.projectId = PROJECT_ID
 const { RabbitProvider, useRabbit } = await import('../../state/RabbitProvider')
+const { TABLE_VIEW_LAST_WAIT_MS } = await import('../../state/tableViewsState')
 const { default: ProjectTasksView } = await import('../ProjectTasksView')
 
 let ctx = null
@@ -528,6 +529,13 @@ describe('the last used view (Q4, §4.5)', () => {
   it('until the map answers, the body shows the kit Loading line and the toolbar works', async () => {
     const a = fx.rabbitAdapter()
     a.getTableViewLast = () => new Promise(() => {})
+    // The provider stops waiting for the map after TABLE_VIEW_LAST_WAIT_MS
+    // (2 s). Mounting the real provider and the Tasks table took longer than
+    // that on CI's runner (2026-10-26, VW1e: "Unable to find … Loading
+    // views"), so the wait is held here: this test is about the loading
+    // state, not about the clock. The give-up has its own test.
+    const realSetTimeout = globalThis.setTimeout
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => (ms === TABLE_VIEW_LAST_WAIT_MS ? 0 : realSetTimeout(fn, ms, ...rest)))
     await mount(a)
     expect(screen.getByRole('status', { name: 'Loading views' })).toBeTruthy()
     expect(document.querySelector('.rb-task-table')).toBeNull()
