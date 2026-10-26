@@ -1173,6 +1173,35 @@ chosen while grouped by an item; at 1280 one filter wraps it.
 
 ---
 
+## Batch 18 — the Views button's glyph, the Shots toolbar at 1440 (walkthrough 72 part 4's two questions, asked by VW1e in chat on 2026-10-26 as multiple choice with a type-in; answered)
+
+**Her answers, 2026-10-26 (verbatim):**
+
+> 1. b
+> 2. b
+
+- **Q-Q1 (the Views button's name):** "b" — drop the bookmark glyph, so the same 136px shows
+  about twelve letters of the view's name before the ellipsis. Built by VW1e on every table
+  (`views/tableViews/TableViewsMenu.jsx`).
+- **Q-Q2 (the Shots toolbar at 1440):** "b" — move the *24 fps* readout out of the toolbar into
+  the page's head (R3-25's idea). Built by VW1e: the runtime tile's label says the rate it is
+  counted at, *Total runtime · 24 fps* (*Edit runtime · 24 fps* with an edit on screen); the
+  toolbar no longer holds it.
+
+**Q-Q1. The Views button's name.** At 136px it shows about nine or ten letters
+(*Lighthous…*), because the bookmark glyph and the arrow sit inside it.
+- **a)** Keep it as it is.
+- **b)** Drop the bookmark glyph, so the same 136px shows about twelve letters.
+
+**Q-Q2. The Shots toolbar takes two lines at 1440** (the count drops to a
+second line): the Views button is 108px wider than the bookmark was, and
+Shots' Group menu is wider than Scenes' (*Camera movement*).
+- **a)** Keep two lines.
+- **b)** Move the *24 fps* readout up into the header, which puts Shots on
+  one line at 1440.
+
+---
+
 ## Not asked, because nothing you see depends on it
 
 - Where the cloud keeps the views (a table per project, readable only by the

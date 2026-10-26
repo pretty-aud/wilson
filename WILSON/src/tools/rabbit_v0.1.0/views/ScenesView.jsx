@@ -1299,14 +1299,14 @@ export default function ScenesView({ pageActive = false } = {}) {
             shot not at all — and the runtime says it is the edit's. */}
         {editSession.totals ? (
           <>
-            <BigTile label="Edit runtime" value={framesToTimecode(editSession.totals.frames, fps)} />
+            <BigTile label="Edit runtime" rate={fps} value={framesToTimecode(editSession.totals.frames, fps)} />
             <BigTile label="Total frames" value={fmtNumber(editSession.totals.frames)} />
             <BigTile label="Scenes" value={editSession.totals.scenes} />
             <BigTile label="Shots" value={editSession.totals.shots} />
           </>
         ) : (
           <>
-            <BigTile label="Total runtime" value={grandTotals.runtime} />
+            <BigTile label="Total runtime" rate={fps} value={grandTotals.runtime} />
             <BigTile label="Total frames" value={fmtNumber(grandTotals.frames)} />
             <BigTile label="Scenes" value={grandTotals.scenes} />
             <BigTile label="Shots" value={grandTotals.shots} />
@@ -1335,12 +1335,13 @@ export default function ScenesView({ pageActive = false } = {}) {
         pageActive={pageActive}
       />
 
-      {/* ── Toolbar: the kit's, the same sixteen controls in the same order
-          at the 28px height (C1). One row at 1440, as it was; narrower, its
-          left slot wraps inside itself (each control to the next line, as
-          the old row did) and the create buttons keep the first line's end.
-          R3-25's regrouping (one size triple, the FPS readout in the header,
-          a row that never wraps) is recorded for Audrey, not made. ── */}
+      {/* ── Toolbar: the kit's, the same controls in the same order at the
+          28px height (C1). Narrower, its left slot wraps inside itself (each
+          control to the next line, as the old row did) and the create
+          buttons keep the first line's end. Of R3-25's regrouping, the FPS
+          readout left the row for the runtime tile (her answer of
+          2026-10-26, walkthrough 72 part 4's question 2: "b"); one size
+          triple and a row that never wraps stay recorded, not made. ── */}
       <Toolbar
         className="rb-scene-toolbar"
         right={(
@@ -1495,10 +1496,6 @@ export default function ScenesView({ pageActive = false } = {}) {
 
         {/* Card size (gallery mode only) */}
         {viewMode === 'gallery' && sizeGroup('Card size', gallerySize, setGallerySize, 'cards')}
-
-        {/* The FPS readout, where it always was (R3-25 would move it to the
-            header: recorded) — the kit Badge, in the second ink. */}
-        <Badge className="rb-scene-fps">{fps} fps</Badge>
 
         {/* VW1e (her Q5): the bookmark icon becomes the Views button — the
             list of the table on screen (Q16) — 136px, as on every table
@@ -1938,8 +1935,12 @@ export default function ScenesView({ pageActive = false } = {}) {
 // The kit Stat (R3-10), on the Budget's tile look: the Label-step name over
 // the tabular value, on the raised paper with one hairline. No caller ever
 // passed a tone, and Stat has no icon slot, so both are gone.
-function BigTile({ label, value }) {
-  return <Stat className="rb-scene-stat" label={label} value={value} />
+// `rate`: the frame rate the tile's runtime is counted at, said in its label
+// (*Total runtime · 24 fps*). R3-25 and her answer of 2026-10-26 (walkthrough
+// 72 part 4, question 2: "b"): the FPS readout is state, not a control, so it
+// left the toolbar for the page's head, beside the number it governs.
+function BigTile({ label, value, rate = null }) {
+  return <Stat className="rb-scene-stat" label={rate ? `${label} · ${rate} fps` : label} value={value} />
 }
 
 

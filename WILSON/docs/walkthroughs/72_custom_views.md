@@ -372,10 +372,11 @@ until then the list says *Saved views are not on this server yet.*
 
 ## Part 4 — your views on Assets, Levels, Experiences, Scenes and Shots (VW1e, 2026-10-25)
 
-1. **Every table has the same *Views* button, 136px wide** (your Q-P1):
-   about nine or ten letters of a view's name, then *…* (*Lighthous…*); the
-   list shows more of it, and pointing at either shows it whole. The Tasks
-   table's narrows from 160px to the same 136px.
+1. **Every table has the same *Views* button, 136px wide** (your Q-P1),
+   with no glyph (your answer of 2026-10-26): about twelve letters of a
+   view's name, then *…* (*Lighthouse int…*); the list shows more of it,
+   and pointing at either shows it whole. The Tasks table's narrows from
+   160px to the same 136px.
 2. **Assets** has the Tasks table's list and cards: *All* and the project's
    views, then *Filters* (several values each), *Sort* (several, in order),
    *Group* and *Fields*. A change lasts for now, with the slim bar to
@@ -438,7 +439,7 @@ entry; `/rabbit`, the test data: **Salt Hours → Assets**)
 | # | Do | You should see |
 |---|----|----------------|
 | 1 | Look at the toolbar | *Filter, Sort, Group, Table / Gallery*, the three sizes, then the **All** button, then the search (`po-vw1e-assets-rest`). No bar. |
-| 2 | Click **All**, **New view**, type **Lighthouse interiors at dawn**, **Enter** | The button reads *Lighthous…*; the list shows more of it, ticked; point at either for the whole name (`-assets-long`). |
+| 2 | Click **All**, **New view**, type **Lighthouse interiors at dawn**, **Enter** | The button reads *Lighthouse int…*; the list shows more of it, ticked; point at either for the whole name (`-assets-long`). |
 | 3 | **Group: Scene** | Every asset under *No scene* (the test data links none); **Create grouping** beside the Group menu; the bar: *changed for now* (`-assets-grouped`). |
 | 4 | **Create grouping**, tick **Lighthouse, dawn** and **The storm**, **Create** | An empty group *Lighthouse, dawn, The storm* **0**. |
 | 5 | Drag **Lighthouse Interior** into it, holding the row where no field is (its right end) | It moves there: *Lighthouse, dawn, The storm* **1**, *No scene* **14**; the toast says *Moved "Lighthouse Interior" to Lighthouse, dawn, The storm*, and its **Undo** puts it back. |
@@ -458,7 +459,7 @@ Levels**, then **Experiences**)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 10 | Look at the toolbar | **All** where the bookmark was; *Sort* reads *List order*; no ↕ (`po-vw1e-scenes-rest`). |
+| 10 | Look at the tiles, then the toolbar | The first tile reads *Total runtime · 24 fps* (the rate left the toolbar for it, your answer of 2026-10-26); **All** where the bookmark was; *Sort* reads *List order*; no ↕ (`po-vw1e-scenes-rest`). |
 | 11 | Point at a row, click the **⋯** after its name | *Move up*, *Move down*, *Remove from this list*. Close it. |
 | 12 | **Sort: Name** | The ↕ appears; the bar: *All: changed for now*; the row menu has no *Move up* now. **Reset**: they are back. |
 | 13 | **Filter** → **Add filter** → **Status** → tick **Final** | One scene, *1/6*; *Filter (1)*. |
@@ -484,6 +485,7 @@ staging lines first.
 | Columns | all, always | a view hides any but the name, and the columns in front of it |
 | Gallery cards | fixed lines | a view hides any of them |
 | The cloud | an asset's scenes and shots | its levels and experiences too (0099) |
+| The frame rate on Scenes | a *24 fps* badge in the toolbar | in the runtime tile's label, *Total runtime · 24 fps* |
 
 ### 3. Staging (yours, when the beta merges)
 
@@ -506,19 +508,18 @@ saying why.
   | Tasks | one line, all four (16px to spare at the last) | one · one · two · two |
   | Assets | one line, all four | one · one · one · two (4px short) |
   | Levels, Experiences | one line, all four | one line, all four |
-  | Scenes | one · one · one · two | two lines, all four |
-  | Shots | two lines, all four | two lines, all four |
+  | Scenes | one line, all four | two lines, all four |
+  | Shots | one · one · one · two | two lines, all four |
 
   The Tasks toolbar keeps one line now at 1440 grouped and sorted, and at
   1280 with a filter on (both took two at 160px), as your Q-P1 expected.
-  A view's name fills 70px of the 136: about nine or ten letters
-  (*Lighthous…*, *Shoot we…*), not the twelve VW1d estimated, because the
-  bookmark glyph and the arrow take the rest.
+  Without its glyph the button gives a view's name 92px of the 136: about
+  twelve letters (*Lighthouse int…*, *Shoot week t…*).
 
-- **Scenes and Shots share a toolbar** with fifteen controls (sixteen with
-  a sort); the Views button's extra 108px (it was a 28px bookmark) puts
-  Shots on two lines at 1440. Shots' Group and Sort menus are wider than Scenes' (*Camera
-  movement*), and its count is longer.
+- **Shots at 1440 still takes two lines while sorted**: the ↕ (reverse)
+  button appears with a sort, and Shots' Group and Sort menus are wider
+  than Scenes' (*Camera movement*). At 1280 both tables wrap, as they did
+  before VW1e.
 - **The Shots card's other lines keep their place**: a view chooses which
   show, not their order.
 - **Levels and Experiences still let any seat delete, rename and change a
@@ -528,11 +529,15 @@ saying why.
 
 ### 5. Questions for you
 
-1. **The Views button's name**: at 136px it shows about nine or ten
-   letters, because the bookmark glyph and the arrow sit inside it. Keep
-   it, or drop the glyph so the same 136px shows about twelve?
-2. **The Shots toolbar at 1440** takes two lines (the count drops under):
-   the Views button is 108px wider than the bookmark was, and Shots' Group
-   menu is wider than Scenes' (*Camera movement*). Keep two lines, or move
-   the *24 fps* readout up into the header (an earlier review's idea,
-   R3-25), which gives Shots one line at 1440?
+Both answered on 2026-10-26 and built (batch 18 of
+`docs/design/CUSTOM_VIEWS_QUESTIONS.md`):
+
+1. **The Views button's name**: at 136px it showed about nine or ten
+   letters, because the bookmark glyph and the arrow sat inside it. Keep
+   it, or drop the glyph so the same 136px shows about twelve? *Your
+   answer: "b", drop the glyph. Now about twelve letters, on every table.*
+2. **The Shots toolbar at 1440** took two lines (the count dropped under).
+   Keep two lines, or move the *24 fps* readout up into the header (an
+   earlier review's idea, R3-25), which gives Shots one line at 1440?
+   *Your answer: "b". The rate is in the runtime tile's label now, and
+   Shots keeps one line at 1440 unless a sort is chosen (§4).*

@@ -169,10 +169,6 @@
   .rb-scene-size > .rb-scene-size-glyph[data-thumb="md"] { width: 13px; height: 13px; }
   .rb-scene-size > .rb-scene-size-glyph[data-thumb="lg"] { width: var(--icon-md); height: var(--icon-md); }
 
-  /* The FPS readout, where it always was: the kit Badge (it was orange words
-     on a #292524 chip). It does not give way when the row is tight. */
-  .ui-badge.rb-scene-fps { flex-shrink: 0; }
-
   /* Search: the glyph inside the field, the clear button at its end; as wide
      as the old field could be (240px) when the row has room, and the first
      to give way when it has not — down to 96px, so the count keeps the first

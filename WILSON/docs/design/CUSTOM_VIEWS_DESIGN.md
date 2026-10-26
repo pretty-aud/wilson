@@ -161,12 +161,19 @@ repeated piece a kit component (§8 lists the kit requests).
   gave Assets, Levels, Experiences and the Scenes bookmark. One rule in
   `tableViews.css`; `data-table` stays on the button as the table's name and
   keys no width. VW1e measures every toolbar at 1280 and 1440 in the bar's
-  states (`scripts/vw1e-shots.mjs`).
+  states (`scripts/vw1e-shots.mjs`). *(Her answer of 2026-10-26, batch 18,
+  Q-Q1 "b": the button draws no glyph, only the name and the arrow; the
+  name gets 92px of the 136, about twelve letters, where the bookmark glyph
+  left it 70, nine or ten.)*
 - **Scenes and Shots:** the bookmark icon (28px) becomes this button; at
   1440 their search box and count drop to a second line, as they already do
   at 1280 (Q-B). While an edit is on screen the button is greyed with the
   toolbar's other view controls (`EDIT_ORDER_REASON`), and the bar is not
-  drawn: the cut is the view (finding 2).
+  drawn: the cut is the view (finding 2). *(Her answer of 2026-10-26, batch
+  18, Q-Q2 "b": the *24 fps* readout left the toolbar for the runtime
+  tile's label, *Total runtime · 24 fps* (R3-25: it is state, not a
+  control); Scenes then keeps one line at 1440 in every bar state, and
+  Shots in every one but grouped and sorted, measured.)*
 - **What goes, what stays (finding 12):** the old menus
   (`AssetSavedViewsDropdown`, Levels' and Experiences' `SavedViewsDropdown`,
   `SceneSavedViewsDropdown`), Assets' *Save current view* dialog and the

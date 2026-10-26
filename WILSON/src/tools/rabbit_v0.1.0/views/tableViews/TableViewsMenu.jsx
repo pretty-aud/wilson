@@ -47,7 +47,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, Check, GripVertical, ArrowUp, ArrowDown, Plus, X,
+  ChevronDown, ChevronLeft, ChevronRight, Check, GripVertical, ArrowUp, ArrowDown, Plus, X,
 } from 'lucide-react'
 import { Button, IconButton, Popover, HoverActions, MenuButton, Switch } from '../../../../ui'
 import { readViewConfig } from '../../state/tableViewsModel'
@@ -129,10 +129,12 @@ export function TableViewsMenu({ tv, description, ask, announce = () => {}, onRe
 
   return (
     <div className="rb-tv-anchor">
+      {/* No glyph (her answer of 2026-10-26, walkthrough 72 part 4's
+          question 1: "b"): the 136px (Q-P1) goes to the view's name and
+          the arrow, about twelve letters before the ellipsis. */}
       <Button
         ref={buttonRef}
         size="sm"
-        Icon={BookmarkPlus}
         className="rb-tv-button"
         data-table={description.tableKey}
         aria-label={`Views: ${tv.name}`}

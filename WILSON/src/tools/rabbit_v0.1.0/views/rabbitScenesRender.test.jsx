@@ -393,9 +393,11 @@ describe('surface 6a', () => {
     // view mode (2), the thumbnail triple OR the card triple, the FPS badge,
     // saved views, search, the count, New scene, New shot. VW1e: the
     // bookmark is the Views button (her Q5), and the direction shows while
-    // the view has a sort, the one it reverses.
+    // the view has a sort, the one it reverses; the FPS badge left the row
+    // for the runtime tile (her answer of 2026-10-26: walkthrough 72 part 4,
+    // question 2, "b").
     const before = ['Scenes', 'Shots', 'Filter', 'Sort', 'Group', 'Table', 'Gallery']
-    const after = ['24 fps', 'Views: All', 'Search', '2/2', 'New scene', 'New shot']
+    const after = ['Views: All', 'Search', '2/2', 'New scene', 'New shot']
     expect(names()).toEqual([...before, 'sm thumbnails', 'md thumbnails', 'lg thumbnails', ...after])
     fireEvent.click(screen.getByRole('tab', { name: 'Gallery' }))
     expect(names()).toEqual([...before, 'sm cards', 'md cards', 'lg cards', ...after])
@@ -428,11 +430,16 @@ describe('surface 6a', () => {
     expect(variants()).toEqual(['secondary', 'primary'])
   })
 
-  it('the four tiles are the kit Stat, in sentence case (R3-10)', () => {
+  it('the four tiles are the kit Stat, in sentence case (R3-10); the runtime\'s says the frame rate it is counted at, the toolbar no longer does (her answer of 2026-10-26)', () => {
     page()
     const tiles = [...document.querySelectorAll('.rb-scene-stats > .ui-stat.rb-scene-stat')]
     expect(tiles.map((t) => [t.querySelector('.ui-stat-label').textContent, t.querySelector('.ui-stat-value').textContent]))
-      .toEqual([['Total runtime', '00:00:10:00'], ['Total frames', '240'], ['Scenes', '2'], ['Shots', '2']])
+      .toEqual([['Total runtime · 24 fps', '00:00:10:00'], ['Total frames', '240'], ['Scenes', '2'], ['Shots', '2']])
+    // CONTROL: the rate is the project's, read live (it was the badge's).
+    cleanup()
+    page({ projectFields: { fps: 25 } })
+    expect(document.querySelector('.rb-scene-stats .ui-stat-label').textContent).toBe('Total runtime · 25 fps')
+    expect(document.querySelector('.ui-toolbar.rb-scene-toolbar').textContent).not.toMatch(/fps/i)
   })
 
   it('a ticked row is the kit Row\'s selected row, every checkbox a named 28px square, and the row actions the kit HoverActions in one slot (R3-38, R3-40, R3-24)', () => {
@@ -889,6 +896,9 @@ describe('surface 6b', () => {
     expect(screen.queryByRole('button', { name: 'Saved views' })).toBeNull()
     const button = () => document.querySelector('.ui-toolbar.rb-scene-toolbar .ui-btn.rb-tv-button')
     expect([button().getAttribute('aria-label'), button().getAttribute('data-table')]).toEqual(['Views: All', 'scenes'])
+    // No glyph (her answer of 2026-10-26: walkthrough 72 part 4, question 1,
+    // "b"): the name, then the arrow, nothing else drawn.
+    expect([...button().querySelectorAll('svg')].map((s) => s.getAttribute('class'))).toEqual([expect.stringContaining('rb-tv-button-chevron')])
     // Q17: nothing of the old list loads, and its key is removed.
     expect(localStorage.getItem(SAVED_VIEWS_KEY)).toBeNull()
     expect(document.querySelector('.rb-scene-menu, .rb-scene-views, .rb-scene-save-row')).toBeNull()
