@@ -148,7 +148,8 @@ verify_jwt = false
 # few KB instead of a multi-megabyte base64 body — the body was what killed the
 # worker. Same gateway opt-out and same in-function memberGuard check as
 # ai-proxy. 🚨 It streams req.body through untouched; see its header before
-# adding anything that reads the request.
+# adding anything that reads the request. FX12 (2026-10-25) added its GET
+# (list) and DELETE (a member's own; an admin's sweep, adminGuard) routes.
 [functions.ai-files]
 verify_jwt = false
 
@@ -180,6 +181,12 @@ verify_jwt = false
 # function body runs, so without this block the function 401s regardless of what
 # requirePlatformOperator would have decided.
 [functions.operator-storage-plans]
+verify_jwt = false
+
+# FX12 (post-overhaul, 2026-10-25): the operator's half of the AI file store's
+# clean-up (counts across this environment, the sweep of attributed files).
+# Same operatorGuard, same gateway opt-out.
+[functions.operator-ai-files]
 verify_jwt = false
 
 # Session 37: S3-compatible storage (the first BYO provider). storage-presign
