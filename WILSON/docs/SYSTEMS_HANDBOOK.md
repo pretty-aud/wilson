@@ -3359,6 +3359,51 @@ polarities moved with the readers into `referenceModel.js`, unchanged; D.O.G.
 no longer writes a file's Core mark (R.A.B.B.I.T.'s Files table does). Design:
 `docs/design/DOG_REFERENCES_DESIGN.md`; walkthrough 75.
 
+**The AI's file store, and letting go of it (post-overhaul FX12,
+2026-10-25; was OUTSTANDING DG1-03).** A PDF, a picture or a text over 256 KB
+goes to Anthropic's Files API through `ai-files` (S19's 546 fix) under the
+platform key, which backs all three environments and every company, and
+travels as a `file_id`. D.O.G.'s cache (`aiFileCache.js`) keeps each id with
+its owners (`upload:<id>`, `ref:<key>`, or `generation` for the references'
+own text) and its upload time: an id no picker upload or chosen reference owns
+any more is deleted (never while a generation runs, never because one ended:
+re-generation and the continuation loop reuse it); an entry past 20 h is
+uploaded again; a call the store refuses for a gone file (MEASURED: HTTP 404
+`not_found_error` naming the id, refused before inference) uploads that file
+again once (`retryWithLiveFiles`). Sign-out and the desktop's close let go of
+everything (`releaseAllAIFiles` in `src/cloud/aiFiles.js`, `keepalive`); the
+close WAITS for the answer, bounded at 4 s, because a keepalive request sent
+from `pagehide` dies with the Electron app whenever its CORS preflight takes a
+round trip (measured); a browser tab's `pagehide` is the web build's path.
+Every upload asks `expires_in_seconds` = 24 h (honoured under the beta header,
+measured), which bounds any miss. `ai-files` `DELETE` takes a member's OWN ids
+(a short list) and, with `{ sweep: true }` and the admin guard, a workspace's
+files older than 24 h; `GET` lists this workspace's (a member: their own),
+looked up by `ids[]` so another company's metadata is never fetched;
+`operator-ai-files` reads the platform key's whole list as counts and sweeps
+across this environment's companies. The only line between "ours" and
+"someone else's" is this environment's upload rows (WIL-6001, `tool:
+ai-files`, no `stage`), and a row counts only when it BINDS to the stored file
+(its recorded size and type equal the store's, written within five minutes;
+measured 229 ms), since 0021 lets any member insert app_events rows; where
+rows of several workspaces bind the earliest wins (a forger is later), and a
+file no row names (another environment's) is left alone. The rules are
+`_shared/aiFileStore.ts`; every deletion leaves a WIL-6001/6002 certificate
+with a `stage`, always in the `admin` stream (members cannot insert it), and a
+404 is `gone` only when such a certificate already says this workspace
+deleted the id and the caller's row is the earliest naming it (otherwise
+`not_found`: no oracle). Ids a lookup finds missing are noted once (a quiet
+`absent` row) and never asked about again; a lookup batch the store refuses (it
+refuses an id it cannot parse, measured) is split down to that id. The new
+routes spend their own rate buckets (`ai-files-manage` per caller,
+`ai-files-list` per workspace), never the upload's. Uploads reach the store
+under a neutral name (`neutralFileName`: `document.pdf`), never the file's own. 🚨 Attribution lives only
+as long as app_events' 90-day purge keeps the upload row: a file older than
+that, never deleted, is nobody's to WILSON (pre-FX12 uploads from 2026-08-11
+reach it on 2026-11-09; Audrey's ruling: sweep staging and prod before then).
+Admin Terminal → Diagnostics → *The AI's file store*; operator console →
+*AI files*; the CI probe `scripts/probes/ai-files.sh`; walkthrough 76.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.

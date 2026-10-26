@@ -137,6 +137,10 @@ describe('R2-2: a refused drop says why, on the Tasks table, the Board and the T
     globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
     await mount('tasks')
     groupTasksBy('asset')
+    // FX12 (2026-10-25): the grouped rows render after the change; under a
+    // loaded run the drop went to a band not drawn yet ("Unable to fire a
+    // drop event"). Wait for the target, as the Timeline's case waits for text.
+    await waitFor(() => expect(band('Lookbook')).toBeTruthy())
     const release = await holdAnUndoOpen()
     await act(async () => { fireEvent.drop(band('Lookbook'), dt(T18)) })
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(REFUSAL), { timeout: 2000 })
@@ -153,6 +157,7 @@ describe('R2-2: a refused drop says why, on the Tasks table, the Board and the T
     await mount('tasks')
     fireEvent.click(screen.getByRole('tab', { name: 'Board' }))
     groupTasksBy('asset')
+    await waitFor(() => expect(column('Lookbook')).toBeTruthy())
     const release = await holdAnUndoOpen()
     await act(async () => { fireEvent.drop(column('Lookbook'), dt(T18)) })
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(REFUSAL), { timeout: 2000 })
