@@ -3,14 +3,16 @@
 // D.O.G.'s "Enter generates" key (enterGenerates.js), driven with real
 // elements, and the one call DeckOutlineGenerator.jsx makes to it —
 // post-overhaul S2a, Audrey's C12 (Enter presses whatever has focus), review
-// round 1 (B-R1-01, B-R1-08, G-R1-05).
+// round 1 (B-R1-01, B-R1-08, G-R1-05); FX13, her answers of 2026-10-26 (Enter
+// on the switch moves it; a full deck from Enter needs text in the deck
+// context box). The rendered D.O.G. is driven in enterKey.render.test.jsx.
 // =============================================================================
 import { describe, it, expect, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { render, cleanup } from '@testing-library/react'
-import { enterIsDogs, ENTER_PRESSES, GENERATE_TOGGLES } from './enterGenerates'
+import { enterIsDogs, ENTER_PRESSES, GENERATE_TOGGLES, deckContextWritten, enterStarts, ASK_FOR_CONTEXT } from './enterGenerates'
 import { pushModal, popModal, _resetOverlaysForTests } from '../../ui/overlay'
 import { Switch } from '../../ui/Switch'
 import { blankJsComments } from '../../../scripts/ui-audit.mjs'
@@ -54,13 +56,27 @@ describe('D.O.G.\'s "Enter generates" key: whose Enter it is', () => {
     // …and a child inside one (an icon inside a button) counts as the button.
     expect(enterIsDogs(enterOn(el('<button type="button"><span>x</span></button>').firstElementChild), ON)).toBe(false)
   })
-  it('D.O.G.\'s own option toggles and its Full deck switch keep the shortcut — they are buttons, so Enter would flip them back (B-R1-01)', () => {
+  it('D.O.G.\'s own option toggles keep the shortcut — they are buttons, so Enter would flip them back (B-R1-01)', () => {
     expect(enterIsDogs(enterOn(el('<button type="button" role="checkbox" aria-checked="true" class="dog-check">Theme generator</button>')), ON)).toBe(true)
-    const deck = el('<span class="ui-switch dog-full-deck"><button type="button" role="switch" aria-checked="false" class="ui-switch-track"></button><span class="ui-switch-label">Full deck</span></span>')
-    expect(enterIsDogs(enterOn(deck.querySelector('button')), ON)).toBe(true)
     // …and no other toggle: any other switch or checkbox is a button Enter presses (round 2, B-R2-03).
     expect(enterIsDogs(enterOn(el('<button type="button" role="switch" aria-checked="false" class="ui-switch-track"></button>')), ON)).toBe(false)
     expect(enterIsDogs(enterOn(el('<button type="button" role="checkbox" aria-checked="false">Other</button>')), ON)).toBe(false)
+  })
+  it('the Full deck switch is not D.O.G.\'s Enter since FX13 ("Enter moves the switch"): the button takes it and flips', () => {
+    const deck = el('<span class="ui-switch dog-full-deck"><button type="button" role="switch" aria-checked="false" class="ui-switch-track"><span class="ui-switch-knob"></span></button><span class="ui-switch-label">Full deck</span></span>')
+    expect(enterIsDogs(enterOn(deck.querySelector('button')), ON)).toBe(false)
+    // …the knob inside it too (a click can land there).
+    expect(enterIsDogs(enterOn(deck.querySelector('.ui-switch-knob')), ON)).toBe(false)
+    // CONTROL: a D.O.G. tick box beside it keeps the shortcut (B-R1-01), and
+    // the switch's label word, which is not a control, is the page's.
+    expect(enterIsDogs(enterOn(el('<button type="button" role="checkbox" aria-checked="false" class="dog-check"></button>')), ON)).toBe(true)
+    expect(enterIsDogs(enterOn(deck.querySelector('.ui-switch-label')), ON)).toBe(true)
+  })
+  it('CONTROL: the selector before FX13 named the switch, so this file would have caught it staying', () => {
+    const before = 'button.dog-check[role="checkbox"], .dog-full-deck button[role="switch"]'
+    const deck = el('<span class="ui-switch dog-full-deck"><button type="button" role="switch" aria-checked="false" class="ui-switch-track"></button></span>')
+    expect(deck.querySelector('button').matches(before)).toBe(true)
+    expect(deck.querySelector('button').matches(GENERATE_TOGGLES)).toBe(false)
   })
   it('never while a window is over the page: a drawer (its "Editable" switch), a dialog, an alert, anything aria-modal, a kit overlay, a shown backdrop (B-R2-03)', () => {
     const drawer = el('<aside class="ui-drawer dog-settings-drawer"><span class="ui-switch dog-full-deck"><button type="button" role="switch" aria-label="Editable"></button></span><p>Body</p></aside>')
@@ -105,12 +121,82 @@ describe('D.O.G.\'s "Enter generates" key: whose Enter it is', () => {
   })
 })
 
+// FX13, Audrey's answers of 2026-10-26 (verbatim in
+// docs/sessions/briefs/po-fx13-dog-enter-key.md): "Enter needs text in the
+// box" (with the box empty, Enter does nothing and the box gets focus; the
+// Generate button still works), and Single page was not her question.
+describe('FX13: a full deck from Enter needs text in the deck context box', () => {
+  it('whitespace alone is empty', () => {
+    for (const blank of ['', ' ', '   ', '\n', '\t\n ', ' ', undefined, null]) expect(deckContextWritten(blank), JSON.stringify(blank)).toBe(false)
+    for (const words of ['x', '  A pitch deck  ', '\nfive pages\n']) expect(deckContextWritten(words), words).toBe(true)
+  })
+  it('Full deck: words start the deck; an empty or blank box asks for them', () => {
+    expect(enterStarts({ fullDeckMode: true, deckContext: 'A pitch deck for a watch launch', pageReady: false })).toBe('full deck')
+    expect(enterStarts({ fullDeckMode: true, deckContext: '', pageReady: false })).toBe('ask')
+    expect(enterStarts({ fullDeckMode: true, deckContext: '  \n ', pageReady: false })).toBe('ask')
+    // a ready single page changes nothing on the Full deck side
+    expect(enterStarts({ fullDeckMode: true, deckContext: '', pageReady: true })).toBe('ask')
+  })
+  it('Single page is untouched: a layout and a page request start a page, the deck context box or not; without them, nothing', () => {
+    expect(enterStarts({ fullDeckMode: false, deckContext: '', pageReady: true })).toBe('single page')
+    expect(enterStarts({ fullDeckMode: false, deckContext: 'Words', pageReady: true })).toBe('single page')
+    expect(enterStarts({ fullDeckMode: false, deckContext: '', pageReady: false })).toBe(null)
+    expect(enterStarts({ fullDeckMode: false, deckContext: 'Words', pageReady: false })).toBe(null)
+  })
+  it('CONTROL: the rule before FX13 (Full deck generated whatever the box held) gives a different answer exactly where the box is blank', () => {
+    const before = ({ fullDeckMode, pageReady }) => (fullDeckMode ? 'full deck' : pageReady ? 'single page' : null)
+    const cases = [true, false].flatMap((fullDeckMode) => [true, false].flatMap((pageReady) => ['', '  ', 'Words'].map((deckContext) => ({ fullDeckMode, pageReady, deckContext }))))
+    const changed = cases.filter((c) => enterStarts(c) !== before(c))
+    expect(changed).toEqual(cases.filter((c) => c.fullDeckMode && !deckContextWritten(c.deckContext)))
+    expect(changed).toHaveLength(4)
+  })
+  it('the words said, politely: info tone (a status, never an alert), why, and that the Generate button still works', () => {
+    expect(ASK_FOR_CONTEXT.tone).toBe('info')
+    expect(ASK_FOR_CONTEXT.title).toBe('Write in the deck context box first')
+    expect(ASK_FOR_CONTEXT.body).toMatch(/^Enter makes a full deck once the box has words in it\. Generate full deck outline works with the box empty\.$/)
+    expect(Object.isFrozen(ASK_FOR_CONTEXT)).toBe(true)
+  })
+  it('the deck context box\'s own Enter follows the rule, and Shift+Enter is still a new line', () => {
+    const dog = blankJsComments(read('./DeckOutlineGenerator.jsx'))
+    const box = (dog.match(/<textarea\s+ref=\{deckContextRef\}[\s\S]*?className="ui-input dog-context-prompt"/) || [''])[0]
+    expect(box, 'the deck context box carries the ref the ask focuses').not.toBe('')
+    expect(box).toMatch(/if \(e\.key === 'Enter' && !e\.shiftKey && fullDeckMode\) \{\s*e\.preventDefault\(\);\s*if \(!isGenerating && hasFileContent && deckContextWritten\(systemPrompt\)\) \{\s*generateFullDeck\(\);\s*\}\s*\}/)
+    expect(dog.match(/ref=\{deckContextRef\}/g)).toHaveLength(1)
+  })
+  // Her third answer: "Keep it as it is". The Alt effect is byte for byte the
+  // one FX13 found (84bacc4c), comments included.
+  it('the Alt key\'s effect is unchanged (DG1b-01 closed by her ruling, nothing built)', () => {
+    const src = read('./DeckOutlineGenerator.jsx').replace(/\r\n/g, '\n')
+    expect(src).toContain([
+      '  // Alt key toggle for Full Deck mode',
+      '  useEffect(() => {',
+      '    const handler = (e) => {',
+      "      if (e.key !== 'Alt') return;",
+      '      // Don\'t toggle if user is typing in an input, textarea, or contenteditable',
+      '      const tag = e.target.tagName.toLowerCase();',
+      "      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;",
+      '      // Don\'t toggle if other modifier keys are held',
+      '      if (e.ctrlKey || e.shiftKey || e.metaKey) return;',
+      '      e.preventDefault();',
+      '      setFullDeckMode(prev => !prev);',
+      '    };',
+      "    document.addEventListener('keyup', handler);",
+      "    return () => document.removeEventListener('keyup', handler);",
+      '  }, []);',
+    ].join('\n'))
+  })
+})
+
 describe('DeckOutlineGenerator calls it first, with its own page, and App tells it the page', () => {
   it('the document listener\'s first line is the decision (comments blanked, so a commented-out call cannot pass)', () => {
     const dog = blankJsComments(read('./DeckOutlineGenerator.jsx'))
-    expect(dog).toMatch(/import \{ enterIsDogs \} from '\.\/enterGenerates';/)
+    expect(dog).toMatch(/import \{ enterIsDogs, enterStarts, deckContextWritten, ASK_FOR_CONTEXT \} from '\.\/enterGenerates';/)
     expect(dog).toMatch(/const handler = \(e\) => \{\s*if \(!enterIsDogs\(e, \{ onDogPage: currentPage === 'dog' \}\)\) return;\s*if \(history\.length > 0\) return;/)
     expect(dog).toMatch(/\}, \[currentPage, history\.length, isGenerating, hasFileContent/)
+    // FX13: what Enter starts is enterStarts', read from the box's own state,
+    // and the effect hears the box change (else it would read a stale box).
+    expect(dog).toMatch(/e\.preventDefault\(\);\s*const starts = enterStarts\(\{ fullDeckMode, deckContext: systemPrompt, pageReady: !!\(pagePrompt && selectedLayout\) \}\);\s*if \(starts === 'full deck'\) generateFullDeck\(\);\s*else if \(starts === 'single page'\) generatePageOutline\(\);\s*else if \(starts === 'ask'\) askForDeckContext\(\);\s*\};/)
+    expect(dog).toMatch(/generateFullDeck, generatePageOutline, systemPrompt, askForDeckContext\]\);/)
     expect(dog).toMatch(/export default function DeckOutlineGenerator\(\{ onNavigate, currentPage = 'dog', zoomLevel = 0 \}\)/)
     const app = blankJsComments(read('../../App.jsx'))
     expect(app).toMatch(/<DeckOutlineGenerator\s+onNavigate=\{navigateTo\}\s+currentPage=\{currentPage\}/)
@@ -119,13 +205,17 @@ describe('DeckOutlineGenerator calls it first, with its own page, and App tells 
     const planted = "const handler = (e) => {\n  // if (!enterIsDogs(e, { onDogPage: currentPage === 'dog' })) return;\n  if (history.length > 0) return;"
     expect(blankJsComments(planted)).not.toMatch(/enterIsDogs\(/)
   })
-  // The exception names the Full deck switch by a class on the kit Switch, so
-  // two things must hold for it to keep the shortcut (round 2, B-R2-03): the
-  // kit puts that class where the selector looks, and D.O.G. gives it to that
-  // one switch and no other (the settings drawer's "Editable" is a Switch too).
-  it('the kit Switch, rendered, is the toggle the selector names — with the class, and only with it', () => {
+  // Until FX13 the exception named the Full deck switch by a class on the kit
+  // Switch (round 2, B-R2-03). Since her "Enter moves the switch" no kit
+  // Switch is in it, the Full deck one included; the class stays, as the
+  // name the scripts find the switch by (scripts/dg1-shots.mjs,
+  // scripts/fx13-enter-shots.mjs).
+  it('no kit Switch, rendered, is a toggle that keeps "Enter generates": not with the Full deck class, not without it', () => {
     const deck = render(createElement(Switch, { className: 'dog-full-deck', checked: false, label: 'Full deck', onChange: () => {} }))
-    expect(deck.container.querySelector('[role="switch"]').matches(GENERATE_TOGGLES)).toBe(true)
+    const sw = deck.container.querySelector('[role="switch"]')
+    expect(sw.matches(GENERATE_TOGGLES)).toBe(false)
+    expect(sw.matches(ENTER_PRESSES)).toBe(true)   // a button: Enter presses it
+    expect(enterIsDogs(enterOn(sw), ON)).toBe(false)
     const editable = render(createElement(Switch, { checked: true, label: 'Editable', onChange: () => {} }))
     expect(editable.container.querySelector('[role="switch"]').matches(GENERATE_TOGGLES)).toBe(false)
   })
@@ -145,10 +235,11 @@ describe('DeckOutlineGenerator calls it first, with its own page, and App tells 
 // switch on?" "Full deck". The side is the switch state's first value, and
 // App renders every page at once and only hides the others, so D.O.G. opens
 // on Full deck each time WILSON starts and keeps the side after that (but for
-// the Alt toggle, heard on every page: OUTSTANDING DG1b-01). With Full deck on
-// and no page yet, the Enter key, wherever enterIsDogs says it is D.O.G.'s,
-// generates the deck whenever the "Generate full deck outline" button is
-// enabled (the handler asks the button's own two things).
+// the Alt toggle, heard on every page and kept by her ruling of 2026-10-26,
+// FX13). With Full deck on and no page yet, the Enter key, wherever
+// enterIsDogs says it is D.O.G.'s, generates the deck whenever the "Generate
+// full deck outline" button is enabled (the handler asks the button's own
+// two things) and, since FX13, the deck context box has words.
 describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
   const DECL = /const \[fullDeckMode, setFullDeckMode\] = useState\((true|false)\)/g
   // The side the one live declaration starts on; null unless there is exactly one.

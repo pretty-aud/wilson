@@ -18,9 +18,24 @@
 //     link, a tab, a menu item) — the Help and Settings buttons in the
 //     "Deck outline" bar among them.
 // The exception is kept from before S2a, and only for D.O.G.'s own option
-// toggles (`.dog-check`) and its Full deck switch: Enter generates there, as
-// Audrey relies on after clicking one (review round 1, B-R1-01). They are
-// <button>s, so Enter would otherwise click them and flip the option back.
+// toggles (`.dog-check`): Enter generates there, as Audrey relies on after
+// clicking one (review round 1, B-R1-01). They are <button>s, so Enter would
+// otherwise click them and flip the option back.
+//
+// Post-overhaul FX13, Audrey's answers of 2026-10-26 (verbatim in
+// docs/sessions/briefs/po-fx13-dog-enter-key.md):
+//   - "Enter moves the switch": the Full deck switch left the exception. It
+//     is a kit Switch, a <button role="switch">, so Enter on it now clicks
+//     it and flips the side, as Space and the arrow keys do, and generates
+//     nothing.
+//   - "Enter needs text in the box": with Full deck on, Enter starts a full
+//     deck only when the deck context box has words (whitespace is empty).
+//     With the box empty nothing generates; the box gets focus and the page
+//     says why, once, politely (`enterStarts` says 'ask'; ASK_FOR_CONTEXT is
+//     the words). The box's own Enter follows the same rule
+//     (`deckContextWritten`). The Generate button, Single page and the
+//     regenerate box are untouched.
+//   - The Alt key stays as it is (DG1b-01 closed by her ruling).
 //
 // It does NOT ask whether another listener took the key first (round 1 did,
 // and review round 2, B-R2-01, measured the cost: Bins' document listener,
@@ -34,9 +49,9 @@ import { overlayOpen } from '../../ui/overlay'
 
 /** The controls Enter activates by itself. */
 export const ENTER_PRESSES = 'button, a[href], [role="button"], [role="menuitem"], [role="tab"], summary'
-/** …of which these keep "Enter generates": D.O.G.'s own option toggles and
-    its Full deck switch (the kit Switch, labelled "Full deck"). */
-export const GENERATE_TOGGLES = 'button.dog-check[role="checkbox"], .dog-full-deck button[role="switch"]'
+/** …of which these keep "Enter generates": D.O.G.'s own option toggles. The
+    Full deck switch is not one since FX13 ("Enter moves the switch"). */
+export const GENERATE_TOGGLES = 'button.dog-check[role="checkbox"]'
 /** Where focus belongs to a window over the page, not to the page. */
 const OVER_THE_PAGE = '.ui-drawer, [role="dialog"], [role="alertdialog"], [aria-modal="true"]'
 
@@ -56,3 +71,31 @@ export function enterIsDogs(e, { onDogPage }, doc = (typeof document !== 'undefi
   const control = t.closest(ENTER_PRESSES)
   return !control || control.matches(GENERATE_TOGGLES)
 }
+
+/** Whether the deck context box has words; whitespace alone is empty (FX13). */
+export function deckContextWritten(text) {
+  return typeof text === 'string' && text.trim() !== ''
+}
+
+/**
+ * What D.O.G.'s Enter starts once the key is D.O.G.'s (`enterIsDogs`) and a
+ * generation could start (no page yet, none running, something to read):
+ *   'full deck'    Full deck on and the deck context box has words;
+ *   'ask'          Full deck on and the box is empty: nothing generates, the
+ *                  box gets focus and the page says ASK_FOR_CONTEXT (FX13,
+ *                  "Enter needs text in the box");
+ *   'single page'  Single page with a layout and a page request, as before;
+ *   null           Single page without them: nothing, as before.
+ */
+export function enterStarts({ fullDeckMode, deckContext, pageReady }) {
+  if (fullDeckMode) return deckContextWritten(deckContext) ? 'full deck' : 'ask'
+  return pageReady ? 'single page' : null
+}
+
+/** What the page says when Enter asks for the deck context: once per such
+    Enter, in the kit's toast stack (its polite live region), info tone. */
+export const ASK_FOR_CONTEXT = Object.freeze({
+  tone: 'info',
+  title: 'Write in the deck context box first',
+  body: 'Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty.',
+})

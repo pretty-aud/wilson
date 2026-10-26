@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
-import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
+import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments';
@@ -24,7 +24,7 @@ import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
 import './dog.css';
 import HistoryModal from './modals/HistoryModal';
-import { enterIsDogs } from './enterGenerates';
+import { enterIsDogs, enterStarts, deckContextWritten, ASK_FOR_CONTEXT } from './enterGenerates';
 import { useReferences } from './references/useReferences';
 import ReferencesCard, { useReferencePreview, ReferencePreviewDialog } from './references/ReferencesCard';
 import ReferencesPicker from './references/ReferencesPicker';
@@ -46,6 +46,13 @@ import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } f
 // one (MASTER_PLAN §6 #31 trap (b)) moved with the readers, to
 // references/referenceModel.js, unchanged.
 
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test
+// that mounts D.O.G. alone): the R.A.B.B.I.T. views' helper. FX13 says why
+// Enter generated nothing there (the stack is the kit's polite live region).
+function useOptionalToast() {
+  try { return useToast(); } catch { return null; }
+}
+
 export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -59,9 +66,10 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
   // page mounted, so the side then stays where it is put until WILSON closes,
   // as the uploads do; the one exception is the Alt toggle below, which hears
-  // Alt on every page (OUTSTANDING DG1b-01). With Full deck on and no page
-  // yet, D.O.G.'s Enter key (enterGenerates.js says where it is D.O.G.'s)
-  // generates the deck whenever its button is enabled.
+  // Alt on every page (kept by her ruling of 2026-10-26, FX13). With Full deck
+  // on and no page yet, D.O.G.'s Enter key (enterGenerates.js says where it is
+  // D.O.G.'s) generates the deck whenever its button is enabled and the deck
+  // context box has words; with the box empty it asks for them (FX13).
   const [fullDeckMode, setFullDeckMode] = useState(true);
 
   // Visual Asset Placement State
@@ -3153,6 +3161,28 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     return () => document.removeEventListener('keyup', handler);
   }, []);
 
+  // FX13 (Audrey, 2026-10-26: "Enter needs text in the box"): an Enter that
+  // would have started a full deck with the deck context box empty starts
+  // nothing; the box gets focus (card 3 opens first if it is folded) and the
+  // toast stack says why, one such toast at a time. The box is brought to the
+  // middle of the page: focus alone left it on the bottom edge, under the
+  // toast (measured at 1280x800 and 1440x900).
+  const deckContextRef = useRef(null);
+  const askToastId = useRef(null);
+  const toast = useOptionalToast();
+  const askForDeckContext = useCallback(() => {
+    setSection2Collapsed(false);
+    setTimeout(() => {
+      const box = deckContextRef.current;
+      if (!box) return;
+      box.focus({ preventScroll: true });
+      box.scrollIntoView?.({ block: 'center' });
+    }, 0);
+    if (!toast) return;
+    if (askToastId.current != null) toast.dismiss(askToastId.current);
+    askToastId.current = toast.push(ASK_FOR_CONTEXT);
+  }, [toast]);
+
   // Global Enter key — triggers generation when outliner is empty and user is not in a text field
   useEffect(() => {
     const handler = (e) => {
@@ -3160,24 +3190,24 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
       // the key is D.O.G.'s only on D.O.G.'s page, unmodified, not in a text
       // field, not under a window (a drawer, a dialog, a kit overlay) and not
       // on a control Enter presses by itself — D.O.G.'s own option toggles
-      // and Full deck switch excepted, as before. Whether another listener
-      // cancelled it first is deliberately NOT asked (review round 2,
-      // B-R2-01). enterGenerates.js says why; its test drives it with real
-      // elements.
+      // excepted, as before (since FX13 the Full deck switch is not: Enter
+      // moves it). Whether another listener cancelled it first is
+      // deliberately NOT asked (review round 2, B-R2-01). enterGenerates.js
+      // says why, and what Enter starts (`enterStarts`); its test drives it
+      // with real elements.
       if (!enterIsDogs(e, { onDogPage: currentPage === 'dog' })) return;
       if (history.length > 0) return; // only when outliner is empty
       if (isGenerating || !hasFileContent) return;
 
       e.preventDefault();
-      if (fullDeckMode) {
-        generateFullDeck();
-      } else if (pagePrompt && selectedLayout) {
-        generatePageOutline();
-      }
+      const starts = enterStarts({ fullDeckMode, deckContext: systemPrompt, pageReady: !!(pagePrompt && selectedLayout) });
+      if (starts === 'full deck') generateFullDeck();
+      else if (starts === 'single page') generatePageOutline();
+      else if (starts === 'ask') askForDeckContext();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [currentPage, history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline]);
+  }, [currentPage, history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline, systemPrompt, askForDeckContext]);
 
   // Save undo checkpoint on textarea change (debounced grouping)
   const handleTextareaChange = useCallback((e) => {
@@ -4232,8 +4262,9 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   so a screen reader hears which side is on; the two words are
                   pointer shortcuts to their side, hidden from it. Space and
                   Enter work as on every switch, and Left and Right choose a
-                  side. `dog-full-deck` keeps Enter generating from it
-                  (enterGenerates.js). */}
+                  side. Enter moves it and generates nothing (FX13, her
+                  "Enter moves the switch": enterGenerates.js); scripts find
+                  it by `dog-full-deck`. */}
               <div className="dog-mode">
                 <span className="dog-mode-side" data-active={!fullDeckMode} aria-hidden="true"
                   onClick={() => setFullDeckMode(false)}>Single page</span>
@@ -4301,14 +4332,18 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <span className="dog-hint-emph"> • Include desired page count</span>
                     </p>
                     <textarea
+                      ref={deckContextRef}
                       value={systemPrompt}
                       onChange={(e) => setSystemPrompt(e.target.value)}
                       onFocus={() => setSystemPromptFocused(true)}
                       onBlur={() => setSystemPromptFocused(false)}
                       onKeyDown={(e) => {
+                        // FX13: Enter in an empty box does nothing (her
+                        // "Enter needs text in the box"); Shift+Enter is a
+                        // new line, as before.
                         if (e.key === 'Enter' && !e.shiftKey && fullDeckMode) {
                           e.preventDefault();
-                          if (!isGenerating && hasFileContent) {
+                          if (!isGenerating && hasFileContent && deckContextWritten(systemPrompt)) {
                             generateFullDeck();
                           }
                         }
