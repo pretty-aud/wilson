@@ -1,11 +1,11 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, act, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { PAGE_BARS } from '../layout/pages'
-import { Toast, ToastProvider, useToast, TOAST_TONES } from './Toast'
+import { Toast, ToastProvider, useToast, TOAST_TONES, toastFocusReturn } from './Toast'
 
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
@@ -148,6 +148,184 @@ describe('Toast', () => {
     cleanup()
     render(<ToastProvider bar="0px">x</ToastProvider>)
     expect(document.querySelector('.ui-toast-pinned')).toBeNull()
+  })
+})
+
+// ── FX14 (OUTSTANDING FX13-02): keyboard focus holds a toast as the pointer
+// does, and a toast that leaves holding focus gives it back. FX13's review
+// round 2 measured the fault in Chromium: a 5-second toast, Tab to its ×,
+// and when the time ran out focus fell to <body>. ──────────────────────────
+describe('a toast and keyboard focus (FX14)', () => {
+  let api
+  function Grab() { api = useToast(); return null }
+  const toastEl = () => document.querySelector('.ui-toast-stack .ui-toast')
+  const xOf = () => within(toastEl()).getByRole('button', { name: 'Dismiss' })
+  function setup(opts = {}, { main = false } = {}) {
+    const origin = <button type="button">origin</button>
+    render(
+      <ToastProvider bar="0px">
+        {main ? <main>{origin}</main> : origin}
+        <Grab />
+      </ToastProvider>,
+    )
+    let id
+    act(() => { id = api.push({ tone: 'info', title: 'Saved', duration: 1000, ...opts }) })
+    return { origin: screen.getByRole('button', { name: 'origin' }), id }
+  }
+  /** A button outside React that can be taken away: the element focus came from, gone. */
+  function outsider() {
+    const b = document.createElement('button')
+    b.textContent = 'outsider'
+    document.body.append(b)
+    return b
+  }
+
+  it('focus inside holds it past its time, as hover does; focus going outside lets it run out the rest', () => {
+    vi.useFakeTimers()
+    const { origin } = setup()
+    act(() => { origin.focus() })
+    act(() => { xOf().focus() })
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(toastEl()).not.toBeNull()
+    act(() => { origin.focus() })
+    act(() => { vi.advanceTimersByTime(990) })
+    expect(toastEl()).not.toBeNull()
+    act(() => { vi.advanceTimersByTime(20) })
+    expect(toastEl()).toBeNull()
+  })
+
+  it('CONTROL: focus elsewhere does not hold it, and its leaving moves no focus', () => {
+    vi.useFakeTimers()
+    const { origin } = setup()
+    act(() => { origin.focus() })
+    act(() => { vi.advanceTimersByTime(1010) })
+    expect(toastEl()).toBeNull()
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('the pointer and focus together: it runs again only once both have gone', () => {
+    vi.useFakeTimers()
+    const { origin } = setup()
+    fireEvent.mouseEnter(toastEl())
+    act(() => { xOf().focus() })
+    fireEvent.mouseLeave(toastEl())
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(toastEl()).not.toBeNull()                    // focus still holds it
+    fireEvent.mouseEnter(toastEl())
+    act(() => { origin.focus() })
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(toastEl()).not.toBeNull()                    // the pointer still holds it
+    fireEvent.mouseLeave(toastEl())
+    act(() => { vi.advanceTimersByTime(1010) })
+    expect(toastEl()).toBeNull()
+  })
+
+  it('moving between its own controls keeps it held, and keeps where focus came from', () => {
+    vi.useFakeTimers()
+    const { origin } = setup({ action: <button type="button">Undo</button> })
+    act(() => { origin.focus() })
+    act(() => { within(toastEl()).getByRole('button', { name: 'Undo' }).focus() })
+    act(() => { xOf().focus() })
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(toastEl()).not.toBeNull()
+    fireEvent.click(xOf())
+    expect(toastEl()).toBeNull()
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('Dismiss from the keyboard gives focus back to the element it came from', () => {
+    const { origin } = setup()
+    act(() => { origin.focus() })
+    act(() => { xOf().focus() })
+    fireEvent.click(xOf())
+    expect(toastEl()).toBeNull()
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('its owner taking it down gives focus back too, and so does a sticky toast (duration 0), which has no timer to hold', () => {
+    vi.useFakeTimers()
+    const { origin, id } = setup({ duration: 0 })
+    act(() => { origin.focus() })
+    act(() => { xOf().focus() })
+    act(() => { vi.advanceTimersByTime(10000) })
+    expect(toastEl()).not.toBeNull()
+    act(() => { api.dismiss(id) })
+    expect(toastEl()).toBeNull()
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('focus leaving for nowhere and coming back keeps the element it first came from', () => {
+    const { origin } = setup()
+    act(() => { origin.focus() })
+    act(() => { xOf().focus() })
+    act(() => { xOf().blur() })                        // the window left: focus to nowhere
+    act(() => { xOf().focus() })                       // and back, from nowhere
+    fireEvent.click(xOf())
+    expect(document.activeElement).toBe(origin)
+  })
+
+  it('the element it came from gone: focus goes to the main region on screen, focusable for that one move', () => {
+    const { origin } = setup({}, { main: true })
+    const away = outsider()
+    act(() => { away.focus() })
+    act(() => { xOf().focus() })
+    away.remove()
+    fireEvent.click(xOf())
+    const main = document.querySelector('main')
+    expect(document.activeElement).toBe(main)
+    expect(main.getAttribute('tabindex')).toBe('-1')
+    act(() => { origin.focus() })                       // it leaves: main is not a stop any more
+    expect(main.hasAttribute('tabindex')).toBe(false)
+  })
+
+  it('…and so does one that is disabled or hidden now', () => {
+    for (const make of [(b) => { b.disabled = true }, (b) => { b.checkVisibility = () => false }]) {
+      const { origin } = setup({}, { main: true })
+      act(() => { origin.focus() })
+      act(() => { xOf().focus() })
+      make(origin)
+      fireEvent.click(xOf())
+      expect(document.activeElement).toBe(document.querySelector('main'))
+      cleanup()
+    }
+  })
+
+  it('nothing to give it back to (no element, no main region): dev says so, and the browser has it on <body>', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    setup()
+    const away = outsider()
+    act(() => { away.focus() })
+    act(() => { xOf().focus() })
+    away.remove()
+    fireEvent.click(xOf())
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('nothing to give focus back to'))
+    expect(document.activeElement).toBe(document.body)
+    warn.mockRestore()
+  })
+
+  it('focus that came from nowhere (a pointer on the × with nothing focused) goes back there: no move, no word', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    setup({}, { main: true })
+    act(() => { document.activeElement.blur() })
+    act(() => { xOf().focus() })
+    fireEvent.click(xOf())
+    expect(document.activeElement).toBe(document.body)
+    expect(document.querySelector('main').hasAttribute('tabindex')).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('toastFocusReturn: the element first, then a main region on screen, then nothing; and nowhere for nowhere', () => {
+    document.body.innerHTML = '<main id="m"><button id="b">b</button></main><div role="main" id="r" aria-hidden="true"></div><button id="gone">g</button>'
+    const b = document.getElementById('b'); const m = document.getElementById('m'); const gone = document.getElementById('gone')
+    gone.remove()
+    expect(toastFocusReturn(b)).toBe(b)
+    expect(toastFocusReturn(gone)).toBe(m)
+    expect(toastFocusReturn(null)).toBe(null)
+    expect(toastFocusReturn(document.body)).toBe(null)
+    m.checkVisibility = () => false                      // a hidden page's main
+    expect(toastFocusReturn(gone)).toBe(null)            // the aria-hidden one is not a place either
+    document.body.innerHTML = ''
   })
 })
 
