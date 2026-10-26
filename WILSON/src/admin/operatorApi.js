@@ -72,6 +72,10 @@ const FRIENDLY = {
   // correct there. (storage-presign and storage-secret set the same precedent
   // with their own scoped codes.)
   plan_read_failed: 'Could not read the storage plans. Try again in a moment.',
+  // FX12: the AI file store.
+  ai_files_read_failed: 'Could not read the AI file store just now. Nothing was deleted.',
+  sweep_failed: 'The AI file sweep stopped part-way — check the audit log (blob.purged) before running it again.',
+  ai_not_configured: 'No platform AI key is set in this environment, so there is no store to read.',
 }
 
 async function callOperatorFn(name, body) {
@@ -300,6 +304,21 @@ export function setStoragePlanSuspended(workspaceId, suspended, note) {
     workspace_id: workspaceId,
     note: note || '',
   })
+}
+
+// ── FX12: the AI provider's file store (OUTSTANDING DG1-03) ─────────────────
+// Counts only, across every company of THIS environment; files no record of
+// this environment ties to a company (another environment's) are counted and
+// never deleted. operator-ai-files reads only the platform key's store.
+
+/** The platform key's store against this environment's upload records, as counts. */
+export function aiFilesSummary() {
+  return callOperatorFn('operator-ai-files', { action: 'summary' })
+}
+
+/** Delete the files this environment ties to a company and older than 24 hours. */
+export function sweepAiFiles() {
+  return callOperatorFn('operator-ai-files', { action: 'sweep' })
 }
 
 /** True when the function isn't deployed in this environment yet. */

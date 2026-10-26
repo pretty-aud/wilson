@@ -37,7 +37,7 @@
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Building2, ScrollText, LogOut, Cpu, KeyRound } from 'lucide-react'
+import { Building2, ScrollText, LogOut, Cpu, KeyRound, Files } from 'lucide-react'
 import { supabase, hydrateSupabase } from '../cloud/auth/supabaseClient'
 import { loadSession, clearSession } from '../cloud/auth/sessionStorage'
 import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from '../cloud/auth/authEvents'
@@ -50,6 +50,7 @@ import CompaniesSection from './CompaniesSection'
 import AuditSection from './AuditSection'
 import ModelsSection from './ModelsSection'
 import SignInsSection from './SignInsSection'
+import AIFilesSection from './AIFilesSection'
 
 // Four now, not two. The Miller's Law note in the header still holds — the
 // count is deliberate — but each earns its place: Models is the only surface
@@ -60,6 +61,8 @@ import SignInsSection from './SignInsSection'
 const NAV = [
   { key: 'companies', label: 'Companies', icon: Building2 },
   { key: 'models', label: 'Models', icon: Cpu },
+  // FX12: what D.O.G. left in the AI provider's file store, as counts.
+  { key: 'aifiles', label: 'AI files', icon: Files },
   { key: 'audit', label: 'Audit', icon: ScrollText },
   { key: 'signins', label: 'Sign-ins', icon: KeyRound },
 ]
@@ -319,6 +322,12 @@ export default function OperatorApp() {
               style={{ display: section === 'models' ? 'block' : 'none' }}
             >
               <ModelsSection isActive={section === 'models'} />
+            </div>
+            <div
+              className="h-full min-h-0 overflow-y-auto wilson-light-scroll"
+              style={{ display: section === 'aifiles' ? 'block' : 'none' }}
+            >
+              <AIFilesSection isActive={section === 'aifiles'} />
             </div>
             <div
               className="h-full min-h-0 overflow-y-auto wilson-light-scroll"
