@@ -173,12 +173,13 @@ describe('S3c step 3: seeing an edit', () => {
   })
   it('D20: the tiles total the cut in order — repeats counted, the missing shot not — and the runtime says it is the edit\'s', () => {
     const { container } = page()
-    expect(tiles(container)['Total runtime']).toBeDefined()
+    expect(tiles(container)['Total runtime · 24 fps']).toBeDefined()
     pickEdit('edit-1')
     const t = tiles(container)
-    expect(t['Total runtime']).toBeUndefined()
-    // 100 + 240 + 240 + 48 = 628 frames at 24 fps.
-    expect(t['Edit runtime']).toBe('00:00:26:04')
+    expect(t['Total runtime · 24 fps']).toBeUndefined()
+    // 100 + 240 + 240 + 48 = 628 frames at 24 fps (the tile says the rate:
+    // her answer of 2026-10-26 moved it there from the toolbar).
+    expect(t['Edit runtime · 24 fps']).toBe('00:00:26:04')
     expect(t['Total frames']).toBe('628')
     expect(t.Scenes).toBe('2')
     expect(t.Shots).toBe('4')
