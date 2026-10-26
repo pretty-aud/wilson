@@ -71,8 +71,8 @@ import {
   type KeySource, type StoredFile, type UploadRow,
 } from '../_shared/aiFileStore.ts'
 import {
-  deleteFile, lookupFiles, pooled, readCertifiedGone, readUploadRows, readUploadRowsNaming,
-  writeCertificate,
+  deleteFile, lookupFiles, noteAbsent, pooled, readAbsentNoted, readCertifiedGone, readUploadRows,
+  readUploadRowsNaming, writeCertificate,
 } from '../_shared/aiFilesUpstream.ts'
 
 type MemberCtxAdmin = MemberContext['admin']
@@ -171,6 +171,8 @@ const DELETE_CONCURRENCY = 4
  * files one by one sends one each.
  */
 const MANAGE_RPM = envInt('AI_FILES_MANAGE_RPM', 30)
+/** Lists per workspace per minute, every member together. */
+const LIST_RPM = envInt('AI_FILES_LIST_RPM', 30)
 
 /**
  * The key a stored file lives under — exactly the one its upload row names.
@@ -268,8 +270,10 @@ async function deleteOwn(
       for (const id of sourceIds) lookupFailed.set(id, (err as { status?: number })?.status ?? 0)
     }
   }
-  const certified = stored.size === mineOf.size ? new Set<string>()
-    : await readCertifiedGone(admin, workspaceId, [...mineOf.keys()].filter(id => !stored.has(id)))
+  // Read whether or not anything is missing (review round 2, finding 5): a
+  // read only when an id is absent would make "absent" a few tens of
+  // milliseconds slower than "present, not yours", which is an oracle too.
+  const certified = await readCertifiedGone(admin, workspaceId, [...mineOf.keys()])
 
   // A few at a time: the desktop app waits for this answer before its window
   // closes (MEASURED, FX12: a keepalive request dies with the app when its
@@ -278,23 +282,12 @@ async function deleteOwn(
   const results = await pooled(ids, DELETE_CONCURRENCY, async (id): Promise<DeleteResult> => {
     const mine = mineOf.get(id)
     if (!mine) return { id, outcome: 'not_found' }
+    // Nothing was attempted for these two: one row per call says so, below,
+    // never one per id (review round 2, finding 4: a forged key_source would
+    // otherwise let a member write 25 warnings a call into the admin stream).
     const key = keyOfSource.get(mine.keySource)
-    if (!key) {
-      await certify({
-        workspaceId, actorUserId: callerId, ok: false,
-        message: 'AI file delete could not read the key the file was uploaded under',
-        context: { stage: 'delete', via: 'member', file_id: id, outcome: 'key_unavailable', key_source: mine.keySource },
-      })
-      return { id, outcome: 'key_unavailable' }
-    }
-    if (lookupFailed.has(id)) {
-      await certify({
-        workspaceId, actorUserId: callerId, ok: false,
-        message: 'AI file delete could not read the store',
-        context: { stage: 'delete', via: 'member', file_id: id, outcome: 'failed', status: lookupFailed.get(id), key_source: mine.keySource },
-      })
-      return { id, outcome: 'failed' }
-    }
+    if (!key) return { id, outcome: 'key_unavailable' }
+    if (lookupFailed.has(id)) return { id, outcome: 'failed' }
     // The rule (aiFileStore.deleteVerdict): `gone` only when the store lacks
     // the id AND this workspace's own unforgeable certificate says it deleted
     // it before; `not_found` for everything that is not the caller's own.
@@ -319,6 +312,22 @@ async function deleteOwn(
     })
     return { id, outcome }
   })
+  const unread = results.filter(r => r.outcome === 'key_unavailable').map(r => r.id)
+  if (unread.length) {
+    await certify({
+      workspaceId, actorUserId: callerId, ok: false,
+      message: 'AI file delete not attempted: the key the files were uploaded under could not be read',
+      context: { stage: 'delete_not_attempted', via: 'member', reason: 'key_unavailable', count: unread.length, file_ids: unread.slice(0, DELETE_MAX_IDS) },
+    })
+  }
+  const unasked = results.filter(r => r.outcome === 'failed' && lookupFailed.has(r.id)).map(r => r.id)
+  if (unasked.length) {
+    await certify({
+      workspaceId, actorUserId: callerId, ok: false,
+      message: 'AI file delete not attempted: the store could not be read',
+      context: { stage: 'delete_not_attempted', via: 'member', reason: 'lookup_failed', status: lookupFailed.get(unasked[0]) ?? 0, count: unasked.length, file_ids: unasked.slice(0, DELETE_MAX_IDS) },
+    })
+  }
   const refused = results.filter(r => r.outcome === 'not_found').map(r => r.id)
   if (refused.length) {
     // One line per call, never per id. Not an accusation: an upload whose own
@@ -360,8 +369,12 @@ async function storedForWorkspace(
   // An id this workspace's own certificates say is deleted is never asked
   // about again (review round 1, finding 2): the lookups touch only ids that
   // can still be live, not ninety days of every upload.
+  // Nor is one the store was already found to lack (review round 2, finding
+  // 2): a file that expired by itself is never certified, and would otherwise
+  // be asked about on every list for ninety days.
   const gone = await readCertifiedGone(admin, workspaceId, null)
-  const live = own.filter(r => !gone.has(r.fileId))
+  const absent = await readAbsentNoted(admin, workspaceId)
+  const live = own.filter(r => !gone.has(r.fileId) && !absent.has(r.fileId))
   const scoped = onlyActor === null ? live : live.filter(r => r.actorUserId === onlyActor)
   const bySource = new Map<KeySource, string[]>()
   for (const r of scoped) {
@@ -371,13 +384,26 @@ async function storedForWorkspace(
   }
   const files: StoredFile[] = []
   let unreachable = 0
+  const missing: string[] = []
   for (const [source, ids] of bySource) {
     const key = await keyForSource(admin, workspaceId, source)
     if (!key) { unreachable += new Set(ids).size; continue }
     // Exactly these ids (`ids[]`), never the key's whole list: another
     // company's metadata, its filenames included, is never even fetched.
-    files.push(...await lookupFiles(key, ids))
+    // A source the store will not answer for is counted, not thrown (review
+    // round 2, finding 1): the list and the sweep go on for the rest.
+    let found: StoredFile[]
+    try {
+      found = await lookupFiles(key, ids)
+    } catch {
+      unreachable += new Set(ids).size
+      continue
+    }
+    files.push(...found)
+    const have = new Set(found.map(f => f.id))
+    missing.push(...ids.filter(id => !have.has(id)))
   }
+  if (missing.length) await noteAbsent(admin, workspaceId, missing)
   // A file id that sits under both sources is impossible; dedupe anyway.
   const unique = [...new Map(files.map(f => [f.id, f])).values()]
   const rows = await readUploadRowsNaming(admin, unique.map(f => f.id))
@@ -501,6 +527,11 @@ async function handleList(req: Request): Promise<Response> {
   // listing never spend the workspace's upload budget, and one member cannot
   // spend everyone's.
   if (await isRateLimited(admin, 'ai-files-manage', callerId, MANAGE_RPM, 60)) {
+    return reply({ error: 'rate_limited' }, 429)
+  }
+  // And one for the whole workspace (review round 2, finding 2): every
+  // member's lists together stay a bounded share of the org-wide file limit.
+  if (await isRateLimited(admin, 'ai-files-list', workspaceId, LIST_RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)
   }
 

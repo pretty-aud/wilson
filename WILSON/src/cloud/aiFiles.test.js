@@ -212,7 +212,8 @@ describe('deleteAIFiles', () => {
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 429, json: async () => ({ error: 'rate_limited' }) }))
     const err = await deleteAIFiles([fid(1)]).catch(e => e)
     expect(err.code).toBe('rate_limited')
-    expect(err.message).toMatch(/Too many/)
+    // Round 2, note 9: the store's own words, not the upload's ("uploads").
+    expect(err.message).toBe('Too many requests to the AI’s file store — try again in a minute.')
   })
 
   it('CONTROL: a 200 that is not JSON is a failure, never an empty success', async () => {

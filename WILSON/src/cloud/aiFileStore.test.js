@@ -20,11 +20,11 @@ import {
   SWEEP_AGE_HOURS, BIND_AFTER_MS, BIND_BEFORE_MS, IDS_PER_LOOKUP, SWEEP_MAX_DELETES, SMALL_BODY_MAX,
   isFileId, uploadRowOf, storedFileOf, bindsToFile, attribute, isSweepable, isExpired, publicFile,
   totalsOf, filesOfWorkspace, sweepPlan, operatorCounts, readListPage, listQuery, idLookupQueries,
-  deleteOutcome, readSmallJson, deleteVerdict, certifiedGoneIds,
+  deleteOutcome, readSmallJson, deleteVerdict, certifiedGoneIds, absentNotedIds,
 } from '../../supabase/functions/_shared/aiFileStore.ts'
 import {
   lookupFiles, listAllFiles, fileMetadata, deleteFile, readUploadRows, readUploadRowsNaming,
-  writeCertificate, readCertifiedGone, pooled, UpstreamError,
+  writeCertificate, readCertifiedGone, readAbsentNoted, noteAbsent, pooled, UpstreamError,
 } from '../../supabase/functions/_shared/aiFilesUpstream.ts'
 
 const REPO = join(__dirname, '..', '..')
@@ -217,11 +217,19 @@ describe('deleteVerdict: what a member\'s DELETE does with one id (round 1, find
     expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { actor: U2 })] }))).toBe('not_found')
     expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { ws: W2 })] }))).toBe('not_found')
   })
-  it('a colleague\'s id the workspace already deleted: not_found to anyone but its uploader', () => {
+  it('a colleague\'s already-deleted id, asked by a member with no row for it: not_found', () => {
     const gone = { rows: [upload(9, { actor: U2 })], stored: new Map(), certified: new Set([id(9)]) }
     expect(deleteVerdict(id(9), ctx(gone))).toBe('not_found')
     // CONTROL: the uploader hears it is gone.
     expect(deleteVerdict(id(9), ctx({ ...gone, callerId: U2 }))).toBe('gone')
+  })
+  it('round 2, finding 3: a member who FORGES a row for a colleague\'s deleted id still hears not_found (the earliest row is the colleague\'s)', () => {
+    const fileAt = Date.parse(stored(9).created_at)
+    const rows = [upload(9, { actor: U2, at: iso(fileAt + 229) }), upload(9, { at: iso(fileAt + 60000) })]
+    const forged = { rows, stored: new Map(), certified: new Set([id(9)]) }
+    expect(deleteVerdict(id(9), ctx(forged))).toBe('not_found')
+    // CONTROL: the colleague, whose row is the earliest, hears gone.
+    expect(deleteVerdict(id(9), ctx({ ...forged, callerId: U2 }))).toBe('gone')
   })
 })
 
@@ -239,6 +247,20 @@ describe('certifiedGoneIds: only the function\'s own certificates count (round 1
   it('CONTROL: another workspace\'s, a failure, a refusal or another stage counts for nothing', () => {
     const rows = [cert(1, { workspace_id: W2 }), cert(2, { code: 'WIL-6002' }, { outcome: 'failed' }), cert(3, {}, { stage: 'delete_refused' }), cert(4, {}, { outcome: 'not_found' }), cert(5, {}, { tool: 'ai-proxy' })]
     expect(certifiedGoneIds(rows, W1).size).toBe(0)
+  })
+})
+
+describe('absentNotedIds: the list skips what the store was found to lack (round 2, finding 2)', () => {
+  const note = (ids, over = {}) => ({ workspace_id: W1, event_type: 'admin', code: 'WIL-6001', context: { tool: 'ai-files', stage: 'absent', file_ids: ids }, ...over })
+  it('this workspace\'s admin-stream notes', () => {
+    expect([...absentNotedIds([note([id(1), id(2)]), note([id(3)])], W1)].sort()).toEqual([id(1), id(2), id(3)])
+  })
+  it('CONTROL: a member-written note, another workspace\'s, or a malformed id counts for nothing', () => {
+    expect(absentNotedIds([note([id(1)], { event_type: 'system' }), note([id(2)], { workspace_id: W2 }), note(['../x'])], W1).size).toBe(0)
+  })
+  it('a note is not a certificate: deleteVerdict never reads it', () => {
+    const certified = certifiedGoneIds([note([id(9)])], W1)
+    expect(certified.size).toBe(0)
   })
 })
 
@@ -344,7 +366,7 @@ describe('readSmallJson: the delete route never reads a large body', () => {
 
 // ── The calls, against a fake store ──────────────────────────────────────────
 
-function fakeStore(files, { failPage = null, failDelete = null } = {}) {
+function fakeStore(files, { failPage = null, failDelete = null, refuseId = null, failLookup = null } = {}) {
   const calls = []
   const store = new Map(files.map(f => [f.id, f]))
   const f = async (url, init = {}) => {
@@ -352,6 +374,8 @@ function fakeStore(files, { failPage = null, failDelete = null } = {}) {
     calls.push({ method: init.method || 'GET', path: u.pathname, query: u.search, headers: init.headers })
     const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
     if (u.pathname === '/v1/files' && u.searchParams.getAll('ids[]').length) {
+      if (failLookup) return json({ type: 'error', error: { type: 'api_error' } }, failLookup)
+      if (refuseId && u.searchParams.getAll('ids[]').includes(refuseId)) return json({ type: 'error', error: { type: 'invalid_request_error' } }, 400)
       return json({ data: u.searchParams.getAll('ids[]').map(i => store.get(i)).filter(Boolean), next_page: null })
     }
     if (u.pathname === '/v1/files') {
@@ -407,6 +431,20 @@ describe('the store calls', () => {
     expect(out.map(x => x.id)).toEqual([id(1)])
     expect(calls).toHaveLength(1)
     expect(new URLSearchParams(calls[0].query).getAll('ids[]')).toEqual([id(1), id(9)])
+  })
+  it('round 2, finding 1: a batch the store refuses for one bad id is split, and the good ids still come back', async () => {
+    const bad = 'file_' + 'A'.repeat(96)
+    const { f, calls } = fakeStore([file(1), file(2), file(3)], { refuseId: bad })
+    const out = await lookupFiles('k', [id(1), bad, id(2), id(3)], { fetchImpl: f })
+    expect(out.map(x => x.id).sort()).toEqual([id(1), id(2), id(3)])
+    // 4 ids: the batch, its two halves, the bad half's two singles = 5 calls at most.
+    expect(calls.length).toBeLessThanOrEqual(5)
+  })
+  it('CONTROL: a 5xx or a 429 is not about the ids, and is thrown', async () => {
+    const { f } = fakeStore([file(1)], { failLookup: 500 })
+    await expect(lookupFiles('k', [id(1)], { fetchImpl: f })).rejects.toThrow(UpstreamError)
+    const { f: g } = fakeStore([file(1)], { failLookup: 429 })
+    await expect(lookupFiles('k', [id(1)], { fetchImpl: g })).rejects.toThrow(UpstreamError)
   })
   it('no call sends the beta header, every call sends the key and the version', async () => {
     const { f, calls } = fakeStore([file(1)])
@@ -514,6 +552,15 @@ describe('the upload rows', () => {
     await writeCertificate(client, { workspaceId: W1, actorUserId: U1, ok: false, quiet: true, message: 'm', context: { stage: 'delete_refused' } })
     expect(inserts[2]).toMatchObject({ code: 'WIL-6002', severity: 'info', event_type: 'admin' })
   })
+  it('noteAbsent writes 100 ids to a row, quiet, with no actor; readAbsentNoted reads them back', async () => {
+    const { client, inserts } = fakeClient([])
+    const ids = Array.from({ length: 150 }, (_, i) => id(i))
+    expect(await noteAbsent(client, W1, ids)).toBe(0)
+    expect(inserts.map(r => r.context.file_ids.length)).toEqual([100, 50])
+    expect(inserts.every(r => r.actor_user_id === null && r.event_type === 'admin' && r.severity === 'info' && r.context.stage === 'absent')).toBe(true)
+    const { client: c2 } = fakeClient(inserts.map(r => ({ ...r })))
+    expect((await readAbsentNoted(c2, W1)).size).toBe(150)
+  })
   it('readCertifiedGone reads this workspace\'s admin-stream delete certificates, nothing else', async () => {
     const cert = (n, over = {}, ctxOver = {}) => ({ workspace_id: W1, event_type: 'admin', code: 'WIL-6001', context: { tool: 'ai-files', stage: 'delete', file_id: id(n), outcome: 'deleted', ...ctxOver }, ...over })
     const { client } = fakeClient([cert(1), cert(2, { event_type: 'system' }), cert(3, { workspace_id: W2 }), cert(4, {}, { outcome: 'gone' })])
@@ -564,7 +611,25 @@ describe('ai-files: the upload branch is byte-identical, and nothing materialise
     expect(own).toMatch(/certify_failed: certifyFailed/)
     const list = code.slice(code.indexOf('async function storedForWorkspace('), code.indexOf('async function handleDelete('))
     expect(list).toMatch(/readCertifiedGone\(admin, workspaceId, null\)/)
-    expect(list).toMatch(/own\.filter\(r => !gone\.has\(r\.fileId\)\)/)
+    expect(list).toMatch(/own\.filter\(r => !gone\.has\(r\.fileId\)/)
+  })
+  it('round 2, findings 1 and 2: the list skips noted-absent ids, notes what is missing, and counts a failed source instead of failing', () => {
+    const code = stripTs(fnSrc)
+    const list = code.slice(code.indexOf('async function storedForWorkspace('), code.indexOf('async function handleDelete('))
+    expect(list).toMatch(/const absent = await readAbsentNoted\(admin, workspaceId\)/)
+    expect(list).toMatch(/!gone\.has\(r\.fileId\) && !absent\.has\(r\.fileId\)/)
+    expect(list).toMatch(/if \(missing\.length\) await noteAbsent\(admin, workspaceId, missing\)/)
+    expect(list).toMatch(/try \{\n\s*found = await lookupFiles\(key, ids\)\n\s*\} catch \{\n\s*unreachable \+= new Set\(ids\)\.size/)
+    const at = code.indexOf('async function handleList(')
+    expect(code.slice(at)).toMatch(/isRateLimited\(admin, 'ai-files-list', workspaceId, LIST_RPM, 60\)/)
+  })
+  it('round 2, findings 4 and 5: one row per call for what was never attempted; the certificate read is unconditional', () => {
+    const code = stripTs(fnSrc)
+    const own = code.slice(code.indexOf('async function deleteOwn('), code.indexOf('async function isLiveAdmin('))
+    expect(own).toMatch(/if \(!key\) return \{ id, outcome: 'key_unavailable' \}/)
+    expect(own).toMatch(/if \(lookupFailed\.has\(id\)\) return \{ id, outcome: 'failed' \}/)
+    expect(own.match(/stage: 'delete_not_attempted'/g)).toHaveLength(2)
+    expect(own).toMatch(/const certified = await readCertifiedGone\(admin, workspaceId, \[\.\.\.mineOf\.keys\(\)\]\)/)
   })
   it('round 1, finding 2: the new routes spend their own per-caller bucket, never the workspace\'s upload budget', () => {
     const code = stripTs(fnSrc)
@@ -588,6 +653,10 @@ describe('ai-files: the upload branch is byte-identical, and nothing materialise
 describe('operator-ai-files and config.toml', () => {
   const opSrc = readFileSync(join(REPO, 'supabase', 'functions', 'operator-ai-files', 'index.ts'), 'utf8')
   const toml = readFileSync(join(REPO, 'supabase', 'config.toml'), 'utf8')
+  it('round 2, note 8: the operator\'s certificates in a company name no actor (platform_audit names the operator)', () => {
+    const code = stripTs(opSrc)
+    expect(code).toMatch(/workspaceId: owner\.workspaceId, actorUserId: null,/)
+  })
   it('the operator function takes the operator guard and reads only the platform key\'s store', () => {
     const code = stripTs(opSrc)
     expect(code).toContain('requirePlatformOperator(req)')

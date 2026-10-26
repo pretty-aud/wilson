@@ -26,9 +26,10 @@
 // app_events rows) is counted as `unbound` and left alone too. Where rows of
 // several companies bind, the earliest wins (a forger cannot be earlier).
 //
-// Each company's certificate names the operator as its actor (`via:
-// 'operator'`), as storage-gc's do for the admin who ran it: the company's
-// admin reads in Logs that the operator swept its files, and who.
+// Each company's certificate says `via: 'operator'` and names NO actor (review
+// round 2, note 8): the operator is not a member, so Logs could show no name
+// anyway, and the row would only hand the operator's account id to every
+// admin of every company swept. platform_audit names the operator.
 //
 // Only the PLATFORM key's store is read. A company's own Anthropic key holds
 // that company's uploads (and possibly its other work, which WILSON must never
@@ -131,7 +132,7 @@ Deno.serve(async (req: Request) => {
       const outcome = deleteOutcome(status)
       touched.add(owner.workspaceId)
       const landed = await writeCertificate(ctx.admin, {
-        workspaceId: owner.workspaceId, actorUserId: ctx.callerId, ok: outcome !== 'failed',
+        workspaceId: owner.workspaceId, actorUserId: null, ok: outcome !== 'failed',
         message: outcome === 'failed' ? 'AI file delete failed (operator sweep)' : 'AI file deleted (operator sweep)',
         context: { stage: 'delete', via: 'operator', file_id: file.id, outcome, status, key_source: 'platform', size_bytes: file.size_bytes },
       })

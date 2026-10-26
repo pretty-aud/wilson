@@ -21,6 +21,7 @@
 #      certificate
 #   5b. a forged upload row naming an absent id → not_found, no certificate
 #      (the certificates are in the admin stream, which members cannot write)
+#   5c. a forged row with the longest id accepted → the list still answers
 #   6. a messages call that references it    → the dead reference's answer,
 #      measured (status, error type, whether it names the id) — D.O.G.'s
 #      fallback is built to this answer
@@ -186,7 +187,10 @@ ok "two certificates (deleted, gone), both in the admin stream"
 # not hold must get `not_found` (not `gone`) and leave no `gone` certificate:
 # otherwise the route tells a forger which ids exist, and certifies a
 # deletion that never was.
-forged="file_011CIprobeForged$(date +%s)"
+# A FIXED id (review round 2, finding 6): every run's forged row names the
+# same one, so dev's list looks it up once, notes it absent, and never again.
+forged="file_011CIprobeForgedFixed0001"
+run_start=$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ)
 ins=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${SUPABASE_URL}/rest/v1/app_events" \
   -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" -H 'content-type: application/json' \
   --data "$(jq -cn --arg f "$forged" --arg w "$ws" '{ workspace_id: $w, event_type: "system", code: "WIL-6001", message: "fx12 probe: a forged upload row", context: { tool: "ai-files", file_id: $f, size_bytes: 1, mime_type: "text/plain", key_source: "platform", probe: "fx12-forged" } }')")
@@ -201,10 +205,22 @@ ok "a member can write a forged upload row ($ins) and cannot write a certificate
 resp=$(call DELETE "$(jq -cn --arg f "$forged" '{ file_id: $f }')"); code=$(status_of "$resp"); json=$(json_of "$resp")
 [ "$code" = "200" ] && [ "$(printf '%s' "$json" | jq -r '.results[0].outcome')" = "not_found" ] \
   || err "a forged row naming an absent id must be not_found, got $code $(printf '%s' "$json" | jq -c '.results // .error')"
-gone_rows=$(curl -sS "${SUPABASE_URL}/rest/v1/app_events?select=id&context->>file_id=eq.${forged}&context->>stage=eq.delete" \
+gone_rows=$(curl -sS "${SUPABASE_URL}/rest/v1/app_events?select=id&context->>file_id=eq.${forged}&context->>stage=eq.delete&created_at=gte.${run_start}" \
   -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" | jq 'length')
 [ "$gone_rows" = "0" ] || err "a forged row's delete wrote a certificate"
 ok "a forged upload row gets not_found and no certificate"
+
+# ── 5c. A forged id the store may refuse to parse breaks nothing ────────────
+# (review round 2, finding 1): the longest id the function accepts. Whatever
+# the store answers for it, the list must still answer for the rest.
+long="file_$(printf 'A%.0s' $(seq 1 96))"
+ins=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${SUPABASE_URL}/rest/v1/app_events" \
+  -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" -H 'content-type: application/json' \
+  --data "$(jq -cn --arg f "$long" --arg w "$ws" '{ workspace_id: $w, event_type: "system", code: "WIL-6001", message: "fx12 probe: a forged upload row with a long id", context: { tool: "ai-files", file_id: $f, size_bytes: 1, mime_type: "text/plain", key_source: "platform", probe: "fx12-forged-long" } }')")
+[ "$ins" = "201" ] || err "the probe could not write its long forged row ($ins)"
+resp=$(call GET); code=$(status_of "$resp")
+[ "$code" = "200" ] || err "a forged long id broke the list: $code $(json_of "$resp" | jq -r '.error // "?"')"
+ok "a forged 96-character id leaves the list answering (200)"
 
 # ── 6. A messages call that references the deleted file ─────────────────────
 body=$(jq -cn --arg m "$MODEL" --arg f "$fid" '{

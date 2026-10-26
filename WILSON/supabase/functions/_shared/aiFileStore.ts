@@ -36,7 +36,11 @@
 // backdate. When rows of several workspaces bind, the EARLIEST wins: a forger
 // learns an id only from the genuine row or its owner, so cannot be earlier
 // (review round 1, finding 6: "contested, nobody's" let a forger pin a file in
-// the store for good).
+// the store for good). Two rows in the same millisecond fall to the order the
+// rows were read in, which is insertion order (`order('id')`). Upload rows and
+// certificates leave together with app_events' 90-day purge, the upload row
+// first; a file that old is past every route here anyway (new uploads expire
+// in 24 h).
 //
 // The residual, stated (review round 1, finding 3): a person who is an ADMIN
 // of the owning company (so reads its upload row in Logs) and a member of a
@@ -249,7 +253,15 @@ export function deleteVerdict(
   const mine = named.some(r => r.workspaceId === ctx.workspaceId && r.actorUserId === ctx.callerId)
   if (!mine) return 'not_found'
   const file = ctx.stored.get(id)
-  if (!file) return ctx.certified.has(id) ? 'gone' : 'not_found'
+  if (!file) {
+    if (!ctx.certified.has(id)) return 'not_found'
+    // Review round 2, finding 3: the caller's row must also be the EARLIEST
+    // naming the id (the earliest-wins rule; ties fall to the rows' read
+    // order, which is insertion order), or a member who forged a row for a
+    // colleague's deleted id would hear `gone` and certify it in their name.
+    const earliest = [...named].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0]
+    return earliest.workspaceId === ctx.workspaceId && earliest.actorUserId === ctx.callerId ? 'gone' : 'not_found'
+  }
   const verdict = attribute([file], named)[0]
   return verdict.kind === 'attributed'
     && verdict.owner.workspaceId === ctx.workspaceId
@@ -273,6 +285,26 @@ export function certifiedGoneIds(rows: unknown[], workspaceId: string): Set<stri
     if (!c || c.tool !== 'ai-files' || c.stage !== 'delete') continue
     if (c.outcome !== 'deleted' && c.outcome !== 'gone') continue
     if (isFileId(c.file_id)) out.add(c.file_id)
+  }
+  return out
+}
+
+/**
+ * The ids this workspace's own notes say the store no longer has (review
+ * round 2, finding 2): a quiet admin-stream row `{ stage: 'absent', file_ids }`
+ * written when a lookup found them missing, so the list never asks about them
+ * again. A note is not a certificate: `deleteVerdict` reads only `delete`
+ * certificates, so a forged id noted absent still answers `not_found`.
+ */
+export function absentNotedIds(rows: unknown[], workspaceId: string): Set<string> {
+  const out = new Set<string>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    if (r.workspace_id !== workspaceId || r.event_type !== 'admin') continue
+    const c = r.context as Record<string, unknown> | null
+    if (!c || c.tool !== 'ai-files' || c.stage !== 'absent' || !Array.isArray(c.file_ids)) continue
+    for (const id of c.file_ids) if (isFileId(id)) out.add(id)
   }
   return out
 }

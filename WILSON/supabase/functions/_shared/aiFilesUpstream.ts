@@ -18,7 +18,7 @@
 
 import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import {
-  MAX_LIST_PAGES, certifiedGoneIds, idLookupQueries, isFileId, listQuery, readListPage, storedFileOf,
+  MAX_LIST_PAGES, absentNotedIds, certifiedGoneIds, idLookupQueries, isFileId, listQuery, readListPage, storedFileOf,
   uploadRowOf, type ListPage, type StoredFile, type UploadRow,
 } from './aiFileStore.ts'
 
@@ -61,19 +61,40 @@ async function upstreamError(res: Response, what: string): Promise<UpstreamError
   return new UpstreamError(`${what}: HTTP ${res.status} (${type})`, res.status)
 }
 
-/** Exactly these ids' files, as the store has them; an id it lacks is absent. */
+/**
+ * Exactly these ids' files, as the store has them; an id it lacks is absent.
+ *
+ * A batch the store refuses with a 4xx (an id it will not parse: a member can
+ * write any `file_id` into a forged row, review round 2, finding 1) is split
+ * in halves and asked again, down to the single id, which is then treated as
+ * absent: one bad id costs a few calls, never the whole list. A 429 or a 5xx
+ * is not about the ids and is thrown.
+ */
 export async function lookupFiles(
   key: string, ids: string[], opts: { fetchImpl?: typeof fetch; signal?: AbortSignal } = {},
 ): Promise<StoredFile[]> {
   const f = opts.fetchImpl ?? fetch
   const out: StoredFile[] = []
-  for (const q of idLookupQueries(ids)) {
+  const ask = async (batch: string[]): Promise<void> => {
+    const [q] = idLookupQueries(batch)
+    if (!q) return
     const res = await f(`${ANTHROPIC_FILES_URL}?${q}`, { headers: headers(key), signal: signalFor(opts.signal) })
-    if (!res.ok) throw await upstreamError(res, 'file lookup')
+    if (!res.ok) {
+      const refusedForIds = res.status >= 400 && res.status < 500 && res.status !== 429
+      if (!refusedForIds) throw await upstreamError(res, 'file lookup')
+      await res.body?.cancel().catch(() => {})
+      if (batch.length === 1) return
+      const mid = Math.ceil(batch.length / 2)
+      await ask(batch.slice(0, mid))
+      await ask(batch.slice(mid))
+      return
+    }
     const page = readListPage(await res.json().catch(() => null))
     if (!page) throw new UpstreamError('file lookup: the answer was not a list', res.status)
     out.push(...page.files)
   }
+  const unique = [...new Set(ids.filter(isFileId))]
+  for (let i = 0; i < unique.length; i += 100) await ask(unique.slice(i, i + 100))
   return out
 }
 
@@ -213,6 +234,40 @@ export async function readCertifiedGone(admin: Client, workspaceId: string, ids:
   return certifiedGoneIds(raw, workspaceId)
 }
 
+/** The ids this workspace's own notes say the store lacks (aiFileStore.absentNotedIds). */
+export async function readAbsentNoted(admin: Client, workspaceId: string): Promise<Set<string>> {
+  const raw: unknown[] = []
+  for (let from = 0; ; from += ROW_PAGE) {
+    const { data, error } = await admin.from('app_events').select('workspace_id, event_type, context')
+      .eq('workspace_id', workspaceId).eq('event_type', 'admin')
+      .eq('context->>tool', 'ai-files').eq('context->>stage', 'absent')
+      .order('id', { ascending: true }).range(from, from + ROW_PAGE - 1)
+    if (error) throw new Error(`absent notes: ${error.message}`)
+    raw.push(...(data ?? []))
+    if (!data || data.length < ROW_PAGE) break
+  }
+  return absentNotedIds(raw, workspaceId)
+}
+
+/**
+ * Note ids a lookup found missing, 100 to a row (the context CHECK is 8,000
+ * characters), quiet and with no actor: a fact about the store, not anyone's
+ * act. Answers how many rows failed to land.
+ */
+export async function noteAbsent(admin: Client, workspaceId: string, ids: string[]): Promise<number> {
+  const unique = [...new Set(ids.filter(isFileId))]
+  let missed = 0
+  for (let i = 0; i < unique.length; i += 100) {
+    const landed = await writeCertificate(admin, {
+      workspaceId, actorUserId: null, ok: true,
+      message: 'AI file store: ids the store no longer holds',
+      context: { stage: 'absent', count: unique.slice(i, i + 100).length, file_ids: unique.slice(i, i + 100) },
+    })
+    if (!landed) missed++
+  }
+  return missed
+}
+
 /**
  * A certificate row. WIL-6001 / 6002 again (0021's code CHECK is a closed
  * set) with `tool: 'ai-files'` and ALWAYS a `stage`, which is what keeps a
@@ -227,7 +282,8 @@ export async function writeCertificate(
   admin: Client,
   fields: {
     workspaceId: string
-    actorUserId: string
+    /** null for a row that is no one's act: a note, or the operator's (platform_audit names them). */
+    actorUserId: string | null
     ok: boolean
     /** A refusal or a note, not a failure: severity info. */
     quiet?: boolean

@@ -66,6 +66,7 @@ const FRIENDLY = {
   list_failed: 'The AI’s file store could not be read just now — try again.',
   sweep_failed: 'The clean-up stopped part-way — see Logs for WIL-6002.',
   bad_answer: 'The AI’s file store answered something unreadable.',
+  store_rate_limited: 'Too many requests to the AI’s file store — try again in a minute.',
 }
 
 export class AIFileError extends Error {
@@ -278,7 +279,9 @@ async function callFiles(method, { body, token, signal, keepalive = false, timeo
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
       const code = typeof j?.error === 'string' ? j.error : `http_${res.status}`
-      throw new AIFileError(FRIENDLY[code] || `The AI’s file store refused (${res.status}).`, res.status, code)
+      // The upload's words say "uploads"; these routes are not uploads (review round 2, note 9).
+      const words = code === 'rate_limited' ? FRIENDLY.store_rate_limited : FRIENDLY[code]
+      throw new AIFileError(words || `The AI’s file store refused (${res.status}).`, res.status, code)
     }
     const j = await res.json().catch(() => null)
     if (!j || typeof j !== 'object' || Array.isArray(j)) {
