@@ -217,6 +217,12 @@ describe('deleteVerdict: what a member\'s DELETE does with one id (round 1, find
     expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { actor: U2 })] }))).toBe('not_found')
     expect(deleteVerdict(id(1), ctx({ rows: [upload(1, { ws: W2 })] }))).toBe('not_found')
   })
+  it('a colleague\'s id the workspace already deleted: not_found to anyone but its uploader', () => {
+    const gone = { rows: [upload(9, { actor: U2 })], stored: new Map(), certified: new Set([id(9)]) }
+    expect(deleteVerdict(id(9), ctx(gone))).toBe('not_found')
+    // CONTROL: the uploader hears it is gone.
+    expect(deleteVerdict(id(9), ctx({ ...gone, callerId: U2 }))).toBe('gone')
+  })
 })
 
 describe('certifiedGoneIds: only the function\'s own certificates count (round 1, findings 1 and 4)', () => {
