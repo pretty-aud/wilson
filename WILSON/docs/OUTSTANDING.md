@@ -3436,3 +3436,13 @@ S4b-11 are untouched and still hers.
   that wait (`9b365691`); its 1-second default is shorter than CI's runner sometimes needs.
   Not FX13's file. Fix: give the band's wait (and the Board column's) a longer `timeout`, as
   the refusal's wait has. Owner: a R.A.B.B.I.T. session (VW1m's tests).
+  The controller's note (2026-10-26): a second flake of the same kind, in VW1e's
+  `src/tools/rabbit_v0.1.0/views/tableViews/tasksViews.test.jsx` > the last used view >
+  *until the map answers, the body shows the kit Loading line and the toolbar works*.
+  MEASURED: the push run 40345201708 on the fifth beta merge `402b6ed5`
+  (`feat/multi-user-v1`) found no *Loading views* status (the table had already drawn:
+  *Views: All* was in the roles the assertion listed), while the pull_request run
+  40345426849 on the same commit passed. VW1e had already held the provider's 2 s give-up
+  in that test (the `setTimeout` spy on `TABLE_VIEW_LAST_WAIT_MS`, after one CI miss on
+  2026-10-26); the hold did not prevent this run, so the cause is not established. Owner:
+  the same R.A.B.B.I.T. session.
