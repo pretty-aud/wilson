@@ -14,7 +14,12 @@ corrected here, with her answers of 2026-10-17 (batches 15 and 16) in them.
 (§11 round 4) and is corrected here too. VW1d's parts (§4.1 to §4.5, §4.8's
 defects 1, 2 and 5, §4.9, §4.11's *Create grouping* and the Timeline's rows,
 §8's KR-1 in place, KR-3, KR-4) were reviewed at its step 0 on 2026-10-25
-(§11 round 5) and are corrected here.
+(§11 round 5) and are corrected here. VW1e's parts (§4.1's other tables,
+§4.3's leading columns, Gallery and nested shot rows, §4.8's defects 3 and
+4, §4.10, §4.11's Assets, Levels and Experiences halves and the cloud's
+links, §5.1's `leading`, §6's Scenes step, §9) were reviewed at its step 0
+on 2026-10-25 (§11 round 6) and are corrected here, with her answers of
+2026-10-25 (batch 17: Q-P1 to Q-P3) in them.
 **Every question is answered.** Taking the main item out of WILSON is its own
 session, before the build (VW1m, §7), with its own measured list and
 questions.
@@ -149,11 +154,26 @@ repeated piece a kit component (§8 lists the kit requests).
   is set AFTER measuring with *Create grouping* shown, and the count's
   minimum width is in `ch`, from the digits of the table's total (it has
   none today).
-- **Assets, Levels and Experiences** have 220px or more free and take a
-  180px button.
-- **Scenes and Shots:** the icon (28px) becomes this button (180px); at
+- **One width on every table, 136px** (her Q-P1 of 2026-10-25, "Narrower,
+  136px (Recommended)"; VW1e step 0, §11 round 6, finding 12): about 12
+  letters of the name, an ellipsis after, the full name in the dropdown and
+  on hover. It supersedes VW1d's 160px on Tasks and the 180px this section
+  gave Assets, Levels, Experiences and the Scenes bookmark. One rule in
+  `tableViews.css`; `data-table` stays on the button as the table's name and
+  keys no width. VW1e measures every toolbar at 1280 and 1440 in the bar's
+  states (`scripts/vw1e-shots.mjs`).
+- **Scenes and Shots:** the bookmark icon (28px) becomes this button; at
   1440 their search box and count drop to a second line, as they already do
-  at 1280 (Q-B).
+  at 1280 (Q-B). While an edit is on screen the button is greyed with the
+  toolbar's other view controls (`EDIT_ORDER_REASON`), and the bar is not
+  drawn: the cut is the view (finding 2).
+- **What goes, what stays (finding 12):** the old menus
+  (`AssetSavedViewsDropdown`, Levels' and Experiences' `SavedViewsDropdown`,
+  `SceneSavedViewsDropdown`), Assets' *Save current view* dialog and the
+  other two tables' inline save rows go, their classes with them in the same
+  commit (the lane guards demand it). The thumbnail-size and card-size
+  triples stay as the tab's own state, as the search does (Q8: a view does
+  not remember the picture or card size).
 
 ### 4.2 The Views dropdown
 
@@ -281,6 +301,24 @@ live region.
   grouping made with *Create grouping* shows while empty whenever its items
   are live (§4.11), so a new one is there to drag into at once; the switch
   hides only the empty single items, combinations and "No …".
+  **The other tables (VW1e step 0, §11 round 6, finding 11):** the switch
+  starts on for every field of all five (Q-I), and with it off the empty
+  groups are: Assets by type every asset type, by status every status, by
+  phase every phase and "No phase", by scene or shot every live item of the
+  active shot list and "No …", by level or experience every live item and
+  "No …"; Levels and Experiences by asset every live asset in the Assets
+  table's order and "No asset", by status every status; Scenes by type or
+  status every option; Shots by scene every scene of the list on screen
+  (and "Unlinked shots"), by status, type, time of day, framing or camera
+  movement every option and "Unset". An asset in a scene of another shot
+  list sits in that scene's group after the active list's singles (the
+  Tasks table's rule). **In a Gallery** the card reads *Group by* and the
+  default is the Gallery's own (`hideEmptyDefault(layout, field)` takes the
+  real layout, finding 6); **every Gallery shows the view's groups as the
+  Assets Gallery does**: a band per group, collapsible, the table's group
+  toggle, so one grouping reads the same in both layouts — the Levels,
+  Experiences and Scenes Galleries, which flatten the groups today, gain the
+  band.
 - **Fields** (Q6, Q7, Q-E, Q-J): every field of the table in the view's
   order, each a row: a drag handle button, the field's name and an eye
   switch ("Show <field>"); *Move up* / *Move down* among the hover actions.
@@ -302,7 +340,49 @@ live region.
   listed there. Her Q-E words ("allow the user to select what shows in the
   cards") are what is kept; "in that order" waits for a card that takes any
   field (§9). Because the list is one, a field hidden on the Board is hidden
-  in the table too, and the other way round.
+  in the table too, and the other way round. Her Q-P2 of 2026-10-25 ("One
+  list for both (Recommended)") confirms it.
+  **The columns in front of the name (VW1e step 0, finding 1):** the
+  description names them, in their order (`leading: [{ key, label }]`):
+  Assets `thumbnail` (Picture); Scenes `expand` (Shots arrow), `thumbnail`,
+  `scene_number`; Shots `thumbnail`, `shot_number`. The view keeps which
+  show (`config.leading`, §5.1): `effectiveLeading` reads it over the
+  table's leading keys (an unknown key ignored, an unlisted one shown) and
+  `leadingToStore` keeps `[]` while every one shows. A hidden one is a change
+  for now like any other (`sameEffect` compares it; `useTableView` hands it
+  the leading keys). In the Fields card they are the rows above the name,
+  each with its switch and no handle or move buttons; the summary counts
+  them; *Show all* / *Hide all* touch them; the table drops the column's head
+  and cells. A number that is also a sort (`scene_number`, `shot_number`) is
+  one key: a leading column and a sortable field with no column of its own.
+  The Assets card's picture block is the card itself (its status and its
+  hover tools live in it) and stays when the column is hidden.
+  **The Gallery (VW1e step 0, finding 6):** the card branch is the Board's
+  and the Gallery's alike (`layout !== 'table'`), from one list (Q-P2). Each
+  card keeps its own fixed lines and its own order, and the card lists only
+  the fields it has a place for: Assets `status`, `type`, `phase_id`,
+  `tasks`; Levels and Experiences `status`, `description`; Scenes
+  `description`, `type`, `time_of_day`, `status`, `runtime`; Shots
+  `description`, `shot_number`, `status`, `duration`, `frame_count`,
+  `takes`. A card line with no column (a scene's shot count) is not offered.
+  *(VW1e as built: the Shots card's number is the leading column's, not a
+  field: the description lists it in `cardLeading: ['shot_number']`, and the
+  Card fields list it where the card draws it, after the description, with
+  its switch and no handle (code review round 1, R1-7), and *Show all* /
+  *Hide all* reach it; hiding the Number in the table hides it on the cards
+  too, one list as Q-P2 says.)*
+  **The Scenes table's nested shot rows (finding 7):** the nest keeps its own
+  order. A nested column with a scene column of the same key (the picture,
+  the number, Status, Time of day, Type, Description, Frames) shows when
+  that column shows, and Duration follows Runtime. The three nest-only
+  columns — Takes, Framing, Camera movement — are listed in the Scenes
+  Fields card after the scene fields as nest-only rows ("Framing (shots)"),
+  each with its switch, not movable: one list, no third one. A Scenes view
+  that hides the Shots arrow is a scenes-only table: no nests and no nested
+  ticks. With the number column hidden, the list drag's grip (S3c step 6)
+  moves to the name cell before its words, in the nest and in the shot table
+  alike, so List order's drag is never lost to a view. The nest row's span
+  and its least width follow the columns on screen.
 
 ### 4.4 The *changed for now* bar (Q3c, Q-A3, Q3d)
 
@@ -511,23 +591,36 @@ cards naming every asset (VW1b tests them).
 - The two fixtures that pinned the wrong field (an asset's `level_id` in
   `rabbitEntityViewsRender.test.jsx`) move to `level_ids` /
   `experience_ids`.
-- Each count is a field a view can hide (VW1d, VW1e).
+- Each count is a field a view can hide (VW1d, VW1e). **VW1e step 0 (§11
+  round 6, finding 13):** every computed column is a field under its own
+  key — Assets `tasks`; Levels and Experiences `assets`, `tasks`; Scenes
+  `runtime`, `frames`; Shots `duration`, `frame_count`, `takes` — neither
+  filterable nor groupable, sortable as a number; the Takes column exists
+  while the backend keeps takes, and a view that lists it keeps its place
+  while it is absent (`fieldsToStore`). **On the cloud** a level's and an
+  experience's Assets count reads the assets' links since 0099 (§4.11).
 
 ### 4.8 The defects fixed (Q21)
 
 1. A new filter row filters nothing until it has a value, and *Filter (n)*
    counts only complete rows.
 2. Changing a row's field resets its condition and value.
-3. Scenes and Shots each keep their own filters, sorts and grouping.
-4. Ticked rows that a filter or search hides are unticked.
+3. Scenes and Shots each keep their own filters, sorts and grouping (two
+   lists of views, Q16; §6 says what the Scenes step takes apart).
+4. Ticked rows that a filter or search hides are unticked. **VW1e step 0
+   (finding 9):** the Scenes and Shots tables have done so since S3b (R1-05,
+   R2-04); the Assets table and the Levels and Experiences tables gain the
+   same rule (a selection holds only rows the table shows), each group's
+   table its own where they are grouped.
 5. The Views dropdown and its menus work by keyboard and Escape closes them:
    P1-08 closes for the five tables (it stays for Expenses and Team, Q19).
 
 Recorded in `docs/OUTSTANDING.md`, not fixed: the Tasks CSV export's
 missing columns; the Expenses *Linked task* filter's "Untitled"; grouping
 Tasks by Phase or Assignee dropping a task whose value is not in the
-project's list; Assets sorting the provider's array in place; the desktop's
-browser storage starting empty at every launch.
+project's list; the desktop's browser storage starting empty at every
+launch. (Assets sorting the provider's array in place was on this list; the
+shared sort, which sorts a copy, replaces it in VW1e: finding 16.)
 
 ### 4.9 Keyboard, focus and motion
 
@@ -594,6 +687,25 @@ browser storage starting empty at every launch.
   cases; its asset-only numbers stand.
 - **Bid's alignment** keys on `data-col="bid"`, on Bid's head cell and on
   every row's Bid cell (the key dates' rows too), not on `:last-child`.
+- **The other five (VW1e step 0, §11 round 6, finding 8).** The bullets
+  above describe the Tasks sheet; these tables size otherwise, each by its
+  own rule. **Assets, Levels, Experiences:** the name takes the remainder up
+  to its maximum (360px) and Description is the one growable column (it
+  takes the spare past the name's maximum, FX8); the fixed sum
+  (`--rb-asset-fixed`, `--rb-ent-fixed`) is set inline on the table's
+  wrapper from the columns on screen, the leading picture included; with
+  Description hidden the wrapper says `data-grow="none"` and the table is
+  `width: min(100%, fixed + the name's maximum)`, so no column stretches.
+  **Scenes and Shots:** the name is a fixed column (308px) and Description is
+  the auto column; the table's least width, and the nest's, is set inline
+  from the columns on screen; with Description hidden the table is `width:
+  min(100%, fixed)`. Every spanning cell's span (a group's band, an Add row,
+  the nest row) is the number of columns on screen. Each inline property is
+  one pure function's output and one `STYLES_ALLOWED` entry with a control
+  in its lane's guard (the Tasks precedent; the Scenes guard's "no style"
+  rule gains that one entry). The tests: each table with every growable
+  column hidden holds the name at its maximum or less, and with every column
+  shown checks the least width.
 
 ### 4.11 Combination groups and *Create grouping* (Q-D, Q-D1–D5, Q-M3)
 
@@ -628,6 +740,18 @@ browser storage starting empty at every launch.
   row is in writes nothing and shows no toast; where the backend keeps no
   items a group is one item or none and the drop writes that single field
   (VW1m, step 0 review finding 15). A seat that cannot write cannot drag.
+  **On the other three tables (VW1e step 0, §11 round 6, finding 3)** the
+  drag is new: a row is draggable for a seat that may write, carrying its id
+  in `dataTransfer` (`carried(e)`), and a group's band and every row of the
+  group are the drop target (the Tasks table's group shape). On **Assets**
+  the row's own field is written: one `updateAsset(id, { <kind>_ids:
+  group.ids })` ("No …": `[]`) inside `runWithUndoToast`. On **Levels and
+  Experiences** the items live on the ASSETS: a level dropped on "Asset A,
+  Asset B" writes the level into A's and B's `level_ids` and out of every
+  other live asset's that held it (an asset in the trash keeps its link,
+  Q-N4), every write in one batch inside `runWithUndoToast`, so one toast
+  takes the whole move back, and a move stopped part way says so and offers
+  its toast. A Gallery card is not dragged (§9).
 - ***Create grouping*** (VW1d, with its data in VW1c) (Q-D3): a toolbar button beside the Group dropdown,
   shown only while the table is grouped by a linked kind, hidden from a seat
   that cannot write (Q-F). It opens the kit `Dialog` "Create grouping":
@@ -657,11 +781,36 @@ browser storage starting empty at every launch.
 - **Removed from the group's *…* menu** (Q-D5): *Remove grouping* asks
   first; rows keep their items, and a group that still holds rows stays as
   any combination with rows does.
-- **On the cloud** assets carry no level or experience links today (the
-  cloud adapter drops `level_ids` / `experience_ids`); Levels' and
-  Experiences' grouping by asset, and Assets' grouping by level or
-  experience, need them there too (her A9 rule), so the session that builds
-  those groupings adds them to the cloud.
+- **On the cloud** assets carried no level or experience links (the cloud
+  adapter dropped `level_ids` / `experience_ids`); Levels' and Experiences'
+  grouping by asset, and Assets' grouping by level or experience, need them
+  there too (her A9 rule). **VW1e (finding 10), migration 0099 / suite 102**
+  (the controller's numbers; measured on wilson-dev first: `assets` had
+  `scene_ids` and `shot_ids` only): `assets.level_ids` and `experience_ids`,
+  0084 §6c's shape (uuid[] NOT NULL DEFAULT '{}', no foreign key, the orphan
+  sweep a statement in the header); no policy, grant or broadcast change (the
+  table-wide grants and the four forced policies cover a column; the
+  broadcast sends the row). The adapter's allowlist gains both; a client
+  ahead of its database learns their absence from one extra one-row read of
+  the two columns in `loadProject` (an empty project's rows say nothing, so
+  0084's free probe has no twin here) and strips them from asset writes
+  while absent, loudly; a write before the first load is refused whole, as
+  0084's note accepts. *(VW1e code review round 1, R1-9: the screens learn
+  it too, `assetLevelLinksAvailable()` read per load as `tableViewsAvailable`
+  is; while absent, the drag into a level or experience group, and Create
+  grouping there, are greyed with the reason, on Assets grouped by Level or
+  Experience and on Levels and Experiences grouped by Asset; round 2, R2-2:
+  so are the asset window's Levels and Experiences, its sidebar's level and
+  experience links, and a level's or experience's window's asset links; R2-5:
+  the table's live region says the reason once, a greyed control's being
+  out of reach of a screen reader.)* The move to the cloud sends an asset WITHOUT its level
+  and experience links (the runner carries neither kind) and counts the
+  assets that named one in its report as left behind, beside the groupings
+  and filters it already counts. The desktop and the fixtures keep the links
+  as they are; a level deleted leaves its id in the arrays (the 0084
+  trade-off) and every reader resolves against live rows (`isLive`). Suite
+  102 joins `rls.yml`'s replay line; `assets` keeps `03_assets.sql` in the
+  coverage guard.
 
 ---
 
@@ -707,7 +856,13 @@ browser storage starting empty at every launch.
   tables' keys come with their descriptions (VW1e). **A field that is not a
   column** (VW1d step 0, finding 5): a table's description may name
   sortable fields that have no column — the Tasks table's *Created*
-  (`created_at`) — under their own key; nothing else in a config names one.
+  (`created_at`) — under their own key. **VW1e step 0 (§11 round 6, findings
+  1, 3 and 5):** or a field that groups and filters with no column — the
+  kinds Assets, Levels and Experiences are grouped by (her Q12: no new
+  columns), and the Shots table's `scene`, a shot's one scene, *All*'s
+  grouping (its groups are single scenes, never combinations); or a number
+  that is a leading column (`scene_number`, `shot_number`), which `leading`
+  shows or hides. Nothing else in a config names one.
   Of several sorts, the FIRST does what today's one sort does besides
   ordering the rows: it orders the Phase groups by their own dates or names,
   and a date sort puts the key dates among the rows.
@@ -1013,6 +1168,29 @@ change is its own step** (the plan's unsafe file): its two modes' state,
 component's two tables, and its dropdown, save row and saved-view handlers
 go.
 
+**VW1e step 0 (§11 round 6, finding 2), what the Scenes step takes apart:**
+two `useTableView` calls (`scenes`, `shots`); the content tabs choose which
+one the Views button, the Filter strip, the bar and the body read (Q16), and
+are not part of a view. The tab's own `filters`, `sortField`, `sortDir`,
+`groupBy`, `shotGroupBy` and `viewMode` go: each mode reads its view's
+filters, sorts, grouping and layout, so switching the content tab may change
+the layout (Q8: each list's view carries its own). `search`, `thumbSize`,
+`gallerySize` and the collapsed groups stay the tab's (Q8). *List order* is a
+list on screen and NO sort in the view of the mode on screen; it keeps
+gating `shotsByScene`'s order (the nests' and the shot table's), the list
+drag (and, for the shot table, a grouping by `scene`), Move up / Move down
+and `shotGroups`' scene order. While an edit is on screen the Views button
+is greyed with `EDIT_ORDER_REASON` like the Filter button, and the bar is not
+drawn. Only the hook of the list on screen says a teammate's delete
+(finding 14); the Sort card and summary say *List order* for the empty sort
+while a list is on screen (a description's `defaultOrderLabel`).
+
+**The seat (finding 4):** each table hands the shared piece the Tasks
+table's seat rule, `canOnProject(writeGateCtx, 'project.entity.write')`
+(Q2). Levels and Experiences compute it in VW1e for the views, the drag and
+*Create grouping*; their other controls' gate stays the gap it is (recorded
+in OUTSTANDING, not this session's).
+
 ---
 
 ## 7. The build, in order
@@ -1188,9 +1366,18 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
   (§4.11).
 - **A cell and its group's band can name the same items in two orders**: the
   cell follows the task window's Sort (Q10), the band the display order
-  (§4.11).
-- **On the cloud a level's or experience's Assets count is 0** until VW1e
-  carries assets' level and experience links there (§4.7).
+  (§4.11); her Q-P3 of 2026-10-25 keeps it. The Tasks table only: the other
+  tables have no item cells (Q12), and their bands read in the display order.
+- **On the cloud a level's or experience's Assets count was 0** until 0099
+  (VW1e) carried assets' level and experience links there (§4.7); a
+  database without 0099 still reads 0, and the asset window's level picks
+  are not kept there (the adapter says so in the console; every control that
+  would write them is greyed, saying why).
+- **A Gallery card is not dragged between groups** (VW1e): the table's rows
+  are; the Gallery shows the groups.
+- **Levels, Experiences and Scenes, grouped, keep one selection per group**:
+  each group is its own table, as before (VW1e step 0, finding 9).
+- **A Scenes view without the Shots arrow** shows no nests (VW1e).
 - **Budget's Expenses and the Team tab** keep their old saved views (Q19)
   and their keyboard gap (P1-08 for those two).
 
@@ -1207,7 +1394,7 @@ asked in that session.
 
 ---
 
-## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0; §5 at VW1c's; VW1d's parts at its step 0)
+## 11. The review rounds (the design of 2026-10-13; VW1b's parts at its step 0; §5 at VW1c's; VW1d's and VW1e's parts at their step 0)
 
 The two rounds reviewed the design before her answers of 2026-10-16. Their
 findings and corrections stand where her later answers did not replace
@@ -1326,6 +1513,46 @@ written unless `ready`); Escape's order between Popover, Menu and Dialog;
 §4.10's Tasks half as built; `groupingKeyOf` matching the combination key
 and the Timeline's; defects 1 and 2 where §4.8 says; the three vocabularies;
 the dialog's "already exists" before any request; Q-G3 as one call.
+
+### Round 6 (VW1e's step 0: one Fable reviewer, read-only, 2026-10-25, against the code at `e2e1ecf5`) — 16 findings
+
+§4.1's other tables, §4.3's leading columns, Gallery and nested shot rows,
+§4.8's defects 3 and 4, §4.10, §4.11's Assets, Levels and Experiences halves
+and the cloud's links, §5.1, §6's Scenes step and §9, against the code VW1d
+left and her answers, batch 17 (Q-P1 to Q-P3) included. Every claim a
+correction rests on was read again by hand first (`sameEffect` without
+`leading`, the Scenes tab's shared `sortField` and its readers, the three
+tables with no drag, EntityListView's missing gate, the Shots *All*
+grouping, the sheets' static sums); the cloud's columns were measured on
+wilson-dev by query before the review. Corrected above.
+
+| # | Severity | Finding | Taken |
+|---|---|---|---|
+| 1 | high | `config.leading` is stored but `sameEffect` ignores it: a hidden picture would show without the bar, never be saved, and be dropped silently by a teammate's save; the Fields card has no leading rows | the leading rule, its keys and the Fields card's rows (§4.3, §5.1); the Assets card's picture block stays |
+| 2 | high | defect 3 understates the Scenes step: one `filters`, `sortField`, `sortDir` and `viewMode` serve both modes, and `sortField` gates List order, the nests' order, the drag and Move up / Move down; nothing said of the edit on screen | two hooks, the readers named, List order from the view on screen, the button greyed and the bar not drawn during an edit (§6, §4.1) |
+| 3 | high | the three tables have no drag, and a Levels / Experiences drop writes many ASSETS | the drag built on the three, the assets' writes in one batch inside the undo toast (§4.11) |
+| 4 | high | EntityListView has no write gate at all | the Tasks seat rule computed there for the views, the drag and Create grouping; the rest recorded (§6) |
+| 5 | medium-high | the Shots *All* view groups by `scene`, which is no column, and §5.1 forbade it | a field may group with no column (§5.1) |
+| 6 | medium | the Gallery's cards are not the Board's; the Group card means nothing where a Gallery flattens the groups | the cards' fields per table, the card branch for both layouts, every Gallery shows the bands (§4.3). **Not taken:** dragging a card (a §9 limit) |
+| 7 | medium | the nested rows had no rule; hiding the arrow loses the nests, hiding the number loses the cut drag's grip; the nest's span is a literal | the nest's rule, nest-only rows, the grip to the name cell, spans from the columns on screen (§4.3). **Not taken:** the grip in the picture cell first (the name cell is one place for both) |
+| 8 | medium | §4.10 describes the Tasks sheet; the five size otherwise and their sums are static | a rule per table, inline properties through the guards (§4.10) |
+| 9 | medium | defect 4 remains on Assets and Levels / Experiences | the rule there (§4.8); per-group selections a §9 limit |
+| 10 | medium | the cloud links: no migration, no probe, the move inserting desktop assets raw | 0099 / suite 102, the probe, the move without the links and counting them, the replay line (§4.11) |
+| 11 | medium | the empty groups per field were unsaid for these tables | the list (§4.3) |
+| 12 | low | what goes from the toolbars and which pins break; one width needs no keying | §4.1 |
+| 13 | low | the computed columns' keys and sorts | §4.7 |
+| 14 | low | "Default order" where the empty sort is *List order*; Create grouping says "tasks"; two hooks on one tab both toast a delete | `defaultOrderLabel`, the row noun, only the hook on screen speaks (§6) |
+| 15 | low | Q-P3 has no cell to reach on these tables | §9 |
+| 16 | low | the Assets in-place sort goes with the shared sort | struck from §4.8's list; OUTSTANDING says so |
+
+Found sound by the reviewer: `LAYOUTS_BY_TABLE`, `GROUPING_KINDS` and 0098's
+pair check; `defaultViewConfig('shots')`; `readViewConfig` / `writeViewConfig`
+already carrying `leading`; per-table drafts, last-used entries and refusals
+supporting two lists on one tab with no provider change; `buildItemLookup`
+enough for the combination groups and Create grouping; the desktop's and the
+fixtures' asset writes keeping any field; the old keys' four readers and
+Expenses' and Team's distinct keys; the Scenes tables' pruning of hidden
+ticks.
 
 ### What rounds 1 and 2 found sound
 

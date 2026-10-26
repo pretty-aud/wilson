@@ -46,6 +46,7 @@ import {
 // verbs greyed with the reason (S3b-01); a linked scene or shot names the
 // shot list that holds it; the pickers offer the active list by default.
 import GatedAction from '../../../permissions/GatedAction'
+import { ASSET_LINKS_ABSENT_REASON, linksKept } from '../views/tableViews/assetsTableView'
 import LinkHome, { useHomeIndex } from '../views/scenes/LinkHome'
 import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
 // VW1m (2026-10-16): the Items table's Sort is the shot lists' named button
@@ -185,6 +186,12 @@ export default function RelationsPanel({
 
   // Field name on asset for this entity type
   const assetField = `${entityType}_ids` // e.g. "scene_ids"
+  // VW1e code review round 2 (R2-2): a level's or experience's assets are
+  // its links on the ASSETS, which a cloud without 0099 does not keep: the
+  // add and the removes are greyed there, saying why (as the drag is, R1-9).
+  const kept = linksKept(ctx, entityType)
+  const canLink = canWrite && kept
+  const linkReason = canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason
   // Field name on task for this entity type
   const taskField = `${entityType}_id`   // e.g. "scene_id"
 
@@ -215,7 +222,7 @@ export default function RelationsPanel({
 
   // Add asset relation (refused for a seat that may not write: S3b-01)
   function addAssetRelation(assetId) {
-    if (!canWrite) return
+    if (!canLink) return
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
     const current = asset[assetField] || []
@@ -226,7 +233,7 @@ export default function RelationsPanel({
 
   // Remove asset relation
   function removeAssetRelation(assetId) {
-    if (!canWrite) return
+    if (!canLink) return
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
     const current = asset[assetField] || []
@@ -250,8 +257,8 @@ export default function RelationsPanel({
           collapsed={collapsedAssets}
           onToggle={() => setCollapsedAssets(!collapsedAssets)}
           actions={(
-            <GatedAction allowed={canWrite} reason={writeReason}>
-              <IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => { if (canWrite) setShowAssetPicker(true) }} />
+            <GatedAction allowed={canLink} reason={linkReason}>
+              <IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => { if (canLink) setShowAssetPicker(true) }} />
             </GatedAction>
           )}
         >
@@ -267,7 +274,7 @@ export default function RelationsPanel({
                 {a.name || 'Untitled'}
               </span>
               <StatusWord status={a.status || 'not_started'} />
-              <RemoveButton title="Remove relation" allowed={canWrite} reason={writeReason}
+              <RemoveButton title="Remove relation" allowed={canLink} reason={linkReason}
                 onClick={e => { e.stopPropagation(); removeAssetRelation(a.id) }} />
             </div>
           ))}
@@ -812,15 +819,17 @@ export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason
     return experiences.filter(e => ids.includes(e.id))
   }, [experiences, asset?.experience_ids])
 
+  // R2-2: an asset's levels and experiences only where the backend keeps them.
+  const fieldKept = (field) => linksKept(ctx, field === 'level_ids' ? 'level' : field === 'experience_ids' ? 'experience' : field)
   function toggleRelation(field, id) {
-    if (!canWrite) return
+    if (!canWrite || !fieldKept(field)) return
     const current = asset?.[field] || []
     const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
     ctx?.updateAsset?.(asset.id, { [field]: next })
   }
 
   function removeRelation(field, id) {
-    if (!canWrite) return
+    if (!canWrite || !fieldKept(field)) return
     const current = asset?.[field] || []
     ctx?.updateAsset?.(asset.id, { [field]: current.filter(x => x !== id) })
   }
@@ -967,9 +976,9 @@ export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason
             collapsed={collapsed[sec.key]}
             onToggle={() => toggle(sec.key)}
             actions={(
-              <GatedAction allowed={canWrite} reason={writeReason}>
+              <GatedAction allowed={canWrite && fieldKept(sec.field)} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason}>
                 <IconButton size="sm" Icon={Plus} title={`Add ${sec.label.toLowerCase()} relation`}
-                  onClick={() => { if (canWrite) setShowPicker(sec.key) }} />
+                  onClick={() => { if (canWrite && fieldKept(sec.field)) setShowPicker(sec.key) }} />
               </GatedAction>
             )}
           >
@@ -982,7 +991,7 @@ export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason
                   {item.name || 'Untitled'}
                 </span>
                 <StatusWord status={item.status || 'not_started'} />
-                <RemoveButton title="Remove relation" allowed={canWrite} reason={writeReason} onClick={() => removeRelation(sec.field, item.id)} />
+                <RemoveButton title="Remove relation" allowed={canWrite && fieldKept(sec.field)} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason} onClick={() => removeRelation(sec.field, item.id)} />
               </div>
             ))}
           </RelSection>

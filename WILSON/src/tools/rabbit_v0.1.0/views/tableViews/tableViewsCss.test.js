@@ -102,11 +102,11 @@ describe('the sheet keys on values the JSX can produce', () => {
 
 /* ── 4b. values set from a variable ─────────────────────────────────────────
    Each setter is declared with the values it can take. The Views button's
-   `data-table` is its table's key: the Tasks table's today (VW1e adds its
-   tables, each with its width). The grids' row and column marks and the
-   parts' names key no rule. */
+   `data-table` is its table's key, any of the six; since her Q-P1 (VW1e,
+   2026-10-25: 136px on every table) it keys no rule. The grids' row and
+   column marks and the parts' names key none either. */
 const VARIABLE = [
-  { classes: ['rb-tv-button'], attr: 'data-table', set: '{description.tableKey}', domain: () => ['tasks'], keyed: true },
+  { classes: ['rb-tv-button'], attr: 'data-table', set: '{description.tableKey}', domain: () => ['tasks', 'assets', 'scenes', 'shots', 'levels', 'experiences'], keyed: false },
   { classes: ['rb-tv-row'], attr: 'data-row', set: '{i}', keyed: false },
   { classes: ['rb-tv-handle'], attr: 'data-col', set: '{...}', keyed: false },
   { classes: ['rb-tv-part'], attr: 'data-part', set: '{p.part}', keyed: false },
@@ -117,11 +117,23 @@ describe('a data-* set from a variable: declared, and keyed only where a rule ne
     const want = new Set(VARIABLE.map(({ classes, attr }) => `${classes.join(' ')} ${attr}`))
     expect(found.filter(k => !want.has(k))).toEqual([])
   })
-  it('the Views button\'s width keys on every table that has the button, and on nothing else', () => {
+  it('every keyed setter\'s values each meet a rule', () => {
     for (const { classes, attr, domain, keyed } of VARIABLE) {
       if (!keyed) continue
       expect(unmatchedValues(sheet, classes[0], attr, domain()), classes[0]).toEqual([])
     }
+  })
+  // Her Q-P1 (2026-10-25, "Narrower, 136px (Recommended)"): one width for
+  // the button on every table, so no table's rule can drift from the rest.
+  it('the Views button is 136px on every table: one rule, and no table keys a width of its own', () => {
+    const widths = rulesOf(sheet).filter(r => /rb-tv-button(?![\w-])/.test(r.sel) && /(^|;)\s*width\s*:/.test(r.body))
+    expect(widths.map(r => r.sel.trim())).toEqual(['.ui-btn.rb-tv-button'])
+    expect(widths[0].body).toMatch(/(^|;)\s*width\s*:\s*136px/)
+    expect(sheet).not.toMatch(/rb-tv-button\[data-table/)
+  })
+  it('CONTROL: a table\'s own width rule is caught', () => {
+    const extra = `${sheet}\n@layer components { .ui-btn.rb-tv-button[data-table="assets"] { width: 180px; } }`
+    expect(rulesOf(extra).filter(r => /rb-tv-button(?![\w-])/.test(r.sel) && /(^|;)\s*width\s*:/.test(r.body))).toHaveLength(2)
   })
 })
 

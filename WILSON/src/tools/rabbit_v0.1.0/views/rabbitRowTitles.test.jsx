@@ -348,9 +348,11 @@ describe('FX8: the title columns — the title takes what the others leave up to
     'var(--rb-asset-date)', 'var(--rb-asset-date)', 'var(--rb-asset-col-desc)', 'var(--rb-asset-tasks)']
   const ASSET_MIN = (rulesOf(files).find(({ sel }) => sel === '.rb-asset-table-wrap .ui-table.rb-asset-table').body.match(/min-width:\s*([^;]+);/) || [])[1]
   it('Assets: 292px at 1280, its 360px maximum at 1440 and 1920 with Description taking the rest; the minimum width unchanged with and without the history button', () => {
-    const src = read('ProjectAssetsView.jsx')
+    // VW1e: the columns are the table's description's (assetsTableView.js).
+    const src = read('tableViews/assetsTableView.js')
     expect(src).toContain("width: 'var(--rb-asset-col-desc)'")
     expect(src).not.toMatch(/key: '_actions'/)
+    expect(read('ProjectAssetsView.jsx')).not.toMatch(/key: '_actions'/)
     const at = (W, history = true, sb = 0) => {
       const px = widthAt(files, '.rb-asset-table-wrap', W, history ? '.rb-asset-table-wrap[data-history="true"]' : null)
       return { px, ...layout(px, ASSET_COLS, ASSET_MIN, W, sb) }
@@ -374,8 +376,9 @@ describe('FX8: the title columns — the title takes what the others leave up to
   const ENT_COLS = ['var(--rb-ent-check)', 'var(--rb-ent-status)', 'var(--rb-ent-assets)', 'var(--rb-ent-tasks)', 'var(--rb-ent-desc)']
   const ENT_MIN = (rulesOf(files).find(({ sel }) => sel === '.rb-ent-table-wrap .ui-table.rb-ent-table').body.match(/min-width:\s*([^;]+);/) || [])[1]
   it('Levels and Experiences: the name at its 360px maximum from 1024 up, Description the rest; the minimum width unchanged', () => {
-    const src = read('EntityListView.jsx')
-    expect(src).toContain('<Th width="var(--rb-ent-desc)">Description</Th>')
+    // VW1e: the columns are the table's description's (entityTableView.js).
+    const src = read('tableViews/entityTableView.js')
+    expect(src).toContain("{ key: 'description', label: 'Description', width: 'var(--rb-ent-desc)'")
     const at = (W) => { const px = widthAt(files, '.rb-ent-table-wrap', W); return { px, ...layout(px, ENT_COLS, ENT_MIN, W) } }
     for (const W of [1000, 1256, 1416, 1896]) close(at(W).title, 360)
     close(at(1416).px('var(--rb-ent-desc)'), 1416 - 36 - 152 - 72 - 64 - 360)

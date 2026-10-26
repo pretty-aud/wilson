@@ -859,6 +859,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // to read them.
     tableViewsAvailable() { return true },
     tableViewsLoadError() { return null },
+    // VW1e (0099; code review round 1, R1-9): the fake cloud has 0099, so an
+    // asset's levels and experiences are kept.
+    assetLevelLinksAvailable() { return true },
     async listTableViews(projectId) {
       return clone(viewsIn(projectId).sort(compareViewRows))
     },

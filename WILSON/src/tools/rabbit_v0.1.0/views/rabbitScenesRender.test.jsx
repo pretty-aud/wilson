@@ -391,14 +391,20 @@ describe('surface 6a', () => {
       .map((el) => el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent.trim())
     // R3-25's sixteen: content mode (2), Filter, sort, its direction, group,
     // view mode (2), the thumbnail triple OR the card triple, the FPS badge,
-    // saved views, search, the count, New scene, New shot.
-    const before = ['Scenes', 'Shots', 'Filter', 'Sort', 'Sorted ascending — reverse', 'Group', 'Table', 'Gallery']
-    const after = ['24 fps', 'Saved views', 'Search', '2/2', 'New scene', 'New shot']
+    // saved views, search, the count, New scene, New shot. VW1e: the
+    // bookmark is the Views button (her Q5), and the direction shows while
+    // the view has a sort, the one it reverses.
+    const before = ['Scenes', 'Shots', 'Filter', 'Sort', 'Group', 'Table', 'Gallery']
+    const after = ['24 fps', 'Views: All', 'Search', '2/2', 'New scene', 'New shot']
     expect(names()).toEqual([...before, 'sm thumbnails', 'md thumbnails', 'lg thumbnails', ...after])
     fireEvent.click(screen.getByRole('tab', { name: 'Gallery' }))
     expect(names()).toEqual([...before, 'sm cards', 'md cards', 'lg cards', ...after])
-    // The two pairs are the kit Tabs, each pointing at the region it switches.
-    for (const label of ['Content', 'View']) {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
+    const sorted = [...before.slice(0, 4), 'Sorted ascending — reverse', ...before.slice(4)]
+    expect(names()).toEqual([...sorted, 'sm cards', 'md cards', 'lg cards', ...after])
+    // The two pairs are the kit Tabs, each pointing at the region it switches
+    // (VW1e: the second is "Layout", the view's own, §4.9).
+    for (const label of ['Content', 'Layout']) {
       const tabs = within(screen.getByRole('tablist', { name: label })).getAllByRole('tab')
       expect(tabs).toHaveLength(2)
       for (const tab of tabs) expect(document.getElementById(tab.getAttribute('aria-controls'))?.getAttribute('role'), label).toBe('tabpanel')
@@ -684,7 +690,12 @@ describe('surface 6b', () => {
       expect(gallery().getAttribute('data-card')).toBe(s)
       expect(screen.getByRole('button', { name: `${s} cards` }).getAttribute('aria-pressed')).toBe('true')
     }
+    // VW1e (Q16): the Shots table's view is its own, its layout with it
+    // (step 0 finding 2); the card size is the page's and carries.
     toShots()
+    expect(gallery()).toBeNull()
+    toGallery()
+    expect(gallery().getAttribute('data-card')).toBe('md')
     fireEvent.click(screen.getByRole('button', { name: 'lg cards' }))
     expect(gallery().getAttribute('data-card')).toBe('lg')
     // No card carries a size of its own: the sheet's widths, keyed on data-card.
@@ -702,6 +713,7 @@ describe('surface 6b', () => {
     // needs_revisions was magenta (#e879f9): the kit's warning.
     expect(cardOf('Cliff path').querySelector('.ui-status').getAttribute('data-tone')).toBe('warning')
     toShots()
+    toGallery()
     expect(cardOf('The cold lamp').querySelector('.ui-status').getAttribute('data-tone')).toBe('signal')
     // The ScenesView source no longer calls statusColor outside the two popups (6c's).
     const src = read('./ScenesView.jsx')
@@ -717,6 +729,7 @@ describe('surface 6b', () => {
     expect(cardsOf()).toHaveLength(2)
     expect(inlineColours(gallery())).toEqual([])
     toShots()
+    toGallery()
     expect(cardsOf()).toHaveLength(2)
     expect(inlineColours(gallery())).toEqual([])
     cleanup()
@@ -776,7 +789,8 @@ describe('surface 6b', () => {
     toGallery()
     fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
     const heads = [...gallery().querySelectorAll('.rb-scene-gallery-head')]
-    expect(heads.map((h) => h.querySelector('.rb-scene-group-label').textContent)).toEqual(['Final', 'In progress'])
+    // In the status list's order (VW1e code review round 2, R2-6; they were A to Z).
+    expect(heads.map((h) => h.querySelector('.rb-scene-group-label').textContent)).toEqual(['In progress', 'Final'])
     // A field group has no scene, so no Open.
     for (const h of heads) expect(within(h).queryByRole('button', { name: /^Open / })).toBeNull()
     expect(error.mock.calls.map((c) => String(c[0])).filter((m) => /unique "key"/.test(m))).toEqual([])
@@ -789,13 +803,14 @@ describe('surface 6b', () => {
     expect(empty?.getAttribute('role')).toBe('status')
     expect(empty.textContent).toBe('No scenes yet')
     toShots()
+    toGallery()
     empty = document.querySelector('.rb-scene-view > .ui-empty')
     expect(empty.querySelector('.ui-empty-title').textContent).toBe('No shots yet')
     // The gallery's never had the table's instruction line.
     expect(empty.querySelector('.ui-empty-body')).toBeNull()
   })
 
-  it('the filter strip: the same controls in the same order on the kit; Add filter adds a row, and each field acts as before', () => {
+  it('the filter strip: the view on screen\'s filters in the shared row (VW1e); Add filter adds a row, Done closes it, each field filters, and each table keeps its own (defect 3)', () => {
     page()
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
     const strip = () => document.querySelector('.rb-scene-filters')
@@ -804,12 +819,13 @@ describe('surface 6b', () => {
     expect(actions().map((b) => [b.textContent, b.classList.contains('ui-btn'), b.getAttribute('data-variant')]))
       .toEqual([['Add filter', true, 'secondary'], ['Done', true, 'ghost']])
     fireEvent.click(within(strip()).getByRole('button', { name: 'Add filter' }))
-    const rows = () => [...strip().querySelectorAll('.rb-scene-filter-row')]
+    const rows = () => [...strip().querySelectorAll('.rb-tv-filter-row')]
     expect(rows()).toHaveLength(1)
-    const named = (row) => [...row.children].map((el) => el.getAttribute('aria-label') || el.textContent.trim())
-    expect(named(rows()[0])).toEqual(['Where', 'Field', 'Condition', 'Value', 'Remove this filter'])
+    const named = (row) => [...row.children].filter((el) => el.getAttribute('aria-hidden') !== 'true')
+      .map((el) => el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent.trim())
+    expect(named(rows()[0])).toEqual(['Where', 'Field', 'Condition', 'Value: none chosen', 'Remove this filter'])
     // Every field the kit's small well; the remove the kit's danger IconButton.
-    for (const el of rows()[0].querySelectorAll('select, input')) {
+    for (const el of rows()[0].querySelectorAll('select, input, .rb-tv-filter-value')) {
       expect(el.classList.contains('ui-input'), el.getAttribute('aria-label')).toBe(true)
       expect(el.getAttribute('data-size')).toBe('sm')
     }
@@ -817,20 +833,21 @@ describe('surface 6b', () => {
     expect([remove.classList.contains('ui-iconbtn'), remove.getAttribute('data-danger')]).toEqual([true, 'true'])
     const row = () => within(rows()[0])
     const options = (name) => [...row().getByRole('combobox', { name }).options].map((o) => o.textContent)
-    expect(options('Field')).toEqual(['Status', 'Type', 'Time of day', 'Name'])
+    // The scenes' fields (Description joins them, a text field as on every table).
+    expect(options('Field')).toEqual(['Status', 'Type', 'Time of day', 'Name', 'Description'])
     expect(options('Condition')).toEqual(['is', 'is not', 'is empty', 'is not empty'])
-    // The choices in sentence case (they were "not started", "in progress"…).
-    expect(options('Value')).toEqual(['Select…', 'Not started', 'In progress', 'Pending review', 'Needs revisions', 'Approved', 'Final', 'Blocked', 'On hold', 'Omitted'])
-    // It filters as before: status is final leaves one scene of two.
-    fireEvent.change(row().getByRole('combobox', { name: 'Value' }), { target: { value: 'final' } })
+    // The choices ticked in the shared picker: status is final leaves one scene of two.
+    fireEvent.click(row().getByRole('button', { name: /^Value:/ }))
+    const picker = screen.getByRole('dialog', { name: 'Status: values' })
+    fireEvent.click(within(picker).getByRole('checkbox', { name: /^Final/ }))
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
     expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn'])
     expect(screen.getByRole('button', { name: 'Filter (1)' })).toBeTruthy()
     // A text field: its own conditions, a text value in the kit's small well.
     fireEvent.change(row().getByRole('combobox', { name: 'Field' }), { target: { value: 'name' } })
     expect(options('Condition')).toEqual(['contains', 'does not contain', 'is', 'is not', 'is empty', 'is not empty'])
-    fireEvent.change(row().getByRole('combobox', { name: 'Condition' }), { target: { value: 'contains' } })
     const value = row().getByRole('textbox', { name: 'Value' })
-    expect([value.classList.contains('ui-input'), value.getAttribute('placeholder')]).toEqual([true, 'Value…'])
+    expect(value.classList.contains('ui-input')).toBe(true)
     fireEvent.change(value, { target: { value: 'cliff' } })
     expect(rowNames(sceneTable())).toEqual(['Cliff path'])
     // "is empty" takes no value.
@@ -841,68 +858,55 @@ describe('surface 6b', () => {
     expect(rows().map((r) => r.firstElementChild.textContent)).toEqual(['Where', 'And'])
     fireEvent.click(within(rows()[0]).getByRole('button', { name: 'Remove this filter' }))
     expect(rows().map((r) => within(r).getByRole('combobox', { name: 'Field' }).value)).toEqual(['status'])
+    fireEvent.click(row().getByRole('button', { name: /^Value:/ }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Status: values' })).getByRole('checkbox', { name: /^Final/ }))
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    expect(document.querySelector('.rb-scene-count').textContent).toBe('1/2')
     fireEvent.click(within(strip()).getByRole('button', { name: 'Done' }))
     expect(strip()).toBeNull()
-    // The shots' strip offers the shots' fields, in their order.
+    // Defect 3: the Shots table keeps its own filters (none yet) and offers
+    // the shots' fields, in their order; the scenes' "status is final" is
+    // not its (the cold lamp, in progress, is on screen).
     toShots()
-    fireEvent.click(screen.getByRole('button', { name: 'Filter (1)' }))
+    expect(document.querySelector('.rb-scene-count').textContent).toBe('2/2')
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    expect(rows()).toHaveLength(0)
+    fireEvent.click(within(strip()).getByRole('button', { name: 'Add filter' }))
     expect([...within(strip()).getByRole('combobox', { name: 'Field' }).options].map((o) => o.textContent))
-      .toEqual(['Status', 'Type', 'Time of day', 'Framing', 'Camera movement', 'Name'])
+      .toEqual(['Status', 'Type', 'Time of day', 'Framing', 'Camera movement', 'Scene', 'Name', 'Description'])
     expect(inlineColours(strip())).toEqual([])
+    // CONTROL: back on Scenes its filter still holds.
+    fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    expect(screen.getByRole('button', { name: 'Filter (1)' })).toBeTruthy()
+    expect(document.querySelector('.rb-scene-count').textContent).toBe('1/2')
   })
 
-  it('the saved-views menu: the icon it was, named "Saved views"; a view\'s row loads it, its named delete deletes it, and the foot saves the current view', () => {
-    const shotCards = { id: 'v1', name: 'Shot cards, large', filters: [], sortField: '', sortDir: 'asc', groupBy: '', viewMode: 'gallery', gallerySize: 'lg', thumbSize: 'sm', contentMode: 'shots' }
-    const sceneCards = { id: 'v2', name: 'Scene cards, small', filters: [], sortField: '', sortDir: 'asc', groupBy: '', viewMode: 'gallery', gallerySize: 'sm', thumbSize: 'sm', contentMode: 'scenes' }
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify([shotCards, sceneCards]))
+  it('VW1e (her Q5, Q16, Q17): the bookmark is the Views button, the list of the table on screen; the old saved views are not carried over and their key goes', () => {
+    const old = [{ id: 'v1', name: 'Shot cards, large', filters: [], sortField: '', sortDir: 'asc', groupBy: '', viewMode: 'gallery', gallerySize: 'lg', thumbSize: 'sm', contentMode: 'shots' }]
+    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(old))
     page()
-    const button = screen.getByRole('button', { name: 'Saved views' })
-    expect([button.classList.contains('ui-iconbtn'), button.getAttribute('data-saved'), button.getAttribute('aria-expanded')]).toEqual([true, 'true', 'false'])
-    const menu = () => document.querySelector('.rb-scene-menu')
-    const mode = () => ['Scenes', 'Shots', 'Table', 'Gallery'].filter((n) => screen.getByRole('tab', { name: n }).getAttribute('aria-selected') === 'true')
-    expect(mode()).toEqual(['Scenes', 'Table'])
-    fireEvent.click(button)
-    expect(button.getAttribute('aria-expanded')).toBe('true')
-    expect([...menu().querySelectorAll('.rb-scene-menu-list > .rb-scene-menu-item')].map((r) => r.textContent)).toEqual(['Shot cards, large', 'Scene cards, small'])
-
-    // Delete: the view's own named button. The view goes, nothing loads, the menu stays.
-    fireEvent.click(within(menu()).getByRole('button', { name: 'Delete the saved view "Shot cards, large"' }))
-    expect(JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY)).map((v) => v.id)).toEqual(['v2'])
-    expect(mode()).toEqual(['Scenes', 'Table'])
-    expect([...menu().querySelectorAll('.rb-scene-menu-list > .rb-scene-menu-item')].map((r) => r.textContent)).toEqual(['Scene cards, small'])
-
-    // Load: a click on the view's row. The menu closes and the view is on show.
-    fireEvent.click(within(menu()).getByText('Scene cards, small'))
-    expect(menu()).toBeNull()
-    expect(mode()).toEqual(['Scenes', 'Gallery'])
-    expect(gallery().getAttribute('data-card')).toBe('sm')
-
-    // Delete the last: none saved, the glyph back to the ink.
-    fireEvent.click(button)
-    fireEvent.click(within(menu()).getByRole('button', { name: 'Delete the saved view "Scene cards, small"' }))
-    expect(menu().querySelector('.rb-scene-menu-empty').textContent).toBe('No saved views yet')
-    expect(button.getAttribute('data-saved')).toBe('false')
-
-    // Save current view: the menu closes and the inline row under the toolbar opens, as before.
-    fireEvent.click(within(menu()).getByRole('button', { name: 'Save current view' }))
-    expect(menu()).toBeNull()
-    const name = screen.getByRole('textbox', { name: 'View name' })
-    fireEvent.change(name, { target: { value: 'Mine' } })
-    fireEvent.keyDown(name, { key: 'Enter' })
-    expect(JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY)).map((v) => v.name)).toEqual(['Mine'])
-    fireEvent.click(button)
-    expect(within(menu()).getByText('Mine')).toBeTruthy()
-    expect(inlineColours(menu())).toEqual([])
-    // An outside press closes it, as it always did.
-    fireEvent.mouseDown(document.body)
-    expect(menu()).toBeNull()
+    // The icon is gone; the Views button stands where it stood, named for the view on screen.
+    expect(screen.queryByRole('button', { name: 'Saved views' })).toBeNull()
+    const button = () => document.querySelector('.ui-toolbar.rb-scene-toolbar .ui-btn.rb-tv-button')
+    expect([button().getAttribute('aria-label'), button().getAttribute('data-table')]).toEqual(['Views: All', 'scenes'])
+    // Q17: nothing of the old list loads, and its key is removed.
+    expect(localStorage.getItem(SAVED_VIEWS_KEY)).toBeNull()
+    expect(document.querySelector('.rb-scene-menu, .rb-scene-views, .rb-scene-save-row')).toBeNull()
+    // Q16: the Shots table has a list of its own; the button follows the content tab.
+    toShots()
+    expect([button().getAttribute('aria-label'), button().getAttribute('data-table')]).toEqual(['Views: All', 'shots'])
+    fireEvent.click(button())
+    expect(button().getAttribute('aria-expanded')).toBe('true')
+    expect(screen.queryByText('Shot cards, large')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    expect(button().getAttribute('data-table')).toBe('scenes')
   })
 
-  it('the menu\'s look is the sheet\'s: the signal on the glyph while views are saved, the float tokens, the list scrolling past 200px', () => {
+  it('the old menu\'s rules have left the sheet with it (the Views button\'s 136px is the shared piece\'s, on every table)', () => {
     const css = read('./rabbitScenes.css')
-    expect(css).toContain('.rb-scene-views > .ui-iconbtn.rb-scene-views-button[data-saved="true"] { color: var(--color-signal); }')
-    expect(css).toMatch(/\.rb-scene-menu \{[^}]*min-width: 180px;[^}]*background-color: var\(--color-paper-raised\);[^}]*border-radius: var\(--radius-float\);[^}]*box-shadow: var\(--shadow-float\);/)
-    expect(css).toContain('.rb-scene-menu-list { max-height: 200px; overflow-y: auto; }')
+    // CONTROL: the sheet is read (a rule this surface keeps is in it).
+    expect(css).toContain('.rb-scene-filter-actions')
+    expect(css).not.toMatch(/\.rb-scene-(menu|views|save-row)\b/)
   })
 })
 
@@ -2527,6 +2531,7 @@ describe('S3b step 6: a name says which lists hold it (D10)', () => {
     toGallery()
     expect(cardsOf().map((c) => c.querySelector('.rb-scene-card-name').getAttribute('title'))).toEqual(['In: Shoot · v1', 'In: Shoot · v1'])
     fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    toGallery()
     expect(cardOf('Lighthouse, dawn').querySelector('.rb-scene-card-name').getAttribute('title')).toBe('In: Pickups · v1, Shoot · v1')
     cleanup()
     // An archived list is no list a row is "in" (S3a's "Not in any list" agrees).
@@ -3084,6 +3089,7 @@ describe('S3b review round 1', () => {
     expect(screen.queryByRole('dialog', { name: 'Lighthouse, dawn' })).toBeNull()
     escape()
     toShots()
+    toGallery()
     fireEvent.click(within(cardOf('The door')).getByRole('button', { name: 'Shot list actions for The door' }))
     fireEvent.click(menuItem('Move down'))
     expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(1)

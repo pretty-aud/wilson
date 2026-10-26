@@ -5179,7 +5179,7 @@ of a session — this section is limits by design, that file is faults.
   sends its old and new config on the live channel (32 KB at most each, the
   channel's ceiling not measured).
 
-**Custom table views on screen (VW1d — 2026-10-25: the Tasks table; the other tables are VW1e's)**
+**Custom table views on screen (VW1d — 2026-10-25: the Tasks table; the other tables below, VW1e)**
 
 - **One shared piece, a description per table.** `views/tableViews/`: the
   rules on screen (`viewScreenModel.js`, pure: fields' order and visibility,
@@ -5221,6 +5221,41 @@ of a session — this section is limits by design, that file is faults.
   at least 240px wide and never past the window),
   MenuButton in `src/ui` (its keyboard model without roles, a labelled form),
   Banner `live={false}`. The undo toast pauses while focused.
+
+**Custom table views on the other tables (VW1e — 2026-10-25: Assets, Levels, Experiences, Scenes, Shots)**
+
+- **A description each**, beside Tasks': `assetsTableView.js`,
+  `entityTableView.js` (Levels and Experiences), `scenesTableView.js` (two:
+  Scenes and Shots). New in a description: the columns in front of the name
+  (`leading`, `leadingKeys`; hideable, never movable, kept in
+  `config.leading`, which `sameEffect` compares), a card line that is one of
+  them (`cardLeading`: the Shots card's number), a column drawn only in the
+  Scenes table's nested shot rows (`nest`: a switch, no handle), the empty
+  sort's word (`defaultOrderLabel`: *List order* while a shot list is on
+  screen), and `combinationOf` for the item groupings.
+- **Combination groups** are one rule for every table (`combinationGroups.js`,
+  moved from the Tasks table): one group per combination of items, the
+  project's groupings among them, *No …* last; a drop writes the row's links
+  in one undo step.
+- **The Scenes page holds two views** (her Q16): `useTableView` once for
+  Scenes and once for Shots; the content tab chooses which is on screen, and
+  the Views button, the bar and the filter strip are that table's (keyed per
+  table, so nothing typed or in flight crosses over). *List order* is a list
+  on screen and no sort in the view on screen: Move up / Move down and the
+  list drag only then. With an edit on screen every view control is greyed.
+- **Widths** follow the columns on screen, set inline as custom properties
+  (`--rb-asset-fixed`, `--rb-ent-fixed`, `--rb-scene-min`,
+  `--rb-scene-nest-min`), the lane guards' STYLES entries naming each one.
+- **The cloud's asset links (migration 0099)**: `level_ids` and
+  `experience_ids` on `assets`. The cloud adapter learns their absence at
+  each load and strips them from writes, loudly; the provider's
+  `assetLevelLinksAvailable` (read per load) greys every control that would
+  write them, with the reason (`linksKept`, `ASSET_LINKS_ABSENT_REASON` in
+  `assetsTableView.js`), and the table's live region says it once.
+- **The browser's old saved views** (`rabbit_asset_saved_views`,
+  `rabbit_level_saved_views`, `rabbit_experience_saved_views`,
+  `rabbit_scene_saved_views`) are removed when each table first loads (Q17).
+  Budget's Expenses and Team keep their own menus (Q19).
 
 **Security-adjacent**
 

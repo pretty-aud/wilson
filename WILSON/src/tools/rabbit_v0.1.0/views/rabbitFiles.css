@@ -511,7 +511,9 @@
      under its sticky head; the gallery scrolls here. */
   .rb-asset-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 
-  /* The filter strip under the toolbar. */
+  /* The filter strip under the toolbar. VW1e: its rows are the shared
+     filter row (views/tableViews/ViewFilterRow.jsx, the views' own sheet);
+     the old row's classes and the old saved-views menu went with them. */
   .rb-asset-filters {
     display: flex;
     flex-direction: column;
@@ -520,49 +522,11 @@
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
-  .rb-asset-filter-row { display: flex; align-items: center; gap: 8px; }
-  .rb-asset-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
-  .ui-input.rb-asset-filter-text { width: 144px; }
-  .ui-input.rb-asset-filter-field { width: 128px; }
-  .ui-input.rb-asset-filter-op { width: 160px; }
   .rb-asset-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
-  /* Saved views, on the kit's floating tokens (the kit Menu has no item with
-     a trailing action; B2's kit request K2). */
-  .rb-asset-menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    z-index: 30;
-    min-width: 224px;
-    max-width: 320px;
-    padding: 4px 0;
-    background-color: var(--color-paper-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-float);
-    box-shadow: var(--shadow-float);
-  }
-  .rb-asset-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
-  .rb-asset-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    min-height: var(--control-sm);
-    padding: 0 4px 0 12px;
-    font-size: var(--text-dense);
-    text-align: left;
-    color: var(--color-ink);
-    background-color: transparent;
-    border: 0;
-    cursor: pointer;
-    transition: background-color var(--duration-state) ease-out;
-  }
-  .rb-asset-menu-item:hover { background-color: var(--color-hover); }
-  .rb-asset-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rb-asset-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
-  .rb-asset-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
-
+  /* The last used view not known yet (its 2s wait, the design's §4.5): the
+     kit Loading line where the table goes. */
+  .rb-asset-waiting { padding: 16px var(--spacing-gutter); }
   /* ── The table: the kit's Table, 36px rows ─────────────────────────────── */
   /* The name takes the width the others leave, between its minimum and its
      maximum; past the maximum Description takes what is left (FX8: "the
@@ -609,6 +573,13 @@
   .rb-asset-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
   .rb-asset-table-wrap .ui-table.rb-asset-table {
     min-width: calc(var(--rb-asset-fixed) + var(--rb-asset-name-min));
+  }
+  /* VW1e (the design's §4.10, step 0 finding 8): the view sets
+     `--rb-asset-fixed` on the wrap from the columns on screen (the static sum
+     above is every column's); with Description hidden no column grows, so
+     the table is never wider than the fixed columns and the name's maximum. */
+  .rb-asset-table-wrap[data-grow="none"] .ui-table.rb-asset-table {
+    width: min(100%, calc(var(--rb-asset-fixed) + var(--rb-asset-name-max)));
   }
 
   /* The bulk bar overlays the head, right of the checkbox column (B2's). */
@@ -885,6 +856,22 @@
   }
   .rb-asset-group-row:hover .rb-asset-group-count,
   .rb-asset-group-head:hover .rb-asset-group-count { color: var(--color-ink-2); }
+
+  /* VW1e: a project grouping's band carries its *…* (her Q-D5) after the
+     toggle, in the table and the gallery alike; the toggle takes the rest. */
+  .rb-asset-group-band { display: flex; align-items: center; min-width: 0; padding-right: 4px; }
+  .rb-asset-group-head { display: flex; align-items: center; min-width: 0; padding-right: 4px; }
+  .rb-asset-group-band > .rb-asset-group-toggle,
+  .rb-asset-group-head > .rb-asset-group-toggle { flex: 1 1 auto; width: auto; min-width: 0; }
+  /* Grouped by a linked kind, a row drags into a group (her Q-D1): the
+     Tasks table's drop mark on the group's band, the grab cursor on a row. */
+  .rb-asset-row[data-draggable="true"] { cursor: grab; }
+  .rb-asset-row[data-draggable="true"]:active { cursor: grabbing; }
+  .rb-asset-group-row[data-drag-over="true"] > .ui-td {
+    background-color: var(--color-paper);
+    background-image: linear-gradient(var(--color-signal-tint), var(--color-signal-tint));
+    box-shadow: inset 0 0 0 1px var(--color-signal);
+  }
 
   /* ── The gallery: the kit's Card ────────────────────────────────────────── */
   .rb-asset-gallery {
@@ -1772,17 +1759,24 @@
   .rb-ent-search > .ui-input.rb-ent-search-input { padding-left: 28px; padding-right: 28px; }
   .rb-ent-search-clear { position: absolute; right: 0; }
 
-  /* Save current view: the strip under the toolbar is the kit's Toolbar
-     (R4-46's spec); its field keeps its old 192px. */
-  .ui-input.rb-ent-save-input { width: 192px; }
-
-  /* The one region the view Tabs switch: an ungrouped table scrolls inside
-     itself, under its sticky head; grouped tables and the gallery scroll
-     here. A group never shrinks under its rows. */
+  /* The one region the layout Tabs switch: an ungrouped table scrolls
+     inside itself, under its sticky head; grouped tables and the gallery
+     scroll here. A group never shrinks under its rows. */
   .rb-ent-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
   .rb-ent-group { flex-shrink: 0; }
+  /* VW1e: grouped by asset, a group takes a dropped row (her Q-D1): the
+     Tasks table's drop mark, on its band. */
+  .rb-ent-group[data-drag-over="true"] > .rb-ent-group-head {
+    background-color: var(--color-paper);
+    background-image: linear-gradient(var(--color-signal-tint), var(--color-signal-tint));
+    box-shadow: inset 0 0 0 1px var(--color-signal);
+  }
+  .rb-ent-row[data-draggable="true"] { cursor: grab; }
+  .rb-ent-row[data-draggable="true"]:active { cursor: grabbing; }
 
-  /* The filter strip under the toolbar. */
+  /* The filter strip under the toolbar. VW1e: its rows are the shared filter
+     row (views/tableViews/ViewFilterRow.jsx); the old row's classes, the
+     saved-views menu and the save strip went with them. */
   .rb-ent-filters {
     display: flex;
     flex-direction: column;
@@ -1791,48 +1785,10 @@
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
   }
-  .rb-ent-filter-row { display: flex; align-items: center; gap: 8px; }
-  .rb-ent-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
-  .ui-input.rb-ent-filter-text { width: 144px; }
-  .ui-input.rb-ent-filter-field { width: 128px; }
-  .ui-input.rb-ent-filter-op { width: 160px; }
   .rb-ent-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 
-  /* Saved views, on the kit's floating tokens (the kit Menu has no item with
-     a trailing action; B2's kit request K2). 224px, its old width. */
-  .rb-ent-menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    z-index: 30;
-    min-width: 224px;
-    max-width: 320px;
-    padding: 4px 0;
-    background-color: var(--color-paper-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-float);
-    box-shadow: var(--shadow-float);
-  }
-  .rb-ent-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
-  .rb-ent-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    min-height: var(--control-sm);
-    padding: 0 4px 0 12px;
-    font-size: var(--text-dense);
-    text-align: left;
-    color: var(--color-ink);
-    background-color: transparent;
-    border: 0;
-    cursor: pointer;
-    transition: background-color var(--duration-state) ease-out;
-  }
-  .rb-ent-menu-item:hover { background-color: var(--color-hover); }
-  .rb-ent-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rb-ent-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
-  .rb-ent-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+  /* The last used view not known yet (its 2s wait, the design's §4.5). */
+  .rb-ent-waiting { padding: 16px var(--spacing-gutter); }
 
   /* ── The table: the kit's Table, 36px rows ─────────────────────────────── */
   /* The name takes the width the others leave, between its minimum and its
@@ -1866,6 +1822,13 @@
   .rb-ent-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
   .rb-ent-table-wrap .ui-table.rb-ent-table {
     min-width: calc(var(--rb-ent-fixed) + var(--rb-ent-name-min));
+  }
+  /* VW1e (the design's §4.10, step 0 finding 8): the view sets
+     `--rb-ent-fixed` on the wrap from the columns on screen; with
+     Description hidden no column grows, so the table is never wider than the
+     fixed columns and the name's maximum. */
+  .rb-ent-table-wrap[data-grow="none"] .ui-table.rb-ent-table {
+    width: min(100%, calc(var(--rb-ent-fixed) + var(--rb-ent-name-max)));
   }
 
   /* The bulk bar overlays the head, right of the checkbox column (B2's). */
@@ -1988,11 +1951,17 @@
      gone, R4-33), a hover like a row's. The whole band is the one button it
      always was, and it starts on the page's gutter. */
   .rb-ent-group-head {
+    /* VW1e: a project grouping's *…* after the toggle (her Q-D5). */
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding-right: 4px;
     background-color: var(--color-paper-raised);
     border-bottom: 1px solid var(--color-rule);
     transition: background-color var(--duration-state) ease-out;
   }
   .rb-ent-group-head:hover { background-color: var(--color-hover); }
+  .rb-ent-group-head > .rb-ent-group-toggle { flex: 1 1 auto; width: auto; min-width: 0; }
   .rb-ent-group-toggle {
     display: flex;
     align-items: center;
@@ -2694,7 +2663,6 @@
   @media (prefers-reduced-motion: reduce) {
     .rb-files-cell-input,
     .rb-fm-progress-fill,
-    .rb-asset-menu-item,
     .rb-asset-check,
     .rb-asset-thumb-set,
     .rb-asset-thumb-set > svg,
@@ -2707,7 +2675,6 @@
     .rb-rel-row,
     .rb-rel-pick-row,
     .rb-rel-badge,
-    .rb-ent-menu-item,
     .rb-ent-check,
     .rb-ent-cell-text,
     .rb-ent-group-head,

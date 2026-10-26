@@ -23,13 +23,17 @@
 
 @layer components {
 
-  /* ── The Views button (§4.1): one width per table, so the toolbar never
-     moves when the view changes; the name cut with "…", the whole name its
-     tooltip and its accessible name. The Tasks width was measured in
-     Chromium at 1280 and 1440 with *Create grouping* shown (finding 16). ── */
+  /* ── The Views button (§4.1): one width, so the toolbar never moves when
+     the view changes; the name cut with "…", the whole name its tooltip and
+     its accessible name. Her Q-P1 (2026-10-25, "Narrower, 136px
+     (Recommended)"): 136px on EVERY table, about 12 letters of the name —
+     VW1d's 160px on Tasks, and the design's 180px for Assets, Levels,
+     Experiences and the Scenes bookmark, are superseded. VW1e measured the
+     toolbars at 1280 and 1440 in the bar's states (scripts/vw1e-shots.mjs).
+     `data-table` keys no rule: it names the table for the pictures and the
+     tests. ── */
   .rb-tv-anchor { position: relative; display: inline-flex; flex-shrink: 0; }
-  .ui-btn.rb-tv-button { justify-content: flex-start; max-width: none; }
-  .ui-btn.rb-tv-button[data-table="tasks"] { width: 160px; }
+  .ui-btn.rb-tv-button { justify-content: flex-start; max-width: none; width: 136px; }
   .rb-tv-button-name {
     flex: 1 1 auto;
     min-width: 0;

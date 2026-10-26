@@ -33,20 +33,43 @@
 // • Law of Prägnanz — clean shapes, minimal decoration
 // • Law of Similarity — consistent treatment matching Tasks tab
 
-import { Fragment, useMemo, useState, useCallback, useRef, useEffect } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Boxes, Plus, Search, Filter, Trash2, AlertTriangle,
   X, FileText, ImagePlus, ImageOff, History,
   ArrowUpDown, ChevronDown, ChevronRight,
-  Save, BookmarkPlus, CheckSquare, Square, MinusSquare,
+  CheckSquare, Square, MinusSquare, Group,
   Film, Clapperboard, Gamepad2, Sparkles, ListChecks,
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
+  Banner, Loading, HoverActions, MenuButton, useToast,
 } from '../../../ui'
 import './rabbitFiles.css'
+// VW1e (2026-10-25): the custom views on the Assets table (the design's §7
+// step 5): the shared piece (views/tableViews/) given this table's
+// description; combination groups by scene, shot, level and experience with
+// Create grouping (her Q-M3); the old saved views removed (Q17).
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
+import { buildItemLookup, KIND_LABEL, KIND_LABEL_PLURAL } from '../state/taskItemsModel'
+import { isGroupingLive } from '../state/tableViewsModel'
+import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
+import { useTableView } from './tableViews/useTableView'
+import { TableViewsMenu } from './tableViews/TableViewsMenu'
+import { ViewBar } from './tableViews/ViewBar'
+import { ViewFilterRow } from './tableViews/ViewFilterRow'
+import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
+import { useAsk } from './tableViews/useAsk'
+import { combinationGroupsOf } from './tableViews/combinationGroups'
+import {
+  ASSETS_TABLE, ASSET_STATUSES, ASSET_KIND_FIELD, assetsDescription, assetKindsOf, assetsTableWidths,
+  ASSET_LINKS_ABSENT_REASON, linksKept,
+} from './tableViews/assetsTableView'
+import {
+  applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
+} from './tableViews/viewScreenModel'
 import { useRabbit } from '../state/RabbitProvider'
 // FX2 (0096): an asset's task count and its window's tasks count every task
 // ABOUT it (any of its items).
@@ -86,60 +109,29 @@ const BODY_ID = 'rb-asset-body'
 // re-exported here for the callers that read them from this file.
 export { ASSET_TYPES, assetTypeLabel } from '../state/assetTypes'
 
-export const ASSET_STATUSES = [
-  'not_started','in_progress','pending_review','needs_revisions',
-  'approved','final','blocked','on_hold','omitted',
-]
+// VW1e: the statuses live with the table's description (assetsTableView.js),
+// re-exported here for the callers that read them from this file.
+export { ASSET_STATUSES }
 
 export const TASK_STATUSES = [
   'waiting_to_start','in_progress','pending_review','needs_revisions',
   'approved','final','blocked','on_hold','omitted',
 ]
 
-// ── Filter config ──
-const ASSET_FILTER_FIELDS = [
-  { value: 'status',   label: 'Status',  type: 'select', options: ASSET_STATUSES },
-  { value: 'type',     label: 'Type',    type: 'select', options: ASSET_TYPES },
-  { value: 'phase_id', label: 'Phase',   type: 'select', dynamic: 'phases' },
-  { value: 'name',     label: 'Name',    type: 'text' },
-]
+// VW1e (2026-10-25): the filters, sorts and groupings are the view's, read
+// through the table's description (views/tableViews/assetsTableView.js); the
+// old Filter, Sort and Group lists here are gone with the old saved views.
+// Q17 (her "Start fresh"): the views this browser kept for the Assets table
+// before VW1e, removed on the first load; Expenses' and Team's stay (Q19).
+const OLD_SAVED_VIEWS_KEY = 'rabbit_asset_saved_views'
+/** Rows in their own table's order (sort_order), on a copy. */
+const inOwnOrder = (rows) => (Array.isArray(rows) ? [...rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)) : rows)
 
-const FILTER_OPS = {
-  select: [
-    { value: 'is',           label: 'is' },
-    { value: 'is_not',       label: 'is not' },
-    { value: 'is_empty',     label: 'is empty' },
-    { value: 'is_not_empty', label: 'is not empty' },
-  ],
-  text: [
-    { value: 'contains',     label: 'contains' },
-    { value: 'not_contains', label: 'does not contain' },
-    { value: 'is',           label: 'is' },
-    { value: 'is_not',       label: 'is not' },
-    { value: 'is_empty',     label: 'is empty' },
-    { value: 'is_not_empty', label: 'is not empty' },
-  ],
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test
+// that mounts the tab alone): a passing message, never a failure.
+function useOptionalToast() {
+  try { return useToast() } catch { return null }
 }
-
-// ── Sort config ──
-const ASSET_SORTABLE_FIELDS = [
-  { value: 'name',       label: 'Name' },
-  { value: 'type',       label: 'Type' },
-  { value: 'status',     label: 'Status' },
-  { value: 'start_date', label: 'Start date' },
-  { value: 'due_date',   label: 'Due date' },
-  { value: 'created_at', label: 'Created' },
-]
-
-// ── Group config ──
-const ASSET_GROUPABLE_FIELDS = [
-  { value: '',       label: 'No grouping' },
-  { value: 'type',   label: 'Type' },
-  { value: 'phase',  label: 'Phase' },
-  { value: 'status', label: 'Status' },
-]
-
-const SAVED_VIEWS_KEY = 'rabbit_asset_saved_views'
 
 // ── Topological sort for dependency-ordered task creation ──
 function topoSort(tasks) {
@@ -193,22 +185,13 @@ export default function ProjectAssetsView() {
   const tasks   = ctx?.tasks   || []
   const project = ctx?.project
 
-  // ── View state ──
-  const [viewMode, setViewMode]   = useState('table')   // table | gallery
+  // ── The tab's own (VW1e): the search and the picture size are never part
+  // of a view (her Q8: "layout if anything"; a view does not remember the
+  // picture or card size). The layout, filters, sorts, grouping and fields
+  // are the view's (useTableView, below).
   const [search, setSearch]       = useState('')
-  const [filters, setFilters]     = useState([])         // [{ field, op, value }]
-  const [sortField, setSortField] = useState('')
-  const [sortDir, setSortDir]     = useState('asc')
-  const [groupBy, setGroupBy]     = useState('')          // '' | 'type' | 'phase' | 'status'
   const [thumbSize, setThumbSize] = useState('sm')
   const [showFilterPanel, setShowFilterPanel] = useState(false)
-
-  // Saved views
-  const [savedViews, setSavedViews] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || '[]') } catch { return [] }
-  })
-  const [showSaveDialog, setShowSaveDialog] = useState(false)
-  const [saveName, setSaveName] = useState('')
 
   // Detail / warning
   const [warningAssetId, setWarningAssetId] = useState(null)
@@ -261,87 +244,133 @@ export default function ProjectAssetsView() {
     [tasks, ctx?.taskItems, ctx?.taskItemsAvailable],
   )
 
-  // ── Filtering ──
-  const applyFilters = useCallback((assetList) => {
-    let result = assetList
-    // Text search
+  // ── The view (VW1e, 2026-10-25): what Filter, Sort, Group, the layout
+  // tabs and the Views dropdown's cards change, for the moment (her Q3),
+  // until the bar saves it (Q3a). The shared piece (views/tableViews/) reads
+  // the table through its description (assetsTableView.js).
+  // The kinds' rows: what is live (buildItemLookup's isLive, nameOf,
+  // orderOf: the display order, her Q-P3), and each kind's single items in
+  // the project's own order (the active shot list's scenes and shots).
+  const lookup = useMemo(() => buildItemLookup({
+    items: [], available: false, assets,
+    scenes: ctx?.allScenes || ctx?.scenes, shots: ctx?.allShots || ctx?.shots,
+    levels: ctx?.levels, experiences: ctx?.experiences,
+  }), [assets, ctx?.allScenes, ctx?.scenes, ctx?.allShots, ctx?.shots, ctx?.levels, ctx?.experiences])
+  // Levels and experiences in their own tables' order (sort_order, on a
+  // copy: code review round 2, R2-4, the twin of R1-6).
+  const kindRows = useMemo(() => ({
+    scene: ctx?.scenes, shot: ctx?.shots, level: inOwnOrder(ctx?.levels), experience: inOwnOrder(ctx?.experiences),
+  }), [ctx?.scenes, ctx?.shots, ctx?.levels, ctx?.experiences])
+  const kinds = useMemo(() => assetKindsOf(project, assets), [project, assets])
+  const taskCountOf = useCallback((a) => taskCountByAsset[a.id] || 0, [taskCountByAsset])
+  const description = useMemo(() => assetsDescription({ kinds, phases, lookup, kindRows, taskCountOf }),
+    [kinds, phases, lookup, kindRows, taskCountOf])
+  // Who changed a view, by the workspace roster (design §5.5): "Someone"
+  // when they are not there; its own entries only (VW1d R2-7).
+  const { members: rosterMembers } = useRosterMembers()
+  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
+  const nameOf = useCallback((id) => {
+    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
+    return m ? (m.name || m.display_name || m.username || null) : null
+  }, [rosterById])
+  const toast = useOptionalToast()
+  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
+  const { ask, dialog: askDialog } = useAsk()
+  // The table's one polite live region (§4.9).
+  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
+  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
+  // A drop or a grouping's removal that did not land, said above the table.
+  const [dropFailure, setDropFailure] = useState(null)
+  const [groupingKind, setGroupingKind] = useState(null)
+  const [focusGroupMenu, setFocusGroupMenu] = useState(false)
+  useEffect(() => {
+    if (!focusGroupMenu) return
+    document.querySelector('.rb-asset-toolbar select[aria-label="Group"]')?.focus({ preventScroll: true })
+    setFocusGroupMenu(false)
+  }, [focusGroupMenu])
+  const focusViews = useCallback(() => {
+    document.querySelector('.rb-asset-toolbar .rb-tv-button')?.focus({ preventScroll: true })
+  }, [])
+
+  // Q17 (her "Start fresh"): this browser's old saved views go, once.
+  useEffect(() => {
+    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
+  }, [])
+
+  const tv = useTableView({ ctx, tableKey: ASSETS_TABLE, description, canWrite, nameOf, notify })
+  const config = tv.config
+  const viewMode = config.layout === 'gallery' ? 'gallery' : 'table'
+  const filters = config.filters || []
+  const sorts = config.sorts || []
+  // The FIRST sort the table can sort by is the toolbar's (VW1d R2-4).
+  const firstSort = sorts.find(s => s && description.field(s.field)?.sortable) || null
+  const sortField = firstSort?.field || ''
+  const sortDir = firstSort?.dir === 'desc' ? 'desc' : 'asc'
+  // A grouping the table no longer offers (a kind the project stopped using)
+  // reads as none: a saved view keeps it, a change for now forgets it (VW1b
+  // R1-10, as the Tasks table keeps it).
+  const storedGroup = config.group?.field || ''
+  const groupBy = description.groupFields.some(f => f.key === storedGroup) ? storedGroup : ''
+  const hideEmpty = config.group ? config.group.hideEmpty !== false : true
+  const groupedKind = groupBy ? (description.field(groupBy)?.kind || null) : null
+  const fromDraft = tv.fromDraft
+  const update = tv.update
+  useEffect(() => {
+    if (fromDraft && storedGroup && !groupBy) update(c => ({ ...c, group: null }))
+  }, [fromDraft, storedGroup, groupBy, update])
+  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
+  const setGroupBy = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
+  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
+  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
+
+  // ── Filtering, then the view's sorts (VW1e) ──
+  // The search is the tab's own; every complete filter must match (Q13); the
+  // sorts in order (Q14). No sort: the table's own order (sort_order), on a
+  // COPY — the old sort reordered the provider's array in place (VW1e step 0,
+  // finding 16).
+  const processed = useMemo(() => {
     const s = search.trim().toLowerCase()
-    if (s) result = result.filter(a => (a.name || '').toLowerCase().includes(s))
-    // Complex filters
-    for (const f of filters) {
-      if (!f.field) continue
-      result = result.filter(a => {
-        const val = a[f.field]
-        switch (f.op) {
-          case 'is':           return val === f.value
-          case 'is_not':       return val !== f.value
-          case 'is_empty':     return !val
-          case 'is_not_empty': return !!val
-          case 'contains':     return (val || '').toLowerCase().includes((f.value || '').toLowerCase())
-          case 'not_contains': return !(val || '').toLowerCase().includes((f.value || '').toLowerCase())
-          default: return true
-        }
-      })
-    }
-    return result
-  }, [search, filters])
-
-  // ── Sorting ──
-  const applySort = useCallback((assetList) => {
-    if (!sortField) return assetList.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    const sorted = [...assetList]
-    const dir = sortDir === 'desc' ? -1 : 1
-    sorted.sort((a, b) => {
-      let va = a[sortField] ?? ''
-      let vb = b[sortField] ?? ''
-      if (sortField === 'status') {
-        va = ASSET_STATUSES.indexOf(va); vb = ASSET_STATUSES.indexOf(vb)
-      } else if (sortField === 'type') {
-        va = ASSET_TYPES.indexOf(va); vb = ASSET_TYPES.indexOf(vb)
-      } else if (typeof va === 'string') {
-        va = va.toLowerCase(); vb = (vb || '').toLowerCase()
-      }
-      if (va < vb) return -1 * dir
-      if (va > vb) return 1 * dir
-      return 0
-    })
-    return sorted
-  }, [sortField, sortDir])
-
-  const processed = useMemo(() => applySort(applyFilters(assets)), [assets, applyFilters, applySort])
+    const base = [...assets].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    const searched = s ? base.filter(a => (a.name || '').toLowerCase().includes(s)) : base
+    return applyViewSorts(applyViewFilters(searched, filters, description), sorts, description)
+  }, [assets, search, filters, sorts, description])
 
   // ── Grouping ──
+  // By a linked kind (her Q-M3): one group per combination of the scenes,
+  // shots, levels or experiences an asset is in (combinationGroups.js), the
+  // project's groupings among them (Q-D2). By type, phase or status as
+  // before; with *Hide empty groups* off every option shows (§4.3).
+  const savedOf = useCallback((kind) => {
+    const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(ASSETS_TABLE, kind) : []
+    return list.filter(g => isGroupingLive(g, lookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
+  }, [ctx, lookup])
   const groups = useMemo(() => {
     if (!groupBy) return null
+    if (groupedKind) {
+      return combinationGroupsOf({
+        kind: groupedKind, rows: processed, combinationOf: (a) => description.combinationOf(a, groupedKind), lookup,
+        singles: kindRows[groupedKind], everySingle: !hideEmpty, saved: savedOf(groupedKind), hideEmpty, as: 'assets',
+      })
+    }
     const map = {}
     for (const a of processed) {
       let key
-      if (groupBy === 'type')   key = a.type || 'other'
-      else if (groupBy === 'phase')  key = a.phase_id || '__none__'
-      else if (groupBy === 'status') key = a.status || 'not_started'
-      else key = '__all__'
+      if (groupBy === 'type') key = a.type || 'other'
+      else if (groupBy === 'phase_id') key = a.phase_id || '__none__'
+      else key = a.status || 'not_started'
       if (!map[key]) map[key] = []
       map[key].push(a)
     }
-    let sortedKeys
-    if (groupBy === 'type')   sortedKeys = ASSET_TYPES.filter(t => map[t])
-    else if (groupBy === 'status') sortedKeys = ASSET_STATUSES.filter(s => map[s])
-    else if (groupBy === 'phase') {
-      sortedKeys = phases.map(p => p.id).filter(id => map[id])
-      if (map.__none__) sortedKeys.push('__none__')
-    } else {
-      sortedKeys = Object.keys(map)
-    }
-    return sortedKeys.map(key => ({
-      key,
-      label: resolveGroupLabel(groupBy, key),
-      assets: map[key] || [],
-    }))
-  }, [processed, groupBy, phases, phaseById])
+    const every = groupBy === 'type' ? ASSET_TYPES
+      : groupBy === 'status' ? ASSET_STATUSES
+        : [...phases.map(p => p.id), '__none__']
+    const keys = hideEmpty ? every.filter(k => map[k]) : every
+    return keys.map(key => ({ key, label: resolveGroupLabel(groupBy, key), assets: map[key] || [] }))
+  }, [processed, groupBy, groupedKind, hideEmpty, phases, phaseById, description, lookup, kindRows, savedOf])
 
   function resolveGroupLabel(field, key) {
     if (key === '__none__') return 'No phase'
-    if (field === 'phase') return phaseById[key]?.name || key
+    if (field === 'phase_id') return phaseById[key]?.name || key
     if (field === 'status') return STATUS_LABELS[key] || fmt(key)
     if (field === 'type') return assetTypeLabel(key)
     return fmt(key)
@@ -349,53 +378,82 @@ export default function ProjectAssetsView() {
   // (The group's accent colour, computed here per status, is gone: a status
   // group carries the kit's StatusDot, and every other group none — R4-33.)
 
+  // ── Dragging an asset into a combination group (her Q-D1; VW1e step 0,
+  // finding 3): the group's items become the asset's items of that kind
+  // ("No …": none), one undoable write inside the shell's undo toast (Ctrl+Z
+  // is not bound on this tab). Its items of the kind that are not live (not
+  // loaded) are kept, as a task's hidden items are (Q-N4). A drop on the
+  // group the asset is in writes nothing.
+  function dropOnGroup(assetId, group) {
+    if (!canWrite || !groupedKind || typeof ctx?.updateAsset !== 'function') return
+    const asset = assets.find(a => String(a.id) === String(assetId))
+    if (!asset || group.assets.some(a => a.id === asset.id)) return
+    const field = ASSET_KIND_FIELD[groupedKind]
+    const hidden = (Array.isArray(asset[field]) ? asset[field] : []).filter(id => !lookup.isLive(groupedKind, id))
+    const next = [...new Set([...hidden.map(String), ...group.ids.map(String)])]
+    const name = asset.name || 'Untitled'
+    const step = ctx.runWithUndoToast || ((run) => run())
+    Promise.resolve(step(() => ctx.updateAsset(asset.id, { [field]: next }), `Moved "${name}" to ${group.label}`))
+      .catch((err) => setDropFailure(`Could not move “${name}”: ${err?.message || err}`))
+  }
+
+  // ── The project's groupings (her Q-D2, Q-D3, Q-D5) ──
+  async function createGrouping(kind, ids) {
+    await ctx.addItemGrouping({ tableKey: ASSETS_TABLE, kind, entityIds: ids })
+  }
+  async function removeGrouping(group) {
+    const yes = await ask({
+      title: `Remove the grouping ${group.label}?`,
+      body: 'Its assets keep their items. The group stays while assets are in it.',
+      confirm: 'Remove grouping',
+      danger: true,
+    })
+    if (!yes) return
+    try {
+      const res = await ctx.removeItemGrouping(group.groupingId)
+      if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
+      else setFocusGroupMenu(true)
+    } catch (err) {
+      setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
+    }
+  }
+
+  // ── The Filter strip: the view's filters in the shared row (the Filters
+  // card's own); a new row filters nothing until it has a value (defect 1).
+  function addFilter() {
+    const first = description.filterFields[0]
+    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
+  }
+  function updateFilter(idx, row) {
+    tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === idx ? row : f)) }))
+  }
+  function removeFilter(idx) {
+    tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== idx) }))
+  }
+
+  // ── What the view shows ──
+  const activeFilters = filterCount(filters, description)
+  // The columns: the view's fields over the table's, in its order, the
+  // hidden ones out (Q6, Q7); the name first, always shown; the picture in
+  // front of it unless the view hides it (Q-J).
+  const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
+  const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
+  const showThumb = effectiveLeading(config.leading, description.leadingKeys).some(f => f.key === 'thumbnail' && f.visible)
+  // The Gallery card's own fields the view shows (her Q-E, Q-P2).
+  const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && description.cardFields.includes(f.key)).map(f => f.key)), [fieldList, description])
+  // A level or experience group on a cloud without 0099 takes no drop (R1-9).
+  const kindKept = linksKept(ctx, groupedKind)
+  const canDrag = canWrite && !!groupedKind && kindKept
+  // Said as well as greyed (code review round 2, R2-5): a greyed control's
+  // reason reaches no screen reader, so the live region says it once.
+  useEffect(() => { if (groupedKind && !kindKept) announce(ASSET_LINKS_ABSENT_REASON) }, [groupedKind, kindKept, announce])
+
   // ── New-asset creation popup (deferred until confirm) ──
   const [showNewAssetPopup, setShowNewAssetPopup] = useState(false)
 
   // ── Handlers ──
   function handleAddAsset() {
     setShowNewAssetPopup(true)
-  }
-
-  // ── Saved views ──
-  function saveCurrentView() {
-    if (!saveName.trim()) return
-    const view = {
-      id: Date.now().toString(),
-      name: saveName.trim(),
-      filters, sortField, sortDir, groupBy, viewMode, thumbSize,
-    }
-    const next = [...savedViews, view]
-    setSavedViews(next)
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
-    setSaveName('')
-    setShowSaveDialog(false)
-  }
-
-  function loadView(view) {
-    setFilters(view.filters || [])
-    setSortField(view.sortField || '')
-    setSortDir(view.sortDir || 'asc')
-    setGroupBy(view.groupBy || '')
-    if (view.viewMode) setViewMode(view.viewMode)
-    if (view.thumbSize) setThumbSize(view.thumbSize)
-  }
-
-  function deleteSavedView(id) {
-    const next = savedViews.filter(v => v.id !== id)
-    setSavedViews(next)
-    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
-  }
-
-  // ── Filter CRUD ──
-  function addFilter() {
-    setFilters(prev => [...prev, { field: 'status', op: 'is', value: '' }])
-  }
-  function updateFilter(idx, patch) {
-    setFilters(prev => prev.map((f, i) => i === idx ? { ...f, ...patch } : f))
-  }
-  function removeFilter(idx) {
-    setFilters(prev => prev.filter((_, i) => i !== idx))
   }
 
   // ── Render ──
@@ -412,6 +470,12 @@ export default function ProjectAssetsView() {
   return (
     <WriteReasonProvider reason={writeReason}>
     <div className="rb-asset-view h-full flex flex-col">
+      {/* ── The table's one polite live region (VW1e, design §4.9): the
+          bar's state and every reorder, always mounted. ── */}
+      <p className="sr-only" role="status" aria-live="polite">
+        <span key={announcement.n}>{announcement.words}</span>
+      </p>
+
       {/* ── Toolbar: the kit's, composed as B2's Tasks toolbar is — every
           control the 28px sm height on one baseline (R4-16), the same
           controls in the same order (R4-37's regrouping is recorded, not
@@ -433,19 +497,19 @@ export default function ProjectAssetsView() {
           </>
         )}
       >
-        {/* Filter */}
+        {/* Filter: counts only the rows that filter (defect 1). */}
         <Button
           size="sm"
           Icon={Filter}
           className="rb-asset-tool"
-          data-active={filters.length > 0 ? 'true' : 'false'}
+          data-active={activeFilters > 0 ? 'true' : 'false'}
           aria-expanded={showFilterPanel}
           onClick={() => setShowFilterPanel(!showFilterPanel)}
         >
-          Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+          Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
         </Button>
 
-        {/* Sort */}
+        {/* Sort: sets the view's FIRST sort (her Q14); the Sort card holds the rest. */}
         <span className="rb-asset-sort">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
             aria-label="Sort"
@@ -453,36 +517,51 @@ export default function ProjectAssetsView() {
             data-size="sm"
             data-active={sortField ? 'true' : 'false'}>
             <option value="">Sort…</option>
-            {ASSET_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            {description.sortFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
           {sortField && (
             <IconButton
               size="sm"
               Icon={ArrowUpDown}
               title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
-              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+              onClick={reverseSort}
             />
           )}
         </span>
 
         <span className="rb-asset-divider" aria-hidden="true" />
 
-        {/* Group */}
+        {/* Group: type, phase, status, and (her Q-M3) the scenes, shots,
+            levels and experiences an asset is in, where the project uses
+            them. */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
           aria-label="Group"
           className="ui-input rb-asset-tool"
           data-size="sm"
           data-active={groupBy ? 'true' : 'false'}>
-          {ASSET_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          <option value="">No grouping</option>
+          {description.groupFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
         </select>
+
+        {/* Her Q-D3: Create grouping, beside the Group menu, only while the
+            table is grouped by a linked kind, for a seat that may save views (Q-F). */}
+        {groupedKind && tv.canEdit && (
+          <GatedAction allowed={kindKept} reason={ASSET_LINKS_ABSENT_REASON}>
+            <Button size="sm" Icon={Group} onClick={() => { if (kindKept) setGroupingKind(groupedKind) }}>
+              Create grouping
+            </Button>
+          </GatedAction>
+        )}
 
         <span className="rb-asset-divider" aria-hidden="true" />
 
         {/* Table / Gallery — the kit's Tabs: one underline, no orange fill
-            under small text (C6; R4-07, the same switch FileManager draws). */}
+            under small text (C6; R4-07, the same switch FileManager draws).
+            VW1e: the layout is part of a view (her Q8), so a switch is a
+            change for now; the group is "Layout" (§4.9). */}
         <Tabs
-          label="View"
+          label="Layout"
           panelId={BODY_ID}
           items={[{ id: 'table', label: 'Table' }, { id: 'gallery', label: 'Gallery' }]}
           value={viewMode}
@@ -507,13 +586,10 @@ export default function ProjectAssetsView() {
           </span>
         )}
 
-        {/* Saved views dropdown */}
-        <AssetSavedViewsDropdown
-          views={savedViews}
-          onLoad={loadView}
-          onDelete={deleteSavedView}
-          onSave={() => setShowSaveDialog(true)}
-        />
+        {/* VW1e: the Views button and its dropdown (design §4.1, §4.2), in
+            the old Views button's place; 136px, as on every table (Q-P1). */}
+        <TableViewsMenu tv={tv} description={description} ask={ask} announce={announce}
+          onRetry={typeof ctx?.reloadActiveProject === 'function' ? () => ctx.reloadActiveProject() : null} />
 
         <span className="rb-asset-divider" aria-hidden="true" />
 
@@ -531,29 +607,55 @@ export default function ProjectAssetsView() {
         </span>
       </Toolbar>
 
-      {/* ── Filter panel ── */}
+      {/* ── The Filter strip: the view's filters in the shared row (VW1e;
+          the Filters card draws the same row, design §4.3). ── */}
       {showFilterPanel && (
-        <AssetFilterPanel
-          filters={filters}
-          phases={phases}
-          onAdd={addFilter}
-          onUpdate={updateFilter}
-          onRemove={removeFilter}
-          onClose={() => setShowFilterPanel(false)}
-        />
+        <div className="rb-asset-filters">
+          {filters.map((f, i) => (
+            <ViewFilterRow key={i} row={f} index={i} description={description}
+              onChange={(row) => updateFilter(i, row)} onRemove={() => removeFilter(i)} />
+          ))}
+          <div className="rb-asset-filter-actions">
+            <Button size="sm" Icon={Plus} onClick={addFilter}>Add filter</Button>
+            {filters.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setShowFilterPanel(false)}>Done</Button>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* ── Body: the one region the view Tabs switch ── */}
+      {/* ── A drop or a grouping's removal that did not land, said ── */}
+      {dropFailure && (
+        <Banner
+          tone="danger"
+          action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setDropFailure(null)} />}
+        >
+          {dropFailure}
+        </Banner>
+      )}
+
+      {/* ── The *changed for now* bar (design §4.4): only while the view on
+          screen has a change of one's own, directly above the table. ── */}
+      <ViewBar tv={tv} ask={ask} announce={announce} focusViews={focusViews} />
+
+      {/* ── Body: the one region the layout Tabs switch ── */}
       <div className="rb-asset-body" id={BODY_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'}>
-        {viewMode === 'table' ? (
+        {tv.waiting ? (
+          // The last used view not known yet (its 2s wait, design §4.5).
+          <div className="rb-asset-waiting"><Loading label="Loading views" /></div>
+        ) : viewMode === 'table' ? (
           <AssetTable
             assets={processed}
             groups={groups}
             groupBy={groupBy}
+            columns={columns}
+            showThumb={showThumb}
             phases={phases}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
             canWrite={canWrite}
+            canEditViews={tv.canEdit}
+            canDrag={canDrag}
             thumbSize={thumbSize}
             thumbRevision={thumbRevision}
             collapsedGroups={collapsedGroups}
@@ -562,20 +664,24 @@ export default function ProjectAssetsView() {
             onWarningClick={(id) => setWarningAssetId(id)}
             onDetailClick={(id) => setDetailAssetId(id)}
             onHistoryClick={canViewHistory ? (id) => setHistoryAssetId(id) : null}
+            onDropOnGroup={dropOnGroup}
+            onRemoveGrouping={removeGrouping}
           />
         ) : groups ? (
           // Gallery — grouped: each group opens with the table's group band.
           groups.map(g => (
             <div key={g.key}>
-              <div className="rb-asset-group-head">
+              <div className="rb-asset-group-head ui-hover-host">
                 <AssetGroupToggle group={g} groupBy={groupBy}
                   collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)} />
+                <GroupingMore group={g} canEditViews={tv.canEdit} onRemoveGrouping={removeGrouping} />
               </div>
               {!collapsedGroups.has(g.key) && (
                 <AssetGallery
                   assets={g.assets}
                   phaseById={phaseById}
                   taskCountByAsset={taskCountByAsset}
+                  cardShows={cardShows}
                   ctx={ctx}
                   canWrite={canWrite}
                   thumbRevision={thumbRevision}
@@ -592,6 +698,7 @@ export default function ProjectAssetsView() {
             assets={processed}
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
+            cardShows={cardShows}
             ctx={ctx}
             canWrite={canWrite}
             thumbRevision={thumbRevision}
@@ -602,28 +709,25 @@ export default function ProjectAssetsView() {
         )}
       </div>
 
-      {/* ── Save view dialog — the kit's Dialog, as B2's (Q17: Escape, the
-          stack, the busy lock). The backdrop still closes it, as it always
-          did. ── */}
-      {showSaveDialog && (
-        <Dialog
-          width="confirm"
-          title="Save current view"
-          dismissOnBackdrop
-          onClose={() => setShowSaveDialog(false)}
-          footer={(
-            <>
-              <Button onClick={() => setShowSaveDialog(false)}>Cancel</Button>
-              <Button variant="primary" onClick={saveCurrentView}>Save</Button>
-            </>
-          )}
-        >
-          <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
-            placeholder="View name…"
-            aria-label="View name"
-            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-            className="ui-input" />
-        </Dialog>
+      {/* ── The views' questions (Delete a view, Save over a teammate's,
+          Remove grouping), at the view's root (design §4.2, finding 18). ── */}
+      {askDialog}
+
+      {/* ── Create grouping (design §4.11): its kit Dialog. ── */}
+      {groupingKind && (
+        <CreateGroupingDialog
+          tableKey={ASSETS_TABLE}
+          kind={groupingKind}
+          singular={KIND_LABEL[groupingKind]}
+          plural={KIND_LABEL_PLURAL[groupingKind]}
+          rowsNoun="assets"
+          options={description.options(groupingKind)}
+          orderOf={lookup.orderOf}
+          nameOf={lookup.nameOf}
+          groupings={typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(ASSETS_TABLE, groupingKind) : []}
+          onCreate={(ids) => createGrouping(groupingKind, ids)}
+          onClose={() => setGroupingKind(null)}
+        />
       )}
 
       {warningAssetId && (
@@ -675,118 +779,19 @@ export default function ProjectAssetsView() {
 
 
 // ═════════════════════════════════════════════════════
-// FILTER PANEL
+// A GROUP'S … MENU (VW1e)
 // ═════════════════════════════════════════════════════
-// B2's filter strip (ProjectTasksView's FilterPanel), in this lane's classes:
-// native selects in the kit's small well, a named remove button per row.
-function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose }) {
-  function getOptions(f) {
-    const def = ASSET_FILTER_FIELDS.find(ff => ff.value === f.field)
-    if (!def) return []
-    if (def.dynamic === 'phases') return phases.map(p => ({ value: p.id, label: p.name || 'Untitled' }))
-    return (def.options || []).map(o => ({ value: o, label: def.value === 'status' ? STATUS_LABELS[o] : def.value === 'type' ? TYPE_LABELS[o] : fmt(o) }))
-  }
-  function getType(f) {
-    return ASSET_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text'
-  }
+// Her Q-D5: a project grouping's *…* holds Remove grouping, for a seat that
+// may save views (Q-F) — the Tasks table's group head's own menu. (The old
+// filter panel and saved-views menu are gone: the shared filter row and the
+// Views dropdown replace them, VW1e.)
+function GroupingMore({ group, canEditViews, onRemoveGrouping }) {
+  if (!group?.groupingId || !canEditViews || !onRemoveGrouping) return null
   return (
-    <div className="rb-asset-filters">
-      {filters.map((f, i) => {
-        const type = getType(f)
-        const ops = FILTER_OPS[type] || FILTER_OPS.text
-        const needsValue = !['is_empty','is_not_empty'].includes(f.op)
-        return (
-          <div key={i} className="rb-asset-filter-row">
-            <span className="rb-asset-filter-where text-label uppercase">
-              {i === 0 ? 'Where' : 'And'}
-            </span>
-            <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              aria-label="Field" className="ui-input rb-asset-filter-field" data-size="sm">
-              {ASSET_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
-            </select>
-            <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              aria-label="Condition" className="ui-input rb-asset-filter-op" data-size="sm">
-              {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {needsValue && (
-              type === 'select' ? (
-                <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  aria-label="Value" className="ui-input rb-asset-tool" data-size="sm">
-                  <option value="">— select —</option>
-                  {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ) : (
-                <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  placeholder="value…"
-                  aria-label="Value"
-                  className="ui-input rb-asset-filter-text" data-size="sm" />
-              )
-            )}
-            <IconButton size="sm" Icon={X} danger title="Remove this filter" onClick={() => onRemove(i)} />
-          </div>
-        )
-      })}
-      <div className="rb-asset-filter-actions">
-        <Button size="sm" Icon={Plus} onClick={onAdd}>Add filter</Button>
-        {filters.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={onClose}>Done</Button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-
-// ═════════════════════════════════════════════════════
-// SAVED VIEWS DROPDOWN
-// ═════════════════════════════════════════════════════
-// B2's SavedViewsDropdown, in this lane's classes: hand-drawn on the kit's
-// floating tokens, because the kit Menu has no item with a trailing action
-// (load a view AND delete it, from one row; B2's kit request K2).
-function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  // "Save current view" closes this menu as its dialog opens, and the kit
-  // Dialog hands focus back on close to what had it at the open — that menu
-  // item, gone by then — so focus fell to <body> (B4c review round two,
-  // measured). Views takes focus first, and the dialog returns it there.
-  const viewsRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
-
-  return (
-    <div className="relative" ref={ref}>
-      <Button ref={viewsRef} size="sm" Icon={BookmarkPlus} aria-expanded={open} onClick={() => setOpen(!open)}>
-        Views
-      </Button>
-      {open && (
-        <div className="rb-asset-menu">
-          {views.length === 0 && (
-            <div className="rb-asset-menu-empty">No saved views</div>
-          )}
-          {views.map(v => (
-            <div key={v.id} className="rb-asset-menu-item"
-              onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="rb-asset-menu-label">{v.name}</span>
-              <IconButton size="sm" Icon={X} danger title={`Delete the saved view "${v.name}"`}
-                onClick={e => { e.stopPropagation(); onDelete(v.id) }} />
-            </div>
-          ))}
-          <div className="rb-asset-menu-foot">
-            <button type="button" onClick={() => { viewsRef.current?.focus(); onSave(); setOpen(false) }}
-              className="rb-asset-menu-item">
-              <Save className="rb-asset-menu-icon" aria-hidden="true" />
-              <span className="rb-asset-menu-label">Save current view</span>
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+    <HoverActions>
+      <MenuButton title={`More for ${group.label}`} minWidth={180}
+        items={[{ label: 'Remove grouping', danger: true, onClick: () => onRemoveGrouping(group) }]} />
+    </HoverActions>
   )
 }
 
@@ -800,7 +805,13 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // for the whole table (R4-04). The fixed widths are rabbitFiles.css's
 // custom properties, read by the header cells; Name, the row's anchor,
 // takes the rest.
-function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, canWrite, thumbSize, thumbRevision, collapsedGroups, toggleGroup, onThumbChanged, onWarningClick, onDetailClick, onHistoryClick }) {
+// VW1e (2026-10-25): the columns are the view's (`columns`, the visible
+// fields in its order) and the picture shows unless the view hides it
+// (`showThumb`, her Q-J); the fixed sum is the columns on screen's (§4.10);
+// a selection holds only the rows the table shows (defect 4); grouped by a
+// linked kind, a row drags into a group (`canDrag`, `onDropOnGroup`, her
+// Q-D1), and a project grouping's band has its *…* (Q-D5).
+function AssetTable({ assets, groups, groupBy, columns, showThumb = true, phases, taskCountByAsset, ctx, canWrite, canEditViews = false, canDrag = false, thumbSize, thumbRevision, collapsedGroups, toggleGroup, onThumbChanged, onWarningClick, onDetailClick, onHistoryClick, onDropOnGroup, onRemoveGrouping }) {
   // ── Multi-select state ──
   const [selected, setSelected] = useState(new Set())
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
@@ -811,6 +822,16 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
   const allSelected = allAssetIds.length > 0 && allAssetIds.every(id => selected.has(id))
   const someSelected = selected.size > 0
   const phaseOptions = useMemo(() => phases.map(p => ({ value: p.id, label: p.name || 'Untitled' })), [phases])
+  // Defect 4 (Q21; VW1e step 0, finding 9): a row a filter or the search
+  // hides leaves the selection, so no bulk verb acts on a row nobody sees
+  // (the Scenes tables' R1-05 rule).
+  useEffect(() => {
+    const shown = new Set(allAssetIds)
+    setSelected(prev => {
+      const keep = new Set([...prev].filter(id => shown.has(id)))
+      return keep.size === prev.size ? prev : keep
+    })
+  }, [allAssetIds])
 
   function toggleOne(id) {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
@@ -838,21 +859,11 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
     clearSelection()
   }
 
-  const columns = [
-    { key: 'name',        label: 'Name' },
-    { key: 'type',        label: 'Type',        width: 'var(--rb-asset-type)' },
-    { key: 'phase_id',    label: 'Phase',       width: 'var(--rb-asset-phase)' },
-    { key: 'status',      label: 'Status',      width: 'var(--rb-asset-status)' },
-    { key: 'start_date',  label: 'Start',       width: 'var(--rb-asset-date)' },
-    { key: 'due_date',    label: 'Due',         width: 'var(--rb-asset-date)' },
-    // FX8: Description takes what the name leaves past its maximum (the
-    // sheet's `--rb-asset-col-desc`); a row's buttons sit in the name cell,
-    // right after its words, so there is no actions column.
-    { key: 'description', label: 'Description', width: 'var(--rb-asset-col-desc)' },
-    { key: 'tasks',       label: 'Tasks',       width: 'var(--rb-asset-tasks)', numeric: true },
-  ]
-  // What a group row spans: the checkbox and thumbnail columns and the eight.
-  const span = columns.length + 2
+  // What a group row spans: the checkbox, the picture while it shows and
+  // the columns on screen (VW1e: a view hides columns).
+  const span = columns.length + 1 + (showThumb ? 1 : 0)
+  // The fixed sum from the columns on screen (§4.10; VW1e step 0, finding 8).
+  const widths = assetsTableWidths(columns, showThumb)
 
   if (assets.length === 0 && (!groups || groups.length === 0)) {
     return (
@@ -860,11 +871,12 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
     )
   }
 
-  const row = (a) => (
+  const row = (a, drop = null) => (
     <AssetRow
       key={a.id}
       asset={a}
       columns={columns}
+      showThumb={showThumb}
       phaseOptions={phaseOptions}
       taskCount={taskCountByAsset[a.id] || 0}
       warning={ctx?.selectAssetStatusWarning?.(a)}
@@ -877,11 +889,15 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
       onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
       onThumbChanged={onThumbChanged}
       isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
+      draggable={canDrag}
+      drop={drop}
     />
   )
 
   return (
-    <div className="rb-asset-table-wrap" data-thumb={thumbSize} data-history={onHistoryClick ? 'true' : 'false'}>
+    <div className="rb-asset-table-wrap" data-thumb={thumbSize} data-history={onHistoryClick ? 'true' : 'false'}
+      data-grow={widths.grow > 0 ? 'some' : 'none'}
+      style={{ '--rb-asset-fixed': widths.fixed }}>
       {/* ── Bulk-action bar: over the head, right of the checkbox column (the
           controls appear where the selection was made), as B2's. ── */}
       {someSelected && (
@@ -924,10 +940,13 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
                     : <Square aria-hidden="true" />}
               </button>
             </Th>
-            {/* Thumbnail column: the chosen size, for every row */}
-            <Th width="var(--rb-asset-thumb)" className="rb-asset-thumb-cell">
-              <span className="sr-only">Thumbnail</span>
-            </Th>
+            {/* Thumbnail column: the chosen size, for every row, unless the
+                view hides it (her Q-J: hideable, never moved). */}
+            {showThumb && (
+              <Th width="var(--rb-asset-thumb)" className="rb-asset-thumb-cell">
+                <span className="sr-only">Thumbnail</span>
+              </Th>
+            )}
             {columns.map(c => (
               <Th key={c.key} width={c.width} numeric={c.numeric}>{c.label}</Th>
             ))}
@@ -935,24 +954,15 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
         )}
       >
         {groups ? (
-          groups.map(g => {
-            const collapsed = collapsedGroups.has(g.key)
-            return (
-              <Fragment key={g.key}>
-                {/* Group header: one band across the table, as B2's */}
-                <Row className="rb-asset-group-row">
-                  <Td colSpan={span} className="rb-asset-group-cell">
-                    <AssetGroupToggle group={g} groupBy={groupBy}
-                      collapsed={collapsed} onToggle={() => toggleGroup(g.key)} />
-                  </Td>
-                </Row>
-                {/* Group rows */}
-                {!collapsed && g.assets.map(row)}
-              </Fragment>
-            )
-          })
+          groups.map(g => (
+            <AssetGroupRows key={g.key} group={g} groupBy={groupBy} span={span}
+              collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
+              canDrop={canDrag} onDropOnGroup={onDropOnGroup}
+              canEditViews={canEditViews} onRemoveGrouping={onRemoveGrouping}
+              renderRow={row} />
+          ))
         ) : (
-          assets.map(row)
+          assets.map(a => row(a))
         )}
       </Table>
 
@@ -1007,6 +1017,49 @@ function AssetGroupToggle({ group, groupBy, collapsed, onToggle }) {
   )
 }
 
+// ── A group's band and its rows (VW1e): one drop target ──
+// The Tasks table's TaskGroup shape (VW1e step 0, finding 3): a <tbody>
+// cannot nest in the kit Table's own, so the band and the group's rows share
+// one set of drag handlers — entering any of them counts, leaving the last
+// un-counts — and a drop carries the dragged asset's id (text/plain). Only
+// while the table is grouped by a linked kind and the seat may write
+// (`canDrop`); a drop on the group the asset is in writes nothing (the
+// view's dropOnGroup).
+function AssetGroupRows({ group, groupBy, span, collapsed, onToggle, canDrop = false, onDropOnGroup, canEditViews = false, onRemoveGrouping, renderRow }) {
+  const [dragOver, setDragOver] = useState(false)
+  const countRef = useRef(0)
+  const drop = canDrop ? {
+    onDragEnter: (e) => { e.preventDefault(); countRef.current++; if (countRef.current === 1) setDragOver(true) },
+    onDragOver: (e) => { e.preventDefault() },
+    onDragLeave: () => { countRef.current--; if (countRef.current <= 0) { countRef.current = 0; setDragOver(false) } },
+    onDrop: (e) => {
+      e.preventDefault()
+      countRef.current = 0
+      setDragOver(false)
+      let id = null
+      try { id = e.dataTransfer?.getData?.('text/plain') || null } catch { id = null }
+      if (id) onDropOnGroup?.(id, group)
+    },
+  } : null
+  return (
+    <>
+      {/* Group header: one band across the table, as B2's */}
+      <Row className="rb-asset-group-row"
+        onDragEnter={drop?.onDragEnter} onDragOver={drop?.onDragOver} onDragLeave={drop?.onDragLeave} onDrop={drop?.onDrop}
+        data-drag-over={dragOver ? 'true' : 'false'}>
+        <Td colSpan={span} className="rb-asset-group-cell">
+          <span className="rb-asset-group-band">
+            <AssetGroupToggle group={group} groupBy={groupBy} collapsed={collapsed} onToggle={onToggle} />
+            <GroupingMore group={group} canEditViews={canEditViews} onRemoveGrouping={onRemoveGrouping} />
+          </span>
+        </Td>
+      </Row>
+      {/* Group rows */}
+      {!collapsed && group.assets.map(a => renderRow(a, drop))}
+    </>
+  )
+}
+
 // ── Bulk-action dropdown for the floating bar (B2's BulkSelect) ──
 function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
   return (
@@ -1031,7 +1084,10 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
 // cell here commits through `onUpdate` → ctx.updateAsset, and none of it was
 // gated. The New asset button being gated while the ROW was not is why this
 // file read as "already gated".
-function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onHistoryClick, onThumbChanged, isSelected, onToggleSelect, readOnly = false }) {
+// VW1e: `showThumb` (the view may hide the picture, her Q-J); `draggable`
+// (grouped by a linked kind, for a seat that may write, her Q-D1) and `drop`
+// (its group's handlers, AssetGroupRows).
+function AssetRow({ asset, columns, showThumb = true, phaseOptions, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onHistoryClick, onThumbChanged, isSelected, onToggleSelect, readOnly = false, draggable = false, drop = null }) {
   // Only the remove-thumbnail button still mounts on hover, as it always did;
   // every other hover state is the sheet's (`.rb-asset-row:hover`, the kit's
   // HoverActions), so none of them is decided in a style any more.
@@ -1179,6 +1235,10 @@ function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevis
       className="rb-asset-row"
       selected={isSelected}
       data-ticked={isSelected ? 'true' : 'false'}
+      data-draggable={draggable ? 'true' : 'false'}
+      draggable={draggable}
+      onDragStart={draggable ? (e) => { e.dataTransfer.setData('text/plain', String(asset.id)); e.dataTransfer.effectAllowed = 'move' } : undefined}
+      onDragEnter={drop?.onDragEnter} onDragOver={drop?.onDragOver} onDragLeave={drop?.onDragLeave} onDrop={drop?.onDrop}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     >
       {/* Checkbox: shown on hover, on focus and while ticked, as B2's */}
@@ -1196,7 +1256,9 @@ function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevis
       </Td>
 
       {/* Thumbnail: the column's one width; a row with no thumbnail
-          letterboxes its 36px placeholder in it, centred (R4-04). */}
+          letterboxes its 36px placeholder in it, centred (R4-04). VW1e: a
+          view may hide the column (her Q-J). */}
+      {showThumb && (
       <Td className="rb-asset-thumb-cell">
         {hasThumbnail ? (
           <div
@@ -1227,6 +1289,7 @@ function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevis
           </button>
         )}
       </Td>
+      )}
 
       {/* Data columns */}
       {columns.map(renderCell)}
@@ -1238,7 +1301,10 @@ function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevis
 // ═════════════════════════════════════════════════════
 // GALLERY VIEW
 // ═════════════════════════════════════════════════════
-function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thumbRevision, onThumbChanged, onWarningClick, onDetailClick }) {
+// VW1e: `cardShows`, the card's own lines the view shows (her Q-E; Q-P2, one
+// field list for the table and the cards: status, type, phase, tasks). Null
+// shows every line.
+function AssetGallery({ assets, phaseById, taskCountByAsset, cardShows = null, ctx, canWrite, thumbRevision, onThumbChanged, onWarningClick, onDetailClick }) {
   if (assets.length === 0) {
     // The kit's empty state (R4-13), in sentence case.
     return <EmptyState Icon={Boxes} title="No assets" />
@@ -1251,6 +1317,7 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thum
           asset={a}
           phaseLabel={phaseById[a.phase_id]?.name || ''}
           taskCount={taskCountByAsset[a.id] || 0}
+          shows={cardShows}
           warning={ctx?.selectAssetStatusWarning?.(a)}
           thumbRevision={thumbRevision}
           onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
@@ -1270,7 +1337,10 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thum
 // words and tone from the one STATUS map; the 2px status-colour bar under
 // the picture said the same thing again and is gone), the name at 600 and
 // the task count in the mono.
-function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, readOnly = false }) {
+function AssetCard({ asset, phaseLabel, taskCount, shows = null, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, readOnly = false }) {
+  // VW1e: which of the card's own lines the view shows (finding 6's rule,
+  // built for the Gallery); the picture block is the card and always stays.
+  const show = (key) => !shows || shows.has(key)
   // The detail and thumbnail buttons still mount on hover, as they did.
   const [hovered, setHovered] = useState(false)
   const hasThumbnail = !!asset.thumbnail_image
@@ -1332,9 +1402,11 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           </>
         )}
         {/* On the paper, so the badge's tint reads the same over a picture. */}
-        <span className="rb-asset-card-status">
-          <StatusBadge status={asset.status || 'not_started'} />
-        </span>
+        {show('status') && (
+          <span className="rb-asset-card-status">
+            <StatusBadge status={asset.status || 'not_started'} />
+          </span>
+        )}
       </div>
 
       {/* Body */}
@@ -1347,17 +1419,21 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
             readOnly={readOnly}
           />
         </div>
-        <div className="rb-asset-card-meta text-label uppercase">
-          <span>{assetTypeLabel(asset.type)}</span>
-          {phaseLabel && <span className="rb-asset-card-phase">{'·'} {phaseLabel}</span>}
-        </div>
+        {(show('type') || (show('phase_id') && phaseLabel)) && (
+          <div className="rb-asset-card-meta text-label uppercase">
+            {show('type') && <span>{assetTypeLabel(asset.type)}</span>}
+            {show('phase_id') && phaseLabel && <span className="rb-asset-card-phase">{show('type') ? '· ' : ''}{phaseLabel}</span>}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
       <div className="rb-asset-card-foot">
-        <span className="rb-asset-card-count">
-          {taskCount} task{taskCount === 1 ? '' : 's'}
-        </span>
+        {show('tasks') && (
+          <span className="rb-asset-card-count">
+            {taskCount} task{taskCount === 1 ? '' : 's'}
+          </span>
+        )}
         {onDelete && (
           // Soft delete — no confirm; the shell-level undo toast covers it.
           <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onDelete} />
@@ -1684,6 +1760,9 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
   const [showScenePicker, setShowScenePicker] = useState(false)
   const [showShotPicker, setShowShotPicker] = useState(false)
   const [showLevelPicker, setShowLevelPicker] = useState(false)
+  // R2-2: whether this backend keeps an asset's levels and experiences.
+  const levelsKept = linksKept(ctx, 'level')
+  const experiencesKept = linksKept(ctx, 'experience')
   const [showExperiencePicker, setShowExperiencePicker] = useState(false)
   // Post-overhaul S3c, step 1 (S3b-09): the scene and shot pickers offer the
   // ACTIVE shot list's rows (D10), with "Show all lists" for the rest, and
@@ -2020,19 +2099,21 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
                 </GatedAction>
               </PropField>
             )}
+            {/* VW1e code review round 2 (R2-2): a cloud without 0099 keeps no
+                asset levels or experiences: greyed, saying why. */}
             {project?.levels_enabled && (
               <PropField label="Levels">
-                <GatedAction allowed={canWrite} reason={writeReason}>
+                <GatedAction allowed={canWrite && levelsKept} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason}>
                   <RelationBadge icon={Gamepad2} count={linked.levels} label="Levels"
-                    onClick={() => { if (canWrite) setShowLevelPicker(true) }} />
+                    onClick={() => { if (canWrite && levelsKept) setShowLevelPicker(true) }} />
                 </GatedAction>
               </PropField>
             )}
             {project?.experiences_enabled && (
               <PropField label="Experiences">
-                <GatedAction allowed={canWrite} reason={writeReason}>
+                <GatedAction allowed={canWrite && experiencesKept} reason={canWrite ? ASSET_LINKS_ABSENT_REASON : writeReason}>
                   <RelationBadge icon={Sparkles} count={linked.experiences} label="Experiences"
-                    onClick={() => { if (canWrite) setShowExperiencePicker(true) }} />
+                    onClick={() => { if (canWrite && experiencesKept) setShowExperiencePicker(true) }} />
                 </GatedAction>
               </PropField>
             )}
@@ -2080,7 +2161,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
               items={ctx?.levels || []}
               selectedIds={asset.level_ids || []}
               onToggle={id => {
-                if (!canWrite) return
+                if (!canWrite || !levelsKept) return
                 const current = asset.level_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { level_ids: next })
@@ -2095,7 +2176,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
               items={ctx?.experiences || []}
               selectedIds={asset.experience_ids || []}
               onToggle={id => {
-                if (!canWrite) return
+                if (!canWrite || !experiencesKept) return
                 const current = asset.experience_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { experience_ids: next })

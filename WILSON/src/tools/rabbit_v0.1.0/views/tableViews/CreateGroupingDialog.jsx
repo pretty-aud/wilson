@@ -33,8 +33,10 @@ export const GROUPING_EXISTS_WORDS = 'That grouping already exists.'
  * description); `orderOf(kind)` the display order's comparator (the items'
  * lookup); `groupings` the project's groupings of this table and kind;
  * `onCreate(ids)` makes it (ctx.addItemGrouping) and may throw in words.
+ * `rowsNoun` the table's rows in words ("tasks"; VW1e: "assets", "levels",
+ * "experiences" — step 0, finding 14).
  */
-export function CreateGroupingDialog({ tableKey, kind, singular, plural, options, orderOf = null, nameOf = null, groupings = [], onCreate, onClose }) {
+export function CreateGroupingDialog({ tableKey, kind, singular, plural, options, orderOf = null, nameOf = null, groupings = [], rowsNoun = 'tasks', onCreate, onClose }) {
   const [ticked, setTicked] = useState([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -69,7 +71,7 @@ export function CreateGroupingDialog({ tableKey, kind, singular, plural, options
       )}
     >
       <p className="rb-tv-ask">
-        Tick the {plural.toLowerCase()} that belong together. The group is saved for everyone on the project, and tasks dragged into it take these {plural.toLowerCase()}.
+        Tick the {plural.toLowerCase()} that belong together. The group is saved for everyone on the project, and {rowsNoun} dragged into it take these {plural.toLowerCase()}.
       </p>
       {/* Code review round 1, R1-10: only the name is live (a tick says
           its own state), and the "exists" line's region is always there,

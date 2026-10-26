@@ -163,6 +163,13 @@ import { devFixtures } from '../../../dev/devFixtures';
  *   - google_drive: listTaskItems and the bundle's taskItems answer what the
  *     export holds; the two writes throw readOnly().
  *
+ * @property {() => boolean}                                        [assetLevelLinksAvailable]
+ *   VW1e (migration 0099): whether this backend keeps an asset's
+ *   `level_ids` and `experience_ids`. Only the cloud adapter has it: false
+ *   after a load whose probe found the columns missing (the writes then
+ *   leave them out, said once per write). A backend without the method
+ *   keeps them (the Local Server's and an export's rows hold any field).
+ *
  * @property {() => boolean}                                        tableViewsAvailable
  * @property {() => (string|null)}                                  tableViewsLoadError
  * @property {(projectId: string) => Promise<object[]>}             listTableViews

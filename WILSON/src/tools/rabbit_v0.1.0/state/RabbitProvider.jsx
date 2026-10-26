@@ -8424,6 +8424,15 @@ export function RabbitProvider({ children }) {
     [bundle, adapterMode],
   );
   taskItemsOnRef.current = taskItemsOn;
+  // VW1e (0099; code review round 1, R1-9): whether this backend keeps an
+  // asset's levels and experiences — learned by each load, so re-read per
+  // bundle. A backend without the method keeps them.
+  const assetLevelLinksOn = useMemo(
+    () => typeof adapterRef.current?.assetLevelLinksAvailable !== 'function'
+      || adapterRef.current.assetLevelLinksAvailable() === true,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bundle, adapterMode],
+  );
   const strippedTasksRef = useRef(new WeakMap());
   const tasksView = useMemo(() => {
     if (!taskItemsOn) return bundle.tasks;
@@ -8491,6 +8500,7 @@ export function RabbitProvider({ children }) {
     // backend keeps them — the task window draws its Items table only then.
     taskItems:     bundle.taskItems || [],
     taskItemsAvailable: taskItemsOn,
+    assetLevelLinksAvailable: assetLevelLinksOn,
     // VW1c (0098): custom table views — design §5.5, state/tableViewsState.js.
     tableViews:          tableViewsApi.tableViews,
     itemGroupings:       tableViewsApi.itemGroupings,
@@ -8763,7 +8773,7 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
-    addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn,
+    addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn, assetLevelLinksOn,
     tableViewsApi, addTableView, updateTableView, renameTableView, deleteTableView, reorderTableViews,
     addItemGrouping, removeItemGrouping,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,

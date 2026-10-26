@@ -678,12 +678,23 @@ describe('the four lists 0084 widens', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('assets still drops level_ids, which has no column', () => {
-    const out = toColumns('assets', { id: 'a1', shot_ids: ['h1'], level_ids: ['lv1'] })
-    expect(out).toEqual({ id: 'a1', shot_ids: ['h1'] })
+  // VW1e (0099, 2026-10-25): the cloud keeps an asset's levels and
+  // experiences too (her A9; design §4.7, §4.11). Until 0099 this test said
+  // "assets still drops level_ids, which has no column".
+  it('assets keeps level_ids / experience_ids (0099) — the Levels and Experiences pickers\' whole arrays', () => {
+    expect(COLUMN_ALLOWLIST.assets.has('level_ids'), 'assets allowlist is missing level_ids (0099)').toBe(true)
+    expect(COLUMN_ALLOWLIST.assets.has('experience_ids'), 'assets allowlist is missing experience_ids (0099)').toBe(true)
+    const payload = { id: 'a1', shot_ids: ['h1'], level_ids: ['lv1'], experience_ids: [] }
+    expect(toColumns('assets', payload)).toEqual(payload)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('assets still drops a key it has no column for (a task\'s level_id sent to an asset)', () => {
+    const out = toColumns('assets', { id: 'a1', level_ids: ['lv1'], level_id: 'lv1' })
+    expect(out).toEqual({ id: 'a1', level_ids: ['lv1'] })
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn.mock.calls[0][0]).toContain('public.assets')
-    expect(warn.mock.calls[0][0]).toContain('level_ids')
+    expect(warn.mock.calls[0][0]).toContain('level_id')
   })
 
   it('budget_versions keeps shot_list_id and summary — the whole-row re-send', () => {

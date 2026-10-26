@@ -294,23 +294,19 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(within(section).getByRole('button', { name: 'Add files' })).toBeTruthy()
   })
 
-  it('the saved views read and write its own storage key, and only that', () => {
+  // VW1e (2026-10-25), her Q17 ("Start fresh"): the browser's old saved views
+  // are removed on the first load; the project's views replace them (the
+  // Views button names the view on screen; views/tableViews/ tests them).
+  it('Q17: its own old saved views are removed on the first load, and only those; the Views button names the view on screen', () => {
     localStorage.setItem(p.key, JSON.stringify([{ id: 'v1', name: 'By status', groupBy: 'status' }]))
     localStorage.setItem(p.otherKey, JSON.stringify([{ id: 'v2', name: 'Theirs' }]))
     mount(p.View)
-    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
-    expect(screen.queryByText('Theirs')).toBeNull()
-    // Loading it applies it: the group control reads Status.
-    fireEvent.click(screen.getByText('By status'))
-    expect(screen.getByDisplayValue('Status')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save current view' }))
-    fireEvent.change(screen.getByPlaceholderText('View name...'), { target: { value: 'Mine' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    const saved = JSON.parse(localStorage.getItem(p.key))
-    expect(saved.map((v) => v.name)).toEqual(['By status', 'Mine'])
-    expect(saved[1]).toMatchObject({ groupBy: 'status', viewMode: 'table' })
+    expect(localStorage.getItem(p.key)).toBeNull()
+    // CONTROL: the other entity's key stays until its own page loads.
     expect(JSON.parse(localStorage.getItem(p.otherKey)).map((v) => v.name)).toEqual(['Theirs'])
+    const views = screen.getByRole('button', { name: 'Views: All' })
+    expect(views.getAttribute('data-table')).toBe(p.nouns)
+    expect(screen.queryByRole('button', { name: 'Views' })).toBeNull()
   })
 
   it('deleting a row asks first (the ConfirmDialog), then calls its own delete method', async () => {
@@ -396,6 +392,8 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     or a state (the rows' status spine and every hex went with R4-05). */
 const onlyWidths = (root) => [...root.querySelectorAll('[style]')]
   .filter((el) => !(el.tagName === 'TH' && /^width: var\(--rb-ent-[a-z]+\);$/.test(el.getAttribute('style'))))
+  // VW1e (§4.10): the wrap's fixed sum from the columns on screen, a geometry.
+  .filter((el) => !(el.classList.contains('rb-ent-table-wrap') && /^--rb-ent-fixed: calc\([^;]*\);$/.test(el.getAttribute('style'))))
   .map((el) => `${el.tagName} ${el.getAttribute('style')}`)
 
 /** A kit Dialog raised into <body>, outside the page's own tree. */
@@ -425,7 +423,9 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
     expect([filter.getAttribute('data-active'), filter.getAttribute('aria-expanded')]).toEqual(['false', 'false'])
     fireEvent.click(filter)
     fireEvent.click(screen.getByRole('button', { name: 'Add filter' }))
-    expect([filter.getAttribute('data-active'), filter.getAttribute('aria-expanded')]).toEqual(['true', 'true'])
+    // VW1e (defect 1, Q21): a new row has no value yet, so it filters
+    // nothing and Filter is not marked doing something.
+    expect([filter.getAttribute('data-active'), filter.getAttribute('aria-expanded')]).toEqual(['false', 'true'])
     const sort = within(toolbar).getByRole('combobox', { name: 'Sort' })
     expect(sort.getAttribute('data-active')).toBe('false')
     fireEvent.change(sort, { target: { value: 'name' } })
@@ -468,9 +468,13 @@ describe.each(PAGES)('$page — on the kit (B4c surface 6, step B)', (p) => {
 
   it('every icon-only control is named — the sort direction for what a click does, each checkbox for its row, each card\'s delete for its card', () => {
     mount(p.View)
+    // VW1e: the direction is the view's first sort's, so the button shows
+    // with a sort (as on Assets and Tasks).
+    expect(screen.queryByRole('button', { name: 'Sorted ascending — reverse' })).toBeNull()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
     const reverse = screen.getByRole('button', { name: 'Sorted ascending — reverse' })
     fireEvent.click(reverse)
-    expect(reverse.getAttribute('title')).toBe('Sorted descending — reverse')
+    expect(screen.getByRole('button', { name: 'Sorted descending — reverse' })).toBeTruthy()
     expect(screen.getByRole('button', { name: `Select every ${p.noun}` })).toBeTruthy()
     for (const n of p.names) expect(screen.getByRole('button', { name: `Select ${n}` })).toBeTruthy()
     // FX8: a row's buttons are named for their row — Open (the page icon,

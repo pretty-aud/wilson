@@ -109,6 +109,45 @@ export function moveField(effective, key, by) {
   return list
 }
 
+// ── The columns in front of the name (her Q-J; design §4.3, §5.1) ───────
+// VW1e (2026-10-25): Assets' picture; Scenes' expand arrow, picture and
+// number; Shots' picture and number. "Stay in front (Recommended)": a view
+// can hide them, never move them, so a view keeps only which show.
+
+/**
+ * The leading columns as the table shows them: `[{ key, visible }]` in the
+ * table's own order (`leadingKeys`, the description's), each shown unless the
+ * view hides it; a stored key the table does not have now is left out, a
+ * key stored twice counts once (the first).
+ */
+export function effectiveLeading(leading, leadingKeys) {
+  const keys = Array.isArray(leadingKeys) ? leadingKeys : []
+  const stored = new Map()
+  for (const f of Array.isArray(leading) ? leading : []) {
+    if (f && typeof f.key === 'string' && !stored.has(f.key)) stored.set(f.key, f.visible !== false)
+  }
+  return keys.map(key => ({ key, visible: stored.has(key) ? stored.get(key) : true }))
+}
+
+/**
+ * The `leading` to keep for an effective list: empty while every leading
+ * column shows, else each one with its switch; a stored entry for a key the
+ * table does not have now is kept after them (as fieldsToStore keeps a field
+ * the project shows again).
+ */
+export function leadingToStore(effective, stored, leadingKeys) {
+  const keys = new Set(Array.isArray(leadingKeys) ? leadingKeys : [])
+  const list = (Array.isArray(effective) ? effective : []).filter(f => f && keys.has(f.key))
+  const kept = (Array.isArray(stored) ? stored : []).filter(f => f && typeof f.key === 'string' && !keys.has(f.key))
+  if (list.every(f => f.visible) && kept.length === 0) return []
+  return [...list.map(f => ({ key: f.key, visible: f.visible })), ...kept.map(f => ({ key: f.key, visible: f.visible !== false }))]
+}
+
+/** Is a leading column shown in this config? (A key the table lacks: no.) */
+export function leadingShown(config, leadingKeys, key) {
+  return effectiveLeading(config?.leading, leadingKeys).some(f => f.key === key && f.visible)
+}
+
 // ── Filters (Q13; defects 1 and 2) ──────────────────────────────────────
 
 /** How many filters filter: an incomplete row (no value yet) filters nothing and is not counted (defect 1). */
@@ -260,9 +299,10 @@ const groupKey = (g) => (g ? `${g.field}\u0001${g.hideEmpty ? 1 : 0}` : '')
  * the sorts, the grouping and its switch, the Board's, the key dates and the
  * fields over the table's fields NOW (`fieldKeys`, `fixed`): an empty filter
  * row, a field the table does not have and a key this build does not know
- * change nothing on screen.
+ * change nothing on screen. VW1e: and the columns in front of the name over
+ * the table's own (`leadingKeys`, her Q-J): hiding a picture is a change.
  */
-export function sameEffect(a, b, { tableKey, fieldKeys = [], fixed = [] } = {}) {
+export function sameEffect(a, b, { tableKey, fieldKeys = [], fixed = [], leadingKeys = [] } = {}) {
   const x = readable(a, tableKey)
   const y = readable(b, tableKey)
   if (x.layout !== y.layout) return false
@@ -271,6 +311,7 @@ export function sameEffect(a, b, { tableKey, fieldKeys = [], fixed = [] } = {}) 
   if (groupKey(x.group) !== groupKey(y.group)) return false
   if (groupKey(x.board) !== groupKey(y.board)) return false
   if ((x.keyDates ?? true) !== (y.keyDates ?? true)) return false
+  if (JSON.stringify(effectiveLeading(x.leading, leadingKeys)) !== JSON.stringify(effectiveLeading(y.leading, leadingKeys))) return false
   const fx = effectiveFields(x.fields, fieldKeys, { fixed })
   const fy = effectiveFields(y.fields, fieldKeys, { fixed })
   return JSON.stringify(fx) === JSON.stringify(fy)
@@ -285,7 +326,9 @@ export function filtersSummary(config, description = null) {
 
 export function sortSummary(config, description) {
   const list = (config?.sorts || []).map(s => description.field(s.field)?.short || description.field(s.field)?.label).filter(Boolean)
-  return list.length === 0 ? 'Default order' : list.join(', then ')
+  // VW1e (step 0, finding 14): the table's own word for no sort — Scenes and
+  // Shots with a list on screen say "List order", as their Sort select does.
+  return list.length === 0 ? (description?.defaultOrderLabel || 'Default order') : list.join(', then ')
 }
 
 export function groupSummary(config, description) {

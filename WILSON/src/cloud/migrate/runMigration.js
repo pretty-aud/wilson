@@ -223,6 +223,24 @@ export function taskRowForCloud(t) {
   return rest
 }
 
+// VW1e (0099, 2026-10-25): a desktop asset goes up WITHOUT its level and
+// experience links. The runner carries no levels or experiences
+// (NOT_CARRIED), so the ids would name rows the cloud does not have — an
+// array is no foreign key, so nothing would refuse them, and the asset would
+// sit in a level nobody can open. Before 0099 the cloud had no such column at
+// all, and a desktop asset that named a level was refused WHOLE (PGRST204).
+// Its scene and shot links go up as they always have (BC3 carries both).
+export function assetRowForCloud(a) {
+  if (!a || typeof a !== 'object') return a
+  const { level_ids: _levels, experience_ids: _experiences, ...rest } = a
+  return rest
+}
+// Whether an asset names a level or an experience (what assetRowForCloud
+// leaves here), and the not-carried line's words for those assets.
+const namesLevelOrExperience = (a) => ['level_ids', 'experience_ids'].some(k => Array.isArray(a?.[k]) && a[k].length > 0)
+const ASSET_LEVEL_LINKS_KEY = 'assetLevelLinks'
+const assetLevelLinksLabel = (n) => (n === 1 ? "asset's links to levels or experiences" : "assets' links to levels or experiences")
+
 // The items a project's move carries (and counts): the bundle's own, plus one
 // for an asset, a scene or a shot a task row names that no item does (a
 // bundle no Local Server reconciled), so taskRowForCloud's dropping the
@@ -335,7 +353,9 @@ function makeReport() {
     workspaceId: null,
     projects:      { total: 0, inserted: 0, skipped: 0, failed: 0 },
     phases:        { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    assets:        { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    // VW1e (0099): `linksLeftBehind` counts the assets that named a level or
+    // an experience — those links stay here with the rows they name.
+    assets:        { total: 0, inserted: 0, skipped: 0, failed: 0, linksLeftBehind: 0 },
     tasks:         { total: 0, inserted: 0, skipped: 0, failed: 0 },
     taskLinks:     { total: 0, inserted: 0, skipped: 0, failed: 0 },
     phaseLinks:    { total: 0, inserted: 0, skipped: 0, failed: 0 },
@@ -529,6 +549,18 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     e.label = levelGroupingsLabel(e.count)
     notCarried.set(LEVEL_GROUPINGS_KEY, e)
   }
+  // VW1e (0099), counted alike by the dry run and the real one: the assets
+  // whose level and experience links stay here (assetRowForCloud sends the
+  // asset without them), and the not-carried line that says so.
+  const countAssetLinksLeftBehind = (assets) => {
+    const n = (assets ?? []).filter(namesLevelOrExperience).length
+    report.assets.linksLeftBehind += n
+    if (!n) return
+    const e = notCarried.get(ASSET_LEVEL_LINKS_KEY) || { key: ASSET_LEVEL_LINKS_KEY, count: 0 }
+    e.count += n
+    e.label = assetLevelLinksLabel(e.count)
+    notCarried.set(ASSET_LEVEL_LINKS_KEY, e)
+  }
   const viewsNote = (part, views, groupings, where = '') => `  ${plural(views, 'saved view')} and ${plural(groupings, 'grouping')}${where}` +
     (part.left.length ? `; ${plural(part.left.length, 'grouping')} of levels or experiences ${part.left.length === 1 ? 'stays' : 'stay'} on this computer` : '')
 
@@ -569,6 +601,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       bumpInserted(report.projects)
       report.phases.total += (bundle.phases ?? []).length
       report.assets.total += (bundle.assets ?? []).length
+      countAssetLinksLeftBehind(bundle.assets)
       report.tasks.total  += (bundle.tasks  ?? []).length
       report.files.total  += (bundle.files  ?? []).length
       // FX2 (0096): the items, as the real run will take them.
@@ -734,9 +767,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         bumpFailed(report.phases)
       }
     }
+    countAssetLinksLeftBehind(bundle.assets)
     for (const a of bundle.assets ?? []) {
       try {
-        const r = await insertOrSkip('assets', a)
+        const r = await insertOrSkip('assets', assetRowForCloud(a))
         r.status === 'inserted' ? bumpInserted(report.assets) : bumpSkipped(report.assets)
       } catch (err) {
         report.errors.push({ scope: 'asset', projectId, id: a.id, message: err.message })

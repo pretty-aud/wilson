@@ -418,9 +418,16 @@ const ASSET_COLUMNS = new Set([
   // arrays (`updateAsset(id, { scene_ids: next })`, ProjectAssetsView.jsx
   // :2026 / :2040) and were dropped here until now. An array is not an FK, so
   // a deleted scene's id can linger; the client ignores unknown ids (0084 §6c).
-  // level_ids / experience_ids stay OUT, like the task links above.
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'scene_ids', 'shot_ids',
+  // 0099 (VW1e, 2026-10-25; her A9, "the same on the cloud or a NAS"): the
+  // levels and experiences an asset is in, uuid[] like scene_ids. They were
+  // left OUT until now, so on the cloud a level's Assets count read 0 and the
+  // Levels table could not be grouped by asset (design §4.7, §4.11). The
+  // asset window's pickers send whole arrays (ProjectAssetsView.jsx's Levels
+  // and Experiences pickers), the Levels table's drag a whole array per asset.
+  // 🚨 Stripped again on a database without 0099 — see stripUnmigrated.
+  'level_ids', 'experience_ids',
 ]);
 
 // ── Session 24 ──────────────────────────────────────────────────
@@ -974,7 +981,22 @@ let shotListsAbsent = false;
 // it — a load that finds shot_lists clears the flag by itself.
 export function resetShotListSchemaState() {
   shotListsAbsent = false;
+  assetLevelLinksAbsent = false;
 }
+
+// 0099 (VW1e, 2026-10-25): the same "client ahead of its database" answer for
+// assets.level_ids / experience_ids. A write that carries one to a database
+// without 0099 is refused WHOLE (PGRST204), so while loadProject has found
+// them absent, stripUnmigrated takes them out of every asset write (loudly,
+// as for 0084). The probe is its own one-row read of the two columns in the
+// load (probeAssetLevelLinks): an asset row read with `*` says nothing when
+// the project has no assets yet. Like shotListsAbsent, never cleared by an
+// auth event; a load that reads the columns clears it.
+let assetLevelLinksAbsent = false;
+
+const COLUMNS_ADDED_BY_0099 = {
+  assets: ['level_ids', 'experience_ids'],
+};
 
 const COLUMNS_ADDED_BY_0084 = {
   tasks:           ['scene_id', 'shot_id'],
@@ -992,25 +1014,44 @@ function carriesValue(v) {
 }
 
 function stripUnmigrated(table, row) {
-  const cols = shotListsAbsent ? COLUMNS_ADDED_BY_0084[table] : null;
-  if (!cols || !row || typeof row !== 'object') return row;
+  if (!row || typeof row !== 'object') return row;
+  // 0084's columns while shot_lists is absent; 0099's while its probe found
+  // the asset level links absent (VW1e). Each migration's own words.
+  const absent = [
+    ['0084', shotListsAbsent ? COLUMNS_ADDED_BY_0084[table] : null],
+    ['0099', assetLevelLinksAbsent ? COLUMNS_ADDED_BY_0099[table] : null],
+  ].filter(([, cols]) => cols);
+  if (absent.length === 0) return row;
   const out = { ...row };
-  const lost = [];
-  for (const c of cols) {
-    if (!(c in out)) continue;
-    if (carriesValue(out[c])) lost.push(c);
-    delete out[c];
-  }
-  // Loud, like toColumns: a user linked a task to a scene and the link was
-  // not kept. Silence here would be the S23 sin in a new place.
-  if (lost.length) {
-    console.warn(
-      `[supabase] this database does not have migration 0084 yet, so ` +
-      `${lost.join(', ')} on public.${table} was NOT saved. The rest of the ` +
-      `write proceeded.`
-    );
+  for (const [migration, cols] of absent) {
+    const lost = [];
+    for (const c of cols) {
+      if (!(c in out)) continue;
+      if (carriesValue(out[c])) lost.push(c);
+      delete out[c];
+    }
+    // Loud, like toColumns: a user linked a task to a scene and the link was
+    // not kept. Silence here would be the S23 sin in a new place.
+    if (lost.length) {
+      console.warn(
+        `[supabase] this database does not have migration ${migration} yet, so ` +
+        `${lost.join(', ')} on public.${table} was NOT saved. The rest of the ` +
+        `write proceeded.`
+      );
+    }
   }
   return out;
+}
+
+// loadProject's 0099 probe (VW1e): one row of the two columns. 42703 (no
+// such column) is a database without 0099; any other answer — rows, none, or
+// another refusal — leaves the load alone (a refused read of assets fails the
+// load's own asset read anyway), and only a clean answer clears the flag.
+function probeAssetLevelLinks(result) {
+  const code = result?.error?.code;
+  if (code === '42703' || code === 'PGRST204') { assetLevelLinksAbsent = true; return false; }
+  if (!result?.error) assetLevelLinksAbsent = false;
+  return !assetLevelLinksAbsent;
 }
 
 // Exported for columnAllowlist.test.js. The older adapter tests
@@ -2659,7 +2700,7 @@ export function supabaseAdapter() {
       // VW1c (0098): tableViews / itemGroupings join for the seventh time for
       // the same reason; their reads are the 0098 probe and never fail the
       // load — see tableViewsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views] =
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -2730,6 +2771,10 @@ export function supabaseAdapter() {
           listTaskItemsWith(client, projectId),
           // 0098 (VW1c): the saved views and groupings, AND the 0098 probe.
           loadTableViewsWith(client, projectId),
+          // 0099 (VW1e): the asset level links' probe, one row of the two
+          // columns (an empty project says nothing through its assets' rows).
+          client.from('assets').select('level_ids, experience_ids').eq('project_id', projectId)
+            .range(0, 0).then(probeAssetLevelLinks, () => false),
         ]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
@@ -3029,6 +3074,13 @@ export function supabaseAdapter() {
     // write refuses before any request while a load has found 0098 missing.
     tableViewsAvailable() {
       return !tableViewsAbsent;
+    },
+    // VW1e (0099; code review round 1, R1-9): whether this cloud keeps an
+    // asset's levels and experiences. False after a load whose probe found
+    // the columns missing: the screens then offer no drag or Create grouping
+    // that would write them (stripUnmigrated would drop the write).
+    assetLevelLinksAvailable() {
+      return !assetLevelLinksAbsent;
     },
     tableViewsLoadError() {
       return tableViewsLoadErrorText;
