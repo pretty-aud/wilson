@@ -108,7 +108,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock('../auth/supabaseClient', () => ({ supabase: fake.client }))
 
-const { runMigration, viewFiltersLeftBehind, VIEW_FILTERS_LEFT_BEHIND, TABLE_VIEWS_NOT_IN_CLOUD, TABLE_VIEWS_UNREAD } = await import('./runMigration')
+const { runMigration, assetRowForCloud, viewFiltersLeftBehind, VIEW_FILTERS_LEFT_BEHIND, TABLE_VIEWS_NOT_IN_CLOUD, TABLE_VIEWS_UNREAD } = await import('./runMigration')
 const { resetTableViewsSchemaState } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
 const { viewNameProblem } = await import('../../tools/rabbit_v0.1.0/state/tableViewsModel')
 
@@ -245,6 +245,47 @@ describe('the project row leaves the local active shot list behind (0084; S3a re
     expect(fake.state.inserts.projects).toStrictEqual([
       { id: 'p1', title: 'Fixture', status: 'active', workspace_id: 'ws1' },
     ])
+  })
+})
+
+describe('an asset goes up without its level and experience links (VW1e, 0099)', () => {
+  // The runner carries no levels or experiences (NOT_CARRIED): the ids would
+  // name rows the cloud does not have. Before 0099 the cloud had no such
+  // column, and the asset was refused whole (PGRST204).
+  function servesLinkedAsset() {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects') return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        return { ok: true, json: async () => ({ ...bundle(), assets: [{ id: 'a1', project_id: 'p1', name: 'Lantern', scene_ids: ['sc1'], shot_ids: [], level_ids: ['lv1'], experience_ids: ['x1'] }] }) }
+      }
+      return { ok: false, status: 404 }
+    })
+    fake.state.failWith = (table, row) => (table === 'assets' && ('level_ids' in row || 'experience_ids' in row))
+      ? { code: 'PGRST204', message: "Could not find the 'level_ids' column of 'assets' in the schema cache" }
+      : null
+  }
+
+  it('sends the asset with its scene and shot links and without its level and experience links', async () => {
+    servesLinkedAsset()
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.assets).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0, linksLeftBehind: 1 })
+    expect(fake.state.inserts.assets).toStrictEqual([{ id: 'a1', project_id: 'p1', name: 'Lantern', scene_ids: ['sc1'], shot_ids: [] }])
+    // Said: the asset's links to levels stay on this computer.
+    expect(report.notCarried).toContainEqual({ key: 'assetLevelLinks', count: 1, label: "asset's links to levels or experiences" })
+  })
+
+  it('the dry run counts the same, and writes nothing', async () => {
+    servesLinkedAsset()
+    const report = await runMigration({ workspaceId: 'ws1', dryRun: true })
+    expect(report.assets.linksLeftBehind).toBe(1)
+    expect(report.notCarried).toContainEqual(expect.objectContaining({ key: 'assetLevelLinks', count: 1 }))
+    expect(fake.state.inserts.assets || []).toEqual([])
+  })
+
+  it('assetRowForCloud leaves every other key alone, and a row without links as it is', () => {
+    expect(assetRowForCloud({ id: 'a1', name: 'A', level_ids: [], experience_ids: ['x'] })).toEqual({ id: 'a1', name: 'A' })
+    expect(assetRowForCloud({ id: 'a2', name: 'B' })).toEqual({ id: 'a2', name: 'B' })
+    expect(assetRowForCloud(null)).toBe(null)
   })
 })
 
