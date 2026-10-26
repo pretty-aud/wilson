@@ -156,3 +156,51 @@ describe('the views on the Levels table (Q17, Q3, defect 4)', () => {
     expect(document.querySelector('.rb-ent-bulk-count').textContent).toBe('1 selected')
   })
 })
+
+describe('code review round 1', () => {
+  // A backend that keeps no asset levels (a cloud without 0099), the rest the fixtures'.
+  const withoutLinks = (base) => new Proxy(base, { get: (t, k) => (k === 'assetLevelLinksAvailable' ? () => false : Reflect.get(t, k)) })
+  async function mountWith(adapter) {
+    holder.adapter = adapter
+    render(<ToastProvider><RabbitProvider><Probe /><LevelsView /></RabbitProvider></ToastProvider>)
+    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
+    await waitFor(() => expect(document.querySelectorAll('tr.rb-ent-row').length).toBe(4))
+  }
+  const draggable = () => [...document.querySelectorAll('tr.rb-ent-row')].map(r => r.getAttribute('data-draggable'))
+  const createButton = () => screen.getByRole('button', { name: 'Create grouping' })
+
+  it('R1-9: on a cloud without 0099 the drag and Create grouping are greyed with the reason; CONTROL: kept, both live', async () => {
+    await mountWith(withoutLinks(fx.rabbitAdapter()))
+    expect(ctx.assetLevelLinksAvailable).toBe(false)
+    groupBy('asset')
+    expect(draggable().every(d => d === 'false')).toBe(true)
+    const gate = createButton().closest('[aria-disabled="true"]')
+    expect(gate?.getAttribute('title')).toBe('The cloud does not keep an asset\'s levels and experiences yet: it needs migration 0099.')
+    fireEvent.click(createButton())
+    expect(screen.queryByRole('dialog', { name: 'Create grouping' })).toBeNull()
+    cleanup()
+    fx = buildDevFixtures({ variant: 'game' })
+    await mountWith(fx.rabbitAdapter())
+    expect(ctx.assetLevelLinksAvailable).toBe(true)
+    groupBy('asset')
+    expect(draggable().every(d => d === 'true')).toBe(true)
+    expect(createButton().closest('[aria-disabled="true"]')).toBeNull()
+  })
+
+  it('R1-6: with Hide empty groups off, every asset\'s own group comes in the Assets table\'s order (its sort_order), not the list\'s', async () => {
+    await mount()
+    groupBy('asset')
+    fireEvent.click(screen.getByRole('button', { name: /^Views: / }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: /^Views/ })).getByRole('button', { name: /^Group:/ }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Hide empty groups' }))
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+    const last = ctx.assets[ctx.assets.length - 1]
+    expect(bands()[0]).not.toBe(last.name)
+    // A change of order that leaves the list as it was (a teammate's, say):
+    // the last asset of the list is now the first of the table.
+    await run(() => ctx.updateAsset(last.id, { sort_order: -1 }))
+    expect(ctx.assets[ctx.assets.length - 1].id).toBe(last.id)
+    expect(bands()[0]).toBe(last.name)
+  })
+})

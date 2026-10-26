@@ -65,6 +65,7 @@ import { useAsk } from './tableViews/useAsk'
 import { combinationGroupsOf } from './tableViews/combinationGroups'
 import {
   ASSETS_TABLE, ASSET_STATUSES, ASSET_KIND_FIELD, assetsDescription, assetKindsOf, assetsTableWidths,
+  ASSET_LINKS_ABSENT_REASON, linksKept,
 } from './tableViews/assetsTableView'
 import {
   applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
@@ -436,7 +437,9 @@ export default function ProjectAssetsView() {
   const showThumb = effectiveLeading(config.leading, description.leadingKeys).some(f => f.key === 'thumbnail' && f.visible)
   // The Gallery card's own fields the view shows (her Q-E, Q-P2).
   const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && description.cardFields.includes(f.key)).map(f => f.key)), [fieldList, description])
-  const canDrag = canWrite && !!groupedKind
+  // A level or experience group on a cloud without 0099 takes no drop (R1-9).
+  const kindKept = linksKept(ctx, groupedKind)
+  const canDrag = canWrite && !!groupedKind && kindKept
 
   // ── New-asset creation popup (deferred until confirm) ──
   const [showNewAssetPopup, setShowNewAssetPopup] = useState(false)
@@ -537,9 +540,11 @@ export default function ProjectAssetsView() {
         {/* Her Q-D3: Create grouping, beside the Group menu, only while the
             table is grouped by a linked kind, for a seat that may save views (Q-F). */}
         {groupedKind && tv.canEdit && (
-          <Button size="sm" Icon={Group} onClick={() => setGroupingKind(groupedKind)}>
-            Create grouping
-          </Button>
+          <GatedAction allowed={kindKept} reason={ASSET_LINKS_ABSENT_REASON}>
+            <Button size="sm" Icon={Group} onClick={() => { if (kindKept) setGroupingKind(groupedKind) }}>
+              Create grouping
+            </Button>
+          </GatedAction>
         )}
 
         <span className="rb-asset-divider" aria-hidden="true" />

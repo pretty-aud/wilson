@@ -38,6 +38,19 @@ export const ASSET_KIND_FIELD = Object.freeze({
   scene: 'scene_ids', shot: 'shot_ids', level: 'level_ids', experience: 'experience_ids',
 })
 
+/**
+ * Code review round 1 (R1-9): on a cloud without migration 0099 an asset's
+ * levels and experiences are not kept (the writes leave them out), so the
+ * drag into a level or experience group, and Create grouping there, are
+ * greyed with these words. `linksKept(ctx, kind)`: can this backend keep an
+ * asset's links of that kind? Scenes and shots always.
+ */
+export const ASSET_LINKS_ABSENT_REASON = 'The cloud does not keep an asset\'s levels and experiences yet: it needs migration 0099.'
+export function linksKept(ctx, kind) {
+  if (kind !== 'level' && kind !== 'experience') return true
+  return ctx?.assetLevelLinksAvailable !== false
+}
+
 /** The Gallery card's own lines (finding 6's rule, built for the Gallery): its fields, in its order. */
 export const ASSET_CARD_FIELDS = Object.freeze(['status', 'type', 'phase_id', 'tasks'])
 

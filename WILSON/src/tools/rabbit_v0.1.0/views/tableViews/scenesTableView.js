@@ -50,7 +50,9 @@ export const SHOT_LEADING = Object.freeze([
 
 /** The Gallery cards' own lines (finding 6's rule, built for the Gallery). */
 export const SCENE_CARD_FIELDS = Object.freeze(['description', 'type', 'time_of_day', 'status', 'runtime'])
-export const SHOT_CARD_FIELDS = Object.freeze(['description', 'status', 'duration', 'frame_count', 'takes'])
+// The Shots card's number is a leading column (`cardLeading`), listed here at
+// its place on the card, after the description (code review round 1, R1-7).
+export const SHOT_CARD_FIELDS = Object.freeze(['description', 'shot_number', 'status', 'duration', 'frame_count', 'takes'])
 
 /** The nested shot rows' column for each scene field that has one (finding 7). */
 export const NEST_OF_SCENE = Object.freeze({
@@ -229,20 +231,22 @@ export function scenesDescription({ defaultOrderLabel = 'Default order', takes =
  * The Shots table's description: the empty sort's word, whether the backend
  * keeps takes, the scenes the Scene grouping and its filter name (the list
  * on screen's, in its order), and the framing and camera movement choices
- * (`[{ value, label }]`, the table's own lists in ScenesView).
+ * (`[{ value, label }]`, the table's own lists in ScenesView); `takesOf(shot)`
+ * a shot's number of takes, Takes' sort (code review round 1, R1-5: every
+ * computed column sorts as a number, §4.7).
  */
-export function shotsDescription({ defaultOrderLabel = 'Default order', takes = false, scenes = [], framings = [], movements = [] } = {}) {
+export function shotsDescription({ defaultOrderLabel = 'Default order', takes = false, scenes = [], framings = [], movements = [], takesOf = () => 0 } = {}) {
   const columns = shotsTableColumns({ takes })
   const { fields, byKey, field } = frozenFields([
     { key: 'name', label: 'Name', filter: 'text', sortable: true },
-    ...(takes ? [{ key: 'takes', label: 'Takes' }] : []),
+    ...(takes ? [{ key: 'takes', label: 'Takes', sortable: true }] : []),
     { key: 'status', label: 'Status', filter: 'choice', sortable: true, groupable: true },
     { key: 'time_of_day', label: 'Time of day', filter: 'choice', sortable: true, groupable: true },
     { key: 'type', label: 'Type', filter: 'choice', sortable: true, groupable: true },
     { key: 'framing', label: 'Framing', filter: 'choice', sortable: true, groupable: true },
     { key: 'camera_movement', label: 'Camera movement', filter: 'choice', sortable: true, groupable: true },
     { key: 'description', label: 'Description', filter: 'text' },
-    { key: 'duration', label: 'Duration' },
+    { key: 'duration', label: 'Duration', sortable: true },
     { key: 'frame_count', label: 'Frames', sortable: true },
     { key: 'start_date', label: 'Start date', short: 'Start' },
     { key: 'end_date', label: 'End date', short: 'End' },
@@ -266,6 +270,9 @@ export function shotsDescription({ defaultOrderLabel = 'Default order', takes = 
       case 'time_of_day': return indexOf(TIME_OF_DAY_OPTIONS, a.time_of_day, '') - indexOf(TIME_OF_DAY_OPTIONS, b.time_of_day, '')
       case 'shot_number':
       case 'frame_count': return (Number(a[key]) || 0) - (Number(b[key]) || 0)
+      // Duration is the frames' (R1-5); Takes the shot's number of takes.
+      case 'duration': return (Number(a.frame_count) || 0) - (Number(b.frame_count) || 0)
+      case 'takes': return takesOf(a) - takesOf(b)
       case 'name': return plain(String(a.name || '').toLowerCase(), String(b.name || '').toLowerCase())
       default: return plain(String(a[key] ?? '').toLowerCase(), String(b[key] ?? '').toLowerCase())
     }

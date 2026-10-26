@@ -251,3 +251,43 @@ describe('the widths from the columns on screen (§4.10; step 0 finding 8)', () 
     expect(wrap().style.getPropertyValue('--rb-asset-fixed')).not.toContain('var(--rb-asset-thumb)')
   })
 })
+
+describe('a sort orders the table, never the project\'s list (OUTSTANDING: the Assets table sorted the provider\'s own array in place)', () => {
+  it('sorted by name the rows read A to Z; the provider\'s assets keep their order', async () => {
+    await mount()
+    const before = ctx.assets.map(a => a.id)
+    // The table's own order (sort_order) made the reverse of the list's,
+    // then a redraw (a search typed and cleared): the table follows it, the
+    // list does not (CONTROL: sorting the list itself reorders it).
+    ctx.assets.forEach((a, i) => { a.sort_order = ctx.assets.length - i })
+    const search = screen.getByRole('textbox', { name: /search/i })
+    fireEvent.change(search, { target: { value: 'a' } })
+    fireEvent.change(search, { target: { value: '' } })
+    const names = () => rows().map(r => r.querySelector('[aria-label^="Select "]').getAttribute('aria-label').slice(7))
+    const unsorted = names()
+    expect(unsorted[0]).toBe(ctx.assets[ctx.assets.length - 1].name)
+    expect(ctx.assets.map(a => a.id)).toEqual(before)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
+    const sorted = names()
+    // CONTROL: the sort did reorder the table (the fixtures are not in name order).
+    expect(sorted).not.toEqual(unsorted)
+    expect(sorted).toEqual([...sorted].sort((a, b) => a.localeCompare(b)))
+    expect(ctx.assets.map(a => a.id)).toEqual(before)
+  })
+})
+
+describe('code review round 1', () => {
+  it('R1-9: grouped by level on a cloud without 0099, no drag and Create grouping greyed with the reason; CONTROL: grouped by scene, both live', async () => {
+    fx = buildDevFixtures({ variant: 'game' })
+    await mount(new Proxy(fx.rabbitAdapter(), { get: (t, k) => (k === 'assetLevelLinksAvailable' ? () => false : Reflect.get(t, k)) }))
+    expect(ctx.assetLevelLinksAvailable).toBe(false)
+    groupBy('level')
+    expect(rows().length).toBeGreaterThan(0)
+    expect(rows().every(r => r.getAttribute('data-draggable') === 'false')).toBe(true)
+    const gate = () => screen.getByRole('button', { name: 'Create grouping' }).closest('[aria-disabled="true"]')
+    expect(gate()?.getAttribute('title')).toBe('The cloud does not keep an asset\'s levels and experiences yet: it needs migration 0099.')
+    groupBy('scene')
+    expect(rows().some(r => r.getAttribute('data-draggable') === 'true')).toBe(true)
+    expect(gate()).toBeNull()
+  })
+})

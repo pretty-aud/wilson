@@ -365,6 +365,12 @@ live region.
   `description`, `type`, `time_of_day`, `status`, `runtime`; Shots
   `description`, `shot_number`, `status`, `duration`, `frame_count`,
   `takes`. A card line with no column (a scene's shot count) is not offered.
+  *(VW1e as built: the Shots card's number is the leading column's, not a
+  field: the description lists it in `cardLeading: ['shot_number']`, and the
+  Card fields list it where the card draws it, after the description, with
+  its switch and no handle (code review round 1, R1-7), and *Show all* /
+  *Hide all* reach it; hiding the Number in the table hides it on the cards
+  too, one list as Q-P2 says.)*
   **The Scenes table's nested shot rows (finding 7):** the nest keeps its own
   order. A nested column with a scene column of the same key (the picture,
   the number, Status, Time of day, Type, Description, Frames) shows when
@@ -789,7 +795,11 @@ shared sort, which sorts a copy, replaces it in VW1e: finding 16.)
   the two columns in `loadProject` (an empty project's rows say nothing, so
   0084's free probe has no twin here) and strips them from asset writes
   while absent, loudly; a write before the first load is refused whole, as
-  0084's note accepts. The move to the cloud sends an asset WITHOUT its level
+  0084's note accepts. *(VW1e code review round 1, R1-9: the screens learn
+  it too, `assetLevelLinksAvailable()` read per load as `tableViewsAvailable`
+  is; while absent, the drag into a level or experience group, and Create
+  grouping there, are greyed with the reason, on Assets grouped by Level or
+  Experience and on Levels and Experiences grouped by Asset.)* The move to the cloud sends an asset WITHOUT its level
   and experience links (the runner carries neither kind) and counts the
   assets that named one in its report as left behind, beside the groupings
   and filters it already counts. The desktop and the fixtures keep the links
@@ -1357,7 +1367,8 @@ mutator in `mutationsRef`; the fixtures' seams; the lane-prefix CSS test.
 - **On the cloud a level's or experience's Assets count was 0** until 0099
   (VW1e) carried assets' level and experience links there (§4.7); a
   database without 0099 still reads 0, and the asset window's level picks
-  are not kept there (the adapter says so in the console).
+  are not kept there (the adapter says so in the console; the drag and
+  Create grouping that would write them are greyed, saying why).
 - **A Gallery card is not dragged between groups** (VW1e): the table's rows
   are; the Gallery shows the groups.
 - **Levels, Experiences and Scenes, grouped, keep one selection per group**:

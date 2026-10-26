@@ -207,6 +207,9 @@ const SIZE_KEYS = ['sm', 'md', 'lg']
 // scenesTableView.js; her Q16, two lists). Q17 (her "Start fresh"): the views
 // this browser kept for Scenes before VW1e, removed on the first load.
 const OLD_SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
+// One empty list for a backend with no takes: the same object every render,
+// so the Shots description (which counts takes) is not made anew each time.
+const NO_ROWS = Object.freeze([])
 
 // The kit toast stack, or nothing where no ToastProvider is mounted (a test
 // that mounts the tab alone): a passing message, never a failure.
@@ -360,6 +363,11 @@ export default function ScenesView({ pageActive = false } = {}) {
   // grouping"). The seat is the entity write's (Q2: anyone who can edit the
   // project saves views; a reviewer writes shot lists, never views).
   const supportsTakes = !!ctx?.supportsBins
+  // A shot's takes (milestone 2), here so the Shots description can sort by
+  // their count (code review round 1, R1-5).
+  const shotTakes = ctx?.shotTakes || NO_ROWS
+  const binFiles = ctx?.binFiles || NO_ROWS
+  const takesByShotMap = useMemo(() => takesByShot(shotTakes, binFiles), [shotTakes, binFiles])
   // A scene's frames, its shots' sum (order aside): the Runtime and Frames
   // columns' values for the Scenes description's sorts.
   const framesByScene = useMemo(() => {
@@ -374,7 +382,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   }), [defaultOrderLabel, supportsTakes, framesByScene])
   const shotDescription = useMemo(() => shotsDescription({
     defaultOrderLabel, takes: supportsTakes, scenes, framings: FRAMING_CHOICES, movements: MOVE_CHOICES,
-  }), [defaultOrderLabel, supportsTakes, scenes])
+    takesOf: (sh) => (takesByShotMap.get(sh.id) || []).length,
+  }), [defaultOrderLabel, supportsTakes, scenes, takesByShotMap])
   // Who changed a view, by the workspace roster (design §5.5).
   const { members: rosterMembers } = useRosterMembers()
   const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
@@ -442,10 +451,7 @@ export default function ScenesView({ pageActive = false } = {}) {
   const sceneCardShows = cardShowsOf(tvScenes, sceneDescription)
   const shotCardShows = cardShowsOf(tvShots, shotDescription)
   const supportsBins = !!ctx?.supportsBins
-  const shotTakes = ctx?.shotTakes || []
-  const binFiles = ctx?.binFiles || []
   const bins = ctx?.bins || []
-  const takesByShotMap = useMemo(() => takesByShot(shotTakes, binFiles), [shotTakes, binFiles])
   const [takesShotId, setTakesShotId] = useState(null)     // the takes dialog, from a row
   const [pickerShotId, setPickerShotId] = useState(null)   // the picker, from the dialog or the popup
   const [takesBusy, setTakesBusy] = useState(false)
@@ -1106,7 +1112,9 @@ export default function ScenesView({ pageActive = false } = {}) {
     if (!groupBy) return null
     const map = {}
     for (const s of sorted) {
-      const key = s[groupBy] || '__empty__'
+      // A scene with no status is Not started, as its dot, its filter and
+      // its sort read it (code review round 1, R1-4).
+      const key = (groupBy === 'status' ? (s.status || 'not_started') : s[groupBy]) || '__empty__'
       if (!map[key]) map[key] = { key, label: key === '__empty__' ? 'None' : humanizeStatus(key), scenes: [] }
       map[key].scenes.push(s)
     }
@@ -1190,7 +1198,8 @@ export default function ScenesView({ pageActive = false } = {}) {
     const field = shotGroupBy
     const buckets = {}
     for (const sh of sortedShots) {
-      const val = sh[field] || '__none__'
+      // A shot with no status is Not started (R1-4), never "Unset".
+      const val = (field === 'status' ? (sh.status || 'not_started') : sh[field]) || '__none__'
       if (!buckets[val]) buckets[val] = []
       buckets[val].push(sh)
     }
@@ -1200,7 +1209,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         : field === 'time_of_day' ? TIME_OF_DAY_OPTIONS
           : field === 'framing' ? FRAMING_OPTIONS.map(f => f.abbr)
             : field === 'camera_movement' ? CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) : []
-      for (const v of [...every, '__none__']) if (!buckets[v]) buckets[v] = []
+      for (const v of [...every, ...(field === 'status' ? [] : ['__none__'])]) if (!buckets[v]) buckets[v] = []
     }
     const keys = Object.keys(buckets).sort((a, b) => {
       if (a === '__none__') return 1
@@ -1536,7 +1545,10 @@ export default function ScenesView({ pageActive = false } = {}) {
 
       {/* ── The *changed for now* bar (design §4.4) of the view on screen;
           not drawn while an edit is on screen (the cut is the view). ── */}
-      {!editOnScreen && <ViewBar tv={tv} ask={ask} announce={announce} focusViews={focusViews} />}
+      {/* Keyed per table, as the Views button is (code review round 1, R1-1):
+          a name being typed, or a save in flight, belongs to its own table's
+          view, never to the other's bar. */}
+      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={focusViews} />}
 
       {/* Bins could not be loaded for the take chips (milestone 2): said here
           on the page with a retry, not only inside a takes dialog she may
@@ -2051,7 +2063,9 @@ function SceneTable({ scenes, columns = scenesTableColumnsAll, leading = ALL_SCE
   }, [allIds])
   // The nested ticks: the shots of the scenes OPEN here (review round 2,
   // R2-04: a closed scene's ticks stayed, unseen, in the selection).
-  const tableShotIds = useMemo(() => new Set(scenes.filter(sc => expandedScenes.has(sc.id)).flatMap(sc => (shotsByScene[sc.id] || []).map(s => s.id))), [scenes, shotsByScene, expandedScenes])
+  // A view without the Shots arrow has no nests, so no nested ticks either
+  // (code review round 1, R1-8).
+  const tableShotIds = useMemo(() => new Set(scenes.filter(sc => showExpand && expandedScenes.has(sc.id)).flatMap(sc => (shotsByScene[sc.id] || []).map(s => s.id))), [scenes, shotsByScene, expandedScenes, showExpand])
   useEffect(() => {
     setSelectedNestedShots(prev => {
       const keep = new Set([...prev].filter(id => tableShotIds.has(id)))

@@ -86,6 +86,8 @@ import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
 import { useAsk } from './tableViews/useAsk'
 import { combinationGroupsOf } from './tableViews/combinationGroups'
 import { entityDescription, entityTableColumns, entityTableWidths, assetsByEntity } from './tableViews/entityTableView'
+import { ASSET_LINKS_ABSENT_REASON, linksKept } from './tableViews/assetsTableView'
+import GatedAction from '../../../permissions/GatedAction'
 import {
   applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
 } from './tableViews/viewScreenModel'
@@ -310,6 +312,9 @@ export default function EntityListView({ entity }) {
   // ── Grouping ── by status, or (her Q-M3) by the assets that name a row:
   // one group per combination (combinationGroups.js), the project's
   // groupings among them (Q-D2); with *Hide empty groups* off every option.
+  // Every live asset's own group in the Assets table's order (§4.3; code
+  // review round 1, R1-6): its sort_order, on a copy, as that table sorts.
+  const assetsInOrder = useMemo(() => [...assets].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [assets])
   const savedOf = useCallback(() => {
     const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(tableKey, 'asset') : []
     return list.filter(g => isGroupingLive(g, lookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
@@ -319,7 +324,7 @@ export default function EntityListView({ entity }) {
     if (groupedKind) {
       return combinationGroupsOf({
         kind: 'asset', rows: sorted, combinationOf: (row) => description.combinationOf(row), lookup,
-        singles: assets, everySingle: !hideEmpty, saved: savedOf(), hideEmpty, as: 'items',
+        singles: assetsInOrder, everySingle: !hideEmpty, saved: savedOf(), hideEmpty, as: 'items',
       })
     }
     const map = {}
@@ -331,7 +336,7 @@ export default function EntityListView({ entity }) {
     const keys = hideEmpty ? STATUSES.filter(s => map[s]) : STATUSES
     // A status group says its status in the kit's words (Q2).
     return keys.map(key => ({ key, label: STATUS_LABELS[key] || fmt(key), items: map[key] || [] }))
-  }, [sorted, groupBy, groupedKind, hideEmpty, description, lookup, assets, savedOf])
+  }, [sorted, groupBy, groupedKind, hideEmpty, description, lookup, assetsInOrder, savedOf])
   // (The group's accent colour, computed here per status, is gone: a status
   // group carries the kit's StatusDot — R4-33, as the Assets page's.)
 
@@ -390,7 +395,10 @@ export default function EntityListView({ entity }) {
   const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
   const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
   const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && description.cardFields.includes(f.key)).map(f => f.key)), [fieldList, description])
-  const canDrag = canWrite && !!groupedKind
+  // The link lives on the assets (`level_ids` / `experience_ids`): on a cloud
+  // without 0099 they are not kept, so no drop and no Create grouping (R1-9).
+  const kindKept = linksKept(ctx, entity.type)
+  const canDrag = canWrite && !!groupedKind && kindKept
 
   // ── Render ──
   // P1-74: the kit EmptyState in sentence case, as Scenes, Assets, Tasks,
@@ -481,9 +489,11 @@ export default function EntityListView({ entity }) {
         {/* Her Q-D3: Create grouping while grouped by asset, for a seat
             that may save views (Q-F). */}
         {groupedKind && tv.canEdit && (
-          <Button size="sm" Icon={Group} onClick={() => setGroupingKind('asset')}>
-            Create grouping
-          </Button>
+          <GatedAction allowed={kindKept} reason={ASSET_LINKS_ABSENT_REASON}>
+            <Button size="sm" Icon={Group} onClick={() => { if (kindKept) setGroupingKind('asset') }}>
+              Create grouping
+            </Button>
+          </GatedAction>
         )}
 
         <span className="rb-ent-divider" aria-hidden="true" />

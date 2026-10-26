@@ -52,7 +52,7 @@ import {
 import { Button, IconButton, Popover, HoverActions, MenuButton, Switch } from '../../../../ui'
 import { readViewConfig } from '../../state/tableViewsModel'
 import {
-  effectiveFields, fieldsToStore, moveField, moveFieldTo, moveItem, moveItemTo,
+  effectiveFields, fieldsToStore, moveFieldTo, moveItem, moveItemTo,
   effectiveLeading, leadingToStore,
   filtersSummary, sortSummary, groupSummary, fieldsSummary,
 } from './viewScreenModel'
@@ -705,11 +705,20 @@ function FieldsCard({ tv, description, announce }) {
   // On the cards the card's own fields, in the card's order (finding 6); in
   // the table the leading columns, then the fields.
   // A card's line that is a leading column (the Shots card's number) is
-  // listed with the card's lines (`cardLeading`).
-  const cardLead = leadingNow.filter(f => (description.cardLeading || []).includes(f.key)).map(f => ({ ...f, leading: true }))
+  // listed with the card's lines (`cardLeading`), at its place on the card
+  // (code review round 1, R1-7).
+  const cardLeadKeys = description.cardLeading || []
+  const cardLead = leadingNow.filter(f => cardLeadKeys.includes(f.key)).map(f => ({ ...f, leading: true }))
   const rows = cards
-    ? [...cardLead, ...description.cardFields.map(k => list.find(f => f.key === k)).filter(Boolean)]
+    ? [
+        ...cardLead.filter(f => !description.cardFields.includes(f.key)),
+        ...description.cardFields.map(k => cardLead.find(f => f.key === k) || list.find(f => f.key === k)).filter(Boolean),
+      ]
     : [...leadingNow.map(f => ({ ...f, leading: true })), ...list]
+  // A nested-only column (the Scenes table's Takes, Framing and Camera
+  // movement of its shots) keeps the nest's own order: a switch, no handle
+  // (design §4.3, finding 7; code review round 1, R1-3).
+  const isNest = (k) => !!description.columns.find(c => c.key === k)?.nest
   // A row a keyboard can act in: any on the cards; in the table every one
   // but the fixed name.
   const live = (i) => !!rows[i] && (cards || !rows[i].fixed)
@@ -736,13 +745,18 @@ function FieldsCard({ tv, description, announce }) {
     }
     setPending(null)
   })
-  const movable = list.filter(f => !f.fixed)
+  const movable = list.filter(f => !f.fixed && !isNest(f.key))
   function announceMove(key, next) {
-    const pos = next.filter(f => !f.fixed).findIndex(f => f.key === key)
-    announce(`${labelOf(key)} moved to ${pos + 1} of ${next.filter(f => !f.fixed).length}`)
+    const order = next.filter(f => !f.fixed && !isNest(f.key))
+    announce(`${labelOf(key)} moved to ${order.findIndex(f => f.key === key) + 1} of ${order.length}`)
   }
+  // A move steps over the rows that do not move (the name, a nested-only
+  // column) to the next one that does.
   function move(key, by, col) {
-    const next = moveField(list, key, by)
+    const keys = movable.map(f => f.key)
+    const i = keys.indexOf(key)
+    if (i < 0 || i + by < 0 || i + by >= keys.length) return
+    const next = moveFieldTo(list, key, keys[i + by])
     if (JSON.stringify(next) === JSON.stringify(list)) return
     store(next)
     setPending({ key, col })
@@ -785,12 +799,14 @@ function FieldsCard({ tv, description, announce }) {
   }
   // Show all / Hide all: every field but the name (on the cards, the card's
   // own); in the table the columns in front of the name too, in one change.
+  // On the cards a card line that is a leading column too (R1-7).
   function showAll(on) {
     const touches = (f) => !f.fixed && (!cards || description.cardFields.includes(f.key))
+    const leadTouches = (f) => !cards || cardLeadKeys.includes(f.key)
     tv.update(c => ({
       ...c,
       fields: fieldsToStore(list.map(f => (touches(f) ? { ...f, visible: on } : f)), c.fields, description.fieldKeys),
-      ...(cards || leadingKeys.length === 0 ? {} : { leading: leadingToStore(leadingNow.map(f => ({ ...f, visible: on })), c.leading, leadingKeys) }),
+      ...(leadingKeys.length === 0 || (cards && cardLead.length === 0) ? {} : { leading: leadingToStore(leadingNow.map(f => (leadTouches(f) ? { ...f, visible: on } : f)), c.leading, leadingKeys) }),
     }))
   }
   return (
@@ -800,7 +816,7 @@ function FieldsCard({ tv, description, announce }) {
         {rows.map((f, i) => {
           const tab = i === at ? 0 : -1
           const label = labelOf(f.key)
-          const canMove = !cards && !f.fixed && !f.leading
+          const canMove = !cards && !f.fixed && !f.leading && !isNest(f.key)
           const mi = movable.findIndex(x => x.key === f.key)
           return (
             <div key={f.key} role="row" data-row={i} className="rb-tv-row ui-hover-host"

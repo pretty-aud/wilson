@@ -199,7 +199,7 @@ describe('the columns in front of the name (Q-J; step 0 findings 1 and 7)', () =
     // CONTROL: the grip is still there to drag, before the name's words.
     expect(document.querySelector(`${body} td.rb-scene-name-cell[data-grip="true"]`)).not.toBeNull()
   })
-  it('on the Shots gallery the card\'s number is one of the card\'s lines (her Q-P2: one field list): the Card fields list it first, and hiding it takes it off every card', async () => {
+  it('on the Shots gallery the card\'s number is one of the card\'s lines (her Q-P2: one field list): the Card fields list it at its place on the card, and hiding it takes it off every card', async () => {
     await mount()
     toShots()
     fireEvent.click(screen.getByRole('tab', { name: 'Gallery' }))
@@ -207,14 +207,104 @@ describe('the columns in front of the name (Q-J; step 0 findings 1 and 7)', () =
     expect(nums()).toBeGreaterThan(0)
     openCard('Fields')
     const grid = within(dropdown()).getByRole('grid', { name: 'Card fields' })
-    const first = within(grid).getAllByRole('row')[0]
-    expect(first.textContent).toContain('Number')
+    // The card's own order (code review round 1, R1-7): the number after the description.
+    const names = within(grid).getAllByRole('row').map(r => r.querySelector('.rb-tv-field-name').textContent)
+    expect(names.slice(0, 3)).toEqual(['Description', 'Number', 'Status'])
+    const numberRow = within(grid).getAllByRole('row')[1]
     // A leading column keeps its place: no handle to move it.
-    expect(first.querySelector('.rb-tv-handle')).toBeNull()
-    fireEvent.click(within(first).getByRole('switch', { name: 'Show Number' }))
+    expect(numberRow.querySelector('.rb-tv-handle')).toBeNull()
+    fireEvent.click(within(numberRow).getByRole('switch', { name: 'Show Number' }))
     expect(nums()).toBe(0)
     expect(ctx.viewDraftOf('shots').config.leading).toEqual(expect.arrayContaining([{ key: 'shot_number', visible: false }]))
     // CONTROL: the Scenes table's leading list is its own, untouched.
     expect(ctx.viewDraftOf('scenes')).toBeFalsy()
+    // Show all and Hide all reach the card's number too (R1-7).
+    fireEvent.click(within(dropdown()).getByRole('button', { name: 'Show all' }))
+    expect(nums()).toBeGreaterThan(0)
+    fireEvent.click(within(dropdown()).getByRole('button', { name: 'Hide all' }))
+    expect(nums()).toBe(0)
+  })
+})
+
+describe('code review round 1', () => {
+  const labels = () => [...document.querySelectorAll('.rb-scene-group-label')].map(n => n.textContent.trim())
+  it('R1-1: a name being typed for the Scenes view stays with Scenes: the Shots bar opens without it', async () => {
+    await mount()
+    toShots()
+    groupBy('status')
+    expect(bar()).not.toBeNull()
+    toScenes()
+    groupBy('status')
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as new view' }))
+    fireEvent.change(within(bar()).getByRole('textbox', { name: 'View name' }), { target: { value: 'Scenes by status' } })
+    toShots()
+    expect(bar()).not.toBeNull()
+    expect(within(bar()).queryByRole('textbox', { name: 'View name' })).toBeNull()
+    expect(within(bar()).getByRole('button', { name: 'Save as new view' })).toBeTruthy()
+    expect(fx.store.tableViews.filter(v => v.name === 'Scenes by status')).toHaveLength(0)
+  })
+  it('R1-3: the Scenes table\'s nested-only columns keep the nest\'s order: a switch, no handle, no Move buttons; CONTROL: a column that moves has them, the last one stopping short of them', async () => {
+    await mount()
+    openCard('Fields')
+    const grid = within(dropdown()).getByRole('grid', { name: 'Fields' })
+    const rowOf = (label) => within(grid).getAllByRole('row').find(r => r.querySelector('.rb-tv-field-name')?.textContent === label)
+    for (const label of ['Framing (shots)', 'Camera movement (shots)']) {
+      const r = rowOf(label)
+      expect(r, label).toBeTruthy()
+      expect(r.querySelector('.rb-tv-handle'), label).toBeNull()
+      expect(within(r).queryByRole('button', { name: /^Move / }), label).toBeNull()
+      expect(within(r).getByRole('switch', { name: 'Show ' + label })).toBeTruthy()
+    }
+    const frames = rowOf('Frames')
+    expect(frames.querySelector('.rb-tv-handle')).not.toBeNull()
+    expect(within(frames).getByRole('button', { name: 'Move Frames down' }).disabled).toBe(true)
+    expect(within(frames).getByRole('button', { name: 'Move Frames up' }).disabled).toBe(false)
+  })
+  it('R1-4: a scene and a shot with no status are grouped under Not started, as their dot reads them; no None or Unset group', async () => {
+    fx.store.scenes.find(s => s.project_id === PROJECT_ID && !s.deleted_at).status = null
+    fx.store.shots.find(s => s.project_id === PROJECT_ID && !s.deleted_at).status = null
+    await mount()
+    groupBy('status')
+    expect(labels().some(l => l.startsWith('Not started'))).toBe(true)
+    expect(labels().some(l => l.startsWith('None'))).toBe(false)
+    toShots()
+    groupBy('status')
+    expect(labels().some(l => l.startsWith('Not started'))).toBe(true)
+    expect(labels().some(l => l.startsWith('Unset'))).toBe(false)
+  })
+  it('R1-5: the Shots table sorts by Duration (its frames) and by Takes (how many), as numbers', async () => {
+    await mount()
+    toShots()
+    groupBy('')
+    const sort = screen.getByRole('combobox', { name: 'Sort' })
+    const values = [...sort.options].map(o => o.value)
+    expect(values).toContain('duration')
+    const names = () => [...document.querySelectorAll('table.rb-scene-table-shots > tbody > tr .rb-scene-check')].map(b => b.getAttribute('aria-label').replace(/^Select /, ''))
+    const shotNamed = (n) => ctx.shots.find(s => (s.name || '') === n)
+    sortBy('duration')
+    const frames = names().map(n => Number(shotNamed(n)?.frame_count) || 0)
+    expect(new Set(frames).size).toBeGreaterThan(1)
+    expect(frames).toEqual([...frames].sort((a, b) => a - b))
+    if (values.includes('takes')) {
+      sortBy('takes')
+      const takes = names().map(n => (ctx.shotTakes || []).filter(t => t.shot_id === shotNamed(n)?.id).length)
+      expect(takes).toEqual([...takes].sort((a, b) => a - b))
+    }
+  })
+  it('R1-8: hiding the Shots arrow takes the nested ticks with the nests; showing it again brings no tick back', async () => {
+    await mount()
+    const name = firstSceneName()
+    const scene = ctx.scenes.find(s => s.name === name)
+    const shot = ctx.shots.find(s => s.scene_id === scene.id)
+    const row = sceneRows()[0].closest('tr')
+    fireEvent.click(within(row).getByRole('button', { name: 'Show shots' }))
+    const tick = () => document.querySelector('table.rb-scene-table-scenes .rb-scene-nest-table [aria-label="Select ' + (shot.name || 'Untitled') + '"]')
+    fireEvent.click(tick())
+    expect(tick().getAttribute('aria-pressed')).toBe('true')
+    openCard('Fields')
+    fireEvent.click(screen.getByRole('switch', { name: 'Show Shots arrow' }))
+    expect(tick()).toBeNull()
+    fireEvent.click(screen.getByRole('switch', { name: 'Show Shots arrow' }))
+    expect(tick().getAttribute('aria-pressed')).toBe('false')
   })
 })

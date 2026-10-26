@@ -3075,6 +3075,13 @@ export function supabaseAdapter() {
     tableViewsAvailable() {
       return !tableViewsAbsent;
     },
+    // VW1e (0099; code review round 1, R1-9): whether this cloud keeps an
+    // asset's levels and experiences. False after a load whose probe found
+    // the columns missing: the screens then offer no drag or Create grouping
+    // that would write them (stripUnmigrated would drop the write).
+    assetLevelLinksAvailable() {
+      return !assetLevelLinksAbsent;
+    },
     tableViewsLoadError() {
       return tableViewsLoadErrorText;
     },

@@ -26,7 +26,7 @@
 
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(23);
 
 SELECT * FROM tests.rls_setup();
 
@@ -208,19 +208,26 @@ SELECT is((SELECT count(*)::int FROM u),
 SELECT lives_ok(
   $$DELETE FROM public.levels WHERE id = '10200000-0000-0000-0000-0000000000e2'$$,
   'deleting a level that assets name is never refused by their arrays (no foreign key)');
--- 20
+
+-- Read as the owner from here: the probes below are about the data.
+RESET ROLE;
+
+-- 20 (code review round 1, R1-2): the delete TOOK the row, so 21 and 22
+-- are about a real delete, not one the levels policy filtered to nothing.
+SELECT is(
+  (SELECT count(*)::int FROM public.levels WHERE id = '10200000-0000-0000-0000-0000000000e2'),
+  0, 'the level is gone: the admin''s delete took its row');
+-- 21
 SELECT is(
   (SELECT '10200000-0000-0000-0000-0000000000e2'::uuid = ANY (level_ids) FROM public.assets
     WHERE id = '10200000-0000-0000-0000-0000000000a1'),
   true, 'the deleted level''s id stays in the asset''s array (the client ignores unknown ids)');
--- 21
+-- 22
 SELECT is(
   (SELECT cardinality(level_ids)::int FROM public.assets WHERE id = '10200000-0000-0000-0000-0000000000a3'),
   1, 'an asset whose only level was deleted keeps the id too: 0099''s sweep is a statement to run, not a trigger');
 
-RESET ROLE;
-
--- 22
+-- 23
 SELECT is(
   (SELECT count(*)::int FROM public.assets
     WHERE id::text LIKE '10200000-%' AND (level_ids IS NULL OR experience_ids IS NULL)),

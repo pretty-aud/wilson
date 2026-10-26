@@ -949,6 +949,8 @@ describe('a database WITHOUT 0099 — the load\'s probe of the asset level links
     expect(levelKeys(rec.writes)).toEqual([['scene_ids'], []])
     expect(rec.writes.find(w => w.op === 'update').row).toEqual({ name: 'Hero v2' })
     expect(warn.mock.calls.filter(c => String(c[0]).includes('migration 0099'))).toHaveLength(2)
+    // The screens learn it too (code review round 1, R1-9).
+    expect(adapter.assetLevelLinksAvailable()).toBe(false)
   })
 
   it('CONTROL: after a load whose probe answers, both writes carry every link and nothing is said', async () => {
@@ -958,6 +960,7 @@ describe('a database WITHOUT 0099 — the load\'s probe of the asset level links
     await writeAssets(adapter)
     expect(levelKeys(rec.writes)).toEqual([['scene_ids', 'level_ids', 'experience_ids'], ['level_ids']])
     expect(warn).not.toHaveBeenCalled()
+    expect(adapter.assetLevelLinksAvailable()).toBe(true)
   })
 
   it('CONTROL: a probe REFUSED another way (42501) marks nothing absent', async () => {
