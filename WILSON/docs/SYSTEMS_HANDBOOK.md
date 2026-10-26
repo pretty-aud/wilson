@@ -3411,9 +3411,10 @@ D.O.G.'s tick boxes (`.dog-check`) excepted (`enterGenerates.js`,
 `enterIsDogs`); it starts something only with no page yet, none running and
 something to read. With Full deck on it starts a full deck only when the deck
 context box has words (whitespace is empty; `enterStarts`): with the box
-empty nothing starts, the box gets focus (card 3 opens if folded) and the kit
-toast stack says why, one toast at a time (Audrey, 2026-10-26: "Enter needs
-text in the box"). The box's own Enter follows the same rule; the Generate
+empty nothing starts, the box (named by its label) gets focus (card 3 opens
+if folded) and the kit toast stack says why, one toast at a time, with no
+timer: it goes when the box has words, Single page is on, a deck starts or
+another page shows (Audrey, 2026-10-26: "Enter needs text in the box"). The box's own Enter follows the same rule; the Generate
 button, Single page and the regenerate box are untouched. Enter on the Single
 page / Full deck switch is the kit Switch's own, so it flips ("Enter moves the
 switch"). Alt flips the switch from any page, kept by her ruling. Walkthrough

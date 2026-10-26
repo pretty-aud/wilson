@@ -28,7 +28,7 @@ chosen) and no page yet:
 
 | Where Enter lands | Before | Now |
 |---|---|---|
-| The page itself (nothing focused), the deck context box empty, or spaces only | Made a full deck | **Makes nothing.** The box gets focus, in the middle of the screen; a note at the bottom says *"Write in the deck context box first"* |
+| The page itself (nothing focused), the deck context box empty, or spaces only | Made a full deck | **Makes nothing.** The box gets focus, in the middle of the screen; a note at the bottom says *"Write in the deck context box first"* until you do |
 | The page itself, words in the box | Made a full deck | Makes a full deck |
 | The **Single page / Full deck** switch | Made a full deck; the switch did not move | **Moves the switch** to Single page; makes nothing |
 | A tick box (Use visual assets, Use project assets, Theme generator), the box empty | Made a full deck; the tick did not change | **Makes nothing**; the box gets focus and the note says why; the tick does not change |
@@ -62,8 +62,8 @@ red line is how you see that Enter started one.
 | # | Do | You should see |
 |---|----|----------------|
 | 1 | Open D.O.G.; in card 1, **Choose file** and pick any small .txt | The file listed. Card 3 on **Full deck**, the deck context box empty. |
-| 2 | Click an empty part of the page (not a button, not a box), press **Enter** | No red line: nothing started. The deck context box takes its orange edge in the middle of the screen, and at the bottom: *"Write in the deck context box first. Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty."* It goes after five seconds; pointing at it holds it. A screen reader names the box *Deck Context & Guidelines* (`po-fx13-after-01-page-empty`). |
-| 3 | In the box, press **Enter**, then **Shift+Enter** | Enter: nothing. Shift+Enter: a new line. Delete it. |
+| 2 | Click an empty part of the page (not a button, not a box), press **Enter** | No red line: nothing started. The deck context box takes its orange edge in the middle of the screen, and at the bottom: *"Write in the deck context box first. Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty."* It stays until you write in the box, switch to Single page, start a deck with the button or leave D.O.G.; its × closes it too. A screen reader names the box by its label, in the label's capitals (*DECK CONTEXT & GUIDELINES*) (`po-fx13-after-01-page-empty`). |
+| 3 | In the box, press **Enter**, then **Shift+Enter** | Enter: nothing, and the note stays. Shift+Enter: a new line. Delete it. |
 | 4 | Click the **Theme generator** tick (it unticks), press **Enter** | The tick stays as you left it; the box gets focus and the note again. Tick it back. |
 | 5 | Click the switch (it moves to **Single page**, as always), press **Enter** | The switch moves back to **Full deck**, and no deck starts (`po-fx13-after-04-switch-empty`). |
 | 6 | Fold card 3 (its title bar), click an empty part of the page, press **Enter** | Card 3 opens with the box in focus, and the note. |
@@ -94,12 +94,22 @@ No questions are open.
   is that measurement). No request ever left the page: the test data stops a
   deck before it reaches the AI.
 - **Tests on the real D.O.G.**, with the call to the AI replaced so none is
-  made: an empty or blank box makes nothing and moves focus, with the note
-  said once; words make the deck and the call carries them; the switch flips
-  and makes nothing; the tick boxes, the Generate button and Single page as
-  above. Each test was made to fail by putting the old code back.
+  made: an empty or blank box makes nothing and moves focus, with one note at
+  a time that stays until it stops being true; words make the deck and the
+  call carries them; the switch flips and makes nothing; the tick boxes, the
+  Generate button and Single page as above; nothing asked while a deck runs,
+  once a page exists, or with a window open. Each test was made to fail by
+  putting the old code back or breaking the new code on purpose.
 - **The preview's line**: each read counted beside the line it shows.
-- **Two code reviews** (section 5 when they are done).
+- **Two code reviews**, each by a separate reviewer driving Chromium. The
+  first (keyboard and screen reader) found the box focus lands in was named
+  by its example text, not its label: fixed. It also found gaps in the tests
+  (filled) and that the cards' title bars fold only with a pointer (written
+  down, FX13-01). The second found the note left after five seconds from
+  under a keyboard user who had tabbed to it: the note now stays until it
+  stops being true (the toast problem itself is the kit's, FX13-02). It also
+  found an over-wide sentence about the Alt key in the problems file:
+  corrected to what you were asked.
 
 ## 5. Left as it is
 
@@ -112,5 +122,11 @@ No questions are open.
   tick box ticks or unticks it, as before.
 - **The cards' title bars fold only with a pointer** (step 6 uses one), as
   before: written down to fix (`docs/OUTSTANDING.md`, FX13-01).
+- **The Alt key behind a window**: Alt also flips the switch while a window
+  (Help, Settings) is open over D.O.G., as before. Your answer was about Alt
+  from any page; this stays written down (`docs/OUTSTANDING.md`, P1-04).
+- **A toast that times out with keyboard focus on it** leaves focus at the
+  top of the window, everywhere in WILSON, as before (FX13-02). This note has
+  no timer, so it does not.
 - **Holding Enter down on the switch** flips it once per repeat, as on any
   button; one press flips it once.

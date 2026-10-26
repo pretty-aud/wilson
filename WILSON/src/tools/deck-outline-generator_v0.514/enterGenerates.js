@@ -94,9 +94,14 @@ export function enterStarts({ fullDeckMode, deckContext, pageReady }) {
 }
 
 /** What the page says when Enter asks for the deck context: once per such
-    Enter, in the kit's toast stack (its polite live region), info tone. */
+    Enter, in the kit's toast stack (its polite live region), info tone. It
+    has no timer (`duration: 0`): it stays until it stops being true, which
+    D.O.G. watches, or its × (review round 2, finding 1: a timed note left
+    from under a keyboard user who had tabbed to it, and only a pointer could
+    hold it). */
 export const ASK_FOR_CONTEXT = Object.freeze({
   tone: 'info',
+  duration: 0,
   title: 'Write in the deck context box first',
   body: 'Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty.',
 })

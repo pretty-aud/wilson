@@ -3182,6 +3182,16 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     if (askToastId.current != null) toast.dismiss(askToastId.current);
     askToastId.current = toast.push(ASK_FOR_CONTEXT);
   }, [toast]);
+  // The note has no timer (review round 2, finding 1); it goes when it stops
+  // being true: words in the box, Single page, a deck started from the
+  // button, another page on screen, or D.O.G. itself gone.
+  useEffect(() => {
+    if (askToastId.current == null || !toast) return;
+    if (fullDeckMode && !deckContextWritten(systemPrompt) && !isGenerating && currentPage === 'dog') return;
+    toast.dismiss(askToastId.current);
+    askToastId.current = null;
+  }, [toast, fullDeckMode, systemPrompt, isGenerating, currentPage]);
+  useEffect(() => () => { if (askToastId.current != null) toast?.dismiss(askToastId.current); }, [toast]);
 
   // Global Enter key — triggers generation when outliner is empty and user is not in a text field
   useEffect(() => {

@@ -224,7 +224,10 @@ describe('FX13 on the rendered D.O.G.: where Enter made nothing before, it still
     expect(JSON.stringify(callAI.mock.calls[calls][0])).toContain(`DECK CONTEXT & GUIDELINES:\\n${CONTEXT}`)
   })
 
-  it('the References window open over the page: Enter is the window\'s, not D.O.G.\'s (no ask, no deck)', async () => {
+  // Round 2, finding 8: Enter is fired on the page here, so this proves D.O.G.
+  // stands down while a kit window is open (overlayOpen); Enter with focus
+  // inside the window is enterGenerates.test.js' [role="dialog"] case.
+  it('the References window open over the page: D.O.G. stands down for an Enter on the page (no ask, no deck)', async () => {
     const d = await openDog()
     const add = [...d.view.container.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add references')
     await act(async () => { fireEvent.click(add) })
@@ -236,7 +239,7 @@ describe('FX13 on the rendered D.O.G.: where Enter made nothing before, it still
     expect(callAI).not.toHaveBeenCalled()
   })
 
-  it('Shift+Enter in the box with words is a new line, not a deck', async () => {
+  it('Shift+Enter in the box with words is left to the box (the browser\'s new line), not a deck', async () => {
     const d = await openDog()
     await type(d.box(), CONTEXT)
     await act(async () => { d.box().focus() })
@@ -244,12 +247,80 @@ describe('FX13 on the rendered D.O.G.: where Enter made nothing before, it still
     expect(callAI).not.toHaveBeenCalled()
   })
 
-  it('D.O.G. mounted without a toast stack: the ask still moves focus, says nothing, and nothing breaks', async () => {
+  it('D.O.G. mounted without a toast stack: the ask does not throw and still moves focus', async () => {
     const d = await openDog({ provider: false })
     expect(await pressEnter(document.body)).toBe(false)
     await waitFor(() => expect(document.activeElement).toBe(d.box()))
-    expect(document.querySelector('.ui-toast-stack')).toBe(null)
     expect(callAI).not.toHaveBeenCalled()
+  })
+})
+
+// Round 2, finding 1: a timed note left from under a keyboard user who had
+// tabbed to its ×, and only a pointer could hold it. The note now has no
+// timer and goes when it stops being true.
+describe('FX13 on the rendered D.O.G.: the note stays until it stops being true', () => {
+  async function asked(d) {
+    await act(async () => { document.activeElement.blur() })
+    await pressEnter(document.body)
+    await waitFor(() => expect(document.activeElement).toBe(d.box()))
+    expect(d.toasts()).toHaveLength(1)
+  }
+  it('it has no timer: still up after the kit\'s default five seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const d = await openDog()
+      await asked(d)
+      await act(async () => { vi.advanceTimersByTime(6000) })
+      expect(d.toasts()).toHaveLength(1)
+    } finally { vi.useRealTimers() }
+  })
+  it('words in the box take it down', async () => {
+    const d = await openDog()
+    await asked(d)
+    await type(d.box(), 'A pitch')
+    expect(d.toasts()).toHaveLength(0)
+  })
+  it('spaces in the box do not (the box is still empty)', async () => {
+    const d = await openDog()
+    await asked(d)
+    await type(d.box(), '   ')
+    expect(d.toasts()).toHaveLength(1)
+  })
+  it('Single page takes it down', async () => {
+    const d = await openDog()
+    await asked(d)
+    await act(async () => { fireEvent.click([...d.view.container.querySelectorAll('.dog-mode-side')].find((s) => s.textContent === 'Single page')) })
+    expect(d.toasts()).toHaveLength(0)
+  })
+  it('a deck started from the button takes it down', async () => {
+    const d = await openDog()
+    await asked(d)
+    await act(async () => { fireEvent.click(d.view.container.querySelector('button.dog-generate')) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(d.toasts()).toHaveLength(0)
+  })
+  it('another page on screen takes it down (the stack is the whole app\'s)', async () => {
+    const d = await openDog()
+    await asked(d)
+    d.view.rerender(<ToastProvider bar="0px"><DeckOutlineGenerator currentPage="rabbit" /></ToastProvider>)
+    await waitFor(() => expect(d.toasts()).toHaveLength(0))
+  })
+  it('D.O.G. gone takes it down', async () => {
+    const Host = ({ show }) => (show ? <DeckOutlineGenerator currentPage="dog" /> : null)
+    const view = render(<ToastProvider bar="0px"><Host show /></ToastProvider>)
+    const input = view.container.querySelector('input[type=file][accept*=".txt"]')
+    await act(async () => { fireEvent.change(input, { target: { files: [new File(['The brief.'], 'fx13-brief.txt', { type: 'text/plain' })] } }) })
+    await waitFor(() => expect(view.container.textContent).toContain('fx13-brief.txt'))
+    await pressEnter(document.body)
+    await waitFor(() => expect(document.querySelectorAll('.ui-toast-stack .ui-toast')).toHaveLength(1))
+    view.rerender(<ToastProvider bar="0px"><Host show={false} /></ToastProvider>)
+    await waitFor(() => expect(document.querySelectorAll('.ui-toast-stack .ui-toast')).toHaveLength(0))
+  })
+  it('CONTROL: with none of those, it is still up after another Enter in the empty box', async () => {
+    const d = await openDog()
+    await asked(d)
+    await pressEnter(d.box())
+    expect(d.toasts()).toHaveLength(1)
   })
 })
 

@@ -648,7 +648,7 @@ questions); her words are in `docs/sessions/briefs/po-fx13-dog-enter-key.md`.
 
 | Question | Her answer | Built |
 |---|---|---|
-| Enter at the start, the deck context box | "Enter needs text in the box" | With Full deck on, D.O.G.'s Enter (`enterIsDogs`) starts a full deck only when the box has words (`enterStarts`; whitespace is empty). Empty: nothing starts, the box gets focus (card 3 opens if folded, the box brought to the middle of the page) and the kit toast stack says why, one toast at a time. The box's own Enter does nothing when it is empty. The Generate button, Single page and the regenerate box are untouched. |
+| Enter at the start, the deck context box | "Enter needs text in the box" | With Full deck on, D.O.G.'s Enter (`enterIsDogs`) starts a full deck only when the box has words (`enterStarts`; whitespace is empty). Empty: nothing starts, the box gets focus (card 3 opens if folded, the box brought to the middle of the page, named by its label since review round 1) and the kit toast stack says why, one toast at a time, with no timer: it goes when it stops being true (review round 2). The box's own Enter does nothing when it is empty. The Generate button, Single page and the regenerate box are untouched. |
 | Enter on the switch | "Enter moves the switch (Recommended)" | The switch left `GENERATE_TOGGLES`: Enter is the kit Switch's own and flips it. The `.dog-check` tick boxes keep "Enter generates" (B-R1-01), under the rule above. |
 | The Alt key | "Keep it as it is" | Nothing; OUTSTANDING DG1b-01 closed by her ruling. |
 

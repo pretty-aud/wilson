@@ -150,8 +150,9 @@ describe('FX13: a full deck from Enter needs text in the deck context box', () =
     expect(changed).toEqual(cases.filter((c) => c.fullDeckMode && !deckContextWritten(c.deckContext)))
     expect(changed).toHaveLength(4)
   })
-  it('the words said, politely: info tone (a status, never an alert), why, and that the Generate button still works', () => {
+  it('the words said, politely: info tone (a status, never an alert), why, and that the Generate button still works; no timer (round 2, finding 1)', () => {
     expect(ASK_FOR_CONTEXT.tone).toBe('info')
+    expect(ASK_FOR_CONTEXT.duration).toBe(0)   // the kit's sticky toast: D.O.G. takes it down
     expect(ASK_FOR_CONTEXT.title).toBe('Write in the deck context box first')
     expect(ASK_FOR_CONTEXT.body).toMatch(/^Enter makes a full deck once the box has words in it\. Generate full deck outline works with the box empty\.$/)
     expect(Object.isFrozen(ASK_FOR_CONTEXT)).toBe(true)
