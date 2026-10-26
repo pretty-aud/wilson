@@ -20,6 +20,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, waitFor, act, screen } from '@testing-library/react'
 
+// CI has no .env.local, so the real Supabase client (built at import, from
+// VITE_SUPABASE_URL) would throw "supabaseUrl is required" before any test
+// ran (CI run 40359715742). The tests never reach it: they stop at callAI.
+vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: { auth: { getSession: async () => ({ data: { session: null } }) } } }))
 vi.mock('../../cloud/aiProxy', async (orig) => ({ ...(await orig()), callAI: vi.fn(() => new Promise(() => {})) }))
 import { callAI } from '../../cloud/aiProxy'
 import DeckOutlineGenerator from './DeckOutlineGenerator'
