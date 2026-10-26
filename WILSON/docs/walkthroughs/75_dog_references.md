@@ -35,7 +35,8 @@ build: **D.O.G. now opens on Full deck**. Section 6 says what each answer did.
 
 Written 2026-10-16 against `feat/post-overhaul-edit-versioning` (DG1,
 `po/dg1-dog-references`); updated 2026-10-17 for your answers (DG1b,
-`po/dg1b-references-answers`). No database change.
+`po/dg1b-references-answers`), and 2026-10-26 for your Enter and Alt
+answers (FX13, `po/fx13-dog-enter-key`; walkthrough 77). No database change.
 
 ## 1. Step by step
 
@@ -72,7 +73,7 @@ in DG1b's worktree)
 | # | Do | You should see |
 |---|----|----------------|
 | 12 | Choose a project with a brief PDF; **Add references**, **All Core files**, **Done**; then a scene and one of your notes; **Single page**, a layout and a page request; **Generate page outline** | A page built from the brief, the scene and the note. Preview the PDF first and the window says *"Sent whole, as a PDF the AI reads page by page (N pages)…"* and that the read is recorded; a PDF over 100 pages (or 32 MB) says the AI may refuse it, on its row. |
-| 13 | Open the brief's file activity in R.A.B.B.I.T. | One *downloaded* record: D.O.G. reads a file once while WILSON is open, so the preview's read is used again at Generate (unless the file changes in between). Choosing it recorded nothing. A second preview still says its read is recorded, and it is not (`docs/OUTSTANDING.md`, DG1b-02). |
+| 13 | Open the brief's file activity in R.A.B.B.I.T. | One *downloaded* record: D.O.G. reads a file once while WILSON is open, so the preview's read is used again at Generate (unless the file changes in between). Choosing it recorded nothing. A second preview says the file was already read while WILSON is open and is not recorded again (fixed on 2026-10-26, walkthrough 77). |
 | 14 | Choose another project, then the first again | *"N references from … are set aside; they come back when you choose … again."*, then *"… are back."* Your notes stay throughout. |
 
 **E. On the desktop app** (the Local Server)
@@ -118,12 +119,10 @@ Batches 5 and 6 are answered (section 6). Still yours:
 - **§1 D on the real cloud.** The test data cannot read files or reach the AI.
 - **The design's §9 decisions you have not seen**, items 1 to 7 and 10 to 18,
   each small (items 8 and 9 were your Q22 and Q23). Say if any is wrong.
-- **Enter at the start.** Say if Enter should want something in the deck
-  context box before it generates a full deck, and whether Enter on the switch
-  should move it instead (section 6, "One thing to know").
-- **The Alt key** flips the switch from any page, as it did before. Say if Alt
-  should stop toggling it, or toggle it only on D.O.G.'s page
-  (`docs/OUTSTANDING.md`, DG1b-01).
+
+Enter at the start and the Alt key were answered on 2026-10-26: a full deck
+from Enter needs words in the deck context box, Enter on the switch moves it,
+and Alt stays as it is (section 6, "One thing to know"; walkthrough 77).
 
 ## 5. Known limits
 
@@ -154,28 +153,31 @@ You answered batches 5 and 6 on 2026-10-17. Your words are under each batch in
 | # | Do | You should see |
 |---|----|----------------|
 | 16 | Open D.O.G. | Card 3 is on **Full deck**: the deck context box with its example, the **Theme generator** box and **Generate full deck outline** (`po-dg1-refs-01-cards-1440x900`). |
-| 17 | Click **Single page**, go to R.A.B.B.I.T. through WILSON's menu, come back to D.O.G. (in the browser, typing an address reloads the page and starts over) | Still on **Single page**. The side is kept while WILSON is open, as your uploads are. One exception, true before too: pressing Alt on any page flips the switch. It is written down to fix (`docs/OUTSTANDING.md`, DG1b-01). |
+| 17 | Click **Single page**, go to R.A.B.B.I.T. through WILSON's menu, come back to D.O.G. (in the browser, typing an address reloads the page and starts over) | Still on **Single page**. The side is kept while WILSON is open, as your uploads are. One exception, true before too and kept by your answer of 2026-10-26 (*"Keep it as it is"*): pressing Alt on any page flips the switch. |
 | 18 | Close WILSON and open it again (in the browser: reload the page) | **Full deck** again. |
 
-**One thing to know: Enter.** With Full deck on, Enter generates a full deck
-as soon as there is something to read (a file uploaded, or a reference
-chosen), from any of these:
+**One thing to know: Enter** (your answers of 2026-10-26; walkthrough 77).
+With Full deck on and something to read (a file uploaded, or a reference
+chosen), Enter makes a full deck **only when the deck context box has words
+in it**, from any of these:
 
 - D.O.G.'s page itself, before any page exists, with no window open over it;
-- the Single page / Full deck switch itself, before any page exists: Enter
-  generates there instead of moving the switch (Space or the arrow keys move
-  it);
 - D.O.G.'s own tick boxes (Use visual assets, Use project assets, Theme
-  generator), before any page exists;
+  generator), before any page exists; the tick does not change;
 - the deck context box, even after pages exist (Shift+Enter starts a new line
   there).
 
-The deck context box may be empty, and the theme generator, ticked at the
-start, runs too. All of this was so whenever Full deck was on; it now holds
-from the moment D.O.G. opens. Before, at opening, Enter needed a layout and a
-page request. Enter on any other button, link or tab presses that instead:
-right after **Done**, focus is on **Add references**, so Enter opens the window
-again.
+With the box empty (spaces alone count as empty), Enter makes nothing. From
+the page or a tick box, the box gets focus, card 3 opens first if it was
+folded, and a note at the bottom of the window says *"Write in the deck
+context box first"*. In the box itself, Enter does nothing. **Generate full
+deck outline** still works with the box empty, as before.
+
+Enter on the **Single page / Full deck switch** moves the switch, as Space
+and the arrow keys do, and makes nothing. With Single page on, nothing else
+changed: Enter makes the page once a layout and a page request are there.
+Enter on any other button, link or tab presses that instead: right after
+**Done**, focus is on **Add references**, so Enter opens the window again.
 
 **How it was checked.**
 
@@ -197,6 +199,6 @@ again.
   step 12 still assumed Single page, step 13 counted one record per preview,
   Enter on the switch and in the deck context box (now in "One thing to know"),
   a test that guarded less than its name, and smaller wording. Each was
-  corrected or written down (`docs/OUTSTANDING.md`, DG1b-02).
+  corrected or written down (`docs/OUTSTANDING.md`, DG1b-02, fixed since on 2026-10-26).
 - **The pictures** in this walkthrough were retaken: `po-dg1-refs-01-cards`
   shows card 3 on Full deck.

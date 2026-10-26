@@ -518,3 +518,21 @@ opens on Full deck); the other five confirm the provisional build.
   The deck box already carries your instructions.
 - **Which reference fed which slide**, as a mark on each page. Useful, and a
   change to the export format, which stays as it is.
+
+---
+
+## After batch 6: Enter and Alt (2026-10-26, FX13)
+
+Walkthrough 75 §4 left two questions; the controller asked them in chat as
+multiple choice. Your answers, verbatim:
+
+- **Enter at the start, the deck context box:** *"Enter needs text in the box"*
+  (with the box empty, Enter does nothing and the box gets focus; the Generate
+  button still works).
+- **Enter on the switch:** *"Enter moves the switch (Recommended)"* (Enter on a
+  focused control acts on that control, as everywhere else; Enter generates
+  from the page, the tick boxes and the box as before).
+- **The Alt key:** *"Keep it as it is"* (Alt flips the switch from any page, as
+  before; OUTSTANDING DG1b-01 closed by this ruling).
+
+Built in FX13 (`po/fx13-dog-enter-key`); walkthrough 77.
