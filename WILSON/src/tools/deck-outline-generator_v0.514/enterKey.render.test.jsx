@@ -18,7 +18,7 @@
 // (Chromium's own result is in the FX13 hand-off, scripts/fx13-enter-shots.mjs).
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor, act, screen } from '@testing-library/react'
 
 vi.mock('../../cloud/aiProxy', async (orig) => ({ ...(await orig()), callAI: vi.fn(() => new Promise(() => {})) }))
 import { callAI } from '../../cloud/aiProxy'
@@ -29,11 +29,14 @@ import { _resetOverlaysForTests } from '../../ui/overlay'
 
 const CONTEXT = 'A pitch deck for a watch launch, five pages.'
 
-beforeEach(() => { callAI.mockClear() })
+// Every test starts with an AI call that never answers (a generation that
+// starts stays running); a test that needs an answer sets its own.
+beforeEach(() => { callAI.mockReset(); callAI.mockImplementation(() => new Promise(() => {})) })
 afterEach(() => { cleanup(); _resetOverlaysForTests() })
 
-async function openDog({ upload = true } = {}) {
-  const view = render(<ToastProvider bar="0px"><DeckOutlineGenerator currentPage="dog" /></ToastProvider>)
+async function openDog({ upload = true, provider = true } = {}) {
+  const dog = <DeckOutlineGenerator currentPage="dog" />
+  const view = render(provider ? <ToastProvider bar="0px">{dog}</ToastProvider> : dog)
   const q = (sel) => view.container.querySelector(sel)
   if (upload) {
     const input = q('input[type=file][accept*=".txt"]')
@@ -67,7 +70,9 @@ describe('FX13 on the rendered D.O.G.: Enter at the start with Full deck on', ()
     expect(d.box().value).toBe('')
   })
 
-  it('the box empty, Enter on the page: nothing generates, the box gets focus, and the page says why once, politely', async () => {
+  // Review round 1, finding 5: "once" is one note per blocked Enter, never
+  // two on screen; a second blocked Enter replaces the first (said again).
+  it('the box empty, Enter on the page: nothing generates, the box gets focus, and the page says why politely, one note at a time', async () => {
     const d = await openDog()
     expect(document.activeElement).toBe(document.body)
     const kept = await pressEnter(document.body)
@@ -80,12 +85,24 @@ describe('FX13 on the rendered D.O.G.: Enter at the start with Full deck on', ()
     expect(said[0].closest('[aria-live]').getAttribute('aria-live')).toBe('polite')
     expect(said[0].textContent).toContain(ASK_FOR_CONTEXT.title)
     expect(said[0].textContent).toContain(ASK_FOR_CONTEXT.body)
-    // Once: Enter again from the page leaves one toast, not two.
+    // One at a time: Enter again from the page replaces the note (a new one,
+    // so a screen reader hears it again), never a second beside it.
+    const first = said[0].getAttribute('data-toast-id')
     await act(async () => { document.activeElement.blur() })
     await pressEnter(document.body)
     await waitFor(() => expect(document.activeElement).toBe(d.box()))
     expect(d.toasts()).toHaveLength(1)
+    expect(d.toasts()[0].getAttribute('data-toast-id')).not.toBe(first)
     expect(callAI).not.toHaveBeenCalled()
+  })
+
+  // Review round 1, finding 1: focus lands here, so the box must answer to
+  // its visible label, not to its example text (the placeholder).
+  it('the box focus lands in is named by its label, "Deck Context & Guidelines"', async () => {
+    const d = await openDog()
+    await pressEnter(document.body)
+    await waitFor(() => expect(document.activeElement).toBe(d.box()))
+    expect(screen.getByRole('textbox', { name: 'Deck Context & Guidelines' })).toBe(document.activeElement)
   })
 
   it('a box of spaces and new lines counts as empty', async () => {
@@ -158,6 +175,81 @@ describe('FX13 on the rendered D.O.G.: Enter at the start with Full deck on', ()
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
     expect(sent()).not.toContain('DECK CONTEXT & GUIDELINES')
     expect(d.toasts()).toHaveLength(0)
+  })
+})
+
+// Review round 1, finding 4: the places the ask must NOT appear, on the
+// rendered page (each was proven only by the code's order or a pure test).
+describe('FX13 on the rendered D.O.G.: where Enter made nothing before, it still makes nothing and says nothing', () => {
+  const generateButton = (d) => [...d.view.container.querySelectorAll('button.dog-generate')][0]
+
+  it('a deck running (started from the button with the box empty): Enter on the page asks nothing and moves no focus', async () => {
+    const d = await openDog()
+    await act(async () => { fireEvent.click(generateButton(d)) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(generateButton(d).textContent).toMatch(/Generating full deck/)
+    await act(async () => { document.activeElement.blur() })
+    expect(await pressEnter(document.body)).toBe(true)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.activeElement).toBe(document.body)
+    expect(d.toasts()).toHaveLength(0)
+    expect(callAI).toHaveBeenCalledTimes(1)
+  })
+
+  it('a page already made: Enter on the page with the box empty makes nothing and says nothing; words in the box still make a deck from the box itself, as before', async () => {
+    callAI.mockImplementation(async () => ({
+      content: [{ type: 'text', text: 'SLIDE #1 — Title Page\n═══════════════\n▸ TITLE:\nThe watch launch\n▸ SUBTITLE:\nA pitch\n' }],
+      stop_reason: 'end_turn',
+    }))
+    const d = await openDog()
+    await act(async () => { fireEvent.click([...d.view.container.querySelectorAll('.dog-mode-side')].find((s) => s.textContent === 'Single page')) })
+    await act(async () => { fireEvent.change(d.q('.dog-layout-select select'), { target: { value: d.q('.dog-layout-select select').options[1].value } }) })
+    await type(d.q('textarea.dog-page-request'), 'The characters, one line each')
+    await act(async () => { fireEvent.click(generateButton(d)) })
+    await waitFor(() => expect(d.view.container.textContent).not.toContain('No pages yet'))
+    await act(async () => { fireEvent.click([...d.view.container.querySelectorAll('.dog-mode-side')].find((s) => s.textContent === 'Full deck')) })
+    const calls = callAI.mock.calls.length
+    await act(async () => { document.activeElement.blur() })
+    expect(await pressEnter(document.body)).toBe(true)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.activeElement).toBe(document.body)
+    expect(d.toasts()).toHaveLength(0)
+    expect(callAI).toHaveBeenCalledTimes(calls)
+    // CONTROL: the box's own Enter with words is still a full deck after pages exist.
+    await type(d.box(), CONTEXT)
+    await act(async () => { d.box().focus() })
+    await pressEnter(d.box())
+    // the deck's own call first (a made deck may call again, for its theme)
+    await waitFor(() => expect(callAI.mock.calls.length).toBeGreaterThan(calls))
+    expect(JSON.stringify(callAI.mock.calls[calls][0])).toContain(`DECK CONTEXT & GUIDELINES:\\n${CONTEXT}`)
+  })
+
+  it('the References window open over the page: Enter is the window\'s, not D.O.G.\'s (no ask, no deck)', async () => {
+    const d = await openDog()
+    const add = [...d.view.container.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add references')
+    await act(async () => { fireEvent.click(add) })
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBe(null))
+    await pressEnter(document.body)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.activeElement).not.toBe(d.box())
+    expect(d.toasts()).toHaveLength(0)
+    expect(callAI).not.toHaveBeenCalled()
+  })
+
+  it('Shift+Enter in the box with words is a new line, not a deck', async () => {
+    const d = await openDog()
+    await type(d.box(), CONTEXT)
+    await act(async () => { d.box().focus() })
+    expect(await pressEnter(d.box(), { shiftKey: true })).toBe(true)
+    expect(callAI).not.toHaveBeenCalled()
+  })
+
+  it('D.O.G. mounted without a toast stack: the ask still moves focus, says nothing, and nothing breaks', async () => {
+    const d = await openDog({ provider: false })
+    expect(await pressEnter(document.body)).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(d.box()))
+    expect(document.querySelector('.ui-toast-stack')).toBe(null)
+    expect(callAI).not.toHaveBeenCalled()
   })
 })
 

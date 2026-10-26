@@ -31,8 +31,9 @@
 //   - "Enter needs text in the box": with Full deck on, Enter starts a full
 //     deck only when the deck context box has words (whitespace is empty).
 //     With the box empty nothing generates; the box gets focus and the page
-//     says why, once, politely (`enterStarts` says 'ask'; ASK_FOR_CONTEXT is
-//     the words). The box's own Enter follows the same rule
+//     says why, politely, one note at a time: a second such Enter replaces
+//     the note, so it is said again (`enterStarts` says 'ask';
+//     ASK_FOR_CONTEXT is the words; review round 1, finding 5). The box's own Enter follows the same rule
 //     (`deckContextWritten`). The Generate button, Single page and the
 //     regenerate box are untouched.
 //   - The Alt key stays as it is (DG1b-01 closed by her ruling).

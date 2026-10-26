@@ -91,7 +91,8 @@ const TRIALS = [
 function readNow([sw, box]) {
   const vis = (e) => !!e && e.getClientRects().length > 0;
   const a = document.activeElement;
-  const name = (e) => e.getAttribute('aria-label') || e.getAttribute('title') || (e.textContent || '').trim().slice(0, 30)
+  // a field by its label (FX13 review round 1: the box focus lands in is named by it)
+  const name = (e) => (e.labels?.[0]?.textContent || '').trim() || e.getAttribute('aria-label') || e.getAttribute('title') || (e.textContent || '').trim().slice(0, 30)
     || e.className.toString().split(' ').filter((c) => c.startsWith('dog-')).join(' ');
   return {
     switch: document.querySelector(sw)?.getAttribute('aria-checked') === 'true' ? 'Full deck' : (document.querySelector(sw) ? 'Single page' : 'gone'),

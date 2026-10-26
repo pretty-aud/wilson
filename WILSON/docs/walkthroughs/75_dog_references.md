@@ -168,9 +168,9 @@ in it**, from any of these:
   there).
 
 With the box empty (spaces alone count as empty), Enter makes nothing. From
-the page or a tick box, the box gets focus, card 3 opens first if it was
-folded, and a note at the bottom of the window says *"Write in the deck
-context box first"*. In the box itself, Enter does nothing. **Generate full
+the page or a tick box, the box gets focus (from the page, card 3 opens
+first if it was folded), and a note at the bottom of the window says *"Write
+in the deck context box first"*. In the box itself, Enter does nothing. **Generate full
 deck outline** still works with the box empty, as before.
 
 Enter on the **Single page / Full deck switch** moves the switch, as Space

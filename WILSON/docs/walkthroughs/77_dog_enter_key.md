@@ -38,7 +38,8 @@ chosen) and no page yet:
 | Shift+Enter inside the box | A new line | The same |
 | Card 3 folded, the box empty | Made a full deck behind the folded card | **Card 3 opens**, the box gets focus, the note says why |
 | **Add references**, Help, D.O.G. settings | Opened its window | The same |
-| Nothing to read yet | Nothing | The same |
+| The page itself, nothing to read yet | Nothing | The same |
+| A tick box, nothing to read yet | Ticked or unticked it | The same |
 | The **Generate full deck outline** button, the box empty | Made a full deck | The same |
 
 With **Single page** on:
@@ -61,7 +62,7 @@ red line is how you see that Enter started one.
 | # | Do | You should see |
 |---|----|----------------|
 | 1 | Open D.O.G.; in card 1, **Choose file** and pick any small .txt | The file listed. Card 3 on **Full deck**, the deck context box empty. |
-| 2 | Click an empty part of the page (not a button, not a box), press **Enter** | No red line: nothing started. The deck context box takes its orange edge in the middle of the screen, and at the bottom: *"Write in the deck context box first. Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty."* It goes after five seconds (`po-fx13-after-01-page-empty`). |
+| 2 | Click an empty part of the page (not a button, not a box), press **Enter** | No red line: nothing started. The deck context box takes its orange edge in the middle of the screen, and at the bottom: *"Write in the deck context box first. Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty."* It goes after five seconds; pointing at it holds it. A screen reader names the box *Deck Context & Guidelines* (`po-fx13-after-01-page-empty`). |
 | 3 | In the box, press **Enter**, then **Shift+Enter** | Enter: nothing. Shift+Enter: a new line. Delete it. |
 | 4 | Click the **Theme generator** tick (it unticks), press **Enter** | The tick stays as you left it; the box gets focus and the note again. Tick it back. |
 | 5 | Click the switch (it moves to **Single page**, as always), press **Enter** | The switch moves back to **Full deck**, and no deck starts (`po-fx13-after-04-switch-empty`). |
@@ -105,6 +106,11 @@ No questions are open.
 - **The Alt key** hears Alt on every page, by your answer.
 - **Enter in the box after pages exist** still makes a full deck when the box
   has words, as before.
-- **Where Enter made nothing before** (nothing to read yet, or a deck already
-  running), it still makes nothing, and the note does not show: the box was
-  not what stopped it.
+- **Where Enter made nothing before** (nothing to read yet, a page already
+  made, or a deck already running), it still makes nothing, and the note does
+  not show: the box was not what stopped it. With nothing to read, Enter on a
+  tick box ticks or unticks it, as before.
+- **The cards' title bars fold only with a pointer** (step 6 uses one), as
+  before: written down to fix (`docs/OUTSTANDING.md`, FX13-01).
+- **Holding Enter down on the switch** flips it once per repeat, as on any
+  button; one press flips it once.

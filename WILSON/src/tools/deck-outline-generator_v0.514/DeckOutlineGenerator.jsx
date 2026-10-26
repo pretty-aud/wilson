@@ -4313,7 +4313,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 <>
                   <div>
                     <div className="flex items-center gap-3 mb-0.5">
-                      <label className="ui-field-label">
+                      <label className="ui-field-label" htmlFor="dog-deck-context">
                         Deck Context & Guidelines
                       </label>
                       {/* "Theme generator" checkbox: with Full deck (her brief) */}
@@ -4331,8 +4331,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       Set the overall tone, style, and objectives for the deck
                       <span className="dog-hint-emph"> • Include desired page count</span>
                     </p>
+                    {/* FX13 review round 1: the ask moves focus here, so the
+                        box answers to its label ("Deck Context &
+                        Guidelines"), not to its example text. */}
                     <textarea
                       ref={deckContextRef}
+                      id="dog-deck-context"
                       value={systemPrompt}
                       onChange={(e) => setSystemPrompt(e.target.value)}
                       onFocus={() => setSystemPromptFocused(true)}
