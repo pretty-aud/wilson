@@ -1829,6 +1829,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul FX14 (2026-10-26; `po/fx14-fx13-leftovers` into `feat/post-overhaul-edit-versioning`) — FX13's leftovers, Audrey's choice of 2026-10-26: D.O.G.'s three card title bars fold from the keyboard (a kit IconButton in each header, named by the heading's words); the kit toast holds while keyboard focus is in it and gives focus back when it leaves; the two flaky CI tests, one cause established (each mount could return in the gap between the commit that brings the project and that commit's effects) and fixed in their mounts. No migration, no Edge Function. Walkthrough 78. | FX14-01 (four more R.A.B.B.I.T. test files mount in the same gap; INFERRED), FX14-02 (D.O.G.'s settings drawer's 16 folding sections have no `aria-expanded`; pre-existing), FX14-03 (only D.O.G. and O.T.T.E.R. have a main region, so the toast's focus return has none elsewhere). Comment markers: 4 → 4. | **FX13-01 fixed** (the card title bars by keyboard), **FX13-02 fixed** (the kit toast and keyboard focus), **FX13-03 fixed, both halves, each with its cause** (the drop test's band was not late, its regroup was wiped by the provider's pending drafts reset, so FX13's proposed longer wait would not have cured it; the views test's body was past Loading because the status still read `unavailable`, not because of the clock). The FX13 section with them. |
 | Post-overhaul FX13 (2026-10-26; `po/fx13-dog-enter-key` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s Enter key, Audrey's answers of 2026-10-26: with Full deck on, Enter starts a full deck only when the deck context box has words (empty: nothing generates, the box gets focus, the toast stack says why; the Generate button, Single page and the regenerate box untouched); Enter on the Single page / Full deck switch moves it; the Alt key kept; the preview's "recorded" line. No migration, no Edge Function. Walkthrough 77. | FX13-01 (D.O.G.'s card title bars fold only with a pointer; pre-existing, found by review round 1), FX13-02 (the kit toast's timer ignores keyboard focus, and a toast that leaves with focus inside drops it to the page; pre-existing, found by review round 2), FX13-03 (VW1m's Tasks-table drop test still fails on CI some runs; measured on FX13's branch push). Comment markers: 4 → 4. | **DG1b-01 closed by her ruling of 2026-10-26: keep** (*"Keep it as it is"*: Alt flips the switch from any page, as before; nothing built). **DG1b-02 fixed**: the preview says a read is recorded only when it downloads. A dated note on P1-04 (her ruling covers Alt from any page; Alt behind an overlay stands). |
 | Post-overhaul VW1e (2026-10-25; `po/vw1e-custom-views-tables` into `feat/post-overhaul-edit-versioning`) — custom table views, the build, part 4, the last: the views on Assets, Levels, Experiences, Scenes and Shots (the design's §7 step 5, to her answers): step 0's review of the design's parts against the code (16 findings, corrected in the design); migration 0099 / suite 102 (an asset's levels and experiences on the cloud; applied to wilson-dev by query, staging's lines in the Desktop kit), the adapter's probe and the move to the cloud; the shared piece on the five tables (combination groups and Create grouping, the columns in front of the name, the Gallery's card fields, two lists on Scenes and Shots, List order, defects 3 and 4); the browser's old views removed (Q17); walkthrough 72 part 4; two review rounds on Fable (10 findings, then 6 attacking the first's corrections), every correction with a failing control | dated notes on **P1-08** (narrowed to Budget's Expenses and Team), on *on the desktop, the browser's own storage most likely starts empty at every launch* (the five tables' keys removed) and on *Levels and Experiences have no write gate* (the views and the drag read it now) | **The Assets table sorts the provider's own array in place** (fixed by step 1, `dcc898b8`; proven in `19b40ad9`). Comment markers: 4 → 4. |
 | Post-overhaul FX12 (2026-10-25; `po/fx12-ai-file-store-cleanup` into `feat/post-overhaul-edit-versioning`) — the AI's file store forgets what D.O.G. sent it (OUTSTANDING DG1-03): `ai-files` gains DELETE (a member's own ids; an admin's sweep of the workspace's files older than 24 h) and GET (this workspace's ids, times and sizes, never a filename), `operator-ai-files` the operator's counts and sweep, both on wilson-dev only; a row counts only when it binds to the stored file, certificates in the admin stream; D.O.G. lets go when a file or reference leaves, at sign-out and when the desktop closes (which waits, measured), never after a generation; uploads expire in 24 h and reach the store under a neutral name; the Admin Terminal's card and the operator's section; the CI probe signed in as the smoke admin. Two review rounds on Fable (8 findings, then 9). No migration. Her three answers verbatim in the hand-off. | FX12-01 (pre-FX12 uploads on staging and production until the deploy and a sweep; attribution ends 2026-11-09). VW1m's drop test, which failed under this branch's heavier run, now waits for its drop target (a commit, not an entry). Comment markers: 4 → 4. | DG1-03 (closed by FX12: the merge `07f30a4f` into `feat/post-overhaul-edit-versioning`). |
@@ -3399,50 +3400,33 @@ S4b-11 are untouched and still hers.
   admin's card, which also reaches a company's own key) on both, before
   2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
 
-## Post-overhaul FX13 (`po/fx13-dog-enter-key`) — left open (2026-10-26)
+## Post-overhaul FX14 (`po/fx14-fx13-leftovers`) — left open (2026-10-26)
 
-- **FX13-01 · D.O.G.'s three card title bars fold and unfold only with a pointer.**
-  PRE-EXISTING. Each card's `<header className="ui-panel-head dog-card-head"
-  data-collapsible="true" onClick=…>` (*Project documentation* and *Generate
-  outline* in `DeckOutlineGenerator.jsx`, *References* in
-  `references/ReferencesCard.jsx`) has no tab stop, no role and no key handler, so a
-  keyboard or screen-reader user can neither fold a card nor learn that it
-  folds. MEASURED by FX13's review rounds 1 and 2 (2026-10-26): a Tab walk
-  of D.O.G.'s whole page in Chromium (27 to 29 stops, as the page holds more
-  or less) lands on none of them. FX13's
-  Enter rule opens card 3 when it is folded and the box is empty, so a
-  pointer-folded card is never a trap for Enter. Fix: a real button in each
-  header (`aria-expanded`, the chevron its glyph), which Enter presses by
-  itself (`enterGenerates.js`' `ENTER_PRESSES` already leaves a button alone).
-  Owner: a D.O.G. session.
-- **FX13-02 · A kit toast's timer ignores keyboard focus, and a toast that
-  leaves with focus inside it drops focus to the page.** PRE-EXISTING
-  (`src/ui/Toast.jsx`, `TimedToast`): the timer pauses on `onMouseEnter`
-  only. MEASURED by FX13's review round 2 (2026-10-26, Chromium, 1280x800 and
-  1440x900): a 5-second toast, Tab twice to its ×, and when the time runs out
-  the toast goes and `document.activeElement` is `<body>`; the next Tab starts
-  again at the top of the window. Escape does not close a toast. A keyboard or
-  screen-reader user cannot hold a timed toast, and one who reaches it loses
-  their place. FX13's own note has no timer (it goes when it stops being
-  true), so D.O.G.'s Enter does not meet this; every timed toast elsewhere
-  does. Fix: pause on focus within as on hover, and when a toast leaves with
-  focus inside, hand focus back to where it came from. Owner: the kit.
-- **FX13-03 · VW1m's Tasks-table drop test still fails on CI some runs.** MEASURED:
-  CI run 40362857456 (`po/fx13-dog-enter-key` at `88ecfe5b`) failed
-  `src/tools/rabbit_v0.1.0/views/taskItemDrops.test.jsx` › R2-2 › *the Tasks table: a drop
-  refused while an undo still replays…* at its wait for the *Lookbook* band (`waitFor`'s
-  default 1 s: the grouped rows were not drawn yet), while run 40362864782 on the merge
-  `b5b4bb21`, the identical tree (`ca9e396a`), passed, as did every local run. FX12 added
-  that wait (`9b365691`); its 1-second default is shorter than CI's runner sometimes needs.
-  Not FX13's file. Fix: give the band's wait (and the Board column's) a longer `timeout`, as
-  the refusal's wait has. Owner: a R.A.B.B.I.T. session (VW1m's tests).
-  The controller's note (2026-10-26): a second flake of the same kind, in VW1e's
-  `src/tools/rabbit_v0.1.0/views/tableViews/tasksViews.test.jsx` > the last used view >
-  *until the map answers, the body shows the kit Loading line and the toolbar works*.
-  MEASURED: the push run 40345201708 on the fifth beta merge `402b6ed5`
-  (`feat/multi-user-v1`) found no *Loading views* status (the table had already drawn:
-  *Views: All* was in the roles the assertion listed), while the pull_request run
-  40345426849 on the same commit passed. VW1e had already held the provider's 2 s give-up
-  in that test (the `setTimeout` spy on `TABLE_VIEW_LAST_WAIT_MS`, after one CI miss on
-  2026-10-26); the hold did not prevent this run, so the cause is not established. Owner:
-  the same R.A.B.B.I.T. session.
+- **FX14-01 · Four more R.A.B.B.I.T. test files mount the provider in the gap
+  FX13-03's two tests fell into.** `views/tableViews/assetsViews.test.jsx`,
+  `views/tableViews/entityViews.test.jsx`, `views/tableViews/scenesViews.test.jsx` and
+  `state/tableViewsProvider.test.jsx` render `RabbitProvider` outside `act` and wait for
+  the project (and the Views button or the rows). The dev fixtures load the project in
+  microtasks, so one commit draws it with the provider's adapter, and the provider's
+  effects for that adapter (the last used views read, the views' drafts reset) run in a
+  later task: a step taken in that gap meets a status of `unavailable`, or loses its
+  change for now to the reset. INFERRED from the same mount shape; none is recorded
+  failing on CI. Would settle it: each file's mount forced into the gap with a
+  MutationObserver, as the CONTROLs in `taskItemDrops.test.jsx` and `tasksViews.test.jsx`
+  do. Fix: their mounts as FX14 wrote those two (the render inside `act`, then a wait on
+  the provider's last used status). Owner: a R.A.B.B.I.T. session.
+- **FX14-02 · D.O.G.'s settings drawer's folding sections do not say whether they are
+  open.** PRE-EXISTING. Its 16 `button.dog-acc-head` headers (*Single Page - API System
+  Message* and the rest) are real buttons with no `aria-expanded`, so a screen reader
+  hears a button and not whether its section shows. MEASURED by reading the markup
+  (`DeckOutlineGenerator.jsx`: 16 such buttons, none with `aria-expanded`); found by FX14
+  while matching the card headers to the house pattern. Fix: `aria-expanded` on each, as
+  the card headers have it. Owner: a D.O.G. session.
+- **FX14-03 · Only D.O.G. and O.T.T.E.R. have a main region.** Every other page
+  (R.A.B.B.I.T., Home, Settings, Team members and the rest) renders no `<main>` or
+  `role="main"`, so a screen reader's list of landmarks has no main there, and the kit
+  toast's focus return (FX14) has nowhere to put focus when the element focus came from is
+  gone: dev warns, and the browser puts focus on `<body>`. MEASURED by search (`<main`
+  only in `DeckOutlineGenerator.jsx` and `Otter.jsx`; the fallback pinned in
+  `Toast.test.jsx`). Fix: the shell gives the page on screen a main region (App.jsx's
+  `PageSurface`), minding the two tools' own `<main>`. Owner: the shell.
