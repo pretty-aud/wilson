@@ -94,7 +94,9 @@ views and the last view each person used are no longer there: the views
 are the project's (in the cloud, or signed out in the project's own data on
 the desktop) and the last used view the person's (signed out, the machine's
 settings file), and the old key is removed (Q17). A change for now is held in memory,
-for as long as WILSON is open, on purpose (Q3b).)* Would settle it: change one of them in the
+for as long as WILSON is open, on purpose (Q3b).)* *(2026-10-25, VW1e: the
+same for the Assets, Levels, Experiences, Scenes and Shots tables; their old
+keys are removed when each table first loads.)* Would settle it: change one of them in the
 packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
 protocol or a remembered port), or these stores moved into the machine's
 settings file.
@@ -137,11 +139,6 @@ Would settle it: assign a fixture task to a person outside the project,
 group by Assignee. *(2026-10-16, VW1m: grouping by Asset no longer drops
 one: a task sits in the group of its combination of assets, or in No asset.)*
 
-### The Assets table sorts the provider's own array in place
-**INFERRED (VW1's research, 2026-10-13; from the code).** With no filter or
-search, `ProjectAssetsView.jsx`'s `applyFilters` returns `ctx.assets`
-itself and `applySort` calls `.sort()` on it, reordering the shared array
-other views read. Levels and Experiences copy first.
 ### Under a minimum font size the tables' dates are cut again, the calendar over the year
 **MEASURED (FX10 review round 1, R1-07, 2026-10-13; re-run by the session).**
 Firefox 157 at 1280x700 with `font.minimum-size.x-western` set to 16 (its
@@ -232,7 +229,10 @@ says. Settle it by signing in as a staffed project's reviewer on the cloud
 (the fixtures have no such seat for these pages) and deleting a level. Fix
 shape: the Scenes rows' gate (`GatedAction allowed={canWrite}` with the
 reason) on every write control of the two pages. Older than FX8; FX8 left
-the controls' behaviour as it was.
+the controls' behaviour as it was. *(2026-10-25, VW1e: the page reads the
+write permission now, for its views (a seat that cannot write cannot save
+one, as on every table) and for the drag between groupings; Delete, the
+rename, the status, the description and New are still live for every seat.)*
 
 ### Under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined
 **MEASURED (FX6, 2026-10-12, in Chromium's emulation of forced colours,
@@ -2005,7 +2005,7 @@ defines them; a row's "owner" is who acts first.
 - **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
 - **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
 - **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
-- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22. **Wider (VW1's research, 2026-10-13, MEASURED with `scripts/vw1-shots.mjs`):** all six saved-views menus have it — Tasks, Assets, Scenes, Levels and Experiences (each saved row a `div` with no role and no tab stop; only its delete ✕ is a button) and Team (from the code); Escape closes none of the five measured. VW1 replaces the five tables' menus with the new Views dropdown (its build sessions, `docs/design/CUSTOM_VIEWS_DESIGN.md` §4.9); Expenses and Team keep theirs (Audrey, VW1's Q19). *(2026-10-25, VW1d: the Tasks table's menu is gone, replaced by the Views dropdown, a grid with one Tab stop, the arrows between its rows and Escape closing it, tested in `views/tableViews/tasksViews.test.jsx`; Assets', Scenes', Levels' and Experiences' menus follow with VW1e; Expenses' and Team's stay.)*
+- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `TeamSavedViewsDropdown`; the five tables' menus replaced by VW1d and VW1e). MEASURED. From B5b-9, B5b-22. **Wider (VW1's research, 2026-10-13, MEASURED with `scripts/vw1-shots.mjs`):** all six saved-views menus have it — Tasks, Assets, Scenes, Levels and Experiences (each saved row a `div` with no role and no tab stop; only its delete ✕ is a button) and Team (from the code); Escape closes none of the five measured. VW1 replaces the five tables' menus with the new Views dropdown (its build sessions, `docs/design/CUSTOM_VIEWS_DESIGN.md` §4.9); Expenses and Team keep theirs (Audrey, VW1's Q19). *(2026-10-25, VW1d: the Tasks table's menu is gone, replaced by the Views dropdown, a grid with one Tab stop, the arrows between its rows and Escape closing it, tested in `views/tableViews/tasksViews.test.jsx`; Assets', Scenes', Levels' and Experiences' menus follow with VW1e; Expenses' and Team's stay.)* *(2026-10-25, VW1e: the Assets, Levels, Experiences, Scenes and Shots menus are gone too, replaced by the same dropdown (`views/tableViews/assetsViews.test.jsx`, `entityViews.test.jsx`, `scenesViews.test.jsx`). Left: Budget's Expenses (`ExpenseSavedViewsDropdown`) and Team (`TeamSavedViewsDropdown`), kept by her Q19.)*
 - **P1-09 · Escape discards unsaved drafts** in ~~the Scenes popups,~~ `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d. **The Scenes popups' part FIXED by post-overhaul S3b** (2026-10-01, `po/s3b-shot-lists-ui`, D21): closing a scene or shot popup (✕, Close, Escape, the backdrop) with a changed description or notes, or Escape in a changed box, asks "Discard your changes?" first, Cancel focused. Left there: S3b-04 and S3b-05 below.
 - **P1-10 · Keyboard scrolling hides the focused row or cell** (the Bins list under its sticky head; Crew/Talent period cells past the scroller's edge). MEASURED. Owner: a session and the kit (scroll padding, B5b-KR-5). From B4c-13, B5b-7.
 - **P1-11 · A minimap bar drag does not save.** MEASURED. Owner: Audrey (C1). From B3d. After S1 the minimap drag is a true no-op for a phase drawn over exactly its own dates (post-overhaul S1, 2026-09-30; the minimap draws phases only): its mouse-up writes the DRAWN dates back, and those are now the stored ones, so it no longer stores a day early on this machine. It still rewrites a phase drawn over a different span — one with no dates or one date (drawn over its tasks' span, or today to +14 / padded 14 days when it has none), or a parent widened to cover its sub-phases — with that drawn span. Why the drag moves nothing, confirmed in the running app by S1's review round 2: `OverviewBar`'s move handler writes to `e.currentTarget`, which React 19 sets to null after dispatch, so it throws ("Cannot set properties of null (setting '_draftStart')"), and the mouse-up then writes the unmoved drawn span.

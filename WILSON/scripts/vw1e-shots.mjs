@@ -23,7 +23,8 @@
  *             the dropdown open on it: the button stays 136px, its name cut
  * Each state's toolbar is measured: its height, the rows its left slot
  * takes, the room between its two slots, the Views button's width and
- * whether its name is cut. Pictures `po-vw1e-<table>-<state>-<W>x<H>.png`;
+ * whether its name is cut. Pictures of rest, grouped and long,
+ * `po-vw1e-<table>-<state>-<W>x<H>.png`;
  * the numbers in `po-vw1e-measure-<W>x<H>.json`. Animations, transitions
  * and the caret off in this page only; real scrollbars. A control that is
  * not found stops the run and says which.
@@ -96,7 +97,10 @@ async function fresh(t) {
   await page.waitForTimeout(300);
   return page;
 }
+// Every state is measured; three are photographed (the bar shows in grouped).
+const PICTURED = new Set(['rest', 'grouped', 'long']);
 async function shot(page, t, state) {
+  if (!PICTURED.has(state)) return;
   await page.waitForTimeout(250);
   const file = `po-vw1e-${t.key}-${state}-${W}x${H}.png`;
   if (SHOTS) { await page.screenshot({ path: join(OUT, file) }); console.log(`  ${file}`); }
