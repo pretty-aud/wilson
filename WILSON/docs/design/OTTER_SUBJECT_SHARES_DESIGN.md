@@ -139,11 +139,12 @@ rule says (round 1, note).
 
 Quiz attempts (`otter_quiz_attempts`, 0045) record the courses the quiz was
 drawn from as `{id, name}`; a linked subject ticked in the quiz picker records
-the **host** course. Validator findings are session state on every subject
-(handbook §13.2; her 2026-08-05 decision), so the receiver's audit of a linked
-subject is theirs and is kept nowhere; *Request fixes* and *Accept* are not
-offered on a linked subject, because a fix is a write to the owner's row (the
-adapter would answer 403, *not allowed to edit this subject*).
+the **host** course. The Validator does not list linked subjects in 1.0 (§7;
+round 2, finding 2): its purpose is to find and then **fix** inaccuracies, a
+fix is a write to the owner's row (the adapter would answer 403, *not allowed to
+edit this subject*), and its lesson tree is a session-long store of bodies,
+which a linked body may not sit in (§5.4). The owner validates their own
+subject; the receiver reads the result live.
 
 Inherited, not new: lesson ids are positional (`lesson_1_1`), so an owner who
 inserts a section shifts which lesson a tick names, for the receiver exactly as
@@ -235,14 +236,16 @@ carried them (none does outside a CI run).
 | The row carries ids only | **Two snapshot columns**, `subject_title` and `course_name`, written at share time | A settled share (declined, revoked) shows its ex-receiver what the subject was called when it was offered, never its live title (round 1, finding 2) |
 | The helper | The helper **and the index** carry `sub.workspace_id = s.workspace_id` (the index `src.workspace_id` too), and the guard trigger refuses an insert whose subject is in another workspace | Belts: a cross-tenant row cannot be made, and one forged past the trigger opens and lists nothing (round 1, finding 1) |
 
-Unchanged from 0065, deliberately: the table's columns and defaults (the client
-sends nothing but what the functions take), the CHECKs, the partial unique index
-(one live share per subject and person), the three lookup indexes, `FORCE ROW
-LEVEL SECURITY`, the `fn_audit_touch` trigger, no DELETE for anyone but the
-cascade, the consent helper as plpgsql SECURITY DEFINER STABLE (not inlinable into
-the policy's qual, so no role test can leak into a personal-content SELECT
-policy), `otter_subjects_select` as 0022 plus one arm, and `otter_subjects_update`
-untouched.
+Unchanged from 0065, deliberately: the defaults (the client sends nothing but
+what the functions take), the partial unique index (one live share per subject
+and person), the three lookup indexes, `FORCE ROW LEVEL SECURITY`, the
+`fn_audit_touch` trigger, no DELETE for anyone but the cascade, the consent
+helper as plpgsql SECURITY DEFINER STABLE (not inlinable into the policy's qual,
+so no role test can leak into a personal-content SELECT policy),
+`otter_subjects_select` as 0022 plus one arm, and `otter_subjects_update`
+untouched. The columns gain `ended_by` and the two snapshots; the CHECKs gain
+the ended, responded and snapshot rules, and the host rule is restated for a
+pointer that is kept after a revoke (round 2, finding 6).
 
 ### 3.2 The table
 
@@ -275,9 +278,10 @@ time** becomes readable through a share. The parent course is not opened: the
 receiver reads the subject and nothing of `otter_courses`, the other subjects, or
 the documents. The UPDATE policy does not name the helper (a post-condition
 refuses the migration if it ever does). The arm costs a three-table lookup per
-subject row whose course EXISTS fails (the OR short-circuits left to right and
-the helper is STABLE); a person's own and shared courses never reach it, and a
-linked subject is read one row at a time by id (round 1, note).
+subject row the policy evaluates and the EXISTS does not settle (Postgres
+promises no evaluation order for OR, so the helper may run for any row; it is
+STABLE and reads only, so the cost is a lookup, never a risk); a linked subject
+is read one row at a time by id (round 1, note; round 2, note).
 
 ### 3.4 The guard trigger
 
@@ -326,6 +330,7 @@ both people's labels, the note, the dates, `ended_by`, `is_mine`, and then
 |---|---|---|
 | `pending` | the live title and `is_stub`, the course's id, name, slug, type and skill level (their own) | the **title**, whether it is an outline only (`is_stub`), the course's **name**, the sharer's label and the note: the minimum to decide on (round 1, finding 10). Course id, slug, type, skill level: null |
 | `accepted` | as above; `host_course_id` and `host_live` **null** (the receiver's course is theirs, and whether they trashed it is not the owner's to learn; round 1, finding 11) | the live title and `is_stub`, the course's id, name, slug, type and skill level (they can read the subject row itself now), `host_course_id`, `host_live` (the host exists and is not trashed) |
+| `gone` (a pending or accepted share whose subject or course is in the owner's trash) | as the status row above | as the status row above: the live columns while it sits in the trash, because the receiver had them while it was live and the link resumes on restore; the index reads the owner's trash for exactly these rows and nothing more (round 2, finding 8) |
 | `declined`, `revoked` | the live columns (the owner can read their own subject anyway) | the **snapshots only** (`subject_title`, `course_name` as they were when offered); every live column null (round 1, finding 2) |
 
 No description, no body, no other subject, ever.
@@ -392,7 +397,9 @@ control before the probe it controls.
 
 **Fixtures** (as the runner): workspace A with `user_a` (admin, from
 `rls_setup`), `user_c` the **owner**, `user_d` the **receiver**, `user_e` a
-**third person** who also holds an **editor grant** on C1 (so "a granted editor
+**plain third person** (no grant of any kind: an editor grant is a read grant
+too, and would open C1 to them; round 2, finding 1), `user_g` a member who holds
+an **editor grant** on C1 and appears in two probes only (so "a granted editor
 cannot share" has a subject), `user_f` a **deactivated** member; workspace B
 with `user_b`. `user_c` owns C1 `blender-5-0` "Blender 5.0" (personal) with
 subjects S1 `modifiers` and S2 `rigging`, C2 `houdini` "Houdini" (personal) with
@@ -404,13 +411,17 @@ side); SH3 S4 → d (from a shared course); SH4 S2 → e (to be declined); SH5 a
 cross-workspace row the runner forges **with the guard trigger disabled**
 (`ALTER TABLE … DISABLE TRIGGER trg_otter_subject_share_guard`, the row, then
 `ENABLE TRIGGER`): with the trigger on, the forgery is refused even when armed,
-which is its own probe; SH6 S1 → d again after a revoke; SH7 the stub S5 → d;
-SH8 S5 → e, made to be trashed before e can accept.
+which is its own probe; the forged row must satisfy the CHECKs nothing else
+stamps for it: `status` accepted, a host id, `responded_at = now()`, `ended_by`
+null, the two snapshots filled (round 2, finding 5); SH6 S1 → d again after a
+revoke; SH7 the stub S5 → d; SH8 S5 → e, made to be trashed before e can accept.
 
 Arming by hand: the suite is one transaction, and a GUC set with
 `set_config(…, true)` lasts to its end, so every probe that arms a GUC resets it
 to `''` straight after, and each "unarmed" probe first asserts the GUC reads
-empty (round 1, finding 6).
+empty as `is(coalesce(current_setting(…, true), ''), '')`, because a GUC never
+set in the session reads NULL, not `''` (round 1, finding 6; round 2, finding
+10).
 
 ### 4.1 The matrix
 
@@ -421,7 +432,7 @@ tables and no EXECUTE on these functions (0033's sweep), so a probe written as a
 count would abort the file; those cells are probed with `throws_ok`,
 `has_table_privilege` and `has_function_privilege` (round 1, finding 5).
 
-| | Owner (c) | Receiver (d) | Third person (e; a granted editor on C1) | Another workspace (b, active in B) | anon |
+| | Owner (c) | Receiver (d) | Third person (e, no grant) | Another workspace (b, active in B) | anon |
 |---|---|---|---|---|---|
 | Read S1 before accept | 1 row | 0 | 0 | 0 | 42501 |
 | Read S1 after accept | 1 | **1** (the arm) | 0 | 0 | 42501 |
@@ -434,82 +445,94 @@ count would abort the file; those cells are probed with `throws_ok`,
 | UPDATE S1 | 1 row | 0 rows, before and after | 0 | 0 | 42501 |
 | INSERT the share row directly | 42501 | 42501 | 42501 | 42501 | 42501 |
 | UPDATE the share row directly | 42501 | 42501 | 42501 | 42501 | 42501 |
-| `otter_subject_share(S1, d)` | ok | raises (not the owner) | raises (an editor grant is not consent) | raises: *subject not found in this workspace* (b is active in B, so membership passes; round 1, finding 17) | 42501 |
+| `otter_subject_share(S1, d)` | ok | raises (not the owner) | raises (not the owner; and as `user_g`, a granted editor on C1: raises too, an editor grant is not consent) | raises: *subject not found in this workspace* (b is active in B, so membership passes; round 1, finding 17) | 42501 |
 | `otter_subject_share_accept(SH1)` | raises | ok → D1 | raises | raises | 42501 |
 | `otter_subject_share_decline(SH4)` | raises | raises (not its receiver) | ok | raises | 42501 |
 | `otter_subject_share_revoke(SH1)` | ok, `ended_by` = c | ok from `accepted`, `ended_by` = d; raises while `pending` (**S3**) | raises | raises | 42501 |
-| `otter_subject_shares_index()` | SH1..SH4, SH6, SH7, SH8 (`is_mine`) | SH1, SH2, SH3, SH6, SH7, with S1's title before accept and the pending row's course id, slug, type and skill level null | none | empty before SH5 **and after it** (the belt lists no cross-tenant row) | 42501 |
+| `otter_subject_shares_index()` | SH1..SH4, SH6, SH7, SH8 (`is_mine`), SH2 among them only until S3's purge | SH1, SH2 (until the purge), SH3, SH6, SH7, with S1's title before accept and the pending row's course id, slug, type and skill level null | none (and none as `user_g`) | empty before SH5 **and after it** (the belt lists no cross-tenant row) | 42501 |
 | Progress for the link, on D1, key `link:<S1>` | cannot read d's row | upsert ok | — | — | 42501 |
 | Progress on C1 (the owner's course) | own row | refused (the course is not readable) | refused | refused | 42501 |
 | The helper `otter_has_accepted_subject_share(S1)` | false (not a receiver) | true after accept, false after revoke | false | false, even with SH5 forged | 42501 |
 
 ### 4.2 The probes, in timeline order
 
-1. **Structure (9):** the table; FORCE RLS; the seven functions; the guard
-   trigger is BEFORE, for INSERT and for UPDATE (`tgtype`); the partial unique
-   index with its predicate; exactly one policy, cmd SELECT; `authenticated`
-   has SELECT and not INSERT/UPDATE/DELETE; `anon` nothing on the table; `anon`
+The group counts are gone on purpose: each group lists more assertions than one
+number says, and a wrong number invites a wrong `plan()`; B1 counts the plan
+from the file it writes (round 2, note).
+
+1. **Structure:** the table; FORCE RLS; the seven functions; the guard trigger
+   is BEFORE, for INSERT and for UPDATE (`tgtype`); the partial unique index
+   with its predicate; `workspace_id` and `shared_by` carry their defaults
+   (`column_default`); exactly one policy, cmd SELECT; `authenticated` has
+   SELECT and not INSERT/UPDATE/DELETE; `anon` nothing on the table; `anon`
    cannot execute any of the seven.
-2. **Sharing, as c (13):** SH1 returns a uuid; its `status` `pending`,
-   `shared_by` c, `workspace_id` A (the defaults); its `subject_title`
-   "Modifiers" and `course_name` "Blender 5.0" (the snapshots); SH1 again →
-   *already shared*; to self → raises; to `user_f` → raises; to `user_b` →
-   raises; SH3 from the shared course → ok; SH7, the stub S5 → ok (an outline
-   may be shared); a direct INSERT → 42501; as e (a granted editor on C1),
-   sharing S1 → raises; as a (claims by hand, admin) sharing S1 → raises
-   (**S1**; flips if she answers otherwise); as b in B, sharing S1 → raises
-   *subject not found in this workspace*. SH2 and SH4 made here too.
-3. **Before accept (10):** d reads S1: 0; d reads C1: 0; d reads SH1's row: 1;
-   e reads no share row; a (admin, claims by hand) reads no share row; b (in B)
-   none; anon → 42501; d's index lists SH1 with `subject_title` "Modifiers",
-   `course_name` "Blender 5.0", `sharer_label` "User C", `state` `pending`, and
-   `course_id`, `course_slug`, `course_type`, `skill_level` **null** (the
-   pending receiver's disclosure); e's index is empty.
-4. **Accept (13):** e → raises; c → raises; d's direct UPDATE → 42501; d accepts
+2. **Sharing, as c:** SH1 returns a uuid; its `status` `pending`, `shared_by`
+   c, `workspace_id` A; its `subject_title` "Modifiers" and `course_name`
+   "Blender 5.0" (the snapshots); SH1 again → *already shared*; to self →
+   raises; to `user_f` → raises; to `user_b` → raises; SH3 from the shared
+   course → ok; SH7, the stub S5 → ok (an outline may be shared); a direct
+   INSERT → 42501 **with the message** *permission denied for table
+   otter_subject_shares* (the message tells a missing grant from a missing
+   policy, which also raises 42501; round 2, finding 4); as e, sharing S1 →
+   raises; as g (a granted editor on C1), sharing S1 → raises; as a (claims by
+   hand, admin) sharing S1 → raises (**S1**; flips if she answers otherwise);
+   as b in B, sharing S1 → raises *subject not found in this workspace*. SH2
+   and SH4 made here too.
+3. **Before accept:** d reads S1: 0; d reads C1: 0; d reads SH1's row: 1; e
+   reads no share row; g reads no share row; a (admin, claims by hand) reads no
+   share row; b (in B) none; anon → 42501; d's index lists SH1 with
+   `subject_title` "Modifiers", `course_name` "Blender 5.0", `sharer_label`
+   "User C", `state` `pending`, and `course_id`, `course_slug`, `course_type`,
+   `skill_level` **null** (the pending receiver's disclosure); e's index is
+   empty.
+4. **Accept:** e → raises; c → raises; d's direct UPDATE → 42501; d accepts
    SH1 → returns D1 (slug matched, name ignored); the row `accepted`, `host`
    D1, `responded_at` set; again → raises; d accepts SH2 → returns a new course:
    owner d, slug `houdini`, name "Houdini", `personal`, `hotkeys` at its default
    (nothing copied), `created_by` d; d accepts SH3 → a D-side course for
    `shared-topic` made; d accepts SH7 → lands in the Houdini course just made
    (the same slug, a second link in one host).
-5. **After accept (14):** d reads S1: 1; S2: 0; C1: 0; C1's `hotkeys` through
-   the table: 0 rows; d lists `otter_subjects WHERE course_id = C1` (what
+5. **After accept:** d reads S1: 1; S2: 0; C1: 0; C1's `hotkeys` through the
+   table: 0 rows; d lists `otter_subjects WHERE course_id = C1` (what
    `subject.list` on the owner's course id would ask): exactly S1 and its list
    columns (the second door, consented; round 1, note); d UPDATEs S1: 0 rows; d
    INSERTs a subject into C1: refused; e reads S1: 0; b: 0; d upserts
    `otter_progress` on D1 with `{"link:<S1>": {...}}`: ok, and reads it back; d
-   inserts progress on C1: refused; c reads d's row: 0; the helper as d: true;
-   as e: false; as d for S2: false.
-6. **The forged row (7):** as the runner, an **armed** insert of a row naming
+   upserts `otter_progress` on the Houdini host with `{"link:<S3>": {...}}`: ok
+   (group 8 reads this row back after the purge; round 2, finding 3); d inserts
+   progress on C1: refused; c reads d's row: 0; the helper as d: true; as e:
+   false; as d for S2: false.
+6. **The forged row:** as the runner, an **armed** insert of a row naming
    workspace B and subject S1 → raises (the guard's workspace invariant), and
    the arm is reset to `''`; the runner disables the guard trigger, inserts SH5
    (`workspace_id` B, `shared_with` b, `shared_by` c, `subject_id` S1, `status`
-   accepted, a host id, the snapshots filled) and re-enables it; as b in B: the
-   helper for S1 is **false** (the subject's workspace is not the share's), S1
-   reads 0, and b's index is **empty** (the belt lists no cross-tenant row;
-   round 1, finding 1); as the runner, after asserting the update GUC reads
-   empty, an **unarmed** update of SH4's note raises (the guard binds the
-   runner); and an armed update of SH1 with **no status change** that tries to
-   move `host_course_id` leaves it where it was (the guard's no-transition arm).
-7. **Decline (9):** c declines SH4 → raises; d declines SH4 → raises; e revokes
+   accepted, a host id, `responded_at` now, the snapshots filled) and re-enables
+   it; as b in B: the helper for S1 is **false** (the subject's workspace is not
+   the share's), S1 reads 0, and b's index is **empty** (the belt lists no
+   cross-tenant row; round 1, finding 1); as the runner, after asserting the
+   update GUC reads empty (with `coalesce`), an **unarmed** update of SH4's note
+   raises (the guard binds the runner); and an armed update of SH1 with **no
+   status change** that tries to move `host_course_id` leaves it where it was
+   (the guard's no-transition arm), the arm reset after.
+7. **Decline:** c declines SH4 → raises; d declines SH4 → raises; e revokes
    SH4 while pending → raises (a receiver declines, never removes, what they
    have not accepted; **S3**; round 1, finding 8); e declines → `declined`,
    `responded_at` set, `host` null; again → raises; e reads S2: 0; c renames S2
    to "Rigging II" → e's index still shows SH4 as "Rigging" with `course_slug`
    null (the snapshot, not the live title; round 1, finding 2); c's index shows
    SH4 `declined` with the live title (the record).
-8. **Trash, restore, purge (9):** c trashes S3 (`otter_soft_delete_row`) → d
+8. **Trash, restore, purge:** c trashes S3 (`otter_soft_delete_row`) → d
    reads S3: 0; d's index shows SH2 `state` `gone`; c restores → d reads S3: 1,
    `state` `accepted`; c shares S5 → e (SH8), then trashes S5 → e accepts SH8 →
    raises *that subject no longer exists*; d's SH7 reads `gone` meanwhile; c
    restores S5 → SH7 `accepted` again; the runner hard-deletes S3 → SH2's row is
    gone; d's progress on the Houdini host still holds its `link:` key.
-9. **The owner leaves, the receiver leaves (6):** the runner deactivates c →
+9. **The owner leaves, the receiver leaves:** the runner deactivates c →
    d still reads S1: 1 (SH1; S1 is in a personal course, so only the arm opens
    it); c's revoke of SH1 → raises (not active); the runner reactivates c; the
    runner deactivates d → d reads S1: 0, and d's index raises
    `not_a_workspace_member`; the runner reactivates d → d reads S1: 1 again.
-10. **Revoke (11):** e revokes SH4 (declined) → raises; e revokes SH1 → raises;
+10. **Revoke:** e revokes SH4 (declined) → raises; e revokes SH1 → raises;
     c revokes SH1 → `revoked`, `ended_by` c, `host_course_id` **kept**,
     `responded_at` kept; d reads S1: 0; the helper as d: false; d's index shows
     SH1 with the snapshot title and every live column null; d's D1 progress row
@@ -518,20 +541,25 @@ count would abort the file; those cells are probed with `throws_ok`,
     SH3 (accepted) → ok (the owner withdraws from a shared course's subject; d
     still reads S4 through 0022's `shared` arm, which is the point: the share
     and the tier are two different reads).
-11. **Audit (6):** WIL-4110 count = 7 (SH1, SH2, SH3, SH4, SH6, SH7, SH8; the
-    refusals and the forged row wrote none); 4111 = 5 (SH1, SH2, SH3, SH6,
-    SH7); 4112 = 1; 4113 = 3 (c on SH1, d on SH6, c on SH3); every row's
-    `context` has no `subject_title`, `title` or `name` key and `event_type`
-    `admin`; as a (admin, claims by hand) the rows read; as e they do not.
-12. **Belt (3):** the link arm is in `otter_subjects_select` and not in
-    `_update`; `current_app_role` is in no SELECT policy of the three tables;
-    no DELETE policy on the share table.
+11. **Audit:** every count scoped to workspace A **and** the code, as suite 70
+    does, so a future writer of `app_events` cannot move it (round 2, note):
+    WIL-4110 = 7 (SH1, SH2, SH3, SH4, SH6, SH7, SH8; the refusals and the
+    forged row wrote none); 4111 = 5 (SH1, SH2, SH3, SH6, SH7); 4112 = 1; 4113
+    = 3 (c on SH1, d on SH6, c on SH3); every row's `context` has no
+    `subject_title`, `title` or `name` key and `event_type` `admin`; as a
+    (admin, claims by hand) the rows read; as e they do not.
+12. **Belt:** the link arm is in `otter_subjects_select` and not in `_update`;
+    `current_app_role` is in no SELECT policy of the three tables; no DELETE
+    policy on the share table.
 
 About **110** probes; B1 counts the plan. **Failing controls** (each must
 redden exactly its probes, and B1 runs each once): the arm removed from the
 policy → every "d reads S1: 1"; the helper without `status = 'accepted'` → "d
 reads S1 before accept: 0" goes red the other way; `GRANT INSERT, UPDATE TO
-authenticated` → the two 42501 probes; the accept function without the
+authenticated` → group 1's privilege probe, the direct INSERT's **message**
+(a grant with no policy still raises 42501, as *new row violates row-level
+security policy*, so the code alone would stay green; round 2, finding 4) and
+the direct UPDATE probe (no policy: zero rows, nothing thrown); the accept function without the
 `shared_with` check → "c accepts → raises"; the helper without the workspace
 belt → the SH5 helper probe; the index without its workspace belt → b's index
 lists SH5; the index serving the live title to a settled receiver → the
@@ -653,15 +681,21 @@ rows**: the accepted shares whose `host_course_id` is this course and
 
 **Live, as of the open, and in no session cache.** A linked subject's body is
 fetched by `subject.getById` on each use and is **never written to any session
-cache**: not `subjectCacheRef`, not `quizSelectionData`, not the Validator's
-cache, not search's. Every reader that holds bodies today (the study view, the
-quiz's `getQuizContent`, the Validator's prefetch, `performSearch`) reads a
-linked body live by id at the moment it needs it, so a revoked subject's words
-cannot be quizzed on, searched or sent to the AI from a cache for the rest of
-the session (round 1, finding 4); the quiz picker's linked rows come from the
-live `subjectShares` state, not from `quizSelectionData`. The one body in
-memory is the open `activeSubject`, until the person navigates (round 1, note).
-The owner's edits are therefore seen at the next open. A 404 on an open means
+cache**: not `subjectCacheRef`, not `softwareCacheRef`, not `quizSelectionData`,
+not a module-level store, not the state of a component that stays mounted for
+the session (the Validator is one: it is rendered hidden, never unmounted).
+Two readers hold a linked body, each for one use: the study view (the open
+`activeSubject`, until the person navigates) and the quiz's `getQuizContent`
+(the content string of one generation, built from live reads by id and handed
+to the AI call). The Validator and the full-text search do **not** list linked
+subjects in 1.0 (§7): the Validator's lesson tree and queue are a session-long
+store of bodies and its purpose is to fix, which a receiver cannot; search runs
+on every keystroke over every body it holds, and a network read per linked
+subject per keystroke is wrong (round 1, finding 4; round 2, findings 2 and
+13). So a revoked subject's words cannot be quizzed on, searched or sent to the
+AI from a cache for the rest of the session; the quiz picker's linked rows come
+from the live `subjectShares` state, not from `quizSelectionData`. The owner's
+edits are therefore seen at the next open. A 404 on an open means
 the row is no longer readable; the client re-reads the share list first and
 lets the index's `state` choose the words (round 1, finding 20): `gone` →
 *«Modifiers» is no longer available: the owner removed it. It comes back if they
@@ -693,31 +727,37 @@ for a linked one; `toggleLessonComplete`, `completedLessonsCache` and
 (`saveProgress` already posts to the active course). Two tests pin it, each
 with its failing control: a linked subject never writes under its slug (key by
 slug: red), and no reader writes a linked body into a session cache (cache it:
-red). The quiz picker lists linked subjects under their host course and reads
-their content live by id; the attempt records the host course. The validator
-lists them under the host course, audits them live, and hides *Request fixes*
-and *Accept*.
+red; "session cache" in that test names `subjectCacheRef`, `softwareCacheRef`,
+`quizSelectionData` and any module-level store; round 2, finding 2). The quiz
+picker lists linked subjects under their host course and reads their content
+live by id; the attempt records the host course. The Validator does not list
+them (§5.4, §7).
 
 ### 5.6 What the pet reads
 
 Phase 6's rule stands: nothing a person may not read is listed or sent to the
 AI, and the gate is the database. `loadKnowledgeIndex` reads the course list and
-each readable course's subjects; B2 adds one `share.list` read per build (ignored
-on a 501 or 401: the Local Server and the web signed out) and, for each accepted
-share with a live host in the index, an entry in that host course's `subjects`
-with `linkedId`, its title and description read through `subject.getById`
-(a 404 drops it, as an empty 200 drops a hidden course today). Phase B's body
-read uses `/api/otter/subjects/:id` for an entry with `linkedId`. Nothing of the
-owner's course beyond the one subject is ever read: the index entry is the
-subject, under the receiver's own course, and `isRetrievableCourse` is unchanged.
+each readable course's subjects, and keeps each subject's section and lesson
+**titles** for ranking (bodies are read live); B2 adds one `share.list` read per
+build (ignored on a 501 or 401: the Local Server and the web signed out) and,
+for each accepted share with a live host in the index, an entry in that host
+course's `subjects` with `linkedId`, built from one `subject.getById` read like
+any other entry: title, description, and the section and lesson titles (without
+them Phase A could not find a linked lesson by what it is about, the hole the
+code's own comment describes; a 404 drops the entry, as an empty 200 drops a
+hidden course today). Phase B's body read uses `/api/otter/subjects/:id` for an
+entry with `linkedId`. Nothing of the owner's course beyond the one subject is
+ever read: the index entry is the subject, under the receiver's own course, and
+`isRetrievableCourse` is unchanged.
 
 **A revoke reaches the pet on the receiver's next sync**: the body is read live
 under RLS every message, so a revoked subject's words never reach the AI again
-from the moment the function commits; its **title** can sit in the warm index
-for at most `INDEX_TTL_MS` (five minutes), and the client clears the index
-(`clearPetKnowledgeCache`, already exported and used for the library switch)
-whenever the accepted set changes on a share-list read or a 404 on open. The
-same holds for a trashed subject.
+from the moment the function commits; its **titles** (the subject's, its
+sections' and its lessons') can sit in the warm index for at most
+`INDEX_TTL_MS` (five minutes; round 2, finding 12), and the client clears the
+index (`clearPetKnowledgeCache`, exported and used by `App.jsx` for the library
+switch; a new import into `Otter.jsx`) whenever the accepted set changes on a
+share-list read or a 404 on open. The same holds for a trashed subject.
 
 ### 5.7 Privacy, stated once
 
@@ -808,7 +848,7 @@ bucket and policy.
 | `components/CourseBadges.jsx` | `LinkedBadge` |
 | `components/otterSharing.js` (+ test) | `linkKey`, `isLinkKey`, the share-state words |
 | `Otter.jsx` | the share list; the linked rows in the three surfaces; `activeSubjectKey`; the open-by-id path and its 404; the tab count; the owner's line and the delete confirm's sentence; the quiz picker; the write gates on a linked subject |
-| `Validator.jsx` | linked subjects listed read-only; fixes hidden |
+| `Validator.jsx` | linked subjects stay out of its enumeration (its tree comes from `softwareCacheRef`, which never holds a linked row, so the work is to add none there), with a test that pins it (§5.4, §7; round 2, finding 2) |
 | `petKnowledge.js` (+ test) | §5.6: the linked entries, the id read, a 404 drops the entry |
 | `otter.css` | the linked row, badge and greyed states (house weights 400 and 600; no new colour) |
 | the night's walkthrough (its section), `docs/OUTSTANDING.md`, the hand-off | |
@@ -838,6 +878,8 @@ the flow is hers in the walkthrough; this design does not assume either.
 | A share of a **whole course** to one person | A course already has `shared` visibility and per-person editor grants; a per-person live course link would be a fourth visibility (the thing 0064 refused to add) or N subject rows behind one button. She asked for one subject. |
 | Sharing **outside the workspace** | `cloudMode` is one workspace claim; every policy starts from `current_workspace_id()`; no read in WILSON crosses a tenant (locked #17). The policy refuses it, not the client. |
 | A share that **copies** | Her first ruling is the link. A copy of a subject is a different feature with its own questions (whose edits win later), and the fork already exists for a course. |
+| **Validating** a linked subject | The Validator finds and then fixes; a receiver cannot fix the owner's row, and its lesson tree is a session-long store of bodies a linked body may not sit in (§5.4). The owner validates; the receiver reads the result live. |
+| **Searching** linked subjects | Search runs per keystroke over the bodies it holds; a linked body may not be held, and a network read per keystroke is wrong. The study view's own lesson list is the way in. |
 | **Onward sharing** by the receiver | Only the owner of the course shares its subjects; the receiver owns nothing of it. |
 | **Expiry** of a pending share; a **cooldown** after a decline | A record is cheap and an unanswered offer harms nobody; the owner can withdraw. A colleague who re-shares after a decline is a people problem, not a schema one. |
 | **Notice outside WILSON** (an email), **realtime** arrival | O.T.T.E.R. is on no realtime topic (0022) and Resend is for auth mail; the Requests count is the notice. |
@@ -887,6 +929,44 @@ is Postgres's own default (§3.8); the open `activeSubject` stays until
 navigation (§5.4); several colleagues at once is decided, not asked (§5.2, the
 questions file). A forged armed update's `host_course_id` draws nothing on the
 client because the linked rows are filtered by the receiver's own courses.
+
+---
+
+## 9. Design review round 2 (2026-10-27): round 1's corrections attacked
+
+A second Fable reviewer read §8, the diff of round 1's corrections
+(`04838f0f..96e19e79`), the whole design and Appendix A again, the questions
+file, and the code each correction leans on, read-only. Fourteen findings and
+seven notes; every one is answered above, each marked *(round 2, finding n)*.
+It found round 1's corrections for findings 1, 2, 3, 5, 6, 7, 8, 9 to 17 and
+19 to 22 sound, Appendix A valid as a migration on a fresh CI database and on
+dev, staging and production, the audit counts right, and the S-numbers
+consistent.
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | HIGH | Round 1's fixture gave the third person an editor grant on C1; an editor grant is a read grant too (0022's course SELECT arm and the write gate), so eight cells and two probes for `user_e` were wrong | The grant moves to a fresh fixture, `user_g`, who appears in two probes (sharing raises; no share row); `user_e` is a plain third person again (§4) |
+| 2 | MEDIUM | "No reader writes a linked body into a session cache" was not achievable for the Validator, which has no cache of its own, lives in `subjectCacheRef`, and stays mounted all session; the stated residual was not the only one | The Validator does not list linked subjects in 1.0 (§1.3, §5.4, §5.5, §6.2, §7); the residuals are named (the open subject; one quiz generation's string); the test's "session cache" names every store |
+| 3 | MEDIUM | Group 8 read back a progress row on the Houdini host that no probe wrote | Group 5 writes it (`link:<S3>`) |
+| 4 | MEDIUM | The `GRANT INSERT, UPDATE` control would not redden the INSERT probe: a grant with no policy also raises 42501 | The INSERT probe asserts the message *permission denied for table …*; the control's targets are named (group 1's privilege probe, the message, the UPDATE probe) |
+| 5 | MEDIUM | The forged row SH5 omitted `responded_at` and would fail `responded_chk` outside any `throws_ok`, aborting the file | SH5's specification carries `responded_at = now()` and `ended_by` null (§4) |
+| 6 | LOW | §3.1 said the columns and CHECKs were unchanged from 0065 while adding three columns and four CHECKs | Reworded (§3.1) |
+| 7 | LOW | Two SQL COMMENTs described the pre-correction behaviour | Both rewritten (A §8, A §9) |
+| 8 | LOW | §3.6's disclosure table had no `gone` row, and the CASEs serve a trashed subject's live columns | The `gone` row added, with the reason the live columns stand (§3.6) |
+| 9 | LOW | The index cells for c and d listed SH2 after its row is cascaded away by the purge | "Until the purge" in both cells (§4.1) |
+| 10 | LOW | The "GUC reads empty" assertion must `coalesce`: an unset GUC reads NULL | Stated as `is(coalesce(current_setting(…, true), ''), '')` (§4) |
+| 11 | LOW | The comment-stripping post-condition stripped line comments only; 0069 strips block comments first | Both passes, built from `chr()` (A §10) |
+| 12 | LOW | §5.6 understated the warm index: it keeps section and lesson titles, so those linger too | Stated: linked entries carry them, and "titles" linger for at most five minutes (§5.6) |
+| 13 | LOW | `performSearch` runs per keystroke; a live read per linked subject per keystroke is wrong | Linked subjects stay out of search in 1.0 (§5.4, §7) |
+| 14 | LOW | Group 2 called the function's explicit values "the defaults" | "The defaults" dropped there; a `column_default` probe added to group 1 |
+
+**Notes answered:** OR has no promised evaluation order (§3.3); the group counts
+are gone, B1 counts the plan (§4.2); the audit counts are scoped to the
+workspace and the code (§4.2); `clearPetKnowledgeCache` is a new import into
+`Otter.jsx` (§5.6). Left as they are: `left()` on the snapshots and the index's
+`src.workspace_id` belt (both redundant with existing CHECKs and invariants, both
+harmless), and the quiz picker's one change (its data comes from `subject.list`,
+which never returns a linked row).
 
 ---
 
@@ -1580,7 +1660,7 @@ REVOKE EXECUTE ON FUNCTION public.otter_subject_share_revoke(UUID) FROM PUBLIC, 
 GRANT  EXECUTE ON FUNCTION public.otter_subject_share_revoke(UUID) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.otter_subject_share_revoke IS
-  '0100: the sharer withdraws, or the receiver removes, a pending or accepted share. Records who ended it; keeps the host pointer as history.';
+  '0100: the sharer withdraws a pending or accepted share, or the receiver removes an accepted one (a pending offer is declined, not removed). Records who ended it; keeps the host pointer as history.';
 
 -- ── 9. otter_subject_shares_index() — both sides' lists ──────────────────────
 -- The receiver of a PENDING share may not read the subject yet (not accepted),
@@ -1701,7 +1781,7 @@ REVOKE EXECUTE ON FUNCTION public.otter_subject_shares_index() FROM PUBLIC, anon
 GRANT  EXECUTE ON FUNCTION public.otter_subject_shares_index() TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.otter_subject_shares_index IS
-  '0100: every subject share the caller sent or received in their active workspace, with the live subject title, the course''s identity, both labels, the derived state (gone when the source is trashed or changed hands) and whether the host course is live. Backs the Requests view, the linked rows and the pet''s index.';
+  '0100: every subject share the caller sent or received in their active workspace: the live subject title and course identity while it is pending or accepted (the owner always), the snapshots taken at share time once it is settled, both labels, the derived state (gone when the source is trashed or changed hands) and, for the receiver, whether their host course is live. Nothing of another workspace. Backs the Requests view, the linked rows and the pet''s index.';
 
 -- ── 10. Post-conditions ──────────────────────────────────────────────────────
 
@@ -1835,9 +1915,14 @@ BEGIN
 
   -- Both arms are in the guard's body, with the comments stripped first: a
   -- LIKE on pg_get_functiondef is satisfied by a commented-out arm (0069's
-  -- lesson). chr(45) is '-', so this file holds no comment marker in a string.
-  body := regexp_replace(
-            pg_get_functiondef('public.fn_otter_subject_share_guard()'::regprocedure),
+  -- lesson). Block comments first, then line comments, as 0069 does. The
+  -- markers are built from chr() so this file holds none inside a string:
+  -- chr(47) chr(42) are the slash and the star, chr(45) the dash, chr(10) the
+  -- newline.
+  body := pg_get_functiondef('public.fn_otter_subject_share_guard()'::regprocedure);
+  body := regexp_replace(body,
+            chr(47) || '[' || chr(42) || '].*?[' || chr(42) || ']' || chr(47), '', 'g');
+  body := regexp_replace(body,
             chr(45) || chr(45) || '[^' || chr(10) || ']*', '', 'g');
   IF body NOT LIKE '%wilson.otter_subject_share_insert%'
      OR body NOT LIKE '%wilson.otter_subject_share_update%'
