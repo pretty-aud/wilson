@@ -409,4 +409,33 @@ describe('R1: Replace link is one gesture (the provider\'s rewireDependency)', (
     expect(ctx.dependencies.map(d => d.id).sort()).toEqual(opened)
     expect(ctx.canUndo).toBe(false)
   })
+
+  // Review round 2 (R2-01): the guard keys on the project the bundle holds,
+  // not the visit. Keyed on the visit, p1 → p2 → p1 kept the put-back from
+  // the same project re-opened: the database had the old edge back and its
+  // chart did not, until the next load. (The history entry stays per visit.)
+  it('R2-01: p1 → p2 → p1 while a refused link is in flight: the old edge is back in the database and on the re-opened project\'s chart', async () => {
+    const a = uniqueEdges(fx.rabbitAdapter(), fx.store)
+    await mount(a)
+    let other = null
+    await run(async () => { other = await ctx.createProject({ title: 'Other project' }) })
+    const g = gate(a, 'upsertDependency')
+    let err = null
+    let rewiring
+    await act(async () => { rewiring = ctx.rewireDependency(DEP_7_8, T(9)).catch((e) => { err = e }) })
+    await act(async () => { await g.hitP }) // the unlink landed; the link waits
+    await run(() => ctx.setActiveProject(other.id))
+    await waitFor(() => expect(ctx.project?.id).toBe(other.id))
+    await run(() => ctx.setActiveProject(PROJECT_ID))
+    await waitFor(() => expect(ctx.project?.id).toBe(PROJECT_ID))
+    // Re-opened after the unlink landed: the old edge is on neither yet.
+    expect(fx.store.dependencies.some(d => d.id === DEP_7_8 && !d.deleted_at)).toBe(false)
+    expect(ctx.dependencies.some(d => d.id === DEP_7_8)).toBe(false)
+    g.release()
+    await act(async () => { await rewiring })
+    expect(err?.message).toBe(UNIQUE)
+    expect(fx.store.dependencies.find(d => d.id === DEP_7_8 && !d.deleted_at)).toMatchObject({ predecessor_id: T(7), successor_id: T(8) })
+    expect(ctx.dependencies.filter(d => d.id === DEP_7_8)).toHaveLength(1)
+    expect(ctx.canUndo).toBe(false)
+  })
 })

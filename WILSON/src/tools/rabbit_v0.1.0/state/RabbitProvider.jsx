@@ -4911,17 +4911,21 @@ export function RabbitProvider({ children }) {
   // the bundle as it is when it starts, and a refused one takes back only its
   // own change (optimistic's revertOwnChange), so no stale snapshot redraws
   // the deleted edge: the put-back is the one way it returns.
-  // Review round 1 (R1-02): a write that starts after a project switch changes
-  // the database only (`onBundle`, read as each write starts). The put-back,
-  // or the link, was appended to the bundle open then, another project's: a
-  // stray row in it until its next load. The history entry was already
-  // dropped (pushHistory's `visit`). The person's call waits its turn in the
-  // undo queue: rewireDependencyQueued, below (R1-01).
+  // Review round 1 (R1-02): a write of the rewire changes only THIS project's
+  // bundle (`onBundle`): after a project switch the put-back, or the link, was
+  // appended to the bundle open then, another project's, a stray row in it
+  // until its next load. Review round 2 (R2-01): keyed on the project the
+  // bundle holds, decided on the bundle the update is given, not on the visit
+  // — keyed on the visit, p1 → p2 → p1 kept the put-back from the same project
+  // re-opened, whose chart then lacked an edge its database had. The history
+  // entry stays per visit (pushHistory's `visit`). The person's call waits
+  // its turn in the undo queue: rewireDependencyQueued, below (R1-01).
   const rewireDependency = useCallback(async (dependencyId, successorId, existingId = null) => {
     const oldRow = bundleRef.current.dependencies.find(d => d.id === dependencyId);
     if (!oldRow) throw new Error('That dependency is no longer on this project.');
     const visit = projectVisitRef.current;
-    const onBundle = (mutator) => (projectVisitRef.current === visit ? mutator : (prev) => prev);
+    const pid = activeProjectId;
+    const onBundle = (mutator) => (prev) => (prev?.project?.id === pid ? mutator(prev) : prev);
     const newRow = {
       id:             existingId || uuidv4(),
       predecessor_id: oldRow.predecessor_id,
@@ -4945,7 +4949,7 @@ export function RabbitProvider({ children }) {
     // refused put-back would take nothing back: the chart redrawing an edge
     // the database no longer has — the stale snapshot the OUTSTANDING entry
     // named (dependencyRewire.test.js, the refused put-back, holds it).
-    if (projectVisitRef.current === visit) {
+    if (bundleRef.current.project?.id === pid) {
       bundleRef.current = { ...bundleRef.current, dependencies: (bundleRef.current.dependencies || []).filter(d => d.id !== dependencyId) };
     }
     let result;
