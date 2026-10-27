@@ -46,11 +46,12 @@ describe('IconButton', () => {
     expect(screen.getByRole('button', { name: 'Remove report.pdf' })).toBeTruthy()
   })
 
-  // FX14: D.O.G.'s card headers name their fold button by the heading's words.
+  // FX14: D.O.G.'s card headers name their fold button by the heading's words
+  // (card 1's, "Project" since DG2).
   it('aria-labelledby names it and is not reported as nameless; CONTROL: with no name at all it still is', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    render(<><span id="fx14-words">Project documentation</span><IconButton icon={X} aria-labelledby="fx14-words" /></>)
-    expect(screen.getByRole('button', { name: 'Project documentation' })).toBeTruthy()
+    render(<><span id="fx14-words">Project</span><IconButton icon={X} aria-labelledby="fx14-words" /></>)
+    expect(screen.getByRole('button', { name: 'Project' })).toBeTruthy()
     expect(err).not.toHaveBeenCalled()
     render(<IconButton icon={X} />)
     expect(err).toHaveBeenCalledWith(expect.stringContaining('`title` is required'))

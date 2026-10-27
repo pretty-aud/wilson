@@ -438,33 +438,16 @@
     font-weight: 400;
     color: var(--color-ink-3);
   }
-  .dog-file-chip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 288px;
-    height: 32px;
-    padding: 0 2px 0 8px;
-    background-color: var(--color-paper-recessed);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-control);
-  }
+  /* A row's glyph (the references' rows, the window's, the uploads'). DG2
+     retired the upload chips (`.dog-file-chip`, `.dog-file-name`): the
+     uploads are References' rows now. */
   .dog-file-icon {
     width: var(--icon-sm);
     height: var(--icon-sm);
     flex-shrink: 0;
     color: var(--color-ink-3);
   }
-  .dog-file-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-dense);
-    line-height: var(--text-dense--line-height);
-    color: var(--color-ink);
-  }
+  /* An upload's size on its row, as the chip showed it. */
   .dog-file-size {
     flex-shrink: 0;
     font-size: var(--text-caption);
@@ -537,6 +520,8 @@
     cursor: pointer;
   }
   .dog-refs-group-label { display: block; margin-bottom: 4px; }
+  /* DG2: Choose file at the foot of the uploads group, under its rows. */
+  .dog-refs-uploads .dog-refs-rows { margin-bottom: 8px; }
   .dog-refs-rows,
   .dog-refs-pick-list,
   .dog-refs-pick-nested,

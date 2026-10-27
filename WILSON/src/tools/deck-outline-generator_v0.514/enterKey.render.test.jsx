@@ -18,14 +18,19 @@
 // (Chromium's own result is in the FX13 hand-off, scripts/fx13-enter-shots.mjs).
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, cleanup, fireEvent, waitFor, act, screen } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor, act, screen, within } from '@testing-library/react'
 
 // CI has no .env.local, so the real Supabase client (built at import, from
 // VITE_SUPABASE_URL) would throw "supabaseUrl is required" before any test
 // ran (CI run 40359715742). The tests never reach it: they stop at callAI.
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: { auth: { getSession: async () => ({ data: { session: null } }) } } }))
 vi.mock('../../cloud/aiProxy', async (orig) => ({ ...(await orig()), callAI: vi.fn(() => new Promise(() => {})) }))
+// DG2: the AI's file store at its module boundary, so the let-go on Remove
+// (FX12) is seen without a request. Only a PDF or a picture reaches it; the
+// FX13 cases upload text, which travels inline and never calls these.
+vi.mock('../../cloud/aiFiles', async (orig) => ({ ...(await orig()), uploadAIFile: vi.fn(), deleteAIFiles: vi.fn() }))
 import { callAI } from '../../cloud/aiProxy'
+import { uploadAIFile, deleteAIFiles } from '../../cloud/aiFiles'
 import DeckOutlineGenerator from './DeckOutlineGenerator'
 import { ToastProvider } from '../../ui'
 import { ASK_FOR_CONTEXT } from './enterGenerates'
@@ -35,7 +40,11 @@ const CONTEXT = 'A pitch deck for a watch launch, five pages.'
 
 // Every test starts with an AI call that never answers (a generation that
 // starts stays running); a test that needs an answer sets its own.
-beforeEach(() => { callAI.mockReset(); callAI.mockImplementation(() => new Promise(() => {})) })
+beforeEach(() => {
+  callAI.mockReset(); callAI.mockImplementation(() => new Promise(() => {}))
+  uploadAIFile.mockReset(); uploadAIFile.mockImplementation(async () => ({ id: 'file_dg2_1' }))
+  deleteAIFiles.mockReset(); deleteAIFiles.mockImplementation(async () => {})
+})
 afterEach(() => { cleanup(); _resetOverlaysForTests() })
 
 async function openDog({ upload = true, provider = true } = {}) {
@@ -442,8 +451,10 @@ describe('FX13 on the rendered D.O.G.: Single page is untouched', () => {
 // Chromium's own Tab walk and names are in the FX14 hand-off
 // (scripts/fx14-keyboard-shots.mjs).
 // =============================================================================
+// DG2 (2026-10-26): card 1 is "1 Project" and holds no upload any more; the
+// upload's file input is References' (its first group, below).
 const CARDS = [
-  { name: 'Project documentation', body: '#dog-card1-body', inside: 'input[type=file][accept*=".txt"]' },
+  { name: 'Project', body: '#dog-card1-body', inside: 'select.dog-project-select' },
   { name: 'References', body: '#dog-refs-body', inside: '.dog-refs-contract' },
   { name: 'Generate outline', body: '#dog-card3-body', inside: 'textarea.dog-context-prompt' },
 ]
@@ -531,7 +542,7 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
   it('CONTROL: Enter on the page with words in the box still starts the full deck (the buttons changed nothing else)', async () => {
     const d = await openDog()
     await type(d.box(), CONTEXT)
-    await act(async () => { headButton('Project documentation').focus() })
+    await act(async () => { headButton('Project').focus() })
     await act(async () => { document.activeElement.blur() })
     await pressEnter(document.body)
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
@@ -561,7 +572,139 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
       expect(at(headButton(c.name))).toBeGreaterThan(-1)
       expect(at(headButton(c.name))).toBeLessThan(at(firstIn(c.body)))
     }
-    expect(at(headButton('Project documentation'))).toBeLessThan(at(headButton('References')))
+    expect(at(headButton('Project'))).toBeLessThan(at(headButton('References')))
     expect(at(headButton('References'))).toBeLessThan(at(headButton('Generate outline')))
+  })
+})
+
+// =============================================================================
+// DG2 (2026-10-26, Audrey's ask, verbatim in
+// docs/sessions/briefs/po-dg2-uploads-in-references.md): "lets move the upload
+// documents section in dog tool to the 2 References card". The uploads are the
+// first group of References, rows like the other references; card 1 is
+// "1 Project". The uploads' state and handlers stayed in D.O.G.
+// (uploadedFiles, isFileLoading, handleFileUpload, removeFile), so what is
+// read, sent, counted and let go of is unchanged: pinned here on the real
+// component. ReferencesCard.test.jsx pins the card's own order and words.
+// Every file name here is made up (a file name is content).
+// =============================================================================
+// A one-pixel PNG: a picture goes to the AI's file store (FX12's let-go).
+const PNG_1PX = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
+const BRIEF = 'The brief: a watch launch.'
+const DECK = 'SLIDE #1 — Title Page\n═══════════════\n▸ TITLE:\nThe watch launch\n▸ SUBTITLE:\nA pitch\n'
+/** The meter with a text upload (BRIEF) and the picture, measured on the
+    code before the move (`bfea9fd6`, the upload block in card 1). */
+const METER_BEFORE = Object.freeze({
+  hover: 'An estimate: about 4,008 of 200,000 tokens',
+  words: 'About 2% of what D.O.G. can read for one deck',
+  valuetext: 'About 2% of what D.O.G. can read for one deck',
+  valuenow: '2',
+  over: 'false',
+})
+const refsBody = () => document.querySelector('#dog-refs-body')
+const uploadRows = () => [...document.querySelectorAll('#dog-refs-body .dog-refs-uploads .dog-refs-row')]
+const chooseInput = () => document.querySelector('#dog-refs-body .dog-refs-uploads input[type=file]')
+async function addUpload(d, file) {
+  await act(async () => { fireEvent.change(d.q('input[type=file][accept*=".txt"]'), { target: { files: [file] } }) })
+  await waitFor(() => expect(d.view.container.textContent).toContain(file.name))
+}
+const fullDeckButton = (d) => [...d.view.container.querySelectorAll('button.dog-generate')].find((b) => /full deck outline/.test(b.textContent))
+
+describe('DG2 on the rendered D.O.G.: the uploads are References\' first group; card 1 is "1 Project"', () => {
+  it('card 1 is "1 Project": the dropdown, its hint and New project, and no upload left in it', async () => {
+    const d = await openDog({ upload: false })
+    const card1 = document.querySelector('#dog-card1-body')
+    expect(document.getElementById('dog-card1-title').textContent).toBe('Project')
+    expect(headButton('Project').getAttribute('aria-controls')).toBe('dog-card1-body')
+    expect(card1.querySelector('select.dog-project-select')).not.toBe(null)
+    expect(card1.textContent).toContain('The deck’s project. Its title and description go with every deck; choose what else in References.')
+    expect(within(card1).getByRole('button', { name: 'New project' })).toBeTruthy()
+    expect(card1.querySelector('input[type=file]')).toBe(null)
+    expect(card1.textContent).not.toMatch(/Upload Documents|Choose file|Source material/)
+    // The one upload control on the page is References' first group's.
+    const inputs = d.view.container.querySelectorAll('.dog-main input[type=file]')
+    expect(inputs).toHaveLength(1)
+    expect(inputs[0]).toBe(chooseInput())
+    expect(inputs[0].closest('.dog-refs-group')).toBe(refsBody().querySelector('.dog-refs-group'))
+  })
+
+  it('an upload is a row in References with its size as the chip said it; its Remove takes it out, and the header\'s one number follows', async () => {
+    const d = await openDog()
+    const rows = uploadRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].querySelector('.dog-refs-name').textContent).toBe('fx13-brief.txt')
+    expect(rows[0].querySelector('.dog-file-size').textContent).toBe(`(${(BRIEF.length / 1024).toFixed(1)} KB)`)
+    expect(refsBody().querySelector('.dog-refs-uploads .dog-refs-group-label').textContent).toBe('Uploads (1)')
+    expect(d.q('.dog-refs-count').textContent).toBe('1 chosen')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove fx13-brief.txt' })) })
+    expect(uploadRows()).toHaveLength(0)
+    expect(d.view.container.textContent).not.toContain('fx13-brief.txt')
+    expect(d.q('.dog-refs-count').textContent).toBe('None chosen')
+    // Nothing to read now: Enter does nothing, as before any upload.
+    expect(await pressEnter(document.body)).toBe(true)
+    expect(callAI).not.toHaveBeenCalled()
+  })
+
+  it('Remove lets go of what the AI\'s file store holds for that upload; a finished generation lets go of nothing (FX12)', async () => {
+    callAI.mockImplementation(async () => ({ content: [{ type: 'text', text: DECK }], stop_reason: 'end_turn' }))
+    const d = await openDog({ upload: false })
+    await addUpload(d, new File([PNG_1PX], 'picture-01.png', { type: 'image/png' }))
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(uploadAIFile).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(d.view.container.textContent).not.toContain('No pages yet'))
+    await waitFor(() => expect([...d.view.container.querySelectorAll('button.dog-generate')].some((b) => /Generating/.test(b.textContent))).toBe(false))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(deleteAIFiles).not.toHaveBeenCalled()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove picture-01.png' })) })
+    await waitFor(() => expect(deleteAIFiles).toHaveBeenCalledTimes(1))
+    expect(deleteAIFiles).toHaveBeenCalledWith(['file_dg2_1'])
+  })
+
+  it('the 20th upload hides Choose file; a Remove brings it back', async () => {
+    const d = await openDog({ upload: false })
+    for (let i = 1; i <= 20; i++) {
+      expect(chooseInput()).not.toBe(null)
+      await addUpload(d, new File([`Note ${i}.`], `note-${String(i).padStart(2, '0')}.txt`, { type: 'text/plain' }))
+      // D.O.G. keys an upload by Date.now(): one millisecond apart, one key each.
+      await new Promise((r) => setTimeout(r, 2))
+    }
+    expect(uploadRows()).toHaveLength(20)
+    expect(chooseInput()).toBe(null)
+    expect(d.view.container.querySelector('.dog-main input[type=file]')).toBe(null)
+    expect(refsBody().querySelector('.dog-refs-uploads .dog-refs-group-label').textContent).toBe('Uploads (20)')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove note-07.txt' })) })
+    expect(uploadRows()).toHaveLength(19)
+    expect(chooseInput()).not.toBe(null)
+  })
+
+  it('the meter\'s figure with two uploads is byte for byte what it was before the move', async () => {
+    const d = await openDog({ upload: false })
+    await addUpload(d, new File([BRIEF], 'fx13-brief.txt', { type: 'text/plain' }))
+    await addUpload(d, new File([PNG_1PX], 'picture-01.png', { type: 'image/png' }))
+    const meter = refsBody().querySelector('.dog-refs-meter')
+    const track = meter.querySelector('[role="meter"]')
+    expect({
+      hover: meter.getAttribute('title'),
+      words: meter.querySelector('.dog-refs-meter-words').textContent,
+      valuetext: track.getAttribute('aria-valuetext'),
+      valuenow: track.getAttribute('aria-valuenow'),
+      over: meter.getAttribute('data-over'),
+    }).toEqual(METER_BEFORE)
+  })
+
+  it('FX13\'s rule with the upload in References: the box empty, Enter asks; with words, Enter starts a full deck that carries the upload', async () => {
+    const d = await openDog()
+    expect(uploadRows()).toHaveLength(1)                 // the upload went in through References
+    await pressEnter(document.body)
+    await waitFor(() => expect(document.activeElement).toBe(d.box()))
+    expect(callAI).not.toHaveBeenCalled()
+    expect(d.toasts()).toHaveLength(1)
+    await type(d.box(), CONTEXT)
+    await act(async () => { document.activeElement.blur() })
+    await pressEnter(document.body)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(sent()).toContain(`DECK CONTEXT & GUIDELINES:\\n${CONTEXT}`)
+    expect(sent()).toContain(BRIEF)
   })
 })

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
+import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
 import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
@@ -4088,8 +4088,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </Banner>
           )}
 
-          {/* Section 1: the project and the uploads. The deck context box and
-              the boxes beside it moved to Section 3 (DG1, Audrey's brief). */}
+          {/* Section 1, "1 Project": the project. The deck context box and
+              the boxes beside it moved to Section 3 (DG1, Audrey's brief);
+              the uploads moved to References, its first group (DG2,
+              2026-10-26: "lets move the upload documents section in dog tool
+              to the 2 References card"). Their state and handlers stay here
+              (uploadedFiles, isFileLoading, handleFileUpload, removeFile) and
+              reach the card as its `uploads` prop. */}
           <Card pad={false} className="dog-card">
             <header
               className="ui-panel-head dog-card-head"
@@ -4099,7 +4104,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
-                <span id="dog-card1-title">Project documentation</span>
+                <span id="dog-card1-title">Project</span>
               </h2>
               <div className="ui-panel-actions">
                 {/* FX14 (FX13-01): the fold from the keyboard. A real button,
@@ -4167,80 +4172,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                 )}
               </div>
-
-              {/* File Upload (untouched by DG1: "leave that how it was") */}
-              <div className="flex items-start gap-8">
-                {/* File Upload - Multiple files support */}
-                <div className="flex-1">
-                  <label className="ui-field-label dog-field-label">
-                    Upload Documents
-                  </label>
-                  <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
-                  
-                  {uploadedFiles.length === 0 ? (
-                    <label className="ui-btn dog-upload" data-variant="secondary" data-size="md" data-surface="dark">
-                      {isFileLoading ? (
-                        <Loader2 className="animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Upload aria-hidden="true" />
-                      )}
-                      <span>Choose file</span>
-                      <span className="dog-upload-hint">(PDF, MD, TXT, images)</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
-                  ) : (
-                    <div className="flex gap-2">
-                      {/* Grid: up to 4 columns of 5 rows */}
-                      {Array.from({ length: Math.ceil(uploadedFiles.length / 5) }, (_, colIdx) => (
-                        <div key={colIdx} className="flex flex-col gap-1.5">
-                          {uploadedFiles.slice(colIdx * 5, colIdx * 5 + 5).map((fileData, index) => {
-                            const globalIndex = colIdx * 5 + index;
-                            const isLast = globalIndex === uploadedFiles.length - 1;
-                            return (
-                              <div key={fileData.id} className="dog-file-chip">
-                                {fileData.type === 'image' ? (
-                                  <Image className="dog-file-icon" aria-hidden="true" />
-                                ) : (
-                                  <FileText className="dog-file-icon" aria-hidden="true" />
-                                )}
-                                <span className="dog-file-name">{fileData.file.name}</span>
-                                <span className="dog-file-size">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
-                                <IconButton size="sm" icon={X} title="Remove file" onClick={() => removeFile(fileData.id)} />
-                                {/* Add button on last file if under limit */}
-                                {isLast && uploadedFiles.length < 20 && (
-                                  <label className="ui-iconbtn" data-size="sm" data-surface="dark" title="Add file">
-                                    {isFileLoading ? (
-                                      <Loader2 className="animate-spin" aria-hidden="true" />
-                                    ) : (
-                                      <Plus aria-hidden="true" />
-                                    )}
-                                    <input
-                                      type="file"
-                                      className="hidden"
-                                      accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*"
-                                      onChange={handleFileUpload}
-                                    />
-                                  </label>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
             )}
           </Card>
 
-          {/* Section 2: what the deck reads (DG1; ./references/) */}
+          {/* Section 2: what the deck reads (DG1; ./references/), the uploads
+              its first group (DG2) */}
           <ReferencesCard
             refs={refs}
             projectChosen={!!selectedProject}
@@ -4248,6 +4185,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             extraUncounted={baseUncounted}
             onAdd={() => setShowRefsPicker(true)}
             onPreview={refPreview.open}
+            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile }}
           />
 
           {/* Section 3: one card for a single page and a full deck (DG1,

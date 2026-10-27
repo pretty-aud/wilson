@@ -9,12 +9,22 @@
 // The preview window is not drawn here: D.O.G. mounts its windows outside its
 // scrolling column (the History and duplicate windows do), so the card hands
 // a reference to `onPreview` and useReferencePreview holds the window's state.
+//
+// DG2 (2026-10-26, Audrey's ask: "lets move the upload documents section in
+// dog tool to the 2 References card"): the uploads are the card's first
+// group, rows like the other references, with Choose file at the group's
+// foot, so the card reads as one list of what the AI reads. The uploads'
+// state and handlers stay in D.O.G. (uploadedFiles, isFileLoading,
+// handleFileUpload, removeFile) and arrive as one `uploads` prop: the card
+// only draws them. What is read, sent, counted and let go of is D.O.G.'s, as
+// before. Card 1 is "1 Project".
 // =============================================================================
 
 import React, { useState } from 'react';
 import {
   ChevronDown, ChevronRight, Plus, Eye, X, Boxes, Film, Clapperboard, Gamepad2,
   Sparkles, ListChecks, CalendarRange, Flag, FileText, Image as ImageIcon, Video, StickyNote,
+  Upload, Loader2,
 } from 'lucide-react';
 import { Card, Button, IconButton, Badge, Dialog, Spinner } from '../../../ui';
 import { KIND_LABEL, meterState, sizeWarning } from './referenceModel';
@@ -121,6 +131,15 @@ const GROUPS = [
   { id: 'notes', label: 'Notes', test: (s) => s.kind === 'note' },
 ];
 
+/** The kinds an upload's picker offers, exactly as the upload block had them. */
+export const UPLOAD_ACCEPT = '.pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*';
+/** The uploads' ceiling: Choose file goes at it. D.O.G.'s handleFileUpload
+    refuses past it too ("Maximum 20 files allowed"), as before. */
+export const UPLOAD_LIMIT = 20;
+
+/** An upload's size, as the upload block's chip showed it. */
+export const uploadSize = (bytes) => `(${(bytes / 1024).toFixed(1)} KB)`;
+
 /**
  * @param {object} props
  * @param {ReturnType<import('./useReferences').useReferences>} props.refs
@@ -129,11 +148,17 @@ const GROUPS = [
  * @param {number}  props.extraUncounted uploaded PDFs whose pages are not known yet
  * @param {() => void} props.onAdd      opens the window
  * @param {(s) => void} props.onPreview opens one reference's preview
+ * @param {{ files: Array<{id, file: File, type: string}>, busy: boolean,
+ *           add: (e) => void, remove: (id) => void }} props.uploads
+ *        D.O.G.'s uploads (DG2): its `uploadedFiles`, `isFileLoading`,
+ *        `handleFileUpload` and `removeFile`, drawn here as the first group
  */
-export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, extraUncounted = 0, onAdd, onPreview }) {
+export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, extraUncounted = 0, onAdd, onPreview, uploads }) {
   const [collapsed, setCollapsed] = useState(false);
   const rows = refs.chosenList;
-  const count = rows.length;
+  const uploadFiles = uploads?.files || [];
+  // One list, one number (DG2): the uploads and the chosen references.
+  const count = uploadFiles.length + rows.length;
   const m = meterState(refs.chosenTokens + extraTokens, undefined, refs.chosenUncounted + extraUncounted);
   // Folded, the card still says when the meter needs a look (review round 2, 9).
   const headWarn = m.over ? 'over the limit' : m.uncounted ? `${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted` : '';
@@ -182,11 +207,62 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
           )}
           {/* The sentence names everything that goes, so it is true; the
               meter beside it counts the same. PDFs and pictures are stored in
-              the AI's file store to be read (the hover says so). */}
+              the AI's file store to be read (the hover says so). DG2: the
+              uploads are listed here now, so they are not named apart. */}
           <p className="ui-field-hint dog-refs-contract"
             title="PDFs and pictures are placed in the AI's file store to be read. Your notes always travel in the request itself.">
-            What goes to the AI: your uploads, what is listed here, and the project&rsquo;s title and description, with what you write below.
+            What goes to the AI: what is listed here and the project&rsquo;s title and description, with what you write below.
           </p>
+
+          {/* DG2 (Audrey, 2026-10-26: "Uploads (n) is the first group, with
+              its Choose file button"; "each upload is a row with its glyph,
+              name, size and Remove"). Always drawn, so the card is never
+              empty. No Preview: an upload is the person's own file, in
+              memory, and the eye opens a chosen reference's read. Choose file
+              is the upload block's own <label> and hidden input, as before
+              (Tab does not reach it, as before: OUTSTANDING DG2-01). */}
+          <div className="dog-refs-group dog-refs-uploads" role="group" aria-label="Uploads">
+            <p className="ui-field-label dog-refs-group-label">{`Uploads (${uploadFiles.length})`}</p>
+            <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
+            {uploadFiles.length > 0 && (
+              <ul className="dog-refs-rows">
+                {uploadFiles.map(f => {
+                  const Glyph = fileGlyph(f.type);
+                  const name = f.file.name;
+                  return (
+                    <li key={f.id} className="dog-refs-row">
+                      <Glyph className="dog-file-icon" aria-hidden="true" />
+                      <span className="dog-refs-name" title={name}>{name}</span>
+                      <span className="dog-file-size">{uploadSize(f.file.size)}</span>
+                      {f.type === 'video' && <span className="dog-refs-sub">placed only, not read</span>}
+                      <IconButton size="sm" icon={X} title={`Remove ${name}`} className="dog-refs-remove"
+                        onClick={() => uploads.remove(f.id)} />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {uploadFiles.length < UPLOAD_LIMIT && (
+              <label className="ui-btn dog-upload" data-variant="secondary" data-size="md" data-surface="dark">
+                {uploads?.busy ? (
+                  <Loader2 className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Upload aria-hidden="true" />
+                )}
+                <span>Choose file</span>
+                <span className="dog-upload-hint">(PDF, MD, TXT, images)</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept={UPLOAD_ACCEPT}
+                  onChange={uploads?.add}
+                />
+              </label>
+            )}
+          </div>
+
+          {/* Under the uploads: a project is needed for items and files, not
+              for uploads (DG2). */}
           {!projectChosen && (
             <p className="dog-details-note">
               Choose a project to reference its items and files. Your notes can be referenced without one.
@@ -233,7 +309,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               <Plus aria-hidden="true" />
               Add references
             </Button>
-            {count > 1 && (
+            {/* The chosen references only, with its Undo; an upload goes by
+                its own Remove (DG2). */}
+            {rows.length > 1 && (
               <Button variant="ghost" onClick={refs.removeAll}>Remove all</Button>
             )}
           </div>
