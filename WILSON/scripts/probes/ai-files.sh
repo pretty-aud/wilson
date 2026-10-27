@@ -60,7 +60,10 @@ exec 3>&1
 # so a request that never came right still fails by `err`, with its status,
 # after the third. An upload whose failed attempt had reached the store
 # leaves that file to its expiry (it asks for an hour); the probe deletes the
-# one it was answered for.
+# one it was answered for. Every request to a function whose status the probe
+# reads goes through it: step 1's upload, call(), the messages call (6), no
+# sign-in (8) and the operator's summary (9). Step 8 alone had failed run
+# 40434767639 on 247c090d with "got 504" (OUTSTANDING DG2-03).
 #   attempts <what> <curl arguments...>   -> "<json>\n<status>" (000: no status)
 RETRY_ATTEMPTS=3
 attempts() {
@@ -271,7 +274,7 @@ body=$(jq -cn --arg m "$MODEL" --arg f "$fid" '{
   messages: [{ role: "user", content: [
     { type: "document", source: { type: "file", file_id: $f } },
     { type: "text", text: "." } ] }] }')
-dead=$(curl -sS -w '\n%{http_code}' -X POST "${SUPABASE_URL}/functions/v1/ai-proxy" -H "apikey: ${SUPABASE_ANON_KEY}" \
+dead=$(attempts "the messages call" -X POST "${SUPABASE_URL}/functions/v1/ai-proxy" -H "apikey: ${SUPABASE_ANON_KEY}" \
   -H "authorization: Bearer ${token}" -H 'content-type: application/json' --data "$body")
 dcode=$(status_of "$dead"); djson=$(json_of "$dead")
 dtype=$(printf '%s' "$djson" | jq -r '.anthropic.error.type // .error // "none"' 2>/dev/null || echo "not JSON")
@@ -288,13 +291,13 @@ resp=$(call DELETE '{"file_id":"file_011CIprobeNeverUploaded01"}'); code=$(statu
 ok "an id this workspace never uploaded is not_found"
 
 # ── 8. No sign-in ────────────────────────────────────────────────────────────
-resp=$(curl -sS -w '\n%{http_code}' -X DELETE "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H 'content-type: application/json' --data '{"file_id":"file_011CIprobeNeverUploaded01"}')
+resp=$(attempts "no sign-in" -X DELETE "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H 'content-type: application/json' --data '{"file_id":"file_011CIprobeNeverUploaded01"}')
 [ "$(status_of "$resp")" = "401" ] && [ "$(json_of "$resp" | jq -r '.error')" = "unauthorized" ] \
   || err "no sign-in must be 401 unauthorized, got $(status_of "$resp")"
 ok "no sign-in, no delete (401, the function's own refusal)"
 
 # ── 9. The operator's summary is not a member's ──────────────────────────────
-resp=$(curl -sS -w '\n%{http_code}' -X POST "${SUPABASE_URL}/functions/v1/operator-ai-files" -H "apikey: ${SUPABASE_ANON_KEY}" \
+resp=$(attempts "the operator's summary" -X POST "${SUPABASE_URL}/functions/v1/operator-ai-files" -H "apikey: ${SUPABASE_ANON_KEY}" \
   -H "authorization: Bearer ${token}" -H 'content-type: application/json' --data '{"action":"summary"}')
 [ "$(status_of "$resp")" = "403" ] || err "a member asking the operator's summary must be 403, got $(status_of "$resp")"
 ok "the operator's summary refuses a member (403)"

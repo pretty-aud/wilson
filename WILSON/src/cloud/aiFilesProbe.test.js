@@ -167,6 +167,15 @@ describe('the probe as written (FX15 text pins)', () => {
     // CONTROL: the helper itself is the one curl with a status line it sends.
     expect(sh.match(/curl -sS -w '\\n%\{http_code\}' "\$@"/g)).toHaveLength(1)
   })
+  it('DG2-03: every other request to a function whose status the probe reads goes through `attempts` too (the messages call, no sign-in, the operator\'s summary); the helper\'s curl is the only one with a status line', () => {
+    const sh = probeText()
+    expect(sh).toContain('dead=$(attempts "the messages call" -X POST "${SUPABASE_URL}/functions/v1/ai-proxy"')
+    expect(sh).toContain('resp=$(attempts "no sign-in" -X DELETE "$FN"')
+    expect(sh).toContain('resp=$(attempts "the operator\'s summary" -X POST "${SUPABASE_URL}/functions/v1/operator-ai-files"')
+    expect(sh.match(/-w '\\n%\{http_code\}'/g)).toHaveLength(1)
+    // CONTROL: the forged rows' inserts read a bare status (`-o /dev/null`), not a body, and stay as they were.
+    expect(sh.match(/curl -sS -o \/dev\/null -w '%\{http_code\}' -X POST "\$\{SUPABASE_URL\}\/rest\/v1\/app_events"/g)).toHaveLength(3)
+  })
   it('one file id, from the answer that succeeded; the clean-up deletes that one', () => {
     const sh = probeText()
     expect(sh.match(/^fid=/gm)).toHaveLength(1)
