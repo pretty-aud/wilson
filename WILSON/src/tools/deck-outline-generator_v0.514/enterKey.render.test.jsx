@@ -591,6 +591,14 @@ async function openSettings(tab) {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'D.O.G. settings' })) })
   await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
 }
+// A tab's headers, each found once by role and name. A name lookup reads the
+// whole drawer, so the loops below work on the elements found here: React
+// keeps each header's element across its folds (each loop ends by checking
+// that a name still finds the same one).
+async function headersOf(tab) {
+  await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
+  return SECTIONS[tab].map((l) => [l, section(l)])
+}
 
 describe('FX15 on the rendered D.O.G.: the settings sections say whether they are open', () => {
   for (const [tab, labels] of Object.entries(SECTIONS)) {
@@ -610,32 +618,35 @@ describe('FX15 on the rendered D.O.G.: the settings sections say whether they ar
 
   it('each opens and closes from its header: aria-expanded both ways, aria-controls naming the body only while it is drawn; the others unchanged', async () => {
     await openDog({ upload: false })
-    for (const [tab, labels] of Object.entries(SECTIONS)) {
-      if (tab !== 'System prompts') await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
-      else await openSettings(tab)
-      for (const l of labels) {
-        await act(async () => { fireEvent.click(section(l)) })
-        const h = section(l)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'D.O.G. settings' })) })
+    for (const tab of Object.keys(SECTIONS)) {
+      const heads = await headersOf(tab)
+      for (const [l, h] of heads) {
+        await act(async () => { fireEvent.click(h) })
         expect([l, h.getAttribute('aria-expanded')]).toEqual([l, 'true'])
         const body = document.getElementById(h.getAttribute('aria-controls'))
         expect([l, body]).toEqual([l, h.closest('.dog-acc').querySelector('.dog-acc-body')])
         expect(body.querySelector('textarea')).not.toBe(null)
-        for (const o of labels.filter((x) => x !== l)) expect([o, section(o).getAttribute('aria-expanded')]).toEqual([o, 'false'])
-        await act(async () => { fireEvent.click(section(l)) })
-        expect([l, section(l).getAttribute('aria-expanded'), section(l).hasAttribute('aria-controls')]).toEqual([l, 'false', false])
-        expect(section(l).closest('.dog-acc').querySelector('.dog-acc-body')).toBe(null)
+        for (const [o, g] of heads) if (g !== h) expect([o, g.getAttribute('aria-expanded')]).toEqual([o, 'false'])
+        await act(async () => { fireEvent.click(h) })
+        expect([l, h.getAttribute('aria-expanded'), h.hasAttribute('aria-controls')]).toEqual([l, 'false', false])
+        expect(h.closest('.dog-acc').querySelector('.dog-acc-body')).toBe(null)
       }
+      for (const [l, h] of heads) expect([l, section(l) === h]).toEqual([l, true])
     }
   })
 
   it('every id a header names is its own: twenty sections open at once, twenty different bodies', async () => {
     await openDog({ upload: false })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'D.O.G. settings' })) })
     const ids = []
-    for (const [tab, labels] of Object.entries(SECTIONS)) {
-      if (tab !== 'System prompts') await act(async () => { fireEvent.click(screen.getByRole('tab', { name: tab })) })
-      else await openSettings(tab)
-      for (const l of labels) await act(async () => { fireEvent.click(section(l)) })
-      for (const l of labels) ids.push(section(l).getAttribute('aria-controls'))
+    for (const tab of Object.keys(SECTIONS)) {
+      const heads = await headersOf(tab)
+      for (const [, h] of heads) await act(async () => { fireEvent.click(h) })
+      for (const [l, h] of heads) {
+        expect([l, section(l) === h]).toEqual([l, true])
+        ids.push(h.getAttribute('aria-controls'))
+      }
     }
     expect(ids).toHaveLength(20)
     expect(new Set(ids).size).toBe(20)
