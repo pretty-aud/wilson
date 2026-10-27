@@ -40,10 +40,10 @@ so no real file name is on screen:
 | 4 | Choose **Salt Hours**. **Add references**, **Scenes**, tick **The storm**, **Done** | In card 2, top to bottom: **Uploads (2)** with its two rows and **Choose file**, then **Items (1)** *Scene · The storm* with its eye and ×, the meter, **Add references**. The title bar says *3 chosen* (`po-dg2-after-03-one-list`). |
 | 5 | **Add references** again, **Your notes**, tick the first, **Done**. Then **Remove all references** (it was *Remove all*; hover it: *"Removes the chosen items, files and notes. Your uploads stay."*) | The scene and the note go, and a line says *"2 references removed."* with **Undo**. Your two uploads stay; the title bar says *2 chosen*. **Undo** brings the two references back. |
 | 6 | Press × on the `logo.png` row | That row goes, **Uploads (1)**, and the count follows. **Choose file** is still there. |
-| 7 | **Choose file**, and in the file window choose *All files* and pick any file that is not a PDF, a text, a picture or a video | Nothing is added, and a red line right under **Choose file** says *"Please upload a PDF, Markdown, Text, Image, or Video file"*. Before, it was a red bar at the top of the page, out of sight once a dozen uploads had pushed **Choose file** down. The next upload clears it. |
+| 7 | **Choose file**, and in the file window choose *All files* and pick any file that is not a PDF, a text, a picture or a video | Nothing is added, and a red line right under **Choose file** says *"Please upload a PDF, Markdown, Text, Image, or Video file"*. Before, it was a red bar at the top of the page, out of sight once a dozen uploads had pushed **Choose file** down. The next upload clears it, and so does starting a deck or a page, as they cleared the bar. Picking a wrong file again says it again (a screen reader hears it again too). |
 | 8 | Click the **References** title bar | The card folds; its title bar still says how many are chosen, uploads included. Click again to open it. |
 | 9 | Click an empty part of the page and press **Tab** until the orange ring reaches the chevron of **1 Project**, then keep pressing **Tab** | The chevron (a screen reader says *"PROJECT, button, expanded"*), the Project dropdown, **New project**, the **References** chevron, then each upload's × (a screen reader names it *"Remove"* and the file's name), then **Add references**. **Choose file** is not reached by **Tab**, as before (section 4). |
-| 10 | With words in the deck context box, Tab to the first upload's × and press **Enter**, then **Enter** again | Each Enter removes one upload, and the ring moves on to the next ×, then to **Add references**. No deck starts. Before, the ring fell off the page after the first Enter, and the second Enter made a full deck from whatever was left. With the mouse, a × works as before. |
+| 10 | With words in the deck context box, Tab to the first upload's × and press **Enter**, then **Enter** again | Each Enter removes one upload, and the ring moves on to the next ×, then to **Add references**. No deck starts. Before, the ring fell off the page after the first Enter, and the second Enter made a full deck from whatever was left. With the mouse, a × works as before. The same holds for **Remove all references** and for **Undo** and **Dismiss** on the line it leaves: from the keyboard, the ring goes to **Add references**. |
 
 ## 2. Your ask and your answers (2026-10-26, verbatim)
 
@@ -66,7 +66,7 @@ No questions are open.
   when one is removed), and **Choose file** opening the file picker under the
   mouse. The meter's figure and its hover were the same before and after in
   every state: no project, two uploads, a project, references chosen, folded,
-  after **Remove all** and **Undo**, and past the limit. Enter with an upload
+  after **Remove all references** and **Undo**, and past the limit. Enter with an upload
   asked for the deck context with the box empty and started a full deck with
   words in it. No request left the page.
 - **A walk with Tab** from the top of the page went through 28 stops with no
@@ -84,6 +84,17 @@ No questions are open.
   *Remove all* read as if it took the uploads too (step 5). It also noted the
   repeated "Project", the *(0.0 KB)* sizes and the hint without videos
   (section 4).
+- **Code review, round 2**, by another reviewer, attacking those fixes. It
+  found that **Undo** and **Dismiss** on the line under the card's title had
+  the same fault as the ×, so they now hand the ring to **Add references**
+  too (step 10). It found the red line under **Choose file** outlived a deck
+  being started, and that a second wrong file was not said again; both are
+  fixed (step 7).
+- **Found on the way, not changed:** with the cursor still in the deck
+  context box, a click on **Generate full deck outline** can do nothing. The
+  box shrinks as it loses focus and the button moves up from under the
+  pointer before the click lands. This was so before DG2 and is written down
+  to fix (`docs/OUTSTANDING.md`, DG2-02); click outside the box first.
 
 ## 4. Left as it is
 

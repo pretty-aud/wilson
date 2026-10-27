@@ -318,6 +318,17 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
   })
 
+  // Review round 2, finding 1: the notice's Undo and Dismiss take themselves
+  // (and the notice) away too; from the keyboard focus fell to <body>.
+  for (const [name, call] of [['Undo', 'undoRemoveAll'], ['Dismiss', 'clearNotice']]) {
+    it(`the notice's ${name} from the keyboard goes to Add references`, () => {
+      const c = mount({ refs: fakeRefs([ITEM, NOTE], { notice: '2 references removed.', undoable: true }) })
+      press(screen.getByRole('button', { name }))
+      expect(c.refs[call]).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+    })
+  }
+
   it('CONTROL, the pointer as before: a Remove the mouse put focus on moves nothing', () => {
     const files = UPLOADS().slice(0, 2)
     const c = mount({ files })

@@ -66,8 +66,16 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // Why the last upload was refused or could not be read. Said under Choose
   // file in References, where the person is (DG2 review round 1, finding 2:
   // in the banner at the top of the page it was out of sight once a dozen
-  // uploads pushed Choose file down). Cleared by the next upload.
-  const [uploadError, setUploadError] = useState('');
+  // uploads pushed Choose file down). Cleared by the next upload and by a
+  // generation starting, as the banner was (review round 2, finding 2). Each
+  // refusal is a new one (`n`), so the same words twice are said twice: the
+  // clear at an upload's start and its refusal fall in one batch and would
+  // otherwise net to no change (review round 2, finding 3).
+  const [uploadErrorState, setUploadErrorState] = useState(null);
+  const uploadErrorN = useRef(0);
+  const setUploadError = useCallback((text) => {
+    setUploadErrorState(text ? { text, n: ++uploadErrorN.current } : null);
+  }, []);
   // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
   // page mounted, so the side then stays where it is put until WILSON closes,
   // as the uploads do; the one exception is the Alt toggle below, which hears
@@ -832,7 +840,7 @@ Generate 3 color themes for this deck.`;
     
     // Reset the input so the same file can be uploaded again if removed
     e.target.value = '';
-  }, [uploadedFiles.length]);
+  }, [uploadedFiles.length, setUploadError]);
 
   const removeFile = useCallback((fileId) => {
     setUploadedFiles(prev => prev.filter(f => f.id !== fileId));
@@ -1237,6 +1245,7 @@ ${alreadyPlacedContext}`;
 
     setIsGenerating(true);
     setError('');
+    setUploadError('');
 
     const layoutInfo = SLIDE_LAYOUTS.find(l => l.id === selectedLayout);
     
@@ -1517,6 +1526,7 @@ ${outputInstructions}${placementPrompt.rules}`;
 
     setIsRegenerating(true);
     setError('');
+    setUploadError('');
 
     // Push previous content onto undo stack (up to 8 entries)
     setPreviousContent(prev => {
@@ -1847,6 +1857,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
 
     setIsGenerating(true);
     setError('');
+    setUploadError('');
     // generateAIThemes clears this itself when it runs, which covers every case
     // except the one that matters here: a rerun with the Theme Generator
     // checkbox OFF never calls it, and last run's amber banner would sit there
@@ -4191,7 +4202,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             extraUncounted={baseUncounted}
             onAdd={() => setShowRefsPicker(true)}
             onPreview={refPreview.open}
-            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadError }}
+            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
           />
 
           {/* Section 3: one card for a single page and a full deck (DG1,

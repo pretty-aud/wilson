@@ -141,10 +141,11 @@ export const UPLOAD_LIMIT = 20;
 export const uploadSize = (bytes) => `(${(bytes / 1024).toFixed(1)} KB)`;
 
 /**
- * Where keyboard focus goes when a control in the list takes itself away (DG2
+ * Where keyboard focus goes when a control in the card takes itself away (DG2
  * review round 1, finding 1): a row's Remove goes to the next row's Remove,
- * else the previous row's, else Add references; Remove all goes to Add
- * references. Never to <body>, where D.O.G.'s Enter would start a deck with
+ * else the previous row's, else Add references; Remove all references and the
+ * notice's Undo and Dismiss (round 2, finding 1) go to Add references. Never
+ * to <body>, where D.O.G.'s Enter would start a deck with
  * whatever is left. Only keyboard focus moves (`:focus-visible`, decided when
  * focus arrived, as the kit toast's FX14 rule): after a click, focus is left
  * as it was before DG2.
@@ -232,10 +233,13 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
           {refs.notice && (
             <p className="dog-details-note dog-refs-notice" role="status">
               {refs.notice}
+              {/* Both take the notice, and themselves, away: from the
+                  keyboard, focus goes to Add references, never the page
+                  (review round 2, finding 1). */}
               {refs.undoable && (
-                <button type="button" className="dog-refs-dismiss" onClick={refs.undoRemoveAll}>Undo</button>
+                <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.undoRemoveAll)}>Undo</button>
               )}
-              <button type="button" className="dog-refs-dismiss" onClick={refs.clearNotice}>Dismiss</button>
+              <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.clearNotice)}>Dismiss</button>
             </p>
           )}
           {/* The sentence names everything that goes, so it is true; the
@@ -293,9 +297,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               </label>
             )}
             {/* The upload's own refusal or read failure, beside Choose file
-                (review round 1, finding 2). */}
+                (review round 1, finding 2). A new node per refusal
+                (`errorKey`), so the same words twice are announced twice
+                (review round 2, finding 3). */}
             {uploads?.error && (
-              <p className="dog-details-note dog-refs-upload-error" data-tone="danger" role="alert">{uploads.error}</p>
+              <p key={uploads.errorKey} className="dog-details-note dog-refs-upload-error" data-tone="danger" role="alert">{uploads.error}</p>
             )}
           </div>
 

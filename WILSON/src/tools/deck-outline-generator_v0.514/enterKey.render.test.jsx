@@ -730,6 +730,35 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group; 
     await addUpload(d, new File([BRIEF], 'fx13-brief.txt', { type: 'text/plain' }))
     expect(refsBody().querySelector('.dog-refs-uploads [role="alert"]')).toBe(null)
   })
+
+  const refuse = async () => {
+    await act(async () => { fireEvent.change(chooseInput(), { target: { files: [new File(['x'], 'note-00.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })] } }) })
+    return refsBody().querySelector('.dog-refs-uploads [role="alert"]')
+  }
+
+  // Review round 2, finding 2: the banner's words went when a generation
+  // started; the refusal under Choose file outlived it.
+  it('a generation starting clears the refusal, as it cleared the banner', async () => {
+    const d = await openDog()
+    expect((await refuse()).textContent).toBe('Please upload a PDF, Markdown, Text, Image, or Video file')
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(refsBody().querySelector('.dog-refs-uploads [role="alert"]')).toBe(null)
+  })
+
+  // Review round 2, finding 3: the clear at an upload's start and the refusal
+  // fell in one batch, so the same words twice changed nothing and were not
+  // announced again.
+  it('the same refusal twice is a new alert the second time, so it is announced again', async () => {
+    await openDog({ upload: false })
+    const first = await refuse()
+    expect(first).not.toBe(null)
+    const second = await refuse()
+    expect(second.textContent).toBe(first.textContent)
+    expect(second).not.toBe(first)
+    expect(first.isConnected).toBe(false)
+  })
 })
 
 // =============================================================================

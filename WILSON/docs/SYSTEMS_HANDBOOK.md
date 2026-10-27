@@ -3444,13 +3444,16 @@ Then the *Choose a project…* note, Items, Files, Notes, the meter and Add
 references. The contract sentence reads *"What goes to the AI: what is listed
 here and the project's title and description, with what you write below."*;
 the header's count is the uploads and the references, one number; *Remove all
-references* (was *Remove all*) removes the chosen references only. A Remove
-pressed from the keyboard moves focus to the next row's Remove, else the
-previous, else Add references (`focusAfterRemove`, keyboard only by
-`:focus-visible`), so focus never falls to the page where D.O.G.'s Enter would
-start a deck; a click is as before. The handler's own refusal and read
-failures are said under Choose file (`uploadError`, an alert), not in the
-banner at the top. The state and handlers stay in
+references* (was *Remove all*) removes the chosen references only. A control
+in the card that takes itself away, pressed from the keyboard, moves focus on:
+a row's Remove to the next row's Remove, else the previous, else Add
+references; Remove all references and the notice's Undo and Dismiss to Add
+references (`focusAfterRemove`, keyboard only by `:focus-visible`), so focus
+does not fall to the page where D.O.G.'s Enter would start a deck; a click is
+as before. The handler's own refusal and read failures are said under Choose
+file (`uploadError`, an alert, a new node per refusal so a repeat is announced),
+not in the banner at the top, and cleared by the next upload or a generation
+starting, as the banner was. The state and handlers stay in
 `DeckOutlineGenerator.jsx` (`uploadedFiles`, `isFileLoading`,
 `handleFileUpload`, `removeFile`) and reach the card as one `uploads` prop, so
 the sources, the AI file ids and their let-go (FX12), the meter's figures, the

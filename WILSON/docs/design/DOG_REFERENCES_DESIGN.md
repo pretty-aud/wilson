@@ -689,6 +689,8 @@ references only and, since code review round 1, reads *Remove all references*
 beside *Add references*. Round 1 also had a Remove pressed from the keyboard
 move focus to the next row's Remove (else the previous, else Add references),
 since focus left on the page made the next Enter a deck; and the upload's own
-refusal said under Choose file instead of the banner at the top. What one generation reads and sends (§4), the meter's
+refusal said under Choose file instead of the banner at the top. Round 2 gave
+the notice's Undo and Dismiss the same focus rule, cleared the refusal when a
+generation starts (as the banner was), and made a repeated refusal a new alert. What one generation reads and sends (§4), the meter's
 figures, the AI store's let-go and the Enter rule are unchanged: the state and
 handlers stay in D.O.G. Walkthrough 80.
