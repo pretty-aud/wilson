@@ -16,7 +16,7 @@ import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
 import { looksLikeRecoveryLink } from './cloud/auth/recoveryLink'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
-import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
+import { hydrateSupabase, supabase, endSessionLocally } from './cloud/auth/supabaseClient'
 import { fetchWorkspaceStorage, clearWorkspaceStorageCache } from './cloud/workspaceStorage'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { releaseAllAIFiles } from './cloud/aiFiles'
@@ -593,6 +593,10 @@ export default function App() {
       const expiry = EXPIRE_REASONS.includes(event) ? event : null;
       setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
       await clearSession();
+      // S1: and the client module's latch, so a refresh that lands later (the
+      // SDK's signOut below can queue behind a hung session check and run on
+      // a dead network) cannot write the ended session back.
+      endSessionLocally();
       // The cache goes right behind the session: a local write (or a loopback
       // DELETE on the desktop), never a cloud call, so it sits ahead of the
       // bounded log writes rather than behind a revoke that may hang.

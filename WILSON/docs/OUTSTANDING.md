@@ -401,6 +401,28 @@ Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
 Q2); settle it by copying the routes into a scratch express app the way the
 review's `repro-express.cjs` did.
 
+### In cloud mode an O.T.T.E.R. import of a lesson, or of an export made in local mode, saves nothing
+**INFERRED from code reading (the N2b design session's review round 2,
+2026-10-27); not yet measured.** `handleImportFile` in
+`src/tools/otter_v0.3.1/Otter.jsx` (the `data.lesson` branch, and the v2.0
+branch for each `sw` of an export) creates the course with `POST /api/software`
+and then posts every subject to `/api/software/<slug>/subjects`, where `<slug>`
+is a slugified name (`data.lesson.software_or_language` slugified, or
+`sw.meta.slug` as the export carried it). In cloud mode a course's `slug` on
+the wire is its row id (`toCourseWire` in `supabaseOtterAdapter.js`), so
+`subject.save` runs `.eq('course_id', '<slugified-name>')`, Postgres refuses
+the non-uuid (22P02) and `unwrap` throws; no import call site checks `res.ok`,
+so the import closes as if it had worked while nothing was saved. When the
+course already exists, `course.create` dies first on the owner-slug unique
+index (23505), unchecked too. Only a same-workspace re-import of an export made
+in cloud mode (whose `meta.slug` is the id) reaches a course. Fix shape:
+resolve the slug through the course list the import already reloads
+(`softwareList`, by name or by the export's id) before posting subjects, and
+check `res.ok` on each post. Found while placing the subject-share reminder
+(`docs/design/OTTER_SUBJECT_SHARES_DESIGN.md` §5.9: the reminder cannot fire
+from these imports until this is fixed); settle it with one lesson import on
+the beta.
+
 ### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
 **MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
 sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
@@ -428,20 +450,6 @@ for part 1 of the demo (`DEMO_LOCAL_STORAGE_BRIEF.md` §7), so an offline
 LAUNCH is no longer a Friday requirement and the offline-tolerant launch is
 not being built; the bounded restore (`c5e5a77`) stands, measured above. The
 limit itself stands and is stated in walkthrough 18 "The cable pulled".
-
-### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
-**REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause
-read from the code, not yet measured in a browser.** `MfaEnrollGate` renders
-inside `AuthShell`, whose split-phase bars are `SPLIT_BAR_HEIGHT = 24vh` each,
-so the light band is 52vh — sized (Session 43) for the 330px login form. The
-enrolment content (heading, two-line blurb, QR panel, secret, code field,
-button, two links) is roughly 490px, so at 824px the band is about 428px and
-the heading and the two links sit on the dark bars. The login form fits; this
-screen does not. Owner: Track B (`src/cloud/auth/`). Fix shape: let the
-shell's bars shrink when the child is taller than the band (never below the
-reveal height, which Home's bars must still meet) or scroll the child within
-the band; verify with a screenshot at 824px AND at the 700px minimum window,
-on the web and the desktop.
 
 ### `otterContext` is written on every O.T.T.E.R. navigation and read by nothing
 
@@ -692,58 +700,8 @@ that actually broke in S23 have no vitest around them and no pgTAP insert
 probe. The allowlist test covers the mechanism; it does not cover those two
 tables' own payloads. That is the remaining half.
 
-### One hung `getSession()` pins the whole app's auth — reconnect deferred, banner shipped (Track B B2 part 2, 2026-09-06)
-**NARROWED (B2 part 2).** The pin is now reproduced on demand and has a
-surface. `scripts/probes/connection-hang.mjs` against wilson-dev: a refresh
-that never settles, a PostgREST read behind it that never resolves and never
-issues a request, `getSession()` stuck behind the same shared
-`refreshingDeferred`. `src/cloud/connectionWatchdog.js` wraps the one fetch
-supabase-js uses and raises **"Connection lost — reload to continue"** when
-an auth, PostgREST or storage-download request is pending past 20 s while
-`navigator.onLine` is true (uploads, the resumable path and every Edge
-Function call are outside it by construction; a slow upload never trips it,
-pinned by test). Reload is the remedy; **reconnect logic is deferred by
-Audrey (fix plan answer 10).** What remains open is only the reconnect:
-nothing outside the SDK can cancel its shared refresh promise, so a real
-fix is a client re-create on detection or an SDK change. The measured facts
-below stand.
-
-**MEASURED (S21, against `@supabase/auth-js` 2.101.1 as installed.)** This
-replaces the old "Profile panel can spin forever" entry, which framed the
-problem as N independent call sites. It is not.
-
-Two facts, both read out of `node_modules`:
-
-1. **The class is far larger than the explicit call sites.** supabase-js binds
-   `_getAccessToken()` into `fetchWithAuth` for *every* PostgREST, Storage and
-   Functions request, and that awaits `auth.getSession()` internally
-   (`supabase-js/dist/index.mjs:523-528`). So every `.from(...)` carries the
-   same unbounded wait. Counting `.auth.getSession()` occurrences understates
-   it by an order of magnitude.
-2. **`withTimeout` races, it does not abort** — by design
-   (`withTimeout.js:16-19`). The abandoned call still holds `lockAcquired` in
-   auth-js, and the lock is global per `storageKey`. Every later auth operation
-   then queues in `pendingInLock`, which consults **no** acquire timeout
-   (`GoTrueClient.js:2232-2251`). All three clients share the one lock —
-   RABBIT's `sharedAuthedClient` is the same instance.
-
-**Consequence, and why the planned "sweep the 22 sites" was not done:** bounding
-a call site restores *that site's UI* and nothing else. A sweep would have gone
-green and left the app just as stuck, while letting the session report the class
-as closed.
-
-What S21 did instead (`10fcd29`): fixed the two places where the defect was
-actually reachable and reportable — `ProfileSection`'s loader now has
-`try/catch/finally` so `loading` clears on every path (the `Promise.all`'s
-*other* leg is unbounded too, so bounding only the auth call would not have
-closed it), and `aiProxy`'s pre-flight is bounded with its own code and message
-rather than falling through to "Sign in to use AI features."
-
-→ Deferred by her choice (answer 10). The banner above is the surface until
-a reconnect is designed; when it is, design it before writing it.
-
 ### Avatar does not persist
-**REPORTED; root cause still unproven.** S21 falsified four hypotheses by
+**REPORTED; root cause still unproven; narrowed by measurement (B1, 2026-10-27).** S21 falsified four hypotheses by
 measurement — the `avatar_url` column, the `user-avatars` bucket (public, 2 MB,
 correct MIME list), the storage policies, and the `isOwnAvatarUrl` render guard
 all exist and are correct, and the self-guard trigger RAISES rather than
@@ -760,11 +718,35 @@ code merged the patch into local state anyway; and the `catch` never cleared
 
 → **That makes a silent failure loud; it does not prove the report is fixed.**
 If it recurs, the panel will now say what went wrong — capture that message.
-The one candidate not yet excluded is whether the Storage API populates
-`request.jwt.claims` with `app_metadata` at all; if it does not,
-`current_workspace_id()` is NULL inside the storage policy and every upload is
-refused in every environment. One devtools Network capture of the
-`POST /storage/v1/object/user-avatars/...` settles it.
+**What B1 measured on wilson-dev, by query (2026-10-27):** the four
+`user-avatars` policies on `storage.objects`, read from `pg_policies` — INSERT
+`user_avatars_insert_own` WITH CHECK `bucket_id = 'user-avatars' AND
+auth.role() = 'authenticated' AND (storage.foldername(name))[1] =
+current_workspace_id()::text AND (storage.foldername(name))[2] =
+auth.uid()::text`; UPDATE `user_avatars_update_own` with the uid arm in its USING and both
+path arms in its WITH CHECK;
+DELETE `user_avatars_delete_own` on the uid arm alone; SELECT
+`user_avatars_select` on the bucket alone — the bucket public, 2 MB, four image
+MIME types; and `current_workspace_id()` is
+`NULLIF(COALESCE(current_setting('request.jwt.claims', true)::jsonb #>>
+'{app_metadata,workspace_id}', ''), '')::uuid`. The client writes
+`user-avatars/{workspace_id}/{user_id}/{ts}-{name}` (`ProfileSection.jsx`,
+`NewUserWelcome.jsx`): exactly the two folders the policy reads, so a
+path-shape mismatch is excluded, and the SELECT side is not involved. What
+remains is one candidate: the INSERT and UPDATE policies evaluate to NULL, and
+the upload is refused, exactly when the Storage API's `request.jwt.claims`
+carries no `app_metadata.workspace_id`. Not measured by B1: the smoke user's
+password is a CI secret (`DEV_PROBE_PASSWORD`) and no local file holds it, so
+no session can sign in to send the one request that settles it. **The
+capture:** as the seeded smoke user on wilson-dev, `POST
+/storage/v1/object/user-avatars/<workspace_id>/<user_id>/probe.png` with a
+one-pixel PNG, the bearer token and the anon `apikey` (the exact command is in
+`docs/sessions/handoffs/po-b1-2026-10-27.md`); a 200 excludes the policy and
+points at the client's `avatar_url` write or the render; a 400 whose body says
+`new row violates row-level security policy` proves it, and migration 0102 /
+suite 105 (reserved) then hold the smallest policy change that lets the owner
+of the path upload and still refuses another user's path. Delete the object
+after.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**
@@ -1273,6 +1255,18 @@ never accepts an echo of the nonce …" (`runtime.test.mjs:596`, a 3.7 s
 file): its throwaway loopback echo server received no request (`answers`
 was `[]`). The test does not record the probe's error, and 3,400 in-process
 repeats of it under the same load missed none: cause NOT ESTABLISHED.)*
+*(S1, 2026-10-27, MEASURED on GitHub's Linux runner, not Windows: RLS tests
+run 40590939861, its Vitest job, `doorsOutside.test.mjs`'s "a play and a
+scrub make one viewing; 60 s idle ends it; the row has counts and two
+offsets" — the closed row's `bytes` 524,288, the first range alone, where
+1,048,593 is expected, its `fraction` short likewise — on `3a6ec8f8`, a
+docs-only merge whose tree (`70736e0a`) is byte-identical to `4c747d87`'s,
+which passed in run 40590893549; the same code passed in 40589711054 and
+40589629970. S1 touches nothing under `gateway/`. INFERRED: the second
+range's bytes are counted as its body finishes streaming, which under load
+landed after the test's `tick()`; settle it by consuming the second
+response's body before the clock moves, or by counting before the request
+resolves. Not re-run: a re-run needs a GitHub sign-in the session has not.)*
 
 ---
 
@@ -1283,6 +1277,8 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul R1 (2026-10-27; `po/r1-rabbit-robustness` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T. robustness (`docs/sessions/PLAN_TO_1_0.md` night 2), each item measured before it was fixed: Levels and Experiences take the Scenes rows' write gate; Replace link is one undoable step that loses nothing (the provider's `rewireDependency`, waiting its turn in the undo queue, a write after a project switch kept off another project's bundle); migration 0101 (a bid version's thin `{id, project_id}` event on the project channel; an assigned task's items on the workspace channel, never a private project's) with suite 104, 25/25 on wilson-dev, both on dev only (staging is the controller's, from the Desktop kit); every cloud file read (`listFilesWith`); the Dashboard's `task_items` listener; the Tasks CSV as the table shows it; the Rate card and Team members at 1280 and 1440 with the kit's compact cells (`Table compact`), Team members' badges wrapping under the name; two review rounds on Fable (round 1: 2 MEDIUM, 2 LOW; round 2: 1 MEDIUM, 2 LOW), every correction with a failing control. | R1-L1 to R1-L4 (R1's left-open section, at the end); S3b-02 widened to a level's and an experience's windows. | S5-02, DG1-01, "A dependency rewire deletes before it links", "Levels and Experiences have no write gate", "The Dashboard shows a task's assets as of its last load", "The Tasks CSV export leaves out the asset and the bid"; P1-30 struck with its dated line; P1-29 kept with its dated line, one cut left (R1-L3). |
+| Post-overhaul S1 (2026-10-27; `po/s1-reconnect` into `feat/post-overhaul-edit-versioning`) — night 2's reconnect after a hung session check (`docs/design/RECONNECT_DESIGN.md`: the watchdog aborts a request at its budget, the SDK keeps the session and retries by itself, the strip says *reconnecting…* and pings the service that hung, the client module refuses a data request carrying the anon key while signed in, R.A.B.B.I.T.'s dot shows the same word) and the two-factor enrolment overflow, measured closed (506.89px in a 544px well at 824 and 700 tall, Chromium and Electron alike; the shell's 544px floor of 2026-09-11). | **S1-01** (two tabs, one refresh token; INFERRED). | *One hung `getSession()` pins the whole app's auth* (fixed by the build; its two wrong claims recorded in the S1 section) and *The two-factor enrolment screen overflows the sign-in shell's band at laptop heights* (measured closed). |
+| Post-overhaul B1 (2026-10-27; `po/b1-subject-shares-server` into `feat/post-overhaul-edit-versioning`) — subject shares, the server (`docs/sessions/PLAN_TO_1_0.md` night 2; the design's §6.1): migration 0100 copied whole from the design's Appendix A (the table, the one SELECT policy, the guard trigger, the consent helper's chain walk, the six functions, the index, the audit lines, the post-conditions), 0065 removed in the same commit; suite 103 (446 probes, 446/446 on wilson-dev; the failing controls of the design's §4 and §10, and of the two review rounds' corrections, run once each against the final suite, 33 in all); `otter_subject_shares` into `rls.yml`'s `RLS_TABLES`, its `KNOWN_UNCOVERED` line gone with 0065; the adapter's seven operations under `/api/otter/subject-shares` and `/api/otter/subjects/:id`, `id` on the subject wires, `export.all`'s `linked_subjects`; the fixtures answer the six ops as nominations; 0100 applied to wilson-dev by query with its history row (md5 recorded in the hand-off; staging is the controller's); the avatars entry narrowed by measurement (the four policies, the claim function, the client's path), no 0102 since the cause is not proven; two review rounds on Fable. | **nothing new**; the avatars entry rewritten to what remains. | nothing. |
 | Post-overhaul DG3 (2026-10-27; `po/dg3-dog-closed-list` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s closed list (`docs/sessions/PLAN_TO_1_0.md` §3: DG2-01, DG2-02) and Audrey's two answers of 2026-10-27: a press on either Generate button keeps focus in its box, so the box does not shrink under it and the click lands; Choose file a kit button (Tab, Enter and Space, named *Choose file*; the 20th upload from the keyboard hands focus to its Remove); card 1's field label *Choose a project*; the main region's ring drawn inside its own box on every page, R.A.B.B.I.T.'s shell redrawing it above itself. No migration, no Edge Function. Walkthrough 81. | DG3-03 (on D.O.G. the ring loses its top or bottom side where the output card crosses the column's edge; review round 2, MEASURED), DG3-04 (right after a click on Generate, Alt is the box's; review round 2, MEASURED). Comment markers: 4 → 4. | **DG2-01 fixed**, **DG2-02 fixed** (the DG2 section with them), **FX15-03 fixed** (her ruling, "Keep it everywhere"). |
 | Post-overhaul FX15 (2026-10-26; `po/fx15-fx14-leftovers` into `feat/post-overhaul-edit-versioning`) — FX14's leftovers, Audrey's choice of 2026-10-26: four more R.A.B.B.I.T. test mounts out of the gap, each with a CONTROL that holds it open; D.O.G.'s 20 settings headers (16 places in the source) say whether their section is open; one main region exposed on every page (PageSurface, the hidden pages and the two tools' own mains `hidden` off screen); D.O.G.'s Project and layout dropdowns named; a bounded retry on 502/503/504 in the ai-files CI probe. No migration, no Edge Function. Walkthrough 79. | FX15-01 (D.O.G.'s render-test harness could press Enter before D.O.G. had the upload; MEASURED; found by DG2 as well and fixed there, `91eee254`, so removed at FX15's merge), FX15-02 (Single page's Page # and Page Request named by their placeholders; pre-existing), FX15-03 (on R.A.B.B.I.T. the main region's focus ring is cut off; Audrey's call), FX15-04 (at least 13 more R.A.B.B.I.T. test files mount in the same gap; three of them measured, 101 of 131 tests red in it; review round 1), FX15-05 (the closed nav strip's items are Tab stops and screen-reader buttons on every page; pre-existing, review round 1), FX15-06 (Help's navigation and O.T.T.E.R.'s side panel are unnamed landmarks; pre-existing), FX15-07 (D.O.G.'s settings headers are named by their label and description, block content in a button; pre-existing), FX15-08 (a page chosen from the nav strip by keyboard leaves focus on `<body>`; pre-existing, review round 2). Comment markers: 4 → 4. | **FX14-01 fixed** (the four mounts render inside act and wait for the provider's status past `unavailable`; forced into the gap 25 of 50 tests failed before, none after), **FX14-02 fixed**, **FX14-03 fixed**, **FX14-04 fixed** (Single page's layout dropdown too). The FX14 section with them. **DG2-03 fixed** (after FX15's review rounds: the probe's messages call, no-sign-in request and operator's summary go through the same retry as step 1 and `call()`). |
 | Post-overhaul DG2 (2026-10-26; `po/dg2-uploads-in-references` into `feat/post-overhaul-edit-versioning`) — Audrey's ask of 2026-10-26: D.O.G.'s Upload Documents section moves into card 2, References, as its first group of rows (each upload a row with its glyph, name, size and Remove; Choose file at the group's foot), so the card reads as one list of what the AI reads; card 1 becomes *1 Project*. What is read, sent, counted and let go of unchanged (the meter measured identical before and after). Review round 1's corrections: a Remove pressed from the keyboard keeps focus in the list (focus on the page made the next Enter a deck), the upload's refusal is said under Choose file, *Remove all references*; round 2's: the notice's Undo and Dismiss the same, the refusal cleared by a generation and announced again when repeated. No migration, no Edge Function. Walkthrough 80. | DG2-01 (D.O.G.'s Choose file is not reachable by keyboard and has no accessible name; pre-existing, MEASURED before and after), DG2-02 (a click on Generate full deck outline with the deck context box focused is lost: the box shrinks under the press; pre-existing, MEASURED), DG2-03 (the CI probe's no-sign-in request failed the smoke job on an upstream 504 on DG2's merge; MEASURED). Comment markers: 4 → 4. | — |
@@ -2809,6 +2805,37 @@ measurement a script N1 deleted (`fx10-date-fields-shots.mjs`,
   Every per-session entry before it did the same. Fix: `cd WILSON&& …` before
   `npx vite --port N --strictPort` (the worktree's own install, which the
   protocol's `npm install` already provides). Owner: the controller.
+
+## S1 (2026-10-27, night 2 of `docs/sessions/PLAN_TO_1_0.md`)
+
+Reconnecting after a hung session check (`docs/design/RECONNECT_DESIGN.md`,
+designed, reviewed, built) and the two-factor enrolment overflow (measured
+closed; the shell's own comment table and `AuthShell.reveal.test.jsx` carry the
+numbers). The entry *One hung `getSession()` pins the whole app's auth* is
+deleted as fixed; its two measured claims — a lock global per `storageKey`,
+a shared refresh promise nothing outside the SDK can cancel — were wrong for
+this app (the lock is a no-op with `persistSession: false`; the pin is the
+client's own queue; a fetch given a signal is cancelled and the SDK reads it
+as retryable) and are corrected in the design's §1. What S1 met and did not
+fix:
+
+- **S1-01 · Two tabs of `/wilson` share one stored session and each rotates
+  its refresh token on its own.** With `persistSession: false` every tab's
+  auth-js keeps its own copy of the session in memory. The visible tab's
+  ticker refreshes it and `supabaseClient.js` writes the rotated tokens to
+  localStorage, but a second tab keeps the OLD refresh token in memory and
+  presents it at its next refresh — on becoming visible again
+  (`_recoverAndRefresh`), or from its own ticker. GoTrue accepts a reused
+  refresh token inside its reuse interval (10 s by default) and revokes the
+  whole family after it, which signs BOTH tabs out. INFERRED from the SDK as
+  installed and GoTrue's documented reuse rule (review round 1 of the
+  reconnect design, F8); not measured, because it needs a real session: two
+  tabs on wilson-dev as the smoke user, the second hidden for longer than the
+  token's life, then shown. Not changed by S1 — an aborted refresh's retry
+  presents the same old token a reload does. The desktop has one renderer; the
+  operator console has its own token under its own key. Owner: a session in
+  `src/cloud/auth/` (the fix shape: re-read the stored session before a tab
+  refreshes a token older than the one in storage).
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

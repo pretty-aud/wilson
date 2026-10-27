@@ -9,7 +9,13 @@
 //   9. Activity clears the idle warning.
 //  10. The absolute cap ends a BUSY session and says why.
 //  11. A PostgREST call that silently never answers while the browser says
-//      it is online raises "Connection lost — reload to continue".
+//      it is online raises the connection-lost strip. Since S1 (night 2,
+//      2026-10-27) the request is aborted at the budget and the strip first
+//      says "Connection lost — reconnecting…" (then B2's "reload to continue"
+//      a minute later); both carry "Connection lost" and a Reload button, so
+//      the assertions below read either. The route that holds every
+//      /rest/v1/ request open holds the watchdog's HEAD /rest/v1/ ping too,
+//      so the strip stays up for the whole scenario.
 //
 // 8–10 run the real timers with the DEV-ONLY override in sessionTimeouts.js
 // (`localStorage['wilson.session.timeouts.debug']`), which the Vite dev

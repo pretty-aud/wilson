@@ -159,10 +159,12 @@ All four are the recommended options, the first of each question above. B1
   accepted, declined or withdrew), never a title: the same line the course index
   draws today, where an admin sees that a personal course exists and not what is
   in it.
-- **Not in 1.0**, each with its reason in the design's §7: sharing a whole
-  course to one person, sharing outside the company, a share that copies, the
-  receiver sharing it onward, expiry or a cooldown, and you seeing their
-  progress.
+- **Not in 1.0**, each with its reason in the design's §7: sharing outside the
+  company, a share that copies, expiry or a cooldown, and you seeing their
+  progress. (Two more stood here until 2026-10-27, sharing a whole course to
+  one person and the receiver sharing it onward; she ruled both into 1.0, in
+  the section at the foot of this file, and the design's §1.4, §1.5 and §10
+  hold them now.)
 
 ---
 
@@ -175,3 +177,36 @@ s3 yes, the receiver can remove a linked subject from their course; my list says
 s4 the links stay live when the sharer leaves; the receiver or an admin can end them.
 decided-without-asking all good
 ```
+
+---
+
+## After batch 1: her ruling on the things decided without asking (2026-10-27)
+
+The controller asked, after the four answers above, whether B1 builds from the
+twelve things decided without asking. She quoted one back, verbatim:
+
+> - **Not in 1.0**, each with its reason in the design's §7: sharing a whole course to one person, sharing outside the company, a share that copies, the receiver sharing it onward, expiry or a cooldown, and you seeing their progress.
+>
+> I read it. this is the only one i disagree with. explain why you are avoiding having this for 1.0 it is needed for 1.0
+
+The controller explained each of the six with the design's reason and its cost,
+then asked which 1.0 needs. Her picks, verbatim as clicked: **"A whole course to
+one person, The receiver can pass it on"**; of the other three (you seeing their
+progress; expiry or a cooldown; sharing outside the company): **"None of these
+three"**. The option texts she picked: *"One named person gets read-only, live
+access to a whole course. Built as a bundle of subject shares behind one button
+unless you say it must be a true course link."* and *"Someone who accepted a
+subject can share it onward to another colleague; your list shows the chain."*
+
+Two follow-ups, verbatim:
+
+- *When you have shared a whole course with someone and later add a new subject to that course, does the new subject reach them on its own?* → **"No, with a reminder (Recommended)"**. The option said: *"Sharing a whole course makes one offer covering the subjects it holds that day, accepted or declined as one. When you later add a subject to a course you shared whole, O.T.T.E.R. asks whether to share the new one with those people too. Consent stays explicit, no new database rule, client work only."*
+- *If you withdraw a subject from the first receiver, what happens to the people they passed it on to?* → **"They lose it too (Recommended)"**. The option said: *"The chain falls with its first link: your subject is never readable through a link you ended. Your list shows every link, and you can also withdraw any single one of them directly."*
+
+Her four answers above (S1 to S4, all the recommended options) stand. S1 (*only
+the owner of a course shares its subjects*) is about a course's own subjects
+and is not contradicted by a receiver passing on what they received: she ruled
+that in by name. Her third 2026-08-12 ruling (each person's own progression)
+stands for every receiver in a chain. The design's §1.4 (the chain), §1.5 (the
+batch), §5.9 (the reminder) and §10 (this ruling, and what changed where) are
+built from these words; B1 builds Appendix A as revised, B2 the screens.
