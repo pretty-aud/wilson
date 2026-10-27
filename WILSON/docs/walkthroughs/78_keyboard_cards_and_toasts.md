@@ -6,6 +6,7 @@
    or Space folds or opens the card. A screen reader names it by the card's
    title and says whether the card is open. Enter on it never makes a deck.
    Clicking anywhere on the bar still folds the card, as before.
+   *Amended 2026-10-26 (DG2, walkthrough 80): card 1 is now **1 Project**.*
 2. **A note at the bottom of the window waits while you are on it.** A note
    that goes by itself now waits while keyboard focus is on it, as it already
    did while the pointer is over it. Tab away and it finishes its time.
@@ -19,6 +20,7 @@
 (`docs/sessions/briefs/po-fx14-fx13-leftovers.md`, your choice of
 2026-10-26). Written 2026-10-26 against `feat/post-overhaul-edit-versioning`
 (`po/fx14-fx13-leftovers`). No database change, no server function.
+Amended 2026-10-26 where it names card 1 (DG2; walkthrough 80).
 
 ## 1. Step by step
 
@@ -28,7 +30,7 @@ steps 6 to 11 use that note.
 
 | # | Do | You should see |
 |---|----|----------------|
-| 1 | Open D.O.G. Click an empty part of the page, then press **Tab** until the orange ring reaches the chevron at the right end of **1 Project documentation** (it comes after the top bar's buttons and D.O.G.'s Help and Settings) | The ring on the chevron (`po-fx14-after-02-header-focus`). A screen reader says the card's title in the bar's capitals, *"PROJECT DOCUMENTATION, button, expanded"*, as it says the deck context box's label (walkthrough 77). |
+| 1 | Open D.O.G. Click an empty part of the page, then press **Tab** until the orange ring reaches the chevron at the right end of **1 Project documentation** (it comes after the top bar's buttons and D.O.G.'s Help and Settings) | The ring on the chevron (`po-fx14-after-02-header-focus`). A screen reader says the card's title in the bar's capitals, *"PROJECT DOCUMENTATION, button, expanded"*, as it says the deck context box's label (walkthrough 77). *Amended 2026-10-26 (DG2, walkthrough 80): the card is **1 Project**, so it says "PROJECT, button, expanded".* |
 | 2 | Press **Enter** | Card 1 folds, its chevron points right and the ring stays on it (`po-fx14-after-03-card1-folded-by-key`). Nothing else happens. |
 | 3 | Press **Space** | Card 1 opens again. |
 | 4 | Tab on: **References** has its chevron after the project controls, **Generate outline** after Add references. Fold and open each with Enter or Space, once with the deck context box empty and once with words in it | Each folds and opens. No deck starts. |

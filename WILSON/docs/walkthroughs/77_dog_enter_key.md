@@ -19,7 +19,8 @@
 (`docs/sessions/briefs/po-fx13-dog-enter-key.md`, your three answers
 verbatim). Written 2026-10-26 against `feat/post-overhaul-edit-versioning`
 (`po/fx13-dog-enter-key`). Single page and the regenerate box are untouched.
-No database change, no server function.
+No database change, no server function. Amended 2026-10-26 where it names
+card 1's upload (DG2; walkthrough 80).
 
 ## 1. Enter, before and after
 
@@ -61,7 +62,7 @@ red line is how you see that Enter started one.
 
 | # | Do | You should see |
 |---|----|----------------|
-| 1 | Open D.O.G.; in card 1, **Choose file** and pick any small .txt | The file listed. Card 3 on **Full deck**, the deck context box empty. |
+| 1 | Open D.O.G.; in card 1, **Choose file** and pick any small .txt | The file listed. Card 3 on **Full deck**, the deck context box empty. *Amended 2026-10-26 (DG2, walkthrough 80): **Choose file** is now in card 2, References, under **Uploads**, and the file is listed there as a row.* |
 | 2 | Click an empty part of the page (not a button, not a box), press **Enter** | No red line: nothing started. The deck context box takes its orange edge in the middle of the screen, and at the bottom: *"Write in the deck context box first. Enter makes a full deck once the box has words in it. Generate full deck outline works with the box empty."* It stays until you write in the box, switch to Single page, start a deck with the button or leave D.O.G.; its × closes it too. A screen reader names the box by its label, in the label's capitals (*DECK CONTEXT & GUIDELINES*) (`po-fx13-after-01-page-empty`). |
 | 3 | In the box, press **Enter**, then **Shift+Enter** | Enter: nothing, and the note stays. Shift+Enter: a new line. Delete it. |
 | 4 | Click the **Theme generator** tick (it unticks), press **Enter** | The tick stays as you left it; the box gets focus and the note again. Tick it back. |

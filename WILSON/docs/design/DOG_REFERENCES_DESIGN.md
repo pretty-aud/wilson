@@ -41,10 +41,10 @@ colour, no new typeface.
 | R16 | Core belongs to files and is set in R.A.B.B.I.T.; D.O.G.'s ticks only mark what a deck uses. Items and notes are never Core. | Q15 |
 | R17 | The project's title and description always go. | Q17 |
 | R18 | Full deck and Single page are one card; the switch reads *Single page* on its other side; Full deck shows the full deck box and the theme generator; Single page shows page number, layout and the single page box; the two media boxes show in both; examples and subtitles stay. | her brief |
-| R19 | Uploads stay exactly as they are. | her brief |
+| R19 | Uploads stay exactly as they are. **Superseded 2026-10-26 by her ask (DG2, §17):** the uploads are References' first group, rows like the other references; they upload, read and send as before. | her brief; DG2 |
 | P12 | **Answered (Q12, 2026-10-17):** the chosen set is kept while WILSON is open, never written to the computer. | Q12, "Same as uploads" |
 | P19 | **Answered (Q19, 2026-10-17):** *Use project assets* places the pictures and videos among the chosen references. Her Q14 words ("like before") could also mean the project's own media, ticked or not; that reading would send unticked pictures to the AI, which her Q2 rules out. Put to her in those words, she chose the ticked ones. | Q19, "Only the ones you tick" |
-| P20 | **Answered (Q20, 2026-10-17):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. | Q20, "Keep those names" |
+| P20 | **Answered (Q20, 2026-10-17):** the cards read *1 Project documentation*, *2 References*, *3 Generate outline*. **Changed by one word 2026-10-26 (DG2, §17):** *1 Project*, since the documents are no longer in it. | Q20, "Keep those names"; DG2, "Keep it, renamed 1 Project" |
 | P21 | **Answered (Q21, 2026-10-17):** D.O.G. opens on *Full deck*; the side is then kept while WILSON is open (the Alt key can flip it from any page, kept by her ruling of 2026-10-26: §16). | Q21, "Full deck" |
 | P22 | **Answered (Q22, 2026-10-17):** an item also sends its type, dates and production fields (§3, §9 item 8). | Q22, "Keep them" |
 | P23 | **Answered (Q23, 2026-10-17):** *"to place media in the deck"* shows beside *Use visual assets*, in the hint ink. | Q23, "Shown beside the box" |
@@ -117,6 +117,11 @@ Card 3 is drawn on its Single page side. D.O.G. opens on Full deck (her Q21,
 
 ### 2.1 Card 1, *Project documentation* (her name, Q20)
 
+**2026-10-26 (DG2, §17):** card 1 is *1 Project*, and the **Upload Documents**
+item below moved, by her ask, into card 2 as its first group (§2.2's note).
+The diagram above is DG1's and is left as drawn; the rest of this section
+stands.
+
 - **Project**: the dropdown and **New project**, as today. Its hint changes,
   because today's words would now be false: *"The deck's project. Its title and
   description go with every deck; choose what else in References."*
@@ -131,6 +136,13 @@ Card 3 is drawn on its Single page side. D.O.G. opens on Full deck (her Q21,
   move to card 3.
 
 ### 2.2 Card 2, *References*
+
+**2026-10-26 (DG2, §17):** the card's first group is now **Uploads (n)**, above
+the chosen rows, always drawn, with Choose file at its foot; the contract line
+reads *"What goes to the AI: what is listed here and the project's title and
+description, with what you write below."*; the header's count includes the
+uploads; *Remove all* removes the chosen references only. The rest of this
+section stands.
 
 - **Header**: step 2, *References*, the count ("6 chosen", or "None chosen"),
   and the chevron. It folds like the other cards (R3); folded, the header still
@@ -655,3 +667,24 @@ questions); her words are in `docs/sessions/briefs/po-fx13-dog-enter-key.md`.
 Also: the preview's "Reading it here is recorded" line is said only when that
 preview downloads (was OUTSTANDING DG1b-02; `useReferences`' `bodyKept`).
 Walkthrough 77.
+
+## 17. DG2: the uploads move into References, her ask of 2026-10-26
+
+Her ask, verbatim: *"one thing id like to fix. lets move the upload documents
+section in dog tool to the 2 References card. make a session chip for this"*.
+Asked by the controller in chat as multiple choice; her answers are verbatim
+in `docs/design/DOG_REFERENCES_QUESTIONS.md` (its last section) and
+`docs/sessions/briefs/po-dg2-uploads-in-references.md`. They supersede R19
+and §2.1's "Upload Documents: untouched", and change P20 by one word.
+
+| Question | Her answer | Built |
+|---|---|---|
+| Card 1 after the move | "Keep it, renamed 1 Project (Recommended)" | The heading reads *Project*; the dropdown, its hint, New project and the description panel as they were. |
+| Where in References | "First, above the chosen items (Recommended)" | **Uploads (n)** is the card's first group, always drawn (its hint and Choose file when there are none), then the *Choose a project…* note, Items, Files, Notes, the meter, Add references. |
+| How the uploads look | "Rows like the other references (Recommended)" | Each upload a `dog-refs-row`: the glyph by type, the name, the size as the chip showed it, a video's *placed only, not read*, and Remove named by the file. No Preview (an upload is in memory; the eye reads a chosen reference). Choose file at the group's foot while under 20, the upload block's own label and hidden input. |
+
+Also: the contract line no longer names the uploads apart (they are listed);
+the header's count is one number for both; *Remove all* removes the chosen
+references only. What one generation reads and sends (§4), the meter's
+figures, the AI store's let-go and the Enter rule are unchanged: the state and
+handlers stay in D.O.G. Walkthrough 80.

@@ -3421,7 +3421,7 @@ switch"). Alt flips the switch from any page, kept by her ruling. Walkthrough
 77.
 
 **D.O.G.'s card title bars (post-overhaul FX14).** The three folding cards
-(1 *Project documentation*, 2 *References*, 3 *Generate outline*) each carry a
+(1 *Project*, named *Project documentation* until DG2; 2 *References*, 3 *Generate outline*) each carry a
 kit `IconButton` in their header's `ui-panel-actions`: the chevron its glyph,
 named by the heading's words (`aria-labelledby` on a span in the kept `<h2>`),
 `aria-expanded`, `aria-controls` on the body while it is drawn. It has no
@@ -3431,6 +3431,27 @@ focused button is left to itself, `enterIsDogs`). The fold state is where it
 was (`section1Collapsed`, `section2Collapsed`, `ReferencesCard`'s
 `collapsed`). D.O.G.'s note is a kit toast: focus on its × when it goes comes
 back to where it came from (`TimedToast`, FX14). Walkthrough 78.
+
+**D.O.G.'s uploads in References (post-overhaul DG2, 2026-10-26; Audrey's
+ask, "lets move the upload documents section in dog tool to the 2 References
+card").** The uploads are the References card's first group, **Uploads (n)**,
+always drawn: its hint, a `dog-refs-row` per upload (the glyph by type,
+`fileGlyph`; the name; the size as the old chip showed it, `uploadSize`; a
+video's *placed only, not read*; Remove named *Remove <name>*), and Choose file
+at its foot (the same `<label>` round a hidden `input[type=file]`,
+`UPLOAD_ACCEPT`) while under `UPLOAD_LIMIT` (20). No Preview on an upload.
+Then the *Choose a project…* note, Items, Files, Notes, the meter and Add
+references. The contract sentence reads *"What goes to the AI: what is listed
+here and the project's title and description, with what you write below."*;
+the header's count is the uploads and the references, one number; Remove all
+removes the chosen references only. The state and handlers stay in
+`DeckOutlineGenerator.jsx` (`uploadedFiles`, `isFileLoading`,
+`handleFileUpload`, `removeFile`) and reach the card as one `uploads` prop, so
+the sources, the AI file ids and their let-go (FX12), the meter's figures, the
+Enter rule's "something to read" and *Use visual assets* are unchanged. Card 1
+is **1 Project** (the dropdown, New project, the description). Choose file is
+not a Tab stop and has no accessible name, as before (OUTSTANDING DG2-01).
+Walkthrough 80.
 
 ### 13.2 O.T.T.E.R.
 
