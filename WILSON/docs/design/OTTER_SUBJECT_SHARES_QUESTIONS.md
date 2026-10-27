@@ -110,7 +110,17 @@ reading of consent.
 
 ### Your answers, batch 1
 
-(recorded here verbatim when they arrive)
+Answered 2026-10-27 in chat, as multiple choice asked by the controller (each
+question's options as above, the recommended one first and marked). Her four
+answers, verbatim as clicked:
+
+- **S1:** "Only the owner (Recommended)"
+- **S2:** "A new course, same name (Recommended)"
+- **S3:** "Yes, they can remove it (Recommended)"
+- **S4:** "They stay live (Recommended)"
+
+All four are the recommended options, the first of each question above. B1
+(night 2) builds from them as the design's §6.1 says.
 
 ---
 
