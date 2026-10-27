@@ -2878,3 +2878,15 @@ entries archived) met and did not fix.
   --port 5246`; that folder no longer exists (MEASURED, `ls`, 2026-10-27). N1's
   brief kept the entry byte for byte. Owner: the controller (remove it, or give
   it session-a's relative path with `VITE_DEV_AUTOLOGIN=off`).
+- **N1-03 · Two defects found and not fixed sit in closed entries, under struck
+  leads.** S2b-02's tail (the nodes merge keys a system and a category on one
+  a-z0-9 key, so "文字列" and "数学" become one category and "C++" and "C#" one
+  system; a stored document that is not a library is left as it is while both
+  merges answer as if they merged) and S2b-05's (a null shortcut throws in the
+  Search dialog's hotkey search and in the Hotkeys view's search) are open, but
+  each bullet's lead is struck, so a reader looking for open entries passes them.
+  MEASURED by S2b's and S2c's sessions, as those bullets say. N1 kept both whole
+  in this file rather than archive two open defects (review round 1 found the
+  shape). Fix: re-file each tail as its own open entry and archive the struck
+  part. Owner: the controller (the file), then a session in O.T.T.E.R.'s merges
+  and its Search dialog.

@@ -9,11 +9,15 @@
 // microtasks of the commit that draws the project, before that commit's
 // effects run (state/gapPremise.test.jsx holds why: React asks for a paint in
 // every commit, so a non-sync commit leaves its passive effects for a later
-// task). A view added there offers an Undo that does nothing: the add took
-// the project's visit before the project's own effect counts it. Mounted by
-// mountRabbit, the same add's Undo takes the view back. Without the helper's
-// waits (the render outside act, the status wait gone) the second half goes
-// red as the first: N1's hand-off has the run.
+// task). Two of those effects undo what a test does there, and the control
+// holds both (review round 1: the six controls it replaced held the second):
+// the project's visit count (a view added there offers an Undo that does
+// nothing: the add took the visit before the project's own effect counts it)
+// and the views' drafts reset (a change for now made there is wiped, as a
+// grouping was in the view tests). Mounted by mountRabbit, the same add's Undo
+// takes the view back and the same change stays. Without the helper's waits
+// (the render outside act, the status wait gone) the second half goes red as
+// the first: N1's hand-off has the run.
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
@@ -61,7 +65,7 @@ beforeEach(() => { fx = buildDevFixtures() })
 afterEach(() => { cleanup(); ctx = null; fx = null })
 
 describe('CONTROL: the gap mountRabbit waits out', () => {
-  it('a view added between the project\'s commit and its effects offers an Undo that does nothing; mounted by mountRabbit, the same add\'s Undo takes it back', async () => {
+  it('between the project\'s commit and its effects a view\'s add offers an Undo that does nothing and a change for now is wiped; mounted by mountRabbit, the Undo takes the view back and the change stays', async () => {
     holder.adapter = fx.rabbitAdapter()
     expect(typeof holder.adapter.getTableViewLast).toBe('function')   // the fixtures read the views map, so the status wait applies
     const committed = new Promise((resolve) => {
@@ -73,7 +77,9 @@ describe('CONTROL: the gap mountRabbit waits out', () => {
     render(<RabbitProvider><Probe /><Marker /></RabbitProvider>)
     await committed
     expect(ctx.tableViewLast.status).toBe('unavailable')   // the provider's effects for the adapter not run yet
-    await run(async () => { await ctx.addTableView({ tableKey: 'tasks', name: 'In the gap' }) })
+    // A change for now on another table (the add below sets none there), then the add, in one act.
+    await run(async () => { ctx.setViewDraft('assets', { viewId: 'all' }); await ctx.addTableView({ tableKey: 'tasks', name: 'In the gap' }) })
+    expect(ctx.viewDraftOf('assets')).toBeNull()   // the drafts reset ran after it and wiped it
     expect(ctx.undoToast?.message).toBe('In the gap saved for everyone')
     await run(() => ctx.undoToast.onUndo())
     expect(fx.store.tableViews.map(v => v.name)).toEqual(['In the gap'])   // the Undo did nothing
@@ -87,7 +93,8 @@ describe('CONTROL: the gap mountRabbit waits out', () => {
       until: () => expect(ctx?.project?.id).toBe(PROJECT_ID),
     })
     expect(ctx.tableViewLast.status).not.toBe('unavailable')
-    await run(async () => { await ctx.addTableView({ tableKey: 'tasks', name: 'Mounted' }) })
+    await run(async () => { ctx.setViewDraft('assets', { viewId: 'all' }); await ctx.addTableView({ tableKey: 'tasks', name: 'Mounted' }) })
+    expect(ctx.viewDraftOf('assets')).toMatchObject({ viewId: 'all' })   // the change stays
     expect(ctx.undoToast?.message).toBe('Mounted saved for everyone')
     await run(() => ctx.undoToast.onUndo())
     expect(fx.store.tableViews.map(v => v.name)).toEqual([])   // the Undo took it back
