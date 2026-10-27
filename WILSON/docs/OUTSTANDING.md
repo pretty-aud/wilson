@@ -441,6 +441,28 @@ Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
 Q2); settle it by copying the routes into a scratch express app the way the
 review's `repro-express.cjs` did.
 
+### In cloud mode an O.T.T.E.R. import of a lesson, or of an export made in local mode, saves nothing
+**INFERRED from code reading (the N2b design session's review round 2,
+2026-10-27); not yet measured.** `handleImportFile` in
+`src/tools/otter_v0.3.1/Otter.jsx` (the `data.lesson` branch, and the v2.0
+branch for each `sw` of an export) creates the course with `POST /api/software`
+and then posts every subject to `/api/software/<slug>/subjects`, where `<slug>`
+is a slugified name (`data.lesson.software_or_language` slugified, or
+`sw.meta.slug` as the export carried it). In cloud mode a course's `slug` on
+the wire is its row id (`toCourseWire` in `supabaseOtterAdapter.js`), so
+`subject.save` runs `.eq('course_id', '<slugified-name>')`, Postgres refuses
+the non-uuid (22P02) and `unwrap` throws; no import call site checks `res.ok`,
+so the import closes as if it had worked while nothing was saved. When the
+course already exists, `course.create` dies first on the owner-slug unique
+index (23505), unchecked too. Only a same-workspace re-import of an export made
+in cloud mode (whose `meta.slug` is the id) reaches a course. Fix shape:
+resolve the slug through the course list the import already reloads
+(`softwareList`, by name or by the export's id) before posting subjects, and
+check `res.ok` on each post. Found while placing the subject-share reminder
+(`docs/design/OTTER_SUBJECT_SHARES_DESIGN.md` §5.9: the reminder cannot fire
+from these imports until this is fixed); settle it with one lesson import on
+the beta.
+
 ### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
 **MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
 sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the

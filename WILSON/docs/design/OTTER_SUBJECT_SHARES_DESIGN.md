@@ -54,7 +54,7 @@ is readable exactly when its course is. The share adds one more way to read
 | Term | Means |
 |---|---|
 | The subject | One `otter_subjects` row, by id. Its course stays the owner's. |
-| The owner | The person whose course the subject is in (`otter_courses.owner_id`; on the row as `subject_owner_id`, which never goes stale because ownership never transfers). Only they share a subject of the course, or the whole course (§2); they see and may end every row of their subject (§1.4). |
+| The owner | The person whose course the subject is in (`otter_courses.owner_id`; on the row as `subject_owner_id`, which never goes stale because ownership never transfers). Only they share the whole course; a subject is shared by them or passed on by a receiver who accepted it (§2); they see and may end every row of their subject (§1.4; N2b round 2, finding 7). |
 | The sharer | Whoever made the row (`shared_by`): the owner, or a receiver passing the one subject on (§1.4). |
 | The receiver | One active member of the same workspace, chosen from the directory. |
 | A batch | A whole course shared to one person: one row per live subject of the course, made in one transaction and grouped by `batch_id`; each row is still accepted, declined and ended on its own (§1.5). |
@@ -84,7 +84,7 @@ checks `deleted_at` on both and walks the chain). If the owner restores the subj
 link resumes with nothing to redo; when the trash purge hard-deletes the subject,
 the share row goes with it (`ON DELETE CASCADE`: "it disappears if I delete it").
 A pending share whose subject was trashed cannot be accepted (the function
-refuses) and reads `gone` to both.
+refuses) and reads `gone` to everyone on the row.
 
 **A declined share is a record**, as a declined change request and a declined
 nomination are (0022, 0064): both people can read the row; the owner sees
@@ -218,9 +218,10 @@ own link and the rows they made, and not further down (a row two links below
 them names neither of them). An onward receiver learns, before accepting, the
 owner's label and the sharer's (*Ben passes you Audrey's «Modifiers»*) and the
 same minimum as any pending receiver (§3.6). One thing a middle person can
-learn by trying is that a colleague already holds a live link to the subject:
-the pass-on is refused in words, as any share to someone who already holds it
-is (§5.7, point 9; N2b round 1, finding 2).
+learn by trying is that a colleague already holds a live offer or link to the
+subject (a pending offer counts; N2b round 2, finding 10): the pass-on is
+refused in words, as any share to someone who already holds it is (§5.7, point
+9; N2b round 1, finding 2).
 
 ### 1.5 A whole course to one person: the batch (her ruling of 2026-10-27, §10)
 
@@ -238,8 +239,9 @@ course «Blender 5.0» with you: 7 subjects*) with **Accept all** and **Decline
 all**, and the owner's list one line per batch (*shared whole with Mara · 7
 subjects*) with **Withdraw all**, each a loop over the rows that stops at the
 first refusal with its sentence, the rest staying as they were (§5.3); Accept
-all skips a row whose subject is in the owner's trash, and such a row carries
-the one per-row control, **Dismiss** (§5.3; §7; N2b round 1, finding 4). Every row lands in the same
+all skips a row whose subject is in the owner's trash, Decline all takes it,
+and such a row carries the one per-row control, **Dismiss** (§5.3; §7; N2b
+round 1, finding 4; round 2, finding 4). Every row lands in the same
 host course by the slug rule (§1.2). The batch is the owner's alone to make
 (§2).
 
@@ -352,7 +354,7 @@ cascade in the revoke.
 | One GUC arms the accept trigger | **Two GUCs, two id spaces**: `wilson.otter_subject_share_insert` carries the **subject** id for the insert, `wilson.otter_subject_share_update` the **share** id for a transition; the guard trigger refuses any unarmed write, from any role | 0064's lesson: one GUC holding two kinds of id authorises the wrong row eventually. The trigger also binds `service_role` and the runner, which bypass RLS but not triggers |
 | No audit | **One `app_events` line per transition** (WIL-4110 shared, 4111 accepted, 4112 declined, 4113 revoked), stream `admin`, ids only | The brief asks for the audit lines; the TPN posture wants who-did-what; admins learn nothing a title would tell them |
 | `host_course_id` is nulled on revoke | **Kept** on a revoke from `accepted` (history); nulled on decline; `ended_by` added | The receiver's notice can say which course it left; the owner's list can say who ended it |
-| Lists read the table | **`otter_subject_shares_index()`** serves both sides' lists with the live subject title, course name, both labels, the derived `state`, and `host_live` | The receiver of a pending share may not read the subject yet (not accepted), so the title has to come from a definer read; one function for the inbox, the sent list, the linked rows and the pet |
+| Lists read the table | **`otter_subject_shares_index()`** serves everyone's lists (the sharer's, the receiver's, the owner's) with the live subject title, course name, the three labels, the derived `state`, and `host_live` | The receiver of a pending share may not read the subject yet (not accepted), so the title has to come from a definer read; one function for the inbox, the sent list, the linked rows and the pet |
 | Suite 71 | Suite 103 | 71 is milestones now |
 | The row carries ids only | **Two snapshot columns**, `subject_title` and `course_name`, written at share time | A settled share (declined, revoked) shows its ex-receiver what the subject was called when it was offered, never its live title (round 1, finding 2) |
 | The helper | The helper **and the index** carry `sub.workspace_id = s.workspace_id` (the index `src.workspace_id` too), and the guard trigger refuses an insert whose subject is in another workspace | Belts: a cross-tenant row cannot be made, and one forged past the trigger opens and lists nothing (round 1, finding 1) |
@@ -461,7 +463,7 @@ update, so the two never fight over a column.
 
 | Function | Who | Checks, in order | Writes |
 |---|---|---|---|
-| `otter_subject_share_make(p_subject_id, p_shared_with, p_message, p_batch_id)` → share id; **internal** (no client role may execute it; the two below call it as its owner, so a batch row and a single row are made by one body: one set of checks, one pair of snapshots, one arm, one audit line; two copies of an arm drift, 0059's and 0069's lesson) | the owner, or a receiver who accepted (passing it on) | active member; receiver named and not self; subject live and in this workspace; its course live, in this workspace; **then who the caller is** (settled before anything about the subject's owner is said; N2b round 1, note): the course's owner (depth 1, no link), or else, in this order, someone not making a batch (*only the owner of a course may share it whole*), the holder of an `accepted` row for this subject (*only the owner of a course, or someone who accepted a share of this subject, may share it*), not at depth 8 already (*this subject has been passed on as far as it can go*; the bound before the walk, so one row at depth 8 probes it), **every link above the new row locked `FOR SHARE`, root first, and re-read as still `accepted` under its lock** (*this subject is no longer shared with you*; N2b round 1, finding 1), and the chain confirmed by the helper as the caller (the same sentence; the belt); then receiver not the course's owner (*that is their own subject*); receiver an active member of this workspace; note ≤ 2000; no live share for (subject, receiver) (*this subject is already shared with that person*: the unique index catches the race, and it is what refuses a chain circling back). A stub may be shared: it is an outline that fills live (round 1, finding 12) | the row (armed, with the title and course-name snapshots, `batch_id`, `via_share_id`, `subject_owner_id` = the live owner, `chain_depth`), WIL-4110 with those three ids and the depth in its context |
+| `otter_subject_share_make(p_subject_id, p_shared_with, p_message, p_batch_id)` → share id; **internal** (no client role may execute it; the two below call it as its owner, so a batch row and a single row are made by one body: one set of checks, one pair of snapshots, one arm, one audit line; two copies of an arm drift, 0059's and 0069's lesson) | the owner, or a receiver who accepted (passing it on) | active member; receiver named and not self; subject live and in this workspace; its course live, in this workspace; **then who the caller is** (settled before anything about the subject's owner is said; N2b round 1, note): the course's owner (depth 1, no link), or else, in this order, someone not making a batch (*only the owner of a course may share it whole*), the holder of an `accepted` row for this subject (*only the owner of a course, or someone who accepted a share of this subject, may share it*), not at depth 8 already (*this subject has been passed on as far as it can go*; the bound before the walk, so one row at depth 8 probes it), **every link above the new row locked `FOR SHARE`, root first, and re-read as still `accepted` under its lock** (*this subject is no longer shared with you*; N2b round 1, finding 1; a chain emptied under the collect by a purge in the same instant is refused in the same words, N2b round 2, note), and the chain confirmed by the helper as the caller (the same sentence; the belt); then receiver not the course's owner (*that is their own subject*); receiver an active member of this workspace; note ≤ 2000; no live share for (subject, receiver) (*this subject is already shared with that person*: the unique index catches the race, and it is what refuses a chain circling back). A stub may be shared: it is an outline that fills live (round 1, finding 12) | the row (armed, with the title and course-name snapshots, `batch_id`, `via_share_id`, `subject_owner_id` = the live owner, `chain_depth`), WIL-4110 with those three ids and the depth in its context |
 | `otter_subject_share(p_subject_id, p_shared_with, p_message)` → share id | the owner, or a receiver who accepted | a thin wrapper: `_make` with no batch | as `_make` |
 | `otter_subject_share_course(p_course_id, p_shared_with, p_message)` → batch id | the owner only | active member; receiver named and not self; course live and in this workspace; **owned by the caller** (*only the owner of a course may share it whole*: a received batch is not passed on whole, §7); receiver an active member; then one `_make` per live subject of the course in `subject_order`, stubs included, **skipping** a subject already live-shared with that person; after the loop, *this course has no subjects* when the course had none and *every subject of this course is already shared with that person* when every one was skipped (both leave nothing behind: no row was made in either case) | one row and one WIL-4110 per subject made, every context carrying the one `batch_id`; the rows share the transaction's `created_at`, so the client orders a batch's rows by title |
 | `otter_subject_share_accept(p_share_id)` → host course id | the receiver | active member; share in this workspace; `shared_with` is the caller; `pending`; subject live **and in this workspace** (round 1, finding 1); course live and still owned by the row's `subject_owner_id` (*that subject has changed hands since it was shared*; a belt: ownership never transfers); for an onward row, the link above still `accepted` (*the person who passed this on no longer has it*; a belt: the cascade ends a pending descendant with its parent); the host match by the **owner's** course slug, else the personal course made (§1.2) | the course if made, the row (armed), WIL-4111 (its context plus `subject_owner_id`, `via_share_id`, `batch_id`) |
@@ -495,8 +497,8 @@ accepted under an ended link (§10).
 `otter_subject_shares_index()` (STABLE, SECURITY DEFINER, membership re-checked
 on the live row) returns every share in the caller's active workspace where they
 are the sharer, the receiver, **or the owner of the subject** (read from the
-live course, not only from the row's column: a forged row that misnames its
-owner is listed to nobody it misnames), **and whose subject and course are in
+live course, not from the row's column: a forged row that misnames its
+owner is listed to nobody it misnames; N2b round 2, finding 7), **and whose subject and course are in
 that workspace** (the belt the helper carries, so a forged cross-tenant row
 lists nothing; round 1, finding 1): the share's ids and status, `state` (`gone`
 when the subject or course is trashed, the course changed hands, or an onward
@@ -509,10 +511,13 @@ not by the client. A pending or accepted onward row whose link above is not
 accepted is a row the functions could not have made (the cascade ends
 descendants with their parent, and the row-maker locks the parent while it
 writes): it is listed to the owner only, as `gone`, and to nobody it names
-(§10). The index's `gone` for an onward row trusts the status of the link
-directly above it; a forged row whose depth does not fit its parent's is the
-helper's to refuse (it does), and the index lists it as its status says (N2b
-round 1, finding 7). And the owner reads every **column** of every row of
+(§10). The index's `gone` for an onward row checks the link directly above it
+as the helper does (accepted, the same subject, shared with this row's sharer,
+exactly one depth shallower), so a forged accepted row whose depth does not fit
+is `gone` to the owner, hidden from the parties it names and refused by the
+helper; its parent's cascade does not reach it (the walk steps depth by one),
+so it stays accepted in storage and is the owner's to end by hand (N2b round
+1, finding 7; round 2, finding 5). And the owner reads every **column** of every row of
 their subject through the table itself (the SELECT grant is whole-row): the
 onward receiver's host pointer and the middle person's note among them; the
 host nulls the index serves the owner are what the client shows, not a
@@ -537,10 +542,11 @@ One `app_events` row per transition, `event_type = 'admin'`, `severity =
 'info'`, codes **WIL-4110** (shared), **4111** (accepted), **4112** (declined),
 **4113** (revoked), `context` = `{share_id, subject_id, course_id, shared_by,
 shared_with, subject_owner_id, via_share_id, batch_id}` (the last two null when
-they do not apply) plus `chain_depth` on share, `host_course_id` on accept and
+they do not apply; every code carries `course_id`, the two settle codes by one
+lookup; N2b round 2, finding 6) plus `chain_depth` on share, `host_course_id` on accept and
 `ended_by_role` on revoke: `owner`, `sharer` or `receiver` for the row a hand
 ended, `upstream` for each row the cascade ended, with `cascaded_from` naming
-the row that fell (§10). A batch writes one line per row, every one carrying
+the row ended by hand (§10; N2b round 2, note). A batch writes one line per row, every one carrying
 the batch id; a cascade writes one line per row it ends. Never a title, a name
 or a body. The write
 succeeds because the functions run as their owner, which must bypass RLS
@@ -587,8 +593,9 @@ invariant, the link invariant and the pins of the two new provenance columns
 `pg_get_functiondef` is satisfied by a commented-out arm), the helper's body
 the recursive walk, its link condition and the root owner check, and the
 revoke's body the walk down and the `upstream` line, and the row-maker's body
-its chain lock (`FOR SHARE`), its walk and the helper belt, stripped the same
-way;
+its chain lock (exactly one live `FOR SHARE`, counted as 0069 counts, not only
+found), its walk and the helper belt, and the revoke's exactly two live `FOR
+UPDATE` locks, stripped the same way (N2b round 2, note);
 the four chain and batch columns exist, `otter_subject_share_chain_chk` exists,
 the self-FK exists and cascades (`confdeltype = 'c'`); the SELECT policy on the
 share table admits `subject_owner_id` by column and never reads its own table;
@@ -654,6 +661,10 @@ empty as `is(coalesce(current_setting(…, true), ''), '')`, because a GUC never
 set in the session reads NULL, not `''` (round 1, finding 6; round 2, finding
 10).
 
+The refusals these groups quote in italics are Appendix A's sentences, some
+shortened to a prefix; `throws_ok` matches the whole message, so B1 writes each
+full sentence from the SQL or uses `throws_like` (N2b round 2, note).
+
 ### 4.1 The matrix
 
 Each cell is what the actor gets when they try; a probe per cell.
@@ -676,7 +687,7 @@ count would abort the file; those cells are probed with `throws_ok`,
 | UPDATE S1 | 1 row | 0 rows, before and after | 0 | 0 | 42501 |
 | INSERT the share row directly | 42501 | 42501 | 42501 | 42501 | 42501 |
 | UPDATE the share row directly | 42501 | 42501 | 42501 | 42501 | 42501 |
-| `otter_subject_share(S1, d)` | ok | raises (not the owner, and holds no accepted link to S1 yet) | raises (the same; and as `user_g`, a granted editor on C1: raises too, an editor grant is not consent) | raises: *subject not found in this workspace* (b is active in B, so membership passes; round 1, finding 17) | 42501 |
+| `otter_subject_share(S1, d)` | ok | raises *choose a colleague to share it with* (as d the receiver is d, self, and that check runs before standing; `otter_subject_share(S1, e)` as d raises the standing sentence, not the owner and no accepted link yet; N2b round 2, finding 3) | raises (the standing sentence; and as `user_g`, a granted editor on C1: raises too, an editor grant is not consent) | raises: *subject not found in this workspace* (b is active in B, so membership passes; round 1, finding 17) | 42501 |
 | `otter_subject_share(S1, h)`, passing it on (§1.4) | — | ok once d holds SH1 accepted (SH9 to e; and to h in another timeline); raises before accepting | ok once e holds SH9 accepted (SH10 to h); raises while SH9 is pending | raises | 42501 |
 | `otter_subject_share_course(C1, e)` (§1.5) | ok → a batch id; S1 skipped, S2 and S6 made | raises (*only the owner of a course may share it whole*) | raises (the same, though e holds links to all three) | raises | 42501 |
 | `otter_subject_share_accept(SH1)` | raises | ok → D1 | raises | raises | 42501 |
@@ -688,10 +699,10 @@ count would abort the file; those cells are probed with `throws_ok`,
 | The helper `otter_has_accepted_subject_share(S1)` | false (not a receiver) | true after accept, false after revoke | false; **true** after e accepts SH9 (the chain); false again after c revokes SH1 (the chain fell) | false, even with SH5 forged | 42501 |
 | Read S1 after d passes it on and e accepts (SH9), then e to h (SH10) | 1 | 1 | **1** (the arm, through the chain); and h, below e: 1 | 0 | 42501 |
 | Read S1 after c revokes SH1 (the chain falls) | 1 | 0 | **0** (SH9 fell with SH1); and h: 0 (SH10 fell too) | 0 | 42501 |
-| Read S2 and S6 after c shares C1 whole with e and e accepts both | 1 | 0 | **1 and 1** (the batch rows); still 1 after SH1's cascade (a batch row is a root) | 0 | 42501 |
+| Read S2 and S6 after c shares C1 whole with e and e accepts both | 1 | 0 | **1 and 1** at accept (the batch rows); S2 still 1 after SH1's cascade (a batch row is a root); S6 0 after 9c's withdrawal of its row (N2b round 2, finding 9) | 0 | 42501 |
 | Read the rows of the chain SH1 → SH9 → SH10 through the table | all three (the owner's arm) | SH1 and SH9 (their link and the row they made), not SH10 | SH9 and SH10, not SH1 | 0 | 42501 |
-| `otter_subject_share_revoke(SH10)` (h's row, made by e) | ok (the owner ends any row of their subject) | raises (d is nobody to SH10) | ok, as its sharer | raises | 42501 |
-| `otter_subject_shares_index()` after the chain and the batch | SH9, SH10, SHX (`gone`), SHZ (`accepted` while SH3 is, `gone` once c revokes SH3 in group 10; N2b round 1, finding 7) and the two batch rows added, `is_owner` true on all | SH9 added (`is_mine`), SHZ (`is_mine`, while SH3 is accepted; hidden after); not SH10, not the batch rows, not SHX | SH9 (received) and SH10 (`is_mine`), the two batch rows (received); not SHX, not SHZ | unchanged | 42501 |
+| `otter_subject_share_revoke(SH10)` (h's row, made by e) | — (SH10 falls with SH1 in group 10; the owner's direct end of an onward row is probed on SH11; N2b round 2, finding 2) | raises (d is nobody to SH10; probed before group 10) | — (the sharer's withdrawal is probed on SH12) | raises | 42501 |
+| `otter_subject_shares_index()` after the chain and the batch | SH9, SH10, SHX (`gone`), SHZ (`gone` from the start: its link is not whole; N2b round 2, finding 5) and the two batch rows added, `is_owner` true on all | SH9 added (`is_mine`); not SH10, not the batch rows, not SHX, not SHZ (hidden: its link is not whole) | SH9 (received) and SH10 (`is_mine`), the two batch rows (received); not SHX, not SHZ | unchanged | 42501 |
 
 ### 4.2 The probes, in timeline order
 
@@ -823,12 +834,11 @@ from the file it writes (round 2, note).
     revokes SHX → ok (the owner ends any row of their subject), `ended_by` c. As
     h, passing S4 on to e → raises *this subject has been passed on as far as it
     can go* (SHZ is at the bound; the arm runs before the walk, so one forged
-    row probes it). While SH3 is accepted the index lists SHZ as `accepted` to c
-    (`is_owner`), to d (`is_mine`) and to h (received, with the live course
-    identity and its host pointer): the index's `gone` trusts the link directly
-    above, and SH3 is accepted; the helper for h on S4 is nevertheless **false**
-    (SHZ's depth does not fit SH3's), and S4 is in a `shared` course, so nothing
-    new opens (N2b round 1, finding 7).
+    row probes it). The index lists SHZ to c only, as `gone`, and to neither d
+    nor h (its link is not whole: SHZ's depth does not fit SH3's, and the index
+    checks the link as the helper does; N2b round 1, finding 7; round 2,
+    finding 5); the helper for h on S4 is **false**, and S4 is in a `shared`
+    course, so nothing new opens.
 9c. **A whole course (§1.5):** c shares C1 whole with e → returns a batch id;
     exactly two rows carry it (S2 and S6; S1 skipped: e holds SH9 live), both
     `pending`, `shared_by` c, `via` null, depth 1, one `created_at` between
@@ -876,17 +886,19 @@ from the file it writes (round 2, note).
     (accepted) → ok (the owner withdraws from a shared course's subject; d
     still reads S4 through 0022's `shared` arm, which is the point: the share
     and the tier are two different reads); SHZ is not reached by that cascade
-    (its depth is 8, not SH3's 2): it stays `accepted`, reads `gone` to c, is
-    hidden from d and h (the link above is not accepted), and writes no line
-    (N2b round 1, finding 7).
+    (its depth is 8, not SH3's 2): it stays `accepted` in storage, still `gone`
+    to c and hidden from d and h, and writes no line; it is the owner's to end
+    by hand, and c does → `revoked`, `ended_by` c, role `owner` (N2b round 1,
+    finding 7; round 2, finding 5).
 11. **Audit:** every count scoped to workspace A **and** the code, as suite 70
     does, so a future writer of `app_events` cannot move it (round 2, note):
     WIL-4110 = 15 (SH1, SH2, SH3, SH4, SH6, SH7, SH8, SH9, SH10, the two batch
     rows, SH11, SH12, SH13, SH14; the refusals and the two forged rows wrote
     none); 4111 = 13 (SH1, SH2, SH3, SH6, SH7, SH9, SH10, the two batch rows,
-    SH11, SH12, SH13, SH14); 4112 = 1; 4113 = 11 (c on SH1 and its two
+    SH11, SH12, SH13, SH14); 4112 = 1; 4113 = 12 (c on SH1 and its two
     `upstream` lines, c on SHX, c on the S6 batch row, c on SH11, d on SH12, d
-    on SH6 and its two `upstream` lines, c on SH3); every `upstream` line
+    on SH6 and its two `upstream` lines, c on SH3, c on SHZ by hand; N2b round
+    2, finding 5); every `upstream` line
     carries `cascaded_from`; the two batch rows' 4110 lines carry the one
     `batch_id`; every row's `context` has no `subject_title`, `title` or `name`
     key and `event_type` `admin`; as a (admin, claims by hand) the rows read;
@@ -1007,7 +1019,7 @@ subject the function skipped (*«Modifiers» was already shared with her*); a
 refusal is the function's sentence in the footer. *Pass-on mode*, from **Pass
 on…** in a linked subject's study view (§5.4): the subtitle names the subject
 and its owner (*Audrey's «Modifiers»*); **With** excludes the owner and anyone
-the caller's own index rows show holding a live link to it (a middle person's
+the caller's own index rows show holding a live offer or link to it (a middle person's
 index holds only their own rows, so a colleague the owner shared with directly
 is not excluded, and the function refuses in words: *this subject is already
 shared with that person*; N2b round 1, finding 2); the contract line: *They will read
@@ -1036,11 +1048,13 @@ and persistently.
   `batch_id` draw as **one card** (§1.5): *Audrey shared her course «Blender
   5.0» with you: 7 subjects*, the titles listed under it in title order
   (outlines marked), the note once, **Accept all** and **Decline all**: the
-  client calls `share.accept` (or `share.decline`) once per row, in that order,
-  **skipping rows whose `state` is `gone`** (a subject the owner has trashed
-  refuses every accept, and a loop that stopped on it would hold the rest of the
-  batch hostage; the card says *1 of 7 is no longer available*; N2b round 1,
-  finding 4), and stops at the first other refusal, showing its sentence; the
+  client calls `share.accept` or `share.decline` once per row, in that order;
+  **Accept all skips rows whose `state` is `gone`** (a subject the owner has
+  trashed refuses every accept, and a loop that stopped on it would hold the
+  rest of the batch hostage; the card says *1 of 7 is no longer available*; N2b
+  round 1, finding 4) while **Decline all declines every row, `gone` ones
+  included** (a decline reads nothing of the subject; N2b round 2, finding 4);
+  either stops at the first other refusal, showing its sentence; the
   rows it did not reach stay pending and the card stays, with the count it
   still holds. A `gone` row inside a batch card carries **Dismiss** (a decline),
   the one per-row control a batch card has in 1.0 (§7). An onward offer
@@ -1111,7 +1125,9 @@ edits are therefore seen at the next open. A 404 on an open means
 the row is no longer readable; the client re-reads the share list first and
 lets the index's `state` choose the words (round 1, finding 20): `gone` →
 *«Modifiers» is no longer available: the owner removed it. It comes back if they
-restore it.*; `revoked` → *«Modifiers» is no longer shared with you.*; either
+restore it.*; `revoked` → *«Modifiers» is no longer shared with you.*; any other
+`state` on a 404 is a row the functions could not have made and reads as
+`gone` (N2b round 2, finding 5); either
 way the row leaves the course and the pet's index is cleared (§5.6). The
 `activeSubjectKey` (§5.5), not the slug, drives the active-row highlight in the
 sidebar and every cache key for the host's own subjects, so a linked
@@ -1225,7 +1241,8 @@ clearing when the accepted set changes; a link that fell with its chain is a
    with the single share's disclosure; `batch_id` is a grouping key, not a fact
    about the course, and the public share function cannot file a row into one.
 9. A receiver who passes a subject on can learn, by trying, that a colleague
-   already holds a live link to it: the pass-on is refused in words, as any
+   already holds a live offer or link to it (a pending offer counts; N2b round
+   2, finding 10): the pass-on is refused in words, as any
    share to someone who already holds the subject is, and a refused call writes
    no row and no audit line. They learn that and nothing more: not who shared
    it, nor when. Stated rather than hidden, because a neutral refusal would still
@@ -1262,18 +1279,31 @@ the way the new row reaches them, so all six paths call it (N2b round 1,
 finding 11).
 
 **Where it hangs:** one helper, `offerNewSubjectsToBatchReceivers(courseSlug,
-newSubjectSlugs)`, called once at the end of each of the six paths, after that
-path's `loadSoftwareList()` has resolved (each ends with
-`invalidateCache(slug); await loadSoftwareList(); selectSoftware(slug, true)`,
-and `selectSoftware` returns before `subjectList` is set, so the helper does
-not wait on it), with every subject slug the run saved. Nothing in a run holds
-a subject **id** (`subject.save`'s response carries none), so the helper reads
-`subject.list` for the course itself, one GET whose wire carries `id` after B1
-(§5.1), and maps the run's slugs to ids (N2b round 1, finding 10). The stub
-loop passes its whole list, so a run that adds seven outlines asks **once**,
-not seven times: *once per new subject* holds (each new subject is asked about
-exactly once), in one dialog. It does nothing when the course is new (no batch
-row can exist for it), when the list is empty, or outside `cloudMode`.
+slugsBefore, slugsSaved)`, called once at the end of each of the six paths,
+**after the path's last `subject.save` has resolved** (every path awaits its
+saves) and independent of what the path does next: the paths end differently
+(two `await loadSoftwareList()` and return early when the load is discarded;
+two call `selectSoftware` and `selectSubject` with no list reload; the import
+and the undo call `loadSoftwareList()` without awaiting it), so the helper
+waits on none of that (N2b round 2, finding 1). In the import's export branch
+it is called once per course, inside the loop, with that course's slugs. Two
+inputs decide what is **new**: the slugs the run saved, and the slugs the course
+held before the run (the stub loops already read `existingSubs`; the other paths
+read `subject.list` once before their first save), because `subject.save`
+updates a slug it finds and a re-import or a regenerated subject is not new; a
+previously declined or withdrawn subject must not be offered again as new (N2b
+round 2, finding 1). Nothing in a run holds a subject **id** (`subject.save`'s
+response carries none), so the helper reads `subject.list` for the course after
+the saves, one GET whose wire carries `id` after B1 (§5.1), and maps the new
+slugs to ids (N2b round 1, finding 10). The stub loop passes its whole list, so
+a run that adds seven outlines asks **once**, not seven times: *once per new
+subject* holds (each new subject is asked about exactly once), in one dialog.
+It does nothing when the course is new (no batch row can exist for it), when
+nothing new was saved, or outside `cloudMode`. In cloud mode a lesson import,
+or an export made in local mode, names courses by a slugified name while a
+cloud course's slug on the wire is its id, so those imports save nothing today
+and the reminder cannot fire from them (pre-existing, outside this brief;
+recorded in `docs/OUTSTANDING.md`; N2b round 2, note).
 
 **What it reads:** the live share index (`subjectShares`, re-read first: one
 RPC). The people to offer are the receivers of rows with `batch_id` set,
@@ -1361,10 +1391,11 @@ cache, with the cached control; the active row by key, not slug); the dialog's
 contract line and its refusal path; the sections' states (`pending`, `gone`, a
 dead host) and the 404 words chosen by `state`; the batch card's loop stopping
 at the first refusal with the rest left pending; the chain line's *via*
-resolved from the same list; the batch card's Accept all skipping `gone` rows,
-with Dismiss on them; the reminder's helper firing once per run with the run's
-whole list from all six paths, mapping slugs to ids from `subject.list`, never
-outside `cloudMode`, and its **Share** making single rows; `petKnowledge.test.js`'s linked
+resolved from the same list; the batch card's Accept all skipping `gone` rows
+and Decline all taking them, with Dismiss on them; the reminder's helper firing
+once per run from all six paths after the last save, offering only slugs the
+course did not hold before the run, mapping them to ids from `subject.list`,
+never outside `cloudMode`, and its **Share** making single rows; `petKnowledge.test.js`'s linked
 entry and its 404; the existing source pins (`shareDiscoverability`,
 `suggestChangeGating`, `otterCss`) kept green.
 **Measures:** vitest counts; the bundle (the growth should stay under 20 KB; say
@@ -1535,7 +1566,8 @@ held and are written in as given):
 - *A fifth function* became a fifth and a sixth: `otter_subject_share_course` (callable) and `otter_subject_share_make` (internal, executable by no client role), because a batch row must behave exactly as a single row under every probe and two copies of the same checks and audit line are the 0059 and 0069 shape, an arm that drifts. The public `otter_subject_share` is a wrapper over the row-maker.
 - *A recursive CTE bounded at depth 8* would have needed a counter in the helper and a second count in the row-maker to refuse the ninth link: one number in two places. `chain_depth` on the row (pinned, `CHECK BETWEEN 1 AND 8`) makes both walks step by exactly one and end by construction, puts the bound in one CHECK, and makes the ninth link a one-line refusal. The brief's two columns became three, plus `batch_id`.
 - *The policy's owner arm trusts a column* (`subject_owner_id`), as the brief asked (a policy that reads its own table recurses), so the guard asserts that column against the live course at insert, armed or not, and the index and the revoke read the **live** owner (the revoke from the live course alone, so a forged row misnaming its owner is still its live owner's to end; N2b round 1, finding 6). What remains: a row forged with the trigger disabled and misnaming its owner is readable, as ids and snapshots, by the person it misnames through the raw table and nowhere else (an in-tenant forgery; round 1, finding 9).
-- *The reminder hangs "after `subject.create` resolves"*: there is no such op. The first `subject.save` of a new subject is the moment, in six places (the four generation paths, the import and the delete undo: in cloud mode an undo is a new row with a new id, N2b round 1, finding 11), and a run that makes several outlines asks once with the whole list; the helper maps the run's slugs to ids from `subject.list` (§5.9).
+- *The reminder hangs "after `subject.create` resolves"*: there is no such op. The last `subject.save` of a run is the moment, in six places (the four generation paths, the import and the delete undo: in cloud mode an undo is a new row with a new id, N2b round 1, finding 11), whatever the path does next (the paths end differently; N2b round 2, finding 1); a run that makes several outlines asks once, for the slugs the course did not hold before, mapped to ids from `subject.list` (§5.9).
+- *No per-row controls inside a batch card; Accept all stops at the first refusal*: both held until round 1 found that a subject in the owner's trash refuses every accept and would hold the rest of a batch hostage. Accept all skips `gone` rows, Decline all takes them, and a `gone` row carries Dismiss, the one per-row control (N2b round 1, finding 4; round 2, findings 4 and 8).
 - *The alternatives the brief offered* (a client-side loop of `otter_subject_share` for the batch; a batch-accept function) were not taken, each for the cost the brief named; the batch-accept is in §7 so B1 does not add it.
 - *The forged onward row's state* (decide and say): `gone`, the word for a link that does not resolve, as for a trashed source; listed to the owner only (§3.6).
 
@@ -1583,6 +1615,59 @@ inline self-FK, ADD COLUMN then SET NOT NULL on an empty table, WITH RECURSIVE
 inside EXISTS and inside a FROM subquery in a FOR loop, SELECT INTO FOR SHARE,
 the regexes, the block-comment strip without an `s` flag because an ARE's `.`
 matches a newline, no dash pair in any string); the brief's departures in §10.
+
+---
+
+## 12. N2b review round 2 (2026-10-27): round 1's corrections attacked
+
+A second Fable reviewer read the diff of round 1's corrections
+(`1668cfc3..c7a71688`, every hunk), the whole design and Appendix A again, the
+questions file, the brief, and the code each correction leans on (0008, 0021,
+0022, 0064, 0065, 0069, suite 70, `otterRoutes.js`, the adapter's `course.create`,
+`subject.list`, `subject.save` and `subject.delete`, the six subject-saving
+paths of `Otter.jsx` and their endings, the Phase 5 components), read-only. No
+HIGH; one MEDIUM, nine LOW, and notes. It found round 1's corrections 1 (the
+race, walked through every interleaving: every function takes its share-row
+locks in one global order, `(chain_depth, id)`, so no cycle; the revoke's `FOR
+UPDATE` precedes its cursor, and a pass-on under it must hold `FOR SHARE` on
+it, so it either committed before the cursor's snapshot or re-reads the revoked
+row under READ COMMITTED and raises), 2, 3, 4, 5, 6, 7, 9, 11 and 12 sound, 8
+partly (four sentences left), and 10 not sound (the paths do not end as it
+said). Every finding is answered above, each marked *(N2b round 2, finding n)*.
+
+| # | Severity | Finding | Done |
+|---|---|---|---|
+| 1 | MEDIUM | Round 1's §5.9 said every path ends with `await loadSoftwareList()`; two do, two never call it, and the import and the undo call it without awaiting; the import loops over several courses. And a re-import saves existing subjects too (`subject.save` updates a slug it finds), so "the slugs the run saved" would re-offer a declined or withdrawn subject as new | The helper runs after the path's last `subject.save` has resolved and waits on nothing else; in the import's export branch once per course inside the loop; it offers only slugs the course did not hold before the run (the stub loops already read `existingSubs`; the others read `subject.list` once before saving) and maps them to ids from `subject.list` after (§5.9, §6.2, §10) |
+| 2 | LOW | The matrix's `revoke(SH10)` row had c and e both ending it, while the timeline has SH10 fall in SH1's cascade | c's and e's cells point at SH11 and SH12, where those two hands are probed (§4.1) |
+| 3 | LOW | The matrix's `share(S1, d)` cell for d expected the standing sentence, but as d the receiver is d, and *choose a colleague* runs first | The cell says so and probes the standing sentence with `share(S1, e)` (§4.1) |
+| 4 | LOW | Round 1's `gone` skip was written onto both loops; a decline reads nothing of the subject, so Decline all should take `gone` rows rather than leave them for Dismiss one at a time | Accept all skips them, Decline all declines them (§1.5, §5.3, §6.2) |
+| 5 | LOW | The index's link test read the parent's status only, where the helper also checks the subject, the sharer and the depth, so a depth-forged accepted row (SHZ) was listed as `accepted` to its parties with the live course identity and a host pointer, and a 404 on it had no words | The index checks the link as the helper does, in the `state` CASE and the listing predicate; SHZ is `gone` to the owner and hidden from d and h from the start; the owner ends it by hand in group 10 (one more WIL-4113); §3.6 names the un-cascaded residual; §5.4 gives the stray 404 its words (§3.6, §4.1, §4.2, §5.4, A §11) |
+| 6 | LOW | §3.7 said every context carries `course_id`; the decline's and the revoke's did not | Both look the course up and carry it, the cascaded lines too (§3.7, A §9, A §10) |
+| 7 | LOW | Four owner-only or two-party sentences survived round 1's sweep: §1's owner term, §1.1's "gone to both", §3.1's "both sides' lists", §3.6's "not only from the row's column" (the index reads the live owner only) | All four reworded (§1, §1.1, §3.1, §3.6, A §11's header) |
+| 8 | LOW | §10's list of departures from the brief lacked the two round 1 made: Dismiss on a `gone` row, and Accept all skipping `gone` rows | One bullet names both with the reason (§10) |
+| 9 | LOW | The matrix's S2 and S6 cell conflated two moments: 9c withdraws the S6 row before SH1's cascade | The cell gives both moments (§4.1) |
+| 10 | LOW | The disclosure of round 1's finding 2 said "a live link"; the refusal fires for a pending offer too | "a live offer or link", in §1.4, §5.2 and §5.7 |
+
+**Notes answered:** a chain emptied under the collect (a purge in the same
+instant) is refused in words, not by a null-array error (A §5); the
+post-conditions count the locks as 0069 counts (exactly one live `FOR SHARE` in
+the row-maker, two live `FOR UPDATE` in the revoke) rather than only finding
+them (§3.9, A §12); §4's quoted refusals are prefixes and B1 writes the full
+sentences or uses `throws_like` (§4); `cascaded_from` names the row ended by
+hand (§3.7). Recorded in `docs/OUTSTANDING.md`, outside this brief's scope: in
+cloud mode a lesson import, or an export made in local mode, names courses by a
+slugified name while a cloud course's slug is its id, so `subject.save` fails
+on the non-uuid and nothing is saved (pre-existing; the reminder cannot fire
+from those imports, §5.9). Stated and left: the existence oracle *subject not
+found in this workspace* versus the standing sentence (UUIDs are unguessable;
+0064's functions have the same shape); §11's note still describes the
+pre-correction `SELECT INTO FOR SHARE` (a record of that round). Confirmed and
+left as written: the audit counts (now 15 / 13 / 1 / 12 with the by-hand end of
+SHZ), SH5's full column list against every CHECK and NOT NULL, the owner role
+from the live course (a NULL owner falls to the party arms, never to `owner`),
+the standing-first order (no §4 sentence changes), undo as a new row in cloud
+mode, the SQL whole (valid on a fresh database and on one that ran 0065,
+idempotent, the nine functions, 28 index columns, no dash pair in a string).
 
 ---
 
@@ -2211,6 +2296,11 @@ BEGIN
         )
         SELECT up.id, up.chain_depth FROM up
       ) q;
+    IF v_chain IS NULL THEN
+      -- The anchor row went between the read above and the walk (a purge in
+      -- the same instant): the same sentence, not a null-array error.
+      RAISE EXCEPTION 'this subject is no longer shared with you';
+    END IF;
     FOREACH v_link IN ARRAY v_chain LOOP
       PERFORM 1 FROM public.otter_subject_shares s
         WHERE s.id = v_link AND s.status = 'accepted'
@@ -2538,9 +2628,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_uid   UUID := auth.uid();
-  v_ws    UUID := public.current_workspace_id();
-  v_share public.otter_subject_shares%ROWTYPE;
+  v_uid    UUID := auth.uid();
+  v_ws     UUID := public.current_workspace_id();
+  v_share  public.otter_subject_shares%ROWTYPE;
+  v_course UUID;
 BEGIN
   IF v_uid IS NULL OR v_ws IS NULL OR NOT public.has_active_membership(v_ws) THEN
     RAISE EXCEPTION 'not_a_workspace_member';
@@ -2557,6 +2648,11 @@ BEGIN
   IF v_share.status <> 'pending' THEN
     RAISE EXCEPTION 'this share is % — only a pending share can be declined', v_share.status;
   END IF;
+  -- For the audit line only: every code's context names the course (N2b
+  -- round 2, finding 6). The decline reads nothing else of the subject, so a
+  -- subject in the trash can still be declined.
+  SELECT sub.course_id INTO v_course
+    FROM public.otter_subjects sub WHERE sub.id = v_share.subject_id;
 
   PERFORM set_config('wilson.otter_subject_share_update', v_share.id::text, true);
   UPDATE public.otter_subject_shares SET status = 'declined' WHERE id = v_share.id;
@@ -2567,6 +2663,7 @@ BEGIN
   VALUES (v_ws, v_uid, 'admin', 'WIL-4112', 'info',
           'A shared subject was declined',
           jsonb_build_object('share_id', v_share.id, 'subject_id', v_share.subject_id,
+                             'course_id', v_course,
                              'shared_by', v_share.shared_by, 'shared_with', v_uid,
                              'subject_owner_id', v_share.subject_owner_id,
                              'via_share_id', v_share.via_share_id,
@@ -2606,6 +2703,7 @@ DECLARE
   v_ws      UUID := public.current_workspace_id();
   v_share   public.otter_subject_shares%ROWTYPE;
   v_owner   UUID;
+  v_course  UUID;
   v_role    TEXT;
   v_desc_id UUID;
   v_desc    public.otter_subject_shares%ROWTYPE;
@@ -2624,7 +2722,7 @@ BEGIN
   -- row's own column: the column is the SELECT policy's concern and the
   -- guard's, and a row that misnames its owner is still the live owner's to
   -- end, as the index lists it to them (N2b round 1, finding 6).
-  SELECT src.owner_id INTO v_owner
+  SELECT src.owner_id, src.id INTO v_owner, v_course
     FROM public.otter_subjects sub
     JOIN public.otter_courses  src ON src.id = sub.course_id
    WHERE sub.id = v_share.subject_id;
@@ -2657,6 +2755,7 @@ BEGIN
   VALUES (v_ws, v_uid, 'admin', 'WIL-4113', 'info',
           'A shared subject was revoked',
           jsonb_build_object('share_id', v_share.id, 'subject_id', v_share.subject_id,
+                             'course_id', v_course,
                              'shared_by', v_share.shared_by, 'shared_with', v_share.shared_with,
                              'subject_owner_id', v_share.subject_owner_id,
                              'via_share_id', v_share.via_share_id,
@@ -2704,6 +2803,7 @@ BEGIN
     VALUES (v_ws, v_uid, 'admin', 'WIL-4113', 'info',
             'A shared subject was revoked',
             jsonb_build_object('share_id', v_desc.id, 'subject_id', v_desc.subject_id,
+                               'course_id', v_course,
                                'shared_by', v_desc.shared_by, 'shared_with', v_desc.shared_with,
                                'subject_owner_id', v_desc.subject_owner_id,
                                'via_share_id', v_desc.via_share_id,
@@ -2724,7 +2824,7 @@ COMMENT ON FUNCTION public.otter_subject_share_revoke IS
 -- The receiver of a PENDING share may not read the subject yet (not accepted),
 -- so its title comes from here: the owner's consented disclosure, the minimum
 -- to decide on. What each side may learn is decided HERE, per row:
---   * the OWNER of the subject (read from the live course, not only from the
+--   * the OWNER of the subject (read from the live course, not from the
 --     row): every row of their subject, whoever made it, the live columns
 --     always (it is their subject), with the chain (via_share_id, both labels)
 --     and the batch;
@@ -2737,9 +2837,11 @@ COMMENT ON FUNCTION public.otter_subject_share_revoke IS
 --     nothing live.
 -- A row whose subject or course sits in another workspace is not listed at
 -- all (the helper's belt, repeated here). A pending or accepted onward row
--- whose link above is not accepted is a row the functions could not have made
--- (the cascade ends descendants with their parent): it is listed to the owner
--- only, as `gone`, and to nobody it names.
+-- whose link above is not whole, by the helper's own test (accepted, the same
+-- subject, shared with this row's sharer, exactly one depth shallower), is a
+-- row the functions could not have made (the cascade ends descendants with
+-- their parent; the guard refuses a bad link at insert): it is listed to the
+-- owner only, as `gone`, and to nobody it names (N2b round 2, finding 5).
 
 DROP FUNCTION IF EXISTS public.otter_subject_shares_index();
 
@@ -2825,7 +2927,10 @@ BEGIN
                      OR src.deleted_at IS NOT NULL
                      OR src.owner_id IS DISTINCT FROM s.subject_owner_id
                      OR (s.via_share_id IS NOT NULL
-                         AND par.status IS DISTINCT FROM 'accepted'))
+                         AND NOT COALESCE(par.status = 'accepted'
+                                          AND par.subject_id  = s.subject_id
+                                          AND par.shared_with = s.shared_by
+                                          AND par.chain_depth = s.chain_depth - 1, false)))
              THEN 'gone'
            ELSE s.status
          END,
@@ -2866,7 +2971,10 @@ BEGIN
        OR ((s.shared_by = v_uid OR s.shared_with = v_uid)
            AND (s.via_share_id IS NULL
                 OR s.status IN ('declined', 'revoked')
-                OR par.status = 'accepted'))
+                OR (par.status = 'accepted'
+                    AND par.subject_id  = s.subject_id
+                    AND par.shared_with = s.shared_by
+                    AND par.chain_depth = s.chain_depth - 1)))
      )
    ORDER BY s.created_at DESC, s.chain_depth, s.id;
 END;
@@ -3084,10 +3192,12 @@ BEGIN
             chr(47) || '[' || chr(42) || '].*?[' || chr(42) || ']' || chr(47), '', 'g');
   body := regexp_replace(body,
             chr(45) || chr(45) || '[^' || chr(10) || ']*', '', 'g');
-  IF body NOT LIKE '%WITH RECURSIVE%'
+  SELECT count(*) INTO n FROM regexp_matches(body, 'FOR UPDATE', 'g');
+  IF n <> 2
+     OR body NOT LIKE '%WITH RECURSIVE%'
      OR body NOT LIKE '%upstream%'
      OR body NOT LIKE '%cascaded_from%' THEN
-    RAISE EXCEPTION '0100 post-condition failed: otter_subject_share_revoke lost the cascade';
+    RAISE EXCEPTION '0100 post-condition failed: otter_subject_share_revoke lost the cascade or a lock (expected exactly 2 live FOR UPDATE locks, found %)', n;
   END IF;
 
   -- The row-maker locks the whole chain above a new onward row and walks it
@@ -3098,10 +3208,11 @@ BEGIN
             chr(47) || '[' || chr(42) || '].*?[' || chr(42) || ']' || chr(47), '', 'g');
   body := regexp_replace(body,
             chr(45) || chr(45) || '[^' || chr(10) || ']*', '', 'g');
-  IF body NOT LIKE '%WITH RECURSIVE%'
-     OR body NOT LIKE '%FOR SHARE%'
+  SELECT count(*) INTO n FROM regexp_matches(body, 'FOR SHARE', 'g');
+  IF n <> 1
+     OR body NOT LIKE '%WITH RECURSIVE%'
      OR body NOT LIKE '%otter_has_accepted_subject_share%' THEN
-    RAISE EXCEPTION '0100 post-condition failed: otter_subject_share_make lost the chain lock, its walk or the helper belt';
+    RAISE EXCEPTION '0100 post-condition failed: otter_subject_share_make lost the chain lock (expected exactly 1 live FOR SHARE, found %), its walk or the helper belt', n;
   END IF;
 
   -- The functions' owner bypasses RLS (else they could not write the table).
