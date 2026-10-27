@@ -33,7 +33,7 @@
 
 BEGIN;
 
-SELECT plan(442);
+SELECT plan(446);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1042,8 +1042,12 @@ SELECT throws_ok($$SELECT public.otter_subject_share('05000103-0000-0000-0000-00
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
-INSERT INTO t103 VALUES ('SH9', public.otter_subject_share('05000103-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Passing this on'));
-SELECT ok(pg_temp.sh('SH9') IS NOT NULL, 'SH9: d (who accepted SH1) passes S1 on to e');
+-- From here the chain's shares and accepts run inside lives_ok (as group 10's
+-- do): a guard mutated to allow any transition leaves SH1 declined after group
+-- 6, and the reds must land as probes, not as an abort (control 25, measured).
+SELECT lives_ok($$INSERT INTO t103 VALUES ('SH9', public.otter_subject_share('05000103-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Passing this on'))$$,
+  'SH9: d (who accepted SH1) passes S1 on to e');
+SELECT ok(pg_temp.sh('SH9') IS NOT NULL, '… and gets a share id');
 SELECT is((SELECT via_share_id FROM public.otter_subject_shares WHERE id = pg_temp.sh('SH9')),
           pg_temp.sh('SH1'), '… SH9 hangs from SH1');
 SELECT is((SELECT subject_owner_id FROM public.otter_subject_shares WHERE id = pg_temp.sh('SH9')),
@@ -1077,9 +1081,10 @@ SELECT throws_ok($$SELECT public.otter_subject_share('05000103-0000-0000-0000-00
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
-INSERT INTO t103 VALUES ('E1', public.otter_subject_share_accept(pg_temp.sh('SH9')));
+SELECT lives_ok($$INSERT INTO t103 VALUES ('E1', public.otter_subject_share_accept(pg_temp.sh('SH9')))$$,
+  'e accepts SH9');
 SELECT is((SELECT slug FROM public.otter_courses WHERE id = pg_temp.sh('E1')),
-          'blender-5-0', 'e accepts SH9: a new course of e''s with the OWNER''s slug (not d''s D1 by name)');
+          'blender-5-0', '… a new course of e''s with the OWNER''s slug (not d''s D1 by name)');
 SELECT is((SELECT name FROM public.otter_courses WHERE id = pg_temp.sh('E1')),
           'Blender 5.0', '… and the owner''s course name');
 SELECT is((SELECT owner_id FROM public.otter_courses WHERE id = pg_temp.sh('E1')),
@@ -1096,9 +1101,10 @@ SELECT is((SELECT count(*)::int FROM public.otter_courses WHERE id = '0c000103-0
           0, '… nor of C1');
 SELECT is(public.otter_has_accepted_subject_share('05000103-0000-0000-0000-000000000001'), true, 'the helper is true for e: the chain is whole');
 
-INSERT INTO t103 VALUES ('SH10', public.otter_subject_share('05000103-0000-0000-0000-000000000001', 'abababab-abab-abab-abab-abababababab', NULL));
+SELECT lives_ok($$INSERT INTO t103 VALUES ('SH10', public.otter_subject_share('05000103-0000-0000-0000-000000000001', 'abababab-abab-abab-abab-abababababab', NULL))$$,
+  'SH10: e passes S1 on to h');
 SELECT is((SELECT via_share_id FROM public.otter_subject_shares WHERE id = pg_temp.sh('SH10')),
-          pg_temp.sh('SH9'), 'SH10: e passes S1 on to h, hanging from SH9');
+          pg_temp.sh('SH9'), '… hanging from SH9');
 SELECT is((SELECT chain_depth FROM public.otter_subject_shares WHERE id = pg_temp.sh('SH10')),
           3::smallint, '… depth 3');
 
@@ -1117,9 +1123,10 @@ SELECT is((SELECT subject_title FROM public.otter_subject_shares_index() WHERE i
 SELECT is((SELECT course_id FROM public.otter_subject_shares_index() WHERE id = pg_temp.sh('SH10')),
           NULL::uuid, '… and the pending receiver''s nulls before accepting');
 
-INSERT INTO t103 VALUES ('HH', public.otter_subject_share_accept(pg_temp.sh('SH10')));
+SELECT lives_ok($$INSERT INTO t103 VALUES ('HH', public.otter_subject_share_accept(pg_temp.sh('SH10')))$$,
+  'h accepts SH10');
 SELECT is((SELECT owner_id FROM public.otter_courses WHERE id = pg_temp.sh('HH')),
-          'abababab-abab-abab-abab-abababababab'::uuid, 'h accepts SH10: a course of h''s');
+          'abababab-abab-abab-abab-abababababab'::uuid, '… a course of h''s');
 SELECT is((SELECT count(*)::int FROM public.otter_subjects WHERE id = '05000103-0000-0000-0000-000000000001'),
           1, 'h reads S1 (three links from the owner)');
 SELECT is(public.otter_has_accepted_subject_share('05000103-0000-0000-0000-000000000001'), true, 'the helper is true for h');
