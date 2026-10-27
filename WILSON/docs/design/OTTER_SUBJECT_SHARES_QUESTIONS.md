@@ -31,15 +31,15 @@ any one and I will explain it on its own, in plain words.
   nothing else.
 - Their ticks, their quiz scores and their validator findings are theirs: kept
   on their own course, never shown to you, and kept if you withdraw the share.
-- Only an active member of the same company can receive; anyone who may read
-  the subject can be offered it, admins and managers included; nobody outside
+- Only an active member of the same company can receive, admins and managers
+  included (they get exactly what anyone gets: the one subject); nobody outside
   the company, ever.
 - Admins never see a share's row or the subject; they see one audit line per
   share, accept, decline and withdrawal, naming who and which ids, never a title.
 
 ---
 
-## Batch 1 — who shares, where it lands, how many, who can end it
+## Batch 1 — who shares, where it lands, who can end it, what happens when someone leaves
 
 **S1. May anyone other than you share a subject from your course?**
 
@@ -76,27 +76,37 @@ be sure to have in common. Letting them choose adds a picker and a second server
 check; matching by name minus version would guess wrong on names that are not
 "Software N.N".
 
-**S3. Share with one colleague at a time, or several at once?**
-
-- **Several at once, one share each.** *(Recommended)* You tick the people; each
-  gets their own offer to accept or decline, and you can withdraw any one of
-  them.
-- **One at a time.** Open the dialog again for the next person.
-
-*Why:* a subject is usually shared with the few people who need it, and five
-dialogs for five people is the kind of friction that stops the feature being
-used. The server is the same either way: one row per person.
-
-**S4. Once they have accepted, can the receiver remove the linked subject from
+**S3. Once they have accepted, can the receiver remove the linked subject from
 their course themselves?**
 
 - **Yes.** *(Recommended)* "Remove from my course" ends the link the same way
   your withdrawal does; their ticks are kept and come back if you share it
-  again; your list shows "they removed it".
-- **No. Only you can end a share.** They can only decline before accepting.
+  again into the same course; your list shows "they removed it".
+- **No. Only you can end a share.** They can only decline before accepting. One
+  consequence to know: if they delete the course the subject sits in, the link
+  stays "accepted" with nowhere to show until you withdraw it, and you cannot
+  share that subject with them again until you do.
 
 *Why:* it is their course, and a subject they no longer want in it should not
 need a message to you. Nothing of yours is affected either way.
+
+**S4. When the person who shared a subject leaves the company (their account is
+deactivated), what happens to the links they made?**
+
+- **They stay live.** *(Recommended)* The colleagues who accepted keep reading
+  the subject, as a course shared with the company stays readable after its
+  owner leaves. The cost: the person who left can no longer withdraw it, so only
+  the receiver can end it, or an admin by moving the whole course to the trash.
+- **They pause.** While the account is deactivated the receivers see nothing;
+  if the person is reactivated the links come back on their own. Nothing is
+  deleted.
+- **They end for good.** Deactivating the account withdraws every share they
+  made, as if they had done it themselves.
+
+*Why:* a personal course is private even from admins, so when someone leaves,
+the links they gave are often the only way their work stays useful to the
+people they gave it to. "Pause" is the cautious middle; "end" is the strictest
+reading of consent.
 
 ### Your answers, batch 1
 
@@ -107,13 +117,17 @@ need a message to you. Nothing of yours is affected either way.
 ## Things I decided without asking (say if any is wrong)
 
 - **A declined share is a record** you can see ("Declined", with the date), as
-  a declined change request or nomination is. Nothing else is kept, and the
-  share never opened anything to them.
-- **When the owner leaves the company**, the links they made stay live for the
-  people who accepted them, as a course shared with the company stays readable
-  after its owner leaves. The receiver can remove it, and an admin can trash the
-  course, which ends it. When the receiver leaves, they read nothing until they
-  are back.
+  a declined change request or nomination is. The row keeps your note and the
+  subject's title and course name as they were when you offered it, never what
+  they are called now; the share never opened anything to them.
+- **Several colleagues at once:** you tick the people and each gets their own
+  offer, to accept or decline on their own; you can withdraw any one of them.
+  The server is the same either way: one row per person.
+- **An outline (a subject you have not generated yet) can be shared.** The
+  receiver sees "Outline only" until you write it, and then the content, live.
+- **When the receiver leaves the company**, they read nothing until they are
+  back; the link itself is untouched. (What happens when the sharer leaves is
+  S4, above.)
 - **A subject in the trash reads "No longer available"** on the receiver's
   side until you restore it (the link comes back on its own) or it is purged
   after 30 days (the share goes with it).
@@ -147,7 +161,7 @@ need a message to you. Nothing of yours is affected either way.
 ```
 s1 only the owner of a course shares its subjects.
 s2 same identifier only: a different version is a different course, so it lands in a new course of my course's name.
-s3 several colleagues at once, one share each.
-s4 yes, the receiver can remove a linked subject from their course; my list says they removed it.
+s3 yes, the receiver can remove a linked subject from their course; my list says they removed it.
+s4 the links stay live when the sharer leaves; the receiver or an admin can end them.
 decided-without-asking all good
 ```
