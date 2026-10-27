@@ -42,7 +42,7 @@ What the last month built: the post-overhaul bundles (settings, O.T.T.E.R. funct
 
 **Features:**
 - Everything on the beta today.
-- **Subject shares in O.T.T.E.R.** (Phase 5c): a live link to one subject, accepted first, each person's own progression. Migration 0065 holds the schema draft and her quotes of 2026-08-12. Design on night 1, then two build nights.
+- **Subject shares in O.T.T.E.R.** (Phase 5c): a live link to one subject, accepted first, each person's own progression. Migration 0065 holds the schema draft and her quotes of 2026-08-12. Design on night 1, then two build nights. **Added by her on morning 1 (2026-10-27):** a whole course to one person (a batch of subject shares behind one button; later subjects do not follow, a reminder asks) and the receiver passing a subject on (a chain that falls with its first link). Of the six things N2 had left out she kept out: seeing their progress, expiry or a cooldown, sharing outside the company, a share that copies. Written into the design by N2b, a Fable day session, before B1.
 - **Reconnect after a hung sign-in.** One stuck session check pins every cloud call; a banner says so and nothing recovers. A design, then a build.
 - **Offline launch past the sign-in screen** with a fresh saved sign-in; cloud calls then fail honestly. A policy decision then a small build; the fix shape is in `OUTSTANDING.md`.
 - **The desktop → cloud migration carries everything**: shot lists, edits, folders, comments, milestones, budgets, expenses, levels, experiences; and a second run does not resurrect rows a teammate deleted. Two build nights.
@@ -95,17 +95,24 @@ Files: N1 touches `scripts/`, `.claude/launch.json`, `docs/OUTSTANDING.md`, `doc
 ### Morning 1
 Audrey answers N2's questions (multiple choice). The controller merges to the beta. Walkthrough 81 is hers when she has time; it does not block night 2. **B1 cannot start until N2's questions are answered.**
 
+### Day 1 (2026-10-27, between the nights)
+| Session | Model | Scope |
+|---|---|---|
+| **N2b Whole-course and onward shares, the design** | Fable | Her ruling of the morning written into `OTTER_SUBJECT_SHARES_DESIGN.md` and its Appendix A in place: the batch (`batch_id`, `otter_subject_share_course`), the chain (`via_share_id`, `subject_owner_id`, the helper's walk, the cascading revoke), suite 103 extended, B1's and B2's lists updated; two review rounds; brief `po-n2b-course-and-onward-shares.md`. B1's brief follows its merge. |
+
+Also that day: the ninth beta merge (`69546e1d`); the RLS workflow pinned to `ubuntu-24.04` (`2f6a9f61`) after GitHub's move of `ubuntu-latest` to Ubuntu 26.04 broke Playwright 1.59's Chromium install; the R1 and S1 briefs; DG3-04 accepted as built. N2b merged at 19:3x UTC (`ed36cc70`); the B1 brief followed it. Night 2 started at 19:13 UTC on her clicks: S1 runs on Fable by her word in that session (*"use fable for this"*); R1 started on Fable without stopping on its first line and was switched to Opus 5.5 by the controller seven minutes in; B1 started at 19:31 UTC on her click and ran on Fable 5.1 throughout: it stated the model on its first line and did not stop, nobody said go, and the controller noticed at 21:21 UTC, after its `--no-ff` merge `41e1171f` (21:12 UTC; CI green on all four jobs on the branch head and on the merge). B1 done: 0100 on wilson-dev, suite 103 at 446/446, 33 failing controls, the seven routes; 0100 and suite 103 applied to staging by the controller at 21:55 UTC on her go (rehearsed rolled back first; 446/446 there; staging owes nothing); S1 moved to Opus 5.5 at 21:34 UTC on her go, the Fable weekly at 88 percent; the avatars cause stays unproven (no session holds the smoke user's password; the one request that settles it is in the hand-off's §6).
+
 ### Night 2
 | Session | Scope |
 |---|---|
-| **B1 Subject shares, the server** | Migration 0100 (the schema from the design; 0065 removed), RLS, the consent RPC, pgTAP suite 103, the adapter calls, avatars' bucket and policy beside it; applied to dev by the session, to staging by the controller |
+| **B1 Subject shares, the server** | Migration 0100 (the schema from the design with the batch and the chain N2b added; 0065 removed), RLS, the consent RPC, pgTAP suite 103, the adapter calls, avatars' bucket and policy beside it; applied to dev by the session, to staging by the controller |
 | **R1 R.A.B.B.I.T. robustness** | The Levels/Experiences write gate; the dependency rewire; S5-02; DG1-01; the Dashboard's stale assets and the CSV export; P1-29/30 |
 | **S1 Reconnect** | The design of reconnecting after a hung sign-in (the auth library's per-key lock, the abandoned session check, what a fresh client costs) in the first half; the build in the second, or design only with her questions if the reviewers say the build needs a ruling; the 2FA overflow beside it |
 
 ### Night 3
 | Session | Scope |
 |---|---|
-| **B2 Subject shares, the client** | The share, accept and revoke screens; a linked subject read live inside the receiver's course; per-user progress; the pet reads it; the night's walkthrough |
+| **B2 Subject shares, the client** | The share, accept and revoke screens; a linked subject read live inside the receiver's course; per-user progress; the pet reads it; the batch card in Requests, *Share this course with…*, *Pass on…*, the reminder when a subject is added to a course shared whole; the night's walkthrough |
 | **M1 Migration, part 1** | An inventory of what the desktop holds against what the migration carries, then shot lists, edits, folders, comments and milestones carried, pinned by a round trip on the fixtures |
 | **S2 Offline launch** | The policy (a saved, unexpired sign-in opens the shell offline; which cards say what), the build, the pet retry beside it |
 

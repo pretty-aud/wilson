@@ -40,6 +40,11 @@
 // and the mono, which is what makes a money column line up at all (R3-02: zero
 // tabular-nums in four money tables).
 //
+// `compact` (R1, 2026-10-27; the kit request B4-KR-3): 8px cells a side
+// instead of 12, head and body together — for a data table with more columns
+// than a 1280 window holds (the Rate card, Team members: P1-30, P1-29). Set by
+// the VIEW, as `dense` is; never a user toggle.
+//
 // The sort slot is ALWAYS rendered, at a fixed width, whether or not the
 // column is sorted — otherwise the header label shifts sideways the moment you
 // sort by it, which is the one moment you are looking straight at it.
@@ -149,6 +154,7 @@ export function Table({
   foot,
   children,
   dense = false,
+  compact = false,
   surface = 'dark',
   className = '',
   scrollClassName = '',
@@ -169,6 +175,7 @@ export function Table({
         ref={tableRef}
         className={`ui-table ${className}`.trim()}
         data-dense={dense ? 'true' : undefined}
+        data-compact={compact ? 'true' : undefined}
         data-surface={surface}
         data-sticky={sticky ? 'true' : undefined}
         data-sticky-columns={sticky ? String(sticky) : undefined}

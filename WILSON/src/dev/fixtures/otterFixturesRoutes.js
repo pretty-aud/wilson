@@ -112,10 +112,11 @@ export function createOtterFixturesHandler(store, { userId, workspaceId }) {
     },
 
     // ── subjects ─────────────────────────────────────────────────────────────
+    // 0100: the row's `id` rides on both subject wires, as the cloud's do.
     'subject.list'({ slug }) {
       courseOr404(slug)
       return subjectsOf(slug).map(r => ({
-        slug: r.slug, title: r.title || r.slug, description: r.description ?? '',
+        id: r.id, slug: r.slug, title: r.title || r.slug, description: r.description ?? '',
         skill_level: r.skill_level ?? 'beginner', is_stub: r.is_stub ?? false, subject_order: r.subject_order ?? 0,
       }))
     },
@@ -123,8 +124,11 @@ export function createOtterFixturesHandler(store, { userId, workspaceId }) {
       courseOr404(slug)
       const row = subjectsOf(slug).find(s => s.slug === sub)
       if (!row) throw new FixturesRouteError('Not found', 404)
-      return toSubjectWire(clone(row), slug)
+      return { ...toSubjectWire(clone(row), slug), id: row.id }
     },
+    // 0100: a linked subject by id. Fixture data holds no share and no link,
+    // so there is nothing to read: 404, the signal the client acts on (§5.4).
+    'subject.getById'() { throw new FixturesRouteError('Not found', 404) },
     'subject.save'({ slug, sub, body }) {
       courseOr404(slug)
       const subjectSlug = sub || slugify(body?.slug || body?.title || '')
@@ -249,6 +253,14 @@ export function createOtterFixturesHandler(store, { userId, workspaceId }) {
     'nomination.create'() { throw devWriteRefused('Nominating a course') },
     'nomination.update'() { throw devWriteRefused('Updating a nomination') },
     'nomination.approve'() { throw devWriteRefused('Approving a nomination') },
+    // Subject shares (0100), answered as nominations are: the list empty, the
+    // writes refused in words (the toast says so), the id read 404 above.
+    'share.list'() { return [] },
+    'share.create'() { throw devWriteRefused('Sharing a subject') },
+    'share.createCourse'() { throw devWriteRefused('Sharing a whole course') },
+    'share.accept'() { throw devWriteRefused('Accepting a shared subject') },
+    'share.decline'() { throw devWriteRefused('Declining a shared subject') },
+    'share.revoke'() { throw devWriteRefused('Ending a shared subject') },
 
     'export.all'() {
       const software = ops['course.list']().map(c => ({
@@ -258,6 +270,7 @@ export function createOtterFixturesHandler(store, { userId, workspaceId }) {
         nodes: ops['doc.get']({ slug: c.slug, doc: 'nodes' }),
         progress: ops['progress.get']({ slug: c.slug }),
         subjects: ops['subject.list']({ slug: c.slug }).map(s => ops['subject.get']({ slug: c.slug, sub: s.slug })),
+        linked_subjects: [], // 0100: no share on fixture data, so nothing is linked in
       }))
       return { version: '2.0', exported_at: now(), quiz_history: ops['quiz.list']().attempts, software }
     },

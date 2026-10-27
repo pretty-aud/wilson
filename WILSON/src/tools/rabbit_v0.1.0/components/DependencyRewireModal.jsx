@@ -7,9 +7,13 @@
 // and PhaseExtendModal / DetailBar).
 //
 // It states which edge is being replaced and by what, and says plainly that
-// the old link is removed before the new one is saved — that is the loss the
-// confirm does NOT prevent (docs/OUTSTANDING.md keeps the atomicity entry),
-// and hiding it would make the modal a false promise.
+// the old link is removed before the new one is saved — the loss the confirm
+// did NOT prevent, and hiding it would have made the modal a false promise.
+// R1 (2026-10-27) closed that loss: the provider's rewireDependency puts the
+// old link back when the new one is refused. The brief kept these words as
+// they are, so the last sentence now says more than happens (the old link is
+// back, and the strip says the change was not saved); rewording it is
+// Audrey's (walkthrough 82 asks).
 //
 // Merged over the UI overhaul (2026-09-29): the kit Dialog at the confirm
 // width, on lane B4's warning anatomy (`rb-warn-`, rabbitFiles.css — the

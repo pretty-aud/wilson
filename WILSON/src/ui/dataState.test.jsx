@@ -72,6 +72,14 @@ const CASES = [
     off: <Table><Row><Td>x</Td></Row></Table>,
     rest: <Table data-dense={String(false)}><Row><Td>x</Td></Row></Table>,
   },
+  // R1 (2026-10-27): the thirteenth, Table's `compact` (kit request B4-KR-3).
+  {
+    label: 'Table compact',
+    cls: 'ui-table', attr: 'compact', pick: '.ui-table',
+    on: <Table compact><Row><Td>x</Td></Row></Table>,
+    off: <Table><Row><Td>x</Td></Row></Table>,
+    rest: <Table data-compact={String(false)}><Row><Td>x</Td></Row></Table>,
+  },
   {
     label: 'Row selected',
     cls: 'ui-tr', attr: 'selected', pick: '.ui-tr',
@@ -156,8 +164,8 @@ const CASES = [
 ]
 
 describe('boolean data attributes: the component and the stylesheet must agree', () => {
-  it('covers every presence-shaped state the kit writes (twelve, per C3b)', () => {
-    expect(CASES).toHaveLength(12)
+  it('covers every presence-shaped state the kit writes (twelve, per C3b; thirteen since R1 added Table compact)', () => {
+    expect(CASES).toHaveLength(13)
   })
 
   describe.each(CASES)('$label', ({ cls, attr, pick, on, off, rest }) => {

@@ -137,6 +137,19 @@ const REVEAL_TARGETS = Object.freeze({
 //                                    plus 24 + 24 between the three blocks and
 //                                    16 × 4 inside the form.
 //
+// ⚠️ S1 (2026-10-27) MEASURED THE GATE ITSELF, live in the running app: the
+// stack reached through a stubbed sign-in on the dev fixtures' tester (port
+// 5303), in Chromium 147 and in the desktop app (Electron 33.4.11), at
+// 1280x800, 1440x900, 1280x824 and 1280x700 — 506.89px composed (heading
+// block 70.80 · form 371.30 · exits 16.80, plus 24 + 24), 22.30px UNDER the
+// clone estimate above. In the 544px well that is 37.11px of headroom and
+// 18.55px clear of each bar, the same at every one of those heights. Audrey's
+// report of 2026-09-07 (the gate overflowing at ~824px) was taken against the
+// flat 24vh bars of that day, which gave a 428px well; the floor below closed
+// it on 2026-09-11 and S1 measured it closed. Pinned, with the flat 24vh as a
+// failing control, in AuthShell.reveal.test.jsx ("the enrolment gate fits the
+// split band").
+//
 // ⚠️ HOW THE TWO UNREACHABLE SCREENS WERE MEASURED, because it matters.
 // NewUserWelcome needs a freshly-invited account and MfaEnrollGate needs an
 // unenrolled admin session, so neither could simply be opened — the same
@@ -208,14 +221,14 @@ const REVEAL_TARGETS = Object.freeze({
 //
 //   H=1300 → bar 312px, well 676px   the 24vh cap wins; nothing changed
 //   H=900  → bar 178px, well 544px   38px thinner than a flat 24vh
-//   H=700  → bar  78px, well 544px   the minimum window. The tallest screen
-//                                    was ESTIMATED at 529.19px on 2026-09-11
-//                                    (the clone measurement above), before
-//                                    T0 and T3 edited MfaSection; if it still
-//                                    holds, 14.81px of headroom. Nobody has
-//                                    re-measured the MFA gate or
-//                                    NewUserWelcome since: both need a
-//                                    signed-in session.
+//   H=700  → bar  78px, well 544px   the minimum window. The tallest screen,
+//                                    the MFA gate, MEASURED live by S1 on
+//                                    2026-10-27 at 506.89px (the block
+//                                    above): 37.11px of headroom, the same
+//                                    in Chromium and in Electron.
+//                                    NewUserWelcome is still the 2026-09-11
+//                                    estimate (463.67px): it needs a freshly
+//                                    invited account.
 //   H=500  → bar   0px, well 500px   the bars are gone; a web window this
 //                                    short cannot hold the tallest screen
 //   H=420  → bar   0px, well 420px   clamped: the bars vanish rather than

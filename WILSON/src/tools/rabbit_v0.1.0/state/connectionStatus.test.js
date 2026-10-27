@@ -480,7 +480,27 @@ describe('connectionView: three colours, each part in words', () => {
   })
   it('settled states are the three colours only', () => {
     expect(['connected', 'files', 'offline'].every(isSettled)).toBe(true)
-    expect(['checking', 'unchecked', 'none'].some(isSettled)).toBe(false)
+    expect(['checking', 'unchecked', 'none', 'reconnecting'].some(isSettled)).toBe(false)
+  })
+  // S1 (night 2, 2026-10-27): the connection watchdog aborted a cloud request
+  // that hung and is asking the service again; the dot says the strip's words.
+  it('reconnecting (the watchdog\'s word): amber, a diamond, the strip\'s words over the last probe; never announced; the browser offline outranks it', () => {
+    const ok = answered({ ok: true }, { ok: true, place: FILES_PLACE.petal })
+    const v = connectionView({ kind: 'cloud', result: ok, realtimeStatus: 'live', projectOpen: true, reconnecting: true })
+    expect(v).toMatchObject({ state: 'reconnecting', tone: 'warning', summary: 'Reconnecting to the database' })
+    // the files keep the last probe's words: a bucket or a NAS is not what hung (round 2, F12)
+    expect(v.words).toBe('Database: reconnecting… · Files: Petal cloud, connected · Live updates: on')
+    expect(isSettled(v.state)).toBe(false)
+    // without a project, no live-updates part; with no probe yet, the files are still being checked
+    expect(connectionView({ kind: 'cloud', reconnecting: true }).words).toBe('Database: reconnecting… · Files: checking')
+    // only the cloud client is watched: the Local Server, a drive and the fixtures keep their own answer
+    for (const kind of ['local', 'drive', 'fixtures']) {
+      expect(connectionView({ kind, result: ok, reconnecting: true }).state, kind).not.toBe('reconnecting')
+    }
+    // the browser offline is the truer sentence
+    expect(connectionView({ kind: 'cloud', result: ok, reconnecting: true, browserOffline: true }).state).toBe('offline')
+    // and without the watchdog's word the last probe stands
+    expect(connectionView({ kind: 'cloud', result: ok, reconnecting: false }).state).toBe('connected')
   })
   it('no backend: neutral and says so', () => {
     expect(connectionView({ kind: null })).toMatchObject({ state: 'none', tone: 'neutral', words: 'No backend is set up' })

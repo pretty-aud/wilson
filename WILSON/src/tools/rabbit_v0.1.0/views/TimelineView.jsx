@@ -355,9 +355,17 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // reintroduced as a race. The banner is dismissible and any later failure
   // replaces it, so letting it persist costs nothing; clearing it can cost the
   // user a dependency.
+  //
+  // R1 (2026-10-27): the rewire is ONE awaited call now (the provider's
+  // rewireDependency), so that race is gone; the rule stays, at no cost. A
+  // refused link puts the old link back, so "the change was not saved" stays
+  // true — unless the put-back was refused too (`oldLinkLost`), and then the
+  // strip says the old link is gone.
   const onDependencyError = useCallback((action) => (err) => {
     setDepError({
-      message: `Could not ${action}. The change was not saved.`,
+      message: err?.oldLinkLost
+        ? `Could not ${action}, and the old link could not be put back: it was removed.`
+        : `Could not ${action}. The change was not saved.`,
       detail:  err?.message || String(err),
     })
   }, [])
@@ -1379,6 +1387,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
           undefined, onDependencyError('link those phases'))}
         onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).then(
           undefined, onDependencyError('remove that dependency'))}
+        // R1: Replace link, one gesture (the unlink awaited, then the link; a
+        // refused link puts the old one back; one undo step).
+        onRewireDependency={(depId, succId, kind) => ctx.rewireDependency(depId, succId).then(
+          undefined, onDependencyError(kind === 'phase' ? 'link those phases' : 'link those tasks'))}
         // Drag-drop a task onto another row: moveTaskToRow above (VW1m: a
         // phase by phase, the row's items by asset, scene, shot, level or
         // experience, nothing by team). The buildSchedule pass re-derives
@@ -2523,7 +2535,7 @@ export function DetailPane({
   onCreateTaskFromDates,
   onUpdateTask, onUpdatePhase, onMovePhaseAndChildren,
   onToggleCollapse,
-  onLinkTasks, onLinkPhases, onUnlinkDependency,
+  onLinkTasks, onLinkPhases, onUnlinkDependency, onRewireDependency,
   onMoveTaskToPhase,
   onEditTask, onEditPhase,
   onEditAsset, onUpdateAsset,
@@ -2623,13 +2635,13 @@ export function DetailPane({
     return m
   }, [rows])
   function commitRewire(p) {
-    // The two halves are NOT atomic — the unlink commits, then the link may
-    // be refused (commonest: the target edge already exists) — and the modal
-    // says so. docs/OUTSTANDING.md keeps the atomicity entry; the confirm
-    // makes the gesture deliberate, it does not make it safe.
-    onUnlinkDependency?.(p.depId)
-    if (p.kind === 'task')  onLinkTasks?.(p.predId, p.newSuccId)
-    if (p.kind === 'phase') onLinkPhases?.(p.predId, p.newSuccId)
+    // R1 (2026-10-27): ONE call, the provider's rewireDependency — the unlink
+    // awaited, then the link; a refused link (commonest: the target edge
+    // already exists) puts the old edge back, and a rewire that lands is one
+    // undo step (docs/OUTSTANDING.md's atomicity entry, closed). Before, the
+    // two halves ran here side by side, unawaited, and a refused link was a
+    // pure delete.
+    onRewireDependency?.(p.depId, p.newSuccId, p.kind)
     setPendingRewire(null)
   }
 

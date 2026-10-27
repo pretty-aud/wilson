@@ -136,35 +136,39 @@ describe('supabaseAdapter.loadProject — bundle key coverage', () => {
   })
 })
 
+// A table that answers as PostgREST does: a range's rows, never more than
+// max_rows in one answer, and the first max_rows when no range is asked.
+// (R1, 2026-10-27: out of R2-4's block, for DG1-01's files below too; `limit`
+// for the files' one-row column probes, which take the first rows and read
+// only the error.)
+function pagedTable(rows, calls) {
+  let from = 0
+  let to = null
+  const b = {
+    select: () => b,
+    eq: () => b,
+    order: () => b,
+    limit: () => b,
+    range: (f, t) => { from = f; to = t; return b },
+    then: (resolve, reject) => {
+      calls.push([from, to])
+      const end = Math.min(to == null ? rows.length : to + 1, from + 1000)
+      return Promise.resolve({ data: rows.slice(from, end), error: null }).then(resolve, reject)
+    },
+  }
+  return b
+}
+function clientWith(tables) {
+  const rest = makeClient({ projects: { data: { id: 'p1', title: 'Project One' }, error: null } })
+  return { ...rest, from: (table) => (tables[table] ? tables[table]() : rest.from(table)) }
+}
+
 // VW1m review round 2 (R2-4): PostgREST answers at most max_rows (1,000,
 // supabase/config.toml) rows a call and says nothing about the rest. The
 // assets and the tasks were read in one call, so a 1,001st asset was never
 // loaded — and VW1m hides an item whose row is not loaded (not live). They
 // are read page by page now, as the scenes and shots already were.
 describe('R2-4: assets and tasks are read page by page', () => {
-  // A table that answers as PostgREST does: a range's rows, never more than
-  // max_rows in one answer, and the first max_rows when no range is asked.
-  function pagedTable(rows, calls) {
-    let from = 0
-    let to = null
-    const b = {
-      select: () => b,
-      eq: () => b,
-      order: () => b,
-      range: (f, t) => { from = f; to = t; return b },
-      then: (resolve, reject) => {
-        calls.push([from, to])
-        const end = Math.min(to == null ? rows.length : to + 1, from + 1000)
-        return Promise.resolve({ data: rows.slice(from, end), error: null }).then(resolve, reject)
-      },
-    }
-    return b
-  }
-  function clientWith(tables) {
-    const rest = makeClient({ projects: { data: { id: 'p1', title: 'Project One' }, error: null } })
-    return { ...rest, from: (table) => (tables[table] ? tables[table]() : rest.from(table)) }
-  }
-
   it('1,001 assets and 1,001 tasks: every one is loaded', async () => {
     const assets = Array.from({ length: 1001 }, (_, i) => ({ id: `a${String(i).padStart(4, '0')}`, project_id: 'p1', sort_order: i }))
     const tasks = Array.from({ length: 1001 }, (_, i) => ({ id: `t${String(i).padStart(4, '0')}`, project_id: 'p1', title: `Task ${i}` }))
@@ -195,6 +199,49 @@ describe('R2-4: assets and tasks are read page by page', () => {
     })
     resetSupabaseAdapter()
     await expect(supabaseAdapter().loadProject('p1')).rejects.toThrow('permission denied for table assets')
+  })
+})
+
+// DG1-01 (R1, 2026-10-27, night 2): a project's files were read in one call,
+// cut at PostgREST's 1,000 rows, by listFiles (D.O.G.'s references, the
+// Budget's attachments, the Projects page) and by the load (the Files tab):
+// past the thousandth a file was silently not there. One shared read now
+// (listFilesWith), page by page as listFoldersWith reads the folders, and
+// strict as before (unwrap: a refusal still fails).
+describe('DG1-01 (R1): a project\'s files are read page by page, by listFiles and by the load, one read', () => {
+  const FILES = Array.from({ length: 1001 }, (_, i) => ({ id: `f${String(i).padStart(4, '0')}`, project_id: 'p1', name: `File ${i}` }))
+  // The paged reads; the column probes ask no range.
+  const ranged = (calls) => calls.filter(([, to]) => to != null)
+
+  it('listFiles: 1,001 files, every one, in two pages (the second, short, ends the read)', async () => {
+    const calls = []
+    globalThis.__testSupabase = clientWith({ files: () => pagedTable(FILES, calls) })
+    resetSupabaseAdapter()
+    const got = await supabaseAdapter().listFiles('p1')
+    expect(got).toHaveLength(1001)
+    expect(got[1000].id).toBe('f1000')
+    expect(ranged(calls)).toEqual([[0, 999], [1000, 1999]])
+  })
+
+  it('the load, which the Files tab reads: 1,001 files, every one, in the same two pages', async () => {
+    const calls = []
+    globalThis.__testSupabase = clientWith({ files: () => pagedTable(FILES, calls) })
+    resetSupabaseAdapter()
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.files).toHaveLength(1001)
+    expect(bundle.files.map(f => f.id)).toContain('f1000')
+    expect(ranged(calls)).toEqual([[0, 999], [1000, 1999]])
+  })
+
+  it('CONTROL: a refused read still fails listFiles and the load (unwrap, as before)', async () => {
+    const refused = () => {
+      const b = { select: () => b, eq: () => b, order: () => b, limit: () => b, range: () => b, then: (resolve, reject) => Promise.resolve({ data: null, error: { message: 'permission denied for table files' } }).then(resolve, reject) }
+      return b
+    }
+    globalThis.__testSupabase = clientWith({ files: refused })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().listFiles('p1')).rejects.toThrow('permission denied for table files')
+    await expect(supabaseAdapter().loadProject('p1')).rejects.toThrow('permission denied for table files')
   })
 })
 

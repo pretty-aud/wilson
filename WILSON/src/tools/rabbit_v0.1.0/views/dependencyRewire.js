@@ -13,13 +13,14 @@
 //   • released anywhere else — empty space, the
 //     predecessor itself, a bar of the other kind   → disconnect (unlink only)
 //
-// The rewire is the one that gets a confirm first. It is two writes that are
-// NOT atomic (docs/OUTSTANDING.md "A dependency rewire deletes before it
-// links"): the unlink commits, then the link may be refused — most often by
-// `unique (predecessor_id, successor_id)` when the target edge already exists
-// — and the person is left with a pure delete. The modal does not fix that;
-// Audrey accepted the confirm knowing it does not ("Are you sure" first, 7).
-// It makes the destructive gesture deliberate, and says what it replaces.
+// The rewire is the one that gets a confirm first: it makes the gesture
+// deliberate, and says what it replaces (Audrey's ruling 7, "Are you sure"
+// first). It was two writes that were NOT atomic: the unlink committed, then
+// the link could be refused — most often by `unique (predecessor_id,
+// successor_id)` when the target edge already exists — leaving a pure delete.
+// R1 (2026-10-27) made it one gesture, the provider's rewireDependency: the
+// unlink awaited, then the link; a refused link puts the old edge back; one
+// undo step (dependencyRewire.test.js holds it on the real provider).
 // =============================================================================
 
 /**

@@ -1855,6 +1855,10 @@ select option {
   }
   .ui-table[data-surface="light"] .ui-td { border-bottom-color: var(--color-rule-light); }
   .ui-table[data-dense="true"] .ui-td { height: var(--row-dense); padding-top: 6px; padding-bottom: 6px; }
+  /* Compact cells (R1, 2026-10-27; kit request B4-KR-3): 8px a side, set on
+     the table so its head and its cells move together — for a data table
+     with more columns than 1280 holds (the Rate card, Team members). */
+  .ui-table[data-compact="true"] { --cell-pad-x: 8px; }
   /* Numerics: right-aligned, tabular, in the mono. Four money tables shipped
      with zero tabular-nums and their columns only lined up by luck (R3-02). */
   .ui-th[data-numeric="true"], .ui-td[data-numeric="true"] { font-variant-numeric: tabular-nums; }
@@ -2458,16 +2462,24 @@ select option {
   .tm-search .ui-input { flex: 1 1 auto; min-width: 0; }
 
   /* Row cells */
-  .tm-member { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* R1 review round 1 (R1-03, 2026-10-27): the row WRAPS. At 1280 the Member
+     column has 148px; the name's floor beside the avatar leaves no room for a
+     badge, which ran off the cell's edge ("Producer" read "P", "You" was not
+     there at all). A badge that does not fit beside the name goes to the line
+     under them, whole. */
+  .tm-member { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
   /* 🚨 The name is the most-read text in the row and it must never be the
      thing that gives way. In a flex row beside two inert badges it collapsed
      to ZERO width — the row showed an avatar, "Producer", "You" and no name
      at all. It takes the free space, keeps a floor, and the badges hold their
      size; if anything has to truncate it is the name's tail, with an
-     ellipsis, after the floor is met. */
+     ellipsis, after the floor is met. R1-03: and it keeps its line beside the
+     avatar (24px and the 8px gap): a long name wider than the cell would
+     otherwise wrap away from it, leaving the avatar alone on its line. */
   .tm-name {
     flex: 1 1 auto;
     min-width: 8ch;
+    max-width: calc(100% - 32px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2497,11 +2509,17 @@ select option {
   /* The two page-owned states the kit has no component for. Both were
      `hover:bg-stone-200` — a near-white fill (C9) that only ever resolved
      because no inline background happened to sit beside it. */
+  /* R1 review round 2 (R2-03, 2026-10-27): the field is the cell's content
+     width PLUS its own padding, which the negative margin puts in the cell's
+     padding (4px a side), so its text has the cell's whole content width. At
+     `width: 100%` (border-box) the text had 8px less and the field stopped
+     8px short of the right edge: "Producer", a title, was cut in a column
+     that held it. The rate figure's button shares the rule. */
   .tm-inline-edit,
   .tm-cell-btn {
     display: block;
-    width: 100%;
-    max-width: 100%;
+    width: calc(100% + 8px);
+    max-width: calc(100% + 8px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2517,6 +2535,11 @@ select option {
     transition: background-color var(--duration-state) ease-out;
   }
   .ui-td[data-numeric="true"] .tm-cell-btn { text-align: right; }
+  /* R1 review round 2 (R2-02): the Inactive pill (83px) is 0.6px wider than
+     the Status cell's content box at 8%, and the kit cell's ellipsis drew a
+     "…" after it. Clipped instead, the 0.6px sits in the cell's padding,
+     which `overflow: hidden` does not clip. */
+  .ui-td.tm-status-cell { text-overflow: clip; }
   .tm-inline-edit:hover, .tm-cell-btn:hover { background-color: var(--color-hover); }
   [data-surface="light"] .tm-inline-edit:hover,
   [data-surface="light"] .tm-cell-btn:hover { background-color: var(--color-hover-light); }

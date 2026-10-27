@@ -398,3 +398,52 @@ describe('App picks the welcome up where the reveal left it', () => {
     expect(before).not.toMatch(/requestAnimationFrame\(\(\) => requestAnimationFrame\(holdTitle\)\)/)
   })
 })
+
+// ── The enrolment gate fits the split band (S1, 2026-10-27) ─────────────────
+// OUTSTANDING's "The two-factor enrolment screen overflows the sign-in shell's
+// band at laptop heights" (Audrey's screenshot of 2026-09-07, ~824px tall) was
+// read against the flat 24vh bars of that day. The 544px floor (D2,
+// 2026-09-11) changed the arithmetic, and nobody had measured the gate itself
+// since (it needs an unenrolled admin's session). S1 reached it live — a
+// stubbed sign-in on the dev fixtures' tester, port 5303 — in Chromium 147 and
+// in the desktop app (Electron 33.4.11), at 1280x800, 1440x900, 1280x824 and
+// 1280x700: the stack is 506.89px (heading block 70.80 · form 371.30 · exits
+// 16.80 · two 24px gaps), 37.11px of headroom in the 544px well and 18.55px
+// clear of each bar, the same at every height. Those are the numbers below,
+// evaluated against the LIVE split height the way the reveal pins are; the
+// CONTROLs plant the flat 24vh of 2026-09-07, which must overflow at 824 and
+// at 700, and a floor 40px lower, which must overflow at 700.
+const ENROL_GATE_PX = 506.89
+const ENROL_PARTS = Object.freeze({ heading: 70.8, form: 371.3, exits: 16.8, gaps: 48 })
+const wellAt = (barExpr, H) => H - 2 * resolveAt(barExpr, H)
+
+describe('the enrolment gate fits the split band (S1, 2026-10-27)', () => {
+  it('the measured parts sum to the measured stack', () => {
+    expect(Object.values(ENROL_PARTS).reduce((a, b) => a + b, 0)).toBeCloseTo(ENROL_GATE_PX, 1)
+  })
+
+  it('at 824 and 700 tall (and the walkthrough sizes) the stack sits inside the well, clear of both bars', () => {
+    const p = drive({})
+    for (const H of [824, 700, 800, 900]) {
+      const bar = resolveAt(p.split.height, H)
+      const well = H - 2 * bar
+      expect(well - ENROL_GATE_PX, `H=${H}: headroom`).toBeGreaterThanOrEqual(37.11 - TOL)
+      // the slot is centred, so the stack's top is (H − stack) / 2 from the viewport's top
+      expect((H - ENROL_GATE_PX) / 2 - bar, `H=${H}: clear of the bar`).toBeGreaterThanOrEqual(18.55 - TOL)
+      // the floor the well stands on (544): a change to it is re-measured here, not trusted
+      expect(well, `H=${H}: the well`).toBe(544)
+    }
+  })
+
+  it('CONTROL: the flat 24vh bars of 2026-09-07 overflow at 824 and at 700', () => {
+    expect(wellAt('24vh', 824)).toBeLessThan(ENROL_GATE_PX)    // 428.48: 78.41px short
+    expect(wellAt('24vh', 700)).toBeLessThan(ENROL_GATE_PX)    // 364: 142.89px short
+    expect(ENROL_GATE_PX - wellAt('24vh', 824)).toBeCloseTo(78.41, 1)
+  })
+
+  it('CONTROL: a floor 40px lower than the live one overflows at the 700px minimum window', () => {
+    expect(wellAt('min(24vh, max(0px, calc((100vh - 504px) / 2)))', 700)).toBeLessThan(ENROL_GATE_PX)
+    const p = drive({})
+    expect(wellAt(p.split.height, 700)).toBeGreaterThan(ENROL_GATE_PX)
+  })
+})

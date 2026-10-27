@@ -1929,7 +1929,10 @@
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out;
   }
-  .rb-ent-cell-text:hover { background-color: var(--color-hover); }
+  button.rb-ent-cell-text:hover { background-color: var(--color-hover); }
+  /* R1 (2026-10-27): a seat that cannot write gets the words alone (a span,
+     `data-static`): no hover fill, no pointer — the Assets cell's rule. */
+  .rb-ent-cell-text[data-static="true"] { cursor: default; }
   /* In a row's title (FX8, the kit's RowTitle) the words keep their 6px pull
      to the left and stop at the words box on the right, so the buttons sit
      the kit's 4px past the words' own 6px, as in every table. */
@@ -2199,6 +2202,9 @@
     transition: background-color var(--duration-state) ease-out;
   }
   .rb-ent-thumb-set:hover { background-color: var(--color-hover); }
+  /* R1: greyed for a seat that cannot write, GatedAction's wrapper takes
+     the whole well, so the button inside still fills it. */
+  .rb-ent-thumb-gate { width: 100%; height: 100%; }
   .rb-ent-thumb-hint {
     display: flex;
     flex-direction: column;
@@ -2303,9 +2309,11 @@
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out;
   }
-  .rb-ent-prop-text:hover { background-color: var(--color-hover); }
+  button.rb-ent-prop-text:hover { background-color: var(--color-hover); }
   .rb-ent-prop-text[data-empty="true"] { color: var(--color-ink-3); }
-  .rb-ent-prop-text[data-empty="true"]:hover { color: var(--color-ink-2); }
+  button.rb-ent-prop-text[data-empty="true"]:hover { color: var(--color-ink-2); }
+  /* R1: the words alone for a seat that cannot write (as the cells'). */
+  .rb-ent-prop-text[data-static="true"] { cursor: default; }
   /* The name's editor: the kit's small well where the words were, its text
      where theirs was. (0,3,0) over the kit's small well (0,2,0). */
   .ui-input.rb-ent-name-input[data-size="sm"] { width: calc(100% + 12px); margin-inline: -6px; padding: 0 5px; }

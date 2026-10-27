@@ -351,6 +351,61 @@ describe("the worked example's table columns add up", () => {
     const widest = data.reduce((a, b) => (pct(a[1]) >= pct(b[1]) ? a : b))[0]
     expect(widest).toBe('department')
   })
+
+  // Review round 1 (R1-03), R1 2026-10-27: at 1280 the table has 1,230px (at
+  // 1440 too: the page's width is capped). Each share holds, inside its 8px
+  // cells, what its column cannot cut, measured in Chromium on the fixtures:
+  // its header, its select's option, its figure, a title as long as
+  // Producer, and in Member the avatar beside the name's floor, with the
+  // badges on the line under them, whole (the CSS checks below). R1's first
+  // split gave Member 11% and Title 5%: the Producer badge read "P", You
+  // nothing, Director "DI". Review round 2 (R2-02, R2-03) corrected this
+  // test, which had certified two cuts: Department's "Physical Production"
+  // and the Inactive pill. Re-measure if the type or the kit's padding changes.
+  it('gives every column, at 1,230px, what it cannot cut (review rounds 1 and 2)', () => {
+    const TABLE_PX = 1230
+    const CONTENT_PX = {
+      member: 127,     // Producer and You, the fixtures' pair, sharing the line under the name (80 + 8 + 39); Producer and Director take a line each
+      username: 67,    // USERNAME, its header
+      title: 54,       // Producer, its field's padding in the cell's (R2-03)
+      department: 107, // its select holding Production, the fixtures' longest (65 + 42: borders, padding, Chromium's inset)
+      pronouns: 68,    // PRONOUNS, its header (they/them 63)
+      fullTime: 63,    // FULL-TIME, its header
+      role: 91,        // its select holding Manager (53 + 38)
+      email: 37,       // EMAIL, its header
+      status: 71,      // the Active pill
+      rate: 148,       // a six-figure rate and its loaded figure, $100,000 / $128,000, inside its field (13% cuts it)
+      projects: 63,    // PROJECTS, its header (Salt Hours 62)
+      actions: 28,     // its button
+    }
+    const px = (k) => (pct(TM_COLUMN_WIDTHS[k]) * TABLE_PX) / 100
+    for (const [k, content] of Object.entries(CONTENT_PX)) {
+      expect(px(k) - 16, k).toBeGreaterThanOrEqual(content)
+    }
+    // NOT held, for Audrey to overrule (OUTSTANDING, R1's left-open section):
+    // "Physical Production", the longest default department, needs about 160
+    // inside the cell; 14% leaves 156, and its last letter is clipped (the
+    // select's title shows it whole). 15% holds it, and the 1% can only come
+    // from Day rate, where the six-figure rate above is then cut.
+    expect(px('department') - 16).toBeLessThan(160)
+    // The name's line: the avatar (24), a gap of 8, the name's floor (8ch, 69).
+    expect(px('member') - 16).toBeGreaterThanOrEqual(24 + 8 + 69)
+    const css = readFileSync(resolve(here, '../index.css'), 'utf8').replace(/\r\n/g, '\n')
+    const page = readFileSync(resolve(here, '../components/TeamMembers/TeamMembersPage.jsx'), 'utf8')
+    // The badges go under the name, whole, rather than off the cell's edge:
+    // the row wraps, and the name keeps its line beside the avatar.
+    expect(css).toMatch(/\.tm-member \{[^}]*flex-wrap: wrap;/)
+    expect(css).toMatch(/\.tm-name \{[^}]*max-width: calc\(100% - 32px\);/)
+    // R2-03: an editor's padding sits in the cell's, so its text has the
+    // cell's whole content width (at 100% it had 8px less: Producer was cut).
+    expect(css).toMatch(/\.tm-cell-btn \{[^}]*width: calc\(100% \+ 8px\);\s*max-width: calc\(100% \+ 8px\);/)
+    // R2-02: the Inactive pill (83px) is 0.6px wider than the box at 8%. The
+    // kit cell ellipsised it ("…" after the pill); clipped, the 0.6px sits in
+    // the padding, which `overflow: hidden` does not clip.
+    expect(px('status') - 8).toBeGreaterThanOrEqual(83)
+    expect(css).toMatch(/\.ui-td\.tm-status-cell \{ text-overflow: clip; \}/)
+    expect(page).toContain('<Td className="tm-status-cell">')
+  })
 })
 
 // ── Each tool's Help and Settings, in its own strip (post-overhaul S2a) ─────

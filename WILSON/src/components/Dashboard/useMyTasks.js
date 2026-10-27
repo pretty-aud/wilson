@@ -91,11 +91,13 @@ export function useMyTasks() {
   useEffect(() => { userIdRef.current = userId }, [userId])
   // Asset + project id sets for the relevance filter below. VW1m
   // (2026-10-16): every asset a task is about (its items), not its first one.
-  const myIdsRef = useRef({ assetIds: new Set(), projectIds: new Set() })
+  // R1 (2026-10-27): and my tasks' own ids, for their items' events.
+  const myIdsRef = useRef({ assetIds: new Set(), projectIds: new Set(), taskIds: new Set() })
   useEffect(() => {
     myIdsRef.current = {
       assetIds: taskAssetIds(tasks),
       projectIds: new Set(tasks.map(t => t.project_id).filter(Boolean)),
+      taskIds: new Set(tasks.map(t => t.id).filter(Boolean)),
     }
   }, [tasks])
 
@@ -104,10 +106,18 @@ export function useMyTasks() {
     let timer = null
     const unsub = subscribeWorkspaceEvents((evt) => {
       const uid = userIdRef.current
-      const { assetIds, projectIds } = myIdsRef.current
+      const { assetIds, projectIds, taskIds } = myIdsRef.current
       let relevant = false
       if (evt.op === 'RESYNC') {
         relevant = true // (re)join — close the missed-events window
+      } else if (evt.table === 'task_items') {
+        // R1 (2026-10-27, OUTSTANDING's "The Dashboard shows a task's assets
+        // as of its last load"): 0101 puts an assigned task's items on this
+        // channel (a public project's: a private one's reach here at the next
+        // load). A second asset added to one of my tasks elsewhere changes no
+        // tasks row, so only this event says so.
+        const tid = evt.record?.task_id ?? evt.oldRecord?.task_id
+        relevant = !!tid && taskIds.has(tid)
       } else if (evt.table === 'tasks') {
         relevant = !!uid && [
           evt.record?.assignee_id, evt.record?.reviewer_id,
