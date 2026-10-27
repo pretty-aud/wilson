@@ -24,8 +24,10 @@ import { getPage } from './pages';
 // list never counts it (display: none already keeps it out of the
 // accessibility tree), and the document holds one main without `hidden`, as
 // HTML asks. The two tools mark their own the same way (`hidden` off their
-// page). The kit's focus ring the region wears when focus is given to it is
-// left as it is: Audrey's call (FX14 hand-off §6).
+// page). The region wears the kit's focus ring when focus is given to it,
+// on every page (Audrey, 2026-10-27: "Keep it everywhere"); since DG3 it is
+// drawn inside the region's own box (index.css, `main:focus-visible`), where
+// no page's `overflow: hidden` cuts it (OUTSTANDING FX15-03).
 export default function PageSurface({ id, currentPage, overflow = 'auto', children }) {
   const page = getPage(id);
   const Region = page.ownMain ? 'div' : 'main';

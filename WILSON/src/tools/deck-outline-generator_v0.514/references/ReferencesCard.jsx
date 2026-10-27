@@ -20,7 +20,7 @@
 // before. Card 1 is "1 Project".
 // =============================================================================
 
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import {
   ChevronDown, ChevronRight, Plus, Eye, X, Boxes, Film, Clapperboard, Gamepad2,
   Sparkles, ListChecks, CalendarRange, Flag, FileText, Image as ImageIcon, Video, StickyNote,
@@ -174,6 +174,13 @@ function removing(e, remove) {
   remove();
 }
 
+/** Whether `el` holds focus from the keyboard (`:focus-visible`, decided when
+    focus arrived, as focusAfterRemove reads it). */
+function keyboardHeld(el) {
+  if (!el || el.ownerDocument.activeElement !== el) return false;
+  try { return el.matches(':focus-visible'); } catch { return true; }
+}
+
 /**
  * @param {object} props
  * @param {ReturnType<import('./useReferences').useReferences>} props.refs
@@ -189,8 +196,28 @@ function removing(e, remove) {
  */
 export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, extraUncounted = 0, onAdd, onPreview, uploads }) {
   const [collapsed, setCollapsed] = useState(false);
+  const fileInput = useRef(null);
+  const uploadsGroup = useRef(null);
   const rows = refs.chosenList;
   const uploadFiles = uploads?.files || [];
+  // Choose file goes at the 20th upload. Pressed from the keyboard, it took
+  // focus to the page with it, and the next Enter there made a deck (DG3,
+  // MEASURED); so focus goes to the upload it added, that row's Remove, just
+  // above where it was. Only when its last press found it holding keyboard
+  // focus (`:focus-visible`, as focusAfterRemove reads it): a click that gave
+  // it focus leaves focus as before, while a click on it with the keyboard's
+  // ring still on it (a picker closed unused, a file refused) counts as the
+  // keyboard's, as the ring does (DG3 review round 1, note 2).
+  const keyboardChoose = useRef(false);
+  const atLimit = uploadFiles.length >= UPLOAD_LIMIT;
+  useLayoutEffect(() => {
+    if (!atLimit || !keyboardChoose.current) return;
+    keyboardChoose.current = false;
+    const doc = uploadsGroup.current?.ownerDocument;
+    if (!doc || (doc.activeElement && doc.activeElement !== doc.body)) return;
+    const removes = uploadsGroup.current.querySelectorAll('.dog-refs-remove');
+    removes[removes.length - 1]?.focus();
+  }, [atLimit]);
   // One list, one number (DG2): the uploads and the chosen references.
   const count = uploadFiles.length + rows.length;
   const m = meterState(refs.chosenTokens + extraTokens, undefined, refs.chosenUncounted + extraUncounted);
@@ -256,9 +283,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               name, size and Remove"). Always drawn, so the card is never
               empty. No Preview: an upload is the person's own file, in
               memory, and the eye opens a chosen reference's read. Choose file
-              is the upload block's own <label> and hidden input, as before
-              (Tab does not reach it, as before: OUTSTANDING DG2-01). */}
-          <div className="dog-refs-group dog-refs-uploads" role="group" aria-label="Uploads">
+              is a kit button (DG3, OUTSTANDING DG2-01: it was a <label> round
+              the hidden input, which Tab never reached): Tab stops on it,
+              Enter and Space press it, a screen reader hears "Choose file",
+              and its press clicks the input, which stays hidden. */}
+          <div ref={uploadsGroup} className="dog-refs-group dog-refs-uploads" role="group" aria-label="Uploads">
             <p className="ui-field-label dog-refs-group-label">{`Uploads (${uploadFiles.length})`}</p>
             <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
             {uploadFiles.length > 0 && (
@@ -280,21 +309,27 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               </ul>
             )}
             {uploadFiles.length < UPLOAD_LIMIT && (
-              <label className="ui-btn dog-upload" data-variant="secondary" data-size="md" data-surface="dark">
-                {uploads?.busy ? (
-                  <Loader2 className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <Upload aria-hidden="true" />
-                )}
-                <span>Choose file</span>
-                <span className="dog-upload-hint">(PDF, MD, TXT, images)</span>
+              <>
                 <input
+                  ref={fileInput}
                   type="file"
                   className="hidden"
                   accept={UPLOAD_ACCEPT}
                   onChange={uploads?.add}
                 />
-              </label>
+                {/* Named by its words; the kinds in brackets are its
+                    description, so they are still heard. */}
+                <Button variant="secondary" className="dog-upload" aria-label="Choose file" aria-describedby="dog-upload-hint"
+                  onClick={(e) => { keyboardChoose.current = keyboardHeld(e.currentTarget); fileInput.current?.click(); }}>
+                  {uploads?.busy ? (
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Upload aria-hidden="true" />
+                  )}
+                  <span>Choose file</span>
+                  <span className="dog-upload-hint" id="dog-upload-hint">(PDF, MD, TXT, images)</span>
+                </Button>
+              </>
             )}
             {/* The upload's own refusal or read failure, beside Choose file
                 (review round 1, finding 2). A new node per refusal
