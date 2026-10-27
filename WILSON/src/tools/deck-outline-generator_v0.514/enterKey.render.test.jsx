@@ -707,4 +707,98 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group; 
     expect(sent()).toContain(`DECK CONTEXT & GUIDELINES:\\n${CONTEXT}`)
     expect(sent()).toContain(BRIEF)
   })
+
+  // Review round 1, note 9: the video row was pinned only with a fake entry.
+  it('a video upload, through D.O.G.\'s own handler, is a row with the video glyph and "placed only, not read"', async () => {
+    const d = await openDog({ upload: false })
+    await addUpload(d, new File([new Uint8Array(64)], 'clip-01.mp4', { type: 'video/mp4' }))
+    const row = uploadRows()[0]
+    expect(row.querySelector('svg.dog-file-icon').classList.contains('lucide-video')).toBe(true)
+    expect(row.querySelector('.dog-refs-sub').textContent).toBe('placed only, not read')
+    expect(row.querySelector('.dog-file-size').textContent).toBe('(0.1 KB)')
+  })
+
+  // Review round 1, finding 2: the handler's refusal went to the banner at the
+  // top of D.O.G.'s column, out of sight once uploads pushed Choose file down.
+  it('a kind the handler refuses is said under Choose file, not in the banner at the top; the next upload clears it', async () => {
+    const d = await openDog({ upload: false })
+    await act(async () => { fireEvent.change(chooseInput(), { target: { files: [new File(['x'], 'note-00.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })] } }) })
+    const said = await waitFor(() => { const a = refsBody().querySelector('.dog-refs-uploads [role="alert"]'); expect(a).not.toBe(null); return a })
+    expect(said.textContent).toBe('Please upload a PDF, Markdown, Text, Image, or Video file')
+    expect([...d.view.container.querySelectorAll('.ui-banner')].some((b) => /Please upload/.test(b.textContent))).toBe(false)
+    expect(uploadRows()).toHaveLength(0)
+    await addUpload(d, new File([BRIEF], 'fx13-brief.txt', { type: 'text/plain' }))
+    expect(refsBody().querySelector('.dog-refs-uploads [role="alert"]')).toBe(null)
+  })
+})
+
+// =============================================================================
+// DG2 review round 1, finding 1 (High): Enter on an upload's × took the row
+// away with focus on it; focus fell to <body>, and the next Enter was D.O.G.'s
+// "Enter generates", a full deck from what was left. Keyboard focus now moves
+// to the next Remove (ReferencesCard's focusAfterRemove). jsdom never matches
+// :focus-visible: here it follows Chromium's rule, as FX14's Toast.test.jsx
+// stub does (visible unless the last input before focus arrived was the mouse).
+// =============================================================================
+describe('DG2 review round 1 on the rendered D.O.G.: Enter on an upload\'s × never leaves focus on the page', () => {
+  let mouse = false
+  let visibleFocus = null
+  let spy
+  const onKey = () => { mouse = false }
+  const onMouse = () => { mouse = true }
+  const onFocusIn = (e) => { visibleFocus = mouse ? null : e.target }
+  beforeEach(() => {
+    mouse = false
+    visibleFocus = null
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('mousedown', onMouse, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    const matches = Element.prototype.matches
+    spy = vi.spyOn(Element.prototype, 'matches').mockImplementation(function (sel) {
+      if (sel === ':focus-visible') return this === this.ownerDocument.activeElement && this === visibleFocus
+      return matches.call(this, sel)
+    })
+  })
+  afterEach(() => {
+    spy.mockRestore()
+    document.removeEventListener('keydown', onKey, true)
+    document.removeEventListener('mousedown', onMouse, true)
+    document.removeEventListener('focusin', onFocusIn, true)
+  })
+  async function twoNotes() {
+    const d = await openDog({ upload: false })
+    await addUpload(d, new File(['Note one.'], 'note-01.txt', { type: 'text/plain' }))
+    await new Promise((r) => setTimeout(r, 2))
+    await addUpload(d, new File(['Note two.'], 'note-02.txt', { type: 'text/plain' }))
+    await type(d.box(), CONTEXT)
+    return d
+  }
+
+  it('with words in the box: Enter on the first ×, then Enter again, removes both and starts no deck; focus ends on Add references', async () => {
+    const d = await twoNotes()
+    const first = screen.getByRole('button', { name: 'Remove note-01.txt' })
+    await act(async () => { first.focus() })
+    await pressEnter(first)
+    expect(uploadRows()).toHaveLength(1)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove note-02.txt' }))
+    await pressEnter(document.activeElement)
+    expect(uploadRows()).toHaveLength(0)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(callAI).not.toHaveBeenCalled()
+    expect(d.toasts()).toHaveLength(0)
+  })
+
+  it('CONTROL, the pointer as before DG2: a × the mouse pressed leaves focus to fall, and Enter on the page then starts the deck with what is left', async () => {
+    await twoNotes()
+    const first = screen.getByRole('button', { name: 'Remove note-01.txt' })
+    await act(async () => { fireEvent.mouseDown(first); first.focus() })
+    await act(async () => { fireEvent.click(first) })
+    expect(uploadRows()).toHaveLength(1)
+    expect(document.activeElement).toBe(document.body)
+    await pressEnter(document.body)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(sent()).toContain('Note two.')
+    expect(sent()).not.toContain('Note one.')
+  })
 })

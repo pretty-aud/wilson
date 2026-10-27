@@ -19,7 +19,7 @@
 //
 // Every name here is made up (a file name is content).
 // =============================================================================
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT } from './ReferencesCard'
 
@@ -199,20 +199,45 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(c.view.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit')
   })
 
-  it('Remove all removes the chosen references only, and shows from two of them (uploads not counted)', () => {
+  // Review round 1, finding 3: "Remove all" in a card that lists uploads it
+  // leaves alone misled; it is named for what it removes, beside Add references.
+  it('Remove all references removes the chosen references only, says so, and shows from two of them (uploads not counted)', () => {
     const files = UPLOADS().slice(0, 2)
-    const one = mount({ files, chosen: [ITEM] })
-    expect(screen.queryByRole('button', { name: 'Remove all' })).toBe(null)
+    mount({ files, chosen: [ITEM] })
+    expect(screen.queryByRole('button', { name: /^Remove all/ })).toBe(null)
     cleanup()
     const two = mount({ files, chosen: [ITEM, NOTE] })
-    fireEvent.click(screen.getByRole('button', { name: 'Remove all' }))
+    const removeAll = screen.getByRole('button', { name: 'Remove all references' })
+    expect(removeAll.getAttribute('title')).toBe('Removes the chosen items, files and notes. Your uploads stay.')
+    expect(screen.queryByRole('button', { name: 'Remove all' })).toBe(null)
+    fireEvent.click(removeAll)
     expect(two.refs.removeAll).toHaveBeenCalledTimes(1)
     expect(two.uploads.remove).not.toHaveBeenCalled()
     expect(two.uploadRows()).toHaveLength(2)
     cleanup()
     const uploadsOnly = mount({ files: UPLOADS() })
-    expect(screen.queryByRole('button', { name: 'Remove all' })).toBe(null)
+    expect(screen.queryByRole('button', { name: /^Remove all/ })).toBe(null)
     expect(uploadsOnly.uploadRows()).toHaveLength(4)
+  })
+
+  // Review round 1, finding 2: the refusal was said only in the banner at the
+  // top of the page, out of sight once Choose file had moved down the list.
+  it('an upload\'s refusal is said under Choose file, as an alert; with Choose file gone at 20 it is still said', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1) })
+    expect(c.uploadsGroup().querySelector('[role="alert"]')).toBe(null)
+    cleanup()
+    const uploads = { files: UPLOADS().slice(0, 1), busy: false, add: vi.fn(), remove: vi.fn(), error: 'Please upload a PDF, Markdown, Text, Image, or Video file' }
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={uploads} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    const group = view.container.querySelector('.dog-refs-uploads')
+    const alert = group.querySelector('[role="alert"]')
+    expect(alert.textContent).toBe('Please upload a PDF, Markdown, Text, Image, or Video file')
+    expect(alert.getAttribute('data-tone')).toBe('danger')
+    expect(before(group.querySelector('label.dog-upload'), alert)).toBe(true)
+    cleanup()
+    const many = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
+    const full = render(<ReferencesCard refs={fakeRefs()} uploads={{ ...uploads, files: many, error: 'Maximum 20 files allowed' }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    expect(full.container.querySelector('label.dog-upload')).toBe(null)
+    expect(full.container.querySelector('.dog-refs-uploads [role="alert"]').textContent).toBe('Maximum 20 files allowed')
   })
 
   it('with no project, the "Choose a project" note sits under the uploads group, above the references', () => {
@@ -223,4 +248,85 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(before(note, c.groups()[1])).toBe(true)
     expect(c.uploadsGroup().nextElementSibling).toBe(note)
   })
+})
+
+// =============================================================================
+// Review round 1, finding 1: Enter on a row's × took the row away with focus
+// on it, focus fell to <body>, and the next Enter was D.O.G.'s "Enter
+// generates": a full deck from what was left. Keyboard focus now stays in the
+// list. jsdom never matches :focus-visible, so here it follows Chromium's rule
+// (FX14's stub in src/ui/Toast.test.jsx): visible unless the last input before
+// focus arrived was the mouse.
+// =============================================================================
+describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list', () => {
+  let mouse = false
+  let visibleFocus = null
+  let spy
+  const onKey = () => { mouse = false }
+  const onMouse = () => { mouse = true }
+  const onFocusIn = (e) => { visibleFocus = mouse ? null : e.target }
+  beforeEach(() => {
+    mouse = false
+    visibleFocus = null
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('mousedown', onMouse, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    const matches = Element.prototype.matches
+    spy = vi.spyOn(Element.prototype, 'matches').mockImplementation(function (sel) {
+      if (sel === ':focus-visible') return this === this.ownerDocument.activeElement && this === visibleFocus
+      return matches.call(this, sel)
+    })
+  })
+  afterEach(() => {
+    spy.mockRestore()
+    document.removeEventListener('keydown', onKey, true)
+    document.removeEventListener('mousedown', onMouse, true)
+    document.removeEventListener('focusin', onFocusIn, true)
+  })
+  const removeOf = (name) => screen.getByRole('button', { name: `Remove ${name}` })
+  const press = (b) => { b.focus(); fireEvent.keyDown(b, { key: 'Enter' }); fireEvent.click(b) }
+
+  it('an upload\'s Remove: focus goes to the next row\'s Remove, across the groups', () => {
+    const files = UPLOADS().slice(0, 2)
+    const c = mount({ files, chosen: [ITEM] })
+    press(removeOf(files[0].file.name))
+    expect(c.uploads.remove).toHaveBeenCalledWith(files[0].id)
+    expect(document.activeElement).toBe(removeOf(files[1].file.name))
+    press(removeOf(files[1].file.name))
+    expect(document.activeElement).toBe(removeOf('Scene one'))            // the next row is Items' first
+  })
+
+  it('the last row\'s Remove goes to the previous row\'s; a reference\'s Remove the same', () => {
+    const files = UPLOADS().slice(0, 1)
+    const c = mount({ files, chosen: [ITEM, NOTE] })
+    press(removeOf('A note'))
+    expect(c.refs.untick).toHaveBeenCalledWith(['note:n1'])
+    expect(document.activeElement).toBe(removeOf('Scene one'))
+  })
+
+  it('the only row\'s Remove goes to Add references', () => {
+    const files = UPLOADS().slice(0, 1)
+    mount({ files })
+    press(removeOf(files[0].file.name))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+  })
+
+  it('Remove all references from the keyboard goes to Add references (it goes itself)', () => {
+    const c = mount({ chosen: [ITEM, NOTE] })
+    press(screen.getByRole('button', { name: 'Remove all references' }))
+    expect(c.refs.removeAll).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+  })
+
+  it('CONTROL, the pointer as before: a Remove the mouse put focus on moves nothing', () => {
+    const files = UPLOADS().slice(0, 2)
+    const c = mount({ files })
+    const b = removeOf(files[0].file.name)
+    fireEvent.mouseDown(b)
+    b.focus()
+    fireEvent.click(b)
+    expect(c.uploads.remove).toHaveBeenCalledWith(files[0].id)
+    expect(document.activeElement).toBe(b)
+  })
+
 })

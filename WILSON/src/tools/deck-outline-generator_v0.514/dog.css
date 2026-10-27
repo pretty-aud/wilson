@@ -520,8 +520,10 @@
     cursor: pointer;
   }
   .dog-refs-group-label { display: block; margin-bottom: 4px; }
-  /* DG2: Choose file at the foot of the uploads group, under its rows. */
+  /* DG2: Choose file at the foot of the uploads group, under its rows, and
+     an upload's refusal under it (review round 1, finding 2). */
   .dog-refs-uploads .dog-refs-rows { margin-bottom: 8px; }
+  .dog-refs-upload-error { margin: 8px 0 0; }
   .dog-refs-rows,
   .dog-refs-pick-list,
   .dog-refs-pick-nested,

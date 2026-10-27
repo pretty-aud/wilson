@@ -141,6 +141,39 @@ export const UPLOAD_LIMIT = 20;
 export const uploadSize = (bytes) => `(${(bytes / 1024).toFixed(1)} KB)`;
 
 /**
+ * Where keyboard focus goes when a control in the list takes itself away (DG2
+ * review round 1, finding 1): a row's Remove goes to the next row's Remove,
+ * else the previous row's, else Add references; Remove all goes to Add
+ * references. Never to <body>, where D.O.G.'s Enter would start a deck with
+ * whatever is left. Only keyboard focus moves (`:focus-visible`, decided when
+ * focus arrived, as the kit toast's FX14 rule): after a click, focus is left
+ * as it was before DG2.
+ * @param {HTMLElement} button the control being pressed, still in the page
+ * @returns {HTMLElement|null}
+ */
+export function focusAfterRemove(button) {
+  const doc = button?.ownerDocument;
+  if (!doc || doc.activeElement !== button) return null;
+  let keyboard = true;
+  try { keyboard = button.matches(':focus-visible'); } catch { /* no :focus-visible: the keyboard's */ }
+  if (!keyboard) return null;
+  const body = button.closest('.dog-card-body');
+  if (!body) return null;
+  const add = body.querySelector('.dog-refs-actions button');
+  if (!button.classList.contains('dog-refs-remove')) return add === button ? null : add;
+  const all = [...body.querySelectorAll('.dog-refs-remove')];
+  const i = all.indexOf(button);
+  return all[i + 1] || all[i - 1] || add || null;
+}
+
+/** Press a control that takes itself away, keeping keyboard focus in the list. */
+function removing(e, remove) {
+  const next = focusAfterRemove(e.currentTarget);
+  next?.focus();
+  remove();
+}
+
+/**
  * @param {object} props
  * @param {ReturnType<import('./useReferences').useReferences>} props.refs
  * @param {boolean} props.projectChosen
@@ -236,7 +269,7 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
                       <span className="dog-file-size">{uploadSize(f.file.size)}</span>
                       {f.type === 'video' && <span className="dog-refs-sub">placed only, not read</span>}
                       <IconButton size="sm" icon={X} title={`Remove ${name}`} className="dog-refs-remove"
-                        onClick={() => uploads.remove(f.id)} />
+                        onClick={(e) => removing(e, () => uploads.remove(f.id))} />
                     </li>
                   );
                 })}
@@ -258,6 +291,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
                   onChange={uploads?.add}
                 />
               </label>
+            )}
+            {/* The upload's own refusal or read failure, beside Choose file
+                (review round 1, finding 2). */}
+            {uploads?.error && (
+              <p className="dog-details-note dog-refs-upload-error" data-tone="danger" role="alert">{uploads.error}</p>
             )}
           </div>
 
@@ -292,7 +330,7 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
                         <IconButton size="sm" icon={Eye} title={`Preview ${s.name}`} disabled={gone}
                           onClick={() => onPreview?.(s)} />
                         <IconButton size="sm" icon={X} title={`Remove ${s.name}`} className="dog-refs-remove"
-                          onClick={() => refs.untick([s.key])} />
+                          onClick={(e) => removing(e, () => refs.untick([s.key]))} />
                       </li>
                     );
                   })}
@@ -310,9 +348,12 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               Add references
             </Button>
             {/* The chosen references only, with its Undo; an upload goes by
-                its own Remove (DG2). */}
+                its own Remove (DG2). Named so, beside Add references, since
+                the card now lists uploads it leaves (review round 1, finding
+                3). */}
             {rows.length > 1 && (
-              <Button variant="ghost" onClick={refs.removeAll}>Remove all</Button>
+              <Button variant="ghost" title="Removes the chosen items, files and notes. Your uploads stay."
+                onClick={(e) => removing(e, refs.removeAll)}>Remove all references</Button>
             )}
           </div>
         </div>

@@ -685,6 +685,10 @@ and §2.1's "Upload Documents: untouched", and change P20 by one word.
 
 Also: the contract line no longer names the uploads apart (they are listed);
 the header's count is one number for both; *Remove all* removes the chosen
-references only. What one generation reads and sends (§4), the meter's
+references only and, since code review round 1, reads *Remove all references*
+beside *Add references*. Round 1 also had a Remove pressed from the keyboard
+move focus to the next row's Remove (else the previous, else Add references),
+since focus left on the page made the next Enter a deck; and the upload's own
+refusal said under Choose file instead of the banner at the top. What one generation reads and sends (§4), the meter's
 figures, the AI store's let-go and the Enter rule are unchanged: the state and
 handlers stay in D.O.G. Walkthrough 80.

@@ -63,6 +63,11 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   const [uploadedFiles, setUploadedFiles] = useState([]); // Array of {file, content, type}
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isFileLoading, setIsFileLoading] = useState(false);
+  // Why the last upload was refused or could not be read. Said under Choose
+  // file in References, where the person is (DG2 review round 1, finding 2:
+  // in the banner at the top of the page it was out of sight once a dozen
+  // uploads pushed Choose file down). Cleared by the next upload.
+  const [uploadError, setUploadError] = useState('');
   // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
   // page mounted, so the side then stays where it is put until WILSON closes,
   // as the uploads do; the one exception is the Alt toggle below, which hears
@@ -718,13 +723,14 @@ Generate 3 color themes for this deck.`;
     
     // Check max files limit
     if (uploadedFiles.length >= 20) {
-      setError('Maximum 20 files allowed');
+      setUploadError('Maximum 20 files allowed');
       return;
     }
 
     setIsFileLoading(true);
     setError('');
-    
+    setUploadError('');
+
     // Valid file types - documents, images, and videos
     const isDocument = file.type === 'application/pdf' ||
       file.type === 'text/markdown' ||
@@ -741,7 +747,7 @@ Generate 3 color themes for this deck.`;
       file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i);
 
     if (!isDocument && !isImage && !isVideo) {
-      setError('Please upload a PDF, Markdown, Text, Image, or Video file');
+      setUploadError('Please upload a PDF, Markdown, Text, Image, or Video file');
       setIsFileLoading(false);
       return;
     }
@@ -762,7 +768,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading PDF file');
+          setUploadError('Error reading PDF file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -780,7 +786,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading video file');
+          setUploadError('Error reading video file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -798,7 +804,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading image file');
+          setUploadError('Error reading image file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -814,13 +820,13 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading file');
+          setUploadError('Error reading file');
           setIsFileLoading(false);
         };
         reader.readAsText(file);
       }
     } catch (err) {
-      setError('Error processing file');
+      setUploadError('Error processing file');
       setIsFileLoading(false);
     }
     
@@ -4185,7 +4191,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             extraUncounted={baseUncounted}
             onAdd={() => setShowRefsPicker(true)}
             onPreview={refPreview.open}
-            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile }}
+            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadError }}
           />
 
           {/* Section 3: one card for a single page and a full deck (DG1,

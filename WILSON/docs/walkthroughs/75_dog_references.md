@@ -64,7 +64,7 @@ in DG1b's worktree)
 | 5 | **Your notes**, tick the first | Each note with its subject and date (`po-dg1-refs-04-window-notes`). |
 | 6 | Type **storm** in the search | Every kind narrows at once; files show their folder. |
 | 7 | **Files**, open a folder, tick the folder's own box | Every file in it, at every depth, is chosen; the box shows part-ticked when only some are. A file D.O.G. cannot read (a Photoshop file, a Word file) is listed greyed: *D.O.G. cannot read this kind of file*. |
-| 8 | **Done** | Card 2: *Items (1)* Scene · The storm; *Notes (1)*; the meter, *Less than 1% of what D.O.G. can read for one deck*; **Add references** and **Remove all** (it keeps what it removed for one **Undo**) (`po-dg1-refs-05-card-chosen`). Fold the card: its header still says how many are chosen, and warns if the meter is past the limit. *Amended 2026-10-26 (DG2, walkthrough 80): above Items, the card's first group is **Uploads (0)** with **Choose file**; the header's count includes your uploads, and **Remove all** removes the chosen references only.* |
+| 8 | **Done** | Card 2: *Items (1)* Scene · The storm; *Notes (1)*; the meter, *Less than 1% of what D.O.G. can read for one deck*; **Add references** and **Remove all** (it keeps what it removed for one **Undo**) (`po-dg1-refs-05-card-chosen`). Fold the card: its header still says how many are chosen, and warns if the meter is past the limit. *Amended 2026-10-26 (DG2, walkthrough 80): above Items, the card's first group is **Uploads (0)** with **Choose file**; the header's count includes your uploads, and **Remove all** is now **Remove all references**: it removes the chosen references only, as before.* |
 
 **C. The one card**
 
