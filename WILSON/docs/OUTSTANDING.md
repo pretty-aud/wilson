@@ -3452,25 +3452,6 @@ S4b-11 are untouched and still hers.
   controller in chat as multiple choice, verbatim): "Keep it everywhere
   (Recommended)" — the ring stays on every page; R.A.B.B.I.T.'s clipping is the
   shell's to fix.** Owner: a shell session (DG3, her named item).
-- **FX15-04 · At least thirteen more R.A.B.B.I.T. test files mount the provider in the gap
-  FX14-01's four did.** Render outside `act`, then a wait for the project and a
-  collection, as FX14-01's files did before FX15: `state/taskItemsProvider`,
-  `state/budgetVersionsProvider`, `state/shotListsProvider`,
-  `components/taskBannerUndo`, `state/binsDesktopProvider`, `state/binsProvider`,
-  `state/deleteShotTakes`, `state/editDraftsProvider` (six mounts),
-  `state/fileVerbsProvider`, `state/listRemovalKeepsTasks`, `state/setAsideProvider`,
-  `views/budget/bidVersions`, `views/budget/bidVersionsReview` (each `.test.jsx`, under
-  `src/tools/rabbit_v0.1.0/`), perhaps others of the shape. MEASURED by FX15's review
-  round 1 for the first three: with only their mount forced into the gap (a
-  MutationObserver, as the CONTROLs do), 101 of their 131 tests failed (e.g.
-  shot lists' `no project` from `addShotList`, the project's ref not yet written;
-  the history steps of the other two). None is recorded failing on CI; whether
-  one does depends on the same race as FX13-03 (Testing Library's drain against
-  React's passive flush). Not FX15's scope (FX14-01 named four). Fix: the same
-  mount, best as one shared helper (over the fixtures every provider mount can
-  wait for `ctx.tableViewLast.status` past `unavailable`), each with a CONTROL;
-  or a provider-side fix with its own review (FX14's judgment call 8 kept the
-  provider as it is). Owner: a R.A.B.B.I.T. session.
 - **FX15-05 · The closed nav strip's items are Tab stops and buttons to a screen
   reader, on every page.** PRE-EXISTING. When the strip is closed its box is 0 px
   high, but its 12 or 13 `button.wilson-nav-item` stay `visibility: visible`,

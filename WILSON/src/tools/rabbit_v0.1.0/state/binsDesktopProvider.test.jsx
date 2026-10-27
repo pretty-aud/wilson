@@ -21,6 +21,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, files: null, mode: 'supabase', session: null, authCbs: [], live: null }))
 
@@ -123,8 +124,7 @@ let ctxRef
 function Probe() { ctxRef = useRabbit(); return null }
 
 async function mount() {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.project?.id).toBe('p1') })
 }
 
 beforeEach(() => {
@@ -229,8 +229,7 @@ describe('BC2 — the company\'s locations, managed from Settings', () => {
   it('with no project open, a location is added, renamed and removed (the verbs need the company, not a project)', async () => {
     holder.noProject = true
     try {
-      render(<RabbitProvider><Probe /></RabbitProvider>)
-      await waitFor(() => expect(ctxRef?.adapterMode).toBe('supabase'))
+      await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.adapterMode).toBe('supabase') })
       expect(ctxRef.activeProjectId).toBeNull()
       await act(async () => { await ctxRef.refreshBinLocations() })
       expect(ctxRef.binLocations.map(l => l.id)).toEqual(['L1'])
@@ -247,8 +246,7 @@ describe('BC2 — the company\'s locations, managed from Settings', () => {
   it('the switch with no project open: read for the company, flipped for it, and its undo is for the same company', async () => {
     holder.noProject = true
     try {
-      render(<RabbitProvider><Probe /></RabbitProvider>)
-      await waitFor(() => expect(ctxRef?.adapterMode).toBe('supabase'))
+      await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.adapterMode).toBe('supabase') })
       await act(async () => { await ctxRef.refreshRemoteViewing({ workspaceId: 'w1' }) })
       expect(holder.adapter.db.switchReads).toEqual(['w1'])
       expect(ctxRef.binsInfo.remoteViewing).toBe(false)

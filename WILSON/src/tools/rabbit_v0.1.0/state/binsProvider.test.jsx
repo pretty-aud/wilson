@@ -25,7 +25,8 @@
 //     adapter, unchanged by the provider, and the probe pass stands down.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -193,8 +194,7 @@ let ctxRef
 function Probe() { ctxRef = useRabbit(); return null }
 
 async function mount() {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.project?.id).toBe('p1') })
   await act(async () => { await ctxRef.refreshBins() })
   await waitFor(() => expect(ctxRef.binsInfo.loadedFor).toBe('p1'))
 }
@@ -222,8 +222,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 describe('BC3 — a browser knows what it is from the project load, and keeps every row marked', () => {
   it('binsInfo.capabilities is the cloud\'s once the project has loaded, even when the bins list then fails', async () => {
     holder.adapter.listBins = async () => { throw new Error('the list failed') }
-    render(<RabbitProvider><Probe /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+    await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.project?.id).toBe('p1') })
     expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
     await act(async () => { await expect(ctxRef.refreshBins()).rejects.toThrow('the list failed') })
     expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
