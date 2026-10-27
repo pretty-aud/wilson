@@ -213,6 +213,75 @@ describe('parseOtterRoute — Session 11 cloud-only surfaces', () => {
   })
 })
 
+// B1 / migration 0100 — subject shares (design §5.1). Seven operations, all
+// cloudOnly: a share is a row about two people in a workspace.
+describe('parseOtterRoute — subject shares (0100)', () => {
+  const sh = '0e000100-0000-0000-0000-000000000001'
+  const subjectId = '05000100-0000-0000-0000-000000000001'
+
+  it('routes the index and the single share', () => {
+    expect(p('/api/otter/subject-shares', 'GET')).toEqual({ op: 'share.list', cloudOnly: true })
+    expect(p('/api/otter/subject-shares', 'POST')).toEqual({ op: 'share.create', cloudOnly: true })
+  })
+
+  // The ordering hazard: `course` is a literal route, not a share id, and it
+  // is matched BEFORE /:id/… (as /subjects/renumber is before /subjects/:sub).
+  it('matches /subject-shares/course before /subject-shares/:id/…', () => {
+    expect(p('/api/otter/subject-shares/course', 'POST'))
+      .toEqual({ op: 'share.createCourse', cloudOnly: true })
+    expect(p('/api/otter/subject-shares/course', 'GET')).toBeNull()
+    expect(p('/api/otter/subject-shares/course/accept', 'POST')).toBeNull()
+  })
+
+  it('routes accept, decline and revoke by share id', () => {
+    expect(p(`/api/otter/subject-shares/${sh}/accept`, 'POST'))
+      .toEqual({ op: 'share.accept', id: sh, cloudOnly: true })
+    expect(p(`/api/otter/subject-shares/${sh}/decline`, 'POST'))
+      .toEqual({ op: 'share.decline', id: sh, cloudOnly: true })
+    expect(p(`/api/otter/subject-shares/${sh}/revoke`, 'POST'))
+      .toEqual({ op: 'share.revoke', id: sh, cloudOnly: true })
+  })
+
+  it('refuses share verbs and shapes that do not exist', () => {
+    expect(p('/api/otter/subject-shares', 'DELETE')).toBeNull()
+    expect(p('/api/otter/subject-shares', 'PATCH')).toBeNull()
+    expect(p(`/api/otter/subject-shares/${sh}`, 'POST')).toBeNull()
+    expect(p(`/api/otter/subject-shares/${sh}`, 'GET')).toBeNull()
+    expect(p(`/api/otter/subject-shares/${sh}/accept`, 'GET')).toBeNull()
+    expect(p(`/api/otter/subject-shares/${sh}/approve`, 'POST')).toBeNull()
+    expect(p(`/api/otter/subject-shares/${sh}/accept/x`, 'POST')).toBeNull()
+  })
+
+  // One subject by its ROW id lives under /api/otter, where it cannot collide
+  // with /api/software/:slug/subjects/:sub (by course and slug): the two
+  // prefixes differ, so neither parse can swallow the other.
+  it('reads one subject by id under /api/otter, apart from /api/software/:slug/subjects/:sub', () => {
+    expect(p(`/api/otter/subjects/${subjectId}`, 'GET'))
+      .toEqual({ op: 'subject.getById', id: subjectId, cloudOnly: true })
+    expect(p('/api/software/blender/subjects/intro', 'GET'))
+      .toEqual({ op: 'subject.get', slug: 'blender', sub: 'intro' })
+    expect(p(`/api/software/${subjectId}/subjects`, 'GET'))
+      .toEqual({ op: 'subject.list', slug: subjectId })
+    expect(p('/api/otter/subjects', 'GET')).toBeNull()
+    expect(p(`/api/otter/subjects/${subjectId}`, 'POST')).toBeNull()
+    expect(p(`/api/otter/subjects/${subjectId}`, 'DELETE')).toBeNull()
+    expect(p(`/api/otter/subjects/${subjectId}/x`, 'GET')).toBeNull()
+  })
+
+  it('marks every share route cloudOnly so local mode 501s instead of falling through to Express', () => {
+    const paths = [
+      ['/api/otter/subject-shares', 'GET'],
+      ['/api/otter/subject-shares', 'POST'],
+      ['/api/otter/subject-shares/course', 'POST'],
+      [`/api/otter/subject-shares/${sh}/accept`, 'POST'],
+      [`/api/otter/subject-shares/${sh}/decline`, 'POST'],
+      [`/api/otter/subject-shares/${sh}/revoke`, 'POST'],
+      [`/api/otter/subjects/${subjectId}`, 'GET'],
+    ]
+    for (const [path, verb] of paths) expect(p(path, verb).cloudOnly, path).toBe(true)
+  })
+})
+
 describe('parseOtterRoute — non-routes and tolerance', () => {
   it('returns null for anything that is not an O.T.T.E.R. route', () => {
     expect(p('/api/rabbit/projects', 'GET')).toBeNull()

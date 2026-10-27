@@ -132,6 +132,48 @@ export function parseOtterRoute(pathname, method = 'GET') {
       return null
     }
 
+    // /api/otter/subject-shares[/course | /:id/{accept,decline,revoke}]  (0100)
+    // Subject shares (docs/design/OTTER_SUBJECT_SHARES_DESIGN.md §5.1): one
+    // subject, one person, a live link they accept first; a whole course as a
+    // batch of such rows; a receiver who accepted passing a subject on through
+    // the same POST (the function decides from their accepted row; the route
+    // does not know). cloudOnly throughout, as nominations are: a share is a
+    // row about two people in a workspace, and Express has no such table.
+    // Placed BEFORE the nominations block: shareDiscoverability.test.js slices
+    // this file from that block to its `return null` on an LF anchor, and on
+    // a CRLF checkout the slice runs to the end of the file, so a cloudOnly
+    // route below it would be counted as a nomination route there.
+    if (seg[0] === 'subject-shares') {
+      if (seg.length === 1) {
+        if (verb === 'GET')  return { op: 'share.list', cloudOnly: true }
+        if (verb === 'POST') return { op: 'share.create', cloudOnly: true }
+        return null
+      }
+      // The literal route is matched BEFORE /:id/…, as /subjects/renumber is
+      // matched before /subjects/:sub; and `course` is never a share id.
+      if (seg[1] === 'course') {
+        if (seg.length === 2 && verb === 'POST') return { op: 'share.createCourse', cloudOnly: true }
+        return null
+      }
+      if (seg.length === 3 && verb === 'POST') {
+        if (seg[2] === 'accept')  return { op: 'share.accept',  id: seg[1], cloudOnly: true }
+        if (seg[2] === 'decline') return { op: 'share.decline', id: seg[1], cloudOnly: true }
+        if (seg[2] === 'revoke')  return { op: 'share.revoke',  id: seg[1], cloudOnly: true }
+        return null
+      }
+      return null
+    }
+
+    // /api/otter/subjects/:id — ONE subject by its row id (0100): the way a
+    // linked subject is read inside the receiver's course. A different prefix
+    // from /api/software/:slug/subjects/:sub, which is by course and slug;
+    // the two cannot collide. No row is a 404 on the wire (RLS hid it: the
+    // link ended, or the subject is in the trash), never an empty 200, because
+    // the client acts on it (design §5.4).
+    if (seg[0] === 'subjects' && seg.length === 2 && verb === 'GET') {
+      return { op: 'subject.getById', id: seg[1], cloudOnly: true }
+    }
+
     // /api/otter/nominations[/:id[/approve]]  (0064)
     // cloudOnly throughout: there is no local-server equivalent. The Express
     // server has no nominations table, and an unmatched GET under /api/ hits
