@@ -205,7 +205,11 @@ export const supabaseOtterAdapter = {
     const rows = unwrap(
       await supabase.from('otter_subjects').select(SUBJECT_LIST_COLS)
         .eq('course_id', slug).order('subject_order', { ascending: true })) ?? []
+    // 0100: the row's `id` rides on the wire. Until B1 neither this nor
+    // subject.get carried it, so the owner's client had nothing to share with
+    // (design §5.1); the Express wire never had one and Otter.jsx ignores it.
     return rows.map(r => ({
+      id: r.id,
       slug: r.slug,
       title: r.title || r.slug,
       description: r.description ?? '',
@@ -220,7 +224,22 @@ export const supabaseOtterAdapter = {
       await supabase.from('otter_subjects').select(SUBJECT_FULL_COLS)
         .eq('course_id', slug).eq('slug', sub).maybeSingle())
     if (!row) throw new OtterCloudError('Not found', 404)
-    return toSubjectWire(row, slug)
+    return { ...toSubjectWire(row, slug), id: row.id }
+  },
+
+  // 0100: ONE subject by its row id — the way a linked subject is read inside
+  // the receiver's course (design §5.1, §5.4). The row carries course_id so
+  // the wire's software_slug is the OWNER's course, which the receiver cannot
+  // read and the client must not look up. No row is a 404 ON THE WIRE, never
+  // an empty 200: RLS hid it (the link ended, or the subject is in the trash)
+  // and the client acts on that status.
+  async 'subject.getById'({ id }) {
+    if (!id) throw new OtterCloudError('id required', 400)
+    const row = unwrap(
+      await supabase.from('otter_subjects').select(`${SUBJECT_FULL_COLS}, course_id`)
+        .eq('id', id).maybeSingle())
+    if (!row) throw new OtterCloudError('Not found', 404)
+    return { ...toSubjectWire(row, row.course_id), id: row.id, linked: true }
   },
 
   async 'subject.save'({ slug, sub, body }) {
@@ -889,6 +908,99 @@ export const supabaseOtterAdapter = {
     return { ok: true, course_id: data }
   },
 
+  // ── subject shares (0100) ─────────────────────────────────────────────────
+  // docs/design/OTTER_SUBJECT_SHARES_DESIGN.md §5.1: one subject to one person
+  // as a live link they accept first; a whole course as a batch of such rows;
+  // a receiver who accepted passing a subject on. Every write is a SECURITY
+  // DEFINER function that re-derives who is calling from the JWT and trusts
+  // no argument, so the client only sends intent. Every refusal a function
+  // raises is a sentence written for a person ("only the owner of a course
+  // may share it whole") and is passed through verbatim, as nomination.update
+  // does, with 409 so a call site can tell a refusal from a transport failure.
+  //
+  // The index is returned exactly as the function returns it: the six columns
+  // her ruling of 2026-10-27 added (subject_owner_id, owner_label, batch_id,
+  // via_share_id, chain_depth, is_owner) among the rest, and NO derived key on
+  // the wire — the client makes the progression key with linkKey(), the one
+  // definition (design §5.5).
+
+  async 'share.list'() {
+    return unwrap(await supabase.rpc('otter_subject_shares_index')) ?? []
+  },
+
+  // One subject to one person. The SAME route passes a subject on: the
+  // function decides from the caller's accepted row, the route does not know.
+  async 'share.create'({ body }) {
+    if (!body?.subject_id)  throw new OtterCloudError('subject_id required', 400)
+    if (!body?.shared_with) throw new OtterCloudError('shared_with required', 400)
+    const { data, error } = await supabase.rpc('otter_subject_share', {
+      p_subject_id: body.subject_id,
+      p_shared_with: body.shared_with,
+      p_message: body.message ?? null,
+    })
+    if (error) {
+      // The partial unique index catches the race between two offers of the
+      // same subject to the same person: the function's own sentence, not a
+      // bare 23505.
+      if (error.code === '23505') {
+        throw new OtterCloudError('this subject is already shared with that person', 409)
+      }
+      throw new OtterCloudError(error.message, 409)
+    }
+    return { id: data }
+  },
+
+  // A whole course to one person: a batch of rows, one per live subject, made
+  // in one transaction and grouped by the batch id returned (a subject already
+  // shared with that person is skipped by the function, not refused).
+  async 'share.createCourse'({ body }) {
+    if (!body?.course_id)   throw new OtterCloudError('course_id required', 400)
+    if (!body?.shared_with) throw new OtterCloudError('shared_with required', 400)
+    const { data, error } = await supabase.rpc('otter_subject_share_course', {
+      p_course_id: body.course_id,
+      p_shared_with: body.shared_with,
+      p_message: body.message ?? null,
+    })
+    if (error) {
+      if (error.code === '23505') {
+        throw new OtterCloudError('this subject is already shared with that person', 409)
+      }
+      throw new OtterCloudError(error.message, 409)
+    }
+    return { batch_id: data }
+  },
+
+  // Returns the receiver's HOST course id: their course with the owner's
+  // course slug, found or made by the function.
+  async 'share.accept'({ id }) {
+    const { data, error } = await supabase.rpc('otter_subject_share_accept', { p_share_id: id })
+    if (error) {
+      // otter_courses_owner_slug_uidx: the receiver made the same course by
+      // hand in the same instant. A sentence, not a constraint name.
+      if (error.code === '23505') {
+        throw new OtterCloudError(
+          'You already have a course with this name. Open it, then accept again.', 409)
+      }
+      throw new OtterCloudError(error.message, 409)
+    }
+    return { host_course_id: data }
+  },
+
+  async 'share.decline'({ id }) {
+    const { error } = await supabase.rpc('otter_subject_share_decline', { p_share_id: id })
+    if (error) throw new OtterCloudError(error.message, 409)
+    return { ok: true }
+  },
+
+  // The owner of the subject (any row of their subject), the sharer of an
+  // onward row, or the receiver of an accepted one; every live row below it
+  // falls with it, inside the function.
+  async 'share.revoke'({ id }) {
+    const { error } = await supabase.rpc('otter_subject_share_revoke', { p_share_id: id })
+    if (error) throw new OtterCloudError(error.message, 409)
+    return { ok: true }
+  },
+
   // ── export ────────────────────────────────────────────────────────────────
 
   // 🚨 QUIZ HISTORY MOVED OUT OF THE PER-COURSE LOOP (S30), and the old shape
@@ -901,8 +1013,19 @@ export const supabaseOtterAdapter = {
   //
   // It is now one top-level key, matching Local Server's /api/export-all and
   // the fact that an attempt can span several courses.
+  //
+  // 0100 (design §5.1): each course also carries the subjects LINKED into it
+  // by an accepted share, as `linked_subjects` — full bodies, each saying
+  // where it comes from — because the export is a claim about completeness
+  // and the receiver's progress rows already carry the `link:` keys verbatim.
+  // One index read serves every course: the receiver's live links are the
+  // rows the index gives a host to (nobody else is handed host_course_id),
+  // and in cloud mode a course's wire slug IS its id, so the host matches
+  // the course directly.
   async 'export.all'() {
     const courses = await supabaseOtterAdapter['course.list']()
+    const links = (await supabaseOtterAdapter['share.list']())
+      .filter(r => r.state === 'accepted' && r.host_course_id)
     const software = []
     for (const c of courses) {
       if (c.can_read_content === false) continue // metadata-only rows carry no content
@@ -918,7 +1041,19 @@ export const supabaseOtterAdapter = {
       for (const s of subjects) {
         full.push(await supabaseOtterAdapter['subject.get']({ slug: c.slug, sub: s.slug }))
       }
-      software.push({ meta, hotkeys, functions, nodes, progress, subjects: full })
+      const linked = []
+      for (const r of links.filter(l => l.host_course_id === c.slug)) {
+        try {
+          const body = await supabaseOtterAdapter['subject.getById']({ id: r.subject_id })
+          linked.push({ ...body, linked_from: { course_name: r.course_name, owner_label: r.owner_label } })
+        } catch (err) {
+          // The link ended, or the subject went to the trash, between the
+          // index read and this one: not a row to invent, and not a failure of
+          // the export. Anything else is.
+          if (!(err instanceof OtterCloudError && err.status === 404)) throw err
+        }
+      }
+      software.push({ meta, hotkeys, functions, nodes, progress, subjects: full, linked_subjects: linked })
     }
     const quizHistory = await supabaseOtterAdapter['quiz.list']()
     return {
