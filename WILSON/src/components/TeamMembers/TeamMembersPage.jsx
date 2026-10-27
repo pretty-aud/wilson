@@ -117,16 +117,22 @@ const DEFAULT_DEPARTMENTS = [
 // 8px a side). Nothing is hidden (the page has no column chooser to bring a
 // hidden column back, and three of them are an admin's editors). The shares
 // give every header, every control and every fixed figure its room, measured
-// in Chromium on the fixtures at 1280 and 1440: Day rate 172px ("$88,000 /
-// $112,640" needs 164), Status 98 (87), the actions 49 (44), Role, Pronouns,
-// Full-time, Projects and Username each their label. What gives way is the
-// free text — Member, Title, Email and the longest usernames — ellipsised,
-// whole on hover. Department keeps the largest data share (tied with Day
-// rate), for its select's reason above. Audrey's to overrule (walkthrough 47
-// Q57, walkthrough 82).
+// in Chromium on the fixtures at 1280 and 1440, inside the 8px cells: Day rate
+// 172px (a six-figure rate and its loaded figure need 149), Status 98 (the
+// Active pill 71; Inactive's, 83, sits in the padding), the actions 49 (28),
+// Role 111 (its select, 89), Pronouns, Full-time, Projects and Username each
+// their header. What gives way is the free text — Title (Director and Editor
+// whole; Producer, 62px with its field's padding, loses its last letters),
+// Email, the longest usernames and names — ellipsised, whole on hover: every
+// other column is at its floor. Department keeps the largest data share (tied
+// with Day rate), for its select's reason above. Review round 1 (R1-03): a
+// staff badge cut to a letter is not free text. Member is 12%, and a badge
+// that does not fit beside the name wraps under it, whole (index.css,
+// `.tm-member`); pages.test.js holds each share to what it cannot cut.
+// Audrey's to overrule (walkthrough 47 Q57, walkthrough 82).
 const COL = {
-  member: '11%', username: '7%', title: '5%', department: '14%',
-  pronouns: '7%', fullTime: '7%', role: '10%', email: '6%',
+  member: '12%', username: '7%', title: '6%', department: '14%',
+  pronouns: '7%', fullTime: '7%', role: '9%', email: '5%',
   status: '8%', rate: '14%', projects: '7%', actions: '4%',
 }
 export const TM_COLUMN_WIDTHS = COL

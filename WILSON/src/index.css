@@ -2462,16 +2462,24 @@ select option {
   .tm-search .ui-input { flex: 1 1 auto; min-width: 0; }
 
   /* Row cells */
-  .tm-member { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* R1 review round 1 (R1-03, 2026-10-27): the row WRAPS. At 1280 the Member
+     column has 148px; the name's floor beside the avatar leaves no room for a
+     badge, which ran off the cell's edge ("Producer" read "P", "You" was not
+     there at all). A badge that does not fit beside the name goes to the line
+     under them, whole. */
+  .tm-member { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
   /* 🚨 The name is the most-read text in the row and it must never be the
      thing that gives way. In a flex row beside two inert badges it collapsed
      to ZERO width — the row showed an avatar, "Producer", "You" and no name
      at all. It takes the free space, keeps a floor, and the badges hold their
      size; if anything has to truncate it is the name's tail, with an
-     ellipsis, after the floor is met. */
+     ellipsis, after the floor is met. R1-03: and it keeps its line beside the
+     avatar (24px and the 8px gap): a long name wider than the cell would
+     otherwise wrap away from it, leaving the avatar alone on its line. */
   .tm-name {
     flex: 1 1 auto;
     min-width: 8ch;
+    max-width: calc(100% - 32px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

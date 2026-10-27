@@ -209,6 +209,21 @@ function uniqueEdges(adapter, store, refuse = () => null) {
   return adapter
 }
 
+/** Holds `method`'s FIRST call until released (budgetVersionsProvider.test's gate). */
+function gate(adapter, method) {
+  let release
+  const gateP = new Promise(r => { release = r })
+  let hit
+  const hitP = new Promise(r => { hit = r })
+  const real = adapter[method].bind(adapter)
+  let first = true
+  adapter[method] = async (...args) => {
+    if (first) { first = false; hit(); await gateP }
+    return real(...args)
+  }
+  return { hitP, release }
+}
+
 let ctx = null
 function Probe() { ctx = useRabbit(); return null }
 let fx = null
@@ -228,7 +243,7 @@ describe('R1: Replace link is one gesture (the provider\'s rewireDependency)', (
       id: PLANTED_7_9, predecessor_id: T(7), successor_id: T(9), type: 'FS', lag_days: 0, kind: 'task',
     })
   })
-  afterEach(() => { cleanup(); ctx = null; fx = null })
+  afterEach(() => { cleanup(); ctx = null; fx = null; delete globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS })
 
   it('CONTROL — the two calls commitRewire made, unawaited: a refused link loses the old edge in the database and on the chart; a rewire that lands is two undo steps', async () => {
     await mount(uniqueEdges(fx.rabbitAdapter(), fx.store))
@@ -302,6 +317,96 @@ describe('R1: Replace link is one gesture (the provider\'s rewireDependency)', (
     expect(err?.message).toContain('the network dropped')
     expect(has(fx.store.dependencies, T(7), T(8))).toBe(false)
     expect(has(ctx.dependencies, T(7), T(8))).toBe(false)
+    expect(ctx.canUndo).toBe(false)
+  })
+
+  // Review round 1 (R1-01): the rewire waits its turn in the undo queue, as
+  // the item sets and the version steps do. It ran beside a Ctrl+Z pressed
+  // meanwhile: the press took back the step BEFORE the rewire, and a link
+  // that landed during that replay recorded no step at all.
+  it('R1-01: a Ctrl+Z pressed while a rewire is in flight waits for it, then takes back the rewire; the step before stays', async () => {
+    const a = uniqueEdges(fx.rabbitAdapter(), fx.store)
+    await mount(a)
+    await run(() => ctx.updateTask(T(9), { priority: 'high' })) // the step before (it was medium)
+    const g = gate(a, 'upsertDependency')
+    let rewiring
+    let undoing
+    await act(async () => { rewiring = ctx.rewireDependency(DEP_8_9, T(10)) })
+    await act(async () => { await g.hitP }) // the unlink landed; the link waits
+    await act(async () => { undoing = ctx.undo(); await new Promise(r => setTimeout(r, 20)) })
+    // Not beside it: the step before is still there, in the database too.
+    expect(fx.store.tasks.find(t => t.id === T(9)).priority).toBe('high')
+    g.release()
+    await act(async () => { await rewiring; await undoing })
+    // The press took back the step it followed, the rewire, whole.
+    expect(has(fx.store.dependencies, T(8), T(9))).toBe(true)
+    expect(has(fx.store.dependencies, T(8), T(10))).toBe(false)
+    expect(fx.store.tasks.find(t => t.id === T(9)).priority).toBe('high')
+    expect(ctx.canUndo).toBe(true) // the priority's step, still to take back
+  })
+
+  it('R1-01: a rewire asked for while an Undo still replays past the queue\'s wait is refused in words and writes nothing', async () => {
+    globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 5
+    const a = uniqueEdges(fx.rabbitAdapter(), fx.store)
+    await mount(a)
+    await run(() => ctx.updateTask(T(9), { priority: 'high' }))
+    const g = gate(a, 'patchTask')
+    let undoing
+    await act(async () => { undoing = ctx.undo() })
+    await act(async () => { await g.hitP; await new Promise(r => setTimeout(r, 20)) }) // past the queue's wait
+    let err = null
+    await act(async () => { await ctx.rewireDependency(DEP_8_9, T(10)).catch((e) => { err = e }) })
+    expect(err?.message).toMatch(/an Undo is still running/)
+    expect(has(fx.store.dependencies, T(8), T(9))).toBe(true)
+    expect(has(fx.store.dependencies, T(8), T(10))).toBe(false)
+    g.release()
+    await act(async () => { await undoing })
+  })
+
+  // Review round 1 (R1-02): after a project switch the rewire's later writes
+  // change the database only. The put-back (or the link) was appended to the
+  // bundle open then, another project's: a stray row until its next load.
+  it('R1-02: a project opened while a refused link is in flight: the old edge is put back in the database, and nothing of it lands in the project now open', async () => {
+    const a = uniqueEdges(fx.rabbitAdapter(), fx.store)
+    await mount(a)
+    let other = null
+    await run(async () => { other = await ctx.createProject({ title: 'Other project' }) })
+    const g = gate(a, 'upsertDependency')
+    let err = null
+    let rewiring
+    await act(async () => { rewiring = ctx.rewireDependency(DEP_7_8, T(9)).catch((e) => { err = e }) })
+    await act(async () => { await g.hitP })
+    await run(() => ctx.setActiveProject(other.id))
+    await waitFor(() => expect(ctx.project?.id).toBe(other.id))
+    const opened = ctx.dependencies.map(d => d.id).sort()
+    g.release()
+    await act(async () => { await rewiring })
+    expect(err?.message).toBe(UNIQUE)
+    expect(fx.store.dependencies.find(d => d.id === DEP_7_8)).toMatchObject({ predecessor_id: T(7), successor_id: T(8) })
+    expect(ctx.dependencies.some(d => d.id === DEP_7_8)).toBe(false)
+    expect(ctx.dependencies.map(d => d.id).sort()).toEqual(opened)
+    expect(ctx.canUndo).toBe(false)
+  })
+
+  it('R1-02: a project opened while the unlink is in flight: the rewire lands in the database, and its new edge does not land in the project now open', async () => {
+    const a = uniqueEdges(fx.rabbitAdapter(), fx.store)
+    await mount(a)
+    let other = null
+    await run(async () => { other = await ctx.createProject({ title: 'Other project' }) })
+    const g = gate(a, 'deleteDependency')
+    let rewiring
+    await act(async () => { rewiring = ctx.rewireDependency(DEP_8_9, T(10)) })
+    await act(async () => { await g.hitP })
+    await run(() => ctx.setActiveProject(other.id))
+    await waitFor(() => expect(ctx.project?.id).toBe(other.id))
+    const opened = ctx.dependencies.map(d => d.id).sort()
+    g.release()
+    await act(async () => { await rewiring })
+    const made = fx.store.dependencies.find(d => d.predecessor_id === T(8) && d.successor_id === T(10))
+    expect(made).toBeTruthy()
+    expect(has(fx.store.dependencies, T(8), T(9))).toBe(false)
+    expect(ctx.dependencies.some(d => d.id === made.id)).toBe(false)
+    expect(ctx.dependencies.map(d => d.id).sort()).toEqual(opened)
     expect(ctx.canUndo).toBe(false)
   })
 })

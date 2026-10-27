@@ -351,6 +351,49 @@ describe("the worked example's table columns add up", () => {
     const widest = data.reduce((a, b) => (pct(a[1]) >= pct(b[1]) ? a : b))[0]
     expect(widest).toBe('department')
   })
+
+  // Review round 1 (R1-03), R1 2026-10-27: at 1280 the table has 1,230px (at
+  // 1440 too: the page's width is capped). Each share holds, inside its 8px
+  // cells, what its column cannot cut, measured in Chromium on the fixtures:
+  // its header, its select's longest option, its figure, and in Member, on
+  // the line under the avatar and the name, the widest pair of badges (they
+  // wrap there whole; the CSS check below). R1's first split gave Member 11%
+  // and Title 5%: the Producer badge read "P", You nothing, Director "DI".
+  // Title is free text, ellipsised and whole on hover; at 6% a short title
+  // (Director, Editor) is whole, and Producer loses its last letters: every
+  // other column is at its floor, and the floors sum to 101 with Title at 7.
+  // Re-measure if the type or the kit's cell padding changes.
+  it('gives every column, at 1,230px, what it cannot cut (review round 1, R1-03)', () => {
+    const TABLE_PX = 1230
+    const CONTENT_PX = {
+      member: 127,     // the badges' line: Producer 80, a gap of 8, You 39
+      username: 67,    // USERNAME, its header
+      title: 56,       // Director, inside the field's 4px padding (Producer needs 62)
+      department: 153, // its select holding Physical Production (117 + 36)
+      pronouns: 68,    // PRONOUNS, its header (they/them 63)
+      fullTime: 63,    // FULL-TIME, its header
+      role: 89,        // its select holding Manager (53 + 36)
+      email: 37,       // EMAIL, its header
+      status: 71,      // the Active pill
+      rate: 149,       // a six-figure rate and its loaded figure, $100,000 / $128,000
+      projects: 63,    // PROJECTS, its header (Salt Hours 62)
+      actions: 28,     // its button
+    }
+    const px = (k) => (pct(TM_COLUMN_WIDTHS[k]) * TABLE_PX) / 100
+    for (const [k, content] of Object.entries(CONTENT_PX)) {
+      expect(px(k) - 16, k).toBeGreaterThanOrEqual(content)
+    }
+    // The Inactive pill (83px) is wider than the box at 8% by 0.6px: it sits
+    // in the cell's right padding, which `overflow: hidden` does not clip.
+    expect(px('status') - 8).toBeGreaterThanOrEqual(83)
+    // The name's line: the avatar (24), a gap of 8, the name's floor (8ch, 69).
+    expect(px('member') - 16).toBeGreaterThanOrEqual(24 + 8 + 69)
+    // The badges go under the name, whole, rather than off the cell's edge:
+    // the row wraps, and the name keeps its line beside the avatar.
+    const css = readFileSync(resolve(here, '../index.css'), 'utf8').replace(/\r\n/g, '\n')
+    expect(css).toMatch(/\.tm-member \{[^}]*flex-wrap: wrap;/)
+    expect(css).toMatch(/\.tm-name \{[^}]*max-width: calc\(100% - 32px\);/)
+  })
 })
 
 // ── Each tool's Help and Settings, in its own strip (post-overhaul S2a) ─────

@@ -721,8 +721,9 @@ export default function ProjectTasksView() {
     const shown = (col, t) => {
       if (col.kind) return itemNamesOf(itemLookup, t, col.kind, itemSort)
       switch (col.key) {
-        case 'status':      return t.status ? optionLabel('status', t.status) : ''
-        case 'priority':    return t.priority ? optionLabel('priority', t.priority) : ''
+        // Review round 1 (R1-04): none stored reads as its row's select does.
+        case 'status':      return optionLabel('status', t.status || 'waiting_to_start')
+        case 'priority':    return optionLabel('priority', t.priority || 'medium')
         case 'phase_id':    return phaseById[t.phase_id]?.name || ''
         case 'assignee_id': return memberName(t.assignee_id)
         default:            return t[col.key] ?? ''

@@ -925,4 +925,19 @@ describe('R1: the CSV export writes what the table shows', () => {
     expect(head).not.toContain('Priority')
     expect(head).toEqual([...heads(), 'Notes', 'Created'])
   })
+
+  // Review round 1 (R1-04): a task with no stored status or priority. Its
+  // row's selects show the defaults; the file wrote two blank cells.
+  it('R1-04: a task with no stored status or priority is written as its row shows it: Waiting to start, Medium', async () => {
+    const t = fx.store.tasks.find(x => x.title === 'Set build')
+    t.status = null
+    t.priority = null
+    await mount()
+    const row = [...document.querySelectorAll('.rb-task-table tbody tr')].find(tr => tr.textContent.includes('Set build'))
+    const inRow = (label) => within(row).getByRole('combobox', { name: label }).selectedOptions[0].textContent
+    expect([inRow('Status'), inRow('Priority')]).toEqual(['Waiting to start', 'Medium'])
+    const [head, ...rows] = exportCsv()
+    const cells = rows.find(r => r[0] === 'Set build')
+    expect(Object.fromEntries(head.map((h, i) => [h, cells[i]]))).toMatchObject({ Status: 'Waiting to start', Priority: 'Medium' })
+  })
 })

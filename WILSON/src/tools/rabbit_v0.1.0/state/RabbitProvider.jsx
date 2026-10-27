@@ -4911,10 +4911,17 @@ export function RabbitProvider({ children }) {
   // the bundle as it is when it starts, and a refused one takes back only its
   // own change (optimistic's revertOwnChange), so no stale snapshot redraws
   // the deleted edge: the put-back is the one way it returns.
+  // Review round 1 (R1-02): a write that starts after a project switch changes
+  // the database only (`onBundle`, read as each write starts). The put-back,
+  // or the link, was appended to the bundle open then, another project's: a
+  // stray row in it until its next load. The history entry was already
+  // dropped (pushHistory's `visit`). The person's call waits its turn in the
+  // undo queue: rewireDependencyQueued, below (R1-01).
   const rewireDependency = useCallback(async (dependencyId, successorId, existingId = null) => {
     const oldRow = bundleRef.current.dependencies.find(d => d.id === dependencyId);
     if (!oldRow) throw new Error('That dependency is no longer on this project.');
     const visit = projectVisitRef.current;
+    const onBundle = (mutator) => (projectVisitRef.current === visit ? mutator : (prev) => prev);
     const newRow = {
       id:             existingId || uuidv4(),
       predecessor_id: oldRow.predecessor_id,
@@ -4925,7 +4932,7 @@ export function RabbitProvider({ children }) {
       project_id:     activeProjectId,
     };
     const putBack = () => optimistic(
-      prev => ({ ...prev, dependencies: [...prev.dependencies, oldRow] }),
+      onBundle(prev => ({ ...prev, dependencies: [...prev.dependencies, oldRow] })),
       () => adapterRef.current.upsertDependency(oldRow),
     );
     await optimistic(
@@ -4938,11 +4945,13 @@ export function RabbitProvider({ children }) {
     // refused put-back would take nothing back: the chart redrawing an edge
     // the database no longer has — the stale snapshot the OUTSTANDING entry
     // named (dependencyRewire.test.js, the refused put-back, holds it).
-    bundleRef.current = { ...bundleRef.current, dependencies: (bundleRef.current.dependencies || []).filter(d => d.id !== dependencyId) };
+    if (projectVisitRef.current === visit) {
+      bundleRef.current = { ...bundleRef.current, dependencies: (bundleRef.current.dependencies || []).filter(d => d.id !== dependencyId) };
+    }
     let result;
     try {
       result = await optimistic(
-        prev => ({ ...prev, dependencies: [...prev.dependencies, newRow] }),
+        onBundle(prev => ({ ...prev, dependencies: [...prev.dependencies, newRow] })),
         () => adapterRef.current.upsertDependency(newRow),
       );
     } catch (err) {
@@ -4967,6 +4976,20 @@ export function RabbitProvider({ children }) {
     }, visit);
     return result;
   }, [optimistic, activeProjectId]);
+
+  // Review round 1 (R1-01): the PERSON's rewire waits its turn in the undo
+  // queue, queued before its first await, as the item sets and the version
+  // steps do (VW1m R1-5, S5c R1-02). Its writes ran beside a Ctrl+Z pressed
+  // meanwhile: the press took back the step BEFORE the rewire, and a link
+  // that landed during that replay (history `suspended`) recorded no step at
+  // all. Refused in words while a replay still runs past the queue's wait
+  // (refuseWhileReplaying); the Timeline's strip says it. The raw verb stays
+  // in mutationsRef for the redo (inside the queue already: queued there, it
+  // would wait on itself).
+  const rewireDependencyQueued = useCallback((dependencyId, successorId) => inHistoryQueue(() => {
+    refuseWhileReplaying();
+    return rewireDependency(dependencyId, successorId);
+  }), [rewireDependency]);
 
   // ── Task links (free URLs) ──────────────────────────────
   const addTaskLink = useCallback(async (link) => {
@@ -8715,7 +8738,8 @@ export function RabbitProvider({ children }) {
     addPhase, updatePhase, deletePhase: deletePhaseVerb, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
     addTask, updateTask, deleteTask: deleteTaskVerb, deleteTasks: deleteTasksVerb,
-    linkTasks, linkPhases, unlinkTasks, unlinkDependency, rewireDependency,
+    // Review round 1 (R1-01): the person's rewire waits its turn in the undo queue.
+    linkTasks, linkPhases, unlinkTasks, unlinkDependency, rewireDependency: rewireDependencyQueued,
     addTaskLink, removeTaskLink,
     // Review round 1 (R1-5): the person's set waits its turn in the undo queue.
     addTaskItem, removeTaskItem, setTaskItemsOfKind: setTaskItemsOfKindQueued,
@@ -8850,7 +8874,7 @@ export function RabbitProvider({ children }) {
     addPhase, updatePhase, deletePhase, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
     addTask, updateTask, deleteTask, deleteTasks,
-    linkTasks, linkPhases, unlinkTasks, unlinkDependency, rewireDependency,
+    linkTasks, linkPhases, unlinkTasks, unlinkDependency, rewireDependency, rewireDependencyQueued,
     addTaskLink, removeTaskLink,
     addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn, assetLevelLinksOn,
     tableViewsApi, addTableView, updateTableView, renameTableView, deleteTableView, reorderTableViews,
