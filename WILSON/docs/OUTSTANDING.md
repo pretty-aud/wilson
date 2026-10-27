@@ -3448,8 +3448,10 @@ S4b-11 are untouched and still hers.
   nothing shows where focus is. MEASURED: R.A.B.B.I.T.'s pictures before and
   after are pixel-identical at 1280x800 and 1440x900 while `:focus-visible`
   matches the region. Whether the region wears the ring at all is Audrey's
-  call (FX14 hand-off §6), not asked here. Owner: Audrey's answer, then the
-  shell.
+  call (FX14 hand-off §6), not asked here. **Audrey, 2026-10-27 (asked by the
+  controller in chat as multiple choice, verbatim): "Keep it everywhere
+  (Recommended)" — the ring stays on every page; R.A.B.B.I.T.'s clipping is the
+  shell's to fix.** Owner: a shell session (DG3, her named item).
 - **FX15-04 · At least thirteen more R.A.B.B.I.T. test files mount the provider in the gap
   FX14-01's four did.** Render outside `act`, then a wait for the project and a
   collection, as FX14-01's files did before FX15: `state/taskItemsProvider`,

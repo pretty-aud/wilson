@@ -109,6 +109,7 @@ No questions are open.
 - **Card 1's title and its field label both say "Project".** The label is the
   dropdown's own; FX15 ties it to the dropdown as its name (written down as
   FX14-04), so it stays. Whether one of the two should go is yours to say.
+  *Your answer of 2026-10-27: reword the label to **Choose a project** (DG3).*
 - **Remove all references** removes the chosen references only, as *Remove
   all* did; an upload goes by its own ×. Only its name changed.
 - **A file under about 50 bytes shows as *(0.0 KB)***, as its chip did.

@@ -548,3 +548,12 @@ Three questions asked by the controller in chat as multiple choice (a type-in al
 - **How the uploads look:** "Rows like the other references (Recommended)" — *each upload a row with its glyph, name, size and Remove, in the same list style as Items, Files and Notes.*
 
 These supersede R19 ("uploads stay exactly as they are") and §2.1's "Upload Documents: untouched" in `DOG_REFERENCES_DESIGN.md`, and change P20's first name by one word. The build is DG2 (`docs/sessions/briefs/po-dg2-uploads-in-references.md`).
+
+## After DG2: two answers (2026-10-27, DG3)
+
+Asked by the controller in chat as multiple choice at "where we at" on 2026-10-27, after DG2 and FX15 merged; her answers verbatim.
+
+- **Card 1 says "Project" twice** (the title *1 Project* and the field label *PROJECT* above the dropdown, which FX15 tied to the dropdown as its name): "Reword the label", then the words: "Choose a project (Recommended)" — *the label above the dropdown reads **Choose a project**; the card title stays **1 Project**; a screen reader names the dropdown by the new label.*
+- **The orange ring round a page's main area** (walkthrough 78 step 13; since FX15 on every page; clipped on R.A.B.B.I.T., OUTSTANDING FX15-03), after she asked "explain more please" and was told in plain words: "Keep it everywhere (Recommended)" — *the ring stays; R.A.B.B.I.T. must show it too.*
+
+The build is DG3 (`docs/sessions/briefs/po-dg3-label-and-ring.md`).
