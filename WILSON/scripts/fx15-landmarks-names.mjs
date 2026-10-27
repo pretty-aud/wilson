@@ -3,7 +3,11 @@
  * Landmarks and names, measured in real Chromium — post-overhaul FX15
  * (2026-10-26, FX14's leftovers FX14-02, FX14-03 and FX14-04).
  *
- *   node scripts/fx15-landmarks-names.mjs <port> --out <dir> [--size 1440x900] [--tag before|after]
+ *   node scripts/fx15-landmarks-names.mjs <port> --out <dir> [--size 1440x900] [--tag before|after] [--shots]
+ *
+ * --shots also writes a picture of the moment each note has left
+ * (`po-fx15-<tag>-0N-note-gone-<page>-<W>x<H>.png`): where focus went, and
+ * the kit's ring when it went to the page's main region.
  *
  * Headless Chromium (no window on screen), closed in a `finally`. Needs the
  * dev server with the dev fixtures' tester (`fx15-worktree` in
@@ -48,8 +52,10 @@ const VALUED = ['--out', '--size', '--tag'];
 const PORT = args.find((a, i) => !a.startsWith('-') && !VALUED.includes(args[i - 1])) || '5305';
 const OUT = flag('--out');
 const TAG = flag('--tag') || 'now';
+const SHOTS = args.includes('--shots');
+const SHOT_NO = { rabbit: 1, 'team-members': 2 };
 if (!OUT) {
-  console.error('usage: fx15-landmarks-names.mjs <port> --out <dir> [--size WxH] [--tag before|after]');
+  console.error('usage: fx15-landmarks-names.mjs <port> --out <dir> [--size WxH] [--tag before|after] [--shots]');
   process.exit(1);
 }
 const [W, H] = (flag('--size') || '1440x900').split('x').map(Number);
@@ -243,6 +249,7 @@ async function toastReturn(browser, id, prepare) {
     });
     const toastLeft = await page.evaluate(() => !document.querySelector('.ui-toast-stack .ui-toast'));
     const focusVisible = await page.evaluate(() => document.activeElement?.matches(':focus-visible') || false);
+    if (SHOTS) await page.screenshot({ path: join(OUT, `po-fx15-${TAG}-0${SHOT_NO[id]}-note-gone-${id}-${W}x${H}.png`) });
     return { page: id, inToast, toastLeft, focusAfter: after, focusVisible, requests: seen.requests };
   } finally {
     await ctx.close();

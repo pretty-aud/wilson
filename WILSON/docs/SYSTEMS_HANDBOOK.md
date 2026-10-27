@@ -3432,6 +3432,16 @@ was (`section1Collapsed`, `section2Collapsed`, `ReferencesCard`'s
 `collapsed`). D.O.G.'s note is a kit toast: focus on its × when it goes comes
 back to where it came from (`TimedToast`, FX14). Walkthrough 78.
 
+**D.O.G.'s settings drawer and dropdowns, for a screen reader (post-overhaul
+FX15).** The drawer's folding sections (16 `button.dog-acc-head` in the source,
+20 drawn: 16 on *System prompts*, the five rewrite modes among them, 4 on
+*Output format*) carry `aria-expanded`, and `aria-controls` naming the
+section's body (`dog-set-<key>`) only while it is drawn; the fold state is
+`settingsCollapsed`, as before. The Project dropdown (`#dog-project`) and Single
+page's layout dropdown (`#dog-slide-layout`) are tied to their labels with
+`htmlFor`; Chromium reads both names in the kit's capitals. `.dog-main` carries
+`hidden` off D.O.G.'s page (§13.4). Walkthrough 79.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
@@ -3906,6 +3916,19 @@ five-phase ~2.1 s transition before flipping the visible page.
 >    component cheap and push the expensive hook into a child that mounts only
 >    *after* the role check — and inside that child, hand each section an
 >    `isActive` prop so its own fetch waits for first activation.
+
+**One main region per page (post-overhaul FX15).** `PageSurface`
+(`src/layout/PageSurface.jsx`, moved out of `App.jsx`; App renders it as
+before) is the page's `<main>`, except on a page whose tool draws its own (the
+registry's `ownMain`: D.O.G.'s `.dog-main`, O.T.T.E.R.'s column), where it stays
+a div. A page off screen keeps `display: none` and also carries `hidden`, and
+so do the two tools' own mains off their page: Chromium's accessibility tree
+has one main on every page and every R.A.B.B.I.T. tab, and the document one
+`<main>` without `hidden` (HTML's rule). The kit toast's focus return
+(`toastFocusReturn`, §13.1's FX14 note) gives focus to that region when the
+element it came from is gone; before, on every page but the two tools, it fell
+to `<body>`. Measured over CDP by `scripts/fx15-landmarks-names.mjs`; pinned in
+`src/layout/PageSurface.test.jsx`. Walkthrough 79.
 
 (`PageShell.jsx` and `ToolShell.jsx` used to sit here unreferenced — the
 shell reimplements the bar inline. Session 17 deleted both, along with eleven
