@@ -6,7 +6,9 @@
 // looking for words that are not there; so every sentence 62 puts in
 // italics is the module's, built the way the tab builds it, and the files
 // it names (the launch entry, the scripts, the pictures) exist by those
-// names.
+// names. N1 (2026-10-27) deleted the one-off script that took its pictures,
+// `bins-gateway-shots.mjs`: the walkthrough is history and keeps the name,
+// so that one file is no longer held to existing.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -53,10 +55,10 @@ describe('walkthrough 62 quotes the tab\'s own sentences', () => {
     expect(MARK_MOVE_MS).toBe(30_000)
     expect(walk).toContain('every thirty seconds')
   })
-  it('names things that exist: the launch entry, the three scripts, the fifteen pictures, migration 0095 and suite 98', () => {
+  it('names things that exist: the launch entry, the two scripts, the fifteen pictures, migration 0095 and suite 98', () => {
     expect(walk).toContain('gw3-worktree')
     expect(walk).toContain('port 5289')
-    for (const f of ['scripts/bins-gateway-shots.mjs', 'scripts/gateway-playback-e2e.mjs', 'scripts/gateway-fullscreen-guard.mjs', 'supabase/tests/rls/98_gateway_next_root_viewing_fraction.sql']) {
+    for (const f of ['scripts/gateway-playback-e2e.mjs', 'scripts/gateway-fullscreen-guard.mjs', 'supabase/tests/rls/98_gateway_next_root_viewing_fraction.sql']) {
       expect(existsSync(path.join(root, f)), f).toBe(true)
       expect(walk, f).toContain(path.basename(f))
     }
@@ -66,10 +68,8 @@ describe('walkthrough 62 quotes the tab\'s own sentences', () => {
     const shots = [...walk.matchAll(/po-gw3-(\d\d)-/g)].map((m) => Number(m[1]))
     expect(Math.min(...shots)).toBe(1)
     expect(Math.max(...shots)).toBe(15)
-    const script = read('scripts/bins-gateway-shots.mjs')
     for (const state of ['bins-gateway-notice', 'bins-inspector-player-inside', 'bins-player-large-space', 'bins-inspector-needs-desktop-format', 'bins-inspector-player-outside-mark', 'bins-notice-no-gateway-admin-line', 'bins-notice-gateway-unseen', 'bins-notice-gateway-unreachable', 'bins-inspector-clip-missing-404', 'bins-clip-viewings-table', 'settings-gateway-next-root']) {
       expect(walk, state).toContain(state)
-      expect(script, state).toContain(`'${state}'`)
     }
   })
   it('the README row links the file and says what it is', () => {

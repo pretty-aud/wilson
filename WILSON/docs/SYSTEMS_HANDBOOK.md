@@ -3957,7 +3957,7 @@ has one main on every page and every R.A.B.B.I.T. tab, and the document one
 `<main>` without `hidden` (HTML's rule). The kit toast's focus return
 (`toastFocusReturn`, §13.1's FX14 note) gives focus to that region when the
 element it came from is gone; before, on every page but the two tools, it fell
-to `<body>`. Measured over CDP by `scripts/fx15-landmarks-names.mjs`; pinned in
+to `<body>`. Measured over CDP by `scripts/a11y-walk.mjs` (FX15's walker, renamed by N1); pinned in
 `src/layout/PageSurface.test.jsx`. Walkthrough 79.
 
 (`PageShell.jsx` and `ToolShell.jsx` used to sit here unreferenced — the
