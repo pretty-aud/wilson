@@ -490,28 +490,8 @@ export default function ProjectTasksView() {
 
   const processed = useMemo(() => applySort(applyFilters(tasks)), [tasks, applyFilters, applySort])
 
-  // ── CSV export (Session 14, Block B) — exports the CURRENT view
-  // (filters + sort applied): what you see is what you get. Tasks carry
-  // no rate/budget data, so every project reader may export them; the
-  // rows themselves arrived through RLS-scoped reads.
-  const handleExportCsv = useCallback(() => {
-    const memberName = (id) => {
-      const m = memberById[id]
-      return m ? (m.display_name || m.name || m.username || '') : ''
-    }
-    const stem = (project?.title || 'project').replace(/[^\w.-]+/g, '_')
-    downloadCsv(`${stem}-tasks-${exportDateStamp()}.csv`, processed, [
-      { key: 'title',      header: 'Task' },
-      { key: 'status',     header: 'Status' },
-      { key: 'priority',   header: 'Priority' },
-      { key: 'assignee',   header: 'Assignee', map: t => memberName(t.assignee_id) },
-      { key: 'phase',      header: 'Phase',    map: t => phaseById[t.phase_id]?.name || '' },
-      { key: 'start_date', header: 'Start' },
-      { key: 'end_date',   header: 'End' },
-      { key: 'notes',      header: 'Notes' },
-      { key: 'created_at', header: 'Created' },
-    ])
-  }, [processed, memberById, phaseById, project?.title])
+  // (The CSV export, handleExportCsv, is below the view's columns, which it
+  // writes since R1: a dependency list is read during render.)
 
   // ── All milestones (user + project bounds) ──
   const allMilestones = useMemo(() => {
@@ -721,6 +701,42 @@ export default function ProjectTasksView() {
   const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
   // The Board's card: its own fields the view does not hide (her Q-E; finding 6).
   const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && CARD_FIELDS.includes(f.key)).map(f => f.key)), [fieldList])
+
+  // ── CSV export (Session 14, Block B) — exports the CURRENT view
+  // (filters + sort applied): what you see is what you get. Tasks carry
+  // no rate/budget data, so every project reader may export them; the
+  // rows themselves arrived through RLS-scoped reads.
+  // R1 (2026-10-27; OUTSTANDING's "The Tasks CSV export leaves out the asset
+  // and the bid, and writes statuses as stored"): the file's columns are the
+  // table's — the view's visible fields in its order, named as the table names
+  // them, an item column per kind the project uses and the Bid among them —
+  // then Notes and Created, which the file has always carried. Status and
+  // Priority in the table's words (In progress, not in_progress); an item
+  // cell names its items as the cell does, in the task window's Sort.
+  const handleExportCsv = useCallback(() => {
+    const memberName = (id) => {
+      const m = memberById[id]
+      return m ? (m.display_name || m.name || m.username || '') : ''
+    }
+    const shown = (col, t) => {
+      if (col.kind) return itemNamesOf(itemLookup, t, col.kind, itemSort)
+      switch (col.key) {
+        // Review round 1 (R1-04): none stored reads as its row's select does.
+        case 'status':      return optionLabel('status', t.status || 'waiting_to_start')
+        case 'priority':    return optionLabel('priority', t.priority || 'medium')
+        case 'phase_id':    return phaseById[t.phase_id]?.name || ''
+        case 'assignee_id': return memberName(t.assignee_id)
+        default:            return t[col.key] ?? ''
+      }
+    }
+    const stem = (project?.title || 'project').replace(/[^\w.-]+/g, '_')
+    downloadCsv(`${stem}-tasks-${exportDateStamp()}.csv`, processed, [
+      ...columns.map(col => ({ key: col.key, header: col.label, map: t => shown(col, t) })),
+      { key: 'notes',      header: 'Notes' },
+      { key: 'created_at', header: 'Created' },
+    ])
+  }, [processed, columns, memberById, phaseById, itemLookup, itemSort, project?.title])
+
   // The count's least width in characters ("12/240" at the total's digits).
   const countChars = String(tasks.length).length * 2 + 1
 

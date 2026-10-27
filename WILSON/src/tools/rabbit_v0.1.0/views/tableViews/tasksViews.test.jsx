@@ -56,6 +56,12 @@ vi.mock('../../../../components/TeamMembers/useRosterMembers', () => ({
 }))
 vi.mock('../../components/TaskDetailPopup', () => ({ default: () => null }))
 vi.mock('../../components/EditHistoryDrawer', () => ({ default: () => null }))
+// R1 (2026-10-27): the Export's file, kept as text — no download in a test.
+const csv = vi.hoisted(() => ({ name: null, text: null }))
+vi.mock('../../../../lib/csvExport', async (importOriginal) => {
+  const real = await importOriginal()
+  return { ...real, downloadCsv: (name, rows, columns) => { csv.name = name; csv.text = real.toCsv(rows, columns) } }
+})
 
 const { buildDevFixtures } = await import('../../../../dev/fixtures/install')
 const { PROJECT_ID } = await import('../../../../dev/fixtures/data/project')
@@ -861,5 +867,77 @@ describe('code review round 2 (security on the view\'s filters; round 1\'s corre
     const src = readFileSync(join(process.cwd(), 'src/tools/rabbit_v0.1.0/views/tableViews/TableViewsMenu.jsx'), 'utf8')
     expect(src).not.toContain("document.querySelector('.rb-tv-button')")
     expect(src).toContain('focusButton={() => buttonRef.current?.focus()}')
+  })
+})
+
+// =============================================================================
+// R1 (2026-10-27, night 2): the Export writes what the table shows —
+// docs/OUTSTANDING.md's "The Tasks CSV export leaves out the asset and the
+// bid, and writes statuses as stored". The file's columns are the table's,
+// the view's visible fields in its order (an item column per kind the project
+// uses, the Bid among them), then Notes and Created, which the file always
+// carried; Status and Priority in the table's words.
+// =============================================================================
+/** RFC 4180, as lib/csvExport.js writes it: quoted cells, doubled quotes, CRLF rows, a BOM. */
+function parseCsv(text) {
+  const rows = []
+  let row = []
+  let cell = ''
+  let quoted = false
+  const s = String(text).replace(/^﻿/, '')
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (quoted) {
+      if (c === '"' && s[i + 1] === '"') { cell += '"'; i++ } else if (c === '"') quoted = false
+      else cell += c
+    } else if (c === '"') quoted = true
+    else if (c === ',') { row.push(cell); cell = '' }
+    else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = '' }
+    else if (c !== '\r') cell += c
+  }
+  return rows
+}
+
+describe('R1: the CSV export writes what the table shows', () => {
+  const heads = () => [...document.querySelectorAll('.rb-task-table thead th')].map(th => th.textContent.trim()).filter(Boolean)
+  const exportCsv = () => { csv.text = null; fireEvent.click(screen.getByRole('button', { name: 'Export' })); return parseCsv(csv.text) }
+
+  it('the header is the table\'s columns in its order, then Notes and Created; Set build reads as its row does: In progress, Urgent, its asset, a bid of 10', async () => {
+    await mount()
+    const [head, ...rows] = exportCsv()
+    expect(head).toEqual([...heads(), 'Notes', 'Created'])
+    expect(head.join(',')).toBe('Title,Status,Priority,Asset,Scene,Shot,Phase,Assignee,Start,End,Bid,Notes,Created')
+    const t = fx.store.tasks.find(x => x.title === 'Set build')
+    const cells = rows.find(r => r[0] === 'Set build')
+    expect(Object.fromEntries(head.map((h, i) => [h, cells[i]]))).toMatchObject({
+      Title: 'Set build', Status: 'In progress', Priority: 'Urgent', Asset: 'Lighthouse Interior',
+      Scene: '', Shot: '', Start: t.start_date, End: t.end_date, Bid: '10',
+    })
+  })
+
+  it('a column the view hides leaves the file too, what you see being what you get; CONTROL: shown, it is in the file', async () => {
+    await mount()
+    expect(exportCsv()[0]).toContain('Priority')
+    openViews()
+    fireEvent.click(within(dropdown()).getByRole('button', { name: /^Fields:/ }))
+    fireEvent.click(within(dropdown()).getByRole('switch', { name: 'Show Priority' }))
+    const head = exportCsv()[0]
+    expect(head).not.toContain('Priority')
+    expect(head).toEqual([...heads(), 'Notes', 'Created'])
+  })
+
+  // Review round 1 (R1-04): a task with no stored status or priority. Its
+  // row's selects show the defaults; the file wrote two blank cells.
+  it('R1-04: a task with no stored status or priority is written as its row shows it: Waiting to start, Medium', async () => {
+    const t = fx.store.tasks.find(x => x.title === 'Set build')
+    t.status = null
+    t.priority = null
+    await mount()
+    const row = [...document.querySelectorAll('.rb-task-table tbody tr')].find(tr => tr.textContent.includes('Set build'))
+    const inRow = (label) => within(row).getByRole('combobox', { name: label }).selectedOptions[0].textContent
+    expect([inRow('Status'), inRow('Priority')]).toEqual(['Waiting to start', 'Medium'])
+    const [head, ...rows] = exportCsv()
+    const cells = rows.find(r => r[0] === 'Set build')
+    expect(Object.fromEntries(head.map((h, i) => [h, cells[i]]))).toMatchObject({ Status: 'Waiting to start', Priority: 'Medium' })
   })
 })

@@ -269,8 +269,9 @@ function removeWithMirror(bundle, table, id) {
  *   { type: 'refetch' }                       — container restored; children
  *                                               must be refetched (debounced)
  *   { type: 'versions-refetch' }              — another window moved the OPEN
- *                                               bid version (S5b): bid versions
- *                                               are not broadcast (S5-02), so
+ *                                               bid version (S5b), or saved, made
+ *                                               or deleted one (R1, S5-02: 0101's
+ *                                               thin budget_versions event), so
  *                                               this window re-reads them
  */
 export function applyRealtimeEvent(bundle, evt, opts = {}) {
@@ -302,6 +303,13 @@ function applyEventCore(bundle, evt, opts = {}) {
   // ── roster: lives outside the bundle — signal only ──────────────────────
   if (table === 'project_members') {
     return { bundle, effects: [{ type: 'roster' }] }
+  }
+
+  // ── bid versions: a signal only (R1, S5-02). 0101 sends a version's id and
+  // project, never its row (a bid version is money, and this channel is every
+  // reader's): the versions are read again, through RLS.
+  if (table === 'budget_versions') {
+    return { bundle, effects: [{ type: 'versions-refetch' }] }
   }
 
   // ── projects: the topic's own row → bundle.project + index effects ──────

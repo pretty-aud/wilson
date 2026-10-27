@@ -472,9 +472,12 @@ function DeptDefaultInput({ label, value, onChange }) {
 //
 // The two selects carry a `title`, as Team Members' department select does,
 // so a clipped value is still readable.
+// R1 (2026-10-27; P1-30): Region 6% → 7% from Overhead, so "REGION" is whole
+// at the 980px a 1280 window gives the compact table (it was cut, by 5px, at
+// 59px; measured in Chromium on the fixtures, Overhead's cells still whole).
 const COL = {
   name: '16%', dept: '11%', hourly: '8%', wage: '8%', burden: '11%',
-  overhead: '11%', total: '8%', curr: '6%', region: '6%', tier: '7%',
+  overhead: '10%', total: '8%', curr: '6%', region: '7%', tier: '7%',
   actions: '8%',
 }
 
@@ -708,7 +711,11 @@ export default function RateCardTable({
       )}
 
       <Card pad={false} className="rc-card">
+        {/* R1 (2026-10-27; P1-30): the kit's compact cells (8px a side), so
+            the eleven columns fit the 980px a 1280 window gives them (the
+            floor in resources.css, `.rc-card .ui-table`). */}
         <Table
+          compact
           aria-label={isInternal ? 'Internal rate card' : 'General rate card'}
           head={(
             <Row>

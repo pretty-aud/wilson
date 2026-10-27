@@ -217,6 +217,20 @@ describe('Table', () => {
     expect(css).not.toMatch(/\.ui-tr\[data-highlighted="true"\][^{]*\{[^}]*background-color/)
   })
 
+  // R1 (2026-10-27; kit request B4-KR-3, P1-29 and P1-30): compact cells, the
+  // custom property every cell's padding reads, set on the table. CONTROL: a
+  // table not asked for it carries no attribute, and the kit's 12px stands.
+  it('takes `compact` from the view: 8px cells a side, head and body together', () => {
+    expect(css).toMatch(/\.ui-table\[data-compact="true"\] \{ --cell-pad-x: 8px; \}/)
+    expect(css).toMatch(/--cell-pad-x: 12px;/)
+    expect(css).toMatch(/\.ui-th \{[^}]*padding: 0 var\(--cell-pad-x\);/)
+    expect(css).toMatch(/\.ui-td \{[^}]*padding: var\(--cell-pad-y\) var\(--cell-pad-x\);/)
+    const { container } = basic({ compact: true })
+    expect(container.querySelector('table').dataset.compact).toBe('true')
+    cleanup()
+    expect(basic().container.querySelector('table').dataset.compact).toBeUndefined()
+  })
+
   it('takes `dense` from the view and the light surface from the page', () => {
     const { container } = basic({ dense: true, surface: 'light' })
     const t = container.querySelector('table')

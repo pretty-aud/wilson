@@ -85,11 +85,25 @@ function cloudTrash(a) {
   return a
 }
 
+// R1 (2026-10-27, S5-02): the project channel, faked. The fixtures' own
+// subscribeProjectChanges reports a joined channel and nothing else; this keeps
+// the callback the provider hands it (`channel.emit`, another window's write
+// arriving) and counts each subscription, and still answers as the fixtures do.
+const channel = { emit: null, subscribed: [] }
+let versionReads = 0
+
 beforeEach(async () => {
   holder.adapter = cloudTrash(buildDevFixtures().rabbitAdapter())
   loads = 0
+  versionReads = 0
   const real = holder.adapter.loadProject.bind(holder.adapter)
   holder.adapter.loadProject = async (...a) => { loads += 1; return real(...a) }
+  const subscribe = holder.adapter.subscribeProjectChanges.bind(holder.adapter)
+  channel.emit = null
+  channel.subscribed = []
+  holder.adapter.subscribeProjectChanges = (pid, cb, opts) => { channel.subscribed.push(pid); channel.emit = cb; return subscribe(pid, cb, opts) }
+  const listVersions = holder.adapter.listBudgetVersions.bind(holder.adapter)
+  holder.adapter.listBudgetVersions = async (...a) => { versionReads += 1; return listVersions(...a) }
   await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
     () => expect(ctx?.project?.id).toBe(PROJECT_ID),
     () => expect(ctx.budgetVersions.length).toBe(2),
@@ -416,5 +430,54 @@ describe('rename, note, delete', () => {
     expect(byId(BV1).created_at).toBe(createdAt)
     expect(ctx.project.open_budget_version_id).toBe(BV1)
     expect(loads).toBe(1)
+  })
+})
+
+// =============================================================================
+// S5-02 (R1, 2026-10-27, night 2): bid versions are broadcast. Migration 0101
+// puts a thin event on the project's channel for every write on
+// budget_versions — the version's id and project only, never its snapshot or
+// name (a bid version is money, read past 0037's can_access_project_money,
+// and the channel is joined by every reader of the project) — and the
+// provider reads the versions list again on it, as it already did when
+// another window opened one (S5b's versions-refetch). The other window here
+// is a write straight through the adapter; the event is the one 0101 sends.
+// =============================================================================
+describe('S5-02 (R1): another window\'s bid version reaches this one, without reloading the project', () => {
+  // The join's refetch lands first (the provider reloads the project on every
+  // join, and the fixtures report one at once): a load after it is the event's.
+  const joined = () => waitFor(() => expect(loads).toBe(2), { timeout: 3000 })
+  const event = (op, id) => ({
+    table: 'budget_versions', op,
+    record: op === 'DELETE' ? null : { id, project_id: PROJECT_ID },
+    oldRecord: op === 'INSERT' ? null : { id, project_id: PROJECT_ID },
+  })
+  const settle = () => act(() => new Promise(resolve => setTimeout(resolve, 600)))
+
+  it('saved elsewhere (an UPDATE): the list is read again and shows it, once; the project is not reloaded; one subscription', async () => {
+    await joined()
+    const reads = versionReads
+    await holder.adapter.patchBudgetVersion(PROJECT_ID, BV1, { name: 'Bid v1 (saved elsewhere)' })
+    expect(byId(BV1).name).toBe('Bid v1 (fund application)') // the write alone tells this window nothing
+    await run(() => channel.emit(event('UPDATE', BV1)))
+    await waitFor(() => expect(byId(BV1).name).toBe('Bid v1 (saved elsewhere)'))
+    await settle()
+    expect(versionReads).toBe(reads + 1)
+    expect(loads).toBe(2)
+    expect(channel.subscribed).toEqual([PROJECT_ID])
+  })
+
+  it('made (an INSERT) and deleted (a DELETE) elsewhere: each shows at once, and the project is not reloaded', async () => {
+    await joined()
+    const BV3 = fid('budgetVersion', 3)
+    await holder.adapter.upsertBudgetVersion({ id: BV3, project_id: PROJECT_ID, name: 'Bid v3 (elsewhere)', type: 'bid', is_active: false, snapshot: {} })
+    await run(() => channel.emit(event('INSERT', BV3)))
+    await waitFor(() => expect(byId(BV3)?.name).toBe('Bid v3 (elsewhere)'))
+    await holder.adapter.deleteBudgetVersion(BV3)
+    await run(() => channel.emit(event('DELETE', BV3)))
+    await waitFor(() => expect(byId(BV3)).toBeUndefined())
+    await settle()
+    expect(loads).toBe(2)
+    expect(channel.subscribed).toEqual([PROJECT_ID])
   })
 })

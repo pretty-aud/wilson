@@ -103,26 +103,6 @@ packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
 protocol or a remembered port), or these stores moved into the machine's
 settings file.
 
-### The Dashboard shows a task's assets as of its last load
-**INFERRED (VW1m, 2026-10-16; from the code, not measured on the cloud).**
-The Dashboard's *My tasks* names every asset of a task (VW1m), read when the
-list loads. It reloads on the workspace channel's task, project, asset and
-member events (`useMyTasks.js`); a task's items are broadcast on the
-project's channel only (0096 §9), so a second asset added to one of my tasks
-in another window shows on the Dashboard at its next load, not at once (the
-first asset does show at once: the older apps' copy on `tasks` changes and
-its event reloads the list). Would settle it: two browsers on the cloud, add
-a second asset to a task assigned to the other. Fix shape: `task_items` on
-the workspace channel (a migration restating `fn_workspace_realtime_broadcast`),
-or the Dashboard joining each of its projects' channels.
-
-### The Tasks CSV export leaves out the asset and the bid, and writes statuses as stored
-**INFERRED (VW1's research, 2026-10-13; from the code).**
-`ProjectTasksView.jsx` → `handleExportCsv` writes no Asset (or any item)
-column and no Bid, and Status and Priority as their stored words
-(`in_progress`). Audrey ruled it for later (VW1's Q21). Would settle it:
-export the fixtures' Tasks and open the file.
-
 ### Budget's Expenses: the *Linked task* filter calls every task "Untitled", and the saved views go stale after a project switch
 **INFERRED (VW1's research, 2026-10-13; from the code).** The filter's task
 values read `t.name`, which tasks do not have (they have `title`). The
@@ -215,26 +195,6 @@ a tablet they are invisible, and the checkboxes tappable unseen. Older than
 FX8. Fix shape: the four checkbox reveals in the same `@media (hover: none)`;
 the Assets card's and thumbnail's buttons drawn always and revealed by CSS
 (the kit's HoverActions) instead of mounted on a mouse event.
-
-### Levels and Experiences have no write gate: a seat that cannot write sees a live Delete, rename and status
-**INFERRED (FX8 review round 1, R1-04, 2026-10-12; read from the code, not
-run as a reviewer).** `views/EntityListView.jsx` (Levels and Experiences)
-reads no write permission anywhere: no `canWrite`, no `GatedAction`, no
-`canOnProject`. A row's Delete (`Delete <name>`, FX8 moved it beside the
-name; it was in the row's last column, as live), its rename, its status
-select and the toolbar's New are drawn and clickable for every seat. Tasks
-and Assets hide Delete from a seat that cannot write; Scenes and Shots grey
-it with the reason (S3b step 7, Session 29's "keep button gray and explain
-why"). The provider's `deleteLevel` writes optimistically, so a reviewer's
-delete would vanish the row and come back with whatever the cloud's refusal
-says. Settle it by signing in as a staffed project's reviewer on the cloud
-(the fixtures have no such seat for these pages) and deleting a level. Fix
-shape: the Scenes rows' gate (`GatedAction allowed={canWrite}` with the
-reason) on every write control of the two pages. Older than FX8; FX8 left
-the controls' behaviour as it was. *(2026-10-25, VW1e: the page reads the
-write permission now, for its views (a seat that cannot write cannot save
-one, as on every table) and for the drag between groupings; Delete, the
-rename, the status, the description and New are still live for every seat.)*
 
 ### Under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined
 **MEASURED (FX6, 2026-10-12, in Chromium's emulation of forced colours,
@@ -603,39 +563,6 @@ silently.
 
 Closing the rest needs a revision counter or the live sync ruling 4 declined.
 A second window still needs a reload to SEE a change.
-
-### A dependency rewire deletes before it links, so a failed link is data loss
-
-**INFERRED (2026-08-11, code reading).** `beginDependencyRewire`'s `onUp` calls
-`onUnlinkDependency(dep.id)` and only then `onLinkTasks` / `onLinkPhases`, with
-neither awaited and no `ctx.runBatch` wrapper. If the link half is rejected —
-the commonest case being the `unique (predecessor_id, successor_id)` constraint
-when the target edge already exists — the unlink has already committed and the
-gesture is a pure delete.
-
-Two compounding details, both pre-existing:
-
-- `optimistic()` reads `snapshot = bundleRef.current` synchronously, and
-  `bundleRef` is only refreshed by an effect, so both writes in that tick
-  capture the SAME pre-gesture snapshot. The rollback therefore redraws the
-  arrow that was genuinely deleted — the chart shows an edge the database no
-  longer has, until the next load.
-- It pushes two separate history entries, so one Ctrl+Z undoes half a rewire.
-
-Phase 2 made the failure *visible* (the "Not saved" strip) but did not make the
-gesture atomic. The honest fix is to await the unlink and only then link, or to
-wrap both in `runBatch`. Not attempted this phase because it changes undo
-semantics and deserves its own test.
-
-**Narrowed by Track A bundle A2 (`643b5ca`, 2026-09-06), Audrey's ruling 7.** The
-gesture now asks first: releasing the arrow on another bar parks the rewire, and
-`DependencyRewireModal` names the edge being replaced ("A → B becomes A → C") and
-says the old link is removed before the new one is saved. "Replace link" runs
-unlink-then-link (`commitRewire`); "Keep old link" writes nothing; the mouseup
-itself no longer links (pinned by `dependencyRewire.test.js`). She accepted the
-confirm knowing it does not fix the loss. What remains is exactly the atomicity
-above — neither write awaited, no `runBatch`, the stale-snapshot rollback, the
-split undo — and it is all this entry now claims.
 
 ### The cloud dependency loader is workspace-scoped, not project-scoped
 
@@ -1349,6 +1276,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul R1 (2026-10-27; `po/r1-rabbit-robustness` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T. robustness (`docs/sessions/PLAN_TO_1_0.md` night 2), each item measured before it was fixed: Levels and Experiences take the Scenes rows' write gate; Replace link is one undoable step that loses nothing (the provider's `rewireDependency`, waiting its turn in the undo queue, a write after a project switch kept off another project's bundle); migration 0101 (a bid version's thin `{id, project_id}` event on the project channel; an assigned task's items on the workspace channel, never a private project's) with suite 104, 25/25 on wilson-dev, both on dev only (staging is the controller's, from the Desktop kit); every cloud file read (`listFilesWith`); the Dashboard's `task_items` listener; the Tasks CSV as the table shows it; the Rate card and Team members at 1280 and 1440 with the kit's compact cells (`Table compact`), Team members' badges wrapping under the name; two review rounds on Fable (round 1: 2 MEDIUM, 2 LOW; round 2: 1 MEDIUM, 2 LOW), every correction with a failing control. | R1-L1 to R1-L4 (R1's left-open section, at the end); S3b-02 widened to a level's and an experience's windows. | S5-02, DG1-01, "A dependency rewire deletes before it links", "Levels and Experiences have no write gate", "The Dashboard shows a task's assets as of its last load", "The Tasks CSV export leaves out the asset and the bid"; P1-30 struck with its dated line; P1-29 kept with its dated line, one cut left (R1-L3). |
 | Post-overhaul S1 (2026-10-27; `po/s1-reconnect` into `feat/post-overhaul-edit-versioning`) — night 2's reconnect after a hung session check (`docs/design/RECONNECT_DESIGN.md`: the watchdog aborts a request at its budget, the SDK keeps the session and retries by itself, the strip says *reconnecting…* and pings the service that hung, the client module refuses a data request carrying the anon key while signed in, R.A.B.B.I.T.'s dot shows the same word) and the two-factor enrolment overflow, measured closed (506.89px in a 544px well at 824 and 700 tall, Chromium and Electron alike; the shell's 544px floor of 2026-09-11). | **S1-01** (two tabs, one refresh token; INFERRED). | *One hung `getSession()` pins the whole app's auth* (fixed by the build; its two wrong claims recorded in the S1 section) and *The two-factor enrolment screen overflows the sign-in shell's band at laptop heights* (measured closed). |
 | Post-overhaul B1 (2026-10-27; `po/b1-subject-shares-server` into `feat/post-overhaul-edit-versioning`) — subject shares, the server (`docs/sessions/PLAN_TO_1_0.md` night 2; the design's §6.1): migration 0100 copied whole from the design's Appendix A (the table, the one SELECT policy, the guard trigger, the consent helper's chain walk, the six functions, the index, the audit lines, the post-conditions), 0065 removed in the same commit; suite 103 (446 probes, 446/446 on wilson-dev; the failing controls of the design's §4 and §10, and of the two review rounds' corrections, run once each against the final suite, 33 in all); `otter_subject_shares` into `rls.yml`'s `RLS_TABLES`, its `KNOWN_UNCOVERED` line gone with 0065; the adapter's seven operations under `/api/otter/subject-shares` and `/api/otter/subjects/:id`, `id` on the subject wires, `export.all`'s `linked_subjects`; the fixtures answer the six ops as nominations; 0100 applied to wilson-dev by query with its history row (md5 recorded in the hand-off; staging is the controller's); the avatars entry narrowed by measurement (the four policies, the claim function, the client's path), no 0102 since the cause is not proven; two review rounds on Fable. | **nothing new**; the avatars entry rewritten to what remains. | nothing. |
 | Post-overhaul DG3 (2026-10-27; `po/dg3-dog-closed-list` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s closed list (`docs/sessions/PLAN_TO_1_0.md` §3: DG2-01, DG2-02) and Audrey's two answers of 2026-10-27: a press on either Generate button keeps focus in its box, so the box does not shrink under it and the click lands; Choose file a kit button (Tab, Enter and Space, named *Choose file*; the 20th upload from the keyboard hands focus to its Remove); card 1's field label *Choose a project*; the main region's ring drawn inside its own box on every page, R.A.B.B.I.T.'s shell redrawing it above itself. No migration, no Edge Function. Walkthrough 81. | DG3-03 (on D.O.G. the ring loses its top or bottom side where the output card crosses the column's edge; review round 2, MEASURED), DG3-04 (right after a click on Generate, Alt is the box's; review round 2, MEASURED). Comment markers: 4 → 4. | **DG2-01 fixed**, **DG2-02 fixed** (the DG2 section with them), **FX15-03 fixed** (her ruling, "Keep it everywhere"). |
@@ -1559,8 +1487,8 @@ defines them; a row's "owner" is who acts first.
 MEASURED by V1/V2's walk and look unless tagged otherwise. Rows that wait on a
 ruling are Audrey's questions in walkthrough 47 as well.
 
-- **P1-29 · Team members: twelve columns need 1,707px and have 1,230**; Day rate, Status and the actions cut at every width. Waits on Audrey's design call (47).
-- **P1-30 · Rate card: at 1280 the table scrolls sideways**; its frame is 980px and its columns' content needs about 1,040px (P1 measured), so no re-split fits. Ways out in 47 (the kit's compact padding, B4-KR-3, would fit it).
+- **P1-29 · Team members: twelve columns need 1,707px and have 1,230**; what gives way is the free text. *(2026-10-27, R1, hers to overrule — walkthrough 82 Q1, 47 Q57: the kit's compact cells and new shares; every header, control, figure, name and staff badge — Day rate, Status and the buttons among them — whole at 1280 and at 1440, where the page's capped width gives the table the same ~1,240px; a badge that does not fit beside the name wraps under it, so a producer's or director's row is taller; a title as long as "Producer" whole (an inline editor's padding sits in the cell's), longer titles, Email and the longest usernames ellipsised, each whole on hover; nothing hidden, the page having no column chooser. One select option is cut, R1-L3 below. MEASURED in Chromium on the fixtures; `pages.test.js` holds each share to what its column cannot cut.)*
+- ~~**P1-30 · Rate card: at 1280 the table scrolls sideways**~~ — CLOSED by R1. *(2026-10-27, hers to overrule — walkthrough 82 §3, 47 Q62: the kit's compact cells (B4-KR-3, `Table compact`), the table's floor 1,080 → 980px, Region a share wider from Overhead; no sideways scroll at 1280 or 1440, the one long role name ellipsised as before. MEASURED in Chromium on the fixtures.)*
 - **P1-31 · The Timeline task editor's own chrome:** inline hexes (178 in `TimelineView.jsx`, most of them its), 26 `ring-orange-500`, 4 `ring-amber-500`, its three footer buttons dimming to 30% while saving, "Asset: …" at 3.16:1. Waits on Audrey (walkthrough 42 Q6, in 47).
 - **P1-32 · Timeline Fit cuts the first and last key-date diamonds** and hides the last key-date line; two diamonds sit 3.9px apart at 1024 over five years; ~~the week axis overprints a month's first day~~ (fixed by post-overhaul S1, 2026-09-30: ruling B2, option B). Fit's range is C1 (the lane kept it); the minimap window's 2px sides are B3's documented selected edge. Owner: Audrey (47).
 - **P1-32a · Other date code still builds a day in UTC** (post-overhaul S1, 2026-09-30; the siblings of the Timeline's parse, left because they are not S1's files). INFERRED from the code and its arithmetic, not run: `ProjectAssetsView.jsx` (~1440–1462 and ~1699–1730) builds an asset template's task dates by `new Date('YYYY-MM-DD')` → `setDate` → `toISOString().split('T')[0]`, which drops a day where the chain crosses the March clock change, and seeds "today" from `toISOString()` (tomorrow in an Eastern evening); `NotesView.jsx:165` dates a note by `toISOString().slice(0, 10)` (the same evening case); `holidays.js` `countWorkingDays` matches holidays by `toISOString().slice(0, 10)` of a local midnight, right west of UTC and a day off east of it; the Budget's `CrewTeamTab.jsx:38` and `TalentTab.jsx:48` read `new Date(project.start_date)`, so their week headers start a day early ("Wk1 08/02" for a project starting 08/03, S1 review round 1 ran a copy in New York). For these the fix is `src/tools/rabbit_v0.1.0/dates.js` (`parseIsoDate`, `toIsoDate`). In `TimelineView.jsx`, not date parses: `TODAY` is read once at module load, so a Timeline left open past midnight draws Today and seeds new tasks a day behind; and with weekends hidden several pixel/day conversions ignore the mask — a bar's move and resize (`dx / dayPx`: a drag across a weekend lands two days short), ~~centring on today (it lands about 2/7 × today's day number columns right of the Today line), the visible window's first day, and the minimap's click-to-jump~~ (those three fixed by post-overhaul S5p, 2026-10-05, with P1-32b). The move and resize, still open, want the pair S5p added (`dayAtX` / `xAtDay` in `timelineMinimap.js`; round 1's sketch: `round(dayAtX(left + dx) − dayAtX(left))`) and a rule for an end that would land on a hidden day; TODAY wants a read per render. Owner: a session (S3b, S5 or P1).
@@ -2154,7 +2082,9 @@ Audrey are in walkthrough 51, not here.
 - **S3b-02 · FileManager in the scene and shot popups is ungated.** A
   reviewer sees Add files and each file's delete (`FileManager.jsx` reads no
   permission; INFERRED from the code). Owner: the Files lane, or S3c with
-  the popups.
+  the popups. *(R1, 2026-10-27: a level's and an experience's windows mount
+  the same FileManager; the rest of those windows is gated now, so its Add
+  files and deletes are the one live write a reviewer meets there.)*
 - **S3b-03 · The Scenes tab binds Ctrl+Z / Ctrl+Y only on the Local
   Server.** The handler has returned early without `supportsBins` since
   milestone 2, so on the cloud there is no undo key on the tab (the undo
@@ -2326,11 +2256,6 @@ S5 handed off after its step 2 (the schema, the adapters, the provider and
 the pure model); steps 3–9 (the Summary, the questions, the Timeline, the
 Local Server's money gate, P1-32b, the docs) are its continuation's.
 
-- **S5-02 · Bid versions are not broadcast** (0016 never added
-  `budget_versions`): another window does not see a version saved, opened
-  or deleted elsewhere until it reloads the project; the project row's
-  pointers (`open_budget_version_id`, the lock) DO arrive live. Older than
-  S5. Owner: a realtime session.
 - **S5-03 · Opening a version whose task (or phase, or key date) was
   trashed brings it back under a NEW id on the cloud**: a trashed row sits
   behind its SELECT policy and the upsert by its old id is refused, so the
@@ -2512,8 +2437,7 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   finished" flag there. Owner: a roster session.
 
 **Still open from S5, the bundle as a whole** (each above, by its own
-entry): S5-02 (bid versions are not broadcast — another window sees a
-version saved, opened or deleted elsewhere only on its next load); S5c-01
+entry; S5-02 closed by R1, 2026-10-27, migration 0101): S5c-01
 (the Budget page has no Ctrl+Z for version steps — the toast is the way
 back); S5c-02 (the test data's bids carry the plain rates); S5b-01 (the
 project's budget amount and currency are shown to every member on the
@@ -2724,16 +2648,6 @@ S4b-11 are untouched and still hers.
 
 ## Post-overhaul DG1 (`po/dg1-dog-references`) — left open (2026-10-16)
 
-- **DG1-01 · The cloud lists a project's first 1,000 files, and D.O.G.'s quick
-  choices inherit the cut.** PRE-EXISTING (the Files tab reads the same way).
-  `supabaseAdapter.listFiles` is `select('*').eq('project_id', …)` with no
-  paging, and PostgREST answers 1,000 rows by default (the codebase pages
-  folders and bins for exactly this). Past 1,000 files in one project, D.O.G.'s
-  *All Core files*, a folder's tick and the rail's count reach only the first
-  thousand, silently. Would settle it: a project with 1,001 files, *All Core
-  files* with the last one Core. Fix: read through `readAllPages` as
-  `listFoldersWith` does (one shared read; the Files tab gains it too).
-  Owner: a files session.
 - **DG1-02 · On the Local Server, a scene's, shot's, level's or experience's own
   files are not linked to it.** PRE-EXISTING (stated in `deckAttachments.js`):
   the Express upload route writes `phase_id`, `asset_id` and `task_id` and
@@ -2922,3 +2836,41 @@ fix:
   operator console has its own token under its own key. Owner: a session in
   `src/cloud/auth/` (the fix shape: re-read the stored session before a tab
   refreshes a token older than the one in storage).
+
+## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
+
+What R1 (night 2: R.A.B.B.I.T. robustness) met and did not fix, and what its
+two review rounds found outside its scope.
+
+- **R1-L1 · The rewire confirm still says the old link is gone before the
+  new one is saved; on a refusal it is put back now.** `DependencyRewireModal`
+  keeps its words (the brief said so), and its last sentence describes the
+  loss R1 removed. Walkthrough 82 Q2 offers a sentence for what happens now.
+  Owner: Audrey's answer, then any R.A.B.B.I.T. session (one string).
+- **R1-L2 · A rewire makes the new link FS with no lag, whatever the old
+  one was.** `rewireDependency` builds the new row as the two calls it
+  replaced did (`linkTasks` / `linkPhases` with their defaults), so a link the
+  R.A.B.B.I.T. agent set to SS with a lag (`set_dependency`) comes back from a
+  rewire as FS 0, and the Timeline's schedule reads `lag_days`. INFERRED from
+  the code; unchanged by R1. Fix, if wanted: carry the old row's `type` and
+  `lag_days` (the confirm names neither, so it is her call). Owner: a Timeline
+  session.
+- **R1-L3 · On Team members at 1280 and 1440, "Physical Production" loses
+  part of its last letter in the Department select.** *(2026-10-27, R1's
+  review round 2, R2-02; hers to overrule — walkthrough 82 §3, 47 Q57.)*
+  MEASURED in Chromium (3x crops at 1280x800): at 14% the select is 156px and
+  the option, the longest of the default departments, needs about 160
+  ("Physical Productior"); at 15% it is whole, and the 1% can only come from
+  Day rate, where "$100,000 / $128,000" is then cut by 4px. Every other column
+  is at its least (`pages.test.js`). The select's title shows the name whole.
+  Ways out: a narrower select arrow on this table, a shorter default name, or
+  the page's full width at 1440 (walkthrough 82 Q1 (b)). Owner: Audrey, then
+  a session.
+- **R1-L4 · A task whose status or priority is outside the table's lists
+  shows the list's first option in its row.** The row's select has no option
+  for the stored value (`'archived'` shows Waiting to start, `'critical'`
+  Low), while the CSV writes the stored value in words (Archived, Critical).
+  MEASURED by R1's review round 2 in jsdom (R2-06); the table's selects
+  predate R1. Fix: show the stored value as a disabled option, or refuse
+  values outside the lists where they are written. Owner: the Tasks table's
+  next session.

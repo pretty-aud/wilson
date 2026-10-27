@@ -67,8 +67,9 @@ describe('rls.yml\'s failure-replay list', () => {
     // (COVERED_BY), replays like every other; VW1e (2026-10-25): so does
     // 0099's, which covers no new table (this line is its only registration);
     // B1 (2026-10-27): so does 0100's, 103_otter_subject_shares.sql, which
-    // covers a table of its own (in RLS_TABLES too).
-    expect(listed.slice(-3)).toEqual(['101_table_views.sql', '102_asset_level_links.sql', '103_otter_subject_shares.sql'])
+    // covers a table of its own (in RLS_TABLES too); R1 (2026-10-27): and
+    // 0101's, suite 104, which covers no table either.
+    expect(listed.slice(-4)).toEqual(['101_table_views.sql', '102_asset_level_links.sql', '103_otter_subject_shares.sql', '104_versions_and_items_realtime.sql'])
   })
 })
 
@@ -100,12 +101,13 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
   })
 
   // VW1c (2026-10-17): suite 101 (101_table_views.sql, 0098) was the last;
-  // B1 (2026-10-27): 103_otter_subject_shares.sql (0100) is.
-  it('over the real directory, every suite once, 100, 101, 102 then 103 last', () => {
+  // B1 (2026-10-27): 103_otter_subject_shares.sql (0100) was; R1
+  // (2026-10-27): 104_versions_and_items_realtime.sql (0101) is.
+  it('over the real directory, every suite once, 100, 101, 102, 103 then 104 last', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-4)).toEqual(['100_no_main_item.sql', '101_table_views.sql', '102_asset_level_links.sql', '103_otter_subject_shares.sql'])
+    expect(picked.slice(-5)).toEqual(['100_no_main_item.sql', '101_table_views.sql', '102_asset_level_links.sql', '103_otter_subject_shares.sql', '104_versions_and_items_realtime.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })
