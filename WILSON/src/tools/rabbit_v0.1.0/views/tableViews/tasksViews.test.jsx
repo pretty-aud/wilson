@@ -573,10 +573,13 @@ describe('the last used view (Q4, §4.5)', () => {
   // FX14: the gap the mount now waits out, held open on purpose. The commit
   // that brings the project draws the table while the status still reads
   // 'unavailable'; the provider's effects end it. A MutationObserver resolves
-  // in that commit's microtasks, before those effects' task. Its premise
-  // (review round 2, finding 5): React's scheduler runs those effects in a
-  // later task because that commit overran its 5 ms slice, which the whole
-  // table in jsdom always does; the fixed `mount` does not depend on it.
+  // in that commit's microtasks, before those effects' task. Its premise, as
+  // FX15's review round 1 (R1-2) corrected it: React asks the Scheduler for a
+  // paint in every commit (`requestPaint`), and the Scheduler then yields
+  // however short the commit was, so the effects are always a later task
+  // (not, as FX14's review round 2 had it, because the commit overran its
+  // 5 ms slice; tableViewsProvider.test.jsx's premise test holds it). The
+  // fixed `mount` does not depend on it.
   it('CONTROL (FX14): in the gap between the project\'s commit and its effects, the body is past Loading views; the effects bring it back', async () => {
     const a = fx.rabbitAdapter()
     a.getTableViewLast = () => new Promise(() => {})
