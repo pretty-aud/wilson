@@ -50,6 +50,24 @@
   /* ═══ The shell ══════════════════════════════════════════════════════════
      B1 restyle: every value from here to the Intake section is a token. */
   .rb-shell { background-color: var(--color-paper); }
+  /* The page's main region wears the kit ring inside its own box (index.css,
+     `main:focus-visible`; post-overhaul DG3). The shell is positioned and
+     paints the paper over the whole region after the region's own outline,
+     so that ring never showed here (OUTSTANDING FX15-03: the pictures with
+     and without it were pixel-identical). So the shell draws the same ring
+     above its content while the region holds keyboard focus, as Bins' pane
+     does (bins.css, `.bn-pane:focus-visible::after`). z-index 26: over every
+     resting layer (the connection dot's 25, the Timeline's label column's
+     20), under every menu and popover (30 and up). It never takes a click. */
+  main:focus-visible > .rb-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 26;
+    pointer-events: none;
+    outline: 2px solid var(--color-focus);
+    outline-offset: -2px;
+  }
 
   /* ═══ The connection dot (FX11, components/ConnectionDot.jsx) ════════════
      The corner square it owns is the page gutter's (`--spacing-gutter`,

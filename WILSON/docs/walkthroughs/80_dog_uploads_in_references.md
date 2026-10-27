@@ -42,7 +42,7 @@ so no real file name is on screen:
 | 6 | Press × on the `logo.png` row | That row goes, **Uploads (1)**, and the count follows. **Choose file** is still there. |
 | 7 | **Choose file**, and in the file window choose *All files* and pick any file that is not a PDF, a text, a picture or a video | Nothing is added, and a red line right under **Choose file** says *"Please upload a PDF, Markdown, Text, Image, or Video file"*. Before, it was a red bar at the top of the page, out of sight once a dozen uploads had pushed **Choose file** down. The next upload clears it, and so does starting a deck or a page, as they cleared the bar. Picking a wrong file again says it again (a screen reader hears it again too). |
 | 8 | Click the **References** title bar | The card folds; its title bar still says how many are chosen, uploads included. Click again to open it. |
-| 9 | Click an empty part of the page and press **Tab** until the orange ring reaches the chevron of **1 Project**, then keep pressing **Tab** | The chevron (a screen reader says *"PROJECT, button, expanded"*), the Project dropdown, **New project**, the **References** chevron, then each upload's × (a screen reader names it *"Remove"* and the file's name), then **Add references**. **Choose file** is not reached by **Tab**, as before (section 4). |
+| 9 | Click an empty part of the page and press **Tab** until the orange ring reaches the chevron of **1 Project**, then keep pressing **Tab** | The chevron (a screen reader says *"PROJECT, button, expanded"*), the Project dropdown, **New project**, the **References** chevron, then each upload's × (a screen reader names it *"Remove"* and the file's name), then **Add references**. **Choose file** is not reached by **Tab**, as before (section 4). *(2026-10-27, DG3: it is now, between the last × and **Add references**; walkthrough 81.)* |
 | 10 | With words in the deck context box, Tab to the first upload's × and press **Enter**, then **Enter** again | Each Enter removes one upload, and the ring moves on to the next ×, then to **Add references**. No deck starts. Before, the ring fell off the page after the first Enter, and the second Enter made a full deck from whatever was left. With the mouse, a × works as before. The same holds for **Remove all references** and for **Undo** and **Dismiss** on the line it leaves: from the keyboard, the ring goes to **Add references**. |
 
 ## 2. Your ask and your answers (2026-10-26, verbatim)
@@ -95,6 +95,7 @@ No questions are open.
   box shrinks as it loses focus and the button moves up from under the
   pointer before the click lands. This was so before DG2 and is written down
   to fix (`docs/OUTSTANDING.md`, DG2-02); click outside the box first.
+  *Fixed 2026-10-27 (DG3): the click lands (walkthrough 81).*
 
 ## 4. Left as it is
 
@@ -102,14 +103,14 @@ No questions are open.
   label wrapped round a hidden file field, so neither takes keyboard focus and
   a screen reader does not hear it as a button. It was kept exactly as it was,
   as the brief asked; it is written down to fix (`docs/OUTSTANDING.md`,
-  DG2-01).
+  DG2-01). *Fixed 2026-10-27 (DG3): a real button, which Tab reaches and a
+  screen reader hears as "Choose file" (walkthrough 81).*
 - **No eye on an upload.** The eye shows what D.O.G. reads for a chosen
   reference. An upload is your own file, already on your computer, and showing
   it here would need new plumbing.
-- **Card 1's title and its field label both say "Project".** The label is the
-  dropdown's own; FX15 ties it to the dropdown as its name (written down as
-  FX14-04), so it stays. Whether one of the two should go is yours to say.
-  *Your answer of 2026-10-27: reword the label to **Choose a project** (DG3).*
+- *Done 2026-10-27 (DG3), your answer "Choose a project": card 1's field
+  label reads **Choose a project** and names the dropdown; the title stays
+  **1 Project** (walkthrough 81).*
 - **Remove all references** removes the chosen references only, as *Remove
   all* did; an upload goes by its own ×. Only its name changed.
 - **A file under about 50 bytes shows as *(0.0 KB)***, as its chip did.
