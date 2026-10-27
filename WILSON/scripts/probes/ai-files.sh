@@ -10,7 +10,8 @@
 # deleted again before the probe ends; it also asks to expire in an hour, in
 # case the probe dies in between.
 #
-#   1. upload, asking for an expiry          → 200 and an id
+#   1. upload, asking for an expiry          → 200 and an id (an upstream
+#      failure, 502/503/504 or no answer, is tried again: three attempts)
 #   2. the list (GET) shows it, with its size, an expiry, and no filename
 #      anywhere in the answer; the upload row binds to it (the row's time
 #      against the store's, measured)
@@ -43,6 +44,50 @@ err()  { printf '\e[31mFAIL\e[0m %s\n' "$*" >&2; echo "::error title=ai-files pr
 ok()   { printf '\e[32m OK \e[0m %s\n' "$*"; }
 note() { printf '\e[36mMEASURED\e[0m %s\n' "$*"; echo "::notice title=ai-files probe::$*"; }
 
+# fd 3 is the step's own output: a note written inside $(...) reaches the log
+# (and its annotation the run's page) instead of the caller's variable.
+exec 3>&1
+
+# ── An upstream failure is tried again (FX15) ───────────────────────────────
+# One 502 from the platform's gateway failed a whole run: 40373721907 on
+# 129aab10 (2026-10-26) stopped at "upload returned 502", while the
+# pull_request run on the same commit had passed a minute before. So a
+# request that comes back 502, 503 or 504, or that curl could not complete (a
+# non-zero exit, no status), is sent again: three attempts in all, 2 s and
+# then 4 s apart, each retry noted. Anything else is the answer, first time:
+# a 4xx is a refusal, which is a finding (the probe's whole point), and a 500
+# is the function's own failure. The caller checks the last attempt's answer,
+# so a request that never came right still fails by `err`, with its status,
+# after the third. An upload whose failed attempt had reached the store
+# leaves that file to its expiry (it asks for an hour); the probe deletes the
+# one it was answered for. Every request to a function whose status the probe
+# reads goes through it: step 1's upload, call(), the messages call (6), no
+# sign-in (8) and the operator's summary (9). Step 8 alone had failed run
+# 40434767639 on 247c090d with "got 504" (OUTSTANDING DG2-03).
+#   attempts <what> <curl arguments...>   -> "<json>\n<status>" (000: no status)
+RETRY_ATTEMPTS=3
+attempts() {
+  local what="$1"; shift
+  local n=1 out rc code why
+  while :; do
+    rc=0
+    out=$(curl -sS -w '\n%{http_code}' "$@") || rc=$?
+    code=${out##*$'\n'}
+    [[ "$code" =~ ^[0-9]{3}$ ]] || { code=000; out=$'\n000'; }
+    if [ "$rc" = 0 ] && [ "$code" != 000 ] && [[ ! "$code" =~ ^50[234]$ ]]; then break; fi
+    [ "$n" -lt "$RETRY_ATTEMPTS" ] || break
+    if [ "$rc" != 0 ]; then why="did not complete (curl exit $rc)"; else why="answered $code"; fi
+    note "${what}: attempt ${n} of ${RETRY_ATTEMPTS} ${why}; trying again in $(( 2 * n )) s" >&3
+    sleep $(( 2 * n ))
+    n=$(( n + 1 ))
+  done
+  printf '%s\n' "$out"
+}
+
+# Sourced (its test, src/cloud/aiFilesProbe.test.js, with a stub curl), the
+# probe stops here: the helpers above, nothing read, nothing sent.
+if (return 0 2>/dev/null); then return 0; fi
+
 : "${SUPABASE_URL:?SUPABASE_URL must be set}"
 : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY must be set}"
 : "${PROBE_USERNAME:?PROBE_USERNAME must be set}"
@@ -72,13 +117,14 @@ ws=$(b64url_json "$(printf '%s' "$token" | cut -d. -f2)" | jq -r '.app_metadata.
 [ -n "$ws" ] || err "the probe user's token names no workspace"
 ok "signed in (${#token}-character token)"
 
-# $1 method, $2 body (or empty) -> "<json>\n<status>"
+# $1 method, $2 body (or empty) -> "<json>\n<status>", an upstream failure
+# tried again (`attempts`)
 call() {
   if [ -n "${2:-}" ]; then
-    curl -sS -w '\n%{http_code}' -X "$1" "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" \
+    attempts "$1 ai-files" -X "$1" "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" \
       -H 'content-type: application/json' --data "$2"
   else
-    curl -sS -w '\n%{http_code}' -X "$1" "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}"
+    attempts "$1 ai-files" -X "$1" "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}"
   fi
 }
 status_of() { printf '%s\n' "$1" | tail -n1; }
@@ -90,14 +136,14 @@ cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
 printf 'WILSON CI probe. This file has no content.\n' > "$tmp/probe.txt"
 bytes=$(wc -c < "$tmp/probe.txt" | tr -d ' ')
-up=$(curl -sS -w '\n%{http_code}' -X POST "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" \
+up=$(attempts upload -X POST "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" \
   -F 'expires_in_seconds=3600' -F "file=@$tmp/probe.txt;type=text/plain;filename=wilson-ci-probe.txt")
 code=$(status_of "$up"); json=$(json_of "$up")
 expiry_asked=1
 if [ "$code" = "400" ]; then
   note "an upload asking expires_in_seconds was refused (400, $(printf '%s' "$json" | jq -r '.anthropic.error.type // .error // "?"')); uploading without it"
   expiry_asked=0
-  up=$(curl -sS -w '\n%{http_code}' -X POST "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" \
+  up=$(attempts upload -X POST "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H "authorization: Bearer ${token}" \
     -F "file=@$tmp/probe.txt;type=text/plain;filename=wilson-ci-probe.txt")
   code=$(status_of "$up"); json=$(json_of "$up")
 fi
@@ -228,7 +274,7 @@ body=$(jq -cn --arg m "$MODEL" --arg f "$fid" '{
   messages: [{ role: "user", content: [
     { type: "document", source: { type: "file", file_id: $f } },
     { type: "text", text: "." } ] }] }')
-dead=$(curl -sS -w '\n%{http_code}' -X POST "${SUPABASE_URL}/functions/v1/ai-proxy" -H "apikey: ${SUPABASE_ANON_KEY}" \
+dead=$(attempts "the messages call" -X POST "${SUPABASE_URL}/functions/v1/ai-proxy" -H "apikey: ${SUPABASE_ANON_KEY}" \
   -H "authorization: Bearer ${token}" -H 'content-type: application/json' --data "$body")
 dcode=$(status_of "$dead"); djson=$(json_of "$dead")
 dtype=$(printf '%s' "$djson" | jq -r '.anthropic.error.type // .error // "none"' 2>/dev/null || echo "not JSON")
@@ -245,13 +291,13 @@ resp=$(call DELETE '{"file_id":"file_011CIprobeNeverUploaded01"}'); code=$(statu
 ok "an id this workspace never uploaded is not_found"
 
 # ── 8. No sign-in ────────────────────────────────────────────────────────────
-resp=$(curl -sS -w '\n%{http_code}' -X DELETE "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H 'content-type: application/json' --data '{"file_id":"file_011CIprobeNeverUploaded01"}')
+resp=$(attempts "no sign-in" -X DELETE "$FN" -H "apikey: ${SUPABASE_ANON_KEY}" -H 'content-type: application/json' --data '{"file_id":"file_011CIprobeNeverUploaded01"}')
 [ "$(status_of "$resp")" = "401" ] && [ "$(json_of "$resp" | jq -r '.error')" = "unauthorized" ] \
   || err "no sign-in must be 401 unauthorized, got $(status_of "$resp")"
 ok "no sign-in, no delete (401, the function's own refusal)"
 
 # ── 9. The operator's summary is not a member's ──────────────────────────────
-resp=$(curl -sS -w '\n%{http_code}' -X POST "${SUPABASE_URL}/functions/v1/operator-ai-files" -H "apikey: ${SUPABASE_ANON_KEY}" \
+resp=$(attempts "the operator's summary" -X POST "${SUPABASE_URL}/functions/v1/operator-ai-files" -H "apikey: ${SUPABASE_ANON_KEY}" \
   -H "authorization: Bearer ${token}" -H 'content-type: application/json' --data '{"action":"summary"}')
 [ "$(status_of "$resp")" = "403" ] || err "a member asking the operator's summary must be 403, got $(status_of "$resp")"
 ok "the operator's summary refuses a member (403)"

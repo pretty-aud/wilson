@@ -3183,7 +3183,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       <div className="flex flex-1 overflow-hidden">
         {renderSoftwareSidebar()}
         {renderLessonSidebar()}
-        <main className="flex-1 overflow-hidden relative">
+        <main className="flex-1 overflow-hidden relative" hidden={currentPage !== 'otter'}>
           {/* The region the nav's tabs switch (kit Tabs: `panelId`). A div, so
               <main> keeps its landmark role. */}
           <div id="otter-view-panel" role="tabpanel" className="h-full">

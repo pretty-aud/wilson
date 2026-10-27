@@ -14,12 +14,17 @@
 3. **Names only, a preview on demand.** The card lists names, grouped Items,
    Files and Notes. The eye on any row shows exactly what is sent for it. The
    card folds away when a deck needs only your uploads and the prompt.
+   *Amended 2026-10-26 (DG2, walkthrough 80): your uploads are now this
+   card's first group, **Uploads**, so folding the card folds them away too;
+   its title bar still counts them.*
 4. **One card for a single page and a full deck.** The switch reads *Single
    page* on one side and *Full deck* on the other. Full deck shows the deck
    context box and the theme generator; Single page shows the layout, the page
    number and the page box. *Use visual assets* (it was *Use uploaded
    assets*), *to place media in the deck*, and *Use project assets* are there
    in both. Every hint and example is as it was. Uploading is untouched.
+   *Amended 2026-10-26 (DG2, walkthrough 80): uploading moved, by your ask,
+   from card 1 into card 2, References; it works as it did.*
 5. **A meter, not a wall.** A bar shows how much of what D.O.G. can read for
    one deck is used; past the limit it turns amber and warns, and **Generate**
    still works.
@@ -36,7 +41,9 @@ build: **D.O.G. now opens on Full deck**. Section 6 says what each answer did.
 Written 2026-10-16 against `feat/post-overhaul-edit-versioning` (DG1,
 `po/dg1-dog-references`); updated 2026-10-17 for your answers (DG1b,
 `po/dg1b-references-answers`), and 2026-10-26 for your Enter and Alt
-answers (FX13, `po/fx13-dog-enter-key`; walkthrough 77). No database change.
+answers (FX13, `po/fx13-dog-enter-key`; walkthrough 77). Amended 2026-10-26
+where it names card 1 and the uploads (DG2, `po/dg2-uploads-in-references`;
+walkthrough 80). No database change.
 
 ## 1. Step by step
 
@@ -45,8 +52,8 @@ in DG1b's worktree)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 1 | Open D.O.G. | Three cards: **1 Project documentation** (the project and your uploads), **2 References** (*None chosen*), **3 Generate outline**, then the output. In card 3 the switch is on **Full deck** (bright; *Single page* dim), with the deck context box, the **Theme generator** box and **Generate full deck outline**. |
-| 2 | Choose **Salt Hours** | Its description under the dropdown, and nothing else: no attachment count, no Core / Ref chips. Card 2 reads *"What goes to the AI: your uploads, what is listed here, and the project's title and description, with what you write below."* (`po-dg1-refs-01-cards`) |
+| 1 | Open D.O.G. | Three cards: **1 Project documentation** (the project and your uploads), **2 References** (*None chosen*), **3 Generate outline**, then the output. In card 3 the switch is on **Full deck** (bright; *Single page* dim), with the deck context box, the **Theme generator** box and **Generate full deck outline**. *Amended 2026-10-26 (DG2, walkthrough 80): card 1 is **1 Project** (the project only), and your uploads are card 2's first group, **Uploads (0)** with **Choose file**.* |
+| 2 | Choose **Salt Hours** | Its description under the dropdown, and nothing else: no attachment count, no Core / Ref chips. Card 2 reads *"What goes to the AI: your uploads, what is listed here, and the project's title and description, with what you write below."* (`po-dg1-refs-01-cards`) *Amended 2026-10-26 (DG2): it now reads "What goes to the AI: what is listed here and the project's title and description, with what you write below.", since your uploads are listed in it.* |
 
 **B. The window**
 
@@ -57,7 +64,7 @@ in DG1b's worktree)
 | 5 | **Your notes**, tick the first | Each note with its subject and date (`po-dg1-refs-04-window-notes`). |
 | 6 | Type **storm** in the search | Every kind narrows at once; files show their folder. |
 | 7 | **Files**, open a folder, tick the folder's own box | Every file in it, at every depth, is chosen; the box shows part-ticked when only some are. A file D.O.G. cannot read (a Photoshop file, a Word file) is listed greyed: *D.O.G. cannot read this kind of file*. |
-| 8 | **Done** | Card 2: *Items (1)* Scene · The storm; *Notes (1)*; the meter, *Less than 1% of what D.O.G. can read for one deck*; **Add references** and **Remove all** (it keeps what it removed for one **Undo**) (`po-dg1-refs-05-card-chosen`). Fold the card: its header still says how many are chosen, and warns if the meter is past the limit. |
+| 8 | **Done** | Card 2: *Items (1)* Scene · The storm; *Notes (1)*; the meter, *Less than 1% of what D.O.G. can read for one deck*; **Add references** and **Remove all** (it keeps what it removed for one **Undo**) (`po-dg1-refs-05-card-chosen`). Fold the card: its header still says how many are chosen, and warns if the meter is past the limit. *Amended 2026-10-26 (DG2, walkthrough 80): above Items, the card's first group is **Uploads (0)** with **Choose file**; the header's count includes your uploads, and **Remove all** is now **Remove all references**: it removes the chosen references only, as before.* |
 
 **C. The one card**
 

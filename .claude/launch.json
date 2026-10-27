@@ -368,6 +368,26 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON --port 5304 --strictPort"
       ],
       "port": 5304
+    },
+    {
+      "_comment": "FX15 (FX14's leftovers: four R.A.B.B.I.T. test mounts out of the gap, D.O.G.'s settings sections and dropdowns for screen readers, one main region on every page, a bounded retry in the ai-files CI probe; no migration): this worktree's dev server on the bundle's port 5305, as the dev fixtures' tester. fx14-worktree's recipe: no .env.local is needed, the four VITE_ variables are set in the process environment, the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made.",
+      "name": "fx15-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/unruffled-kapitsa-c64e2c/WILSON --port 5305 --strictPort"
+      ],
+      "port": 5305
+    },
+    {
+      "_comment": "DG2 (D.O.G.'s Upload Documents section moves into card 2 References as a first group of rows; card 1 becomes 1 Project; no migration): this worktree's dev server on the bundle's port 5306, as the dev fixtures' tester. fx14-worktree's recipe: no .env.local is needed, the four VITE_ variables are set in the process environment, the Supabase pair a placeholder on a closed local port (nothing real is reached), since the fixtures answer every read and write in memory. D.O.G. at /dog; scripts/dg2-uploads-shots.mjs 5306 measures and photographs it (walkthrough 80).",
+      "name": "dg2-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/silly-diffie-bf1870/WILSON --port 5306 --strictPort"
+      ],
+      "port": 5306
     }
   ]
 }
