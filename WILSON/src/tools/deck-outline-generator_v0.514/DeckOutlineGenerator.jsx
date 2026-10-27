@@ -4059,7 +4059,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         </Panel>
 
         {/* Main Content */}
-        <main className="dog-main flex-1 min-h-0 overflow-y-auto">
+        <main className="dog-main flex-1 min-h-0 overflow-y-auto" hidden={currentPage !== 'dog'}>
           {error && (
             <Banner tone="danger">{error}</Banner>
           )}

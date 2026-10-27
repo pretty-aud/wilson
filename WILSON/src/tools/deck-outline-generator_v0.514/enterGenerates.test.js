@@ -279,15 +279,19 @@ describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
   // open: App renders it once, directly inside its own PageSurface, with no
   // key and no condition around it, and PageSurface hides an inactive page by
   // display rather than dropping it. A registry `.map` rendering the pages
-  // would turn this red: read it again then.
-  const remountRisks = (app) => {
+  // would turn this red: read it again then. (FX15 moved PageSurface beside
+  // the registry, src/layout/PageSurface.jsx: read there, and App must render
+  // that one.)
+  const SURFACE = '../../layout/PageSurface.jsx'
+  const remountRisks = (app, surfaceSrc = read(SURFACE)) => {
     const live = blankJsComments(app)
     const risks = []
     const tags = live.match(/<DeckOutlineGenerator\b[\s\S]*?\/>/g) || []
     if (tags.length !== 1) risks.push(`${tags.length} DeckOutlineGenerator tags`)
     if (tags.some((t) => /\bkey=/.test(t))) risks.push('a key on D.O.G.')
     if (!/<PageSurface id="dog"(?![^>]*\bkey=)[^>]*>\s*<DeckOutlineGenerator\b/.test(live)) risks.push('not directly inside a key-less PageSurface id="dog"')
-    const surface = (live.match(/function PageSurface\([\s\S]*?\r?\n}\r?\n/) || [''])[0]
+    if (!/^import PageSurface from '\.\/layout\/PageSurface'$/m.test(live)) risks.push('App does not render layout/PageSurface')
+    const surface = (blankJsComments(surfaceSrc).match(/function PageSurface\([\s\S]*?\r?\n}\r?\n/) || [''])[0]
     if (!/display: currentPage === id \? 'flex' : 'none'/.test(surface)) risks.push('PageSurface does not hide by display')
     if (/return null|&&\s*\(?\s*children|\?\s*children\s*:/.test(surface)) risks.push('PageSurface can drop its children')
     return risks
@@ -330,7 +334,10 @@ describe("D.O.G. opens on Full deck (Audrey's Q21)", () => {
     expect(remountRisks(app.replace(/(<DeckOutlineGenerator\b[\s\S]*?)(\s*\/>)/, '$1\n          key={currentPage}$2'))).toContain('a key on D.O.G.')
     expect(remountRisks(app.replace(/(<PageSurface id="dog"[^>]*>)(\s*)(<DeckOutlineGenerator\b[\s\S]*?\/>)/, "$1$2{currentPage === 'dog' && $3}"))).toContain('not directly inside a key-less PageSurface id="dog"')
     expect(remountRisks(app.replace('<PageSurface id="dog"', '<PageSurface id="dog" key={currentPage}'))).toContain('not directly inside a key-less PageSurface id="dog"')
-    expect(remountRisks(app.replace(/(function PageSurface\([\s\S]*?)\{children\}/, '$1{currentPage === id && children}'))).toContain('PageSurface can drop its children')
+    const surface = read(SURFACE)
+    expect(remountRisks(app, surface.replace(/(function PageSurface\([\s\S]*?)\{children\}/, '$1{currentPage === id && children}'))).toContain('PageSurface can drop its children')
+    expect(remountRisks(app, surface.replace("display: currentPage === id ? 'flex' : 'none'", "display: 'flex'"))).toContain('PageSurface does not hide by display')
+    expect(remountRisks(app.replace("import PageSurface from './layout/PageSurface'", ''))).toContain('App does not render layout/PageSurface')
   })
   it('CONTROL: an effect that resets the side when D.O.G. mounts is caught', () => {
     const planted = "  useEffect(() => { setFullDeckMode(false); }, []);\n  useEffect(() => setFullDeckMode(false), [projectId]);"
