@@ -20,7 +20,7 @@ const TINTS = {
   ember:  ['#7a3f1a', '#f6dcc4'],
 }
 
-export const TINT_NAMES = Object.keys(TINTS)
+const TINT_NAMES = Object.keys(TINTS)
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')

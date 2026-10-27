@@ -140,7 +140,7 @@ export const OTTER_AGENT_EDIT_CONTEXT = (lessonContent, corrections, subjectStru
 // input_schema }` so the Agent Skills tab can render it as a
 // read-only code block alongside the editable system prompt.
 
-export const OTTER_AGENT_TOOL_SCHEMA = [
+const OTTER_AGENT_TOOL_SCHEMA = [
   {
     name: 'edit',
     description: 'Apply small text-level edits to the currently open lesson.',

@@ -34,8 +34,6 @@
 // dialog (`unsavedForClose`): one question, never two in a row.
 // ============================================================
 
-export const LEAVE_REASONS = Object.freeze(['tab', 'page', 'project', 'edit', 'popup', 'close'])
-
 const guards = new Set()
 // A guard whose question is open now → how to settle it without an answer.
 const settle = new Map()

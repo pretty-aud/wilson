@@ -44,7 +44,7 @@ import { compareVersions, highestVersion } from './update/manifest.mjs';
 import { containerRootFor, locationRoot, parseUncPath } from './rules/mountRule.mjs';
 import { AcmeManager, acmeNameFor } from './acme/manager.mjs';
 
-export const NO_CLOUD_MS = 60_000;
+const NO_CLOUD_MS = 60_000;
 const SECOND = 1_000;
 
 const ENROL_SENTENCES = {

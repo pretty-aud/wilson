@@ -110,5 +110,3 @@ export function onDevWriteRefused(handler) {
   refusalListeners.add(handler)
   return () => refusalListeners.delete(handler)
 }
-
-export const DEV_FIXTURES_STORAGE_KEY = STORAGE_KEY

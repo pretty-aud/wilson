@@ -57,7 +57,7 @@ const OTTER_MODES = ['auto', 'local', 'supabase']
  * is exactly that kind of state — "show me THIS computer's library" is a fact
  * about the computer, not about the person.
  */
-export const OTTER_LIBRARY_MODE_KEY = 'wilson.otter.libraryMode'
+const OTTER_LIBRARY_MODE_KEY = 'wilson.otter.libraryMode'
 
 /**
  * A 'local' pin CANNOT be honoured on the web build: there is no in-app Express

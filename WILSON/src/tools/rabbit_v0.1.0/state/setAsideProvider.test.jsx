@@ -21,7 +21,8 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 
@@ -97,9 +98,10 @@ beforeEach(async () => {
   fx.store.dependencies.push({ id: 'd-t40', kind: 'task', type: 'FS', lag_days: 0, predecessor_id: TASK_ID(10), successor_id: T40 })
   fx.store.files.push({ id: 'f-t40', project_id: PROJECT_ID, task_id: T40, name: 'grade.png', storage_provider: 'supabase', storage_path: 'projects/x/grade.png', tags: [] })
   holder.adapter = cloudTrash(fx.rabbitAdapter())
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(ctx.budgetVersions.length).toBe(2))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(ctx.budgetVersions.length).toBe(2),
+  ] })
 })
 afterEach(() => { cleanup(); ctx = null; fx = null })
 

@@ -21,7 +21,7 @@ import { can } from '../../permissions'
  * @param {{ grant_rate_card_view?: boolean, grant_rate_card_edit?: boolean } | null} row
  * @returns {{ canView: boolean, canEdit: boolean }}
  */
-export function effectiveRateAccess(role, row) {
+function effectiveRateAccess(role, row) {
   const grantView = !!(row?.grant_rate_card_view || row?.grant_rate_card_edit)
   const grantEdit = !!row?.grant_rate_card_edit
   return {

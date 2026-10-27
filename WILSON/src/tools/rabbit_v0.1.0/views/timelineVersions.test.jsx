@@ -19,7 +19,8 @@
 // questions' words are versionWords.test.js's and the Budget's tests'.
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from 'vitest'
-import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { mountRabbit } from '../state/mountRabbit'
 
 const holder = vi.hoisted(() => ({
   adapter: null, projectId: null, card: null, overrides: null,
@@ -127,9 +128,10 @@ async function mount({ before, card = CARD, ...props } = {}) {
   fx = buildDevFixtures()
   before?.(fx)
   holder.adapter = fx.rabbitAdapter()
-  const r = render(app(props))
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(ctx.budgetVersions.length).toBeGreaterThanOrEqual(2))
+  const r = await mountRabbit(app(props), { adapter: holder.adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(ctx.budgetVersions.length).toBeGreaterThanOrEqual(2),
+  ] })
   return r
 }
 afterEach(() => {

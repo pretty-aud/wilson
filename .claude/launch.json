@@ -30,105 +30,6 @@
       "port": 4173
     },
     {
-      "name": "t0-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/elated-jennings-4c5d33/WILSON",
-        "--port",
-        "5241",
-        "--strictPort"
-      ],
-      "port": 5241
-    },
-    {
-      "name": "t2-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/laughing-cannon-eb6d7f/WILSON",
-        "--port",
-        "5243",
-        "--strictPort"
-      ],
-      "port": 5243
-    },
-    {
-      "name": "t1-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/silly-snyder-ee69bb/WILSON",
-        "--port",
-        "5242",
-        "--strictPort"
-      ],
-      "port": 5242
-    },
-    {
-      "name": "t3-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/frosty-sanderson-de90d2/WILSON",
-        "--port",
-        "5244",
-        "--strictPort"
-      ],
-      "port": 5244
-    },
-    {
-      "name": "v1-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/quirky-dewdney-93d080/WILSON",
-        "--port",
-        "5245",
-        "--strictPort"
-      ],
-      "port": 5245
-    },
-    {
-      "_comment": "BC1 (Bins on the cloud, schema + plumbing): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The Bins tab shows the fixtures' bins \u2014 the one visible change of BC1.",
-      "name": "bc1-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/frosty-noether-87add2/WILSON",
-        "--port",
-        "5284",
-        "--strictPort"
-      ],
-      "port": 5284
-    },
-    {
-      "_comment": "BC2 (Bins on the cloud, the desktop app signed in): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The fixtures show the footage locations and the company's switch in Settings, Storage; the desktop's own file reads need the Electron app signed in to wilson-dev.",
-      "name": "bc2-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/kind-swanson-1ed3d7/WILSON",
-        "--port",
-        "5285",
-        "--strictPort"
-      ],
-      "port": 5285
-    },
-    {
-      "_comment": "BC3 (Bins on the cloud, the browser): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The Bins tab shows the catalogue a browser gets; `?bins=browser` on the URL makes the fixtures answer as the cloud does in a browser (no row reachable). Proven by fetching src/tools/rabbit_v0.1.0/bins/browserCatalogue.js, a BC3-only module, from it.",
-      "name": "bc3-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/vigorous-matsumoto-07c0ff/WILSON",
-        "--port",
-        "5286",
-        "--strictPort"
-      ],
-      "port": 5286
-    },
-    {
       "_comment": "V1: the SIGN-IN screens, without editing .env.local. Vite ranks a variable already in the process environment above .env files, so this sets VITE_DEV_AUTOLOGIN to a value the app ignores (App.jsx signs in only on the exact string tester) and the auth screens render while .env.local still says tester. Port 5246; the signed-in server stays on 5245.",
       "name": "v1-auth",
       "runtimeExecutable": "cmd",
@@ -139,255 +40,34 @@
       "port": 5246
     },
     {
-      "_comment": "S4d (the Legal gate of its own: workspace managers see Legal files without a seat, migration 0092): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). /rabbit is the admin, /rabbit?fixtures=member the plain member, /rabbit?fixtures=manager (new) the workspace manager with a member seat who now sees the Legal file and still not the invoice.",
-      "name": "s4d-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/cool-burnell-1ba7f3/WILSON",
-        "--port",
-        "5287",
-        "--strictPort"
-      ],
-      "port": 5287
-    },
-    {
-      "_comment": "GW1 (the file gateway's cloud side, migration 0093): this worktree's dev server on the bundle's port, as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). App settings, Storage, File gateway renders from the fixtures' in-memory gateway cloud: /settings is the company with its NAS gateway, five viewings from outside and the trail; ?gateways=empty starts before the first gateway (Add a gateway, the token, the stories, the gateway appearing six seconds later); ?fixtures=member is a member's view.",
-      "name": "gw1-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/eloquent-clarke-66ab08/WILSON",
-        "--port",
-        "5288",
-        "--strictPort"
-      ],
-      "port": 5288
-    },
-    {
-      "_comment": "GW3 (the file gateway in the web app, migration 0095): this worktree's dev server on the bundle's port, as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). R.A.B.B.I.T., Salt Hours, Bins plays the proxies through the fixtures' gateway stub in the page: /rabbit is the office door (no overlay); ?gateway=outside the outside door (the viewer's name, member code and the clock over the player); ?gateway=none no gateway enrolled; ?gateway=unseen a silent gateway; ?gateway=unreachable one this browser cannot reach; &missing=<clip id> a clip the gateway answers 404 for; ?gateways=nextroot the Settings card's new-certificate lines. ?gateway=real&gw=&host=&port=&renew_s=&sub= is the Playwright run against GW2's executable (scripts/gateway-playback-e2e.mjs).",
-      "name": "gw3-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/dazzling-jepsen-4c3d14/WILSON",
-        "--port",
-        "5289",
-        "--strictPort"
-      ],
-      "port": 5289
-    },
-    {
-      "name": "fx2-worktree",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/festive-lalande-047db5/WILSON",
-        "--port",
-        "5291",
-        "--strictPort"
-      ],
-      "port": 5291
-    },
-    {
-      "_comment": "FX3 (the status banner under every item's title, the bid version bar under the project title, \"Save edit as\u2026\", the Team tab's gallery): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the switches are set in the process environment, which Vite ranks above .env files (as v1-auth does), and the Supabase URL is a placeholder on a closed local port (the client throws at import without one; the fixtures answer every read, so nothing reaches a real project). /rabbit is Salt Hours; ?fixtures=game turns levels and experiences on.",
-      "name": "fx3-worktree",
+      "_comment": "A session's own dev server (docs/sessions/PLAN_TO_1_0.md section 5, rule 2: three fixed entries, session-a/b/c on 5301-5303, and no entry per session). dg2-worktree's recipe: the dev fixtures' tester, no .env.local needed (the four VITE_ variables are set in the process environment), the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made. It serves WILSON/ of the worktree this file is in (the path is relative to the worktree root). Port 5301, strict: a busy port fails rather than moving.",
+      "name": "session-a",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "set VITE_DEV_AUTOLOGIN=tester&& set VITE_DEV_FIXTURES=1&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/amazing-bartik-d9546c/WILSON --port 5292 --strictPort"
-      ],
-      "port": 5292
-    },
-    {
-      "_comment": "FX1 (the shot's frame-count field, display only, no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours, Scenes: the frame counts of the scene table's nested shots, the shot table and an edit's cut, and the number fields of the scene and shot popups (walkthrough 64; scripts/shot-number-fields-shots.mjs photographs them).",
-      "name": "fx1-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/keen-jemison-976d9b/WILSON --port 5290 --strictPort"
-      ],
-      "port": 5290
-    },
-    {
-      "_comment": "FX4 (an edit changes in place: Save edit writes into the edit on screen, Save as\u2026 is the only new version; no migration): this worktree's dev server on its own port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours, Scenes: walkthrough 67 (scripts/fx4-shots.mjs photographs it).",
-      "name": "fx4-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/nifty-allen-85e05d/WILSON --port 5293 --strictPort"
-      ],
-      "port": 5293
-    },
-    {
-      "_comment": "FX6 (the status line under an item popup's title, thicker; no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. The four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe), and the worktree's gitignored .env.local holds the same four; the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: every item popup's status banner; ?fixtures=game adds levels and experiences (walkthrough 68; scripts/fx6-shots.mjs photographs it).",
-      "name": "fx6-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/musing-northcutt-ade99a/WILSON --port 5294 --strictPort"
-      ],
-      "port": 5294
-    },
-    {
-      "_comment": "FX8 (the tables' row buttons: one page icon to open an item, every button right after the title, a narrower title column; no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: Tasks, Assets, Scenes (scenes, nested shots, the Shots table); ?fixtures=game turns Levels and Experiences on (walkthrough 70; scripts/fx8-shots.mjs photographs them).",
-      "name": "fx8-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/adoring-bell-e4dfc4/WILSON --port 5296 --strictPort"
-      ],
-      "port": 5296
-    },
-    {
-      "_comment": "FX10 (the date fields: the whole date and the empty mm / dd / yyyy always visible, the calendar icon clear of it; display only, no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. The four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe), and the worktree's gitignored .env.local holds the same four; the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: every date field of the tables and the windows; ?fixtures=game adds Levels and Experiences (walkthrough 71; scripts/fx10-date-fields-shots.mjs measures and photographs them).",
-      "name": "fx10-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/blissful-sanderson-646ed3/WILSON --port 5297 --strictPort"
-      ],
-      "port": 5297
-    },
-    {
-      "_comment": "VW1 (custom table views, research first): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: Tasks, Assets, Scenes (scenes and shots); ?fixtures=game turns Levels and Experiences on (docs/design/CUSTOM_VIEWS_RESEARCH.md; scripts/vw1-shots.mjs photographs them).",
-      "name": "vw1-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/affectionate-jepsen-306bca/WILSON --port 5298 --strictPort"
-      ],
-      "port": 5298
-    },
-    {
-      "_comment": "FX11 (one connection dot in R.A.B.B.I.T.'s bottom-left corner; the project bar keeps the status and the faces): this worktree's dev server on the bundle's port, as the dev fixtures' tester. The four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe), and the worktree's gitignored .env.local holds the same four; the Supabase pair is a placeholder on a closed local port, nothing real is reached. ?connection=files-down and ?connection=offline show the dot's amber and red (walkthrough 73; scripts/fx11-shots.mjs measures and photographs them).",
-      "name": "fx11-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/angry-mendel-551c9d/WILSON --port 5299 --strictPort"
-      ],
-      "port": 5299
-    },
-    {
-      "_comment": "VW1m (no main item: a task's items are its items; the Timeline's combination rows, the Budget's even split, the task window's Sort and Files per item): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local is needed: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder on a closed local port, nothing real is reached, since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: task 18 (Glass and rain rig test) is on two assets; ?fixtures=game gives tasks 17 and 18 levels and experiences (walkthrough 74).",
-      "name": "vw1m-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/hungry-cerf-6babe6/WILSON --port 5298 --strictPort"
-      ],
-      "port": 5298
-    },
-    {
-      "_comment": "VW1b (custom table views, the build, part 1: the Tasks table's item columns, the item picker, combination groups by asset, scene, shot, level and experience, the sticky checkbox and Title columns, the Levels, Experiences and scene window counts): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local is needed: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder on a closed local port, nothing real is reached, since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: task 18 (Glass and rain rig test) is on two assets; ?fixtures=game gives tasks 17 and 18 levels and experiences (walkthrough 72, part 1).",
-      "name": "vw1b-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/gifted-dewdney-0d314f/WILSON --port 5298 --strictPort"
-      ],
-      "port": 5298
-    },
-    {
-      "_comment": "DG1 (D.O.G. references, research first): this worktree's dev server on the bundle's port 5300, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment (vw1-worktree's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. D.O.G. at /dog; R.A.B.B.I.T., Salt Hours; ?fixtures=game turns Levels and Experiences on (docs/design/DOG_REFERENCES_RESEARCH.md).",
-      "name": "dg1-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/festive-cori-52d885/WILSON --port 5300 --strictPort"
-      ],
-      "port": 5300
-    },
-    {
-      "_comment": "DG1b (D.O.G.'s references: Audrey's last six answers, batches 5 and 6 of docs/design/DOG_REFERENCES_QUESTIONS.md): this worktree's dev server on the bundle's port 5301, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment (dg1-worktree's recipe); the Supabase pair is a placeholder on a closed local port, nothing real is reached, since the fixtures answer every read and write in memory. D.O.G. at /dog; R.A.B.B.I.T., Salt Hours; scripts/dg1-shots.mjs 5301 --part refs photographs it (walkthrough 75).",
-      "name": "dg1b-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/strange-hopper-de0d91/WILSON --port 5301 --strictPort"
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite WILSON --port 5301 --strictPort"
       ],
       "port": 5301
     },
     {
-      "_comment": "VW1c (custom table views, the build, part 2: the views' and groupings' data; migration 0098, suite 101, every backend and the provider, no screen): this worktree's dev server on the bundle's port 5298, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T. at /rabbit, Salt Hours; ?fixtures=game for levels and experiences.",
-      "name": "vw1c-worktree",
+      "_comment": "A session's own dev server (docs/sessions/PLAN_TO_1_0.md section 5, rule 2: three fixed entries, session-a/b/c on 5301-5303, and no entry per session). dg2-worktree's recipe: the dev fixtures' tester, no .env.local needed (the four VITE_ variables are set in the process environment), the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made. It serves WILSON/ of the worktree this file is in (the path is relative to the worktree root). Port 5302, strict: a busy port fails rather than moving.",
+      "name": "session-b",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/youthful-roentgen-ae7b85/WILSON --port 5298 --strictPort"
-      ],
-      "port": 5298
-    },
-    {
-      "_comment": "VW1d (custom table views, the build, part 3: the views on the Tasks table, the first screen; no migration): this worktree's dev server on the bundle's port 5298, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T. at /rabbit, Salt Hours, the Tasks tab; ?fixtures=game for levels and experiences.",
-      "name": "vw1d-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/charming-bell-705fef/WILSON --port 5298 --strictPort"
-      ],
-      "port": 5298
-    },
-    {
-      "_comment": "VW1e (custom table views, the build, part 4: the views on Assets, Levels, Experiences, Scenes and Shots; migration 0099, suite 102, the cloud's asset-level and asset-experience links): this worktree's dev server on the bundle's port 5298, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T. at /rabbit, Salt Hours: Assets, Scenes; ?fixtures=game for Levels and Experiences.",
-      "name": "vw1e-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/lucid-payne-07ee15/WILSON --port 5298 --strictPort"
-      ],
-      "port": 5298
-    },
-    {
-      "_comment": "FX12 (the AI's file store clean-up, OUTSTANDING DG1-03; no migration): this worktree's dev server on the bundle's port 5302, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached). The Admin Terminal's Diagnostics shows The AI's file store card from src/dev/fixtures/aiFileStoreFixture.js; ?aiFiles=empty|error are its other states. The real store is reached only signed in to wilson-dev (walkthrough 76 part B).",
-      "name": "fx12-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/hopeful-merkle-b794b2/WILSON --port 5302 --strictPort"
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite WILSON --port 5302 --strictPort"
       ],
       "port": 5302
     },
     {
-      "_comment": "FX13 (D.O.G.'s Enter key: a full deck from Enter needs text in the deck context box, Enter on the switch moves the switch, the Alt key kept by her ruling, the preview's recorded line; no migration): this worktree's dev server on the bundle's port 5303, as the dev fixtures' tester. No .env.local is needed for it: the four VITE_ variables are set in the process environment (vw1-worktree's recipe), the Supabase pair a placeholder the client needs to construct (a closed local port, nothing real is reached, so no AI call can be made: a generation stops inside callAI, which says \"Sign in to use AI features\" in the console before any request, and the page shows the generation failed). scripts/fx13-enter-shots.mjs measures every Enter door against it.",
-      "name": "fx13-worktree",
+      "_comment": "A session's own dev server (docs/sessions/PLAN_TO_1_0.md section 5, rule 2: three fixed entries, session-a/b/c on 5301-5303, and no entry per session). dg2-worktree's recipe: the dev fixtures' tester, no .env.local needed (the four VITE_ variables are set in the process environment), the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made. It serves WILSON/ of the worktree this file is in (the path is relative to the worktree root). Port 5303, strict: a busy port fails rather than moving.",
+      "name": "session-c",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/eloquent-rosalind-15dd83/WILSON --port 5303 --strictPort"
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite WILSON --port 5303 --strictPort"
       ],
       "port": 5303
-    },
-    {
-      "_comment": "FX14 (FX13's leftovers: D.O.G.'s card title bars by keyboard, the kit toast holding for keyboard focus and handing it back, the two flaky R.A.B.B.I.T. tests; no migration): the canonical checkout's dev server on the bundle's port 5304, as the dev fixtures' tester. fx13-worktree's recipe: no .env.local is needed, the four VITE_ variables are set in the process environment, the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made.",
-      "name": "fx14-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON --port 5304 --strictPort"
-      ],
-      "port": 5304
-    },
-    {
-      "_comment": "FX15 (FX14's leftovers: four R.A.B.B.I.T. test mounts out of the gap, D.O.G.'s settings sections and dropdowns for screen readers, one main region on every page, a bounded retry in the ai-files CI probe; no migration): this worktree's dev server on the bundle's port 5305, as the dev fixtures' tester. fx14-worktree's recipe: no .env.local is needed, the four VITE_ variables are set in the process environment, the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made.",
-      "name": "fx15-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/unruffled-kapitsa-c64e2c/WILSON --port 5305 --strictPort"
-      ],
-      "port": 5305
-    },
-    {
-      "_comment": "DG2 (D.O.G.'s Upload Documents section moves into card 2 References as a first group of rows; card 1 becomes 1 Project; no migration): this worktree's dev server on the bundle's port 5306, as the dev fixtures' tester. fx14-worktree's recipe: no .env.local is needed, the four VITE_ variables are set in the process environment, the Supabase pair a placeholder on a closed local port (nothing real is reached), since the fixtures answer every read and write in memory. D.O.G. at /dog; scripts/dg2-uploads-shots.mjs 5306 measures and photographs it (walkthrough 80).",
-      "name": "dg2-worktree",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/silly-diffie-bf1870/WILSON --port 5306 --strictPort"
-      ],
-      "port": 5306
     }
   ]
 }

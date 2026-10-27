@@ -34,6 +34,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { mountRabbit } from '../../state/mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null, rates: null }))
 
@@ -109,9 +110,10 @@ async function mount(rates = RATES, before = null) {
   fx = buildDevFixtures()
   holder.adapter = fx.rabbitAdapter()
   before?.(holder.adapter)
-  render(<RabbitProvider><Harness /></RabbitProvider>)
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(ctx.budgetVersions.length).toBe(2))
+  await mountRabbit(<RabbitProvider><Harness /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(ctx.budgetVersions.length).toBe(2),
+  ] })
 }
 afterEach(() => {
   cleanup(); ctx = null; fx = null

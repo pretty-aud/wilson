@@ -78,7 +78,7 @@ export const MODEL_KEYS = {
   other:       'rabbit.intake.other',
 }
 
-export const CHUNKERS = {
+const CHUNKERS = {
   script:      scriptChunker,
   treatment:   treatmentChunker,
   gdd:         gddChunker,

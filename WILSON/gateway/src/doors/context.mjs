@@ -14,14 +14,14 @@ import { Viewings } from './viewings.mjs';
 import { defaultFs } from './clips.mjs';
 
 const DAY = 86_400_000;
-export const RELAY_VIEWERS = 6;
+const RELAY_VIEWERS = 6;
 
 /**
  * The relay signal (§4, §10 row 22): many different viewers' tickets arriving
  * on the inside door from ONE LAN address in a day. Bounded: at most 1,000
  * addresses and 64 viewers per address are remembered.
  */
-export class RelayWatch {
+class RelayWatch {
   constructor({ now = Date.now, threshold = RELAY_VIEWERS } = {}) {
     this.now = now;
     this.threshold = threshold;

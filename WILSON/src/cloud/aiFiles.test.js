@@ -115,7 +115,7 @@ describe('uploadAIFile', () => {
 // =============================================================================
 
 const {
-  UPLOAD_EXPIRY_SECONDS, DELETE_BATCH, deleteAIFiles, deleteAIFile, listAIFiles, sweepAIFiles,
+  UPLOAD_EXPIRY_SECONDS, DELETE_BATCH, deleteAIFiles, listAIFiles, sweepAIFiles,
   holdAIFiles, releaseAllAIFiles, __setCurrentTokenForTests, neutralFileName,
 } = await import('./aiFiles.js')
 
@@ -253,11 +253,6 @@ describe('deleteAIFiles', () => {
     const err = await p
     expect(err.name).toBe('AbortError')
     expect(err).not.toBeInstanceOf(AIFileError)
-  })
-
-  it('deleteAIFile answers its one result', async () => {
-    vi.stubGlobal('fetch', async () => okJson({ results: [{ id: fid(1), outcome: 'gone' }] }))
-    expect(await deleteAIFile(fid(1))).toEqual({ id: fid(1), outcome: 'gone' })
   })
 })
 

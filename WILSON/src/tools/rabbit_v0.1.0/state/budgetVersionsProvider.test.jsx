@@ -24,7 +24,8 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 
@@ -89,9 +90,10 @@ beforeEach(async () => {
   loads = 0
   const real = holder.adapter.loadProject.bind(holder.adapter)
   holder.adapter.loadProject = async (...a) => { loads += 1; return real(...a) }
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(ctx.budgetVersions.length).toBe(2))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(ctx.budgetVersions.length).toBe(2),
+  ] })
 })
 afterEach(() => { cleanup(); ctx = null; delete globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS })
 

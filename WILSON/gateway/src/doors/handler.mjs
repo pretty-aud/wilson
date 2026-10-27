@@ -35,7 +35,7 @@ import { normalizeIp } from '../rules/ip.mjs';
 const CLIP_RE = /^\/v1\/clips\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/renew)?$/;
 
 /** The Host header names this gateway: one of its names or inside addresses, with or without the door's port. */
-export function hostIsOurs(hostHeader, { names = [], addresses = [], port }) {
+function hostIsOurs(hostHeader, { names = [], addresses = [], port }) {
   if (typeof hostHeader !== 'string' || !hostHeader || hostHeader.length > 300) return false;
   let host = hostHeader.trim().toLowerCase();
   let p = null;
@@ -50,7 +50,7 @@ export function hostIsOurs(hostHeader, { names = [], addresses = [], port }) {
 
 const TONE_STYLE = { plain: '', bold: 'font-weight:600', amber: 'color:#9a5b00', red: 'color:#b3261e;font-weight:600' };
 
-export function statusPage({ line, fingerprint }) {
+function statusPage({ line, fingerprint }) {
   const seg = (s) => `<span style="${TONE_STYLE[s.tone] || ''}">${escapeHtml(s.text)}</span>`;
   const warnings = (line.warnings || []).map((w) => `<li>${seg(w)}</li>`).join('');
   return `<!doctype html>

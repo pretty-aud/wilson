@@ -4143,10 +4143,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {!section1Collapsed && (
             <div className="dog-card-body" id="dog-card1-body">
-              {/* Project Selection */}
+              {/* Project Selection. DG3 (Audrey, 2026-10-27: "Choose a
+                  project"): the label says what the dropdown does, and names
+                  it (FX15's htmlFor); the card's title stays "1 Project". */}
               <div>
                 <label className="ui-field-label dog-field-label" htmlFor="dog-project">
-                  Project
+                  Choose a project
                 </label>
                 {/* DG1: choosing a project no longer sends its files (Q2); its
                     title and description always go (Q17). */}
@@ -4335,9 +4337,15 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     />
                   </div>
 
+                  {/* DG3 (OUTSTANDING DG2-02): a press keeps focus where it
+                      is, so the box above does not blur under it, does not
+                      shrink from 160px to 80px, and the button does not move
+                      up before the release: the click lands. A pointer only;
+                      Enter and Space on the focused button are as before. */}
                   <Button
                     variant="primary"
                     className="dog-generate"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={generateFullDeck}
                     disabled={isGenerating || !hasFileContent}
                   >
@@ -4431,10 +4439,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <p className="dog-applied-line">{appliedFromFullDeck}</p>
                   </div>
 
-                  {/* Generate Button */}
+                  {/* Generate Button. DG3 (DG2-02): the page request box above
+                      grows from 96px to 160px while focused; a press keeps
+                      focus there, as on Generate full deck outline. */}
                   <Button
                     variant="primary"
                     className="dog-generate"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={generatePageOutline}
                     disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout}
                   >

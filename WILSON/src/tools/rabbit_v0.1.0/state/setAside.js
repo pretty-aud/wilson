@@ -156,19 +156,6 @@ export function workOn(kind, row, { comments = [], files = [], managedFiles = []
   return { loggedDays, comments: nComments, files: nFiles }
 }
 
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-const days = (n) => `${Math.round(n * 100) / 100} ${n === 1 ? 'day' : 'days'}`
-
-/** "1.5 days logged, 2 comments, 1 file" — '' for no work. */
-export function workWords(work) {
-  if (!work) return ''
-  const parts = []
-  if (work.loggedDays) parts.push(`${days(work.loggedDays)} logged`)
-  if (work.comments) parts.push(plural(work.comments, 'comment'))
-  if (work.files) parts.push(plural(work.files, 'file'))
-  return parts.join(', ')
-}
-
 /**
  * Remove from this version, or Delete (constraint 9). While a version is
  * open and no budget is active, a row ANOTHER saved version holds is set

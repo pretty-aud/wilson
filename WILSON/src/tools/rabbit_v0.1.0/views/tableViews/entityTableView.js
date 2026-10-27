@@ -23,14 +23,14 @@ import { KIND_LABEL } from '../../state/taskItemsModel'
 import { CHOICE_OPS, TEXT_OPS, itemKindOptions } from './tasksTableView'
 import { combinationOfIds } from './combinationGroups'
 
-export const ENTITY_STATUSES = Object.freeze([
+const ENTITY_STATUSES = Object.freeze([
   'not_started', 'in_progress', 'pending_review', 'needs_revisions',
   'approved', 'final', 'blocked', 'on_hold', 'omitted',
 ])
 const STATUS_LABELS = Object.freeze(Object.fromEntries(ENTITY_STATUSES.map(s => [s, statusMeta(s).label])))
 
 /** The Gallery card's own lines (finding 6's rule, built for the Gallery). */
-export const ENTITY_CARD_FIELDS = Object.freeze(['status', 'description'])
+const ENTITY_CARD_FIELDS = Object.freeze(['status', 'description'])
 
 /**
  * The table's columns in order, each with what the sheet's widths need

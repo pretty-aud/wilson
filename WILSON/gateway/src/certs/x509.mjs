@@ -44,8 +44,8 @@ const OID = {
   authorityKeyIdentifier: '2.5.29.35',
 };
 
-export const ROOT_YEARS = 10;
-export const LEAF_DAYS = 397;
+const ROOT_YEARS = 10;
+const LEAF_DAYS = 397;
 const DAY = 86_400_000;
 const DNS_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 

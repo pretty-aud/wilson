@@ -15,7 +15,7 @@ import { isDone } from './dependencyStatus';
 const TASK_ACTIVE_STATES = new Set(['in_progress', 'pending_review', 'needs_revisions']);
 
 export const isTaskDone = isDone;
-export function isTaskActive(task) {
+function isTaskActive(task) {
   return task && TASK_ACTIVE_STATES.has(task.status);
 }
 

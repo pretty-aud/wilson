@@ -24,8 +24,8 @@ export const SEQUENCE_EXTS = new Set(['.exr', '.dpx', '.png', '.jpg', '.jpeg', '
 export const BROWSER_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm'])
 // Chromium's own audio decoders. AIFF and BWF are NOT in the list on purpose:
 // a <audio> pointed at them errors, and the panel must say so, not spin.
-export const BROWSER_AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'])
-export const BROWSER_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.svg'])
+const BROWSER_AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'])
+const BROWSER_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.svg'])
 
 export const MEDIA_TYPES = ['video', 'still', 'sequence', 'audio', 'graphic', 'vfx', 'document', 'other']
 export const REVIEW_FLAGS = ['unflagged', 'select', 'reject']

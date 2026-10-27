@@ -51,8 +51,11 @@ function mount({ files = [], busy = false, chosen = [], projectChosen = true, re
   const groups = () => [...view.container.querySelectorAll('#dog-refs-body .dog-refs-group')]
   const uploadsGroup = () => view.container.querySelector('#dog-refs-body .dog-refs-uploads')
   const uploadRows = () => [...view.container.querySelectorAll('#dog-refs-body .dog-refs-uploads .dog-refs-row')]
-  const choose = () => uploadsGroup()?.querySelector('label.dog-upload') || null
-  return { view, uploads, refs: r, body, groups, uploadsGroup, uploadRows, choose }
+  // DG3 (OUTSTANDING DG2-01): Choose file is a kit button beside the hidden
+  // input (it was a <label> round it, which Tab never reached).
+  const choose = () => uploadsGroup()?.querySelector('button.dog-upload') || null
+  const chooseInput = () => uploadsGroup()?.querySelector('input[type=file]') || null
+  return { view, uploads, refs: r, body, groups, uploadsGroup, uploadRows, choose, chooseInput }
 }
 const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
@@ -86,9 +89,53 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(choose.querySelector('.dog-upload-hint').textContent).toBe('(PDF, MD, TXT, images)')
     expect(choose.className).toBe('ui-btn dog-upload')
     expect(choose.getAttribute('data-variant')).toBe('secondary')
-    const input = choose.querySelector('input[type=file]')
+    expect(choose.getAttribute('data-size')).toBe('md')
+    const input = c.chooseInput()
     expect(input.className).toBe('hidden')
     expect(input.getAttribute('accept')).toBe(UPLOAD_ACCEPT)
+    expect(input.hasAttribute('multiple')).toBe(false)
+  })
+
+  // DG3 (OUTSTANDING DG2-01): a <label> styled as a button round an input
+  // Tailwind hides (display: none) took no focus, so Tab never reached it and
+  // Chromium named it `LabelText ""` (DG2's measurement). It is a real button.
+  it('Choose file is a kit button named "Choose file", a Tab stop, its kinds its description; the input stays hidden beside it, outside it', () => {
+    const c = mount({ files: [] })
+    const b = screen.getByRole('button', { name: 'Choose file' })
+    expect(b).toBe(c.choose())
+    expect(b.tagName).toBe('BUTTON')
+    expect(b.getAttribute('type')).toBe('button')
+    expect(b.disabled).toBe(false)
+    expect(b.tabIndex).toBe(0)
+    // Its words name it; the kinds in brackets are its description.
+    const hint = document.getElementById(b.getAttribute('aria-describedby'))
+    expect(hint).toBe(b.querySelector('.dog-upload-hint'))
+    expect(hint.textContent).toBe('(PDF, MD, TXT, images)')
+    expect([...b.querySelectorAll('svg')].every((g) => g.getAttribute('aria-hidden') === 'true')).toBe(true)
+    // No control inside the button (HTML allows none); the input is its
+    // sibling, hidden, and no label wraps anything any more.
+    expect(b.querySelector('input, label')).toBe(null)
+    expect(c.chooseInput().parentElement).toBe(c.uploadsGroup())
+    expect(c.uploadsGroup().querySelector('label')).toBe(null)
+    // CONTROL: the name is the words alone, not the description too.
+    expect(screen.queryByRole('button', { name: 'Choose file (PDF, MD, TXT, images)' })).toBe(null)
+  })
+
+  it('a press on Choose file clicks the hidden input (jsdom opens no picker: the click is what a browser turns into one); nothing else is called', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1), chosen: [ITEM] })
+    const click = vi.spyOn(c.chooseInput(), 'click')
+    fireEvent.click(c.choose())
+    expect(click).toHaveBeenCalledTimes(1)
+    // Enter and Space press a button by its click (pressEnter / pressSpace in
+    // enterKey.render.test.jsx); a second press, a second click.
+    fireEvent.click(c.choose())
+    expect(click).toHaveBeenCalledTimes(2)
+    expect(c.uploads.add).not.toHaveBeenCalled()       // only a picked file reaches the handler
+    expect(c.uploads.remove).not.toHaveBeenCalled()
+    expect(c.refs.untick).not.toHaveBeenCalled()
+    // CONTROL: the click is the input's own, not a click anywhere in the group.
+    fireEvent.click(c.uploadsGroup().querySelector('.dog-refs-group-label'))
+    expect(click).toHaveBeenCalledTimes(2)
   })
 
   it('the file kinds are exactly the ones the upload block admitted', () => {
@@ -148,7 +195,9 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(choose.parentElement).toBe(c.uploadsGroup())
     expect(choose).toBe(c.uploadsGroup().lastElementChild)
     expect(before(c.uploadsGroup().querySelector('ul'), choose)).toBe(true)
-    fireEvent.change(choose.querySelector('input'), { target: { files: [] } })
+    // The hidden input just before it (DG3), outside the button.
+    expect(choose.previousElementSibling).toBe(c.chooseInput())
+    fireEvent.change(c.chooseInput(), { target: { files: [] } })
     expect(c.uploads.add).toHaveBeenCalledTimes(1)
   })
 
@@ -232,11 +281,12 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     const alert = group.querySelector('[role="alert"]')
     expect(alert.textContent).toBe('Please upload a PDF, Markdown, Text, Image, or Video file')
     expect(alert.getAttribute('data-tone')).toBe('danger')
-    expect(before(group.querySelector('label.dog-upload'), alert)).toBe(true)
+    expect(before(group.querySelector('button.dog-upload'), alert)).toBe(true)
+    expect(group.querySelector('button.dog-upload').nextElementSibling).toBe(alert)
     cleanup()
     const many = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
     const full = render(<ReferencesCard refs={fakeRefs()} uploads={{ ...uploads, files: many, error: 'Maximum 20 files allowed' }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
-    expect(full.container.querySelector('label.dog-upload')).toBe(null)
+    expect(full.container.querySelector('button.dog-upload')).toBe(null)
     expect(full.container.querySelector('.dog-refs-uploads [role="alert"]').textContent).toBe('Maximum 20 files allowed')
   })
 
@@ -338,6 +388,65 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     fireEvent.click(b)
     expect(c.uploads.remove).toHaveBeenCalledWith(files[0].id)
     expect(document.activeElement).toBe(b)
+  })
+
+  // DG3 (OUTSTANDING DG2-01): Choose file is a Tab stop now, and it goes at
+  // the 20th upload. Pressed from the keyboard, it took focus to the page with
+  // it (Chromium: <body>; the next Enter there made a full deck, MEASURED in
+  // the DG3 hand-off), so focus goes to the upload it added. The card meets
+  // the 20th as D.O.G.'s next render, after the picked file is read.
+  function nineteen() {
+    const files = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
+    const props = (n) => ({ refs: fakeRefs([ITEM]), uploads: { files: files.slice(0, n), busy: false, add: vi.fn(), remove: vi.fn() }, projectChosen: true, onAdd: vi.fn(), onPreview: vi.fn() })
+    const view = render(<ReferencesCard {...props(UPLOAD_LIMIT - 1)} />)
+    return { choose: () => screen.queryByRole('button', { name: 'Choose file' }), reach20: () => view.rerender(<ReferencesCard {...props(UPLOAD_LIMIT)} />) }
+  }
+
+  it('the 20th upload from Choose file pressed by keyboard: Choose file goes, and focus goes to that upload\'s Remove, never to the page', () => {
+    const c = nineteen()
+    const b = c.choose()
+    press(b)                                            // Enter: the press that opens the picker
+    expect(document.activeElement).toBe(b)              // the picker leaves focus where it was
+    c.reach20()
+    expect(c.choose()).toBe(null)
+    expect(document.activeElement).toBe(removeOf('note-20.txt'))
+  })
+
+  it('CONTROL, the pointer as before: Choose file clicked, the 20th upload takes it away and focus falls with it', () => {
+    const c = nineteen()
+    const b = c.choose()
+    fireEvent.mouseDown(b)
+    b.focus()
+    fireEvent.click(b)
+    c.reach20()
+    expect(c.choose()).toBe(null)
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  // DG3 review round 1, note 2 (MEASURED in Chromium by the reviewer): a
+  // picker closed unused leaves focus on Choose file with the keyboard's ring
+  // still on it; a click on it then does not move focus, so the ring (and
+  // `:focus-visible`) stays, and the 20th upload that click adds hands focus
+  // on as the keyboard's would, never to the page.
+  it('a click on Choose file still holding the keyboard\'s ring counts as the keyboard\'s: the 20th upload hands focus to its Remove', () => {
+    const c = nineteen()
+    const b = c.choose()
+    press(b)                                            // Enter: the picker opens, and is closed unused
+    fireEvent.mouseDown(b, { detail: 1 })               // the same button, already focused: no focus move,
+    fireEvent.click(b, { detail: 1 })                   // so its ring stays (a mouse's click, detail 1)
+    expect(document.activeElement).toBe(b)
+    expect(b.matches(':focus-visible')).toBe(true)
+    c.reach20()
+    expect(document.activeElement).toBe(removeOf('note-20.txt'))
+  })
+
+  it('focus moved on by the time the 20th is read stays where it went', () => {
+    const c = nineteen()
+    press(c.choose())
+    const add = screen.getByRole('button', { name: 'Add references' })
+    add.focus()
+    c.reach20()
+    expect(document.activeElement).toBe(add)
   })
 
 })

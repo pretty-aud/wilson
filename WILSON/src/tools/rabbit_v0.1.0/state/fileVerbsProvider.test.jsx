@@ -16,7 +16,8 @@
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null }))
 
@@ -68,9 +69,10 @@ beforeEach(() => { holder.adapter = makeAdapter(); ctxRef = null })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 async function mount() {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-  await waitFor(() => expect(ctxRef.files.length).toBe(1))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+    () => expect(ctxRef?.project?.id).toBe('p1'),
+    () => expect(ctxRef.files.length).toBe(1),
+  ] })
 }
 
 describe('the file verbs take the file\'s project (S4a)', () => {
@@ -120,8 +122,7 @@ describe('the file verbs take the file\'s project (S4a)', () => {
         ? { ...b, files: [...b.files, { id: 'fL', project_id: 'p1', name: 'release.pdf', tags: ['legal'], is_core_definer: false }] }
         : b
     }
-    render(<RabbitProvider><Probe /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.files?.length).toBe(2))
+    await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.files?.length).toBe(2) })
     const { LEGAL_NOT_CORE_REASON } = await import('../fileTags')
     await expect(ctxRef.markFileCoreDefiner('fL', true)).rejects.toThrow(LEGAL_NOT_CORE_REASON)
     expect(holder.adapter.calls).toEqual([])

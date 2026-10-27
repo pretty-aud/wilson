@@ -2365,7 +2365,7 @@ function presentTakes(rows) {
 module.exports = {
   mountRabbitBins,
   // Pure helpers, exported for the tests and for parity with the renderer copy.
-  guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor, presentTakes,
+  guessMediaType, extOf, parseNameSuggestions, detectSequence, pathKey, presentTakes,
   // BC1: the cloud clip's address on this computer (the cloud-bins routes).
   isUncPath, isSafeRelativePath, resolveCloudFilePath,
   // BC2: the location a picked path lies in, and the share a network path is on.

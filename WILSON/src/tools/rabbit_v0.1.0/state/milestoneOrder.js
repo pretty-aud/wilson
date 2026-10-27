@@ -49,7 +49,7 @@
 // =============================================================================
 
 /** Parse a milestone `date` to a sort key, or null when it has none. */
-export function milestoneDateKey(value) {
+function milestoneDateKey(value) {
   if (!value) return null
   const t = Date.parse(value)
   return Number.isFinite(t) ? t : null

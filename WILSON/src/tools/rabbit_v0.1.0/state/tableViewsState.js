@@ -46,10 +46,10 @@ import {
 export const TABLE_VIEWS_UNAVAILABLE_WORDS = 'Saved views are not on this server yet.'
 // VW1d code review round 2 (R2-2): a view whose settings from another WILSON
 // leave no room for a change.
-export const OTHER_SETTINGS_FILL_WORDS = 'settings from another WILSON fill this view; save your change as a new view'
+const OTHER_SETTINGS_FILL_WORDS = 'settings from another WILSON fill this view; save your change as a new view'
 export const TABLE_VIEW_LAST_WAIT_MS = 2000
 
-export function tableViewsUnavailableError() {
+function tableViewsUnavailableError() {
   const err = new Error(TABLE_VIEWS_UNAVAILABLE_WORDS)
   err.code = 'table_views_unavailable'
   return err

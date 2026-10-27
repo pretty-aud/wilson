@@ -26,7 +26,7 @@ import { FILTER_VALUELESS_OPS } from '../../state/tableViewsModel'
 import { withFilterField, withFilterOp } from './viewScreenModel'
 import './tableViews.css'
 
-export const GONE_WORDS = 'No longer in the project'
+const GONE_WORDS = 'No longer in the project'
 
 /**
  * One filter row. `row` is `{ field, op, values }` (column keys); `onChange`

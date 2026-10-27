@@ -56,9 +56,9 @@ function BusyGlyph({ 'aria-hidden': hidden }) {
   return <Spinner size="sm" aria-hidden={hidden} />
 }
 
-export const FILE_REF_PREFIX = 'file:'
+const FILE_REF_PREFIX = 'file:'
 
-export function isCloudRef(path) {
+function isCloudRef(path) {
   return typeof path === 'string' && path.startsWith(FILE_REF_PREFIX)
 }
 

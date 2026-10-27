@@ -26,7 +26,7 @@ import { findGroupingBySet } from '../../state/tableViewsModel'
 import { TickList } from './ViewFilterRow'
 import './tableViews.css'
 
-export const GROUPING_EXISTS_WORDS = 'That grouping already exists.'
+const GROUPING_EXISTS_WORDS = 'That grouping already exists.'
 
 /**
  * `options` the kind's live items `[{ value, label, apart }]` (the table's

@@ -6,6 +6,7 @@
 // this proves what the row becomes).
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { mountRabbit } from '../state/mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 
@@ -55,9 +56,10 @@ afterEach(() => { cleanup(); ctx = null })
 describe('FX3: the task popup\'s status banner through the real provider', () => {
   it('a status chosen in the popup recolours the banner; the provider\'s undo recolours it back', async () => {
     holder.adapter = buildDevFixtures().rabbitAdapter()
-    render(<RabbitProvider><Harness /></RabbitProvider>)
-    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-    await waitFor(() => expect(document.querySelector('.ui-dialog-band > .ui-status-banner')).not.toBeNull())
+    await mountRabbit(<RabbitProvider><Harness /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
+      () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+      () => expect(document.querySelector('.ui-dialog-band > .ui-status-banner')).not.toBeNull(),
+    ] })
     const banner = () => document.querySelector('.ui-dialog-band > .ui-status-banner')
     const was = ctx.tasks.find((t) => t.id === TASK_ID(1)).status
     expect([banner().dataset.status, banner().dataset.tone]).toEqual([was, statusMeta(was).tone])

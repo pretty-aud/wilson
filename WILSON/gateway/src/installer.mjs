@@ -90,7 +90,7 @@ export function ownersOfWindows(paths, { spawn = spawnSync } = {}) {
 }
 
 /** Windows: the folder's own ACL, not recursive: SYSTEM, Administrators, the service. */
-export function lockFolderWindows(dir, { exec = execFileSync } = {}) {
+function lockFolderWindows(dir, { exec = execFileSync } = {}) {
   const icacls = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'icacls.exe');
   exec(icacls, [dir, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', 'NT SERVICE\\WilsonGateway:(OI)(CI)M', '/C', '/Q'], { stdio: 'pipe', windowsHide: true });
 }

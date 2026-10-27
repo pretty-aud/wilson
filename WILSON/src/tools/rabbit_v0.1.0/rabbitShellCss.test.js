@@ -292,7 +292,7 @@ describe('V2: the Control Panel\'s "Dashboard" is the kit Button', () => {
     // open" by this button's text; a driver left on the old label would never
     // see the project open, and its screens would read DID NOT OPEN.
     const drivers = ['ui-walk.mjs', 'ui-probe.mjs', 'ui-clips.mjs', 'ui-shot-scrolled.mjs', 'ui-print-estimate.mjs',
-      'timeline-minimap-count.mjs', 'timeline-minimap-gestures.mjs', 'timeline-rows-probe.mjs', 'timeline-state-shots.mjs']
+      'timeline-minimap-count.mjs', 'timeline-minimap-gestures.mjs', 'timeline-rows-probe.mjs']
     const stale = drivers.filter((f) => /['"]Control Panel['"]/.test(readFileSync(join(here, '../../../scripts', f), 'utf8')))
     expect(stale).toEqual([])
     // CONTROL: the same test sees a planted stale label.

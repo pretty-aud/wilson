@@ -519,8 +519,6 @@ module.exports = {
   MANIFEST_KIND,
   POINTER_NAME,
   RECENT_LIMIT,
-  DATA_SUBDIRS,
-  PROJECTS_SUBDIR,
   layoutFor,
   newManifest,
   checkDemoFolderShape,
