@@ -203,7 +203,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   // Choose file goes at the 20th upload. Pressed from the keyboard, it took
   // focus to the page with it, and the next Enter there made a deck (DG3,
   // MEASURED); so focus goes to the upload it added, that row's Remove, just
-  // above where it was. Keyboard only: after a click, focus is left as it was.
+  // above where it was. Only when its last press found it holding keyboard
+  // focus (`:focus-visible`, as focusAfterRemove reads it): a click that gave
+  // it focus leaves focus as before, while a click on it with the keyboard's
+  // ring still on it (a picker closed unused, a file refused) counts as the
+  // keyboard's, as the ring does (DG3 review round 1, note 2).
   const keyboardChoose = useRef(false);
   const atLimit = uploadFiles.length >= UPLOAD_LIMIT;
   useLayoutEffect(() => {

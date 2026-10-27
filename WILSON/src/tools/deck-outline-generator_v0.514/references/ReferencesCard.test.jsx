@@ -423,6 +423,23 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     expect(document.activeElement).toBe(document.body)
   })
 
+  // DG3 review round 1, note 2 (MEASURED in Chromium by the reviewer): a
+  // picker closed unused leaves focus on Choose file with the keyboard's ring
+  // still on it; a click on it then does not move focus, so the ring (and
+  // `:focus-visible`) stays, and the 20th upload that click adds hands focus
+  // on as the keyboard's would, never to the page.
+  it('a click on Choose file still holding the keyboard\'s ring counts as the keyboard\'s: the 20th upload hands focus to its Remove', () => {
+    const c = nineteen()
+    const b = c.choose()
+    press(b)                                            // Enter: the picker opens, and is closed unused
+    fireEvent.mouseDown(b, { detail: 1 })               // the same button, already focused: no focus move,
+    fireEvent.click(b, { detail: 1 })                   // so its ring stays (a mouse's click, detail 1)
+    expect(document.activeElement).toBe(b)
+    expect(b.matches(':focus-visible')).toBe(true)
+    c.reach20()
+    expect(document.activeElement).toBe(removeOf('note-20.txt'))
+  })
+
   it('focus moved on by the time the 20th is read stays where it went', () => {
     const c = nineteen()
     press(c.choose())

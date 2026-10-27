@@ -3467,7 +3467,8 @@ FX15).** The drawer's folding sections (16 `button.dog-acc-head` in the source,
 20 drawn: 16 on *System prompts*, the five rewrite modes among them, 4 on
 *Output format*) carry `aria-expanded`, and `aria-controls` naming the
 section's body (`dog-set-<key>`) only while it is drawn; the fold state is
-`settingsCollapsed`, as before. The Project dropdown (`#dog-project`) and Single
+`settingsCollapsed`, as before. The project dropdown (`#dog-project`, its label
+*Choose a project* since DG3) and Single
 page's layout dropdown (`#dog-slide-layout`) are tied to their labels with
 `htmlFor`; Chromium reads both names in the kit's capitals. `.dog-main` carries
 `hidden` off D.O.G.'s page (§13.4). Walkthrough 79.
