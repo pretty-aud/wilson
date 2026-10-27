@@ -55,6 +55,10 @@ async function openDog({ upload = true, provider = true } = {}) {
     const input = q('input[type=file][accept*=".txt"]')
     await act(async () => { fireEvent.change(input, { target: { files: [new File(['The brief: a watch launch.'], 'fx13-brief.txt', { type: 'text/plain' })] } }) })
     await waitFor(() => expect(view.container.textContent).toContain('fx13-brief.txt'))
+    // DG2: the upload is drawn before D.O.G.'s Enter listener knows of it (a
+    // passive effect); flush the effects, or an Enter next meets the old
+    // listener (the CONTROL in "the harness waits for D.O.G.'s effects").
+    await act(async () => {})
   }
   const sw = () => q('.dog-full-deck [role="switch"]')
   const box = () => q('textarea.dog-context-prompt')
@@ -324,6 +328,7 @@ describe('FX13 on the rendered D.O.G.: the note stays until it stops being true'
     const input = view.container.querySelector('input[type=file][accept*=".txt"]')
     await act(async () => { fireEvent.change(input, { target: { files: [new File(['The brief.'], 'fx13-brief.txt', { type: 'text/plain' })] } }) })
     await waitFor(() => expect(view.container.textContent).toContain('fx13-brief.txt'))
+    await act(async () => {})                         // DG2: D.O.G.'s effects, as openDog
     await pressEnter(document.body)
     await waitFor(() => expect(document.querySelectorAll('.ui-toast-stack .ui-toast')).toHaveLength(1))
     view.rerender(<ToastProvider bar="0px"><Host show={false} /></ToastProvider>)
@@ -607,6 +612,7 @@ const chooseInput = () => document.querySelector('#dog-refs-body .dog-refs-uploa
 async function addUpload(d, file) {
   await act(async () => { fireEvent.change(d.q('input[type=file][accept*=".txt"]'), { target: { files: [file] } }) })
   await waitFor(() => expect(d.view.container.textContent).toContain(file.name))
+  await act(async () => {})                           // D.O.G.'s effects, as openDog
 }
 const fullDeckButton = (d) => [...d.view.container.querySelectorAll('button.dog-generate')].find((b) => /full deck outline/.test(b.textContent))
 
@@ -829,5 +835,36 @@ describe('DG2 review round 1 on the rendered D.O.G.: Enter on an upload\'s × ne
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
     expect(sent()).toContain('Note two.')
     expect(sent()).not.toContain('Note one.')
+  })
+})
+
+// =============================================================================
+// DG2 (2026-10-26): why openDog flushes D.O.G.'s effects after an upload.
+// D.O.G.'s Enter listener is attached by a passive effect whose dependencies
+// carry `hasFileContent`; it runs after the commit that draws the upload.
+// Testing Library's waitFor can resolve in between (its MutationObserver fires
+// in the commit's microtasks), and an Enter there meets the listener that
+// still says "nothing to read". MEASURED: three one-off failures of the FX13
+// cases in this file during DG2 (one at 36 ms, `kept` true: not a timeout).
+// =============================================================================
+describe('DG2: the harness waits for D.O.G.\'s effects after an upload', () => {
+  it('CONTROL: an Enter in the gap between the upload\'s commit and its effects is not D.O.G.\'s yet; once the effects have run, it is', async () => {
+    const view = render(<ToastProvider bar="0px"><DeckOutlineGenerator currentPage="dog" /></ToastProvider>)
+    const input = view.container.querySelector('input[type=file][accept*=".txt"]')
+    const kept = await new Promise((resolve) => {
+      const mo = new MutationObserver(() => {
+        if (!view.container.textContent.includes('gap-01.txt')) return
+        mo.disconnect()
+        resolve(fireEvent.keyDown(document.body, { key: 'Enter' }))
+      })
+      mo.observe(view.container, { childList: true, subtree: true, characterData: true })
+      fireEvent.change(input, { target: { files: [new File(['Gap.'], 'gap-01.txt', { type: 'text/plain' })] } })
+    })
+    expect(kept).toBe(true)                            // the listener from before the upload
+    await act(async () => {})                          // what openDog now does
+    let after
+    await act(async () => { after = fireEvent.keyDown(document.body, { key: 'Enter' }) })
+    expect(after).toBe(false)                          // D.O.G.'s: it asks for the deck context
+    expect(callAI).not.toHaveBeenCalled()
   })
 })
