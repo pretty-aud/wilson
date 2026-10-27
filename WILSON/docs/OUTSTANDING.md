@@ -1829,6 +1829,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul FX15 (2026-10-26; `po/fx15-fx14-leftovers` into `feat/post-overhaul-edit-versioning`) — FX14's leftovers, Audrey's choice of 2026-10-26: four more R.A.B.B.I.T. test mounts out of the gap, each with a CONTROL that holds it open; D.O.G.'s 20 settings headers (16 places in the source) say whether their section is open; one main region exposed on every page (PageSurface, the hidden pages and the two tools' own mains `hidden` off screen); D.O.G.'s Project and layout dropdowns named; a bounded retry on 502/503/504 in the ai-files CI probe. No migration, no Edge Function. Walkthrough 79. | FX15-01 (D.O.G.'s render-test harness could press Enter before D.O.G. had the upload; MEASURED; found by DG2 as well and fixed there, `91eee254`, so removed at FX15's merge), FX15-02 (Single page's Page # and Page Request named by their placeholders; pre-existing), FX15-03 (on R.A.B.B.I.T. the main region's focus ring is cut off; Audrey's call), FX15-04 (at least 13 more R.A.B.B.I.T. test files mount in the same gap; three of them measured, 101 of 131 tests red in it; review round 1), FX15-05 (the closed nav strip's items are Tab stops and screen-reader buttons on every page; pre-existing, review round 1), FX15-06 (Help's navigation and O.T.T.E.R.'s side panel are unnamed landmarks; pre-existing), FX15-07 (D.O.G.'s settings headers are named by their label and description, block content in a button; pre-existing), FX15-08 (a page chosen from the nav strip by keyboard leaves focus on `<body>`; pre-existing, review round 2). Comment markers: 4 → 4. | **FX14-01 fixed** (the four mounts render inside act and wait for the provider's status past `unavailable`; forced into the gap 25 of 50 tests failed before, none after), **FX14-02 fixed**, **FX14-03 fixed**, **FX14-04 fixed** (Single page's layout dropdown too). The FX14 section with them. **DG2-03 fixed** (after FX15's review rounds: the probe's messages call, no-sign-in request and operator's summary go through the same retry as step 1 and `call()`). |
 | Post-overhaul DG2 (2026-10-26; `po/dg2-uploads-in-references` into `feat/post-overhaul-edit-versioning`) — Audrey's ask of 2026-10-26: D.O.G.'s Upload Documents section moves into card 2, References, as its first group of rows (each upload a row with its glyph, name, size and Remove; Choose file at the group's foot), so the card reads as one list of what the AI reads; card 1 becomes *1 Project*. What is read, sent, counted and let go of unchanged (the meter measured identical before and after). Review round 1's corrections: a Remove pressed from the keyboard keeps focus in the list (focus on the page made the next Enter a deck), the upload's refusal is said under Choose file, *Remove all references*; round 2's: the notice's Undo and Dismiss the same, the refusal cleared by a generation and announced again when repeated. No migration, no Edge Function. Walkthrough 80. | DG2-01 (D.O.G.'s Choose file is not reachable by keyboard and has no accessible name; pre-existing, MEASURED before and after), DG2-02 (a click on Generate full deck outline with the deck context box focused is lost: the box shrinks under the press; pre-existing, MEASURED), DG2-03 (the CI probe's no-sign-in request failed the smoke job on an upstream 504 on DG2's merge; MEASURED). Comment markers: 4 → 4. | — |
 | Post-overhaul FX14 (2026-10-26; `po/fx14-fx13-leftovers` into `feat/post-overhaul-edit-versioning`) — FX13's leftovers, Audrey's choice of 2026-10-26: D.O.G.'s three card title bars fold from the keyboard (a kit IconButton in each header, named by the heading's words); the kit toast holds while keyboard focus is in it and gives focus back when it leaves; the two flaky CI tests, one cause established (each mount could return in the gap between the commit that brings the project and that commit's effects) and fixed in their mounts. No migration, no Edge Function. Walkthrough 78. | FX14-01 (four more R.A.B.B.I.T. test files mount in the same gap; INFERRED), FX14-02 (D.O.G.'s settings drawer's 16 folding sections have no `aria-expanded`; pre-existing), FX14-03 (only D.O.G. and O.T.T.E.R. have a main region, so the toast's focus return has none elsewhere), FX14-04 (D.O.G.'s Project dropdown has no name; pre-existing, found by review round 1's measurement). Comment markers: 4 → 4. | **FX13-01 fixed** (the card title bars by keyboard), **FX13-02 fixed** (the kit toast and keyboard focus), **FX13-03 fixed, both halves, each with its cause** (the drop test's band cannot be late, the regroup draws it in the same act; reproduced locally, the regroup wiped by the provider's pending drafts reset (CI's record is cut off before the Group menu), so FX13's proposed longer wait would not have cured it; the views test's body was past Loading because the status still read `unavailable`, not because of the clock). The FX13 section with them. |
 | Post-overhaul FX13 (2026-10-26; `po/fx13-dog-enter-key` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s Enter key, Audrey's answers of 2026-10-26: with Full deck on, Enter starts a full deck only when the deck context box has words (empty: nothing generates, the box gets focus, the toast stack says why; the Generate button, Single page and the regenerate box untouched); Enter on the Single page / Full deck switch moves it; the Alt key kept; the preview's "recorded" line. No migration, no Edge Function. Walkthrough 77. | FX13-01 (D.O.G.'s card title bars fold only with a pointer; pre-existing, found by review round 1), FX13-02 (the kit toast's timer ignores keyboard focus, and a toast that leaves with focus inside drops it to the page; pre-existing, found by review round 2), FX13-03 (VW1m's Tasks-table drop test still fails on CI some runs; measured on FX13's branch push). Comment markers: 4 → 4. | **DG1b-01 closed by her ruling of 2026-10-26: keep** (*"Keep it as it is"*: Alt flips the switch from any page, as before; nothing built). **DG1b-02 fixed**: the preview says a read is recorded only when it downloads. A dated note on P1-04 (her ruling covers Alt from any page; Alt behind an overlay stands). |
@@ -3401,43 +3402,6 @@ S4b-11 are untouched and still hers.
   admin's card, which also reaches a company's own key) on both, before
   2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
 
-## Post-overhaul FX14 (`po/fx14-fx13-leftovers`) — left open (2026-10-26)
-
-- **FX14-01 · Four more R.A.B.B.I.T. test files mount the provider in the gap
-  FX13-03's two tests fell into.** `views/tableViews/assetsViews.test.jsx`,
-  `views/tableViews/entityViews.test.jsx`, `views/tableViews/scenesViews.test.jsx` and
-  `state/tableViewsProvider.test.jsx` render `RabbitProvider` outside `act` and wait for
-  the project (and the Views button or the rows). The dev fixtures load the project in
-  microtasks, so one commit draws it with the provider's adapter, and the provider's
-  effects for that adapter (the last used views read, the views' drafts reset) run in a
-  later task: a step taken in that gap meets a status of `unavailable`, or loses its
-  change for now to the reset. INFERRED from the same mount shape; none is recorded
-  failing on CI. Would settle it: each file's mount forced into the gap with a
-  MutationObserver, as the CONTROLs in `taskItemDrops.test.jsx` and `tasksViews.test.jsx`
-  do. Fix: their mounts as FX14 wrote those two (the render inside `act`, then a wait on
-  the provider's last used status). Owner: a R.A.B.B.I.T. session.
-- **FX14-02 · D.O.G.'s settings drawer's folding sections do not say whether they are
-  open.** PRE-EXISTING. Its 16 `button.dog-acc-head` headers (*Single Page - API System
-  Message* and the rest) are real buttons with no `aria-expanded`, so a screen reader
-  hears a button and not whether its section shows. MEASURED by reading the markup
-  (`DeckOutlineGenerator.jsx`: 16 such buttons, none with `aria-expanded`); found by FX14
-  while matching the card headers to the house pattern. Fix: `aria-expanded` on each, as
-  the card headers have it. Owner: a D.O.G. session.
-- **FX14-03 · Only D.O.G. and O.T.T.E.R. have a main region.** Every other page
-  (R.A.B.B.I.T., Home, Settings, Team members and the rest) renders no `<main>` or
-  `role="main"`, so a screen reader's list of landmarks has no main there, and the kit
-  toast's focus return (FX14) has nowhere to put focus when the element focus came from is
-  gone: dev warns, and the browser puts focus on `<body>`. MEASURED by search (`<main`
-  only in `DeckOutlineGenerator.jsx` and `Otter.jsx`; the fallback pinned in
-  `Toast.test.jsx`). Fix: the shell gives the page on screen a main region (App.jsx's
-  `PageSurface`), minding the two tools' own `<main>`. Owner: the shell.
-- **FX14-04 · D.O.G.'s Project dropdown has no name.** PRE-EXISTING. Chromium names it
-  "" (a bare *combobox*): its visible label *Project* is a `<label>` tied to nothing (no
-  `htmlFor`, the `<select>` no `id`). MEASURED by FX14's Tab walk (`scripts/fx14-keyboard-shots.mjs`,
-  stop 19, Chromium's accessibility tree, 1280x800 and 1440x900). INFERRED for Single page's
-  layout dropdown, whose label has the same shape. Fix: `htmlFor` and `id`, as FX13 gave the
-  deck context box. Owner: a D.O.G. session.
-
 ## Post-overhaul DG2 (`po/dg2-uploads-in-references`) — left open (2026-10-26)
 
 - **DG2-01 · D.O.G.'s Choose file cannot be reached by keyboard, and a screen reader
@@ -3465,11 +3429,82 @@ S4b-11 are untouched and still hers.
   Would settle it: a click with the mouse in the app right after typing in the box. Fix:
   keep the box's height on blur until the click lands, or stop growing it on focus.
   Owner: a D.O.G. session.
-- **DG2-03 · The CI probe's no-sign-in request fails the smoke job on an upstream 504.**
-  MEASURED: run 40434767639 on `247c090d` (DG2's merge into `feat/post-overhaul-edit-versioning`,
-  2026-10-26) failed *issue-session smoke* at *Probe ai-files* with *"no sign-in must be 401
-  unauthorized, got 504"* (wilson-dev's gateway timing out), while run 40434711542 on `b870c6b7`, the
-  same tree, passed every job minutes before. Not DG2's: no function or probe changed. The same class
-  as the upload's 502 that FX15's brief retries (run 40373721907). Fix: the retry on 502/503/504 in
-  `scripts/probes/ai-files.sh` covers this request too, not only step 1's upload. Owner: FX15, or
-  the controller.
+
+## Post-overhaul FX15 (`po/fx15-fx14-leftovers`) — left open (2026-10-26)
+
+- **FX15-02 · Single page's *Page #* and *Page Request* fields are named by
+  their example text.** PRE-EXISTING. Their labels are tied to nothing, so
+  Chromium names them by their placeholders: *"5 or 1-10"* and *"Example: I
+  need a page listing all the main characters with summaries for each..."*.
+  MEASURED over CDP (FX15, Single page on, 1280x800); found beside FX14-04's
+  layout dropdown. Fix: `htmlFor` and `id`, as FX15 gave the two dropdowns.
+  Owner: a D.O.G. session.
+- **FX15-03 · On R.A.B.B.I.T., focus given to the page's main region shows no
+  ring.** Since FX15, a note that leaves with keyboard focus, the element it
+  came from gone, gives focus to the page's main region (before: `<body>`).
+  On the plain pages the kit's 2px ring shows along the region's top and
+  bottom (`po-fx15-after-02-note-gone-team-members`); on R.A.B.B.I.T.'s page,
+  which has no gutter, the content box's `overflow: hidden` cuts it off, so
+  nothing shows where focus is. MEASURED: R.A.B.B.I.T.'s pictures before and
+  after are pixel-identical at 1280x800 and 1440x900 while `:focus-visible`
+  matches the region. Whether the region wears the ring at all is Audrey's
+  call (FX14 hand-off §6), not asked here. Owner: Audrey's answer, then the
+  shell.
+- **FX15-04 · At least thirteen more R.A.B.B.I.T. test files mount the provider in the gap
+  FX14-01's four did.** Render outside `act`, then a wait for the project and a
+  collection, as FX14-01's files did before FX15: `state/taskItemsProvider`,
+  `state/budgetVersionsProvider`, `state/shotListsProvider`,
+  `components/taskBannerUndo`, `state/binsDesktopProvider`, `state/binsProvider`,
+  `state/deleteShotTakes`, `state/editDraftsProvider` (six mounts),
+  `state/fileVerbsProvider`, `state/listRemovalKeepsTasks`, `state/setAsideProvider`,
+  `views/budget/bidVersions`, `views/budget/bidVersionsReview` (each `.test.jsx`, under
+  `src/tools/rabbit_v0.1.0/`), perhaps others of the shape. MEASURED by FX15's review
+  round 1 for the first three: with only their mount forced into the gap (a
+  MutationObserver, as the CONTROLs do), 101 of their 131 tests failed (e.g.
+  shot lists' `no project` from `addShotList`, the project's ref not yet written;
+  the history steps of the other two). None is recorded failing on CI; whether
+  one does depends on the same race as FX13-03 (Testing Library's drain against
+  React's passive flush). Not FX15's scope (FX14-01 named four). Fix: the same
+  mount, best as one shared helper (over the fixtures every provider mount can
+  wait for `ctx.tableViewLast.status` past `unavailable`), each with a CONTROL;
+  or a provider-side fix with its own review (FX14's judgment call 8 kept the
+  provider as it is). Owner: a R.A.B.B.I.T. session.
+- **FX15-05 · The closed nav strip's items are Tab stops and buttons to a screen
+  reader, on every page.** PRE-EXISTING. When the strip is closed its box is 0 px
+  high, but its 12 or 13 `button.wilson-nav-item` stay `visibility: visible`,
+  focusable and in the accessibility tree (no `inert`, no `aria-hidden`): on
+  Home a keyboard user Tabs through *Projects, Rate card, … App settings*, all
+  unseen, before Home's own list; on Team members the same after the top bar's
+  Navigation button. With the strip open, its closed Resources column's five
+  items (Projects, Rate card, Files, Admin terminal, Help; `opacity: 0`,
+  `max-width: 0`) are the first five Tab stops, unseen. MEASURED by FX15's review
+  rounds 1 and 2 (Chromium, Tab walks and CDP tree, 1280x800). Fix: `inert` on the
+  strip's container while it is closed (`App.jsx`, the strip's
+  `isNavMenuVisible`) and on the Resources column while it is (`navResourcesOpen`),
+  or `visibility: hidden`. Owner: the shell.
+- **FX15-06 · Two landmarks have no name.** PRE-EXISTING. Help's `<nav>` (since
+  FX15 inside the page's main region) and O.T.T.E.R.'s course panel are read as a
+  bare *"navigation"* and *"complementary"*, beside D.O.G.'s *"DECK OUTLINE"*,
+  O.T.T.E.R.'s *"O.T.T.E.R."* and Admin terminal's *"Admin sections"*. The
+  panel's `<aside>` is the kit's (`src/ui/Panel.jsx`, `ui-panel`): it draws its
+  `title` (*Courses*) but does not name the landmark by it; D.O.G.'s is named only
+  because D.O.G. passes `aria-labelledby` itself. MEASURED (FX15 and its review
+  round 2, CDP). Fix: the kit Panel names its `<aside>` by its title span when it
+  has one (O.T.T.E.R.'s titled Panels at once), and an `aria-label` on Help's
+  `<nav>`. Owner: the kit, then the shell (Help).
+- **FX15-07 · D.O.G.'s settings headers are named by their label and their whole
+  description, and hold block content.** PRE-EXISTING. Each `button.dog-acc-head`
+  holds a `<div>` and a `<p>` (HTML allows only phrasing content in a button), so
+  Chromium names it e.g. *"SINGLE PAGE - API SYSTEM MESSAGE Core instruction sent
+  as system message for single page generation"*. MEASURED (FX15, CDP). FX15
+  added only the open/closed state ("nothing else in the drawer changes"). Fix:
+  spans, `aria-labelledby` the label and `aria-describedby` the description, as
+  FX14 named the card headers. Owner: a D.O.G. session.
+- **FX15-08 · Choosing a page from the nav strip by keyboard drops focus to
+  `<body>`.** PRE-EXISTING. The strip lists every page but the current one
+  (`navPages`, `p.id !== currentPage` in `src/layout/pages.js`), so the item
+  pressed leaves the strip under focus: after Enter on *Rate card*, *D.O.G.*,
+  *R.A.B.B.I.T.* or *Help*, focus is on `<body>` and the next Tab starts at the
+  top of the window. MEASURED by FX15's review round 2 (Chromium, four keyboard
+  navigations). Fix: give focus to the new page's main region (FX15's) once the
+  page shows. Owner: the shell.

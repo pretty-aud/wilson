@@ -1489,7 +1489,10 @@ describe('known Playwright strict-mode ambiguities ((a)-(c) pre-existing, (d) fr
     //    not unmounted. `project-files` is the one page that opted out, and it
     //    is here as the contrast: opting out is possible, and Dashboard has
     //    not done it.
-    expect(app).toContain("display: currentPage === id ? 'flex' : 'none'")
+    //    (FX15 moved the page wrapper, PageSurface, beside the registry; App
+    //    renders it.)
+    expect(app).toContain("import PageSurface from './layout/PageSurface'")
+    expect(CODE_BY_FILE.get('src/layout/PageSurface.jsx')).toContain("display: currentPage === id ? 'flex' : 'none'")
     expect(app).toContain('<DashboardPage />')
     expect(app).toContain("{currentPage === 'project-files' && <ProjectFilesExplorer />}")
     // 3. DashboardPage keeps all three tabs mounted on purpose, so its profile

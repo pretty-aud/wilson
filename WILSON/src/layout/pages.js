@@ -49,6 +49,9 @@
 //             (every page is reachable from exactly one of the two)
 //   navLabel  the nav strip's word for it, when that differs from `title`
 //   adminOnly filtered out of the nav for non-admins (Admin Terminal)
+//   ownMain   the page's tool draws its own <main> (D.O.G., O.T.T.E.R.), so
+//             PageSurface wraps it in a div; every other page's wrapper is
+//             its main region (post-overhaul FX15, OUTSTANDING FX14-03)
 //
 // ── Q1 and the `surface` field ───────────────────────────────────────────────
 //
@@ -82,6 +85,7 @@ const PAGE_LIST = [
     surface: 'dark',
     chrome: 'tool',
     nav: 'primary',
+    ownMain: true,
   },
   {
     id: 'otter',
@@ -91,6 +95,7 @@ const PAGE_LIST = [
     surface: 'dark',
     chrome: 'tool',
     nav: 'primary',
+    ownMain: true,
   },
   {
     id: 'rabbit',
@@ -275,6 +280,7 @@ export const PAGES = Object.freeze(PAGE_LIST.map((p) => Object.freeze({
   navLabel: p.title,
   adminOnly: false,
   measure: null,
+  ownMain: false,
   ...p,
 })));
 

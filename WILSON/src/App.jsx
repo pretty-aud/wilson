@@ -30,6 +30,7 @@ import { canCreateNewEgg, mintEggFrom,
 import { createCoalescingSave } from './lib/coalescingSave'
 import { installCompanionShiftHotkey } from './lib/companionHotkey'
 import { PAGES, PAGE_BARS, PAGE_TITLES, COMPRESSED_BAR_HEIGHT, getPage, navPages } from './layout/pages'
+import PageSurface from './layout/PageSurface'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
          getUserStateOwner } from './lib/userState'
@@ -130,26 +131,9 @@ function PetCompanionWithAgent(props) {
 // it too (the welcome seam in src/layout/pages.js).
 const COMPRESSED = { top: COMPRESSED_BAR_HEIGHT, bottom: COMPRESSED_BAR_HEIGHT };
 
-// One page wrapper for all twelve pages (F2). The scroll class and the focus
-// / caret / selection scope both come from the registry's `surface`, so the
-// scroll classes stop doing double duty as the surface scope (F1 hand-off §7)
-// and a page cannot be dark in one and light in the other.
-//
-// 🚨 Module level, NOT inside App. A component declared inside a render is a
-// new type on every render, so React unmounts and remounts its subtree — and
-// the entire reason every page is rendered at once is to PRESERVE that state.
-function PageSurface({ id, currentPage, overflow = 'auto', children }) {
-  const page = getPage(id);
-  return (
-    <div
-      className={page.surface === 'dark' ? 'wilson-dark-scroll' : 'wilson-light-scroll'}
-      data-surface={page.surface}
-      style={{ display: currentPage === id ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow }}
-    >
-      {children}
-    </div>
-  );
-}
+// The one page wrapper for all twelve pages, `PageSurface`, is in
+// src/layout/PageSurface.jsx (FX15 moved it beside the registry, unchanged
+// but for the page's main region; read its note there).
 
 // Phase 6: the ceiling on reading the courses for one chat message. Generous
 // enough that a cold index build over a real library finishes (it is bounded-
