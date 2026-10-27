@@ -19,6 +19,9 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, waitFor, act, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 
 // CI has no .env.local, so the real Supabase client (built at import, from
 // VITE_SUPABASE_URL) would throw "supabaseUrl is required" before any test
@@ -836,6 +839,49 @@ describe('DG2 review round 1 on the rendered D.O.G.: Enter on an upload\'s × ne
     expect(sent()).toContain('Note two.')
     expect(sent()).not.toContain('Note one.')
   })
+
+  // DG3 (OUTSTANDING DG2-01): Choose file is a Tab stop now, and it goes at
+  // the 20th upload. Pressed from the keyboard, it took focus to the page
+  // with it, and the next Enter made a full deck (MEASURED in Chromium, the
+  // DG3 hand-off). Focus goes to the upload it added. jsdom opens no picker:
+  // the picked file is given to the input, as a picker gives it.
+  async function nineteenAndWords() {
+    const d = await openDog({ upload: false })
+    for (let i = 1; i <= 19; i++) {
+      await addUpload(d, new File([`Note ${i}.`], `note-${String(i).padStart(2, '0')}.txt`, { type: 'text/plain' }))
+      await new Promise((r) => setTimeout(r, 2))       // D.O.G. keys an upload by Date.now()
+    }
+    await type(d.box(), CONTEXT)
+    return d
+  }
+  const pick20 = (d) => addUpload(d, new File(['Note 20.'], 'note-20.txt', { type: 'text/plain' }))
+
+  it('the 20th upload through Choose file by keyboard, words in the box: focus goes to that upload\'s Remove, and the next Enter removes it and starts no deck', async () => {
+    const d = await nineteenAndWords()
+    const choose = screen.getByRole('button', { name: 'Choose file' })
+    await act(async () => { choose.focus() })
+    expect(await pressEnter(choose)).toBe(true)           // the button's: it opens the picker
+    await pick20(d)
+    expect(screen.queryByRole('button', { name: 'Choose file' })).toBe(null)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove note-20.txt' }))
+    await pressEnter(document.activeElement)
+    expect(uploadRows()).toHaveLength(19)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(callAI).not.toHaveBeenCalled()
+    expect(d.toasts()).toHaveLength(0)
+  })
+
+  it('CONTROL, Choose file clicked with the mouse: the 20th upload leaves focus to fall, and Enter on the page then starts the deck', async () => {
+    const d = await nineteenAndWords()
+    const choose = screen.getByRole('button', { name: 'Choose file' })
+    await act(async () => { fireEvent.mouseDown(choose); choose.focus() })
+    await act(async () => { fireEvent.click(choose) })
+    await pick20(d)
+    expect(document.activeElement).toBe(document.body)
+    await pressEnter(document.body)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(sent()).toContain('Note 20.')
+  })
 })
 
 // =============================================================================
@@ -959,11 +1005,13 @@ describe('FX15 on the rendered D.O.G.: the settings sections say whether they ar
   })
 })
 
+// DG3 (Audrey, 2026-10-27: "Choose a project"): the label, and so the
+// dropdown's name, reads "Choose a project"; card 1's title stays "Project".
 describe('FX15 on the rendered D.O.G.: the dropdowns answer to their labels', () => {
-  it('Full deck: the Project dropdown is named "Project"; no combobox in D.O.G.\'s column is unnamed', async () => {
+  it('Full deck: the Project dropdown is named "Choose a project"; no combobox in D.O.G.\'s column is unnamed', async () => {
     const d = await openDog({ upload: false })
     expect(d.sw().getAttribute('aria-checked')).toBe('true')
-    expect(screen.getByRole('combobox', { name: 'Project' })).toBe(d.q('select.dog-project-select'))
+    expect(screen.getByRole('combobox', { name: 'Choose a project' })).toBe(d.q('select.dog-project-select'))
     const boxes = screen.getAllByRole('combobox').filter((c) => c.closest('.dog-main'))
     expect(boxes).toHaveLength(1)
   })
@@ -972,7 +1020,7 @@ describe('FX15 on the rendered D.O.G.: the dropdowns answer to their labels', ()
     await act(async () => { fireEvent.click(d.sw()) })
     expect(d.sw().getAttribute('aria-checked')).toBe('false')
     expect(screen.getByRole('combobox', { name: 'Slide Layout Type' })).toBe(d.q('.dog-layout-select select'))
-    expect(screen.getByRole('combobox', { name: 'Project' })).toBe(d.q('select.dog-project-select'))
+    expect(screen.getByRole('combobox', { name: 'Choose a project' })).toBe(d.q('select.dog-project-select'))
     // CONTROL: the two are the column's only comboboxes, so none is left unnamed.
     expect(screen.getAllByRole('combobox').filter((c) => c.closest('.dog-main'))).toHaveLength(2)
   })
@@ -981,5 +1029,182 @@ describe('FX15 on the rendered D.O.G.: the dropdowns answer to their labels', ()
     expect(d.q('label[for="dog-project"]').control).toBe(d.q('select.dog-project-select'))
     await act(async () => { fireEvent.click(d.sw()) })
     expect(d.q('label[for="dog-slide-layout"]').control).toBe(d.q('.dog-layout-select select'))
+  })
+})
+
+// =============================================================================
+// DG3 (2026-10-27): D.O.G.'s closed list (docs/sessions/PLAN_TO_1_0.md §3),
+// on the rendered component. Chromium's own figures, before and after, are
+// in the DG3 hand-off.
+//   DG3-01  Audrey: "Choose a project". Card 1's field label says what the
+//           dropdown does and names it; the title stays "1 Project".
+//   DG2-02  a press on a Generate button with its box focused lands.
+//   DG2-01  Choose file is a Tab stop, and Enter on it never generates.
+// =============================================================================
+const here = dirname(fileURLToPath(import.meta.url))
+const PAGE_REQUEST = 'A page listing the three watch faces.'
+
+describe('DG3 on the rendered D.O.G.: card 1 says "Project" once', () => {
+  it('the field label reads "Choose a project" and names the dropdown; the heading stays "Project", and the card table\'s "Project" is the heading\'s button', async () => {
+    const d = await openDog({ upload: false })
+    const label = d.q('label[for="dog-project"]')
+    expect(label.textContent.trim()).toBe('Choose a project')
+    expect(label.control).toBe(d.q('select.dog-project-select'))
+    expect(document.getElementById('dog-card1-title').textContent).toBe('Project')
+    // The card table's name: 'Project' (FX14) is the heading's button, named
+    // by the heading; nothing else answers to it, the dropdown least of all.
+    expect(CARDS[0].name).toBe('Project')
+    expect(screen.getAllByRole('button', { name: 'Project' })).toEqual([headButton('Project')])
+    expect(headButton('Project').getAttribute('aria-labelledby')).toBe('dog-card1-title')
+    expect(screen.queryByRole('combobox', { name: 'Project' })).toBe(null)
+    expect(screen.getAllByText('Choose a project', { exact: true })).toEqual([label])
+  })
+})
+
+/** A pointer press as a browser delivers it: mousedown, then, unless the page
+    cancels it, focus moves to the button and the focused box blurs; mouseup,
+    and the click when the release lands on the button. dog.css draws each box
+    taller while focused (`data-focused`), so a blur under the press moves the
+    button up before the release, which then lands below it, and no click
+    fires (OUTSTANDING DG2-02, MEASURED in Chromium by DG2 and DG3: the button
+    80px up, `generateFullDeck` never run). jsdom has no layout: the move is
+    read off the attribute the two height rules key on. */
+async function pointerPress(button, box) {
+  const grown = box.getAttribute('data-focused')
+  let kept
+  await act(async () => { kept = fireEvent.mouseDown(button) })
+  if (kept) await act(async () => { button.focus() })
+  const moved = box.getAttribute('data-focused') !== grown
+  await act(async () => { fireEvent.mouseUp(moved ? box.closest('.dog-card-body') : button) })
+  if (!moved) await act(async () => { fireEvent.click(button) })
+  return { kept, moved }
+}
+const pageButton = (d) => [...d.view.container.querySelectorAll('button.dog-generate')].find((b) => /Generate page outline/.test(b.textContent))
+
+describe('DG3 on the rendered D.O.G.: a press on Generate with its box focused lands (OUTSTANDING DG2-02)', () => {
+  it('the premise, on the sheet: each box is taller while focused, keyed on data-focused (80 to 160px; the page request box 96 to 160px)', () => {
+    const css = readFileSync(resolve(here, 'dog.css'), 'utf8')
+    expect(css).toMatch(/\.ui-input\.dog-context-prompt \{ height: 80px;/)
+    expect(css).toMatch(/\.ui-input\.dog-context-prompt\[data-focused='true'\] \{ height: 160px; \}/)
+    expect(css).toMatch(/\.ui-input\.dog-page-request \{ height: 96px;/)
+    expect(css).toMatch(/\.ui-input\.dog-page-request\[data-focused='true'\] \{ height: 160px; \}/)
+  })
+
+  it('Full deck: words in the box, the box focused, a press on Generate full deck outline keeps focus in the box, the box grown, and starts the deck with the words', async () => {
+    const d = await openDog()
+    await act(async () => { d.box().focus() })
+    await type(d.box(), CONTEXT)
+    expect(d.box().getAttribute('data-focused')).toBe('true')
+    expect(await pointerPress(fullDeckButton(d), d.box())).toEqual({ kept: false, moved: false })
+    expect(document.activeElement).toBe(d.box())
+    expect(d.box().getAttribute('data-focused')).toBe('true')
+    expect(d.box().value).toBe(CONTEXT)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(sent()).toContain(`DECK CONTEXT & GUIDELINES:\\n${CONTEXT}`)
+  })
+
+  it('Single page: a layout and words in the page request box, the box focused, a press on Generate page outline starts the page', async () => {
+    const d = await openDog()
+    await act(async () => { fireEvent.click(d.sw()) })
+    const layout = d.q('.dog-layout-select select')
+    await act(async () => { fireEvent.change(layout, { target: { value: layout.options[1].value } }) })
+    const pageBox = d.q('textarea.dog-page-request')
+    await act(async () => { pageBox.focus() })
+    await type(pageBox, PAGE_REQUEST)
+    expect(pageBox.getAttribute('data-focused')).toBe('true')
+    expect(await pointerPress(pageButton(d), pageBox)).toEqual({ kept: false, moved: false })
+    expect(document.activeElement).toBe(pageBox)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(sent()).toContain(PAGE_REQUEST)
+  })
+
+  for (const which of ['full deck', 'page']) {
+    it(`CONTROL, D.O.G.'s mousedown kept from running (${which}): the box blurs under the press, the button moves, and nothing generates`, async () => {
+      const d = await openDog()
+      let box = d.box()
+      let button = fullDeckButton(d)
+      if (which === 'page') {
+        await act(async () => { fireEvent.click(d.sw()) })
+        const layout = d.q('.dog-layout-select select')
+        await act(async () => { fireEvent.change(layout, { target: { value: layout.options[1].value } }) })
+        box = d.q('textarea.dog-page-request')
+        button = pageButton(d)
+      }
+      await act(async () => { box.focus() })
+      await type(box, which === 'page' ? PAGE_REQUEST : CONTEXT)
+      // React reads events at its root; a capture listener on the document
+      // runs before it, and stopping the event there keeps D.O.G.'s handler out.
+      const stop = (e) => e.stopPropagation()
+      document.addEventListener('mousedown', stop, true)
+      try {
+        expect(await pointerPress(button, box)).toEqual({ kept: true, moved: true })
+      } finally {
+        document.removeEventListener('mousedown', stop, true)
+      }
+      expect(box.getAttribute('data-focused')).toBe('false')
+      await new Promise((r) => setTimeout(r, 20))
+      expect(callAI).not.toHaveBeenCalled()
+    })
+  }
+
+  it('the keyboard as before: Enter on the focused Generate full deck outline is the button\'s, and starts the deck', async () => {
+    const d = await openDog()
+    await type(d.box(), CONTEXT)
+    const b = fullDeckButton(d)
+    await act(async () => { b.focus() })
+    expect(await pressEnter(b)).toBe(true)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-01)', () => {
+  const chooseButton = () => screen.getByRole('button', { name: 'Choose file' })
+  const tabStops = (d) => [...d.view.container.querySelectorAll('.dog-main button, .dog-main input, .dog-main select, .dog-main textarea, .dog-main [tabindex]')]
+    .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden]') && getComputedStyle(el).display !== 'none' && !el.classList.contains('hidden'))
+
+  it('Choose file is a Tab stop in References, after its header\'s button and before Add references; with two uploads, after their Removes; the file input never is', async () => {
+    const d = await openDog({ upload: false })
+    let stops = tabStops(d)
+    const at = (el) => stops.indexOf(el)
+    expect(at(chooseButton())).toBeGreaterThan(at(headButton('References')))
+    expect(at(chooseButton())).toBe(at(headButton('References')) + 1)
+    expect(at(screen.getByRole('button', { name: 'Add references' }))).toBe(at(chooseButton()) + 1)
+    expect(stops.some((el) => el.matches('input[type=file]'))).toBe(false)
+    await addUpload(d, new File(['Note one.'], 'note-01.txt', { type: 'text/plain' }))
+    await new Promise((r) => setTimeout(r, 2))
+    await addUpload(d, new File(['Note two.'], 'note-02.txt', { type: 'text/plain' }))
+    stops = tabStops(d)
+    const names = stops.slice(at(headButton('References')) + 1, at(screen.getByRole('button', { name: 'Add references' })) + 1)
+      .map((el) => el.getAttribute('aria-label') || el.textContent.trim())
+    expect(names).toEqual(['Remove note-01.txt', 'Remove note-02.txt', 'Choose file', 'Add references'])
+  })
+
+  for (const words of [false, true]) {
+    for (const [key, press] of [['Enter', pressEnter], ['Space', pressSpace]]) {
+      it(`${key} on Choose file, the deck context box ${words ? 'with words' : 'empty'}, Full deck on: the picker's click, no deck, no note, focus stays`, async () => {
+        const d = await openDog()
+        expect(d.sw().getAttribute('aria-checked')).toBe('true')
+        if (words) await type(d.box(), CONTEXT)
+        const click = vi.spyOn(chooseInput(), 'click')
+        const b = chooseButton()
+        await act(async () => { b.focus() })
+        expect(await press(b)).toBe(true)                 // left to the button (enterGenerates.js)
+        expect(click).toHaveBeenCalledTimes(1)
+        expect(document.activeElement).toBe(b)
+        await new Promise((r) => setTimeout(r, 20))
+        expect(callAI).not.toHaveBeenCalled()
+        expect(d.toasts()).toHaveLength(0)
+        if (words) expect(d.box().value).toBe(CONTEXT)
+      })
+    }
+  }
+
+  it('CONTROL: the same Enter on the page, words in the box, starts the deck (Choose file is what kept it from the page)', async () => {
+    const d = await openDog()
+    await type(d.box(), CONTEXT)
+    await act(async () => { chooseButton().focus() })
+    await act(async () => { document.activeElement.blur() })
+    await pressEnter(document.body)
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
   })
 })

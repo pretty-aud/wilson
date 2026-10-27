@@ -343,6 +343,19 @@ html {
   [data-surface="dark"]:focus-visible {
     outline-color: var(--color-focus);
   }
+  /* The page's main region (post-overhaul DG3, OUTSTANDING FX15-03; Audrey,
+     2026-10-27: "Keep it everywhere"). It takes focus when a note leaves
+     holding keyboard focus and the element focus came from is gone
+     (src/ui/Toast.jsx, toastFocusReturn). The region fills its page from
+     edge to edge, so the ring 1px outside it was cut by the content box's
+     `overflow: hidden` wherever the page has no gutter: wholly on
+     R.A.B.B.I.T. and Help, left and right on every other page (measured,
+     the DG3 hand-off). Drawn inside the region's own box, it is the same
+     2px on all four sides of every page. R.A.B.B.I.T.'s shell paints over
+     its region, so it redraws this ring above itself (rabbitShell.css). */
+  main:focus-visible {
+    outline-offset: -2px;
+  }
 
   /* ── `color-scheme`: the native panels follow the ground (F3; C1 kit
      request 5, C2 KR-4) ───────────────────────────────────────────────────
