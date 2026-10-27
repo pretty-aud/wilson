@@ -2855,3 +2855,26 @@ S4b-11 are untouched and still hers.
   top of the window. MEASURED by FX15's review round 2 (Chromium, four keyboard
   navigations). Fix: give focus to the new page's main region (FX15's) once the
   page shows. Owner: the shell.
+
+## N1 (`po/n1-subtract`) — left open (2026-10-27)
+
+What N1 (night 1's subtract session: the one-off scripts, the session launch
+entries, exports nothing calls, one shared R.A.B.B.I.T. test mount, the closed
+entries archived) met and did not fix.
+
+- **N1-01 · D.O.G.'s project attachments are cut by size only, not at 20
+  files.** `src/tools/rabbit_v0.1.0/deckAttachments.js` says the candidates are
+  "cut off at BOTH a count and a total size" (MAX_FILES = 20, "the same ceiling
+  the picker beside it already advertises"; MAX_BYTES = 32 MiB), but
+  `DOG_ATTACHMENT_MAX_FILES` has no reader in the tree: its bare name, grepped
+  across src, electron, gateway, public, supabase/functions, scripts, tests,
+  the workflows and the handbook, appears only where it is declared. Nor does
+  `DOG_ATTACHMENT_MAX_MIB`, "said once, for the panel copy". INFERRED from the
+  code, not run; would settle it: a project with more than 20 stored files
+  selected in D.O.G., and the attachments counted. N1 left both constants (they
+  are the evidence). Owner: the next session in D.O.G.'s attachments.
+- **N1-02 · The launch file's `v1-auth` entry serves a worktree that is
+  gone.** It runs `npx vite …/.claude/worktrees/quirky-dewdney-93d080/WILSON
+  --port 5246`; that folder no longer exists (MEASURED, `ls`, 2026-10-27). N1's
+  brief kept the entry byte for byte. Owner: the controller (remove it, or give
+  it session-a's relative path with `VITE_DEV_AUTOLOGIN=off`).
