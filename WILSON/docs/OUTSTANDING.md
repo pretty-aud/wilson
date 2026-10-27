@@ -2834,7 +2834,7 @@ S4b-11 are untouched and still hers.
   change in `DeckOutlineGenerator.jsx` that DG3's brief kept closed; or position the frame only
   while the rewrite preview shows (`.dog-output-frame:has(> .dog-rewrite)`), once nothing else in
   it is found to be placed from it. Owner: a D.O.G. session.
-- **DG3-04 · Right after a click on Generate, Alt does not flip Single page and Full deck.**
+- **~~DG3-04 · Right after a click on Generate, Alt does not flip Single page and Full deck.~~ ACCEPTED by Audrey (2026-10-27, in chat, verbatim: "Keep the cursor in the box (Recommended)"; the option said *As built: the box stays tall while the deck is made and your words stay in view. Alt works after a click elsewhere or a Tab. Nothing changes and the closed list stays at nine.*). Never "fix" it.**
   DG3's fix for DG2-02 keeps the cursor in the deck context box (or the page request box)
   through the click, and D.O.G.'s Alt toggle leaves an Alt in a text box, a dropdown or a field
   to it, as before, so Alt does nothing until the cursor leaves the box (a click on an empty
@@ -2844,7 +2844,7 @@ S4b-11 are untouched and still hers.
   flipped. Her FX13 answer: *"Alt flips the switch from any page"*. Walkthrough 81 step 6 says
   to click out of the box first. Fix, if wanted: each Generate button takes focus once its
   click has landed (in its click handler, after the press kept the box's height), as a
-  landed click did before; not measured. Owner: Audrey's call, then a D.O.G. session.
+  landed click did before; not measured. Owner: none; her call is made (keep as built).
 
 ## N1 (`po/n1-subtract`) — left open (2026-10-27)
 
