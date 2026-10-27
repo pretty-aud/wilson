@@ -45,7 +45,7 @@ the sequence; otherwise section 3 is the measured one.
 | 1 | Signed in, on any R.A.B.B.I.T. tab, let the connection go dead while the computer still shows Wi-Fi connected; then do something that reads the cloud (open a project, switch a tab) | Nothing for 20 seconds, as before. At 20 s: the strip **"Connection lost — reconnecting…"** with **Reload** at the top of the window; the corner dot an amber diamond, pointing at it says *Database: reconnecting… · Files: …, reconnecting…*. What you clicked shows its own "could not load" where it has one. |
 | 2 | Bring the connection back | Within about ten seconds the strip goes, the dot is green, and what was waiting on the session finishes by itself. The thing you clicked in step 1 that showed an error needs its own retry (a click), and works. |
 | 3 | Instead of step 2, leave it dead for a minute | At 80 s into the hang the strip reads **"Connection lost — reload to continue."**, still with **Reload**. WILSON keeps asking every 10 seconds; if the connection returns later the strip still goes by itself. Reload works as it always did. |
-| 4 | The two-factor screen: sign in as an admin without an authenticator set up (or Settings → Profile → two-factor, which shows the same block) on a window about 824px tall, and at the smallest window the desktop app allows | The heading, the QR, the secret, the code field, the button and the two links all sit on the light band, clear of both orange bars (`po-s1-after-desktop-gate-1280x824`, `po-s1-after-gate-1280x700`; the same pictures before, since nothing moved). |
+| 4 | The two-factor screen: sign in as an admin without an authenticator set up (or Settings → Profile → two-factor, which shows the same block) on a window about 824px tall, and at the smallest window the desktop app allows | The heading, the QR, the secret, the code field, the button and the two links all sit on the light band, clear of both orange bars (`po-s1-after-desktop-gate-1280x824`, `po-s1-after-web-gate-1280x700` in `docs/sessions/handoffs/img/`; the `po-s1-before-*` pictures are the same bytes, since nothing moved; their QR box is a stand-in, as the development copy reaches no server, and its secret is made up). |
 
 ## 2. Your answers
 
@@ -97,7 +97,8 @@ screen as it did, with your stored sign-in kept.
 - **The sign-in shell, before and after**, at 1280x800, 1440x900, 1280x824
   and 1280x700, in Chromium 147 and in the desktop app (Electron 33): every
   element of the company step, the password step and the enrolment screen at
-  the same pixel; the bars the same height. The enrolment screen reached
+  the same pixel; the bars the same height; all 24 pictures byte for byte the
+  same before and after (`docs/sessions/handoffs/img/po-s1-*`). The enrolment screen reached
   through a stand-in for the cloud on the dev fixtures' tester (nothing real
   is reached; the development copy's cloud address is a closed local port).
 - **CI's own browser test of the strip** (a read that never answers → the
