@@ -37,7 +37,7 @@ Narrator, turn on scan mode (**Caps Lock+Space**) and press **D**.
 | 1 | Open **Home** and list the landmarks | One: *"main"*. Before, Home had none. |
 | 2 | Open **R.A.B.B.I.T.**, open **Salt Hours**, and list the landmarks on any tab (try **Tasks** and **Budget**) | The top bar (*"banner"*) and one *"main"*. On Budget also the *"Bid versions"* region. Before, there was no main on any tab. |
 | 3 | Do the same on **Settings**, **Team members**, **Help**, **D.O.G.** and **O.T.T.E.R.** | One *"main"* on each. D.O.G. also has the *"DECK OUTLINE"* side panel; O.T.T.E.R. its navigation and side panel; Help its navigation, now inside the main area. D.O.G. and O.T.T.E.R. sounded the same before; the others had no main. |
-| 4 | In **D.O.G.**, Tab to the **Project** dropdown. Then press **Alt** (Single page) and Tab to the layout dropdown | *"PROJECT, combo box"* and *"SLIDE LAYOUT TYPE, combo box"*, in capitals as the labels are drawn. Before, both were only *"combo box"*. Click the word *Project* above the dropdown: the dropdown takes focus. Press **Alt** again to go back to Full deck. |
+| 4 | In **D.O.G.**, Tab to the project dropdown. Then press **Alt** (Single page) and Tab to the layout dropdown | *"CHOOSE A PROJECT, combo box"* and *"SLIDE LAYOUT TYPE, combo box"*, in capitals as the labels are drawn. Before, both were only *"combo box"*. Click the words *Choose a project* above the dropdown: the dropdown takes focus. Press **Alt** again to go back to Full deck. *(2026-10-27, DG3: the label read **Project** until your answer "Choose a project"; walkthrough 81.)* |
 | 5 | In D.O.G., open **Settings** (the gear at the right end of the *Deck outline* bar). Tab to **Single Page - API System Message** | *"SINGLE PAGE - API SYSTEM MESSAGE, Core instruction sent as system message for single page generation, button, collapsed"*. |
 | 6 | Press **Enter** | The section opens, as a click opens it, and the screen reader says *"expanded"*. Enter again closes it: *"collapsed"*. Every section on both tabs (*System prompts*, *Output format*) does the same. |
 | 7 | Open **Team members**. On the last row (Theo Lindqvist) press **Deactivate**, then **Deactivate** in the window; press **Tab** once, then **Enter** on the note's × | As in walkthrough 78: the note closes and focus is back on Theo's Deactivate button, which is still there. |
@@ -85,3 +85,6 @@ No questions are open.
   off, so nothing shows where focus went. Whether that area should wear the ring,
   or something else, is still your call (FX14's hand-off §6); nothing was
   changed.
+  *Done 2026-10-27 (DG3), your answer "Keep it everywhere": the ring is drawn
+  just inside the area's edge, on all four sides of every page, R.A.B.B.I.T.
+  and Help included (walkthrough 81).*

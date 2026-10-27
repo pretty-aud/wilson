@@ -3472,6 +3472,22 @@ page's layout dropdown (`#dog-slide-layout`) are tied to their labels with
 `htmlFor`; Chromium reads both names in the kit's capitals. `.dog-main` carries
 `hidden` off D.O.G.'s page (§13.4). Walkthrough 79.
 
+**D.O.G.'s closed list (post-overhaul DG3, 2026-10-27).** The `#dog-project`
+label reads *Choose a project* (Audrey's words), so Chromium names the dropdown
+*"CHOOSE A PROJECT"*; the card's title stays *1 Project* (`#dog-card1-title`).
+Choose file is a kit secondary `Button` (named *Choose file* by `aria-label`,
+its kinds its description through `aria-describedby`) beside the hidden
+`input[type=file]`, which its press clicks: a Tab stop between the uploads'
+Removes and Add references, Enter and Space open the picker. This supersedes
+the DG2 paragraph's `<label>` and its last sentence (OUTSTANDING DG2-01,
+closed). Choose file still goes at `UPLOAD_LIMIT`; when its last press came
+from the keyboard (`:focus-visible`), focus goes to the 20th upload's Remove
+instead of `<body>`. Both Generate buttons cancel their `mousedown`, so a press
+keeps focus where it is: the deck context box (80px, 160px focused) or the page
+request box (96px, 160px) does not blur and shrink under the press, so the
+button does not move before the release and the click lands (DG2-02, closed).
+Enter and Space on a focused Generate button are as before. Walkthrough 81.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
@@ -3959,6 +3975,19 @@ has one main on every page and every R.A.B.B.I.T. tab, and the document one
 element it came from is gone; before, on every page but the two tools, it fell
 to `<body>`. Measured over CDP by `scripts/fx15-landmarks-names.mjs`; pinned in
 `src/layout/PageSurface.test.jsx`. Walkthrough 79.
+
+**The main region's ring (post-overhaul DG3, 2026-10-27; Audrey, "Keep it
+everywhere").** The region fills its page from edge to edge, so the kit's
+ring 1px outside it was cut by the content box's `overflow: hidden`: wholly on
+R.A.B.B.I.T. and Help, at the sides elsewhere. `main:focus-visible
+{ outline-offset: -2px }` (`src/index.css`, `@layer base`) draws it inside the
+region's own box, the same 2px on all four sides of every page. R.A.B.B.I.T.'s
+shell (`.rb-shell`, `relative`, the paper) paints over its region after the
+region's own outline, so it redraws the same ring above itself while the region
+has keyboard focus (`main:focus-visible > .rb-shell::after`, `rabbitShell.css`;
+Bins' pane's pattern), z-index 26: over the connection dot (25), under every
+menu (30 and up), no pointer events. Pinned in `PageSurface.test.jsx`.
+Walkthrough 81.
 
 (`PageShell.jsx` and `ToolShell.jsx` used to sit here unreferenced — the
 shell reimplements the bar inline. Session 17 deleted both, along with eleven
