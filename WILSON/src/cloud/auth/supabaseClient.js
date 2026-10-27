@@ -17,7 +17,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { saveSession } from './sessionStorage'
-import { connectionWatchdog } from '../connectionWatchdog'
+import { connectionWatchdog, createAnonGuard } from '../connectionWatchdog'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -42,12 +42,32 @@ const surface = typeof __WILSON_SURFACE__ === 'string' ? __WILSON_SURFACE__ : 'a
 // in supabase-js 2.101.1: SupabaseClient passes `settings.global.fetch` to
 // both `fetchWithAuth` and `_initSupabaseAuthClient`. The watchdog wraps it so
 // a request that silently never settles while the browser still says it is
-// online raises the "Connection lost — reload to continue" banner. It watches
-// bounded calls only (auth, PostgREST, storage downloads); uploads, the
-// resumable path and every Edge Function call are outside it by construction.
-// See connectionWatchdog.js for the hang it surfaces and why Reload is the
-// remedy. Bound to globalThis: an unbound `fetch` throws "Illegal invocation".
+// online is ABORTED at its budget and the strip says "Connection lost —
+// reconnecting…" (S1, night 2 of PLAN_TO_1_0, docs/design/RECONNECT_DESIGN.md;
+// before S1 the request was only counted and the strip said reload, the one
+// remedy there was). It watches bounded calls only (auth, PostgREST, storage
+// downloads); uploads, the resumable path and every Edge Function call are
+// outside it by construction. Bound to globalThis: an unbound `fetch` throws
+// "Illegal invocation".
+//
+// S1's guard sits OUTSIDE the wrapper. Once the hung refresh's own caller
+// gets the result of its loop — no session — supabase-js sends that caller's
+// request with the ANON key (measured: a 401 on `workspaces`; on a table anon
+// may read, an empty 200 that looks like data). While a person is signed in
+// (the last auth event carried a session), a PostgREST or storage request
+// carrying the anon bearer is refused with a rejected fetch and one sentence,
+// which postgrest-js turns into the caller's error result: the caller's own
+// error path, never an empty success. Outside the wrapper, so a refused
+// request is never tracked. Every PostgREST and storage call the app makes
+// while signed in carries the session's token; the anon calls (resolve-login,
+// the Edge Functions) are raw fetches outside this client.
 const baseFetch = typeof fetch === 'function' ? (input, init) => fetch(input, init) : undefined
+let signedIn = false
+const guard = createAnonGuard({
+  anonKey: anon ?? '',
+  isSignedIn: () => signedIn,
+  onRefused: (path) => console.warn(`[wilson] ${path}: signed in, but the session check failed; the request was not sent`),
+})
 
 export const supabase = createClient(url ?? '', anon ?? '', {
   auth: {
@@ -56,16 +76,30 @@ export const supabase = createClient(url ?? '', anon ?? '', {
     detectSessionInUrl: false,
     storageKey: surface === 'admin' ? 'sb-wilson-operator' : 'sb-wilson-app',
   },
-  global: baseFetch ? { fetch: connectionWatchdog.wrapFetch(baseFetch) } : {},
+  global: baseFetch ? { fetch: guard(connectionWatchdog.wrapFetch(baseFetch)) } : {},
 })
 
 // Keep the persisted copy current across refresh rotation (Session 12 web
 // follow-up from Session 2's persistSession:false note). Sign-out clearing
 // stays with the explicit logout flow — clearing here too would race it.
+// S1: the same events tell the guard above whether a person is signed in.
 supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') signedIn = false
+  else if (session) signedIn = true
   if (event === 'TOKEN_REFRESHED' && session) {
     Promise.resolve(saveSession(session)).catch(() => { /* best-effort */ })
   }
+})
+
+// S1: the app's one retry. When the auth family comes back (an answered ping,
+// or the SDK's own attempt landing), ask for the session once: if the SDK is
+// free and the token stale this starts the refresh now rather than at the
+// auto-refresh ticker's next tick; if its queue is still held, this queues
+// behind the attempt already in flight, which is harmless. The SDK's own loop
+// does the retrying (measured, the probe's phase E); nothing here re-issues
+// a refresh.
+connectionWatchdog.onRecovered((family) => {
+  if (family === 'auth') Promise.resolve(supabase.auth.getSession()).catch(() => { /* the strip says what is true */ })
 })
 
 // Hydrate the client from a previously-saved session. Called at boot from

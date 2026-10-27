@@ -428,6 +428,11 @@ export async function probeConnection(kind, deps, { timeoutMs = CONNECTION_TIMEO
 
 const STATE_TONE = Object.freeze({
   connected: 'success', files: 'warning', offline: 'danger', checking: 'neutral', unchecked: 'neutral', none: 'neutral',
+  // S1 (night 2, 2026-10-27): the connection watchdog has aborted a cloud
+  // request that hung and is asking the service again every 10 s; the
+  // strip says the same words. Amber, a diamond (rabbitShell.css), not
+  // settled, so it is never announced — the strip's role="alert" is.
+  reconnecting: 'warning',
 })
 
 function statusWord(answer, { projectOpen = false } = {}) {
@@ -453,7 +458,7 @@ const LIVE_WORD = Object.freeze({ live: 'on', connecting: 'connecting', error: '
 
 /**
  * The dot: { state, tone, words, summary }.
- *   state    connected | files | offline | checking | unchecked | none
+ *   state    connected | files | offline | checking | unchecked | none | reconnecting
  *   words    each part in words, ' · ' between: the hover text AND the
  *            accessible name (Audrey: "hovering says each part in words")
  *   summary  the state as one sentence, announced once when it changes
@@ -461,7 +466,7 @@ const LIVE_WORD = Object.freeze({ live: 'on', connecting: 'connecting', error: '
  * before any probe: a computer with no network reaches neither part. The
  * Local Server is on this computer, so it is not asked about the network.
  */
-export function connectionView({ kind, result = null, realtimeStatus = 'off', projectOpen = false, browserOffline = false } = {}) {
+export function connectionView({ kind, result = null, realtimeStatus = 'off', projectOpen = false, browserOffline = false, reconnecting = false } = {}) {
   if (!kind) {
     return { state: 'none', tone: STATE_TONE.none, words: 'No backend is set up', summary: 'No backend is set up' }
   }
@@ -474,6 +479,18 @@ export function connectionView({ kind, result = null, realtimeStatus = 'off', pr
   if (browserOffline && remote) {
     database = { ok: false, why: 'no-network' }
     files = { ok: false, why: 'no-network', place: files?.place }
+  }
+  // S1: the watchdog is reconnecting the cloud client (a request hung, was
+  // aborted, the service is asked again every 10 s). The dot says so in the
+  // strip's words rather than what its last probe found; the browser being
+  // offline outranks it (no network is the truer sentence).
+  if (reconnecting && kind === 'cloud' && !browserOffline) {
+    const live = projectOpen ? ` · Live updates: ${LIVE_WORD[realtimeStatus] || 'off'}` : ''
+    return {
+      state: 'reconnecting', tone: STATE_TONE.reconnecting,
+      words: `Database: reconnecting… · Files: ${files?.place ? `${files.place}, ` : ''}reconnecting…${live}`,
+      summary: 'Reconnecting to the database',
+    }
   }
   const dbPlace = kind === 'local' ? 'the Local Server' : kind === 'drive' ? FILES_PLACE.drive : null
   const parts = [

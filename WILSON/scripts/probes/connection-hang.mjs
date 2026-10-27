@@ -34,7 +34,7 @@
 
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
-import { createConnectionWatchdog } from '../../src/cloud/connectionWatchdog.js'
+import { createConnectionWatchdog, createAnonGuard } from '../../src/cloud/connectionWatchdog.js'
 
 const envPath = process.argv[2]
 if (!envPath) { console.error('usage: node connection-hang.mjs <env-file>'); process.exit(2) }
@@ -330,6 +330,95 @@ async function phaseE() {
   }
 }
 
+/**
+ * Phase F — the build (S1): the same hang through the REAL watchdog with its
+ * real 20 s budget and the client module's guard in front of it, as the app
+ * composes them. What it shows, with times: the strip at the budget, the
+ * abort, the SDK's own retry 200 ms later, the loop ending at ~42 s with the
+ * hung caller's read REFUSED by the guard (never sent with the anon key), a
+ * caller queued meanwhile, the network answering, the ping clearing the auth
+ * family and aborting the dead attempt, TOKEN_REFRESHED, the queued caller's
+ * read with the new token, the recovered hook. While "dead", every /auth/v1/
+ * request but GET /user is a black hole; the health ping goes to the real
+ * project once the network is "back"; the refresh answers with a made-up
+ * session (never a real token).
+ */
+async function phaseF() {
+  log('── Phase F — the build: the real watchdog (20 s budget) and the guard; the hang, the abort, the retry, the network back')
+  const { state, fetchImpl } = abortableDeadNetworkFetch('F')
+  // while armed, the whole auth family is dark (the health ping too), not only /token
+  const dark = (input, init) => {
+    const path = pathOf(input)
+    if (state.armed && path.includes('/auth/v1/') && !path.endsWith('/auth/v1/user')) {
+      const method = (init?.method ?? 'GET').toUpperCase()
+      state.seen.push({ at: Date.now() - t0, method, path: path.split('?')[0], who: 'ping' })
+      if (path.includes('/auth/v1/token')) state.refreshAt.push(Date.now() - t0)
+      log(`F: ${method} ${path.split('?')[0]} → black hole (abortable)`)
+      return new Promise((_, reject) => {
+        const signal = init?.signal
+        if (!signal) return
+        const fail = () => reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+        if (signal.aborted) fail()
+        else signal.addEventListener('abort', fail, { once: true })
+      })
+    }
+    return fetchImpl(input, init)
+  }
+  const wd = createConnectionWatchdog({ tickMs: 250, isOnline: () => true, windowRef: null })
+  const marks = []
+  wd.subscribe((lost, phase) => { marks.push({ at: Date.now() - t0, lost, phase }); log(`F: watchdog → lost ${lost}, phase ${phase}${lost ? ` (families: ${wd.lostFamilies().join(', ')})` : ''}`) })
+  wd.onRecovered((family) => log(`F: watchdog → recovered: ${family}`))
+  let signedIn = false
+  const guard = createAnonGuard({ anonKey: ANON, isSignedIn: () => signedIn, onRefused: (p) => log(`F: the guard refused ${p} (anon bearer while signed in)`) })
+  const sb = makeClient(guard(wd.wrapFetch(dark)))
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') signedIn = false; else if (session) signedIn = true
+    log(`F: auth event ${event}`)
+  })
+  const saved = await race(sb.auth.setSession({ access_token: nearlyExpiredToken(), refresh_token: 'refresh-token-that-never-answers' }), 5000, 'F: auth.setSession (a session saved, its token about to expire)')
+  log(`F: saved → session ${saved.value?.data?.session ? 'present' : 'null'}; signed in ${signedIn}`)
+  state.armed = true
+  const tHang = Date.now()
+  const since = () => `${Date.now() - tHang} ms`
+  let s1 = false; let s2 = false
+  // The first caller is the HOLDER: its getSession() starts the refresh that hangs, and the SDK
+  // holds it until its whole queue has drained (GoTrueClient._acquireLock), so it cannot settle
+  // while the network is dead. The second caller queues behind it.
+  const read1 = race(sb.from('workspaces').select('id').limit(1), 95000, 'F: the first read (the holder: its refresh is the hang)').then(r => { s1 = true; return r })
+  await sleep(5000)
+  const read2 = race(sb.from('workspaces').select('id').limit(1), 95000, 'F: a second read, queued behind the first').then(r => { s2 = true; return r })
+  log(`F: ${since()} → ${sdkState(sb)}; watched pending ${wd.pendingCount()}`)
+  // The holder's own loop is two attempts of 21 s (the refresh carries a body), 200 ms apart:
+  // over at ~42.6 s. Then the queued caller's turn starts a loop of its own.
+  await sleep(40000)
+  const heldWhileDead = !s1 && !s2
+  log(`F: ${since()} → ${sdkState(sb)}; lost ${wd.getSnapshot()} (${wd.lostFamilies().join(', ')}); phase ${wd.getPhase()}; the first read settled: ${s1}; the second: ${s2}; /rest/v1/ requests sent: ${state.seen.filter(s => s.path.includes('/rest/v1/')).length}`)
+  // The network comes back. The next ping answers, aborts the dead attempt, the SDK's retry lands.
+  state.armed = false
+  state.answerRefresh = true
+  const tBack = Date.now()
+  log(`F: ${since()} the network is back`)
+  const [r1, r2] = await Promise.all([read1, read2])
+  const restSent = state.seen.filter(s => s.path.includes('/rest/v1/'))
+  const describe = (r) => r.hung ? 'NO ANSWER' : r.value?.error ? `error "${String(r.value.error.message).slice(0, 60)}" (status ${r.value.status})` : `status ${r.value?.status}`
+  log(`F: ${since()} the queued read → ${describe(r2)}; the holder's read → ${describe(r1)}`)
+  log(`F: /rest/v1/ requests sent in the end: ${restSent.length} (Authorization: ${restSent.map(s => s.who).join(', ') || 'none'})`)
+  await sleep(1500)
+  log(`F: ${since()} → ${sdkState(sb)}; lost ${wd.getSnapshot()}; phase ${wd.getPhase()}; refresh attempts at ${state.refreshAt.map(a => `${a - (tHang - t0)} ms`).join(', ')}`)
+  const lostAt = marks.find(m => m.lost)?.at
+  const clearAt = marks.find(m => !m.lost && m.at > tBack - t0)?.at
+  log(`F: the strip up ${lostAt != null ? lostAt - (tHang - t0) : '—'} ms into the hang; cleared ${clearAt != null ? clearAt - (tBack - t0) : '—'} ms after the network returned`)
+  wd.reset()
+  return {
+    lostAfterMs: lostAt != null ? lostAt - (tHang - t0) : null,
+    holderHeldWhileDead: heldWhileDead,
+    firstReadRefused: !!r1.value?.error && String(r1.value.error.message).includes('session check failed'),
+    firstReadSent: restSent.some(s => s.who === 'anon'),
+    recoveredMs: clearAt != null ? clearAt - (tBack - t0) : null,
+    secondReadWithToken: r2.value?.status != null && restSent.some(s => s.who === 'token'),
+  }
+}
+
 const host = new URL(URL_).host
 log(`project host: ${host}; supabase-js as installed; persistSession:false autoRefreshToken:true`)
 await phaseA()
@@ -337,12 +426,15 @@ const b = await phaseB()
 const c = await phaseC()
 const d = await phaseD()
 const e = await phaseE()
+const f = await phaseF()
 log('── Summary')
 log(`pinned PostgREST read: ${b.pinnedRead}; pinned getSession(): ${b.pinnedGetSession}; /rest/v1/ requests issued behind the hang: ${b.restIssued}`)
 log(`watchdog raised lost after ${c.lostAfterMs} ms with ${c.pending} watched request(s) pending`)
 log(`the lock is ${d.lockName}; a second client with the same storageKey issued ${d.secondClientIssued} read(s) while the first stayed pinned: ${d.firstStillPinned}`)
-log(`an aborted refresh settled the SDK ${e.settledMs} ms after the hang (${e.refreshRequests} refresh request(s)); the session kept: ${e.sessionKeptAfterAbort}; recovered once the network answered: ${e.recovered}`)
+log(`an aborted refresh (2 s budget) kept the SDK retrying (${e.refreshRequests} request(s) in the first loop); the session kept: ${e.sessionKeptAfterAbort}; recovered once the network answered: ${e.recovered}`)
+log(`the build: lost after ${f.lostAfterMs} ms; both callers held while the network was dead: ${f.holderHeldWhileDead}; the strip cleared ${f.recoveredMs} ms after the network returned; the queued read went with the new token: ${f.secondReadWithToken}; the holder's read refused by the guard: ${f.firstReadRefused} (sent as anon: ${f.firstReadSent})`)
 const ok = b.pinnedRead && b.pinnedGetSession && b.restIssued === 0 && c.lostAfterMs != null && c.lostAfterMs >= 5000 && c.lostAfterMs < 6500
-  && e.settledMs < 45000 && e.recovered
-log(ok ? 'RESULT: hang reproduced and caught; the abort settles it and the client recovers' : 'RESULT: something did not behave as described — read the lines above')
+  && e.sessionKeptAfterAbort && e.recovered
+  && f.lostAfterMs != null && f.lostAfterMs >= 20000 && f.lostAfterMs < 22500 && f.holderHeldWhileDead && f.recoveredMs != null && f.recoveredMs < 12000 && f.secondReadWithToken && f.firstReadRefused && !f.firstReadSent
+log(ok ? 'RESULT: hang reproduced and caught; the abort lets the SDK recover on its own once the network answers; the build does the same with its real budget' : 'RESULT: something did not behave as described — read the lines above')
 process.exit(ok ? 0 : 1)

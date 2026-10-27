@@ -43,6 +43,16 @@ vi.mock('../../../cloud/workspaceStorage', () => ({ peekWorkspaceStorageCached: 
 const ctx = vi.hoisted(() => ({ value: null }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => ctx.value }))
 
+// S1 (night 2, 2026-10-27): the connection watchdog's store, driven by hand —
+// the real one aborts at 20 s on real timers.
+const wd = vi.hoisted(() => ({ lost: false, listeners: new Set() }))
+vi.mock('../../../cloud/connectionWatchdog', () => ({
+  connectionWatchdog: {
+    subscribe: (l) => { wd.listeners.add(l); return () => wd.listeners.delete(l) },
+    getSnapshot: () => wd.lost,
+  },
+}))
+
 // eslint-disable-next-line import/first
 import ConnectionDot from './ConnectionDot'
 
@@ -78,8 +88,11 @@ beforeEach(() => {
   auth.listeners = []
   held.row = undefined
   presign.fn = vi.fn()
+  wd.lost = false
+  wd.listeners.clear()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+const setLost = (lost) => act(async () => { wd.lost = lost; for (const l of wd.listeners) l(lost, lost ? 'reconnecting' : 'ok') })
 
 describe('the three colours, and the words', () => {
   it('green: both parts answer — "Database: connected · Files: Petal cloud, connected · Live updates: on"', async () => {
@@ -538,5 +551,45 @@ describe('the cloud: the token comes from the auth event, never getSession', () 
     unmount()
     expect(signal.aborted).toBe(true)
     expect(auth.listeners).toHaveLength(0)
+  })
+})
+
+// ── S1: the watchdog's word ──────────────────────────────────────────────────
+// While the connection watchdog is reconnecting the cloud client (a request
+// hung, was aborted, the service is asked again every 10 s) the dot is an
+// amber diamond with the strip's words, whatever its last probe found, and
+// nothing is announced (the strip's role="alert" is); on the clear it asks
+// again at once, so green follows the strip within its own bound.
+describe('S1: the watchdog\'s word while the cloud client is reconnecting', () => {
+  it('an amber diamond with the strip\'s words over the last probe, no announcement, no probe on the loss; the clear asks again at once', async () => {
+    const fetchFn = vi.fn(async (url) => ok(String(url).includes('workspace_storage') ? [{ mode: 'central', provider: 'petal' }] : []))
+    vi.stubGlobal('fetch', fetchFn)
+    ctx.value = cloudCtx()
+    const { container } = render(<ConnectionDot />)
+    await act(async () => { auth.listeners[0]('INITIAL_SESSION', { access_token: 't', expires_at: later(3600) }) })
+    await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
+    await settle()
+    const before = fetchFn.mock.calls.length
+    await setLost(true)
+    expect(dotOf(container).dataset.state).toBe('reconnecting')
+    expect(markOf(container).dataset.tone).toBe('warning')
+    expect(cellOf(container).getAttribute('title')).toMatch(/^Database: reconnecting… · Files: .*reconnecting… · Live updates: on$/)
+    expect(cellOf(container).getAttribute('aria-label')).toBe(cellOf(container).getAttribute('title'))
+    expect(liveOf(container).textContent).toBe('')
+    await settle()
+    expect(fetchFn.mock.calls.length).toBe(before)
+    await setLost(false)
+    await waitFor(() => expect(fetchFn.mock.calls.length).toBeGreaterThan(before))
+    await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
+    expect(liveOf(container).textContent).toBe('')
+  })
+
+  it('the fixtures are not the cloud client: the word does not reach them (connectionStatus.test.js covers the Local Server and a drive)', async () => {
+    const { container } = render(<ConnectionDot />)
+    await waitFor(() => expect(dotOf(container).dataset.state).toBe('connected'))
+    await setLost(true)
+    expect(dotOf(container).dataset.state).toBe('connected')
+    await setLost(false)
+    expect(dotOf(container).dataset.state).toBe('connected')
   })
 })

@@ -70,10 +70,11 @@
 // demand), Doherty (the answer is bounded at 6 s; until then it says
 // "checking").
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { useRabbit } from '../state/RabbitProvider'
 import { StatusDot } from '../../../ui/StatusDot'
 import { supabase } from '../../../cloud/auth/supabaseClient'
+import { connectionWatchdog } from '../../../cloud/connectionWatchdog'
 import { presignStorage } from '../../../cloud/storageApi'
 import { peekWorkspaceStorageCached } from '../../../cloud/workspaceStorage'
 import { localFetch } from '../../../lib/localServerFetch'
@@ -94,6 +95,14 @@ function tokenNearExpiry(expiresAt, now = Date.now()) {
   return !!expiresAt && expiresAt * 1000 - now < TOKEN_MARGIN_MS
 }
 const NO_TOKEN = Object.freeze({ token: null, expiresAt: null, user: null, workspace: null, staleSince: null })
+
+// S1 (night 2, 2026-10-27): the connection watchdog's word. While the cloud
+// client is reconnecting (a request hung, was aborted, the service is asked
+// again every 10 s) the dot says so — the strip's words — instead of what
+// its last probe found; on the clear it asks at once, so green follows the
+// strip within the dot's own 6 s bound.
+const subscribeWatchdog = (listener) => connectionWatchdog.subscribe(listener)
+const readWatchdog = () => connectionWatchdog.getSnapshot()
 
 /** The dot's state: { view, announcement }. */
 function useConnection({ active = true } = {}) {
@@ -261,12 +270,22 @@ function useConnection({ active = true } = {}) {
     probeNow()
   }, [projectId, loading, bucketFileThere, probeNow])
 
+  // S1: the watchdog outranks the last probe while it is reconnecting the
+  // cloud client; the clear asks again at once (the header note above).
+  const reconnecting = useSyncExternalStore(subscribeWatchdog, readWatchdog, readWatchdog)
+  const wasReconnecting = useRef(false)
+  useEffect(() => {
+    if (wasReconnecting.current && !reconnecting) setNudge((n) => n + 1)
+    wasReconnecting.current = reconnecting
+  }, [reconnecting])
+
   const view = connectionView({
     kind,
     result: measured,
     realtimeStatus: ctx?.realtimeStatus,
     projectOpen: !!projectId,
     browserOffline,
+    reconnecting: kind === 'cloud' && reconnecting,
   })
 
   // Announced once per change between settled states — never the first

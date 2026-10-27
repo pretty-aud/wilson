@@ -751,56 +751,6 @@ that actually broke in S23 have no vitest around them and no pgTAP insert
 probe. The allowlist test covers the mechanism; it does not cover those two
 tables' own payloads. That is the remaining half.
 
-### One hung `getSession()` pins the whole app's auth — reconnect deferred, banner shipped (Track B B2 part 2, 2026-09-06)
-**NARROWED (B2 part 2).** The pin is now reproduced on demand and has a
-surface. `scripts/probes/connection-hang.mjs` against wilson-dev: a refresh
-that never settles, a PostgREST read behind it that never resolves and never
-issues a request, `getSession()` stuck behind the same shared
-`refreshingDeferred`. `src/cloud/connectionWatchdog.js` wraps the one fetch
-supabase-js uses and raises **"Connection lost — reload to continue"** when
-an auth, PostgREST or storage-download request is pending past 20 s while
-`navigator.onLine` is true (uploads, the resumable path and every Edge
-Function call are outside it by construction; a slow upload never trips it,
-pinned by test). Reload is the remedy; **reconnect logic is deferred by
-Audrey (fix plan answer 10).** What remains open is only the reconnect:
-nothing outside the SDK can cancel its shared refresh promise, so a real
-fix is a client re-create on detection or an SDK change. The measured facts
-below stand.
-
-**MEASURED (S21, against `@supabase/auth-js` 2.101.1 as installed.)** This
-replaces the old "Profile panel can spin forever" entry, which framed the
-problem as N independent call sites. It is not.
-
-Two facts, both read out of `node_modules`:
-
-1. **The class is far larger than the explicit call sites.** supabase-js binds
-   `_getAccessToken()` into `fetchWithAuth` for *every* PostgREST, Storage and
-   Functions request, and that awaits `auth.getSession()` internally
-   (`supabase-js/dist/index.mjs:523-528`). So every `.from(...)` carries the
-   same unbounded wait. Counting `.auth.getSession()` occurrences understates
-   it by an order of magnitude.
-2. **`withTimeout` races, it does not abort** — by design
-   (`withTimeout.js:16-19`). The abandoned call still holds `lockAcquired` in
-   auth-js, and the lock is global per `storageKey`. Every later auth operation
-   then queues in `pendingInLock`, which consults **no** acquire timeout
-   (`GoTrueClient.js:2232-2251`). All three clients share the one lock —
-   RABBIT's `sharedAuthedClient` is the same instance.
-
-**Consequence, and why the planned "sweep the 22 sites" was not done:** bounding
-a call site restores *that site's UI* and nothing else. A sweep would have gone
-green and left the app just as stuck, while letting the session report the class
-as closed.
-
-What S21 did instead (`10fcd29`): fixed the two places where the defect was
-actually reachable and reportable — `ProfileSection`'s loader now has
-`try/catch/finally` so `loading` clears on every path (the `Promise.all`'s
-*other* leg is unbounded too, so bounding only the auth call would not have
-closed it), and `aiProxy`'s pre-flight is bounded with its own code and message
-rather than falling through to "Sign in to use AI features."
-
-→ Deferred by her choice (answer 10). The banner above is the surface until
-a reconnect is designed; when it is, design it before writing it.
-
 ### Avatar does not persist
 **REPORTED; root cause still unproven.** S21 falsified four hypotheses by
 measurement — the `avatar_url` column, the `user-avatars` bucket (public, 2 MB,
@@ -1341,6 +1291,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul S1 (2026-10-27; `po/s1-reconnect` into `feat/post-overhaul-edit-versioning`) — night 2's reconnect after a hung session check (`docs/design/RECONNECT_DESIGN.md`: the watchdog aborts a request at its budget, the SDK keeps the session and retries by itself, the strip says *reconnecting…* and pings the service that hung, the client module refuses a data request carrying the anon key while signed in, R.A.B.B.I.T.'s dot shows the same word) and the two-factor enrolment overflow, measured closed (506.89px in a 544px well at 824 and 700 tall, Chromium and Electron alike; the shell's 544px floor of 2026-09-11). | **S1-01** (two tabs, one refresh token; INFERRED). | *One hung `getSession()` pins the whole app's auth* (fixed by the build; its two wrong claims recorded in the S1 section) and *The two-factor enrolment screen overflows the sign-in shell's band at laptop heights* (measured closed). |
 | Post-overhaul DG3 (2026-10-27; `po/dg3-dog-closed-list` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s closed list (`docs/sessions/PLAN_TO_1_0.md` §3: DG2-01, DG2-02) and Audrey's two answers of 2026-10-27: a press on either Generate button keeps focus in its box, so the box does not shrink under it and the click lands; Choose file a kit button (Tab, Enter and Space, named *Choose file*; the 20th upload from the keyboard hands focus to its Remove); card 1's field label *Choose a project*; the main region's ring drawn inside its own box on every page, R.A.B.B.I.T.'s shell redrawing it above itself. No migration, no Edge Function. Walkthrough 81. | DG3-03 (on D.O.G. the ring loses its top or bottom side where the output card crosses the column's edge; review round 2, MEASURED), DG3-04 (right after a click on Generate, Alt is the box's; review round 2, MEASURED). Comment markers: 4 → 4. | **DG2-01 fixed**, **DG2-02 fixed** (the DG2 section with them), **FX15-03 fixed** (her ruling, "Keep it everywhere"). |
 | Post-overhaul FX15 (2026-10-26; `po/fx15-fx14-leftovers` into `feat/post-overhaul-edit-versioning`) — FX14's leftovers, Audrey's choice of 2026-10-26: four more R.A.B.B.I.T. test mounts out of the gap, each with a CONTROL that holds it open; D.O.G.'s 20 settings headers (16 places in the source) say whether their section is open; one main region exposed on every page (PageSurface, the hidden pages and the two tools' own mains `hidden` off screen); D.O.G.'s Project and layout dropdowns named; a bounded retry on 502/503/504 in the ai-files CI probe. No migration, no Edge Function. Walkthrough 79. | FX15-01 (D.O.G.'s render-test harness could press Enter before D.O.G. had the upload; MEASURED; found by DG2 as well and fixed there, `91eee254`, so removed at FX15's merge), FX15-02 (Single page's Page # and Page Request named by their placeholders; pre-existing), FX15-03 (on R.A.B.B.I.T. the main region's focus ring is cut off; Audrey's call), FX15-04 (at least 13 more R.A.B.B.I.T. test files mount in the same gap; three of them measured, 101 of 131 tests red in it; review round 1), FX15-05 (the closed nav strip's items are Tab stops and screen-reader buttons on every page; pre-existing, review round 1), FX15-06 (Help's navigation and O.T.T.E.R.'s side panel are unnamed landmarks; pre-existing), FX15-07 (D.O.G.'s settings headers are named by their label and description, block content in a button; pre-existing), FX15-08 (a page chosen from the nav strip by keyboard leaves focus on `<body>`; pre-existing, review round 2). Comment markers: 4 → 4. | **FX14-01 fixed** (the four mounts render inside act and wait for the provider's status past `unavailable`; forced into the gap 25 of 50 tests failed before, none after), **FX14-02 fixed**, **FX14-03 fixed**, **FX14-04 fixed** (Single page's layout dropdown too). The FX14 section with them. **DG2-03 fixed** (after FX15's review rounds: the probe's messages call, no-sign-in request and operator's summary go through the same retry as step 1 and `call()`). |
 | Post-overhaul DG2 (2026-10-26; `po/dg2-uploads-in-references` into `feat/post-overhaul-edit-versioning`) — Audrey's ask of 2026-10-26: D.O.G.'s Upload Documents section moves into card 2, References, as its first group of rows (each upload a row with its glyph, name, size and Remove; Choose file at the group's foot), so the card reads as one list of what the AI reads; card 1 becomes *1 Project*. What is read, sent, counted and let go of unchanged (the meter measured identical before and after). Review round 1's corrections: a Remove pressed from the keyboard keeps focus in the list (focus on the page made the next Enter a deck), the upload's refusal is said under Choose file, *Remove all references*; round 2's: the notice's Undo and Dismiss the same, the refusal cleared by a generation and announced again when repeated. No migration, no Edge Function. Walkthrough 80. | DG2-01 (D.O.G.'s Choose file is not reachable by keyboard and has no accessible name; pre-existing, MEASURED before and after), DG2-02 (a click on Generate full deck outline with the deck context box focused is lost: the box shrinks under the press; pre-existing, MEASURED), DG2-03 (the CI probe's no-sign-in request failed the smoke job on an upstream 504 on DG2's merge; MEASURED). Comment markers: 4 → 4. | — |
@@ -2881,3 +2832,34 @@ measurement a script N1 deleted (`fx10-date-fields-shots.mjs`,
   Every per-session entry before it did the same. Fix: `cd WILSON&& …` before
   `npx vite --port N --strictPort` (the worktree's own install, which the
   protocol's `npm install` already provides). Owner: the controller.
+
+## S1 (2026-10-27, night 2 of `docs/sessions/PLAN_TO_1_0.md`)
+
+Reconnecting after a hung session check (`docs/design/RECONNECT_DESIGN.md`,
+designed, reviewed, built) and the two-factor enrolment overflow (measured
+closed; the shell's own comment table and `AuthShell.reveal.test.jsx` carry the
+numbers). The entry *One hung `getSession()` pins the whole app's auth* is
+deleted as fixed; its two measured claims — a lock global per `storageKey`,
+a shared refresh promise nothing outside the SDK can cancel — were wrong for
+this app (the lock is a no-op with `persistSession: false`; the pin is the
+client's own queue; a fetch given a signal is cancelled and the SDK reads it
+as retryable) and are corrected in the design's §1. What S1 met and did not
+fix:
+
+- **S1-01 · Two tabs of `/wilson` share one stored session and each rotates
+  its refresh token on its own.** With `persistSession: false` every tab's
+  auth-js keeps its own copy of the session in memory. The visible tab's
+  ticker refreshes it and `supabaseClient.js` writes the rotated tokens to
+  localStorage, but a second tab keeps the OLD refresh token in memory and
+  presents it at its next refresh — on becoming visible again
+  (`_recoverAndRefresh`), or from its own ticker. GoTrue accepts a reused
+  refresh token inside its reuse interval (10 s by default) and revokes the
+  whole family after it, which signs BOTH tabs out. INFERRED from the SDK as
+  installed and GoTrue's documented reuse rule (review round 1 of the
+  reconnect design, F8); not measured, because it needs a real session: two
+  tabs on wilson-dev as the smoke user, the second hidden for longer than the
+  token's life, then shown. Not changed by S1 — an aborted refresh's retry
+  presents the same old token a reload does. The desktop has one renderer; the
+  operator console has its own token under its own key. Owner: a session in
+  `src/cloud/auth/` (the fix shape: re-read the stored session before a tab
+  refreshes a token older than the one in storage).
