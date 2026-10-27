@@ -24,7 +24,7 @@ Branch `po/n2-subject-shares-design` from `origin/feat/post-overhaul-edit-versio
 
 ## Facts that will bite
 
-- A `<!--` in a long markdown file silently hides everything to the next `-->`: count the markers in any long doc you edit, before and after.
+- An HTML comment opener in a long markdown file silently hides everything to the next closer: count the markers in any long doc you edit, before and after.
 - The Bash tool halves `\\` anywhere in a command; text with backslashes goes through the Write or Edit tool. Git Bash's `sed -i` turns a CRLF file into LF; the design docs are CRLF.
 - `otter_progress.completed_lessons` is keyed by subject slug; two courses can hold subjects with the same slug; a linked subject's key must carry the subject's id.
 - Phase 6's rule: nothing a person may not read is listed or sent to the AI; a revoke must reach the pet's reading on the receiver's next sync, and the design says how.
