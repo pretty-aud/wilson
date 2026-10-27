@@ -1328,6 +1328,18 @@ never accepts an echo of the nonce …" (`runtime.test.mjs:596`, a 3.7 s
 file): its throwaway loopback echo server received no request (`answers`
 was `[]`). The test does not record the probe's error, and 3,400 in-process
 repeats of it under the same load missed none: cause NOT ESTABLISHED.)*
+*(S1, 2026-10-27, MEASURED on GitHub's Linux runner, not Windows: RLS tests
+run 40590939861, its Vitest job, `doorsOutside.test.mjs`'s "a play and a
+scrub make one viewing; 60 s idle ends it; the row has counts and two
+offsets" — the closed row's `bytes` 524,288, the first range alone, where
+1,048,593 is expected, its `fraction` short likewise — on `3a6ec8f8`, a
+docs-only merge whose tree (`70736e0a`) is byte-identical to `4c747d87`'s,
+which passed in run 40590893549; the same code passed in 40589711054 and
+40589629970. S1 touches nothing under `gateway/`. INFERRED: the second
+range's bytes are counted as its body finishes streaming, which under load
+landed after the test's `tick()`; settle it by consuming the second
+response's body before the clock moves, or by counting before the request
+resolves. Not re-run: a re-run needs a GitHub sign-in the session has not.)*
 
 ---
 
