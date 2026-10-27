@@ -36,7 +36,14 @@ on:
 jobs:
   pgtap:
     name: pgTAP (Supabase local DB)
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04 on 2026-10-27 (the controller): GitHub is moving the
+    # ubuntu-latest label to Ubuntu 26.04 between 2026-10-19 and 2026-11-19
+    # (actions/runner-images#14748), and Playwright 1.59 cannot install Chromium
+    # there (microsoft/playwright#40117, fixed in 1.60): the Playwright job went
+    # red at 'Install Chromium' on every run from 16:57 UTC that day, green at
+    # 07:34. All four jobs are pinned so the suite runs where it has run for
+    # months; the pin comes off when @playwright/test is bumped past 1.60.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
@@ -663,7 +670,7 @@ jobs:
   # ---------------------------------------------------------------------------
   issue-session-smoke:
     name: issue-session smoke (wilson-dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     defaults:
       run:
@@ -746,7 +753,7 @@ jobs:
   # ---------------------------------------------------------------------------
   unit:
     name: Vitest (renderer units)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -786,7 +793,7 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e-auth:
     name: Playwright auth (wilson-dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
