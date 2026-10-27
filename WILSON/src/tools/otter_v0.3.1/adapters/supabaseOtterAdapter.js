@@ -99,6 +99,17 @@ async function currentUserId() {
   return data?.user?.id ?? null
 }
 
+/** 0100: what a subject-share function answered with. A refusal the function
+ *  raised (P0001: a sentence written for a person) or the live unique index's
+ *  race (23505) is a 409 the client shows as the sentence it carries; anything
+ *  else — an expired session, a transport failure — is not a refusal and keeps
+ *  the adapter's 500, so a client keying on 409 never shows a lost connection
+ *  as "the server refused" (B1 review round 1, finding 8). */
+function shareRefusal(error) {
+  const refused = error?.code === 'P0001' || error?.code === '23505'
+  return new OtterCloudError(error?.message ?? 'O.T.T.E.R. cloud request failed', refused ? 409 : 500)
+}
+
 /**
  * The caller's workspace, read from the TOKEN payload (the Session 9
  * Edge-Function rule: app_metadata on the user object is not authoritative).
@@ -945,7 +956,7 @@ export const supabaseOtterAdapter = {
       if (error.code === '23505') {
         throw new OtterCloudError('this subject is already shared with that person', 409)
       }
-      throw new OtterCloudError(error.message, 409)
+      throw shareRefusal(error)
     }
     return { id: data }
   },
@@ -962,10 +973,13 @@ export const supabaseOtterAdapter = {
       p_message: body.message ?? null,
     })
     if (error) {
+      // Inside a batch a 23505 is the row-maker's own race on the live index
+      // (two offers of one subject to one person in the same instant), and
+      // the row-maker's sentence is the one for it.
       if (error.code === '23505') {
         throw new OtterCloudError('this subject is already shared with that person', 409)
       }
-      throw new OtterCloudError(error.message, 409)
+      throw shareRefusal(error)
     }
     return { batch_id: data }
   },
@@ -981,14 +995,14 @@ export const supabaseOtterAdapter = {
         throw new OtterCloudError(
           'You already have a course with this name. Open it, then accept again.', 409)
       }
-      throw new OtterCloudError(error.message, 409)
+      throw shareRefusal(error)
     }
     return { host_course_id: data }
   },
 
   async 'share.decline'({ id }) {
     const { error } = await supabase.rpc('otter_subject_share_decline', { p_share_id: id })
-    if (error) throw new OtterCloudError(error.message, 409)
+    if (error) throw shareRefusal(error)
     return { ok: true }
   },
 
@@ -997,7 +1011,7 @@ export const supabaseOtterAdapter = {
   // falls with it, inside the function.
   async 'share.revoke'({ id }) {
     const { error } = await supabase.rpc('otter_subject_share_revoke', { p_share_id: id })
-    if (error) throw new OtterCloudError(error.message, 409)
+    if (error) throw shareRefusal(error)
     return { ok: true }
   },
 

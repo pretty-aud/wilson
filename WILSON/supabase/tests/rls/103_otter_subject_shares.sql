@@ -33,7 +33,7 @@
 
 BEGIN;
 
-SELECT plan(416);
+SELECT plan(442);
 
 SELECT * FROM tests.rls_setup();
 
@@ -380,6 +380,17 @@ SELECT is((SELECT count(*)::int FROM public.otter_subject_shares WHERE id = pg_t
 SELECT is((SELECT count(*)::int FROM public.otter_subject_shares),
           4, 'd reads exactly the four rows naming them (SH1, SH2, SH3, SH7)');
 
+WITH upd AS (
+  UPDATE public.otter_subjects SET description = 'edited before accepting'
+   WHERE id = '05000103-0000-0000-0000-000000000001' RETURNING 1
+)
+SELECT is((SELECT count(*)::int FROM upd), 0, 'd cannot UPDATE S1 before accepting (0 rows, nothing thrown)');
+
+SELECT throws_ok($$
+  INSERT INTO public.otter_subject_shares (subject_id, shared_with, subject_title, course_name, subject_owner_id)
+  VALUES ('05000103-0000-0000-0000-000000000002', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Rigging', 'Blender 5.0', 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+$$, '42501', NULL, 'd cannot INSERT a share row directly');
+
 SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index()),
           4, 'd''s index lists the four pending offers');
 SELECT is((SELECT subject_title FROM public.otter_subject_shares_index() WHERE id = pg_temp.sh('SH1')),
@@ -431,6 +442,14 @@ SELECT is((SELECT state FROM public.otter_subject_shares_index() WHERE id = pg_t
           'pending', '… pending');
 SELECT is((SELECT course_id FROM public.otter_subject_shares_index() WHERE id = pg_temp.sh('SH4')),
           NULL::uuid, '… with the pending receiver''s nulls');
+SELECT throws_ok($$
+  INSERT INTO public.otter_subject_shares (subject_id, shared_with, subject_title, course_name, subject_owner_id)
+  VALUES ('05000103-0000-0000-0000-000000000002', 'abababab-abab-abab-abab-abababababab', 'Rigging', 'Blender 5.0', 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+$$, '42501', NULL, 'e cannot INSERT a share row directly');
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET status = 'accepted', host_course_id = '0c000103-0000-0000-0000-0000000000f5'
+   WHERE id = pg_temp.sh('SH4')
+$$, '42501', NULL, 'e cannot UPDATE their own offer directly');
 
 -- as g, a granted editor on C1
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -463,6 +482,13 @@ SELECT is((SELECT count(*)::int FROM public.otter_subject_shares),
           0, 'another workspace reads no share row');
 SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index()),
           0, '… and its index is empty');
+SELECT throws_ok($$
+  INSERT INTO public.otter_subject_shares (subject_id, shared_with, subject_title, course_name, subject_owner_id)
+  VALUES ('05000103-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Modifiers', 'Blender 5.0', 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+$$, '42501', NULL, 'b cannot INSERT a share row directly');
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET message = 'from B' WHERE id = pg_temp.sh('SH1')
+$$, '42501', NULL, 'b cannot UPDATE a share row directly');
 
 -- anon: 42501, never 0 rows (0033 revoked every privilege; a count would abort the file)
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -496,6 +522,10 @@ SELECT is((SELECT receiver_label FROM public.otter_subject_shares_index() WHERE 
           'User D', '… and the receiver''s label');
 SELECT is((SELECT host_course_id FROM public.otter_subject_shares_index() WHERE id = pg_temp.sh('SH1')),
           NULL::uuid, '… and never the receiver''s host');
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET message = 'rewritten by the owner' WHERE id = pg_temp.sh('SH1')
+$$, '42501', 'permission denied for table otter_subject_shares',
+  'the owner cannot UPDATE their own row directly either: no grant');
 
 -- ── 4. Accept ───────────────────────────────────────────────────────────────
 -- The two wrong hands try SH4 (e's offer), not SH1: a function mutated to
@@ -643,6 +673,10 @@ RESET ROLE;
 SELECT tests.login_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222');
 SELECT is((SELECT count(*)::int FROM public.otter_subjects WHERE id = '05000103-0000-0000-0000-000000000001'),
           0, 'another workspace reads nothing of S1');
+SELECT is((SELECT count(*)::int FROM public.otter_subjects WHERE id = '05000103-0000-0000-0000-000000000002'),
+          0, '… nor of S2');
+SELECT is((SELECT count(*)::int FROM public.otter_courses WHERE id = '0c000103-0000-0000-0000-000000000001'),
+          0, '… nor of C1');
 
 -- as c, the owner
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -685,7 +719,11 @@ INSERT INTO public.otter_subject_shares
    host_course_id, responded_at, subject_owner_id, chain_depth)
 VALUES
   ('e5000103-0000-0000-0000-000000000005', '22222222-2222-2222-2222-222222222222', '05000103-0000-0000-0000-000000000001', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'accepted', 'Modifiers', 'Blender 5.0',
-   '0c000103-0000-0000-0000-0000000000f5', now(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 1);
+   '0c000103-0000-0000-0000-0000000000f5', now(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 1),
+  -- SH5P: the same forgery left PENDING, so b can try to accept it (the
+  -- accept's workspace belt); the runner removes it again below.
+  ('e5000103-0000-0000-0000-000000000015', '22222222-2222-2222-2222-222222222222', '05000103-0000-0000-0000-000000000002', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'pending', 'Rigging', 'Blender 5.0',
+   NULL, NULL, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 1);
 ALTER TABLE public.otter_subject_shares ENABLE TRIGGER trg_otter_subject_share_guard;
 
 SELECT is((SELECT count(*)::int FROM public.otter_subject_shares WHERE id = 'e5000103-0000-0000-0000-000000000005'),
@@ -703,9 +741,26 @@ SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index()),
           0, '… and b''s index is EMPTY: the index lists no cross-tenant row (the belt, repeated)');
 SELECT is((SELECT count(*)::int FROM public.otter_subject_shares WHERE id = 'e5000103-0000-0000-0000-000000000005'),
           1, '… though the raw row itself is readable to b (its workspace, its party): the belts are what keep it inert');
+SELECT throws_ok($$SELECT public.otter_subject_share_accept('e5000103-0000-0000-0000-000000000015')$$,
+  'subject not found in this workspace',
+  'b cannot accept SH5P, a forged pending cross-workspace row: the accept''s workspace belt');
+-- The b column of the matrix, the four function cells: another workspace's
+-- rows are not found from here.
+SELECT throws_ok($$SELECT public.otter_subject_share_accept(pg_temp.sh('SH1'))$$,
+  'share not found in this workspace', 'b cannot accept SH1');
+SELECT throws_ok($$SELECT public.otter_subject_share_decline(pg_temp.sh('SH4'))$$,
+  'share not found in this workspace', 'b cannot decline SH4');
+SELECT throws_ok($$SELECT public.otter_subject_share_revoke(pg_temp.sh('SH1'))$$,
+  'share not found in this workspace', 'b cannot revoke SH1');
+SELECT throws_ok($$SELECT public.otter_subject_share_course('0c000103-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', NULL)$$,
+  'course not found in this workspace', 'b cannot share C1 whole');
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
+DELETE FROM public.otter_subject_shares WHERE id = 'e5000103-0000-0000-0000-000000000015';
+SELECT is((SELECT count(*)::int FROM public.otter_subject_shares WHERE id = 'e5000103-0000-0000-0000-000000000015'),
+          0, 'the runner removes SH5P (one probe, no function ran on it)');
+
 SELECT is(coalesce(current_setting('wilson.otter_subject_share_update', true), ''), '',
           'CONTROL: the update arm reads empty before the runner''s unarmed update');
 SELECT throws_ok($$
@@ -718,6 +773,32 @@ SELECT set_config('wilson.otter_subject_share_update', pg_temp.sh('SH1')::text, 
 UPDATE public.otter_subject_shares SET host_course_id = '0c000103-0000-0000-0000-0000000000f5' WHERE id = pg_temp.sh('SH1');
 SELECT is((SELECT host_course_id FROM public.otter_subject_shares WHERE id = pg_temp.sh('SH1')),
           '0c000103-0000-0000-0000-000000000011'::uuid, 'an armed update with NO status change cannot move host_course_id (the no-transition arm)');
+-- The guard's transition table (§1.1's half the functions never reach),
+-- armed, as the runner: each raises, so nothing moves.
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET status = 'declined' WHERE id = pg_temp.sh('SH1')
+$$, 'a subject share cannot move from accepted to declined',
+  'an armed update cannot move an accepted share to declined');
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET status = 'revoked' WHERE id = pg_temp.sh('SH1')
+$$, 'a revoked share records who ended it',
+  'an armed revoke without ended_by is refused');
+SELECT set_config('wilson.otter_subject_share_update', '', true);
+SELECT set_config('wilson.otter_subject_share_update', pg_temp.sh('SH4')::text, true);
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET status = 'accepted' WHERE id = pg_temp.sh('SH4')
+$$, 'accepting places the subject in a course',
+  'an armed accept without a host is refused');
+SELECT set_config('wilson.otter_subject_share_update', '', true);
+SELECT set_config('wilson.otter_subject_share_insert', '05000103-0000-0000-0000-000000000006', true);
+SELECT throws_ok($$
+  INSERT INTO public.otter_subject_shares
+    (workspace_id, subject_id, shared_by, shared_with, status, subject_title, course_name,
+     host_course_id, responded_at, subject_owner_id)
+  VALUES ('11111111-1111-1111-1111-111111111111', '05000103-0000-0000-0000-000000000006', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'abababab-abab-abab-abab-abababababab', 'accepted', 'Materials', 'Blender 5.0', '0c000103-0000-0000-0000-0000000000f5', now(), 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+$$, 'a new subject share starts pending, with nothing decided',
+  'an armed insert that starts accepted is refused');
+SELECT set_config('wilson.otter_subject_share_insert', '', true);
 -- The three provenance pins, probed on SH3 (accepted; no chain hangs from it,
 -- so a guard mutated to drop the pins lands the move and these redden without
 -- the later chain aborting the file). Owner e, not d: a row naming its
@@ -801,6 +882,21 @@ SELECT is((SELECT course_id FROM public.otter_subject_shares_index() WHERE id = 
           NULL::uuid, '… course_id null');
 SELECT is((SELECT subject_is_stub FROM public.otter_subject_shares_index() WHERE id = pg_temp.sh('SH4')),
           NULL::boolean, '… is_stub null: nothing live');
+
+-- Nothing reopens: the guard's transition table, armed, as the runner.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('wilson.otter_subject_share_update', pg_temp.sh('SH4')::text, true);
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET status = 'accepted', host_course_id = '0c000103-0000-0000-0000-0000000000f5'
+   WHERE id = pg_temp.sh('SH4')
+$$, 'a subject share cannot move from declined to accepted',
+  'an armed update cannot reopen a declined share as accepted');
+SELECT throws_ok($$
+  UPDATE public.otter_subject_shares SET status = 'pending' WHERE id = pg_temp.sh('SH4')
+$$, 'a subject share cannot move from declined to pending',
+  '… nor as pending');
+SELECT set_config('wilson.otter_subject_share_update', '', true);
 
 -- ── 8. Trash, restore, purge ────────────────────────────────────────────────
 -- as c, the owner
@@ -988,6 +1084,8 @@ SELECT is((SELECT name FROM public.otter_courses WHERE id = pg_temp.sh('E1')),
           'Blender 5.0', '… and the owner''s course name');
 SELECT is((SELECT owner_id FROM public.otter_courses WHERE id = pg_temp.sh('E1')),
           'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, '… owned by e');
+SELECT is((SELECT visibility FROM public.otter_courses WHERE id = pg_temp.sh('E1')),
+          'personal', '… personal');
 SELECT is((SELECT status FROM public.otter_subject_shares WHERE id = pg_temp.sh('SH9')),
           'accepted', '… SH9 accepted');
 SELECT is((SELECT count(*)::int FROM public.otter_subjects WHERE id = '05000103-0000-0000-0000-000000000001'),
@@ -1175,7 +1273,14 @@ VALUES
   ('e5000103-0000-0000-0000-00000000000c', '11111111-1111-1111-1111-111111111111', '05000103-0000-0000-0000-000000000006', 'a7a7a7a7-a7a7-a7a7-a7a7-a7a7a7a7a7a7', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'accepted', 'Materials', 'Blender 5.0',
    '0c000103-0000-0000-0000-0000000000f5', now(), 'a7a7a7a7-a7a7-a7a7-a7a7-a7a7a7a7a7a7', NULL, 1),
   ('e5000103-0000-0000-0000-00000000000d', '11111111-1111-1111-1111-111111111111', '05000103-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'accepted', 'Modifiers', 'Blender 5.0',
-   '0c000103-0000-0000-0000-0000000000f5', now(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', pg_temp.sh('SH1'), 2);
+   '0c000103-0000-0000-0000-0000000000f5', now(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', pg_temp.sh('SH1'), 2),
+  -- SHU and SHT, two PENDING forgeries for the accept's two other belts (a
+  -- root row misnaming its owner; an onward row under a declined link), each
+  -- for one probe, removed by the runner below.
+  ('e5000103-0000-0000-0000-00000000000e', '11111111-1111-1111-1111-111111111111', '05000103-0000-0000-0000-000000000004', 'a7a7a7a7-a7a7-a7a7-a7a7-a7a7a7a7a7a7', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending', 'Shared Sub', 'Shared Topic',
+   NULL, NULL, 'a7a7a7a7-a7a7-a7a7-a7a7-a7a7a7a7a7a7', NULL, 1),
+  ('e5000103-0000-0000-0000-00000000000f', '11111111-1111-1111-1111-111111111111', '05000103-0000-0000-0000-000000000002', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending', 'Rigging II', 'Blender 5.0',
+   NULL, NULL, 'cccccccc-cccc-cccc-cccc-cccccccccccc', pg_temp.sh('SH4'), 2);
 ALTER TABLE public.otter_subject_shares ENABLE TRIGGER trg_otter_subject_share_guard;
 
 -- as h, a plain member (the end of the chain)
@@ -1191,6 +1296,12 @@ SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index() WHERE i
 SELECT throws_ok($$SELECT public.otter_subject_share_accept('e5000103-0000-0000-0000-00000000000a')$$,
   'this share is accepted — only a pending share can be accepted',
   '… and h cannot accept it (it already says accepted)');
+-- The row-maker's chain lock: h holds SHX accepted, so standing passes and
+-- the walk up reaches SH4; the re-read under FOR SHARE finds it declined and
+-- refuses (the helper, run after, is the belt that would say the same).
+SELECT throws_ok($$SELECT public.otter_subject_share('05000103-0000-0000-0000-000000000002', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', NULL)$$,
+  'this subject is no longer shared with you',
+  '… and h cannot pass S2 on: the chain lock re-reads the link above and finds it not accepted');
 
 -- as e, the third person
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -1198,6 +1309,13 @@ RESET ROLE;
 SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
 SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index() WHERE id = 'e5000103-0000-0000-0000-00000000000a'),
           0, '… nor does e''s index (the sharer it names)');
+
+-- as d, the receiver
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
+SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index() WHERE id = 'e5000103-0000-0000-0000-00000000000a'),
+          0, '… nor does d''s (d is nobody to SHX)');
 
 -- as c, the owner
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -1301,11 +1419,27 @@ SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-111
 SELECT is((SELECT state FROM public.otter_subject_shares_index() WHERE id = 'e5000103-0000-0000-0000-00000000000d'),
           'gone', '… the owner''s index lists SHW as gone');
 
+-- as a, the ADMIN (claims by hand: tests.login_as sets no app_role)
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
-DELETE FROM public.otter_subject_shares WHERE id IN ('e5000103-0000-0000-0000-00000000000c', 'e5000103-0000-0000-0000-00000000000d');
-SELECT is((SELECT count(*)::int FROM public.otter_subject_shares WHERE id IN ('e5000103-0000-0000-0000-00000000000c', 'e5000103-0000-0000-0000-00000000000d')),
-          0, 'the runner removes the two forged probe rows (no function ran on them, no audit line: group 11''s counts stand)');
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','admin')
+)::text, true);
+SELECT set_config('role','authenticated', true);
+SELECT throws_ok($$SELECT public.otter_subject_share_accept('e5000103-0000-0000-0000-00000000000e')$$,
+  'that subject has changed hands since it was shared',
+  'SHU (a pending root row misnaming its owner): its receiver cannot accept it (the accept''s owner belt)');
+SELECT throws_ok($$SELECT public.otter_subject_share_accept('e5000103-0000-0000-0000-00000000000f')$$,
+  'the person who passed this on no longer has it',
+  'SHT (a pending onward row under a DECLINED link): its receiver cannot accept it (the accept''s link belt)');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+DELETE FROM public.otter_subject_shares WHERE id IN ('e5000103-0000-0000-0000-00000000000c', 'e5000103-0000-0000-0000-00000000000d', 'e5000103-0000-0000-0000-00000000000e', 'e5000103-0000-0000-0000-00000000000f');
+SELECT is((SELECT count(*)::int FROM public.otter_subject_shares WHERE id IN ('e5000103-0000-0000-0000-00000000000c', 'e5000103-0000-0000-0000-00000000000d', 'e5000103-0000-0000-0000-00000000000e', 'e5000103-0000-0000-0000-00000000000f')),
+          0, 'the runner removes the four forged probe rows (no function ran on them, no audit line: group 11''s counts stand)');
 
 -- ── 9c. A whole course (the batch, §1.5) ────────────────────────────────────
 -- as c, the owner
@@ -1326,9 +1460,9 @@ SELECT is((SELECT count(*)::int FROM public.otter_subject_shares
             WHERE batch_id = pg_temp.sh('BATCH') AND status = 'pending' AND shared_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
               AND via_share_id IS NULL AND chain_depth = 1),
           2, '… both pending, made by c, no link above, depth 1 (a batch row is a root)');
-SELECT is((SELECT count(DISTINCT created_at)::int FROM public.otter_subject_shares
-            WHERE batch_id = pg_temp.sh('BATCH')),
-          1, '… one created_at between them (one transaction)');
+SELECT is((SELECT count(*)::int FROM public.otter_subject_shares_index()
+            WHERE batch_id = pg_temp.sh('BATCH') AND is_owner),
+          2, '… and the owner''s index lists both, is_owner true');
 INSERT INTO t103 SELECT 'B2', id FROM public.otter_subject_shares
   WHERE batch_id = pg_temp.sh('BATCH') AND subject_id = '05000103-0000-0000-0000-000000000002';
 INSERT INTO t103 SELECT 'B6', id FROM public.otter_subject_shares

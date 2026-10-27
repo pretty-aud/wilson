@@ -163,6 +163,24 @@ describe('share.create — one subject to one person (and passing it on)', () =>
     await expect(supabaseOtterAdapter['share.create']({ body: { subject_id: 'sub-1' } })).rejects.toMatchObject({ status: 400 })
     expect(calls).toEqual([])
   })
+
+  // Review round 1, finding 8: 409 is for the function's sentences. An expired
+  // session or a transport failure is not a refusal, and a client keying on
+  // 409 must not show it as one.
+  it('an expired session or a transport failure is not a refusal: 500, never 409, in every share op', async () => {
+    const stale = { code: 'PGRST301', message: 'JWT expired' }
+    for (const fn of ['otter_subject_share', 'otter_subject_share_course', 'otter_subject_share_accept',
+      'otter_subject_share_decline', 'otter_subject_share_revoke']) {
+      rpcAnswers[fn] = { data: null, error: stale }
+    }
+    await expect(supabaseOtterAdapter['share.create']({ body: { subject_id: 'sub-1', shared_with: 'd' } }))
+      .rejects.toMatchObject({ message: 'JWT expired', status: 500 })
+    await expect(supabaseOtterAdapter['share.createCourse']({ body: { course_id: 'c', shared_with: 'd' } }))
+      .rejects.toMatchObject({ message: 'JWT expired', status: 500 })
+    await expect(supabaseOtterAdapter['share.accept']({ id: 'sh-1' })).rejects.toMatchObject({ status: 500 })
+    await expect(supabaseOtterAdapter['share.decline']({ id: 'sh-1' })).rejects.toMatchObject({ status: 500 })
+    await expect(supabaseOtterAdapter['share.revoke']({ id: 'sh-1' })).rejects.toMatchObject({ status: 500 })
+  })
 })
 
 describe('share.createCourse — a whole course as a batch', () => {

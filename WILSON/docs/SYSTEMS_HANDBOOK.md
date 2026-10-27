@@ -3664,8 +3664,9 @@ never names the helper). Every write goes through a SECURITY DEFINER function
 batch of rows made in one transaction and grouped by `batch_id`),
 `otter_subject_share_accept` (the host is the receiver's own course with the
 OWNER's slug, found or made), `otter_subject_share_decline`,
-`otter_subject_share_revoke` — through one internal row-maker; `authenticated`
-holds SELECT alone on the table, and a guard trigger armed by two
+`otter_subject_share_revoke` — the first two through one internal row-maker,
+`otter_subject_share_make`, so a batch row and a single row are made by one
+body; `authenticated` holds SELECT alone on the table, and a guard trigger armed by two
 transaction-local GUCs refuses any other write from any role, armed or not,
 for a row naming a subject of another workspace or misnaming its owner. A
 receiver who accepted may pass the subject on (`via_share_id`,
@@ -5783,6 +5784,11 @@ documentation and starts being wrong answers.
   readable, as ids and snapshots, by that person through the raw table and
   nowhere else (the policy trusts the column; the index, the helper and the
   revoke read the live owner). Design §10.
+- **The raw table discloses whole rows to every party of a row.** The owner
+  of the subject reads every column of every row of their subject, the sharer
+  of an onward row reads the row they made (the onward receiver's host pointer
+  among its columns) and the receiver their own; the index's nulls are what
+  the client shows, not a boundary. Design §3.6.
 
 ---
 
