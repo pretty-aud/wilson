@@ -100,7 +100,7 @@ Audrey answers N2's questions (multiple choice). The controller merges to the be
 |---|---|---|
 | **N2b Whole-course and onward shares, the design** | Fable | Her ruling of the morning written into `OTTER_SUBJECT_SHARES_DESIGN.md` and its Appendix A in place: the batch (`batch_id`, `otter_subject_share_course`), the chain (`via_share_id`, `subject_owner_id`, the helper's walk, the cascading revoke), suite 103 extended, B1's and B2's lists updated; two review rounds; brief `po-n2b-course-and-onward-shares.md`. B1's brief follows its merge. |
 
-Also that day: the ninth beta merge (`69546e1d`); the RLS workflow pinned to `ubuntu-24.04` (`2f6a9f61`) after GitHub's move of `ubuntu-latest` to Ubuntu 26.04 broke Playwright 1.59's Chromium install; the R1 and S1 briefs; DG3-04 accepted as built.
+Also that day: the ninth beta merge (`69546e1d`); the RLS workflow pinned to `ubuntu-24.04` (`2f6a9f61`) after GitHub's move of `ubuntu-latest` to Ubuntu 26.04 broke Playwright 1.59's Chromium install; the R1 and S1 briefs; DG3-04 accepted as built. N2b merged at 19:3x UTC (`ed36cc70`); the B1 brief followed it. Night 2 started at 19:13 UTC on her clicks: S1 runs on Fable by her word in that session (*"use fable for this"*); R1 started on Fable without stopping on its first line and was switched to Opus 5.5 by the controller seven minutes in; B1 on Opus 5.5 after N2b's merge.
 
 ### Night 2
 | Session | Scope |
