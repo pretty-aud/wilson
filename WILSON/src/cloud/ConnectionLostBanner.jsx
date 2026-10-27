@@ -1,13 +1,25 @@
 // =============================================================================
-// ConnectionLostBanner — Track B bundle B2, part 2. The one sentence the app
-// says when connectionWatchdog decides a bounded call has hung while the
-// browser still claims to be online: "Connection lost — reload to continue."
+// ConnectionLostBanner — Track B bundle B2, part 2, and S1 (night 2,
+// 2026-10-27). The two sentences the app says when connectionWatchdog decides
+// a bounded call has hung while the browser still claims to be online:
 //
-// Why Reload and not Retry: the hang lives inside supabase-js's shared
-// refresh promise, which nothing outside the SDK can cancel; a reload is the
-// only recovery the client has, and Audrey chose the banner over reconnect
-// logic (fix plan answer 10). A reload re-hydrates from the stored session,
-// so it costs nothing but the page state.
+//   reconnecting   "Connection lost — reconnecting…"       from the budget
+//   reload         "Connection lost — reload to continue."  60 s lost on
+//
+// S1 made the watchdog abort the hung request, which the SDK reads as a
+// retryable failure: it keeps the session and retries by itself, and the
+// watchdog pings the service that hung every 10 s, so the moment the network
+// answers the app continues with the same client — no reload. The first
+// sentence says so. The second is B2's, kept for the state it was written
+// for: nothing has answered for a minute, and a person who would rather not
+// wait has the one remedy a client has. Reload stays on both states, as the
+// escape hatch. Both sentences contain "Connection lost" and the button is
+// "Reload" in both: CI's Playwright scenario 11 reads either.
+//
+// Before S1 the sentence was the second one alone, because the hang lived
+// inside supabase-js's shared refresh promise and a reload was the only
+// recovery the client had (Audrey's answer 10 of the fix plan deferred the
+// reconnect; her answer of 2026-10-27 asked for it).
 //
 // Sits ABOVE every modal, at 300, because it is the reason none of them can
 // make progress: the kit's dialogs are 70 and its toast stack 90, the
@@ -36,17 +48,18 @@ import { Banner, Button } from '../ui'
 import { connectionWatchdog } from './connectionWatchdog'
 
 export const CONNECTION_LOST_COPY = 'Connection lost — reload to continue.'
+export const RECONNECTING_COPY = 'Connection lost — reconnecting…'
 
 const subscribe = (listener) => connectionWatchdog.subscribe(listener)
-const getSnapshot = () => connectionWatchdog.getSnapshot()
+const getPhase = () => connectionWatchdog.getPhase()
 
 export default function ConnectionLostBanner({ watchdog = null }) {
-  const read = watchdog ? () => watchdog.getSnapshot() : getSnapshot
+  const read = watchdog ? () => watchdog.getPhase() : getPhase
   // The third argument is the "server" snapshot. WILSON never server-renders
   // (Electron and a static host), so the only server render is a test's
-  // renderToString, which should see the real value, not a hard-coded false.
-  const lost = useSyncExternalStore(watchdog ? (l) => watchdog.subscribe(l) : subscribe, read, read)
-  if (!lost) return null
+  // renderToString, which should see the real value, not a hard-coded 'ok'.
+  const phase = useSyncExternalStore(watchdog ? (l) => watchdog.subscribe(l) : subscribe, read, read)
+  if (phase === 'ok') return null
   return (
     <div className="connection-banner">
       <Banner
@@ -59,7 +72,7 @@ export default function ConnectionLostBanner({ watchdog = null }) {
           </Button>
         )}
       >
-        {CONNECTION_LOST_COPY}
+        {phase === 'reload' ? CONNECTION_LOST_COPY : RECONNECTING_COPY}
       </Banner>
     </div>
   )

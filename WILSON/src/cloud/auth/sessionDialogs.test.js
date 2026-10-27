@@ -26,8 +26,8 @@ import { createElement as h } from 'react'
 import { renderToString } from 'react-dom/server'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import SessionWarning, { describeSessionExpiry } from './SessionWarning'
-import ConnectionLostBanner, { CONNECTION_LOST_COPY } from '../ConnectionLostBanner'
-import { createConnectionWatchdog } from '../connectionWatchdog'
+import ConnectionLostBanner, { CONNECTION_LOST_COPY, RECONNECTING_COPY } from '../ConnectionLostBanner'
+import { createConnectionWatchdog, RELOAD_AFTER_MS } from '../connectionWatchdog'
 import { ToastProvider } from '../../ui'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -230,12 +230,25 @@ describe('ConnectionLostBanner', () => {
       schedule: () => 1, unschedule: () => {},
     })
     const fetch = lost.wrapFetch(() => new Promise(() => {}))
-    fetch('https://x.supabase.co/rest/v1/projects', { method: 'GET' })
+    fetch('https://x.supabase.co/rest/v1/projects', { method: 'GET' }).catch(() => {})
     t = 200
     lost.evaluate()
     expect(lost.getSnapshot()).toBe(true)
-    const html = renderStr(ConnectionLostBanner, { watchdog: lost })
+    // S1: at the budget the request is aborted and the strip says the
+    // watchdog is reconnecting; a minute lost without an answer, it says
+    // reload — B2's sentence, kept for that state. Reload is on both.
+    expect(lost.getPhase()).toBe('reconnecting')
+    let html = renderStr(ConnectionLostBanner, { watchdog: lost })
+    expect(html).toContain(RECONNECTING_COPY)
+    expect(html).not.toContain(CONNECTION_LOST_COPY)
+    expect(html).toContain('Reload')
+    expect(html).toContain('role="alert"')
+    t = 200 + RELOAD_AFTER_MS
+    lost.evaluate()
+    expect(lost.getPhase()).toBe('reload')
+    html = renderStr(ConnectionLostBanner, { watchdog: lost })
     expect(html).toContain(CONNECTION_LOST_COPY)
+    expect(html).not.toContain(RECONNECTING_COPY)
     expect(html).toContain('Reload')
     expect(html).toContain('role="alert"')
     // The strip's frame is the sheet's `.connection-banner` (B-R2-07): the
