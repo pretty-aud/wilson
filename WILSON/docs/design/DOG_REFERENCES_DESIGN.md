@@ -141,8 +141,8 @@ stands.
 the chosen rows, always drawn, with Choose file at its foot; the contract line
 reads *"What goes to the AI: what is listed here and the project's title and
 description, with what you write below."*; the header's count includes the
-uploads; *Remove all* removes the chosen references only. The rest of this
-section stands.
+uploads; *Remove all*, named *Remove all references* since DG2's code review
+round 1, removes the chosen references only. The rest of this section stands.
 
 - **Header**: step 2, *References*, the count ("6 chosen", or "None chosen"),
   and the chevron. It folds like the other cards (R3); folded, the header still
