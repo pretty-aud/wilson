@@ -73,7 +73,7 @@ import './rabbitFiles.css'
 // table's description; combination groups by asset with Create grouping (her
 // Q-M3); the seat (step 0, finding 4); the old saved views removed (Q17).
 import { usePermissions } from '../../../permissions/usePermissions'
-import { canOnProject } from '../../../permissions/projectRoleMatrix'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { buildItemLookup, KIND_LABEL, KIND_LABEL_PLURAL } from '../state/taskItemsModel'
 import { isGroupingLive } from '../state/tableViewsModel'
@@ -87,7 +87,7 @@ import { useAsk } from './tableViews/useAsk'
 import { combinationGroupsOf } from './tableViews/combinationGroups'
 import { entityDescription, entityTableColumns, entityTableWidths, assetsByEntity } from './tableViews/entityTableView'
 import { ASSET_LINKS_ABSENT_REASON, linksKept } from './tableViews/assetsTableView'
-import GatedAction from '../../../permissions/GatedAction'
+import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
 import {
   applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
 } from './tableViews/viewScreenModel'
@@ -181,11 +181,19 @@ export default function EntityListView({ entity }) {
   // ── The seat (VW1e step 0, finding 4) ──
   // The Tasks and Assets tables' rule (Q2: anyone who can edit the project
   // saves views; Q-F: a seat that cannot write sees no editing control), for
-  // the views, the drag and Create grouping. This page's other controls had
-  // no gate before VW1e and keep none (recorded in OUTSTANDING).
+  // the views, the drag and Create grouping.
+  // R1 (2026-10-27, night 2; OUTSTANDING's "Levels and Experiences have no
+  // write gate"): and for every other write control of the two pages, as the
+  // Scenes rows draw it (Session 29, "keep button gray and explain why"): New,
+  // a row's Delete and the bulk bar's verbs greyed in GatedAction with the
+  // reason (WriteReasonProvider below); a name or description the words alone;
+  // the status select and the window's dates disabled; and every funnel —
+  // the delete question, the create window, a row's or the window's update —
+  // refuses, so the provider's optimistic writes are never reached.
   const { role, ready: permsReady } = usePermissions()
   const writeGateCtx = { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed, ready: permsReady }
   const canWrite = canOnProject(writeGateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(writeGateCtx, 'project.entity.write')
 
   // ── Popup state ──
   const [detailId, setDetailId] = useState(null)
@@ -229,12 +237,16 @@ export default function EntityListView({ entity }) {
 
   // ── CRUD handlers ──
   const handleDelete = useCallback(async (id) => {
+    // R1: a seat that cannot write deletes nothing, however the question came.
+    if (!canWrite) { setConfirmDelete(null); return }
     try {
       await ctx?.[entity.deleteMethod]?.(id)
     } catch (err) { console.error(`Failed to delete ${entity.noun}:`, err) }
     setConfirmDelete(null)
     if (detailId === id) setDetailId(null)
-  }, [ctx, detailId, entity])
+  }, [ctx, detailId, entity, canWrite])
+  // R1: and the question opens only for a seat that may write.
+  const requestDelete = useCallback((target) => { if (canWrite) setConfirmDelete(target) }, [canWrite])
 
   // ── The view (VW1e, 2026-10-25): what Filter, Sort, Group, the layout
   // tabs and the Views dropdown's cards change, for the moment (her Q3),
@@ -414,6 +426,9 @@ export default function EntityListView({ entity }) {
   }
 
   return (
+    // R1: the reason every greyed control below shows on hover (GatedAction
+    // reads it from here), as on the Scenes page.
+    <WriteReasonProvider reason={writeReason}>
     <div className="rb-ent-view h-full flex flex-col">
       {/* ── The table's one polite live region (VW1e, design §4.9). ── */}
       <p className="sr-only" role="status" aria-live="polite">
@@ -434,10 +449,13 @@ export default function EntityListView({ entity }) {
             </span>
 
             {/* The one filled button: the kit primary, white on the signal
-                fill (#c2410c, 5.17:1) — the kit's own. */}
-            <Button size="sm" variant="primary" Icon={Plus} onClick={() => setShowCreatePopup(true)}>
-              {`New ${entity.noun}`}
-            </Button>
+                fill (#c2410c, 5.17:1) — the kit's own. R1: greyed with the
+                reason for a seat that cannot write. */}
+            <GatedAction allowed={canWrite}>
+              <Button size="sm" variant="primary" Icon={Plus} onClick={() => { if (canWrite) setShowCreatePopup(true) }}>
+                {`New ${entity.noun}`}
+              </Button>
+            </GatedAction>
           </>
         )}
       >
@@ -597,19 +615,19 @@ export default function EntityListView({ entity }) {
               canEditViews={tv.canEdit} onRemoveGrouping={removeGrouping}>
               {viewMode === 'table' ? (
                 <EntityTable entity={entity} items={g.items} columns={columns} assetCountById={assetCountById} taskCountById={taskCountById}
-                  ctx={ctx} canDrag={canDrag} onOpenDetail={setDetailId} onRequestDelete={setConfirmDelete} />
+                  ctx={ctx} canWrite={canWrite} canDrag={canDrag} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
               ) : (
                 <EntityGallery entity={entity} items={g.items} gallerySize={gallerySize} cardShows={cardShows}
-                  onOpenDetail={setDetailId} onRequestDelete={setConfirmDelete} />
+                  canWrite={canWrite} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
               )}
             </EntityGroup>
           ))
         ) : viewMode === 'table' ? (
           <EntityTable entity={entity} items={sorted} columns={columns} assetCountById={assetCountById} taskCountById={taskCountById}
-            ctx={ctx} canDrag={false} onOpenDetail={setDetailId} onRequestDelete={setConfirmDelete} />
+            ctx={ctx} canWrite={canWrite} canDrag={false} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
         ) : (
           <EntityGallery entity={entity} items={sorted} gallerySize={gallerySize} cardShows={cardShows}
-            onOpenDetail={setDetailId} onRequestDelete={setConfirmDelete} />
+            canWrite={canWrite} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
         )}
       </div>
 
@@ -646,12 +664,14 @@ export default function EntityListView({ entity }) {
           thumbRevision={thumbRevision}
           onThumbChanged={() => setThumbRevision(r => r + 1)}
           onClose={() => setDetailId(null)}
-          onRequestDelete={setConfirmDelete}
+          onRequestDelete={requestDelete}
+          canWrite={canWrite}
+          writeReason={writeReason}
         />
       )}
 
-      {/* ── Create popup ── */}
-      {showCreatePopup && (
+      {/* ── Create popup ── (R1: a seat that cannot write never has it) */}
+      {showCreatePopup && canWrite && (
         <CreateEntityPopup entity={entity} ctx={ctx} count={items.length} onClose={() => setShowCreatePopup(false)} />
       )}
 
@@ -666,6 +686,7 @@ export default function EntityListView({ entity }) {
         />
       )}
     </div>
+    </WriteReasonProvider>
   )
 }
 
@@ -684,7 +705,7 @@ export default function EntityListView({ entity }) {
 // is the columns on screen's (§4.10); a selection holds only the rows the
 // table shows (defect 4); grouped by asset a row drags (`canDrag`, Q-D1).
 const DEFAULT_COLUMNS = entityTableColumns()
-function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById, taskCountById, ctx, canDrag = false, onOpenDetail, onRequestDelete }) {
+function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById, taskCountById, ctx, canWrite = false, canDrag = false, onOpenDetail, onRequestDelete }) {
   const [selected, setSelected] = useState(new Set())
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const allIds = useMemo(() => items.map(item => item.id), [items])
@@ -704,13 +725,15 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
   function toggleOne(id) { setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
   function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allIds)) }
   function clearSelection() { setSelected(new Set()) }
-  function bulkUpdate(patch) { for (const id of selected) ctx?.[entity.updateMethod]?.(id, patch); clearSelection() }
+  // R1: the bulk verbs, like a row's, refuse a seat that cannot write.
+  function bulkUpdate(patch) { if (!canWrite) return; for (const id of selected) ctx?.[entity.updateMethod]?.(id, patch); clearSelection() }
   // W9: the bulk question is the kit's Dialog, not window.confirm — the same
   // words, Cancel leaves every row where it was, and Delete does exactly
   // what OK did.
-  function bulkDelete() { setConfirmBulkDelete(true) }
+  function bulkDelete() { if (canWrite) setConfirmBulkDelete(true) }
   function confirmedBulkDelete() {
     setConfirmBulkDelete(false)
+    if (!canWrite) return
     for (const id of selected) ctx?.[entity.deleteMethod]?.(id)
     clearSelection()
   }
@@ -730,11 +753,15 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
         <div className="rb-ent-bulk">
           <span className="rb-ent-bulk-count">{selected.size} selected</span>
           <span className="rb-ent-divider" aria-hidden="true" />
-          <BulkSelect label="Status" options={STATUSES} labels={STATUS_LABELS} onPick={v => bulkUpdate({ status: v })} />
+          <GatedAction allowed={canWrite}>
+            <BulkSelect label="Status" options={STATUSES} labels={STATUS_LABELS} onPick={v => bulkUpdate({ status: v })} />
+          </GatedAction>
           <span className="rb-ent-divider" aria-hidden="true" />
-          <Button size="sm" variant="danger" Icon={Trash2} onClick={bulkDelete}>
-            Delete
-          </Button>
+          <GatedAction allowed={canWrite}>
+            <Button size="sm" variant="danger" Icon={Trash2} onClick={bulkDelete}>
+              Delete
+            </Button>
+          </GatedAction>
           <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
         </div>
       )}
@@ -772,9 +799,10 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
             item={item}
             columns={columns}
             draggable={canDrag}
+            canWrite={canWrite}
             assetCount={assetCountById[item.id] || 0}
             taskCount={taskCountById[item.id] || 0}
-            onUpdate={patch => ctx?.[entity.updateMethod]?.(item.id, patch)}
+            onUpdate={patch => { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }}
             onOpenDetail={() => onOpenDetail(item.id)}
             onRequestDelete={() => onRequestDelete({ id: item.id, name: item.name || 'Untitled' })}
             isSelected={selected.has(item.id)}
@@ -812,20 +840,24 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
 // status-colour spine on its left edge is gone with the colours (R4-05):
 // the status is the kit's StatusDot beside the kit's CellSelect, its words
 // in the one ink. A ticked row is the Row's own selection.
-function EntityRow({ entity, item, columns = DEFAULT_COLUMNS, draggable = false, assetCount, taskCount, onUpdate, onOpenDetail, onRequestDelete, isSelected, onToggleSelect }) {
+function EntityRow({ entity, item, columns = DEFAULT_COLUMNS, draggable = false, canWrite = false, assetCount, taskCount, onUpdate, onOpenDetail, onRequestDelete, isSelected, onToggleSelect }) {
   // What the row's own controls are named for.
   const name = item.name || `Untitled ${entity.noun}`
   const status = item.status || 'not_started'
-  // VW1e: each cell by its column's key, in the view's order.
+  // VW1e: each cell by its column's key, in the view's order. R1: a seat that
+  // cannot write sees Delete greyed with the reason, the name and the
+  // description as words, the status select disabled (the Scenes rows').
   const cell = (key) => {
     switch (key) {
       case 'name': return (
         <Td key={key} className="rb-ent-ctl-cell">
           <RowTitle actions={<>
             <IconButton size="sm" Icon={FileText} title={`Open ${name}`} onClick={onOpenDetail} />
-            <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onRequestDelete} />
+            <GatedAction allowed={canWrite}>
+              <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onRequestDelete} />
+            </GatedAction>
           </>}>
-            <InlineText value={item.name || ''} placeholder={`Untitled ${entity.noun}`} label="Name" onCommit={v => onUpdate({ name: v })} />
+            <InlineText value={item.name || ''} placeholder={`Untitled ${entity.noun}`} label="Name" readOnly={!canWrite} onCommit={v => onUpdate({ name: v })} />
           </RowTitle>
         </Td>
       )
@@ -834,7 +866,7 @@ function EntityRow({ entity, item, columns = DEFAULT_COLUMNS, draggable = false,
           <span className="rb-ent-status">
             <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
             <CellSelect className="rb-ent-status-select" value={status} onChange={v => onUpdate({ status: v })}
-              options={STATUS_OPTIONS} aria-label={`Status for ${name}`} />
+              options={STATUS_OPTIONS} disabled={!canWrite} aria-label={`Status for ${name}`} />
           </span>
         </Td>
       )
@@ -842,7 +874,7 @@ function EntityRow({ entity, item, columns = DEFAULT_COLUMNS, draggable = false,
       case 'tasks': return <Td key={key} numeric className="rb-ent-num">{taskCount}</Td>
       case 'description': return (
         <Td key={key} className="rb-ent-ctl-cell">
-          <InlineText value={item.description || ''} placeholder="—" label="Description" quiet onCommit={v => onUpdate({ description: v })} />
+          <InlineText value={item.description || ''} placeholder="—" label="Description" quiet readOnly={!canWrite} onCommit={v => onUpdate({ description: v })} />
         </Td>
       )
       default: return null
@@ -935,7 +967,7 @@ function EntityGroupToggle({ group, groupBy, collapsed, onToggle }) {
 // ─── Gallery ───
 // VW1e: `cardShows`, the card's own lines the view shows (her Q-E; Q-P2:
 // status, description); null shows every line.
-function EntityGallery({ entity, items, gallerySize, cardShows = null, onOpenDetail, onRequestDelete }) {
+function EntityGallery({ entity, items, gallerySize, cardShows = null, canWrite = false, onOpenDetail, onRequestDelete }) {
   if (items.length === 0) {
     // The kit's empty state (R4-13), in sentence case.
     return <EmptyState Icon={entity.Icon} title={`No ${entity.nouns} yet`} />
@@ -949,6 +981,7 @@ function EntityGallery({ entity, items, gallerySize, cardShows = null, onOpenDet
           entity={entity}
           item={item}
           shows={cardShows}
+          canWrite={canWrite}
           onOpenDetail={() => onOpenDetail(item.id)}
           onRequestDelete={() => onRequestDelete({ id: item.id, name: item.name || 'Untitled' })}
         />
@@ -963,7 +996,7 @@ function EntityGallery({ entity, items, gallerySize, cardShows = null, onOpenDet
 // kit's StatusBadge (its words and tone from the one STATUS map; the badge's
 // status-colour border and ink are gone) and the description in the second
 // ink. The whole card opens the detail popup, as it did.
-function EntityCard({ entity, item, shows = null, onOpenDetail, onRequestDelete }) {
+function EntityCard({ entity, item, shows = null, canWrite = false, onOpenDetail, onRequestDelete }) {
   const { Icon } = entity
   // VW1e: which of the card's own lines the view shows (finding 6's rule).
   const show = (key) => !shows || shows.has(key)
@@ -974,9 +1007,12 @@ function EntityCard({ entity, item, shows = null, onOpenDetail, onRequestDelete 
       <div className="rb-ent-card-media">
         <Icon aria-hidden="true" className="rb-ent-card-icon" />
         <HoverActions className="rb-ent-card-acts">
-          <IconButton size="sm" Icon={Trash2} danger
-            title={`Delete ${name}`}
-            onClick={e => { e.stopPropagation(); onRequestDelete() }} />
+          {/* R1: greyed with the reason for a seat that cannot write. */}
+          <GatedAction allowed={canWrite}>
+            <IconButton size="sm" Icon={Trash2} danger
+              title={`Delete ${name}`}
+              onClick={e => { e.stopPropagation(); onRequestDelete() }} />
+          </GatedAction>
         </HoverActions>
       </div>
       <div className="rb-ent-card-body">
@@ -1027,7 +1063,12 @@ function EntityCard({ entity, item, shows = null, onOpenDetail, onRequestDelete 
 //
 // R4-26 — a related asset's click sets `nestedAssetId`, which nothing
 // renders — is RECORDED, not changed: the handler stays as it was.
-function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
+// R1 (2026-10-27): `canWrite` — a seat that cannot write sees the window's
+// Delete and thumbnail buttons greyed with the reason (`writeReason`, handed
+// to RelationsPanel too, which greys its own), the name, description and notes
+// as words, the status and dates disabled, and no Add new task (the scene
+// popup's R1-04); every write here goes through handleUpdate, which refuses.
+function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete, canWrite = false, writeReason = null }) {
   const { Icon } = entity
   const item = (ctx?.[entity.collection] || []).find(x => x.id === itemId)
   const project = ctx?.project
@@ -1061,10 +1102,10 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const fileCount = ((managed ? ctx?.managedFiles : ctx?.files) || [])
     .filter(f => f && !f.deleted_at && !f.is_financial && f[entity.linkKey] === item.id).length
 
-  function handleUpdate(patch) { ctx?.[entity.updateMethod]?.(item.id, patch) }
+  function handleUpdate(patch) { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }
 
   async function handleSetThumbnail() {
-    if (!window.electronAPI?.rabbit?.pickImage) return
+    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
     const imagePath = await window.electronAPI.rabbit.pickImage()
     if (!imagePath) return
     handleUpdate({ thumbnail_image: imagePath })
@@ -1075,12 +1116,14 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   }
 
   async function handleClearThumbnail() {
+    if (!canWrite) return
     handleUpdate({ thumbnail_image: null })
     try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: entity.type, entityId: item.id }) } catch {}
     onThumbChanged?.()
   }
 
   async function handleCreateTask(draft) {
+    if (!canWrite) return
     try {
       await ctx?.addTask?.({ ...draft, [entity.linkKey]: item.id })
       setShowCreateTask(false)
@@ -1108,11 +1151,15 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
           onClose={onClose}
           footer={(
             <>
-              {/* At the footer's left, where it was; Close at its right. */}
-              <Button variant="danger" Icon={Trash2} className="rb-ent-detail-delete"
-                onClick={() => { onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled', returnTo: openerRef.current }) }}>
-                {`Delete ${entity.noun}`}
-              </Button>
+              {/* At the footer's left, where it was; Close at its right. The
+                  class on both: GatedAction draws its wrapper only when it
+                  greys (the scene popup's rb-scene-detail-delete). */}
+              <GatedAction allowed={canWrite} reason={writeReason} className="rb-ent-detail-delete">
+                <Button variant="danger" Icon={Trash2} className="rb-ent-detail-delete"
+                  onClick={() => { if (!canWrite) return; onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  {`Delete ${entity.noun}`}
+                </Button>
+              </GatedAction>
               <Button onClick={onClose}>
                 Close
               </Button>
@@ -1152,7 +1199,9 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 ctx={ctx}
                 onOpenAsset={id => setNestedAssetId(id)}
                 onOpenTask={id => setNestedTaskId(id)}
-                onCreateTask={() => setShowCreateTask(true)}
+                onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}
+                canWrite={canWrite}
+                writeReason={writeReason}
               />
             </div>
 
@@ -1172,20 +1221,27 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                           HoverActions, shown on hover as they were, and on
                           keyboard focus now. */}
                       <HoverActions className="rb-ent-thumb-acts">
-                        <IconButton size="sm" Icon={ImagePlus} className="rb-ent-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
-                        <IconButton size="sm" Icon={ImageOff} danger className="rb-ent-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                        <GatedAction allowed={canWrite} reason={writeReason}>
+                          <IconButton size="sm" Icon={ImagePlus} className="rb-ent-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        </GatedAction>
+                        <GatedAction allowed={canWrite} reason={writeReason}>
+                          <IconButton size="sm" Icon={ImageOff} danger className="rb-ent-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                        </GatedAction>
                       </HoverActions>
                     </>
                   ) : (
-                    <button type="button" onClick={handleSetThumbnail}
-                      className="rb-ent-thumb-set"
-                      title="Set thumbnail">
-                      <span className="rb-ent-thumb-hint">
-                        <ImagePlus aria-hidden="true" className="rb-ent-thumb-hint-icon" />
-                        Set thumbnail
-                      </span>
-                      <Icon aria-hidden="true" className="rb-ent-thumb-glyph" />
-                    </button>
+                    // R1: greyed with the reason, the whole box (rb-ent-thumb-gate).
+                    <GatedAction allowed={canWrite} reason={writeReason} display="block" className="rb-ent-thumb-gate">
+                      <button type="button" onClick={handleSetThumbnail}
+                        className="rb-ent-thumb-set"
+                        title="Set thumbnail">
+                        <span className="rb-ent-thumb-hint">
+                          <ImagePlus aria-hidden="true" className="rb-ent-thumb-hint-icon" />
+                          Set thumbnail
+                        </span>
+                        <Icon aria-hidden="true" className="rb-ent-thumb-glyph" />
+                      </button>
+                    </GatedAction>
                   )}
                 </div>
                 <div className="rb-ent-detail-field">
@@ -1194,6 +1250,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     value={item.name || ''}
                     placeholder={`Untitled ${entity.noun}`}
                     label={`${entity.Noun} name`}
+                    readOnly={!canWrite}
                     onCommit={v => handleUpdate({ name: v })}
                   />
                 </div>
@@ -1214,6 +1271,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                       value={status}
                       onChange={v => handleUpdate({ status: v })}
                       options={STATUS_OPTIONS}
+                      disabled={!canWrite}
                       aria-label="Status"
                     />
                   </span>
@@ -1230,6 +1288,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     type="date"
                     value={item.start_date || ''}
                     onChange={(e) => handleUpdate({ start_date: e.target.value || null })}
+                    disabled={!canWrite}
                     aria-label="Start date"
                     className="rb-ent-date"
                     data-empty={item.start_date ? 'false' : 'true'}
@@ -1241,6 +1300,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     type="date"
                     value={item.end_date || ''}
                     onChange={(e) => handleUpdate({ end_date: e.target.value || null })}
+                    disabled={!canWrite}
                     aria-label="Due date"
                     className="rb-ent-date"
                     data-empty={item.end_date ? 'false' : 'true'}
@@ -1272,12 +1332,19 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                       </Button>
                     </div>
                   </>
-                ) : (
+                ) : canWrite ? (
                   <button type="button" onClick={() => setEditingDesc(true)}
                     className="rb-ent-prop-text"
                     data-empty={item.description ? 'false' : 'true'}>
                     {item.description || 'Click to add a description...'}
                   </button>
+                ) : (
+                  // R1: the words alone for a seat that cannot write; an
+                  // empty one a dash, not an "add" it could not do (Scenes').
+                  <span className="rb-ent-prop-text" data-static="true"
+                    data-empty={item.description ? 'false' : 'true'}>
+                    {item.description || '—'}
+                  </span>
                 )}
               </div>
 
@@ -1303,12 +1370,17 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                       </Button>
                     </div>
                   </>
-                ) : (
+                ) : canWrite ? (
                   <button type="button" onClick={() => setEditingNotes(true)}
                     className="rb-ent-prop-text"
                     data-empty={item.notes ? 'false' : 'true'}>
                     {item.notes || 'Click to add notes...'}
                   </button>
+                ) : (
+                  <span className="rb-ent-prop-text" data-static="true"
+                    data-empty={item.notes ? 'false' : 'true'}>
+                    {item.notes || '—'}
+                  </span>
                 )}
               </div>
 
@@ -1587,7 +1659,10 @@ function BulkSelect({ label, options, labels, onPick }) {
 // the row's anchor, Dense 600 in the full ink; a `quiet` cell (the
 // description) reads at 400 in the second ink (R4-03); an empty one shows
 // its placeholder in the third.
-function InlineText({ value, placeholder, label, onCommit, quiet = false }) {
+// R1 (2026-10-27): `readOnly` — a seat that cannot write gets the words alone,
+// as the Scenes rows' InlineText does: no click, no hover fill, no field
+// (`data-static`); the name's placeholder or a dash when empty.
+function InlineText({ value, placeholder, label, onCommit, quiet = false, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -1597,6 +1672,17 @@ function InlineText({ value, placeholder, label, onCommit, quiet = false }) {
     const trimmed = draft.trim()
     if (trimmed !== value) onCommit(trimmed)
     setEditing(false)
+  }
+  if (readOnly) {
+    return (
+      <span className="rb-ent-cell-text" data-static="true"
+        title={value || undefined}
+        aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
+        data-quiet={quiet ? 'true' : 'false'}
+        data-empty={value ? 'false' : 'true'}>
+        {value || placeholder}
+      </span>
+    )
   }
   if (editing) {
     return (
@@ -1634,7 +1720,8 @@ function InlineText({ value, placeholder, label, onCommit, quiet = false }) {
 // trimmed draft, as they did. Escape reverts it and is MARKED handled (K4's
 // mark), so the kit Dialog around it stands down: the first press reverts
 // the edit, the next one closes the popup (W2).
-function PopupInlineText({ value, placeholder, label, onCommit }) {
+// R1: `readOnly`, as InlineText's above.
+function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -1644,6 +1731,13 @@ function PopupInlineText({ value, placeholder, label, onCommit }) {
     const trimmed = draft.trim()
     if (trimmed !== value) onCommit(trimmed)
     setEditing(false)
+  }
+  if (readOnly) {
+    return (
+      <span className="rb-ent-prop-text" data-static="true" data-empty={value ? 'false' : 'true'}>
+        {value || placeholder}
+      </span>
+    )
   }
   if (editing) {
     return (

@@ -4891,6 +4891,83 @@ export function RabbitProvider({ children }) {
   // Alias — semantically covers both task + phase edges.
   const unlinkDependency = unlinkTasks;
 
+  // ── A dependency rewire, as ONE gesture (R1, 2026-10-27; docs/OUTSTANDING.md
+  // "A dependency rewire deletes before it links, so a failed link is data
+  // loss"). The Timeline's Replace link moves an edge's head to another bar.
+  // It ran unlinkDependency and linkTasks / linkPhases side by side, neither
+  // awaited: a refused link (commonest, the unique (predecessor, successor)
+  // pair when that edge is there already) left the unlink committed — a pure
+  // delete — and a rewire that landed was two steps, one Ctrl+Z taking back
+  // half of it. Here the unlink is awaited, then the link (the confirm's
+  // order, "the old link is removed before the new one is saved"); a refused
+  // link puts the old edge back, its own row (id and kind, as unlinkTasks'
+  // undo does), and records nothing, so the chart shows the edge the database
+  // has. If the put-back is refused too, the error says the old link is gone
+  // (`oldLinkLost`) and the chart shows no edge, as the database has none. A
+  // rewire that lands is ONE step: its undo puts the old edge back BEFORE it
+  // takes the new one away (a refused put-back leaves the new edge, never
+  // neither), its redo is this again with the new edge's id. The new edge is
+  // the one linkTasks / linkPhases made before (FS, no lag). Each write reads
+  // the bundle as it is when it starts, and a refused one takes back only its
+  // own change (optimistic's revertOwnChange), so no stale snapshot redraws
+  // the deleted edge: the put-back is the one way it returns.
+  const rewireDependency = useCallback(async (dependencyId, successorId, existingId = null) => {
+    const oldRow = bundleRef.current.dependencies.find(d => d.id === dependencyId);
+    if (!oldRow) throw new Error('That dependency is no longer on this project.');
+    const visit = projectVisitRef.current;
+    const newRow = {
+      id:             existingId || uuidv4(),
+      predecessor_id: oldRow.predecessor_id,
+      successor_id:   successorId,
+      kind:           oldRow.kind === 'phase' ? 'phase' : 'task',
+      type:           'FS',
+      lag_days:       0,
+      project_id:     activeProjectId,
+    };
+    const putBack = () => optimistic(
+      prev => ({ ...prev, dependencies: [...prev.dependencies, oldRow] }),
+      () => adapterRef.current.upsertDependency(oldRow),
+    );
+    await optimistic(
+      prev => ({ ...prev, dependencies: prev.dependencies.filter(d => d.id !== dependencyId) }),
+      () => adapterRef.current.deleteDependency(dependencyId, activeProjectId, oldRow.kind),
+    );
+    // 🚨 The next two writes take their snapshot from bundleRef, which
+    // catches up only in an effect after a render. Left alone, the link and
+    // the put-back would start from a bundle still holding the old edge, and a
+    // refused put-back would take nothing back: the chart redrawing an edge
+    // the database no longer has — the stale snapshot the OUTSTANDING entry
+    // named (dependencyRewire.test.js, the refused put-back, holds it).
+    bundleRef.current = { ...bundleRef.current, dependencies: (bundleRef.current.dependencies || []).filter(d => d.id !== dependencyId) };
+    let result;
+    try {
+      result = await optimistic(
+        prev => ({ ...prev, dependencies: [...prev.dependencies, newRow] }),
+        () => adapterRef.current.upsertDependency(newRow),
+      );
+    } catch (err) {
+      try {
+        await putBack();
+      } catch (putBackErr) {
+        const lost = new Error(`${err?.message || err}; and the old link could not be put back (${putBackErr?.message || putBackErr}), so it is gone`);
+        lost.oldLinkLost = true;
+        throw lost;
+      }
+      throw err;
+    }
+    pushHistory({
+      undoOps: [async () => {
+        await putBack();
+        await optimistic(
+          prev => ({ ...prev, dependencies: prev.dependencies.filter(d => d.id !== newRow.id) }),
+          () => adapterRef.current.deleteDependency(newRow.id, activeProjectId, newRow.kind),
+        );
+      }],
+      redoOps: [() => mutationsRef.current.rewireDependency(dependencyId, successorId, newRow.id)],
+    }, visit);
+    return result;
+  }, [optimistic, activeProjectId]);
+
   // ── Task links (free URLs) ──────────────────────────────
   const addTaskLink = useCallback(async (link) => {
     // Pre-allocate the id so the local state and the adapter call
@@ -7312,8 +7389,9 @@ export function RabbitProvider({ children }) {
 
   // The undo (and redo) of a Save writes `values` back only while the stored
   // snapshot is still the one that Save (or its undo) left — another window's
-  // Save in between is not erased. Versions are not broadcast, so it re-reads
-  // them first (S3a's rewriteSaveIfStill, for bid versions).
+  // Save in between is not erased. It re-reads them first (S3a's
+  // rewriteSaveIfStill, for bid versions): since 0101 (R1) a teammate's save
+  // arrives as an event, but an event can lag the write it tells of.
   async function rewriteBudgetVersionIfStill(id, expectedSavedAt, values) {
     const pid = activeProjectIdRef.current;
     const a = versionAdapterFor('listBudgetVersions');
@@ -8111,7 +8189,7 @@ export function RabbitProvider({ children }) {
     return out;
   }, [showUndoToast, undoHistoryEntry]);
 
-  /** The bid versions, read again (another window opened or closed one: they are not broadcast, S5-02). */
+  /** The bid versions, read again: another window opened or closed one (S5b), or saved, made or deleted one (R1, S5-02: 0101's thin event, never the row). */
   const refreshBudgetVersions = useCallback(async () => {
     const pid = activeProjectIdRef.current;
     const a = adapterRef.current;
@@ -8213,6 +8291,7 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.linkTasks    = linkTasks;
   mutationsRef.current.linkPhases   = linkPhases;
   mutationsRef.current.unlinkTasks  = unlinkTasks;
+  mutationsRef.current.rewireDependency = rewireDependency;
   mutationsRef.current.addTaskLink  = addTaskLink;
   mutationsRef.current.removeTaskLink = removeTaskLink;
   // FX2 (0096): a task's items. VW1m: setTaskItemsOfKind (a drop, an open).
@@ -8636,7 +8715,7 @@ export function RabbitProvider({ children }) {
     addPhase, updatePhase, deletePhase: deletePhaseVerb, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
     addTask, updateTask, deleteTask: deleteTaskVerb, deleteTasks: deleteTasksVerb,
-    linkTasks, linkPhases, unlinkTasks, unlinkDependency,
+    linkTasks, linkPhases, unlinkTasks, unlinkDependency, rewireDependency,
     addTaskLink, removeTaskLink,
     // Review round 1 (R1-5): the person's set waits its turn in the undo queue.
     addTaskItem, removeTaskItem, setTaskItemsOfKind: setTaskItemsOfKindQueued,
@@ -8771,7 +8850,7 @@ export function RabbitProvider({ children }) {
     addPhase, updatePhase, deletePhase, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
     addTask, updateTask, deleteTask, deleteTasks,
-    linkTasks, linkPhases, unlinkTasks, unlinkDependency,
+    linkTasks, linkPhases, unlinkTasks, unlinkDependency, rewireDependency,
     addTaskLink, removeTaskLink,
     addTaskItem, removeTaskItem, setTaskItemsOfKindQueued, setTaskItemsOfKindsQueued, tasksView, taskItemsOn, assetLevelLinksOn,
     tableViewsApi, addTableView, updateTableView, renameTableView, deleteTableView, reorderTableViews,

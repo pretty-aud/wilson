@@ -1855,6 +1855,10 @@ select option {
   }
   .ui-table[data-surface="light"] .ui-td { border-bottom-color: var(--color-rule-light); }
   .ui-table[data-dense="true"] .ui-td { height: var(--row-dense); padding-top: 6px; padding-bottom: 6px; }
+  /* Compact cells (R1, 2026-10-27; kit request B4-KR-3): 8px a side, set on
+     the table so its head and its cells move together — for a data table
+     with more columns than 1280 holds (the Rate card, Team members). */
+  .ui-table[data-compact="true"] { --cell-pad-x: 8px; }
   /* Numerics: right-aligned, tabular, in the mono. Four money tables shipped
      with zero tabular-nums and their columns only lined up by luck (R3-02). */
   .ui-th[data-numeric="true"], .ui-td[data-numeric="true"] { font-variant-numeric: tabular-nums; }

@@ -1197,6 +1197,17 @@ function listFoldersWith(client, projectId) {
     .eq('project_id', projectId).order('path'));
 }
 
+// DG1-01 (R1, 2026-10-27): a project's files, page by page. PostgREST answers
+// 1,000 rows a call, and both reads of them were one call: past the thousandth
+// a file was silently missing from D.O.G.'s references, the Budget's
+// attachments, the Projects page and the Files tab. One read for listFiles and
+// the load, as listFoldersWith is the folders'. Strict as both were (unwrap: a
+// refusal fails); `id` orders the pages, so no row straddles two.
+function listFilesWith(client, projectId) {
+  return readAllPagesWith(() => client.from('files').select('*')
+    .eq('project_id', projectId).order('id'), unwrap);
+}
+
 async function foldersByPath(client, projectId) {
   const rows = await listFoldersWith(client, projectId);
   return new Map((rows || []).map(f => [f.path, f]));
@@ -2715,7 +2726,7 @@ export function supabaseAdapter() {
             .order('id'), unwrap),
           listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
-          client.from('files').select('*').eq('project_id', projectId).then(unwrap),
+          listFilesWith(client, projectId), // DG1-01 (R1): paged, listFiles' read
           client.from('asset_versions').select('*, asset:assets!inner(project_id)').eq('asset.project_id', projectId).then(unwrap).catch(() => []),
           client.from('comments').select('*').then(unwrap), // entity_id filter happens client-side
           client.from('ingestion_runs').select('*').eq('project_id', projectId).then(unwrap),
@@ -3598,7 +3609,7 @@ export function supabaseAdapter() {
 
     async listFiles(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('files').select('*').eq('project_id', projectId));
+      return listFilesWith(client, projectId); // DG1-01 (R1): every page
     },
 
     async downloadFile(file) {

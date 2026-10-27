@@ -14,7 +14,10 @@ import { _resetOverlaysForTests } from '../../../../ui/overlay'
 import { ToastProvider } from '../../../../ui/Toast'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
-const seat = vi.hoisted(() => ({ canWrite: true }))
+// `canWrite` is the seat as a flag (VW1e's tests). `real` (R1, 2026-10-27):
+// a person on the roster, { role, userId } — the session's user the provider
+// reads its seat from, and the real matrix deciding (the write gate's tests).
+const seat = vi.hoisted(() => ({ canWrite: true, real: null }))
 vi.setConfig({ testTimeout: 20_000 })
 
 vi.mock('../../adapters', () => ({
@@ -27,7 +30,7 @@ vi.mock('../../../../cloud/auth/supabaseClient', () => ({
   supabase: {
     auth: {
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
-      getSession: async () => ({ data: { session: null } }),
+      getSession: async () => ({ data: { session: seat.real ? { user: { id: seat.real.userId } } : null } }),
     },
   },
   hydrateSupabase: async () => {},
@@ -39,12 +42,21 @@ vi.mock('../../../../lib/localData', () => ({
 }))
 vi.mock('../../../../dev/devFixtures', async (importOriginal) => ({ ...(await importOriginal()), devFixtures: () => null }))
 vi.mock('../../intake/pipeline', () => ({ runIngestion: vi.fn() }))
-vi.mock('../../../../permissions/usePermissions', () => ({ usePermissions: () => ({ can: () => true, role: 'admin', ready: true }) }))
-vi.mock('../../../../permissions/projectRoleMatrix', async (importOriginal) => ({
-  ...(await importOriginal()),
-  canOnProject: () => seat.canWrite,
-  projectActionDeniedReason: () => (seat.canWrite ? null : 'Only the project\'s editors can change this.'),
+vi.mock('../../../../permissions/usePermissions', () => ({
+  usePermissions: () => (seat.real
+    ? { can: () => false, role: seat.real.role, ready: true, userId: seat.real.userId }
+    : { can: () => true, role: 'admin', ready: true }),
 }))
+vi.mock('../../../../permissions/projectRoleMatrix', async (importOriginal) => {
+  const real = await importOriginal()
+  return {
+    ...real,
+    canOnProject: (gate, action) => (seat.real ? real.canOnProject(gate, action) : seat.canWrite),
+    projectActionDeniedReason: (gate, action) => (seat.real
+      ? real.projectActionDeniedReason(gate, action)
+      : (seat.canWrite ? null : 'Only the project\'s editors can change this.')),
+  }
+})
 vi.mock('../../../../components/TeamMembers/useRosterMembers', () => ({
   useRosterMembers: () => ({ members: [], mode: 'supabase' }),
 }))
@@ -53,20 +65,23 @@ const { buildDevFixtures } = await import('../../../../dev/fixtures/install')
 const { PROJECT_ID } = await import('../../../../dev/fixtures/data/project')
 const { fid } = await import('../../../../dev/fixtures/ids')
 holder.projectId = PROJECT_ID
+const { MEMBER_ID } = await import('../../../../dev/fixtures/data/workspace')
 const { RabbitProvider, useRabbit } = await import('../../state/RabbitProvider')
 const { default: LevelsView } = await import('../LevelsView')
+const { default: ExperiencesView } = await import('../ExperiencesView')
 
 let ctx = null
 function Probe() { ctx = useRabbit(); return null }
 let fx = null
 const run = (fn) => act(async () => { await fn() })
 // mount() goes through state/mountRabbit.js, the gap-safe render and waits (N1; OUTSTANDING FX14-01).
-// `mountWith` below is the same mount for an adapter of a test's own.
-async function mount(adapter = fx.rabbitAdapter()) {
+// `mountWith` below is the same mount for an adapter of a test's own. R1: the
+// page and its row count may be given (Experiences: three rows).
+async function mount(adapter = fx.rabbitAdapter(), View = LevelsView, rows = 4) {
   holder.adapter = adapter
-  await mountRabbit(<ToastProvider><RabbitProvider><Probe /><LevelsView /></RabbitProvider></ToastProvider>, { adapter, ctx: () => ctx, until: [
+  await mountRabbit(<ToastProvider><RabbitProvider><Probe /><View /></RabbitProvider></ToastProvider>, { adapter, ctx: () => ctx, until: [
     () => expect(ctx?.project?.id).toBe(PROJECT_ID),
-    () => expect(document.querySelectorAll('tr.rb-ent-row').length).toBe(4),
+    () => expect(document.querySelectorAll('tr.rb-ent-row').length).toBe(rows),
   ] })
 }
 const groupBy = (value) => fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value } })
@@ -74,7 +89,7 @@ const bands = () => [...document.querySelectorAll('.rb-ent-group-label')].map(n 
 const levelsOf = (n) => fx.store.assets.find(a => a.id === fid('asset', n)).level_ids || []
 const groupEl = (label) => [...document.querySelectorAll('.rb-ent-group')].find(g => g.querySelector('.rb-ent-group-label')?.textContent === label)
 
-beforeEach(() => { fx = buildDevFixtures({ variant: 'game' }); seat.canWrite = true })
+beforeEach(() => { fx = buildDevFixtures({ variant: 'game' }); seat.canWrite = true; seat.real = null })
 afterEach(() => { cleanup(); _resetOverlaysForTests(); ctx = null; fx = null; localStorage.clear(); vi.restoreAllMocks() })
 
 describe('Levels grouped by asset (her Q-M3; §4.11)', () => {
@@ -228,5 +243,92 @@ describe('code review round 2', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Lamp Room' }))
     const kept = screen.getByRole('dialog', { name: 'Lamp Room' })
     expect(within(kept).getByRole('button', { name: 'Add asset relation' }).closest('[aria-disabled="true"]')).toBeNull()
+  })
+})
+
+// =============================================================================
+// R1 (2026-10-27, night 2): the write gate — docs/OUTSTANDING.md's "Levels and
+// Experiences have no write gate". The seat is the roster's, as the provider
+// reads it (the session's user on the fixtures' roster: Dev Patel, the
+// reviewer; Priya Raman, a member), decided by the real matrix. A seat that
+// cannot write sees New, every row's Delete, the rename, the status and the
+// description greyed with the reason, as Scenes and Shots draw them (Session
+// 29: a button in GatedAction, a cell's words plain, a select disabled), in
+// the item's window as on the page; and the provider's deleteLevel is never
+// reached, however the Delete is pressed (jsdom does not honour `inert`, so a
+// click here reaches the greyed button: what stops it is the funnel's check).
+// CONTROL: a member writes, every control live.
+// =============================================================================
+describe('R1: the write gate on Levels and Experiences', () => {
+  const REVIEWER = 'Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project\'s other items. Ask a project manager for a member or manager seat.'
+  const greyed = (el) => el.closest('[aria-disabled="true"]')?.getAttribute('title') ?? null
+  const rowOf = (name) => screen.getByText(name, { selector: '.rb-ent-cell-text' }).closest('tr')
+  let deletes = 0
+  const counting = (adapter) => {
+    const del = adapter.deleteLevel.bind(adapter)
+    adapter.deleteLevel = async (...args) => { deletes += 1; return del(...args) }
+    return adapter
+  }
+  beforeEach(() => { deletes = 0 })
+
+  it('a reviewer: New, every row\'s Delete, the rename, the status and the description are greyed with the reason; deleteLevel is never reached', async () => {
+    seat.real = { role: 'user', userId: MEMBER_ID.dev }
+    await mount(counting(fx.rabbitAdapter()))
+    await waitFor(() => expect(ctx.myProjectRole).toBe('reviewer'))
+    expect(greyed(screen.getByRole('button', { name: 'New level', hidden: true }))).toBe(REVIEWER)
+    for (const name of ['Harbour Approach', 'Lamp Room', 'Cliff Path', 'Café at Dusk']) {
+      const row = rowOf(name)
+      expect(greyed(within(row).getByRole('button', { name: `Delete ${name}`, hidden: true }))).toBe(REVIEWER)
+      // The rename and the description: the words alone, not a control.
+      expect([...row.querySelectorAll('.rb-ent-cell-text')].map(w => `${w.tagName}:${w.dataset.static}`)).toEqual(['SPAN:true', 'SPAN:true'])
+      expect(within(row).getByRole('combobox', { name: `Status for ${name}` }).disabled).toBe(true)
+    }
+    // The funnel: a press that reaches the greyed Delete asks nothing and deletes nothing.
+    fireEvent.click(within(rowOf('Lamp Room')).getByRole('button', { name: 'Delete Lamp Room', hidden: true }))
+    expect(screen.queryByRole('dialog', { name: 'Delete level?' })).toBeNull()
+    expect(deletes).toBe(0)
+    expect(ctx.levels.map(l => l.name)).toContain('Lamp Room')
+  })
+
+  it('a reviewer\'s window: Delete greyed with the reason; the name, description and notes plain words; the status and both dates disabled; no Add new task; deleteLevel never reached', async () => {
+    seat.real = { role: 'user', userId: MEMBER_ID.dev }
+    await mount(counting(fx.rabbitAdapter()))
+    await waitFor(() => expect(ctx.myProjectRole).toBe('reviewer'))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Lamp Room' }))
+    const dialog = screen.getByRole('dialog', { name: 'Lamp Room' })
+    const del = within(dialog).getByRole('button', { name: 'Delete level', hidden: true })
+    expect(greyed(del)).toBe(REVIEWER)
+    expect(within(dialog).getByRole('combobox', { name: 'Status' }).disabled).toBe(true)
+    expect(within(dialog).getByLabelText('Start date').disabled).toBe(true)
+    expect(within(dialog).getByLabelText('Due date').disabled).toBe(true)
+    const words = [...dialog.querySelectorAll('.rb-ent-prop-text')]
+    expect(words.length).toBe(3)
+    expect(words.map(w => `${w.tagName}:${w.dataset.static}`)).toEqual(['SPAN:true', 'SPAN:true', 'SPAN:true'])
+    expect(within(dialog).queryByRole('button', { name: 'Add new task', hidden: true })).toBeNull()
+    fireEvent.click(del)
+    expect(screen.queryByRole('dialog', { name: 'Delete level?' })).toBeNull()
+    expect(deletes).toBe(0)
+  })
+
+  it('Experiences, the same page: a reviewer\'s New experience and Delete are greyed with the reason', async () => {
+    seat.real = { role: 'user', userId: MEMBER_ID.dev }
+    await mount(fx.rabbitAdapter(), ExperiencesView, 3)
+    await waitFor(() => expect(ctx.myProjectRole).toBe('reviewer'))
+    expect(greyed(screen.getByRole('button', { name: 'New experience', hidden: true }))).toBe(REVIEWER)
+    expect(greyed(within(rowOf('The Storm')).getByRole('button', { name: 'Delete The Storm', hidden: true }))).toBe(REVIEWER)
+  })
+
+  it('CONTROL: a member writes — New, Delete, the rename and the status live, and the question\'s Delete reaches deleteLevel', async () => {
+    seat.real = { role: 'user', userId: MEMBER_ID.priya }
+    await mount(counting(fx.rabbitAdapter()))
+    await waitFor(() => expect(ctx.myProjectRole).toBe('member'))
+    expect(greyed(screen.getByRole('button', { name: 'New level' }))).toBeNull()
+    const row = rowOf('Lamp Room')
+    expect([...row.querySelectorAll('.rb-ent-cell-text')].map(w => w.tagName)).toEqual(['BUTTON', 'BUTTON'])
+    expect(within(row).getByRole('combobox', { name: 'Status for Lamp Room' }).disabled).toBe(false)
+    fireEvent.click(within(row).getByRole('button', { name: 'Delete Lamp Room' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete level?' })).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(deletes).toBe(1))
+    expect(ctx.levels.map(l => l.name)).not.toContain('Lamp Room')
   })
 })

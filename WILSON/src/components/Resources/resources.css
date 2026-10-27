@@ -1012,8 +1012,13 @@
      already `overflow: auto`; this gives it something to scroll. Without it,
      `table-layout: fixed` crushes every column proportionally instead and the
      action buttons overflow their own cell. Wide content scrolls in its own
-     container (plan §3.3, responsive). */
-  .rc-card .ui-table { min-width: 1080px; }
+     container (plan §3.3, responsive).
+     R1 (2026-10-27; P1-30): with the kit's compact cells (RateCardTable's
+     `compact`, 8px a side) the floor is 980px, the frame a 1280 window gives
+     the table: measured in Chromium on the fixtures, every column shows what
+     it showed at 1080 (the one long role name ellipsised, as before), and the
+     first further cut comes at 976. Narrower windows still scroll. */
+  .rc-card .ui-table { min-width: 980px; }
 
   /* -- The department group bar ------------------------------------------
      Audrey, 2026-08-10: "make the yellow team bars in the internal page a

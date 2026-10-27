@@ -109,10 +109,25 @@ const DEFAULT_DEPARTMENTS = [
 // rather than eliding. It takes the largest share of any data column for that
 // reason, and both selects carry a `title` so a clipped value is still
 // readable on hover.
+//
+// R1 (2026-10-27; P1-29, "twelve columns need 1,707px and have 1,230; Day
+// rate, Status and the actions cut at every width"): the page's width is
+// capped, so the table has about 1,230px at 1280 AND at 1440, and its twelve
+// columns need 1,614px even with the kit's compact cells (`compact` below,
+// 8px a side). Nothing is hidden (the page has no column chooser to bring a
+// hidden column back, and three of them are an admin's editors). The shares
+// give every header, every control and every fixed figure its room, measured
+// in Chromium on the fixtures at 1280 and 1440: Day rate 172px ("$88,000 /
+// $112,640" needs 164), Status 98 (87), the actions 49 (44), Role, Pronouns,
+// Full-time, Projects and Username each their label. What gives way is the
+// free text — Member, Title, Email and the longest usernames — ellipsised,
+// whole on hover. Department keeps the largest data share (tied with Day
+// rate), for its select's reason above. Audrey's to overrule (walkthrough 47
+// Q57, walkthrough 82).
 const COL = {
-  member: '16%', username: '8%', title: '11%', department: '14%',
-  pronouns: '5%', fullTime: '5%', role: '10%', email: '10%',
-  status: '5%', rate: '6%', projects: '6%', actions: '4%',
+  member: '11%', username: '7%', title: '5%', department: '14%',
+  pronouns: '7%', fullTime: '7%', role: '10%', email: '6%',
+  status: '8%', rate: '14%', projects: '7%', actions: '4%',
 }
 export const TM_COLUMN_WIDTHS = COL
 
@@ -474,7 +489,9 @@ export default function TeamMembersPage() {
           // REGION is kept (Law of Common Region) and is a Card now; the
           // table pads its own cells, so the card does not pad.
           <Card pad={false} className="tm-table-card">
+            {/* R1 (P1-29): the kit's compact cells, 8px a side (COL above). */}
             <Table
+              compact
               aria-label="Workspace members"
               head={(
                 <Row>
@@ -627,8 +644,9 @@ function MemberRow({
           {isSelf && <Badge title="This is you">You</Badge>}
         </span>
       </Td>
-      <Td>{member.username}</Td>
-      <Td>
+      {/* R1 (P1-29): the free text gives way, so it is whole on hover. */}
+      <Td title={member.username || undefined}>{member.username}</Td>
+      <Td title={member.title || undefined}>
         {canEditProfile ? (
           <InlineText
             value={member.title || ''}
