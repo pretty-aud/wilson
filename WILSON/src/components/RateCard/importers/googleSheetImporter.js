@@ -56,7 +56,7 @@ export function parseGoogleSheetUrl(url) {
   return { id, gid, isPub }
 }
 
-export function buildCsvExportUrl({ id, gid, isPub }) {
+function buildCsvExportUrl({ id, gid, isPub }) {
   if (isPub) {
     return `https://docs.google.com/spreadsheets/d/e/${id}/pub?output=csv&single=true&gid=${gid}`
   }

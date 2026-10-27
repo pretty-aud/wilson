@@ -77,7 +77,7 @@ const PRESS_CLASS = 'active:scale-[0.98]'
 // hairline instead of a fill, both mounts are the bare #f4a261 and the chip
 // has one treatment. A prop that selects nothing is a prop the next session
 // has to re-derive; this file has already paid for one of those.
-export function MfaEnrollPanel({ onEnrolled }) {
+function MfaEnrollPanel({ onEnrolled }) {
   const [phase, setPhase] = useState('loading') // loading | show | verifying | error
   const [factor, setFactor] = useState(null)    // { id, qr, secret }
   const [code, setCode] = useState('')

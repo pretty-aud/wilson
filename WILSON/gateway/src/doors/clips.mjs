@@ -40,7 +40,7 @@ import { planRange, contentRange } from '../rules/range.mjs';
 import { NEVER_CONFIRMED_SENTENCE } from '../cloud/catalogue.mjs';
 import { respond, readBody, BASE_HEADERS } from './http.mjs';
 
-export const FS_TIMEOUT_MS = 5_000;
+const FS_TIMEOUT_MS = 5_000;
 const LIVE_CHECK_MS = 5_000;
 const DOWN = new Set(['not_reachable', 'not_mounted', 'not_connected']);
 

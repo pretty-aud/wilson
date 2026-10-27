@@ -106,6 +106,5 @@ function checkManagedLegal(patch) {
 module.exports = {
   FILE_TAG_IDS, FILE_TAG_MAX, checkFileTags,
   LEGAL_TAG, LEGAL_DIR, LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON, LEGAL_NOT_CORE_REASON, LEGAL_MANAGED_REASON,
-  LEGAL_AND_FINANCIAL_REASON,
   isLegalRow, checkLegalPatch, checkManagedLegal, checkLegalUpload,
 };

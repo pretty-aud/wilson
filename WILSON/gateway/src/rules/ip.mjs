@@ -166,12 +166,6 @@ export function classifyIp(input) {
   return ip.family === 4 ? 'global' : 'reserved';
 }
 
-/** RFC 1918 or unique-local: an address an office network uses. */
-export function isPrivateOrUla(input) {
-  const cls = classifyIp(input);
-  return cls === 'private' || cls === 'ula';
-}
-
 /** The /24 around an IPv4 address or the /64 around an IPv6 one (design §3, D26). */
 /**
  * The key a per-peer limit counts by on the OUTSIDE door: an IPv4 address, or

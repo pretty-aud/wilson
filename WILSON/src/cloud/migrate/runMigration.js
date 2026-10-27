@@ -142,7 +142,7 @@ async function cloudLocksLegal() {
  * policies key on that third segment — under `files` an invoice's body was
  * readable by every project member), anything else under `files`.
  */
-export function cloudObjectPathFor(projectId, f) {
+function cloudObjectPathFor(projectId, f) {
   const safeName = (f?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_')
   const segment = isLegalFile(f) ? LEGAL_SEGMENT : f?.is_financial ? 'INVOICES' : 'files'
   return `projects/${projectId}/${segment}/${f?.id}/${safeName}`
@@ -154,7 +154,7 @@ export function cloudObjectPathFor(projectId, f) {
 // arrives LIVE. Bid versions are not copied to the cloud, so nothing there
 // could ever bring a set-aside row back; carrying the stamp would hide it for
 // good (and 0090's guard would refuse it to anyone but a manager anyway).
-export function withoutSetAside(row) {
+function withoutSetAside(row) {
   if (!row || typeof row !== 'object' || !('set_aside_at' in row)) return row
   const { set_aside_at: _dropped, ...rest } = row
   return rest
@@ -214,7 +214,7 @@ export function viewFiltersLeftBehind(view) {
 // failed to go up is no longer refused whole by tasks.asset_id's key: the
 // task lands, and only that asset's item fails, in the report. Every other
 // key goes up as it always has.
-export function taskRowForCloud(t) {
+function taskRowForCloud(t) {
   const row = withoutSetAside(t)
   if (!row || typeof row !== 'object') return row
   const {
@@ -245,7 +245,7 @@ const assetLevelLinksLabel = (n) => (n === 1 ? "asset's links to levels or exper
 // for an asset, a scene or a shot a task row names that no item does (a
 // bundle no Local Server reconciled), so taskRowForCloud's dropping the
 // column loses nothing.
-export function itemsToCarry(bundle) {
+function itemsToCarry(bundle) {
   const items = Array.isArray(bundle?.taskItems) ? bundle.taskItems.filter(i => i && typeof i === 'object') : []
   const named = new Set(items.map(i => `${i.task_id}|${i.entity_type}|${i.entity_id}`))
   const extra = []

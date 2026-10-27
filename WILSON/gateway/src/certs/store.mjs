@@ -23,9 +23,9 @@ import { makeRoot, makeLeaf, certInfo, hostNames, permittedFor } from './x509.mj
 import { cidrContains, normalizeIp } from '../rules/ip.mjs';
 
 const DAY = 86_400_000;
-export const LEAF_RENEW_DAYS = 30;
-export const NEXT_ROOT_DAYS = 365;
-export const SWITCH_ROOT_DAYS = 31;
+const LEAF_RENEW_DAYS = 30;
+const NEXT_ROOT_DAYS = 365;
+const SWITCH_ROOT_DAYS = 31;
 
 const sameSet = (a, b) => a.length === b.length && [...a].sort().join('|') === [...b].sort().join('|');
 

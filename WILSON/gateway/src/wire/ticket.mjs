@@ -32,7 +32,7 @@ const fail = (reason, extra = {}) => ({ ok: false, reason, ...extra });
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 
 /** The claims' own shape, field by field. True only for the exact wire shape. */
-export function claimsHaveWireShape(c) {
+function claimsHaveWireShape(c) {
   if (!c || typeof c !== 'object' || Array.isArray(c)) return false;
   const keys = Object.keys(c);
   if (keys.length !== CLAIM_ORDER.length || keys.some((k, i) => k !== CLAIM_ORDER[i])) return false;

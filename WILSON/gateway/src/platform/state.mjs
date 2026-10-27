@@ -36,10 +36,6 @@ export function stateDirFor({ platform = process.platform, env = process.env } =
   return '/data';
 }
 
-export function fileIn(dir, name) {
-  return path.join(dir, FILES[name] || name);
-}
-
 /** Program Files' layout (the service host, current\, previous\, staged\, the updater). */
 export function programDirFor({ env = process.env } = {}) {
   return path.win32.join(env.ProgramFiles || 'C:\\Program Files', 'WILSON Gateway');

@@ -89,7 +89,7 @@ function formatBytes(bytes) {
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`
 }
 
-export function extensionOfName(name) {
+function extensionOfName(name) {
   const s = String(name || '')
   const dot = s.lastIndexOf('.')
   return dot > 0 ? s.slice(dot).toLowerCase() : ''

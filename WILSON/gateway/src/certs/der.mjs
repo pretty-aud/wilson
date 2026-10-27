@@ -15,7 +15,7 @@ function lengthBytes(n) {
   return Buffer.from([0x80 | out.length, ...out]);
 }
 
-export function tlv(tag, content) {
+function tlv(tag, content) {
   const c = Buffer.isBuffer(content) ? content : Buffer.from(content);
   return Buffer.concat([Buffer.from([tag]), lengthBytes(c.length), c]);
 }

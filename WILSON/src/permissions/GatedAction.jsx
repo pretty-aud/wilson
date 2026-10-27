@@ -64,7 +64,7 @@ import { createContext, useContext } from 'react'
  * `allowed` stays an explicit prop precisely because it is NOT constant per
  * surface and must never be ambient.
  */
-export const WriteReasonContext = createContext(null)
+const WriteReasonContext = createContext(null)
 
 export function WriteReasonProvider({ reason, children }) {
   return <WriteReasonContext.Provider value={reason}>{children}</WriteReasonContext.Provider>

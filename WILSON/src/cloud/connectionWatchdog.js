@@ -53,7 +53,7 @@
 // =============================================================================
 
 export const WATCHDOG_BUDGET_MS = 20_000
-export const WATCHDOG_TICK_MS = 1_000
+const WATCHDOG_TICK_MS = 1_000
 
 function pathOf(input) {
   let s

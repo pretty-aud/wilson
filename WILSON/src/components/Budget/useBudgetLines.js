@@ -20,15 +20,6 @@ export const BUDGET_SHEETS = {
   expenses_travel: 'expenses_travel',
 }
 
-// ── Default department groupings for crew sheet ──
-export const DEFAULT_CREW_DEPARTMENTS = [
-  'Production',
-  'Creative',
-  'Studio/Art',
-  'Post-Production',
-  'Development',
-]
-
 // ── Column mode options ──
 export const COLUMN_MODES = [
   { value: 'fortnightly', label: 'Bi-weekly (2-week periods)' },

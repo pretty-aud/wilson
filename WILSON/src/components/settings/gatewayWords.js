@@ -58,7 +58,7 @@ export const BROWSER_OWN_COMPUTER_SENTENCE = 'On the gateway\'s own computer the
 export const BROWSER_FORMAT_SENTENCE = 'This clip\'s format does not play in a browser; the desktop app plays it.'
 
 /** Where a release is, for both stories: the public repository's Releases page. */
-export const GATEWAY_RELEASES_PAGE = 'github.com/pretty-aud/wilson/releases'
+const GATEWAY_RELEASES_PAGE = 'github.com/pretty-aud/wilson/releases'
 /** The hardening guide (docs/gateway/HARDENING.md), linked from Help. */
 export const HARDENING_GUIDE_URL = 'https://github.com/pretty-aud/wilson/blob/main/WILSON/docs/gateway/HARDENING.md'
 

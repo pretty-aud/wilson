@@ -28,8 +28,6 @@ export const DEFAULT_DEPARTMENTS = [
   'Operations',
 ]
 
-export const PRONOUN_OPTIONS = ['he', 'him', 'she', 'her', 'they', 'them']
-
 export const EMPLOYMENT_TYPES = [
   { value: 'fulltime',   label: 'Full-Time / Internal' },
   { value: 'freelancer', label: 'Freelancer' },

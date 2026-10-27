@@ -60,7 +60,7 @@ import './rabbitTimeline.css'
 
 /** The dropdown's two values that are not a version. */
 export const CURRENT = '__current__'
-export const MANAGE = '__manage__'
+const MANAGE = '__manage__'
 
 const q = (s) => `“${s}”`
 
@@ -96,7 +96,7 @@ export function VersionRates({ epoch = 0, projectId = null, onRates }) {
  * words, a version saved before versions kept their schedule greyed with that
  * reason (it cannot be viewed), then Manage versions….
  */
-export function versionMenu(state) {
+function versionMenu(state) {
   const versions = state.versions.map((v) => {
     const label = versionOptionLabel(v, { lockedId: state.lockedId, openId: state.open?.id })
     return readVersion(v).hasTimeline

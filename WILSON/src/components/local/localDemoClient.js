@@ -112,7 +112,7 @@ export function resetConfirmText(folder) {
     + 'Nothing outside this folder is touched, and the folder stays open.'
 }
 
-export const DEMO_PROJECT_TITLE = 'Friday Demo'
+const DEMO_PROJECT_TITLE = 'Friday Demo'
 
 /**
  * The rows a person would make by hand for the demo: a project with scenes

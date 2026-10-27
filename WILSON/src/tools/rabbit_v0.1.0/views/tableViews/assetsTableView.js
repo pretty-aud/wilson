@@ -33,7 +33,7 @@ export const ASSET_STATUSES = Object.freeze([
 ])
 
 /** The kinds an asset names, each with the asset's own field (0084, 0099). */
-export const ASSET_KINDS = Object.freeze(['scene', 'shot', 'level', 'experience'])
+const ASSET_KINDS = Object.freeze(['scene', 'shot', 'level', 'experience'])
 export const ASSET_KIND_FIELD = Object.freeze({
   scene: 'scene_ids', shot: 'shot_ids', level: 'level_ids', experience: 'experience_ids',
 })
@@ -52,10 +52,10 @@ export function linksKept(ctx, kind) {
 }
 
 /** The Gallery card's own lines (finding 6's rule, built for the Gallery): its fields, in its order. */
-export const ASSET_CARD_FIELDS = Object.freeze(['status', 'type', 'phase_id', 'tasks'])
+const ASSET_CARD_FIELDS = Object.freeze(['status', 'type', 'phase_id', 'tasks'])
 
 /** The columns in front of the name (her Q-J): hideable, never movable. */
-export const ASSET_LEADING = Object.freeze([Object.freeze({ key: 'thumbnail', label: 'Picture' })])
+const ASSET_LEADING = Object.freeze([Object.freeze({ key: 'thumbnail', label: 'Picture' })])
 
 /**
  * The table's columns in order, each with what the sheet's widths need
@@ -64,7 +64,7 @@ export const ASSET_LEADING = Object.freeze([Object.freeze({ key: 'thumbnail', la
  * sheet's. Description is the one column that grows (FX8: the name takes up
  * to its maximum, Description the rest).
  */
-export function assetsTableColumns() {
+function assetsTableColumns() {
   return [
     { key: 'name', label: 'Name' },
     { key: 'type', label: 'Type', width: 'var(--rb-asset-type)', min: 'var(--rb-asset-type)' },
@@ -212,5 +212,3 @@ export function assetsDescription({ kinds = [], phases = [], lookup = null, kind
     combinationOf: (a, kind) => (lookup ? combinationOfIds(kind, a?.[ASSET_KIND_FIELD[kind]], lookup) : { key: '', ids: [], label: '' }),
   })
 }
-
-export { ORDER as ASSET_NAME_ORDER }

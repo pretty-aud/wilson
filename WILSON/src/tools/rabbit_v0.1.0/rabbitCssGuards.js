@@ -67,8 +67,8 @@ export const rulesWithContext = (css) => {
     unlayered rule of the sheets' one layer, `components`. Review round 2
     (R2-02): ranking every layer alike let `@layer utilities` take a date's
     room unseen. */
-export const LAYER_ORDER = ['theme', 'base', 'components', 'utilities']
-export const layerRank = (layer) => {
+const LAYER_ORDER = ['theme', 'base', 'components', 'utilities']
+const layerRank = (layer) => {
   if (layer == null || layer === false) return LAYER_ORDER.length + 1
   if (layer === true) return LAYER_ORDER.indexOf('components')
   const i = LAYER_ORDER.indexOf(layer)
@@ -154,7 +154,7 @@ export function jsxTags(source) {
     dynamic — any value may arrive. (Lifted out of the function below,
     unchanged, by B4c's review round one: `variableAttributes` lists the
     setters it rejects, so the two share this one definition.) */
-export const literalSetter = (s) => {
+const literalSetter = (s) => {
   const ABSENT = '(?:undefined|null|false)'
   const LIT = `(?:'[^']*'|"[^"]*")`
   return /^"[^"]*"$/.test(s)
@@ -203,7 +203,7 @@ export const classStrings = (source) =>
     "dark"), and a rule for a STATE (:disabled, :hover, :focus…, ::placeholder)
     — there the kit's treatment is meant to win, and a B1 rule that outranked
     it would hide a disabled or focused field's look. */
-export function kitRules(kitCss) {
+function kitRules(kitCss) {
   const out = []
   for (const { sel, body } of rulesOf(kitCss)) {
     for (const one of sel.split(',')) {
@@ -279,8 +279,8 @@ export function utilityConflicts(css, source) {
 }
 
 /* ── the extraction holds ─────────────────────────────────────────────────── */
-export const STATE_PROPS = 'color|background[A-Za-z]*|border[A-Za-z]*|opacity|boxShadow|outline[A-Za-z]*|fill|stroke|cursor|transform|fontWeight|textDecoration[A-Za-z]*|accentColor|caretColor|filter|visibility'
-export const STATE_VALUE = new RegExp(`['"]?\\b(${STATE_PROPS})['"]?\\s*:\\s*([^,}]*)`, 'g')
+const STATE_PROPS = 'color|background[A-Za-z]*|border[A-Za-z]*|opacity|boxShadow|outline[A-Za-z]*|fill|stroke|cursor|transform|fontWeight|textDecoration[A-Za-z]*|accentColor|caretColor|filter|visibility'
+const STATE_VALUE = new RegExp(`['"]?\\b(${STATE_PROPS})['"]?\\s*:\\s*([^,}]*)`, 'g')
 
 export function inlineStateTernaries(src) {
   const code = jsCode(src)
@@ -355,7 +355,7 @@ export function inlineStateTernaries(src) {
 
 /** Lane B2's class prefixes, `rb-task-` and `rb-tpl-`, as a regex alternation:
     the default `prefix` of every predicate below that names a lane's classes. */
-export const B2_LANE = 'task|tpl'
+const B2_LANE = 'task|tpl'
 /** Lane B2's four files, relative to views/: kitFights' default elements
     (and the list rabbitTasksCss.test.js walks). */
 export const B2_FILES = {
@@ -1262,7 +1262,7 @@ export function winningInsets(sheets, el) {
   return won
 }
 /** The parts Blink draws a date field with (Gecko's cannot be styled). */
-export const DATE_PARTS = /::-webkit-(?:calendar-picker-indicator|datetime-edit[\w-]*|inner-spin-button|clear-button)(?![\w-])/
+const DATE_PARTS = /::-webkit-(?:calendar-picker-indicator|datetime-edit[\w-]*|inner-spin-button|clear-button)(?![\w-])/
 /** The rules in `sheets` that style a part of the field `el` — their
     compound before the pseudo-element can land on it — with the properties
     each sets (review round 2, R2-02's M8: a margin on the calendar glyph

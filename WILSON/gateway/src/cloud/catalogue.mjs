@@ -20,8 +20,8 @@
 // (Appendix C), one call per batch.
 // =============================================================================
 
-export const CONFIRM_TTL_MS = 10 * 60_000;
-export const INSIDE_GRACE_MS = 24 * 60 * 60_000;
+const CONFIRM_TTL_MS = 10 * 60_000;
+const INSIDE_GRACE_MS = 24 * 60 * 60_000;
 export const MAX_CONFIRM = 100;
 export const NEVER_CONFIRMED_SENTENCE = 'WILSON’s cloud is unreachable, so this clip cannot be confirmed yet';
 

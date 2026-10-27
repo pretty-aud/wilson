@@ -342,7 +342,7 @@ const REFUSING_CODES = new Set(['InvalidAccessKeyId', 'SignatureDoesNotMatch', '
  * cannot reach the bucket at all (no CORS on the error, the endpoint down)
  * throws before here: unreachable, amber.
  */
-export function bucketCodeAnswer(code, res) {
+function bucketCodeAnswer(code, res) {
   if (code === 'present' || code === 'NoSuchKey') return { ok: true }
   if (code === 'AccessDenied') return { ok: null, why: 'no-file' }
   if (code && REFUSING_CODES.has(code)) return { ok: false, why: 'refused', code }

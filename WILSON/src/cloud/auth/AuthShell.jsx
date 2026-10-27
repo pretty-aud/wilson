@@ -247,7 +247,7 @@ const COLOR_ORANGE_LIGHT = GROUND_LIGHT
 // A module-level read cannot be stubbed after import and would be evaluated
 // once at bundle-eval, before the user's setting can matter (same class of
 // trap as the import.meta.env constants that emptied on the CI runner in S42).
-export function prefersReducedMotion() {
+function prefersReducedMotion() {
   return typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches

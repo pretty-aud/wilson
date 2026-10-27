@@ -71,7 +71,7 @@ export function versionSavedAt(v) {
  * this client, the label frozen into the version's snapshot, noted so.
  * (Moved here from BudgetView.jsx with the versions table it served.)
  */
-export function basedOnLabel(version, shotLists) {
+function basedOnLabel(version, shotLists) {
   const frozen = version?.snapshot?.shot_list || null
   const id = version?.shot_list_id || frozen?.id || null
   if (!id) return null
@@ -107,7 +107,7 @@ function keepOf(work) {
 // stopped (S5c review round 2, R2-05) — the form then offers only Close, so a
 // second press never makes a second version; the held toast's Undo takes the
 // first back.
-export function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn = null, onCancel, onSave }) {
+function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn = null, onCancel, onSave }) {
   const [name, setName] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -341,7 +341,7 @@ export function VersionFlow({ ctx, mode = 'open', versionId, roleRates, liveShot
 }
 
 /** Delete a version (constraint 10): the set-aside rows only it holds go with it, named first. */
-export function DeleteVersionQuestion({ ctx, versionId, onDone }) {
+function DeleteVersionQuestion({ ctx, versionId, onDone }) {
   const step = ctx?.runWithUndoToast || ((run) => run())
   // Read once, when asked: the delete removes the version from memory before
   // its request answers, and the question must stay (busy, then any refusal
@@ -383,7 +383,7 @@ export function DeleteVersionQuestion({ ctx, versionId, onDone }) {
  * beside it), bid days, the timeline's length (F6) and the note; rename, the
  * note and delete in each row's ⋯ (Hick's: the Summary keeps two verbs).
  */
-export function ManageVersionsDialog({ ctx, currency, ratesPending = null, onClose, onEdit, onDelete }) {
+function ManageVersionsDialog({ ctx, currency, ratesPending = null, onClose, onEdit, onDelete }) {
   const [form, setForm] = useState(null)
   const [error, setError] = useState(null)
   const project = ctx?.project

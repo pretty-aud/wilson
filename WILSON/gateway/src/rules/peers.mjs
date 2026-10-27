@@ -54,7 +54,7 @@ export function classifyInsidePeer(peer, { ownAddresses = [], coLocatedNets = []
   return { admit: false, reason: 'public', cls };
 }
 
-export const MAX_OFFICE_RANGES = 8;
+const MAX_OFFICE_RANGES = 8;
 
 /**
  * The admin's declared office ranges (D21): at most eight, each private

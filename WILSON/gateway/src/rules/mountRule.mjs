@@ -32,7 +32,7 @@
 // The container turns the result into a POSIX path under /locations.
 // =============================================================================
 
-export const CONTAINER_LOCATIONS_ROOT = '/locations';
+const CONTAINER_LOCATIONS_ROOT = '/locations';
 
 const LABEL = '[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?';
 const SERVER_RE = new RegExp(`^${LABEL}(?:\\.${LABEL})*$`);

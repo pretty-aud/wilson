@@ -15,8 +15,8 @@
 
 import crypto from 'node:crypto';
 
-export const IDLE_MS = 60_000;
-export const MAX_ROW_MS = 5 * 60_000;
+const IDLE_MS = 60_000;
+const MAX_ROW_MS = 5 * 60_000;
 const MAX_INTERVALS = 512;
 const MAX_SOURCES = 4;
 
