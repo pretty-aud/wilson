@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   BUILTIN, REGISTRY, BY_KEY, RETIRED,
-  isWellFormedModelId, resolveModel, modelsInUse, configWarnings, registryByTool,
+  isWellFormedModelId, resolveModel, registryByTool,
 } from './aiModels'
 
 describe('REGISTRY integrity', () => {
@@ -160,20 +160,6 @@ describe('the S19 outage, pinned', () => {
       expect(resolveModel(e.key).model).not.toBe('claude-sonnet-4-20250514')
     }
   })
-
-  it('a clean config produces no warnings', () => {
-    expect(configWarnings()).toEqual([])
-  })
-
-  it('reports one warning per misconfigured function', () => {
-    const warnings = configWarnings({
-      platform: {
-        'dog.fullDeck': 'claude-sonnet-4-20250514',
-        'otter.course': 'claude-sonnet-4-20250514',
-      },
-    })
-    expect(warnings).toHaveLength(2)
-  })
 })
 
 describe('views for the settings panel', () => {
@@ -181,17 +167,6 @@ describe('views for the settings panel', () => {
     const grouped = registryByTool()
     expect([...grouped.keys()]).toEqual(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Assistant'])
     expect([...grouped.values()].flat()).toHaveLength(REGISTRY.length)
-  })
-
-  it('summarises the two built-ins in use by default', () => {
-    const inUse = modelsInUse()
-    expect([...inUse.keys()].sort()).toEqual([BUILTIN.FAST, BUILTIN.REASONING].sort())
-    expect([...inUse.values()].flat()).toHaveLength(REGISTRY.length)
-  })
-
-  it('reflects an override in the in-use summary', () => {
-    const inUse = modelsInUse({ user: { 'dog.fullDeck': 'claude-opus-5' } })
-    expect(inUse.get('claude-opus-5').map((e) => e.key)).toEqual(['dog.fullDeck'])
   })
 
   it('exposes every entry through BY_KEY', () => {

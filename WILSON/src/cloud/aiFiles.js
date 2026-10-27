@@ -326,11 +326,6 @@ export async function deleteAIFiles(ids, { signal, keepalive = false, token } = 
   return results
 }
 
-/** One id; answers its `{ id, outcome }` or null. */
-export async function deleteAIFile(id, opts) {
-  return (await deleteAIFiles([id], opts))[0] ?? null
-}
-
 /**
  * What this workspace has in the store (a member: their own; an admin: the
  * workspace's): `{ scope, older_than_hours, count, total_bytes, oldest,

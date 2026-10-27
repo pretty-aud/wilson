@@ -286,20 +286,6 @@ export function resolveModel(key, sources = {}) {
   return { model: builtin, source: 'builtin', warning: null, entry }
 }
 
-/**
- * Every distinct model the current configuration would use, with the functions
- * that use it. Drives the "which models are working" view.
- */
-export function modelsInUse(sources = {}) {
-  const out = new Map()
-  for (const entry of REGISTRY) {
-    const { model } = resolveModel(entry.key, sources)
-    if (!out.has(model)) out.set(model, [])
-    out.get(model).push(entry)
-  }
-  return out
-}
-
 // SELECTABLE_MODELS lived here in S19 and is GONE as of Session 20.
 //
 // It was a hardcoded list of four ids, marked PLACEHOLDER in its own comment,
@@ -352,11 +338,4 @@ export function tuningFor(key) {
     thinking: { type: 'adaptive' },
     output_config: { effort: entry.effort },
   }
-}
-
-/** Every warning the current configuration would produce. Empty means healthy. */
-export function configWarnings(sources = {}) {
-  return REGISTRY
-    .map((e) => resolveModel(e.key, sources).warning)
-    .filter(Boolean)
 }
