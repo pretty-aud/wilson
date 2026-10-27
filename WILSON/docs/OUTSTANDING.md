@@ -2860,7 +2860,10 @@ S4b-11 are untouched and still hers.
 
 What N1 (night 1's subtract session: the one-off scripts, the session launch
 entries, exports nothing calls, one shared R.A.B.B.I.T. test mount, the closed
-entries archived) met and did not fix.
+entries archived) met and did not fix. Four open entries above cite as their
+measurement a script N1 deleted (`fx10-date-fields-shots.mjs`,
+`shot-number-fields-shots.mjs`, `vw1-shots.mjs`, `dg2-uploads-shots.mjs`):
+git has each at `c48dbb8d`.
 
 - **N1-01 · D.O.G.'s project attachments are cut by size only, not at 20
   files.** `src/tools/rabbit_v0.1.0/deckAttachments.js` says the candidates are
@@ -2878,15 +2881,27 @@ entries archived) met and did not fix.
   --port 5246`; that folder no longer exists (MEASURED, `ls`, 2026-10-27). N1's
   brief kept the entry byte for byte. Owner: the controller (remove it, or give
   it session-a's relative path with `VITE_DEV_AUTOLOGIN=off`).
-- **N1-03 · Two defects found and not fixed sit in closed entries, under struck
-  leads.** S2b-02's tail (the nodes merge keys a system and a category on one
-  a-z0-9 key, so "文字列" and "数学" become one category and "C++" and "C#" one
-  system; a stored document that is not a library is left as it is while both
-  merges answer as if they merged) and S2b-05's (a null shortcut throws in the
-  Search dialog's hotkey search and in the Hotkeys view's search) are open, but
-  each bullet's lead is struck, so a reader looking for open entries passes them.
-  MEASURED by S2b's and S2c's sessions, as those bullets say. N1 kept both whole
-  in this file rather than archive two open defects (review round 1 found the
-  shape). Fix: re-file each tail as its own open entry and archive the struck
-  part. Owner: the controller (the file), then a session in O.T.T.E.R.'s merges
-  and its Search dialog.
+- **N1-03 · Three defects found and not fixed sit in two closed entries, under
+  struck leads.** S2b-02's tail holds two (the nodes merge keys a system and a
+  category on one a-z0-9 key, so "文字列" and "数学" become one category and
+  "C++" and "C#" one system; a stored document that is not a library is left as
+  it is while both merges answer as if they merged) and S2b-05's one (a null
+  shortcut throws in the Search dialog's hotkey search and in the Hotkeys view's
+  search). They are open, but each bullet's lead is struck, so a reader looking
+  for open entries passes them. Found and MEASURED by S2c, the session that
+  closed both, as those bullets say. N1 kept both whole in this file rather than
+  archive open defects (review rounds 1 and 2 found the shape and the count).
+  Fix: re-file each tail as its own open entry and archive the struck part.
+  Owner: the controller (the file), then a session in O.T.T.E.R.'s merges and
+  its Search dialog.
+- **N1-04 · `session-a`, `-b` and `-c` serve the worktree with another
+  install's `vite`.** Their recipe (`dg2-worktree`'s, as N1's brief named) runs
+  `npx vite WILSON` from the worktree root, which has no `package.json`, so `npx`
+  takes the first folder above it that has one: the main checkout's `WILSON/`
+  and its `node_modules` (MEASURED by N1's review rounds 1 and 2: `npm prefix`
+  there, `vite` resolved from it; 6.4.1 in both today, the main checkout on
+  another branch). The worktree's own `WILSON/` and plugins are served; it
+  breaks if the main install goes or its `vite` drifts from the worktree's.
+  Every per-session entry before it did the same. Fix: `cd WILSON&& …` before
+  `npx vite --port N --strictPort` (the worktree's own install, which the
+  protocol's `npm install` already provides). Owner: the controller.

@@ -1,23 +1,28 @@
 /** @vitest-environment jsdom */
 // =============================================================================
 // mountRabbit.test.jsx — the one CONTROL for the gap state/mountRabbit.js
-// waits out (N1, 2026-10-27; before N1 six test files each held a copy:
-// tasksViews, taskItemDrops, assetsViews, entityViews, scenesViews,
+// waits out (N1, 2026-10-27; before N1 six test files each held a control of
+// their own: tasksViews, taskItemDrops, assetsViews, entityViews, scenesViews,
 // tableViewsProvider).
 //
 // The gap, held open on purpose: a MutationObserver resolves in the
 // microtasks of the commit that draws the project, before that commit's
 // effects run (state/gapPremise.test.jsx holds why: React asks for a paint in
 // every commit, so a non-sync commit leaves its passive effects for a later
-// task). Two of those effects undo what a test does there, and the control
-// holds both (review round 1: the six controls it replaced held the second):
-// the project's visit count (a view added there offers an Undo that does
-// nothing: the add took the visit before the project's own effect counts it)
-// and the views' drafts reset (a change for now made there is wiped, as a
-// grouping was in the view tests). Mounted by mountRabbit, the same add's Undo
-// takes the view back and the same change stays. Without the helper's waits
-// (the render outside act, the status wait gone) the second half goes red as
-// the first: N1's hand-off has the run.
+// task). Three of those effects show there, and the control holds each: the
+// last used views read (`tableViewLast.status` still 'unavailable', the
+// evidence the helper waits for), the project's visit count (a view added
+// there offers an Undo that does nothing: the add took the visit before the
+// project's own effect counts it) and the views' drafts reset (a change for
+// now made there is wiped). Of the six controls it replaced, four held the
+// drafts reset (taskItemDrops, assetsViews, entityViews, scenesViews),
+// tableViewsProvider's the visit count, tasksViews' the status read (review
+// rounds 1 and 2). The change and the add share one act on purpose: an act
+// boundary flushes the commit's effects, so a change in an act of its own
+// would close the gap before the add. Mounted by mountRabbit, the same add's
+// Undo takes the view back and the same change stays. Without the helper's
+// waits (the render outside act, the status wait gone) the second half goes
+// red as the first: N1's hand-off has the run.
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
