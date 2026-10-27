@@ -671,7 +671,11 @@ Grouped by job, because the *category* is what a reader needs:
   `workspace_members` into the reserved `app_events` `'admin'` stream; fires
   only on a real change to `app_role`, `is_active` or a rate-card grant).
 - **Realtime broadcast** — `fn_realtime_broadcast` (11 tables → project topic),
-  `fn_workspace_realtime_broadcast` (5 tables → workspace topic).
+  `fn_workspace_realtime_broadcast` (5 tables → workspace topic); since 0101
+  (R1, 2026-10-27) two small ones beside them: `fn_budget_versions_broadcast`
+  (bid versions → project topic, `{id, project_id}` only) and
+  `fn_task_items_ws_broadcast` (an assigned task's items → workspace topic,
+  never a private project's).
 - **Auto-staffing** — `fn_projects_auto_staff` seats the creator and producer as
   project managers on **client** creates only (`auth.uid() IS NULL` skips), so
   fixtures and migrations keep 0013's unstaffed-open contract.
@@ -696,7 +700,7 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | Migration | 0016 | 0018 |
 | Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
 | Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
-| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
+| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)**; **budget_versions (0101: a thin event, `{id, project_id}` and never the row — a bid version is money — and the client reads the versions again through RLS)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members; **task_items (0101: only an assigned task's, never a private project's — the Dashboard's assets)** |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the
@@ -1904,7 +1908,11 @@ name cannot execute in a spreadsheet.
 **Per-page exports** — team roster, rate card, and project tasks. Each follows
 one rule: *it exports exactly what the viewer sees*, same rows (filters, sort,
 liveness) and same columns. The wage column cannot leak through an export if
-the screen is not showing it.
+the screen is not showing it. The project tasks file (R1, 2026-10-27) is the
+table's columns in the view's order and with the table's names — an item
+column per kind the project uses, the Bid — then Notes and Created, which it
+always carried; Status and Priority in the table's words, the row's defaults
+where none is stored (`handleExportCsv`).
 
 **Workspace takeout** (admin-only, in the Admin Terminal → Company): one CSV per
 table across 19 tables plus a `manifest.json`, zipped. It is built from **the
@@ -5372,6 +5380,46 @@ of a session — this section is limits by design, that file is faults.
   `rabbit_level_saved_views`, `rabbit_experience_saved_views`,
   `rabbit_scene_saved_views`) are removed when each table first loads (Q17).
   Budget's Expenses and Team keep their own menus (Q19).
+
+**R.A.B.B.I.T. robustness (R1, migration 0101 — 2026-10-27)**
+
+- **Levels and Experiences take the Scenes rows' write gate** (`canWrite`,
+  `writeReason` in `EntityListView.jsx`): every write control greyed with the
+  reason for a seat that cannot write, and every funnel refusing. The window's
+  Files section is `FileManager`'s, ungated by the seat as on every page that
+  mounts it; the database decides there.
+- **Replace link is the provider's `rewireDependency`**: the unlink awaited,
+  then the link; a refused link puts the old row back and records nothing; one
+  undo step. If the put-back is refused too, the old link is gone, and the
+  strip says so (`oldLinkLost`). The person's call waits its turn in the undo
+  queue (`rewireDependencyQueued`, as the item sets and the version steps),
+  and a write that starts after a project switch changes the database only,
+  never the bundle then open. The confirm's last sentence still says the old
+  link is gone on a refusal (the brief kept its words; Audrey's to reword).
+- **A bid version's event carries no row** (`fn_budget_versions_broadcast`,
+  `{id, project_id}` only): every reader of the project receives it, and so
+  learns that its versions changed (as the project row's version pointers
+  already say); a seat past the money gate reads them again through RLS, any
+  other reads an empty list. An event can lag the write it tells of, which is
+  why a Save's undo still reads the versions first.
+- **A task's items reach the workspace channel only for an assigned task in
+  a public project** (`fn_task_items_ws_broadcast`): a private project's
+  members see a second asset on the Dashboard at its next load (the channel is
+  every member's; the 🚨 entry in `OUTSTANDING.md` about it is not widened).
+- **A project's files are read page by page** (`listFilesWith`), as its
+  folders, bins, assets and tasks: one request per 1,000 files.
+- **Team members' table has about 1,240px at every window size** (the page's
+  width is capped near 1,290px): with the kit's compact cells every header,
+  control, figure, name and staff badge is whole — a badge that does not fit
+  beside the name wraps under it (`.tm-member`); an inline editor's padding
+  sits in the cell's (`.tm-inline-edit`); the Status cell clips, so the
+  Inactive pill is not ellipsised (`.tm-status-cell`) — and the free text
+  (Title past a word as long as Producer, Email, the longest usernames)
+  ellipsises, whole on hover. One option is not whole: "Physical
+  Production", the longest default department, loses part of its last letter
+  at 14% (whole on hover; 15% would cut a six-figure rate). `pages.test.js`
+  holds each share to what its column cannot cut (P1-29, Audrey's to
+  overrule).
 
 **Security-adjacent**
 
