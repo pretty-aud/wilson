@@ -78,7 +78,7 @@ export function preflight(req, res, { door, origins }) {
  * (otherwise it may see a reset instead of the answer); a longer one is not
  * read at all and the connection closes with the answer.
  */
-export const DRAIN_MAX = 64 * 1024;
+const DRAIN_MAX = 64 * 1024;
 export function readBody(req, max) {
   return new Promise((resolve) => {
     const declared = Number(req.headers['content-length']);

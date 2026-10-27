@@ -45,7 +45,7 @@ export function visibilityMeta(visibility) {
 // Hick's/Miller's Law: five chips at most, and the admin-only one is the fifth.
 // Serial Position Effect puts the two the user reaches for constantly — their
 // own work, and what was shared with them — first and second.
-export const COURSE_FILTERS = [
+const COURSE_FILTERS = [
   { key: 'all',      label: 'All',              hint: 'Everything you can open' },
   { key: 'mine',     label: 'Made for me',      hint: 'Courses you own' },
   { key: 'to_me',    label: 'Shared with me',   hint: "Colleagues' shared courses" },
@@ -55,7 +55,7 @@ export const COURSE_FILTERS = [
 ]
 
 /** Admins additionally get a chip for the metadata-only rows they cannot open. */
-export const ADMIN_ONLY_FILTER = {
+const ADMIN_ONLY_FILTER = {
   key: 'unopenable',
   label: 'Others’ personal',
   hint: 'You can see these exist, not what is in them',

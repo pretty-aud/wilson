@@ -399,7 +399,6 @@ async function probeMediaInfo(input, timeoutMs = PROBE_TIMEOUT_MS) {
 module.exports = {
   resolveFfmpegPath,
   hasFfmpeg,
-  probeDurationSec,
   parseFfmpegInfo,
   probeMediaInfo,
   seekTimestampFor,

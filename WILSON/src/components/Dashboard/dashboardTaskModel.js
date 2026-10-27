@@ -91,7 +91,7 @@ export const FILTER_FIELDS = [
   { key: 'role',       label: 'My role' },
 ]
 
-export const ROLE_KEYS = { assigned: 'assigned', reviewing: 'reviewing' }
+const ROLE_KEYS = { assigned: 'assigned', reviewing: 'reviewing' }
 
 /**
  * Priority as a STATUS TONE, not a colour. Four values became four hex
@@ -229,7 +229,7 @@ export function applyTaskSort(tasks, { sortField = 'end_date', sortDir = 'asc' }
  * '__none__'. A task without a phase of its own sat under None here while the
  * Timeline put it under its assets' phase.
  */
-export function taskPhaseKey(task) {
+function taskPhaseKey(task) {
   if (task?.phase_id) return task.phase_id
   let shared = null
   for (const i of Array.isArray(task?.items) ? task.items : []) {

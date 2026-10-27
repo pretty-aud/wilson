@@ -27,7 +27,7 @@ import { GATEWAY_CERT_PARAGRAPH, IT_WORKS as IT_WORKS_WORDS } from '../../compon
 import { NAS_STORY, WINDOWS_STORY, HARDENING_GUIDE_URL } from '../../components/settings/gatewayWords';
 
 /** One install story as a Help page: the steps in order, then the notes after them. */
-export const GATEWAY_STORY_PAGES = Object.freeze({
+const GATEWAY_STORY_PAGES = Object.freeze({
   'rabbit-gateway-nas': { title: 'The file gateway on a NAS', tab: 'On a NAS', story: NAS_STORY },
   'rabbit-gateway-windows': { title: 'The file gateway on a Windows PC', tab: 'On a Windows PC', story: WINDOWS_STORY },
 });

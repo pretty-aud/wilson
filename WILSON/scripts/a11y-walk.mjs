@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
  * Landmarks and names, measured in real Chromium — post-overhaul FX15
- * (2026-10-26, FX14's leftovers FX14-02, FX14-03 and FX14-04).
+ * (2026-10-26, FX14's leftovers FX14-02, FX14-03 and FX14-04). The one
+ * accessibility walker since N1 (2026-10-27), which kept it under this
+ * general name (it was `fx15-landmarks-names.mjs`).
  *
- *   node scripts/fx15-landmarks-names.mjs <port> --out <dir> [--size 1440x900] [--tag before|after] [--shots]
+ *   node scripts/a11y-walk.mjs <port> --out <dir> [--size 1440x900] [--tag before|after] [--shots]
  *
  * --shots also writes a picture of the moment each note has left
  * (`po-fx15-<tag>-0N-note-gone-<page>-<W>x<H>.png`): where focus went, and
  * the kit's ring when it went to the page's main region.
  *
  * Headless Chromium (no window on screen), closed in a `finally`. Needs the
- * dev server with the dev fixtures' tester (`fx15-worktree` in
+ * dev server with the dev fixtures' tester (`session-a`, `-b` or `-c` in
  * .claude/launch.json). Nothing outlives the page: the fixture store is in
  * memory, nothing is saved or sent, no file is uploaded (so no file name is
  * ever read out), and no AI call is made (every page counts requests to an
@@ -49,13 +51,13 @@ import { join } from 'node:path';
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
 const VALUED = ['--out', '--size', '--tag'];
-const PORT = args.find((a, i) => !a.startsWith('-') && !VALUED.includes(args[i - 1])) || '5305';
+const PORT = args.find((a, i) => !a.startsWith('-') && !VALUED.includes(args[i - 1])) || '5301';
 const OUT = flag('--out');
 const TAG = flag('--tag') || 'now';
 const SHOTS = args.includes('--shots');
 const SHOT_NO = { rabbit: 1, 'team-members': 2 };
 if (!OUT) {
-  console.error('usage: fx15-landmarks-names.mjs <port> --out <dir> [--size WxH] [--tag before|after] [--shots]');
+  console.error('usage: a11y-walk.mjs <port> --out <dir> [--size WxH] [--tag before|after] [--shots]');
   process.exit(1);
 }
 const [W, H] = (flag('--size') || '1440x900').split('x').map(Number);

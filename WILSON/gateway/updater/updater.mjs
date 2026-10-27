@@ -35,7 +35,7 @@ import { stateDirFor, programDirFor, FILES } from '../src/platform/state.mjs';
 import { parseSmbConnections } from '../src/platform/shares.mjs';
 import { parseConfig } from '../src/config.mjs';
 
-export const GATEWAY_SERVICE = 'WilsonGateway';
+const GATEWAY_SERVICE = 'WilsonGateway';
 export const FIREWALL_RULE = 'WILSON Gateway outside door';
 
 const run = (file, args, timeout = 60_000) => new Promise((resolve) => {

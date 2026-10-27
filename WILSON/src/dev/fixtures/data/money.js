@@ -20,7 +20,7 @@ export const RATE_CARDS = [
   { id: fid('rateCard', 2), workspace_id: WORKSPACE_ID, name: 'Internal Rate Card', type: 'internal', is_default: false, source_file_id: null, created_at: stamp(-100, 10, 1), deleted_at: null },
 ]
 export const GENERAL_CARD_ID = RATE_CARDS[0].id
-export const INTERNAL_CARD_ID = RATE_CARDS[1].id
+const INTERNAL_CARD_ID = RATE_CARDS[1].id
 
 const GENERAL_ROWS = [
   // [n, role_label, role_slug, department, day_rate]

@@ -40,7 +40,7 @@ const day = (t) => new Date(t).toISOString().slice(0, 10);
 const hhmm = (t) => new Date(t).toISOString().slice(11, 16);
 const hostPort = (a, port) => (String(a).includes(':') ? `[${a}]:${port}` : `${a}:${port}`);
 
-export const OUTSIDE_PHRASES = Object.freeze({
+const OUTSIDE_PHRASES = Object.freeze({
   closed_switch_off: () => 'outside door closed (the switch is off)',
   closed_no_address: () => 'outside door closed (no outside address yet)',
   closed_no_cloud: (o) => `outside door closed (no cloud for ${durationWords((o.noCloudForMs ?? 60_000))})`,

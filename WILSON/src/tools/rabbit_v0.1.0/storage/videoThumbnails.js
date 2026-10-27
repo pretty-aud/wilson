@@ -125,7 +125,7 @@ export function isVideoExtension(ext) {
  * `.mov` is here because it is the common professional container even though it
  * frequently holds H.264.
  */
-export const PROFESSIONAL_VIDEO_EXTENSIONS = new Set([
+const PROFESSIONAL_VIDEO_EXTENSIONS = new Set([
   '.mov', '.mxf', '.r3d', '.ari', '.arri', '.braw', '.dnx', '.dnxhd', '.dnxhr',
 ])
 

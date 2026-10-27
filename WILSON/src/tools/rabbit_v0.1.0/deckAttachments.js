@@ -184,7 +184,7 @@ export function documentKindFor(mimeType, name, detectKind) {
  * .mov could consume the whole byte budget — the precise outcome the ordering
  * was added to make impossible. A fix that creates the hole it closes.
  */
-export function looksLikeMedia(mimeType, name) {
+function looksLikeMedia(mimeType, name) {
   const m = mimeType || '';
   if (m.startsWith('image/') || m.startsWith('video/')) return true;
   return /\.(mp4|mov|webm|avi|mkv|m4v|mpg|mpeg|wmv|png|jpe?g|gif|webp|bmp|tiff?|heic|avif)$/i
@@ -297,7 +297,7 @@ export function orderAttachmentCandidates(rows) {
 // left out is shown. Truncating a document hands the model half a brief with
 // no way to know it is half.
 export const DOG_ATTACHMENT_MAX_FILES = 20;
-export const DOG_ATTACHMENT_MAX_BYTES = 32 * 1024 * 1024;
+const DOG_ATTACHMENT_MAX_BYTES = 32 * 1024 * 1024;
 
 /**
  * The same number, said once, for the panel copy — and named MiB, because that

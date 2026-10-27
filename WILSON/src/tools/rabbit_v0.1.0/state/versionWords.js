@@ -44,7 +44,7 @@ const WORK_WORDS = (w) => {
   return joinNames(parts)
 }
 /** "Lighting pass 2 (1.5 days logged and 2 comments)" — a row and the work on it. */
-export function workLine(row) {
+function workLine(row) {
   const w = WORK_WORDS(row?.work)
   return w ? `${q(row.name)} (${w})` : q(row?.name)
 }

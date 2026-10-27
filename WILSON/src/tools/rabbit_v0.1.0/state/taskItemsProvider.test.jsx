@@ -23,7 +23,8 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 
@@ -69,8 +70,7 @@ const T5 = TASK_ID(5)
 
 async function mount(adapter) {
   holder.adapter = adapter
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: () => expect(ctx?.project?.id).toBe(PROJECT_ID) })
 }
 const task = (id) => ctx.tasks.find(t => t.id === id)
 const kinds = (id, kind) => itemsOfTask(ctx.taskItems, id, kind).map(i => i.entity_id)

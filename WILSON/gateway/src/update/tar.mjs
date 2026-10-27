@@ -14,7 +14,7 @@ import zlib from 'node:zlib';
 import path from 'node:path';
 
 const BLOCK = 512;
-export const MAX_UNPACKED = 768 * 1024 * 1024;
+const MAX_UNPACKED = 768 * 1024 * 1024;
 export const MAX_ENTRIES = 20_000;
 
 const str = (buf, start, len) => {

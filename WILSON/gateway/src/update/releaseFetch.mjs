@@ -28,7 +28,7 @@ export const RELEASE_HOSTS = Object.freeze(['github.com', 'release-assets.github
 export const MAX_REDIRECTS = 3;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-export class ReleaseFetchError extends Error {
+class ReleaseFetchError extends Error {
   constructor(message, code) { super(message); this.code = code; }
 }
 

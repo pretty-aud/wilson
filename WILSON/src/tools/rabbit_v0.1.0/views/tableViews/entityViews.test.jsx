@@ -9,6 +9,7 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup, act, waitFor, fireEvent, within } from '@testing-library/react'
+import { mountRabbit } from '../../state/mountRabbit'
 import { _resetOverlaysForTests } from '../../../../ui/overlay'
 import { ToastProvider } from '../../../../ui/Toast'
 
@@ -59,26 +60,14 @@ let ctx = null
 function Probe() { ctx = useRabbit(); return null }
 let fx = null
 const run = (fn) => act(async () => { await fn() })
-// FX15 (OUTSTANDING FX14-01; tasksViews.test.jsx's mount, FX14): the fixtures
-// load the project in microtasks, so ONE commit brings the adapter and the
-// whole project, while the provider's effects for them (the last used views
-// read, which ends the status 'unavailable'; the views' drafts reset; the
-// project's visit count) run in a later task. In that gap the Levels table is drawn with its four
-// rows while the status still reads 'unavailable',
-// so the waits below could all pass there, and a change for now made then is
-// wiped by the pending drafts reset: with this mount forced into the gap, 9 of this
-// file's 11 tests failed, every run, each at a grouping or a tick
-// (FX15's hand-off, §2). So the render runs inside act (React flushes those
-// effects before act returns), and the mount waits for their evidence where
-// the adapter reads a map: a status past 'unavailable', which it holds from
-// the provider's first effect (no adapter yet) until then.
+// mount() goes through state/mountRabbit.js, the gap-safe render and waits (N1; OUTSTANDING FX14-01).
 // `mountWith` below is the same mount for an adapter of a test's own.
 async function mount(adapter = fx.rabbitAdapter()) {
   holder.adapter = adapter
-  await act(async () => { render(<ToastProvider><RabbitProvider><Probe /><LevelsView /></RabbitProvider></ToastProvider>) })
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(document.querySelectorAll('tr.rb-ent-row').length).toBe(4))
-  if (typeof adapter.getTableViewLast === 'function') await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
+  await mountRabbit(<ToastProvider><RabbitProvider><Probe /><LevelsView /></RabbitProvider></ToastProvider>, { adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(document.querySelectorAll('tr.rb-ent-row').length).toBe(4),
+  ] })
 }
 const groupBy = (value) => fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value } })
 const bands = () => [...document.querySelectorAll('.rb-ent-group-label')].map(n => n.textContent)
@@ -239,37 +228,5 @@ describe('code review round 2', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Lamp Room' }))
     const kept = screen.getByRole('dialog', { name: 'Lamp Room' })
     expect(within(kept).getByRole('button', { name: 'Add asset relation' }).closest('[aria-disabled="true"]')).toBeNull()
-  })
-})
-
-// FX15: the gap `mount` waits out, held open on purpose. A MutationObserver
-// resolves in the microtasks of the commit that draws the project, before
-// that commit's effects run. Its premise, as FX15's review rounds 1 and 2
-// corrected it: React asks the Scheduler for a paint in every commit
-// (`requestPaint`), and the Scheduler then yields however short the commit
-// was, so a commit of a non-sync update (the fixtures' load is one) leaves
-// its passive effects for a later task (not, as FX14's review round 2 had
-// it, because the commit overran its 5 ms slice). state/gapPremise.test.jsx
-// holds it, with requestPaint stubbed as its control. The fixed `mount`
-// does not depend on it.
-describe('CONTROL (FX15): the gap `mount` waits out', () => {
-  it('a grouping made between the project\'s commit and its effects is wiped by the drafts reset: no groups; after the effects it holds', async () => {
-    holder.adapter = fx.rabbitAdapter()
-    const committed = new Promise((resolve) => {
-      const mo = new MutationObserver(() => {
-        if (document.querySelectorAll('tr.rb-ent-row').length === 4 && ctx?.project?.id === PROJECT_ID) { mo.disconnect(); resolve() }
-      })
-      mo.observe(document.body, { subtree: true, childList: true })
-    })
-    render(<ToastProvider><RabbitProvider><Probe /><LevelsView /></RabbitProvider></ToastProvider>)
-    await committed
-    expect(ctx.tableViewLast.status).toBe('unavailable')   // the provider's effects for the adapter not run yet
-    groupBy('asset')
-    expect(bands()).toEqual([])
-    expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
-    // CONTROL: after the effects, the same grouping holds (what `mount` gives every test).
-    await waitFor(() => expect(ctx.tableViewLast.status).not.toBe('unavailable'))
-    groupBy('asset')
-    expect(bands()).toEqual(['Storyboards', 'Brass Compass', 'Cliff Path, Storm Lantern', 'Lighthouse Interior, Storm Lantern, Storyboards'])
   })
 })

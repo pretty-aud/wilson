@@ -16,7 +16,8 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null }))
 
@@ -221,10 +222,11 @@ function expectWhole(m, step) {
 const taskWrites = () => holder.adapter.calls.filter(c => /Task$/.test(c[0]))
 
 async function mount() {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-  await waitFor(() => expect(ctxRef.tasks).toHaveLength(N))
-  await waitFor(() => expect(ctxRef.shotLists).toHaveLength(1))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+    () => expect(ctxRef?.project?.id).toBe('p1'),
+    () => expect(ctxRef.tasks).toHaveLength(N),
+    () => expect(ctxRef.shotLists).toHaveLength(1),
+  ] })
   const m = measure()
   expectWhole(m, 'before')
   expect(m.groups).toEqual(['One', '1A', 'Two', '2A', NO_SCENE_GROUP])

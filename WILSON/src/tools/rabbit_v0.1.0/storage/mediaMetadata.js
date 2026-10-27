@@ -21,10 +21,10 @@
 // for the real document/URL at call time.
 // =============================================================================
 
-export const VIDEO_EXT = new Set(['mov', 'mp4', 'm4v', 'mkv', 'avi', 'webm', 'mxf', 'wmv', 'mpg', 'mpeg', 'mts', 'm2ts', 'r3d', 'braw', 'dnxhd', 'prores'])
-export const AUDIO_EXT = new Set(['wav', 'mp3', 'aac', 'flac', 'aif', 'aiff', 'm4a', 'ogg', 'oga', 'opus', 'wma', 'caf'])
-export const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'tif', 'tiff', 'bmp', 'exr', 'psd', 'avif', 'heic', 'heif', 'svg', 'dpx', 'tga', 'ai'])
-export const DOC_EXT = new Set(['pdf', 'doc', 'docx', 'txt', 'md', 'rtf', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'key', 'pages', 'numbers', 'json'])
+const VIDEO_EXT = new Set(['mov', 'mp4', 'm4v', 'mkv', 'avi', 'webm', 'mxf', 'wmv', 'mpg', 'mpeg', 'mts', 'm2ts', 'r3d', 'braw', 'dnxhd', 'prores'])
+const AUDIO_EXT = new Set(['wav', 'mp3', 'aac', 'flac', 'aif', 'aiff', 'm4a', 'ogg', 'oga', 'opus', 'wma', 'caf'])
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'tif', 'tiff', 'bmp', 'exr', 'psd', 'avif', 'heic', 'heif', 'svg', 'dpx', 'tga', 'ai'])
+const DOC_EXT = new Set(['pdf', 'doc', 'docx', 'txt', 'md', 'rtf', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'key', 'pages', 'numbers', 'json'])
 
 export const PROBE_TIMEOUT_MS = 8000
 

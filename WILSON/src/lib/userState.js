@@ -248,7 +248,7 @@ export async function fetchCloudSettings() {
   }
 }
 
-export async function saveCloudSettings({ prompts, agentPromptOverrides }) {
+async function saveCloudSettings({ prompts, agentPromptOverrides }) {
   const row = {}
   if (prompts !== undefined) row.prompts = prompts ?? {}
   if (agentPromptOverrides !== undefined) row.agent_prompt_overrides = agentPromptOverrides ?? {}

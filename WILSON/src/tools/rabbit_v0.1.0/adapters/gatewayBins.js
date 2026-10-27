@@ -90,12 +90,12 @@ export const GATEWAY_REFRESH_MS = 60_000
 /** §2's second row: a gateway not seen by the cloud for over 30 s has stopped. */
 export const UNSEEN_AFTER_MS = 30_000
 /** A held ticket is reused only while its end is further off than this. */
-export const TICKET_REUSE_MARGIN_MS = 30_000
+const TICKET_REUSE_MARGIN_MS = 30_000
 /** A clip the cloud answered `missing` for, or refused, is not asked about again for this long. */
-export const MISSING_BACKOFF_MS = 60_000
+const MISSING_BACKOFF_MS = 60_000
 const FAILED_BACKOFF_MS = 15_000
 /** A ticket's life (D1): the hold is anchored to the moment the browser received it, never to the cloud's clock. */
-export const TICKET_LIFETIME_MS = 120_000
+const TICKET_LIFETIME_MS = 120_000
 /** Kept this long after its end, a lapsed ticket's URL still serves an idle player's resume (then dropped). */
 const LAPSED_KEEP_MS = 30 * 60_000
 /** The sentence when no ticket came, in WILSON's voice (gatewayApi's own). */

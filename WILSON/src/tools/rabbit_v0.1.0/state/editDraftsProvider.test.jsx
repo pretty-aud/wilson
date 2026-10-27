@@ -5,7 +5,8 @@
 // keeps the contract's rules, driven end to end.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 import { EDIT_DRAFTS_KEY, storedDraftKey } from './editDrafts'
 import { confirmLeave, hasUnsavedWork, unsavedForClose, subscribeLeaveGuards, _resetLeaveGuardsForTests } from './leaveGuard'
 
@@ -157,9 +158,10 @@ function Probe() {
 }
 
 async function mount(lists = 2) {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-  await waitFor(() => expect(ctxRef.shotLists.length).toBe(lists))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+    () => expect(ctxRef?.project?.id).toBe('p1'),
+    () => expect(ctxRef.shotLists.length).toBe(lists),
+  ] })
 }
 
 const item = (id, shot, scene, label = '') => ({ id, scene_id: scene, shot_id: shot, label, notes: '' })
@@ -398,9 +400,10 @@ describe('S3c — "Recover unsaved edit?"', () => {
 
 describe('S3c step 7 — the unsaved edit asks before every exit (D12)', () => {
   const mountWithQuestion = async () => {
-    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-    await waitFor(() => expect(ctxRef.shotLists.length).toBe(2))
+    await mountRabbit(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+      () => expect(ctxRef?.project?.id).toBe('p1'),
+      () => expect(ctxRef.shotLists.length).toBe(2),
+    ] })
   }
   afterEach(() => _resetLeaveGuardsForTests())
 
@@ -599,9 +602,10 @@ describe('S3c review round 2 — a question about drafts that went; whose copy a
     )
   }
   const mountWithQuestion = async (lists = 2) => {
-    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-    await waitFor(() => expect(ctxRef.shotLists.length).toBe(lists))
+    await mountRabbit(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+      () => expect(ctxRef?.project?.id).toBe('p1'),
+      () => expect(ctxRef.shotLists.length).toBe(lists),
+    ] })
   }
   const auth = async (event, id) => {
     holder.session = id ? { user: { id } } : null
@@ -1113,8 +1117,7 @@ describe('FX4 review round 1 — Save edit in flight, conditional writes, frozen
   // save in flight lands and leaves nothing unsaved.
   it('R2-01: an exit pressed while Save edit writes asks at once; when the save lands with nothing left, the question goes by itself and the exit goes on', async () => {
     holder.adapter.db.edits = [SAVED_V1()]
-    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.shotLists?.length).toBe(2))
+    await mountRabbit(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.shotLists?.length).toBe(2) })
     await changingV1(BOATS())
     const release = hold()
     let saving
@@ -1131,8 +1134,7 @@ describe('FX4 review round 1 — Save edit in flight, conditional writes, frozen
 
   it('R2-01: CONTROL — a change made while it saves keeps the question up after the save lands; its Save edit then saves that change, once', async () => {
     holder.adapter.db.edits = [SAVED_V1()]
-    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.shotLists?.length).toBe(2))
+    await mountRabbit(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.shotLists?.length).toBe(2) })
     await changingV1(BOATS())
     holder.adapter.calls.length = 0
     const release = hold()
@@ -1374,8 +1376,7 @@ describe('FX4 review round 2 — changes across a save, by their identity', () =
 
   it('R2-06: changes to an edit archived since — the leave question offers no Save edit (it could only fail), and says Save as… keeps them', async () => {
     holder.adapter.db.edits = [SAVED_V1()]
-    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.shotLists?.length).toBe(2))
+    await mountRabbit(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.shotLists?.length).toBe(2) })
     await changingV1(BOATS())
     holder.adapter.db.edits = holder.adapter.db.edits.map(e => ({ ...e, archived_at: 'T' }))
     await act(async () => { await ctxRef.refreshShotLists?.() })

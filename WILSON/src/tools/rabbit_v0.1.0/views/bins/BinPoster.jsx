@@ -51,7 +51,7 @@ function useCloudPoster(row, wanted) {
   return url
 }
 
-export function mediaIconFor(type) {
+function mediaIconFor(type) {
   switch (type) {
     case 'video': return Film
     case 'still': return ImageIcon

@@ -188,7 +188,7 @@ const RABBIT_SETTINGS_KEY = 'rabbit-timeline-settings-v1'
 // Each project type maps to which database modules should be
 // toggled on by default when creating a new project of that type.
 // Users can edit these defaults in the RABBIT system settings panel.
-export const PROJECT_TYPE_LIST = [
+const PROJECT_TYPE_LIST = [
   'commercial', 'film', 'series', 'music_video', 'branded_content',
   'social', 'animation', 'documentary', 'video_game', 'interactive_experience', 'experiential_activation', 'other',
 ]

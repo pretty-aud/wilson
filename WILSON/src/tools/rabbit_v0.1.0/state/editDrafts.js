@@ -221,7 +221,7 @@ export function draftFromCopy(copy) {
 }
 
 /** A stored copy worth offering: it names a project and a list and holds items. */
-export function isUsableCopy(v) {
+function isUsableCopy(v) {
   return !!(v && typeof v === 'object' && typeof v.projectId === 'string' && typeof v.listId === 'string'
     && Array.isArray(v.items) && typeof v.title === 'string')
 }

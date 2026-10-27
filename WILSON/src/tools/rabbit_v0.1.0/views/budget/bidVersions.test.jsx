@@ -21,6 +21,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
+import { mountRabbit } from '../../state/mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 
@@ -108,9 +109,10 @@ beforeEach(async () => {
   t40Title = t40.title
   fx.store.comments.push({ id: 'c-t40', entity_type: 'task', entity_id: T40, body: 'Keep the warm key', created_at: '2026-10-01T10:00:00Z' })
   holder.adapter = fx.rabbitAdapter()
-  render(<RabbitProvider><Harness /></RabbitProvider>)
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(ctx.budgetVersions.length).toBe(2))
+  await mountRabbit(<RabbitProvider><Harness /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(ctx.budgetVersions.length).toBe(2),
+  ] })
 })
 afterEach(() => { cleanup(); ctx = null; fx = null })
 

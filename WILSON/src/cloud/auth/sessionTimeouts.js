@@ -46,12 +46,12 @@ export const IDLE_SIGN_OUT_MS   = 30 * 60 * 1000
 export const SESSION_CAP_MS     =  4 * 60 * 60 * 1000
 export const CAP_WARN_MS        =  5 * 60 * 1000
 export const TICK_MS            =  5 * 1000
-export const ACTIVITY_PERSIST_MS = 5 * 1000
+const ACTIVITY_PERSIST_MS = 5 * 1000
 
 /** The reasons handed to onExpire — also the auth_events kinds they become. */
 export const EXPIRE_REASONS = Object.freeze(['idle_timeout', 'session_cap'])
 
-export const INACTIVE_STATE = Object.freeze({
+const INACTIVE_STATE = Object.freeze({
   phase: 'inactive', deadline: null, reason: null, startedAt: null, lastActivity: null,
 })
 
@@ -266,12 +266,12 @@ export function createSessionTimeouts(opts) {
 
 // ── DOM binding ──────────────────────────────────────────────────────────────
 
-export const ACTIVITY_EVENTS = Object.freeze(['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'])
+const ACTIVITY_EVENTS = Object.freeze(['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'])
 
 /**
  * Wire a controller to the document. Returns the detach function.
  */
-export function attachActivityListeners(ctl, target = typeof window !== 'undefined' ? window : null, doc = typeof document !== 'undefined' ? document : null) {
+function attachActivityListeners(ctl, target = typeof window !== 'undefined' ? window : null, doc = typeof document !== 'undefined' ? document : null) {
   if (!target || !doc) return () => {}
   const onActivity = () => ctl.activity()
   const onVisibility = () => { if (doc.visibilityState === 'visible') ctl.visible() }
@@ -299,9 +299,9 @@ function safeLocalStorage() {
  * warning and the sign-out can be watched in seconds on a dev server. The
  * production build never reads it — `import.meta.env.DEV` is false there.
  */
-export const DEV_OVERRIDES_KEY = 'wilson.session.timeouts.debug'
+const DEV_OVERRIDES_KEY = 'wilson.session.timeouts.debug'
 const OVERRIDABLE = ['idleWarnMs', 'idleSignOutMs', 'capMs', 'capWarnMs', 'tickMs']
-export function readDevOverrides(storage = safeLocalStorage()) {
+function readDevOverrides(storage = safeLocalStorage()) {
   // R2: the EXACT `import.meta.env.DEV`, not `import.meta.env?.DEV`. Vite
   // replaces this expression by key at build time, so the production bundle
   // folds the branch to `if (true) return {}` and never reads the key at all.

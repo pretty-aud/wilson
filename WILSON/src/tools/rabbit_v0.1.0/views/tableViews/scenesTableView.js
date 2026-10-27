@@ -38,24 +38,24 @@ export const TIME_OF_DAY_OPTIONS = Object.freeze([
 ])
 
 /** The leading columns (her Q-J: hideable, never movable), in their order. */
-export const SCENE_LEADING = Object.freeze([
+const SCENE_LEADING = Object.freeze([
   Object.freeze({ key: 'expand', label: 'Shots arrow' }),
   Object.freeze({ key: 'thumbnail', label: 'Picture' }),
   Object.freeze({ key: 'scene_number', label: 'Number' }),
 ])
-export const SHOT_LEADING = Object.freeze([
+const SHOT_LEADING = Object.freeze([
   Object.freeze({ key: 'thumbnail', label: 'Picture' }),
   Object.freeze({ key: 'shot_number', label: 'Number' }),
 ])
 
 /** The Gallery cards' own lines (finding 6's rule, built for the Gallery). */
-export const SCENE_CARD_FIELDS = Object.freeze(['description', 'type', 'time_of_day', 'status', 'runtime'])
+const SCENE_CARD_FIELDS = Object.freeze(['description', 'type', 'time_of_day', 'status', 'runtime'])
 // The Shots card's number is a leading column (`cardLeading`), listed here at
 // its place on the card, after the description (code review round 1, R1-7).
-export const SHOT_CARD_FIELDS = Object.freeze(['description', 'shot_number', 'status', 'duration', 'frame_count', 'takes'])
+const SHOT_CARD_FIELDS = Object.freeze(['description', 'shot_number', 'status', 'duration', 'frame_count', 'takes'])
 
 /** The nested shot rows' column for each scene field that has one (finding 7). */
-export const NEST_OF_SCENE = Object.freeze({
+const NEST_OF_SCENE = Object.freeze({
   status: 'status', time_of_day: 'time_of_day', type: 'type', description: 'description', runtime: 'duration', frames: 'frames',
 })
 
@@ -139,7 +139,7 @@ const NEST_WIDTH = Object.freeze({
   duration: 'var(--rb-scene-col-runtime)', frames: 'var(--rb-scene-col-frames)',
 })
 /** The nested shot rows' columns from the scene view's fields (finding 7), in the nest's own order. */
-export const NEST_ORDER = Object.freeze(['takes', 'status', 'time_of_day', 'type', 'framing', 'camera_movement', 'description', 'duration', 'frames'])
+const NEST_ORDER = Object.freeze(['takes', 'status', 'time_of_day', 'type', 'framing', 'camera_movement', 'description', 'duration', 'frames'])
 export function nestColumnsOf(visibleSceneKeys) {
   const shown = new Set()
   for (const k of visibleSceneKeys) {

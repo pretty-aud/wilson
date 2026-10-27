@@ -85,7 +85,7 @@ export const ENTITY_FK_COLUMN = {
 }
 
 /** The bundle key each entity type is read from, for whole-tree rebuilds. */
-export const ENTITY_BUNDLE_KEY = {
+const ENTITY_BUNDLE_KEY = {
   asset:      'assets',
   scene:      'scenes',
   shot:       'shots',

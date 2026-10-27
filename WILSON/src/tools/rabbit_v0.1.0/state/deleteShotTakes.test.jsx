@@ -13,7 +13,8 @@
 // dev-fixtures adapter.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, mode: 'supabase', session: null, authCbs: [] }))
 
@@ -103,8 +104,7 @@ function makeBackend({ mode, cascade }) {
 let ctxRef
 function Probe() { ctxRef = useRabbit(); return null }
 async function mount() {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe(holder.projectId || 'p1'))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.project?.id).toBe(holder.projectId || 'p1') })
   await act(async () => { await ctxRef.refreshBins() })
 }
 

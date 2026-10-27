@@ -18,6 +18,7 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, act, waitFor, screen, fireEvent, within } from '@testing-library/react'
+import { mountRabbit } from '../state/mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 // Each test mounts the real provider over the whole dev dataset. Under a
@@ -84,25 +85,14 @@ function Harness({ view }) {
   if (view === 'timeline') return <TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive />
   return <ProjectTasksView />
 }
-// FX14 (OUTSTANDING FX13-03, the cause established before the fix): the
-// fixtures load the project in microtasks, so ONE commit brings the adapter
-// and the whole project, and the provider's effects for it (the views' drafts
-// reset for the new project and mode, the read of the last used views) run in
-// a later task. In between, the table is drawn and `ctx.project` is set, so a
-// wait for the project alone can return there. A regroup made then writes its
-// draft first, the pending reset lands after it and wipes it: the Group menu
-// reads "None" and the band never comes, however long the wait (reproduced
-// with the regroup forced into that gap: no band after 1.5 s, the menu empty;
-// CI's run 40362857456 failed at the band's wait). So the render runs inside
-// act (React flushes those effects before act returns), and the mount waits
-// for their evidence too: the last used map read ('ready'), which the
-// provider reaches only once its effects for this adapter have run.
+// mount() goes through state/mountRabbit.js, the gap-safe render and waits (N1; OUTSTANDING FX13-03, FX14-01).
 async function mount(view) {
   fx = buildDevFixtures()
   holder.adapter = fx.rabbitAdapter()
-  await act(async () => { render(<RabbitProvider><Harness view={view} /></RabbitProvider>) })
-  await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
-  await waitFor(() => expect(ctx.tableViewLast?.status).toBe('ready'))
+  await mountRabbit(<RabbitProvider><Harness view={view} /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctx, until: [
+    () => expect(ctx?.project?.id).toBe(PROJECT_ID),
+    () => expect(ctx.tableViewLast?.status).toBe('ready'),
+  ] })
 }
 afterEach(() => {
   cleanup(); ctx = null; fx = null
@@ -195,42 +185,6 @@ describe('R2-2: a refused drop says why, on the Tasks table, the Board and the T
     expect(document.body.textContent).toContain(`Could not move “${T18_TITLE}”`)
     await release()
     expect(sorted(kinds(T18, 'asset'))).toEqual(sorted([A(7), A(12)]))
-  })
-})
-
-// FX14: why `mount` waits for the provider's own effects. The gap held open
-// on purpose: a MutationObserver resolves in the microtasks of the commit
-// that brings the project, before that commit's effects run. Its premise, as
-// FX15's review rounds 1 and 2 corrected it: React asks the Scheduler for a
-// paint in every commit (`requestPaint`), and the Scheduler then yields
-// however short the commit was, so a commit of a non-sync update (the
-// fixtures' load is one) leaves its effects for a later task (not, as FX14's
-// review round 2 had it, because the commit overran its 5 ms slice).
-// state/gapPremise.test.jsx holds it, with requestPaint stubbed as its
-// control. The fixed `mount` does not depend on it. If the provider
-// ever stops resetting the drafts there (or resets them before the table can
-// be used), this control goes red and the wait in `mount` can be looked at
-// again.
-describe('CONTROL (FX14): the gap `mount` waits out', () => {
-  it('a regroup made between the project\'s commit and its effects is wiped by the drafts reset: no band, the Group menu back to none', async () => {
-    fx = buildDevFixtures()
-    holder.adapter = fx.rabbitAdapter()
-    const committed = new Promise((resolve) => {
-      const mo = new MutationObserver(() => {
-        if (document.querySelector('.rb-task-table') && ctx?.project?.id === PROJECT_ID) { mo.disconnect(); resolve() }
-      })
-      mo.observe(document.body, { subtree: true, childList: true })
-    })
-    render(<RabbitProvider><Harness view="tasks" /></RabbitProvider>)
-    await committed
-    expect(ctx.tableViewLast.status).toBe('unavailable')   // the provider's effects for the adapter not run yet
-    groupTasksBy('asset')
-    expect(band('Lookbook')).toBeFalsy()
-    expect(screen.getByRole('combobox', { name: 'Group' }).value).toBe('')
-    // CONTROL: after the effects, the same regroup holds (what `mount` gives every test).
-    await waitFor(() => expect(ctx.tableViewLast.status).toBe('ready'))
-    groupTasksBy('asset')
-    expect(band('Lookbook')).toBeTruthy()
   })
 })
 

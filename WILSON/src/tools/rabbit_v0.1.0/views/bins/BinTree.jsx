@@ -14,7 +14,7 @@ import { buildBinTree, flattenTree } from '../../bins/binSelectors'
 import { COLOR_HEX } from '../../bins/binMedia'
 
 export const DND_FILES = 'application/x-wilson-binfiles'
-export const DND_BIN = 'application/x-wilson-bin'
+const DND_BIN = 'application/x-wilson-bin'
 
 export default function BinTree({
   bins, counts, offlineCounts, currentBinId, onSelect, expanded, onToggleExpand,

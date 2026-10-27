@@ -62,7 +62,7 @@ function folderRowOf(f, i, idByPath) {
 
 export const FOLDERS = plan.map((f, i) => folderRowOf(f, i, folderIdByPath))
 
-export function folderIdFor(path) {
+function folderIdFor(path) {
   return folderIdByPath.get(path) ?? null
 }
 
@@ -194,7 +194,7 @@ const ROW_FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase, t
 // the project root, as on the cloud — no folder ROW is made for LEGAL;
 // fileTree.js groups Legal files under a LEGAL folder for the people who can
 // see them. A plain member never receives this row (`?fixtures=member`).
-export const LEGAL_FILE = {
+const LEGAL_FILE = {
   id: fid('file', 33),
   project_id: PROJECT_ID,
   workspace_id: WORKSPACE_ID,

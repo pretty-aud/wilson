@@ -27,7 +27,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const sceneWords = (sc) => `${sc.scene_number != null ? `Sc ${sc.scene_number} · ` : ''}${sc.name || 'Untitled scene'}`
 
 /** The button's words: what will be added. */
-export function addLabel({ scenes, shots }) {
+function addLabel({ scenes, shots }) {
   if (!scenes && !shots) return 'Add'
   if (!shots) return `Add ${plural(scenes, 'scene')}`
   if (!scenes) return `Add ${plural(shots, 'shot')}`

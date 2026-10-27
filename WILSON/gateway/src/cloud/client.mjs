@@ -91,7 +91,7 @@ export function cleanEnrolAnswer(a) {
 // (review round 1, finding 3: an escape sequence in a rename would have
 // rewritten the admin's console).
 const INVISIBLE_G = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]+/gu;
-export function displayText(s, max) {
+function displayText(s, max) {
   if (typeof s !== 'string') return null;
   const t = s.replace(INVISIBLE_G, ' ').replace(/\s+/g, ' ').trim().slice(0, max).trim();
   return t || null;

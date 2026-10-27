@@ -65,11 +65,10 @@ export const MAX_BLOCK_CHARS = 12000
 export const MAX_LESSON_CHARS = 3000
 
 /** How many courses / subjects Phase A promotes to a body fetch. */
-export const MAX_COURSES = 3
-export const MAX_SUBJECTS = 3
+const MAX_SUBJECTS = 3
 
 /** How many reference-document entries (hotkeys/functions/nodes) may ride along. */
-export const MAX_DOC_ENTRIES = 8
+const MAX_DOC_ENTRIES = 8
 
 /** The reference documents worth searching for a "how do I…" question. The
  *  URL segment is the key — `references` is the key, `reference_urls` is the
@@ -77,7 +76,7 @@ export const MAX_DOC_ENTRIES = 8
  *  null and otterFetch falls through to the real network, which on the web
  *  build answers 200 with index.html. `references` is a list of URLs and
  *  `corrections` is editing memory, so neither belongs in a study answer. */
-export const SEARCHED_DOCS = ['hotkeys', 'functions', 'nodes']
+const SEARCHED_DOCS = ['hotkeys', 'functions', 'nodes']
 
 /** Marker the model sees wherever text was cut. Deliberately conspicuous:
  *  an excerpt that does not announce itself gets answered as if complete. */
@@ -363,7 +362,7 @@ export const INDEX_TTL_MS = 5 * 60 * 1000
 
 /** Concurrent index reads. High enough that six courses finish in one wave,
  *  low enough not to open 4×N sockets at an in-app Express server at once. */
-export const INDEX_CONCURRENCY = 6
+const INDEX_CONCURRENCY = 6
 
 let indexCache = null
 let indexPromise = null

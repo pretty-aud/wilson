@@ -172,7 +172,7 @@ function saveLastCompany(name) {
 // A deep link may pre-fill the company: `?company=<name or slug>` in the
 // query. Query only — the hash belongs to recovery links (recoveryLink.js).
 // It is still verified like anything typed; a link cannot skip step 1.
-export function companyFromDeepLink(search) {
+function companyFromDeepLink(search) {
   try {
     return (new URLSearchParams(search).get('company') ?? '').trim().slice(0, 80)
   } catch {

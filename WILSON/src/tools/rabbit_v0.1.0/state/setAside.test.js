@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SET_ASIDE_KEYS, isSetAside, splitSetAside, joinSetAside, hasSetAside,
-  holdersOf, workOn, workWords, removalOf, rowsInNoVersion, countRows,
+  holdersOf, workOn, removalOf, rowsInNoVersion, countRows,
 } from './setAside'
 
 const AT = '2026-10-05T10:00:00.000Z'
@@ -117,11 +117,6 @@ describe('workOn — what a person made or the Budget counts (constraint 4)', ()
   it('a row with nothing on it, and every key date, carry no work', () => {
     expect(workOn('tasks', { id: 't2', logged_days: 0 }, { comments, files })).toBeNull()
     expect(workOn('milestones', { id: 'm1' }, { comments, files })).toBeNull()
-  })
-  it('the words', () => {
-    expect(workWords({ loggedDays: 1.5, comments: 2, files: 1 })).toBe('1.5 days logged, 2 comments, 1 file')
-    expect(workWords({ loggedDays: 1, comments: 0, files: 0 })).toBe('1 day logged')
-    expect(workWords(null)).toBe('')
   })
 })
 

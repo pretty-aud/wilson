@@ -53,13 +53,13 @@ import {
 } from '../../tools/rabbit_v0.1.0/fileTags'
 
 /** files.description's CHECK (0075); a managed note is held to the same. */
-export const NOTE_MAX = 2000
+const NOTE_MAX = 2000
 
 /** E2, in her words — the sentence under the Core switch. */
-export const CORE_HINT = 'Files that give context about the project: the script, the treatment, storyboards, mood boards. Intake and D.O.G. read them.'
+const CORE_HINT = 'Files that give context about the project: the script, the treatment, storyboards, mood boards. Intake and D.O.G. read them.'
 
 /** E11, verbatim — in place of Core (and Kind) on a managed file. */
-export const MANAGED_CORE_REASON = 'Core files are project files; add it to the project to mark it core.'
+const MANAGED_CORE_REASON = 'Core files are project files; add it to the project to mark it core.'
 
 export default function FileEditor({
   node,

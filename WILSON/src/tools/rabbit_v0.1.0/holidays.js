@@ -173,5 +173,3 @@ export function countWorkingDays(startDate, endDate, holidayMap) {
   }
   return count
 }
-
-export { US_BANK_HOLIDAYS_SEED }

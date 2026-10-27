@@ -30,11 +30,11 @@
 // defaults below are the defaults the UI has always applied, so an existing
 // project names identically before and after anyone opens the panel.
 
-export const DEFAULT_PROJECT_CODE   = 'PROJ'
-export const DEFAULT_SEPARATOR      = '_'
-export const DEFAULT_SCENE_DIGITS   = 3
-export const DEFAULT_SHOT_DIGITS    = 4
-export const DEFAULT_START_NUMBER   = 1
+const DEFAULT_PROJECT_CODE   = 'PROJ'
+const DEFAULT_SEPARATOR      = '_'
+const DEFAULT_SCENE_DIGITS   = 3
+const DEFAULT_SHOT_DIGITS    = 4
+const DEFAULT_START_NUMBER   = 1
 
 // `||` for the strings and `??` for the numbers, matching the original
 // exactly. The difference matters: an empty project_code must fall back to

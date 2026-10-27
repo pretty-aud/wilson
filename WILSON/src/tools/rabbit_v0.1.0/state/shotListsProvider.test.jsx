@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { mountRabbit } from './mountRabbit'
 
 const holder = vi.hoisted(() => ({ adapter: null, mode: 'local_server', session: null, writable: true, authCbs: [], fixtures: null }))
 
@@ -202,9 +203,10 @@ function Probe() {
 }
 
 async function mount(lists = 1) {
-  render(<RabbitProvider><Probe /></RabbitProvider>)
-  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-  await waitFor(() => expect(ctxRef.shotLists.length).toBe(lists))
+  await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+    () => expect(ctxRef?.project?.id).toBe('p1'),
+    () => expect(ctxRef.shotLists.length).toBe(lists),
+  ] })
 }
 
 const ids = (rows) => rows.map(r => r.id)
@@ -411,9 +413,10 @@ describe('S3a — shot lists through the real provider', () => {
     holder.adapter.db.shotListItems.push({ id: 'k1', shot_list_id: 'L2', project_id: 'p1', scene_id: 'sc2', shot_id: null, position: 0 })
     holder.adapter.db.project.active_shot_list_id = 'L2'
     holder.adapter.hideFromLoad.add('L2')
-    render(<RabbitProvider><Probe /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-    await waitFor(() => expect(ctxRef.activeShotList?.id).toBe('L2'))
+    await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: [
+      () => expect(ctxRef?.project?.id).toBe('p1'),
+      () => expect(ctxRef.activeShotList?.id).toBe('L2'),
+    ] })
     expect(ids(ctxRef.scenes)).toEqual(['sc2'])
   })
 

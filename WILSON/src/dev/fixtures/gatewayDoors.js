@@ -46,7 +46,7 @@ import noiseClipUrl from './data/clip-noise.mp4'
 import noiseAudioUrl from './data/clip-noise.wav'
 
 export const STUB_BASE = 'https://fixture-gateway.local:8443'
-export const STUB_DOOR_SIGNATURE = 'fixture-signature-checked-by-nobody'
+const STUB_DOOR_SIGNATURE = 'fixture-signature-checked-by-nobody'
 
 /** The playback mode from the URL (see the header). */
 export function gatewayPlaybackMode(search = typeof location === 'undefined' ? '' : location.search) {

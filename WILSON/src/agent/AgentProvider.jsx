@@ -11,10 +11,6 @@ import { getEffectivePrompt } from '../components/settings/agentSkillRegistry'
 
 const AgentContext = createContext(null)
 
-// Tool names known to the multi-tool agent. Adding a new tool means
-// adding its slug here AND wiring its handlers via registerTool().
-export const AGENT_TOOLS = ['otter', 'rabbit']
-
 export function useAgent() {
   return useContext(AgentContext)
 }
