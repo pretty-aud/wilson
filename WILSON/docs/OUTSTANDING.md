@@ -441,6 +441,28 @@ Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
 Q2); settle it by copying the routes into a scratch express app the way the
 review's `repro-express.cjs` did.
 
+### In cloud mode an O.T.T.E.R. import of a lesson, or of an export made in local mode, saves nothing
+**INFERRED from code reading (the N2b design session's review round 2,
+2026-10-27); not yet measured.** `handleImportFile` in
+`src/tools/otter_v0.3.1/Otter.jsx` (the `data.lesson` branch, and the v2.0
+branch for each `sw` of an export) creates the course with `POST /api/software`
+and then posts every subject to `/api/software/<slug>/subjects`, where `<slug>`
+is a slugified name (`data.lesson.software_or_language` slugified, or
+`sw.meta.slug` as the export carried it). In cloud mode a course's `slug` on
+the wire is its row id (`toCourseWire` in `supabaseOtterAdapter.js`), so
+`subject.save` runs `.eq('course_id', '<slugified-name>')`, Postgres refuses
+the non-uuid (22P02) and `unwrap` throws; no import call site checks `res.ok`,
+so the import closes as if it had worked while nothing was saved. When the
+course already exists, `course.create` dies first on the owner-slug unique
+index (23505), unchecked too. Only a same-workspace re-import of an export made
+in cloud mode (whose `meta.slug` is the id) reaches a course. Fix shape:
+resolve the slug through the course list the import already reloads
+(`softwareList`, by name or by the export's id) before posting subjects, and
+check `res.ok` on each post. Found while placing the subject-share reminder
+(`docs/design/OTTER_SUBJECT_SHARES_DESIGN.md` §5.9: the reminder cannot fire
+from these imports until this is fixed); settle it with one lesson import on
+the beta.
+
 ### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
 **MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
 sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
@@ -752,7 +774,7 @@ probe. The allowlist test covers the mechanism; it does not cover those two
 tables' own payloads. That is the remaining half.
 
 ### Avatar does not persist
-**REPORTED; root cause still unproven.** S21 falsified four hypotheses by
+**REPORTED; root cause still unproven; narrowed by measurement (B1, 2026-10-27).** S21 falsified four hypotheses by
 measurement — the `avatar_url` column, the `user-avatars` bucket (public, 2 MB,
 correct MIME list), the storage policies, and the `isOwnAvatarUrl` render guard
 all exist and are correct, and the self-guard trigger RAISES rather than
@@ -769,11 +791,35 @@ code merged the patch into local state anyway; and the `catch` never cleared
 
 → **That makes a silent failure loud; it does not prove the report is fixed.**
 If it recurs, the panel will now say what went wrong — capture that message.
-The one candidate not yet excluded is whether the Storage API populates
-`request.jwt.claims` with `app_metadata` at all; if it does not,
-`current_workspace_id()` is NULL inside the storage policy and every upload is
-refused in every environment. One devtools Network capture of the
-`POST /storage/v1/object/user-avatars/...` settles it.
+**What B1 measured on wilson-dev, by query (2026-10-27):** the four
+`user-avatars` policies on `storage.objects`, read from `pg_policies` — INSERT
+`user_avatars_insert_own` WITH CHECK `bucket_id = 'user-avatars' AND
+auth.role() = 'authenticated' AND (storage.foldername(name))[1] =
+current_workspace_id()::text AND (storage.foldername(name))[2] =
+auth.uid()::text`; UPDATE `user_avatars_update_own` with the uid arm in its USING and both
+path arms in its WITH CHECK;
+DELETE `user_avatars_delete_own` on the uid arm alone; SELECT
+`user_avatars_select` on the bucket alone — the bucket public, 2 MB, four image
+MIME types; and `current_workspace_id()` is
+`NULLIF(COALESCE(current_setting('request.jwt.claims', true)::jsonb #>>
+'{app_metadata,workspace_id}', ''), '')::uuid`. The client writes
+`user-avatars/{workspace_id}/{user_id}/{ts}-{name}` (`ProfileSection.jsx`,
+`NewUserWelcome.jsx`): exactly the two folders the policy reads, so a
+path-shape mismatch is excluded, and the SELECT side is not involved. What
+remains is one candidate: the INSERT and UPDATE policies evaluate to NULL, and
+the upload is refused, exactly when the Storage API's `request.jwt.claims`
+carries no `app_metadata.workspace_id`. Not measured by B1: the smoke user's
+password is a CI secret (`DEV_PROBE_PASSWORD`) and no local file holds it, so
+no session can sign in to send the one request that settles it. **The
+capture:** as the seeded smoke user on wilson-dev, `POST
+/storage/v1/object/user-avatars/<workspace_id>/<user_id>/probe.png` with a
+one-pixel PNG, the bearer token and the anon `apikey` (the exact command is in
+`docs/sessions/handoffs/po-b1-2026-10-27.md`); a 200 excludes the policy and
+points at the client's `avatar_url` write or the render; a 400 whose body says
+`new row violates row-level security policy` proves it, and migration 0102 /
+suite 105 (reserved) then hold the smallest policy change that lets the owner
+of the path upload and still refuses another user's path. Delete the object
+after.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**
@@ -1292,6 +1338,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul S1 (2026-10-27; `po/s1-reconnect` into `feat/post-overhaul-edit-versioning`) — night 2's reconnect after a hung session check (`docs/design/RECONNECT_DESIGN.md`: the watchdog aborts a request at its budget, the SDK keeps the session and retries by itself, the strip says *reconnecting…* and pings the service that hung, the client module refuses a data request carrying the anon key while signed in, R.A.B.B.I.T.'s dot shows the same word) and the two-factor enrolment overflow, measured closed (506.89px in a 544px well at 824 and 700 tall, Chromium and Electron alike; the shell's 544px floor of 2026-09-11). | **S1-01** (two tabs, one refresh token; INFERRED). | *One hung `getSession()` pins the whole app's auth* (fixed by the build; its two wrong claims recorded in the S1 section) and *The two-factor enrolment screen overflows the sign-in shell's band at laptop heights* (measured closed). |
+| Post-overhaul B1 (2026-10-27; `po/b1-subject-shares-server` into `feat/post-overhaul-edit-versioning`) — subject shares, the server (`docs/sessions/PLAN_TO_1_0.md` night 2; the design's §6.1): migration 0100 copied whole from the design's Appendix A (the table, the one SELECT policy, the guard trigger, the consent helper's chain walk, the six functions, the index, the audit lines, the post-conditions), 0065 removed in the same commit; suite 103 (446 probes, 446/446 on wilson-dev; the failing controls of the design's §4 and §10, and of the two review rounds' corrections, run once each against the final suite, 33 in all); `otter_subject_shares` into `rls.yml`'s `RLS_TABLES`, its `KNOWN_UNCOVERED` line gone with 0065; the adapter's seven operations under `/api/otter/subject-shares` and `/api/otter/subjects/:id`, `id` on the subject wires, `export.all`'s `linked_subjects`; the fixtures answer the six ops as nominations; 0100 applied to wilson-dev by query with its history row (md5 recorded in the hand-off; staging is the controller's); the avatars entry narrowed by measurement (the four policies, the claim function, the client's path), no 0102 since the cause is not proven; two review rounds on Fable. | **nothing new**; the avatars entry rewritten to what remains. | nothing. |
 | Post-overhaul DG3 (2026-10-27; `po/dg3-dog-closed-list` into `feat/post-overhaul-edit-versioning`) — D.O.G.'s closed list (`docs/sessions/PLAN_TO_1_0.md` §3: DG2-01, DG2-02) and Audrey's two answers of 2026-10-27: a press on either Generate button keeps focus in its box, so the box does not shrink under it and the click lands; Choose file a kit button (Tab, Enter and Space, named *Choose file*; the 20th upload from the keyboard hands focus to its Remove); card 1's field label *Choose a project*; the main region's ring drawn inside its own box on every page, R.A.B.B.I.T.'s shell redrawing it above itself. No migration, no Edge Function. Walkthrough 81. | DG3-03 (on D.O.G. the ring loses its top or bottom side where the output card crosses the column's edge; review round 2, MEASURED), DG3-04 (right after a click on Generate, Alt is the box's; review round 2, MEASURED). Comment markers: 4 → 4. | **DG2-01 fixed**, **DG2-02 fixed** (the DG2 section with them), **FX15-03 fixed** (her ruling, "Keep it everywhere"). |
 | Post-overhaul FX15 (2026-10-26; `po/fx15-fx14-leftovers` into `feat/post-overhaul-edit-versioning`) — FX14's leftovers, Audrey's choice of 2026-10-26: four more R.A.B.B.I.T. test mounts out of the gap, each with a CONTROL that holds it open; D.O.G.'s 20 settings headers (16 places in the source) say whether their section is open; one main region exposed on every page (PageSurface, the hidden pages and the two tools' own mains `hidden` off screen); D.O.G.'s Project and layout dropdowns named; a bounded retry on 502/503/504 in the ai-files CI probe. No migration, no Edge Function. Walkthrough 79. | FX15-01 (D.O.G.'s render-test harness could press Enter before D.O.G. had the upload; MEASURED; found by DG2 as well and fixed there, `91eee254`, so removed at FX15's merge), FX15-02 (Single page's Page # and Page Request named by their placeholders; pre-existing), FX15-03 (on R.A.B.B.I.T. the main region's focus ring is cut off; Audrey's call), FX15-04 (at least 13 more R.A.B.B.I.T. test files mount in the same gap; three of them measured, 101 of 131 tests red in it; review round 1), FX15-05 (the closed nav strip's items are Tab stops and screen-reader buttons on every page; pre-existing, review round 1), FX15-06 (Help's navigation and O.T.T.E.R.'s side panel are unnamed landmarks; pre-existing), FX15-07 (D.O.G.'s settings headers are named by their label and description, block content in a button; pre-existing), FX15-08 (a page chosen from the nav strip by keyboard leaves focus on `<body>`; pre-existing, review round 2). Comment markers: 4 → 4. | **FX14-01 fixed** (the four mounts render inside act and wait for the provider's status past `unavailable`; forced into the gap 25 of 50 tests failed before, none after), **FX14-02 fixed**, **FX14-03 fixed**, **FX14-04 fixed** (Single page's layout dropdown too). The FX14 section with them. **DG2-03 fixed** (after FX15's review rounds: the probe's messages call, no-sign-in request and operator's summary go through the same retry as step 1 and `call()`). |
 | Post-overhaul DG2 (2026-10-26; `po/dg2-uploads-in-references` into `feat/post-overhaul-edit-versioning`) — Audrey's ask of 2026-10-26: D.O.G.'s Upload Documents section moves into card 2, References, as its first group of rows (each upload a row with its glyph, name, size and Remove; Choose file at the group's foot), so the card reads as one list of what the AI reads; card 1 becomes *1 Project*. What is read, sent, counted and let go of unchanged (the meter measured identical before and after). Review round 1's corrections: a Remove pressed from the keyboard keeps focus in the list (focus on the page made the next Enter a deck), the upload's refusal is said under Choose file, *Remove all references*; round 2's: the notice's Undo and Dismiss the same, the refusal cleared by a generation and announced again when repeated. No migration, no Edge Function. Walkthrough 80. | DG2-01 (D.O.G.'s Choose file is not reachable by keyboard and has no accessible name; pre-existing, MEASURED before and after), DG2-02 (a click on Generate full deck outline with the deck context box focused is lost: the box shrinks under the press; pre-existing, MEASURED), DG2-03 (the CI probe's no-sign-in request failed the smoke job on an upstream 504 on DG2's merge; MEASURED). Comment markers: 4 → 4. | — |

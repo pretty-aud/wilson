@@ -78,11 +78,25 @@ describe('reads', () => {
 
   it('the workspace-only lists are honest empties, not errors', () => {
     const fx = buildDevFixtures()
-    for (const path of ['/api/otter/trash', '/api/otter/change-requests', '/api/otter/nominations', `/api/otter/courses/${COURSE_ID}/editors`]) {
+    for (const path of ['/api/otter/trash', '/api/otter/change-requests', '/api/otter/nominations', `/api/otter/courses/${COURSE_ID}/editors`, '/api/otter/subject-shares']) {
       const { status, body } = call(fx, path)
       expect(status, path).toBe(200)
       expect(body, path).toEqual([])
     }
+  })
+
+  // 0100 (B1): the subject wires carry the row's id, as the cloud's do (the
+  // owner's client shares by id); a linked subject by id is a 404 on fixture
+  // data, never an empty 200, because the client acts on that status.
+  it('0100: subject.list and subject.get carry `id`; a subject by id is 404', () => {
+    const fx = buildDevFixtures()
+    const list = call(fx, `/api/software/${COURSE_ID}/subjects`).body
+    for (const s of list) expect(typeof s.id, s.slug).toBe('string')
+    const full = call(fx, `/api/software/${COURSE_ID}/subjects/${list[0].slug}`).body
+    expect(full.id).toBe(list[0].id)
+    const byId = call(fx, `/api/otter/subjects/${list[0].id}`)
+    expect(byId.status).toBe(404)
+    expect(byId.body).toEqual({ error: 'Not found' })
   })
 
   it('export.all bundles the course the way the cloud does', () => {
@@ -93,6 +107,8 @@ describe('reads', () => {
     expect(body.software[0].subjects.length).toBe(4)
     expect(body.software[1].subjects.length).toBe(2)
     expect(body.quiz_history.length).toBe(2)
+    // 0100: the cloud's export carries each course's linked subjects; here none.
+    for (const sw of body.software) expect(sw.linked_subjects).toEqual([])
   })
 
   it('an unparsed op is 501, and reads are clones', () => {
@@ -149,6 +165,12 @@ describe('writes', () => {
       ['/api/otter/change-requests', 'POST'],
       ['/api/otter/nominations', 'POST'],
       ['/api/otter/trash/restore', 'POST'],
+      // 0100: the five share writes, refused as nominations are
+      ['/api/otter/subject-shares', 'POST'],
+      ['/api/otter/subject-shares/course', 'POST'],
+      ['/api/otter/subject-shares/sh-1/accept', 'POST'],
+      ['/api/otter/subject-shares/sh-1/decline', 'POST'],
+      ['/api/otter/subject-shares/sh-1/revoke', 'POST'],
     ]
     for (const [path, method] of refused) {
       const { status, body } = call(fx, path, method, {})

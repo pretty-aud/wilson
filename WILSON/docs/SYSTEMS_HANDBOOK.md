@@ -954,6 +954,7 @@ only matter if someone **replays a migration by hand**:
 | `0012`, `0014`, `0027`, `0038`, `0042`, `0047`, `0053`, `0067`, `0073`, `0074`, `0078`, `0082`, `0083` **or** `0088` | `0092` | **(Post-overhaul S4d)** 0092 restates, from each one's latest body, everything that decides which AUDIENCE a Legal thing has: the four `files_*` policies (0038 / 0083 / 0088), the eight money storage policies on both buckets (0042 / 0053), `log_file_downloaded` (0047 / 0074 / 0083 / 0088), `reserve_upload_bytes` (0073 / 0078 / 0083 / 0088), `fn_trash_authz` (0014 / 0067 / 0082 / 0088), the edit-history snapshot trigger and function and `edit_history_select` (0012 / 0088), and `file_events_select` (0027 / 0074 / 0088). What a replay does meanwhile: **0042** also drops `LEGAL` from `rabbit_money_segment`, so every project member can read every Legal object and row (0088's own row above) — re-run 0088, then 0092; **0027 / 0038** also recreate the rabbit-files BASE storage policies with no LEGAL (or FINANCE) exclusion, so every member reads every Legal object — re-run 0042 and 0053 FIRST, then 0088, then 0092 (0088's post-condition 8 and 0092's post-condition 5 refuse meanwhile); **0038 / 0083** put the files policies back on the flag-only arm (a Legal row opens to every reader — 0088's row); **0012** strips BOTH arms off `edit_history_select`, so every workspace manager reads every invoice's history (money widens); **0027 / 0074** bring back ruling 22's `purged` exception WITHOUT 0088's LEGAL carve-out, so a member reads a deleted invoice's AND a deleted Legal file's record again (0027: every event of every invoice and Legal file; 0074 also puts `log_file_downloaded` back on the flag-only arm) — re-run 0074, 0088, then 0092; **0088** puts the files policies, the three definer bodies, `edit_history_select` and `file_events_select` back on the money gate — a workspace manager loses the Legal ROWS, history, events, reservations and trash (nothing opens to the wrong person) while keeping the Legal OBJECTS (0088 restates no storage policy), the snapshot trigger stops setting `is_legal` (fails closed), and a deleted INVOICE's record is every member's again while a deleted Legal file's stays hidden (0088's own arm); **0053** puts the eight thumbnail money policies back on the money gate alone. 0088 IS replayable after 0092: 0092 changes the signature of nothing 0088 defines (its Legal verdict is a function of its own, `edit_history_file_is_legal`). 0092 calls, and does not restate, `can_access_project_money` (0037) and `passes_project_privacy` (0082); post-condition 12 pins the money body to 0037's WHOLE and post-condition 1 the Legal body WHOLE. Re-run 0092 after any of them. |
 | `0012`, `0014`, `0016`, `0027`, `0038`, `0042`, `0047`, `0061`, `0067`, `0073`, `0074`, `0077`, `0078`, `0082` **or** `0083` | `0088` | **(Post-overhaul S4b)** 0088 restates, from each one's latest body, everything that decides who learns a Legal file or an invoice exists: `rabbit_money_segment` (0042 — a replay drops `LEGAL` from the list and every project member can read a Legal object through the base storage policies), the four `files_*` policies (0038/0083 — back to the flag-only arm, so a Legal row, which is not `is_financial`, opens to every reader), `log_file_downloaded` (0047/0074/0083), `fn_trash_authz` (0014/0067/0082 — a member trashes and restores an invoice by id again), `fn_realtime_broadcast` (0016/0061/0077 — money rows broadcast whole to every project reader again), `edit_history_select` (0012), `file_events_select` (0027/0074) and, since review round 1, `reserve_upload_bytes` (0073/0078/0083 — a member could reserve a Legal key and learn whether it exists). Each has a post-condition in 0088; re-run 0088 after any of them. |
 | `0055` | `0056` | **(S41)** 0055 grants EXECUTE on `workspace_petal_bytes(uuid)` to `authenticated`; 0056 revokes it. That function takes an arbitrary workspace id and does **no** membership check by design, so a re-run of 0055 alone re-opens an RPC returning any company's storage total to any signed-in user. ⚠️ 0055 also creates `operator_storage_plan_summary()` with a column named `suspended` (the company's teardown state) sitting beside `status` (the plan's billing hold); 0056 renames it `company_deleted`. A 0055 replay restores the ambiguous name under a `DROP`-less `CREATE FUNCTION`, which fails loudly — that one is safe. |
+| `0022` | `0100` | **(B1, 2026-10-27)** 0100 redefines `otter_subjects_select` as 0022's predicate plus ONE arm, `otter_has_accepted_subject_share(id)` (subject shares). A by-hand replay of 0022 puts the policy back without the arm: every linked subject silently stops being readable, every 0022 post-condition still passes, and 0100's own post-conditions are not re-run by a 0022 replay. Re-run 0100 after 0022 (and still 0025 and 0026, the first row). |
 
 0027 and 0028 explicitly state that they overwrite nothing and carry no
 ordering rule.
@@ -3651,6 +3652,41 @@ zeroes the score and used to destroy the only copy.
 > called. Only `codeWrite` challenges go unrecorded: nothing marks them, and
 > `quizComplete` is only ever set from the multiple-choice path.
 
+**Subject shares (B1, 2026-10-27; migration 0100, pgTAP suite 103; the design
+is `docs/design/OTTER_SUBJECT_SHARES_DESIGN.md`).** One subject to one person
+as a live link they accept first: a row in `otter_subject_shares` about two
+people and a subject, never a visibility of the subject. `otter_subjects_select`
+stays 0022's inheritance plus ONE arm, `otter_has_accepted_subject_share(id)`,
+which opens one subject row to one person and nothing of the course, its
+other subjects or its documents; the link is read-only (the UPDATE policy
+never names the helper). Every write goes through a SECURITY DEFINER function
+— `otter_subject_share`, `otter_subject_share_course` (a whole course as a
+batch of rows made in one transaction and grouped by `batch_id`),
+`otter_subject_share_accept` (the host is the receiver's own course with the
+OWNER's slug, found or made), `otter_subject_share_decline`,
+`otter_subject_share_revoke` — the first two through one internal row-maker,
+`otter_subject_share_make`, so a batch row and a single row are made by one
+body; `authenticated` holds SELECT alone on the table, and a guard trigger armed by two
+transaction-local GUCs refuses any other write from any role, armed or not,
+for a row naming a subject of another workspace or misnaming its owner. A
+receiver who accepted may pass the subject on (`via_share_id`,
+`subject_owner_id`, `chain_depth` at most 8); the helper walks the chain up to
+a root made by the live owner and is false at the first link not accepted,
+and ending any link revokes every live link below it (the cascade in the
+revoke, each with its own audit line). `otter_subject_shares_index()` serves
+every list with what each side may learn: the pending receiver's minimum (the
+title, the course's name, the labels, the note), the live columns once
+accepted, the two snapshots (`subject_title`, `course_name`) once settled, and
+`gone` for a trashed source, a course that changed hands or a link that does
+not resolve; the owner lists every row of their subject. One `app_events` line
+per transition (WIL-4110 shared, 4111 accepted, 4112 declined, 4113 revoked;
+ids only; the `admin` stream). The client's seven operations sit under
+`/api/otter/subject-shares` and `/api/otter/subjects/:id` (`otterRoutes.js`,
+design §5.1), every refusal passed through verbatim; the subject wires carry
+the row's `id`; a linked subject's progress is the receiver's own row on
+their host course under `link:<subject_id>` (design §1.3). The screens are
+B2's (night 3). The limits are in §17.
+
 ### 13.3 R.A.B.B.I.T.
 
 `src/tools/rabbit_v0.1.0/`. Mounted once near the top of the app by
@@ -5738,6 +5774,42 @@ documentation and starts being wrong answers.
 - **`downloaded` is advisory for every direct-served provider** (S33 stated
   it for cloud; S37 generalises it): a presigned GET is answered by the
   customer's provider and WILSON never observes the read.
+
+**Subject shares (B1, 2026-10-27, migration 0100) — the limits of design §7**
+
+- **No share outside the workspace.** Every policy starts from
+  `current_workspace_id()`; the guard trigger refuses a cross-workspace row at
+  insert, and the consent helper and the index carry the same belt, so a row
+  forged past the trigger opens and lists nothing.
+- **A share is a link, never a copy**, and in 1.0 a linked subject is **not
+  validated and not searched**: the Validator's lesson tree is a session-long
+  store a linked body may not sit in, and search runs per keystroke over the
+  bodies it holds. The owner validates; the receiver reads the result live.
+- **No expiry of a pending share, no cooldown after a decline, no notice
+  outside WILSON and no realtime arrival.** The owner can withdraw; the
+  Requests count is the notice; re-sharing after a decline or a revoke is
+  allowed (one LIVE share per subject and person, the partial unique index).
+- **The owner never sees the receiver's progress** (`otter_progress` is
+  owner-only); **one person per row** (no role or group as a receiver); the
+  receiver does not choose the host course (S2: the owner's course slug
+  decides).
+- **A received batch is not passed on whole** (a receiver passes one subject
+  at a time); inside a batch card the one per-row control is Dismiss on a row
+  that is `gone`; **a subject added later does not follow a course shared
+  whole** (the client reminds the owner, B2); **no atomic batch-accept** (the
+  client's loop stops at the first refusal and the rest stay pending).
+- **A chain is at most eight links**: the ninth pass-on is refused in words.
+- **An in-tenant forgery stays readable to the person it misnames.** A row
+  inserted with the guard trigger disabled and misnaming its owner is
+  readable, as ids and snapshots, by that person through the raw table and
+  nowhere else (the policy trusts the column; the index, the helper and the
+  revoke read the live owner). Design §10.
+- **The raw table discloses whole rows to every party of a row.** The owner
+  of the subject reads every column of every row of their subject, the sharer
+  of an onward row reads the row they made (the onward receiver's host pointer
+  among its columns) and the receiver their own; the index's nulls are what
+  the client shows, not a boundary. The policy's three arms on a whole-row
+  SELECT grant (0100 §1); the design's §3.6 states the owner's read.
 
 ---
 
