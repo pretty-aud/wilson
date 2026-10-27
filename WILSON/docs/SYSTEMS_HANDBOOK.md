@@ -3459,7 +3459,8 @@ starting, as the banner was. The state and handlers stay in
 the sources, the AI file ids and their let-go (FX12), the meter's figures, the
 Enter rule's "something to read" and *Use visual assets* are unchanged. Card 1
 is **1 Project** (the dropdown, New project, the description). Choose file is
-not a Tab stop and has no accessible name, as before (OUTSTANDING DG2-01).
+not a Tab stop and has no accessible name, as before (OUTSTANDING DG2-01;
+since DG3 a kit button, below).
 Walkthrough 80.
 
 **D.O.G.'s settings drawer and dropdowns, for a screen reader (post-overhaul
@@ -3487,7 +3488,9 @@ instead of `<body>`. Both Generate buttons cancel their `mousedown`, so a press
 keeps focus where it is: the deck context box (80px, 160px focused) or the page
 request box (96px, 160px) does not blur and shrink under the press, so the
 button does not move before the release and the click lands (DG2-02, closed).
-Enter and Space on a focused Generate button are as before. Walkthrough 81.
+Enter and Space on a focused Generate button are as before. The cursor stays in
+the box after the click, so Alt does nothing until it leaves the box (D.O.G.'s
+Alt leaves a text box's keys to it; OUTSTANDING DG3-04). Walkthrough 81.
 
 ### 13.2 O.T.T.E.R.
 
@@ -3982,7 +3985,9 @@ everywhere").** The region fills its page from edge to edge, so the kit's
 ring 1px outside it was cut by the content box's `overflow: hidden`: wholly on
 R.A.B.B.I.T. and Help, at the sides elsewhere. `main:focus-visible
 { outline-offset: -2px }` (`src/index.css`, `@layer base`) draws it inside the
-region's own box, the same 2px on all four sides of every page. R.A.B.B.I.T.'s
+region's own box, the same 2px on all four sides of every page (the pet covers
+its own corner of it; on D.O.G. the output frame, positioned, hides the top or
+bottom side where it crosses the column's edge: OUTSTANDING DG3-03). R.A.B.B.I.T.'s
 shell (`.rb-shell`, `relative`, the paper) paints over its region after the
 region's own outline, so it redraws the same ring above itself while the region
 has keyboard focus (`main:focus-visible > .rb-shell::after`, `rabbitShell.css`;

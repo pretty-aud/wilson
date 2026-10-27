@@ -351,8 +351,10 @@ html {
      `overflow: hidden` wherever the page has no gutter: wholly on
      R.A.B.B.I.T. and Help, left and right on every other page (measured,
      the DG3 hand-off). Drawn inside the region's own box, it is the same
-     2px on all four sides of every page. R.A.B.B.I.T.'s shell paints over
-     its region, so it redraws this ring above itself (rabbitShell.css). */
+     2px on all four sides of every page, except where something positioned
+     inside the region crosses its edge and paints over it (D.O.G.'s output
+     frame: OUTSTANDING DG3-03). R.A.B.B.I.T.'s shell paints over its whole
+     region, so it redraws this ring above itself (rabbitShell.css). */
   main:focus-visible {
     outline-offset: -2px;
   }

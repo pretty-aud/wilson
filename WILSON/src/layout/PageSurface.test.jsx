@@ -210,7 +210,9 @@ describe('no page draws a second main (FX15 source scan)', () => {
 // =============================================================================
 // DG3 (OUTSTANDING FX15-03; Audrey, 2026-10-27: "Keep it everywhere"): the
 // ring the main region wears when the toast's return gives it focus shows on
-// every page, the same 2px on all four sides. Before, the kit's ring sat 1px
+// every page, the same 2px on all four sides (but where a positioned element
+// inside the region crosses its edge: D.O.G.'s output frame, OUTSTANDING
+// DG3-03, measured by review round 2). Before, the kit's ring sat 1px
 // OUTSIDE the region, which fills its page from edge to edge, and the content
 // box's `overflow: hidden` cut it: wholly on R.A.B.B.I.T. and Help, left and
 // right everywhere else (MEASURED in Chromium, every page at 1280x800 and
