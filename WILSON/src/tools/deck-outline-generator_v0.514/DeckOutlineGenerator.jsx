@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
+import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
 import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
@@ -63,6 +63,19 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   const [uploadedFiles, setUploadedFiles] = useState([]); // Array of {file, content, type}
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isFileLoading, setIsFileLoading] = useState(false);
+  // Why the last upload was refused or could not be read. Said under Choose
+  // file in References, where the person is (DG2 review round 1, finding 2:
+  // in the banner at the top of the page it was out of sight once a dozen
+  // uploads pushed Choose file down). Cleared by the next upload and by a
+  // generation starting, as the banner was (review round 2, finding 2). Each
+  // refusal is a new one (`n`), so the same words twice are said twice: the
+  // clear at an upload's start and its refusal fall in one batch and would
+  // otherwise net to no change (review round 2, finding 3).
+  const [uploadErrorState, setUploadErrorState] = useState(null);
+  const uploadErrorN = useRef(0);
+  const setUploadError = useCallback((text) => {
+    setUploadErrorState(text ? { text, n: ++uploadErrorN.current } : null);
+  }, []);
   // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
   // page mounted, so the side then stays where it is put until WILSON closes,
   // as the uploads do; the one exception is the Alt toggle below, which hears
@@ -718,13 +731,14 @@ Generate 3 color themes for this deck.`;
     
     // Check max files limit
     if (uploadedFiles.length >= 20) {
-      setError('Maximum 20 files allowed');
+      setUploadError('Maximum 20 files allowed');
       return;
     }
 
     setIsFileLoading(true);
     setError('');
-    
+    setUploadError('');
+
     // Valid file types - documents, images, and videos
     const isDocument = file.type === 'application/pdf' ||
       file.type === 'text/markdown' ||
@@ -741,7 +755,7 @@ Generate 3 color themes for this deck.`;
       file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i);
 
     if (!isDocument && !isImage && !isVideo) {
-      setError('Please upload a PDF, Markdown, Text, Image, or Video file');
+      setUploadError('Please upload a PDF, Markdown, Text, Image, or Video file');
       setIsFileLoading(false);
       return;
     }
@@ -762,7 +776,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading PDF file');
+          setUploadError('Error reading PDF file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -780,7 +794,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading video file');
+          setUploadError('Error reading video file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -798,7 +812,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading image file');
+          setUploadError('Error reading image file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -814,19 +828,19 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading file');
+          setUploadError('Error reading file');
           setIsFileLoading(false);
         };
         reader.readAsText(file);
       }
     } catch (err) {
-      setError('Error processing file');
+      setUploadError('Error processing file');
       setIsFileLoading(false);
     }
     
     // Reset the input so the same file can be uploaded again if removed
     e.target.value = '';
-  }, [uploadedFiles.length]);
+  }, [uploadedFiles.length, setUploadError]);
 
   const removeFile = useCallback((fileId) => {
     setUploadedFiles(prev => prev.filter(f => f.id !== fileId));
@@ -1231,6 +1245,7 @@ ${alreadyPlacedContext}`;
 
     setIsGenerating(true);
     setError('');
+    setUploadError('');
 
     const layoutInfo = SLIDE_LAYOUTS.find(l => l.id === selectedLayout);
     
@@ -1511,6 +1526,7 @@ ${outputInstructions}${placementPrompt.rules}`;
 
     setIsRegenerating(true);
     setError('');
+    setUploadError('');
 
     // Push previous content onto undo stack (up to 8 entries)
     setPreviousContent(prev => {
@@ -1841,6 +1857,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
 
     setIsGenerating(true);
     setError('');
+    setUploadError('');
     // generateAIThemes clears this itself when it runs, which covers every case
     // except the one that matters here: a rerun with the Theme Generator
     // checkbox OFF never calls it, and last run's amber banner would sit there
@@ -4088,8 +4105,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </Banner>
           )}
 
-          {/* Section 1: the project and the uploads. The deck context box and
-              the boxes beside it moved to Section 3 (DG1, Audrey's brief). */}
+          {/* Section 1, "1 Project": the project. The deck context box and
+              the boxes beside it moved to Section 3 (DG1, Audrey's brief);
+              the uploads moved to References, its first group (DG2,
+              2026-10-26: "lets move the upload documents section in dog tool
+              to the 2 References card"). Their state and handlers stay here
+              (uploadedFiles, isFileLoading, handleFileUpload, removeFile) and
+              reach the card as its `uploads` prop. */}
           <Card pad={false} className="dog-card">
             <header
               className="ui-panel-head dog-card-head"
@@ -4099,7 +4121,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
-                <span id="dog-card1-title">Project documentation</span>
+                <span id="dog-card1-title">Project</span>
               </h2>
               <div className="ui-panel-actions">
                 {/* FX14 (FX13-01): the fold from the keyboard. A real button,
@@ -4168,80 +4190,12 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                 )}
               </div>
-
-              {/* File Upload (untouched by DG1: "leave that how it was") */}
-              <div className="flex items-start gap-8">
-                {/* File Upload - Multiple files support */}
-                <div className="flex-1">
-                  <label className="ui-field-label dog-field-label">
-                    Upload Documents
-                  </label>
-                  <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
-                  
-                  {uploadedFiles.length === 0 ? (
-                    <label className="ui-btn dog-upload" data-variant="secondary" data-size="md" data-surface="dark">
-                      {isFileLoading ? (
-                        <Loader2 className="animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Upload aria-hidden="true" />
-                      )}
-                      <span>Choose file</span>
-                      <span className="dog-upload-hint">(PDF, MD, TXT, images)</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
-                  ) : (
-                    <div className="flex gap-2">
-                      {/* Grid: up to 4 columns of 5 rows */}
-                      {Array.from({ length: Math.ceil(uploadedFiles.length / 5) }, (_, colIdx) => (
-                        <div key={colIdx} className="flex flex-col gap-1.5">
-                          {uploadedFiles.slice(colIdx * 5, colIdx * 5 + 5).map((fileData, index) => {
-                            const globalIndex = colIdx * 5 + index;
-                            const isLast = globalIndex === uploadedFiles.length - 1;
-                            return (
-                              <div key={fileData.id} className="dog-file-chip">
-                                {fileData.type === 'image' ? (
-                                  <Image className="dog-file-icon" aria-hidden="true" />
-                                ) : (
-                                  <FileText className="dog-file-icon" aria-hidden="true" />
-                                )}
-                                <span className="dog-file-name">{fileData.file.name}</span>
-                                <span className="dog-file-size">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
-                                <IconButton size="sm" icon={X} title="Remove file" onClick={() => removeFile(fileData.id)} />
-                                {/* Add button on last file if under limit */}
-                                {isLast && uploadedFiles.length < 20 && (
-                                  <label className="ui-iconbtn" data-size="sm" data-surface="dark" title="Add file">
-                                    {isFileLoading ? (
-                                      <Loader2 className="animate-spin" aria-hidden="true" />
-                                    ) : (
-                                      <Plus aria-hidden="true" />
-                                    )}
-                                    <input
-                                      type="file"
-                                      className="hidden"
-                                      accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*"
-                                      onChange={handleFileUpload}
-                                    />
-                                  </label>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
             )}
           </Card>
 
-          {/* Section 2: what the deck reads (DG1; ./references/) */}
+          {/* Section 2: what the deck reads (DG1; ./references/), the uploads
+              its first group (DG2) */}
           <ReferencesCard
             refs={refs}
             projectChosen={!!selectedProject}
@@ -4249,6 +4203,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             extraUncounted={baseUncounted}
             onAdd={() => setShowRefsPicker(true)}
             onPreview={refPreview.open}
+            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
           />
 
           {/* Section 3: one card for a single page and a full deck (DG1,
