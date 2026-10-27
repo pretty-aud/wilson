@@ -244,12 +244,13 @@ describe('code review round 2', () => {
 
 // FX15: the gap `mount` waits out, held open on purpose. A MutationObserver
 // resolves in the microtasks of the commit that draws the project, before
-// that commit's effects run. Its premise, as FX15's review round 1 (R1-2)
+// that commit's effects run. Its premise, as FX15's review rounds 1 and 2
 // corrected it: React asks the Scheduler for a paint in every commit
 // (`requestPaint`), and the Scheduler then yields however short the commit
-// was, so the commit's passive effects are always a later task (not, as
-// FX14's review round 2 had it, because the commit overran its 5 ms slice;
-// tableViewsProvider.test.jsx's premise test holds it). The fixed `mount`
+// was, so a commit of a non-sync update (the fixtures' load is one) leaves
+// its passive effects for a later task (not, as FX14's review round 2 had
+// it, because the commit overran its 5 ms slice). state/gapPremise.test.jsx
+// holds it, with requestPaint stubbed as its control. The fixed `mount`
 // does not depend on it.
 describe('CONTROL (FX15): the gap `mount` waits out', () => {
   it('a grouping made between the project\'s commit and its effects is wiped by the drafts reset: no groups; after the effects it holds', async () => {

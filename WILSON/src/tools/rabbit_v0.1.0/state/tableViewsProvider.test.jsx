@@ -18,7 +18,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, cleanup, act, waitFor } from '@testing-library/react'
-import { flushSync } from 'react-dom'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null }))
 
@@ -251,12 +250,13 @@ describe('custom table views through the provider (the dev fixtures)', () => {
 
 // FX15: the gap `mount` waits out, held open on purpose. A MutationObserver
 // resolves in the microtasks of the commit that draws the project, before
-// that commit's effects run. Its premise, as FX15's review round 1 (R1-2)
+// that commit's effects run. Its premise, as FX15's review rounds 1 and 2
 // corrected it: React asks the Scheduler for a paint in every commit
 // (`requestPaint`), and the Scheduler then yields however short the commit
-// was, so the commit's passive effects are always a later task (not, as
-// FX14's review round 2 had it, because the commit overran its 5 ms slice;
-// tableViewsProvider.test.jsx's premise test holds it). The fixed `mount`
+// was, so a commit of a non-sync update (the fixtures' load is one) leaves
+// its passive effects for a later task (not, as FX14's review round 2 had
+// it, because the commit overran its 5 ms slice). state/gapPremise.test.jsx
+// holds it, with requestPaint stubbed as its control. The fixed `mount`
 // does not depend on it.
 // No view is drawn here, so a marker carries the project's id into the DOM
 // for the observer to see.
@@ -285,54 +285,3 @@ describe('CONTROL (FX15): the gap `mount` waits out', () => {
   })
 })
 
-// FX15 review round 1, R1-2: the premise every gap CONTROL rests on (here and
-// in the R.A.B.B.I.T. view tests), held on a component of one element, whose
-// commit takes well under a millisecond: an update outside act commits, and
-// that commit's passive effects are still pending at its microtask, because
-// React requests a paint in every commit and the Scheduler yields for it. It
-// is not the length of the commit. CONTROLs: the same update inside act, and
-// one committed by flushSync (a sync commit flushes its effects at its end),
-// have run their effect by then, so the first assertion can tell.
-describe('the premise of the gap CONTROLs (FX15 review round 1, R1-2)', () => {
-  function Tiny({ log, sync = false }) {
-    const [on, setOn] = React.useState(false)
-    React.useEffect(() => {
-      Promise.resolve().then(() => { if (sync) flushSync(() => setOn(true)); else setOn(true) })
-    }, [sync])
-    React.useEffect(() => { if (on) log.push('effect') }, [on, log])
-    return <i data-tiny={String(on)} />
-  }
-  const drawn = () => new Promise((resolve) => {
-    const mo = new MutationObserver(() => {
-      if (document.querySelector('i[data-tiny="true"]')) { mo.disconnect(); resolve() }
-    })
-    mo.observe(document.body, { subtree: true, attributes: true, childList: true })
-  })
-  it('a one-element commit outside act leaves its effects for a later task', async () => {
-    const log = []
-    const committed = drawn()
-    render(<Tiny log={log} />)
-    await committed
-    expect(log).toEqual([])                         // drawn; its effect not run yet
-    await waitFor(() => expect(log).toEqual(['effect']))
-  })
-  it('CONTROL: inside act, and committed by flushSync, the effect has run when the commit is seen', async () => {
-    const log = []
-    let set = null
-    function Held() {
-      const [on, setOn] = React.useState(false)
-      set = setOn
-      React.useEffect(() => { if (on) log.push('effect') }, [on])
-      return <i data-held={String(on)} />
-    }
-    render(<Held />)
-    await act(async () => { set(true) })
-    expect(log).toEqual(['effect'])
-    cleanup()
-    const synced = []
-    const committed = drawn()
-    render(<Tiny log={synced} sync />)
-    await committed
-    expect(synced).toEqual(['effect'])
-  })
-})
