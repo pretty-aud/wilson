@@ -5504,23 +5504,29 @@ of a session — this section is limits by design, that file is faults.
   for company B. The connection-lost strip: `connectionWatchdog.js` wraps
   the one fetch supabase-js uses and, when an auth, PostgREST or
   storage-download request is pending past 20 s while `navigator.onLine` is
-  true (a second more per 50 KB of body), **aborts it** and says "Connection
-  lost — reconnecting…" (S1, 2026-10-27; `docs/design/RECONNECT_DESIGN.md`):
-  the SDK reads the rejected refresh as retryable, keeps the session and
-  retries by itself, the watchdog asks the service that hung every 10 s
-  (`GET /auth/v1/health`, `HEAD /rest/v1/`, a `HEAD` of the hung object) and
-  the app continues with the same client when it answers — no reload; a
-  minute without an answer the strip says "Connection lost — reload to
-  continue." (B2's sentence, kept for that state), Reload on both. `lost` is
-  per family and clears only on an answer under 500 from the family that
-  hung. The client module refuses a PostgREST or storage request that carries
-  the anon key while a person is signed in (the hung caller's own read, once
-  its loop ends), so its caller's error path runs rather than an empty
-  success. R.A.B.B.I.T.'s dot shows *reconnecting…* (amber diamond) while the
-  strip is up and asks again on the clear. Uploads, the resumable path and
-  every Edge Function call (all raw fetch) are outside it by construction;
-  the start-up session check keeps its own 15 s ceiling (`checkSessionValid`,
-  the stored tokens kept). Reproduction and the recovery, with times, in
+  true (a second more per whole 50 KB of body, in bytes), **aborts it** and
+  says "Connection lost — reconnecting…" (S1, 2026-10-27;
+  `docs/design/RECONNECT_DESIGN.md`): the SDK reads the rejected refresh as
+  retryable, keeps the session and retries by itself; the watchdog asks the
+  service that hung every 10 s (`GET /auth/v1/health`, `HEAD /rest/v1/`, a
+  `HEAD` of the hung object) — the storage ping clears the strip itself, the
+  auth and rest pings only prove the gateway, so the client module then asks
+  for real (the session; a one-row `HEAD` of `workspaces`) and that answer
+  clears — and the app continues with the same client, no reload; a minute
+  without an answer the strip says "Connection lost — reload to continue."
+  (B2's sentence, kept for that state), Reload on both. `lost` is per family
+  and clears only on a real answer under 500 from the family that hung. The
+  client module refuses a PostgREST or storage request that carries the anon
+  key while a person is signed in (the hung caller's own read, once its loop
+  ends), so its caller's error path runs rather than an empty success; and a
+  sign-out made during a hang sets its latch (`endSessionLocally()`, called
+  by both sign-outs after clearing the store), so a refresh landing later is
+  not written back and the sign-out is finished instead. R.A.B.B.I.T.'s dot
+  shows *Database: reconnecting…* (amber diamond) while the strip is up and
+  asks again on the clear. Uploads, the resumable path and every Edge Function
+  call (all raw fetch) are outside it by construction; the start-up session
+  check keeps its own 15 s ceiling (`checkSessionValid`, the stored tokens
+  kept). Reproduction and the recovery, with times, in
   `scripts/probes/connection-hang.mjs` (phases A–F).
 
 **Correctness**

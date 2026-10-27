@@ -481,16 +481,17 @@ export function connectionView({ kind, result = null, realtimeStatus = 'off', pr
     files = { ok: false, why: 'no-network', place: files?.place }
   }
   // S1: the watchdog is reconnecting the cloud client (a request hung, was
-  // aborted, the service is asked again every 10 s). The dot says so in the
-  // strip's words rather than what its last probe found; the browser being
-  // offline outranks it (no network is the truer sentence).
+  // aborted, the service is asked again every 10 s). The dot says so for the
+  // database, in the strip's word; the files keep the last probe's words (a
+  // company bucket or a NAS is not the thing that hung: round 2, F12); the
+  // browser being offline outranks it (no network is the truer sentence).
   if (reconnecting && kind === 'cloud' && !browserOffline) {
-    const live = projectOpen ? ` · Live updates: ${LIVE_WORD[realtimeStatus] || 'off'}` : ''
-    return {
-      state: 'reconnecting', tone: STATE_TONE.reconnecting,
-      words: `Database: reconnecting… · Files: ${files?.place ? `${files.place}, ` : ''}reconnecting…${live}`,
-      summary: 'Reconnecting to the database',
-    }
+    const parts = [
+      'Database: reconnecting…',
+      `Files: ${files?.place ? `${files.place}, ` : ''}${statusWord(files, { projectOpen })}`,
+    ]
+    if (projectOpen) parts.push(`Live updates: ${LIVE_WORD[realtimeStatus] || 'off'}`)
+    return { state: 'reconnecting', tone: STATE_TONE.reconnecting, words: parts.join(' · '), summary: 'Reconnecting to the database' }
   }
   const dbPlace = kind === 'local' ? 'the Local Server' : kind === 'drive' ? FILES_PLACE.drive : null
   const parts = [

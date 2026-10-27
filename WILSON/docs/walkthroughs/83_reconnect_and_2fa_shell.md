@@ -6,16 +6,17 @@
    portal, a VPN that stopped forwarding), WILSON now cancels it and says
    **"Connection lost — reconnecting…"** in the strip at the top of the
    window. The sign-in library keeps your session and tries again by
-   itself; WILSON asks the service that hung every 10 seconds; the moment it
-   answers, the strip goes and whatever was waiting finishes — no reload.
-   Before, the strip said *reload to continue* and a reload was the only way
-   out.
+   itself; WILSON asks the service that hung every 10 seconds and, when it
+   answers, makes one real request; the moment that answers, the strip goes
+   and whatever was waiting finishes — no reload. Before, the strip said
+   *reload to continue* and a reload was the only way out.
 2. **A minute without an answer, the strip says "Connection lost — reload to
    continue."** — the old sentence, for the case it was written for. Reload
    is on the strip in both states, for anyone who would rather not wait.
 3. **R.A.B.B.I.T.'s corner dot says the same**: an amber diamond,
-   *Database: reconnecting…*, while the strip is up; green again within a few
-   seconds of the connection coming back.
+   *Database: reconnecting…* (the files part keeps what it last found), while
+   the strip is up; green again within a few seconds of the connection
+   coming back.
 4. **The two-factor enrolment screen fits.** Your screenshot of 7 September
    (the screen spilling onto the orange bars at about 824px tall) was taken
    before the sign-in shell's bars were re-derived on 11 September. Measured
@@ -68,21 +69,31 @@ screen as it did, with your stored sign-in kept.
   it; and a cancelled refresh is one the library retries by itself, keeping
   the session, 200 ms later and then once per budget.
 - **The build, measured with the same probe** (its phase F, the real 20 s
-  budget): the strip up 21.3 s into the hang (the refresh carries a small
-  body: a second more); both callers held while the network was dead, the
-  library's attempts at 0, 21.5 and 42.7 s (one per budget); the network back
-  at 45 s; the next ping (52.3 s) answered, the strip cleared 7.3 s after the
-  network returned, the dead attempt was cancelled, the retry (52.5 s)
-  landed, `TOKEN_REFRESHED` fired and the queued read went out with the new
-  token 0.3 s later; the caller that started the hang, answered last with no
-  session, was refused by the client module (its request never left with the
-  anonymous key); the library's queue empty 1.5 s later.
-- **Tests**: the watchdog's (30, with the library as installed on a fetch
-  that never answers the refresh but honours a cancel — the hang, the
-  recovery, the start-up check — and a CONTROL with the old counting-only
-  wrapper, still pending after five minutes); the strip's two sentences; the
-  dot's word; the shell's geometry pins for the enrolment screen (the flat
-  bars of 7 September as a failing control: 2 of 29 red).
+  budget, the final code): the strip up 20.1 s into the hang; both callers
+  held while the network was dead, the library's attempts at 0, 20.3 and
+  40.5 s (one per budget); the network back at 45 s; the next ping (51.2 s)
+  answered, the dead attempt was cancelled, the retry landed and its answer
+  cleared the strip 6.2 s after the network returned, `TOKEN_REFRESHED` fired
+  and the queued read went out with the new token 0.1 s later; the caller
+  that started the hang, answered last with no session, was refused by the
+  client module (its request never left with the anonymous key); the
+  library's queue empty 1.5 s later.
+- **Tests**: the watchdog's (with the library as installed on a fetch that
+  never answers the refresh but honours a cancel — the hang, the recovery,
+  the start-up check — and a CONTROL with a wrapper that cannot cancel, as
+  the old one could not, still pending after five minutes); the client
+  module's (the guard, the retry, the sign-out latch); the strip's two
+  sentences; the dot's word; the shell's geometry pins for the enrolment
+  screen (the flat bars of 7 September as a failing control: 2 of 29 red).
+- **Two code reviews**, each by a separate reviewer. The first read the
+  design before a line was written and sent it back with ten corrections
+  (the biggest: a ping must ask the service that hung, not another; the
+  request that started the hang comes back last with no session and must not
+  go out anonymously). The second attacked the build with thirty planted
+  faults and found two things that are fixed here: a sign-out made during a
+  hang would have been written back once the connection returned, and a
+  service whose gateway answers while its database is stuck would have made
+  the strip flicker. Both are in the hand-off with the rest.
 - **The sign-in shell, before and after**, at 1280x800, 1440x900, 1280x824
   and 1280x700, in Chromium 147 and in the desktop app (Electron 33): every
   element of the company step, the password step and the enrolment screen at

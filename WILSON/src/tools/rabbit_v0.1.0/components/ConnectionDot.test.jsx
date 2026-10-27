@@ -573,7 +573,7 @@ describe('S1: the watchdog\'s word while the cloud client is reconnecting', () =
     await setLost(true)
     expect(dotOf(container).dataset.state).toBe('reconnecting')
     expect(markOf(container).dataset.tone).toBe('warning')
-    expect(cellOf(container).getAttribute('title')).toMatch(/^Database: reconnecting… · Files: .*reconnecting… · Live updates: on$/)
+    expect(cellOf(container).getAttribute('title')).toMatch(/^Database: reconnecting… · Files: .*connected · Live updates: on$/)
     expect(cellOf(container).getAttribute('aria-label')).toBe(cellOf(container).getAttribute('title'))
     expect(liveOf(container).textContent).toBe('')
     await settle()

@@ -38,7 +38,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Building2, ScrollText, LogOut, Cpu, KeyRound, Files } from 'lucide-react'
-import { supabase, hydrateSupabase } from '../cloud/auth/supabaseClient'
+import { supabase, hydrateSupabase, endSessionLocally } from '../cloud/auth/supabaseClient'
 import { loadSession, clearSession } from '../cloud/auth/sessionStorage'
 import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from '../cloud/auth/authEvents'
 import { withTimeout } from '../cloud/auth/withTimeout'
@@ -164,6 +164,9 @@ export default function OperatorApp() {
       const expiry = EXPIRE_REASONS.includes(event) ? event : null
       setNotice(expiry ? describeSessionExpiry(expiry) : '')
       await clearSession()
+      // S1: the client module's latch (App.jsx's signOutLocal has the same
+      // line): a refresh landing after a hung check must not re-save this.
+      endSessionLocally()
       if (event) await recordAuthEvent(event)
       try {
         await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out')

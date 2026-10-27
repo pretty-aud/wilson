@@ -85,8 +85,10 @@ function make(h, extra = {}) {
   wd.subscribe((lost, phase) => notified.push({ lost, phase }))
   const recovered = []
   wd.onRecovered((family) => recovered.push(family))
+  const pinged = []
+  wd.onPingAnswered((family) => pinged.push(family))
   const { fetch, calls } = controllableFetch()
-  return { wd, fetch: wd.wrapFetch(fetch), calls, notified, recovered }
+  return { wd, fetch: wd.wrapFetch(fetch), calls, notified, recovered, pinged }
 }
 
 describe('familyOf / shouldWatch — the scope', () => {
@@ -122,13 +124,18 @@ describe('familyOf / shouldWatch — the scope', () => {
   })
 })
 
-describe('budgetFor — a body adds a second per 50 KB', () => {
-  it('a body-less read keeps the base; a large write gets more', () => {
+describe('budgetFor — a body adds a second per whole 50 KB, in bytes', () => {
+  it('a body-less read and a small write keep the base; a large write gets more; bytes, not characters', () => {
     expect(budgetFor(undefined)).toBe(WATCHDOG_BUDGET_MS)
-    expect(budgetFor({ method: 'POST', body: '{}' })).toBe(WATCHDOG_BUDGET_MS + 1000)
+    expect(budgetFor({ method: 'POST', body: '{}' })).toBe(WATCHDOG_BUDGET_MS)
+    expect(budgetFor({ method: 'POST', body: 'x'.repeat(51_199) })).toBe(WATCHDOG_BUDGET_MS)
     expect(budgetFor({ method: 'POST', body: 'x'.repeat(100 * 1024) })).toBe(WATCHDOG_BUDGET_MS + 2000)
-    expect(budgetFor({ method: 'POST', body: { size: 1024 * 1024 } })).toBe(WATCHDOG_BUDGET_MS + 21_000)
+    // 51,200 characters of "é" are 102,400 bytes on the wire (round 2, F6)
+    expect(budgetFor({ method: 'POST', body: 'é'.repeat(51_200) })).toBe(WATCHDOG_BUDGET_MS + 2000)
+    expect(budgetFor({ method: 'POST', body: new Blob(['x'.repeat(1024 * 1024)]) })).toBe(WATCHDOG_BUDGET_MS + 20_000)
     expect(budgetFor({ method: 'POST', body: new ArrayBuffer(51_200) })).toBe(WATCHDOG_BUDGET_MS + 1000)
+    // a URLSearchParams's `size` is its pair count, not bytes: no allowance
+    expect(budgetFor({ method: 'POST', body: new URLSearchParams({ a: '1', b: '2' }) })).toBe(WATCHDOG_BUDGET_MS)
   })
 })
 
@@ -164,7 +171,7 @@ describe('the abort at the budget', () => {
     const h = harness()
     const { fetch, calls, wd } = make(h)
     fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' }).catch(() => {})
-    h.advance(WATCHDOG_BUDGET_MS + 1000)   // the body adds a second
+    h.advance(WATCHDOG_BUDGET_MS)   // a small body adds nothing
     expect(calls[0].init.signal.aborted).toBe(true)
     expect(wd.lostFamilies()).toEqual(['auth'])
     h.advance(10 * MIN)
@@ -195,6 +202,32 @@ describe('the abort at the budget', () => {
     expect(wd.pendingCount()).toBe(0)
     h.advance(WATCHDOG_BUDGET_MS + 1000)
     expect(wd.getSnapshot()).toBe(false)
+  })
+
+  it("a Request's own signal is honoured too, when no init carries one (round 2, F10)", async () => {
+    const h = harness()
+    const { fetch, calls } = make(h)
+    const outer = new AbortController()
+    const req = new Request(`${BASE}/rest/v1/projects`, { method: 'GET', signal: outer.signal })
+    const p = fetch(req)
+    expect(calls[0].init.signal).toBeInstanceOf(AbortSignal)
+    outer.abort()
+    expect(calls[0].init.signal.aborted).toBe(true)
+    await expect(p).rejects.toBeDefined()
+  })
+
+  it('an answer that lands after its own abort clears nothing: the abort is what raised the loss (round 2, F9)', async () => {
+    const h = harness()
+    const { fetch, calls, wd, notified } = make(h)
+    const p = fetch(`${BASE}/rest/v1/projects`, { method: 'GET', headers: KEY })
+    h.advance(WATCHDOG_BUDGET_MS)
+    expect(calls[0].init.signal.aborted).toBe(true)
+    // the fetch of the test rejected on the abort; a real one could still resolve in the same tick
+    calls[0].resolve({ ok: true, status: 200 })
+    await p.catch(() => {})
+    await settle()
+    expect(wd.getSnapshot()).toBe(true)
+    expect(notified).toEqual([{ lost: true, phase: 'reconnecting' }])
   })
 
   it('does not abort while the browser says it is offline, and does once it says online again', () => {
@@ -360,9 +393,9 @@ describe('the ping', () => {
     expect(pings(calls)).toHaveLength(2)
   })
 
-  it('an answered ping clears its family and aborts the family\'s requests that were pending before it (round 1, F3)', async () => {
+  it('an answered auth ping aborts the family\'s requests that were pending before it, tells the client module, and clears NOTHING; the real answer that follows clears (round 1 F3, round 2 F2)', async () => {
     const h = harness()
-    const { fetch, calls, wd, recovered } = make(h)
+    const { fetch, calls, wd, recovered, pinged } = make(h)
     const first = fetch(`${BASE}/auth/v1/token`, { method: 'POST', headers: KEY })
     h.advance(WATCHDOG_BUDGET_MS)
     await first.catch(() => {})
@@ -372,13 +405,59 @@ describe('the ping', () => {
     h.advance(PING_EVERY_MS - 200)
     const ping2 = calls[calls.length - 1]
     expect(ping2.input).toBe(`${BASE}/auth/v1/health`)
+    // a request sent AFTER the ping is not the ping's business (round 2, F4)
+    const later = fetch(`${BASE}/auth/v1/token`, { method: 'POST', headers: KEY })
     const retryRejected = expect(retry).rejects.toMatchObject({ name: 'AbortError' })
     ping2.resolve({ ok: true, status: 200 })
     await settle()
+    await retryRejected
+    expect(calls[calls.length - 1].init.signal.aborted).toBe(false)
+    expect(wd.getSnapshot()).toBe(true)        // the gateway answered; the service has not
+    expect(recovered).toEqual([])
+    expect(pinged).toEqual(['auth'])           // the client module asks for real
+    // …and its real answer is what clears
+    calls[calls.length - 1].resolve({ ok: true, status: 200 })
+    await later
     expect(wd.getSnapshot()).toBe(false)
     expect(recovered).toEqual(['auth'])
-    await retryRejected
-    expect(wd.getSnapshot()).toBe(false)   // that abort raised nothing: the family had just answered
+  })
+
+  it('an answered storage ping clears (it repeats the hung request itself); an answered rest ping only tells the client module', async () => {
+    const h = harness()
+    const { fetch, calls, wd, recovered, pinged } = make(h)
+    const dl = fetch(`${BASE}/storage/v1/object/rabbit-files/reel.png`, { method: 'GET', headers: KEY })
+    const read = fetch(`${BASE}/rest/v1/tasks`, { method: 'GET', headers: KEY })
+    h.advance(WATCHDOG_BUDGET_MS)
+    await Promise.allSettled([dl, read])
+    const pings = calls.slice(2)
+    expect(pings.map((c) => c.init.method)).toEqual(['HEAD', 'HEAD'])
+    const storagePing = pings.find((c) => String(c.input).includes('/storage/v1/'))
+    const restPing = pings.find((c) => String(c.input).endsWith('/rest/v1/'))
+    storagePing.resolve({ ok: false, status: 404 })   // the object is gone; the service answered
+    await settle()
+    expect(wd.lostFamilies()).toEqual(['rest'])
+    expect(recovered).toEqual(['storage'])
+    restPing.resolve({ ok: true, status: 200 })
+    await settle()
+    expect(wd.lostFamilies()).toEqual(['rest'])
+    expect(pinged).toEqual(['rest'])
+  })
+
+  it('a second family raised later does not restart the clock (round 2, F4)', async () => {
+    const h = harness()
+    const { fetch, wd } = make(h)
+    const t0 = h.now()
+    const read = fetch(`${BASE}/rest/v1/tasks`, { method: 'GET', headers: KEY })
+    h.advance(WATCHDOG_BUDGET_MS)
+    await read.catch(() => {})
+    h.advance(15_000)
+    const refresh = fetch(`${BASE}/auth/v1/token`, { method: 'POST', headers: KEY })
+    h.advance(WATCHDOG_BUDGET_MS)
+    await refresh.catch(() => {})
+    expect(wd.lostFamilies().sort()).toEqual(['auth', 'rest'])
+    expect(wd.overdueSince()).toBe(t0 + WATCHDOG_BUDGET_MS)
+    h.advance(RELOAD_AFTER_MS - 35_000)
+    expect(wd.getPhase()).toBe('reload')
   })
 
   it('an aborted ping does not restart the clock, nor does a later abort; the words change 60 s after the first raise (round 1, F10, F11)', async () => {
@@ -476,6 +555,19 @@ describe('the guard: a data request with the anon bearer while signed in is refu
     expect(on.base).toHaveBeenCalledTimes(3)
     expect(on.refused).toEqual([])
   })
+
+  it('reads whether a person is signed in at each request, not once at creation (round 2, F4)', async () => {
+    let signedIn = false
+    const base = vi.fn(async () => ({ ok: true, status: 200 }))
+    const fetch = createAnonGuard({ anonKey: ANON, isSignedIn: () => signedIn })(base)
+    const anon = () => fetch(`${BASE}/rest/v1/workspaces`, { headers: { Authorization: `Bearer ${ANON}` } })
+    await anon()
+    signedIn = true
+    await expect(anon()).rejects.toThrow(ANON_GUARD_MESSAGE)
+    signedIn = false
+    await anon()
+    expect(base).toHaveBeenCalledTimes(2)
+  })
 })
 
 // ── Through auth-js as installed ───────────────────────────────────────────
@@ -535,8 +627,7 @@ describe('through auth-js as installed: the hang, the recovery, the start-up che
     expect(saved.data.session).toBeTruthy()
     let settled = null
     const p = auth.getSession().then((r) => { settled = r; return r })
-    // The refresh carries a small body, so its budget is the base plus one second (21 s).
-    await vi.advanceTimersByTimeAsync(20_500)
+    await vi.advanceTimersByTimeAsync(19_500)
     expect(settled).toBeNull()
     expect(wd.getSnapshot()).toBe(false)
     expect(state.tokens()).toBe(1)
@@ -544,7 +635,7 @@ describe('through auth-js as installed: the hang, the recovery, the start-up che
     expect(wd.lostFamilies()).toEqual(['auth'])
     expect(state.tokens()).toBe(2)
     expect(settled).toBeNull()
-    await vi.advanceTimersByTimeAsync(21_500)  // the retry's own budget: aborted, the loop over (42.2 s)
+    await vi.advanceTimersByTimeAsync(20_500)  // the retry's own budget: aborted, the loop over (~40.5 s)
     expect(settled).not.toBeNull()
     expect(settled.data.session).toBeNull()
     expect(settled.error?.name).toBe('AuthRetryableFetchError')
@@ -554,7 +645,8 @@ describe('through auth-js as installed: the hang, the recovery, the start-up che
     const again = auth.getSession()
     await vi.advanceTimersByTimeAsync(100)
     expect(state.tokens()).toBe(3)
-    // the network comes back: the next ping answers, the dead attempt is aborted, the SDK's retry lands
+    // the network comes back: the next ping answers, the dead attempt is aborted, the SDK's retry
+    // lands, and THAT answer (a real one) clears — the ping's did not
     state.answers = true
     await vi.advanceTimersByTimeAsync(PING_EVERY_MS + 1000)
     const r = await again
@@ -589,7 +681,7 @@ describe('through auth-js as installed: the hang, the recovery, the start-up che
     const auth = client(wd.wrapFetch(fetch))
     let hydrated = null
     auth.setSession({ access_token: token(-3600), refresh_token: 'r1' }).then((r) => { hydrated = r })   // expired: refreshed first, saved only on success
-    await vi.advanceTimersByTimeAsync(WATCHDOG_BUDGET_MS * 2 + 3_500)   // two attempts of 21 s, 200 ms apart
+    await vi.advanceTimersByTimeAsync(WATCHDOG_BUDGET_MS * 2 + 1_500)   // two attempts of 20 s, 200 ms apart
     expect(hydrated).not.toBeNull()
     expect(hydrated.data.session).toBeNull()
     expect(hydrated.error?.name).toBe('AuthRetryableFetchError')
@@ -598,14 +690,17 @@ describe('through auth-js as installed: the hang, the recovery, the start-up che
     expect(none.data.session).toBeNull()
     expect(state.tokens()).toBe(2)   // nothing saved, so nothing to refresh
     expect(wd.getSnapshot()).toBe(true)
+    // the network comes back: the health ping answers, which proves the gateway and clears nothing;
+    // the next REAL auth answer — the restore path's setSession, here — is what clears
     state.answers = true
     await vi.advanceTimersByTimeAsync(PING_EVERY_MS + 1000)
-    expect(wd.getSnapshot()).toBe(false)
+    expect(wd.getSnapshot()).toBe(true)
     const later = await auth.setSession({ access_token: token(-3600), refresh_token: 'r1' })
     expect(later.data.session?.refresh_token).toBe('r2')
+    expect(wd.getSnapshot()).toBe(false)
   })
 
-  it('CONTROL: today\'s counting-only wrapper in front of the same client leaves getSession() pending after minutes', async () => {
+  it('CONTROL: a wrapper that passes no signal (what the watchdog did before S1) in front of the same client leaves getSession() pending after minutes', async () => {
     vi.useFakeTimers()
     const { state, fetch } = gotrue()
     const counting = (input, init) => fetch(input, init)   // no signal: the request can never be aborted

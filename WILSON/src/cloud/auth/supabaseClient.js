@@ -63,6 +63,29 @@ const surface = typeof __WILSON_SURFACE__ === 'string' ? __WILSON_SURFACE__ : 'a
 // the Edge Functions) are raw fetches outside this client.
 const baseFetch = typeof fetch === 'function' ? (input, init) => fetch(input, init) : undefined
 let signedIn = false
+let endedLocally = false
+
+/**
+ * S1 (review round 2, F1): the person ended the session HERE while the cloud
+ * could not be reached. App.jsx's signOutLocal and the operator console's
+ * handleSignOut clear the stored session first and then call
+ * `supabase.auth.signOut`, which queues behind a hung refresh. Before S1 that
+ * queue never drained and the strip's Reload threw the page away, so nothing
+ * survived. Now the queue drains and the SDK's signOut runs on the still-dead
+ * network: its POST /logout is aborted, the SDK keeps the session (a
+ * retryable error removes nothing), its ticker goes on refreshing it, and the
+ * TOKEN_REFRESHED that lands when the network returns would have RE-SAVED the
+ * session the person had just ended — the next launch would restore it. So
+ * while this latch is set the hook below saves nothing, the guard treats the
+ * person as signed out, and the auth family's retry finishes the sign-out
+ * instead of asking for the session. SIGNED_OUT (the sign-out landing) and
+ * SIGNED_IN (a new sign-in) clear it.
+ */
+export function endSessionLocally() {
+  endedLocally = true
+  signedIn = false
+}
+
 const guard = createAnonGuard({
   anonKey: anon ?? '',
   isSignedIn: () => signedIn,
@@ -82,24 +105,37 @@ export const supabase = createClient(url ?? '', anon ?? '', {
 // Keep the persisted copy current across refresh rotation (Session 12 web
 // follow-up from Session 2's persistSession:false note). Sign-out clearing
 // stays with the explicit logout flow — clearing here too would race it.
-// S1: the same events tell the guard above whether a person is signed in.
+// S1: the same events tell the guard above whether a person is signed in, and
+// a sign-in or the sign-out landing clears the latch; while it is set a
+// refreshed token is NOT written back (the person ended the session here).
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT') signedIn = false
-  else if (session) signedIn = true
-  if (event === 'TOKEN_REFRESHED' && session) {
+  if (event === 'SIGNED_OUT') { signedIn = false; endedLocally = false }
+  else if (event === 'SIGNED_IN') { signedIn = true; endedLocally = false }
+  else if (session && !endedLocally) signedIn = true
+  if (event === 'TOKEN_REFRESHED' && session && !endedLocally) {
     Promise.resolve(saveSession(session)).catch(() => { /* best-effort */ })
   }
 })
 
-// S1: the app's one retry. When the auth family comes back (an answered ping,
-// or the SDK's own attempt landing), ask for the session once: if the SDK is
-// free and the token stale this starts the refresh now rather than at the
-// auto-refresh ticker's next tick; if its queue is still held, this queues
-// behind the attempt already in flight, which is harmless. The SDK's own loop
-// does the retrying (measured, the probe's phase E); nothing here re-issues
-// a refresh.
-connectionWatchdog.onRecovered((family) => {
-  if (family === 'auth') Promise.resolve(supabase.auth.getSession()).catch(() => { /* the strip says what is true */ })
+// S1: the app's one retry, asked for REAL. An auth or rest ping that answers
+// proves the gateway, not the database behind it (round 2, F2), so the
+// watchdog does not clear on it; it tells this module, which makes one real
+// request of the family, and THAT answer clears the strip. For auth: the
+// session (if the SDK is free and the token stale this starts the refresh
+// now rather than at the ticker's next tick; if its queue is still held it
+// queues behind the attempt in flight, which the answered ping has just
+// aborted, so the SDK's retry is next on the wire) — or, while the person
+// has ended the session here, the sign-out the dead network swallowed. For
+// rest: a HEAD of one row of `workspaces`, the smallest read there is. The
+// SDK's own loop does the refresh retrying (measured, the probe's phase E);
+// nothing here re-issues a refresh.
+connectionWatchdog.onPingAnswered((family) => {
+  if (family === 'auth') {
+    const ask = endedLocally ? supabase.auth.signOut({ scope: 'local' }) : supabase.auth.getSession()
+    Promise.resolve(ask).catch(() => { /* the strip says what is true */ })
+  } else if (family === 'rest') {
+    Promise.resolve(supabase.from('workspaces').select('id', { head: true }).limit(1)).catch(() => { /* same */ })
+  }
 })
 
 // Hydrate the client from a previously-saved session. Called at boot from

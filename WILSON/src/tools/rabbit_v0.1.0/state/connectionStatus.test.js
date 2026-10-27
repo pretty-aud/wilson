@@ -488,10 +488,11 @@ describe('connectionView: three colours, each part in words', () => {
     const ok = answered({ ok: true }, { ok: true, place: FILES_PLACE.petal })
     const v = connectionView({ kind: 'cloud', result: ok, realtimeStatus: 'live', projectOpen: true, reconnecting: true })
     expect(v).toMatchObject({ state: 'reconnecting', tone: 'warning', summary: 'Reconnecting to the database' })
-    expect(v.words).toBe('Database: reconnecting… · Files: Petal cloud, reconnecting… · Live updates: on')
+    // the files keep the last probe's words: a bucket or a NAS is not what hung (round 2, F12)
+    expect(v.words).toBe('Database: reconnecting… · Files: Petal cloud, connected · Live updates: on')
     expect(isSettled(v.state)).toBe(false)
-    // without a project, no live-updates part; with no place known, no place
-    expect(connectionView({ kind: 'cloud', reconnecting: true }).words).toBe('Database: reconnecting… · Files: reconnecting…')
+    // without a project, no live-updates part; with no probe yet, the files are still being checked
+    expect(connectionView({ kind: 'cloud', reconnecting: true }).words).toBe('Database: reconnecting… · Files: checking')
     // only the cloud client is watched: the Local Server, a drive and the fixtures keep their own answer
     for (const kind of ['local', 'drive', 'fixtures']) {
       expect(connectionView({ kind, result: ok, reconnecting: true }).state, kind).not.toBe('reconnecting')

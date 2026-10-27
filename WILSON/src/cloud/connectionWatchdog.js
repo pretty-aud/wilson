@@ -41,10 +41,19 @@
 //      a PING_BUDGET_MS budget: GET /auth/v1/health, HEAD /rest/v1/, or a
 //      HEAD of the hung object, with the `apikey` of the request that hung
 //      (both remembered from it: no new seam in the client module). An
-//      answered ping clears its family and ABORTS the family's requests that
-//      were already pending when it was sent — after a sleep-wake or a VPN
-//      reset the old connection is dead and would sit until its own budget;
-//      aborting it makes the SDK's next attempt the next thing on the wire.
+//      answered ping ABORTS the family's requests that were already pending
+//      when it was sent — after a sleep-wake or a VPN reset the old
+//      connection is dead and would sit until its own budget; aborting it
+//      makes the SDK's next attempt the next thing on the wire. Whether it
+//      CLEARS the family depends on what it proves (review round 2, F2):
+//      the storage ping repeats the hung request itself, so it clears; the
+//      auth and rest pings answer from the gateway and the schema cache even
+//      while the database behind them is stuck, so they clear nothing — they
+//      tell the client module (`onPingAnswered`), which asks for real: the
+//      session for auth (the SDK's refresh), a HEAD of one table for rest —
+//      and that REAL answer clears. Otherwise a stalled database read as a
+//      recovery every ten seconds: the strip flickering, re-announced, and
+//      never reaching "reload".
 //   4. THE PHASE. `ok` → `reconnecting` (the strip's first sentence) →
 //      `reload` after RELOAD_AFTER_MS lost (today's sentence; the pings go
 //      on, so a late answer still clears). The clock runs from the first
@@ -73,9 +82,10 @@
 // person stays looking at a screen, and above the auth screens' own 15 s
 // ceilings (withTimeout), so a sign-in or an MFA verify is abandoned by its
 // screen before it is aborted here. A request WITH a body gets one second
-// more per 50 KB of it (a 1 MB course save: 40 s), so a slow uplink is not
-// read as a dead one (round 1, F5). The ticker runs only while something is
-// pending or a family is lost, so an idle, connected app has no timer.
+// more per whole 50 KB of it (bytes, not characters; a body under 50 KB
+// adds nothing; a 1 MB course save: 40 s), so a slow uplink is not read as
+// a dead one (round 1, F5). The ticker runs only while something is pending
+// or a family is lost, so an idle, connected app has no timer.
 //
 // What an abort can cost, and why it is not worse than today: a write
 // aborted at the budget may have landed (the person's retry of a CREATE can
@@ -144,9 +154,12 @@ export function headerOf(init, name) {
 function bodyBytes(init) {
   const b = init?.body
   if (b == null) return 0
-  if (typeof b === 'string') return b.length
+  if (typeof b === 'string') {
+    // bytes, not UTF-16 units: a body of accented text is half again as long on the wire
+    try { return new TextEncoder().encode(b).byteLength } catch { return b.length }
+  }
   if (typeof b.byteLength === 'number') return b.byteLength   // ArrayBuffer, a view
-  if (typeof b.size === 'number') return b.size               // Blob, File
+  if (b instanceof Blob) return b.size                         // Blob, File (not URLSearchParams's pair count)
   return 0
 }
 
@@ -170,14 +183,18 @@ export function shouldWatch(input, init) {
   return familyOf(input, init) !== null
 }
 
-/** The budget for one request: the base, plus a second per BODY_BYTES_PER_SECOND of body. */
+/** The budget for one request: the base, plus a second per whole BODY_BYTES_PER_SECOND of body. */
 export function budgetFor(init, baseMs = WATCHDOG_BUDGET_MS, bytesPerSecond = BODY_BYTES_PER_SECOND) {
-  return baseMs + Math.ceil(bodyBytes(init) / bytesPerSecond) * 1000
+  return baseMs + Math.floor(bodyBytes(init) / bytesPerSecond) * 1000
 }
 
+// The reason a caller sees (postgrest-js prefixes it with the error's name in
+// the result's message, which a view may show): a sentence, not a stack.
 function abortError(message) {
   try { return new DOMException(message, 'AbortError') } catch { const e = new Error(message); e.name = 'AbortError'; return e }
 }
+const cancelledAfter = (ms) => `The request was cancelled after ${Math.round(ms / 1000)} seconds without an answer (the connection watchdog).`
+const CANCELLED_DEAD = 'The request was cancelled: the service answered a newer request, so this one was on a dead connection (the connection watchdog).'
 
 /**
  * The guard the client module puts OUTSIDE the wrapper (design §3, round 1
@@ -231,6 +248,7 @@ export function createConnectionWatchdog(opts = {}) {
   const seen = new Map()         // family -> { origin, apikey, url }: what the ping is addressed to
   const listeners = new Set()
   const recoveredListeners = new Set()
+  const pingListeners = new Set()
   let lostSince = null           // the first raise of the current loss; later aborts do not restart it
   let phase = 'ok'               // ok | reconnecting | reload
   let timer = null
@@ -284,7 +302,7 @@ export function createConnectionWatchdog(opts = {}) {
     if (online) {
       for (const p of pending.values()) {
         if (p.abortedAt == null && t - p.startedAt >= p.budgetMs) {
-          abort(p, t, `pending for ${t - p.startedAt} ms, over the connection watchdog's budget`)
+          abort(p, t, cancelledAfter(t - p.startedAt))
           if (!p.isPing) raise(p.family, t)
         }
       }
@@ -314,20 +332,28 @@ export function createConnectionWatchdog(opts = {}) {
     return entry
   }
 
-  /** A request settled: an answer under 500 clears its family; anything else only releases it. */
+  /**
+   * A request settled. An answer under 500 to a REAL request clears its
+   * family; an answer that lands after the request was aborted is a
+   * coincidence and clears nothing (the abort is what raised the loss). An
+   * answered ping aborts the family's older pending requests; it clears the
+   * family only for storage (the ping repeats the hung request itself), and
+   * for auth and rest it tells the client module, which asks for real.
+   */
   function settle(entry, res) {
     if (!pending.delete(entry.id)) return
-    const answered = !!res && typeof res.status === 'number' && res.status < 500
+    const answered = !!res && typeof res.status === 'number' && res.status < 500 && entry.abortedAt == null
     if (answered) {
       const t = now()
       if (entry.isPing) {
-        // The ping answered: the family is reachable, so whatever of it was
-        // already pending when the ping went out is on a dead connection.
         for (const p of pending.values()) {
-          if (p.family === entry.family && !p.isPing && p.startedAt < entry.startedAt) abort(p, t, 'the service answered a newer request; this one is on a dead connection')
+          if (p.family === entry.family && !p.isPing && p.abortedAt == null && p.startedAt < entry.startedAt) abort(p, t, CANCELLED_DEAD)
         }
+        if (entry.family === 'storage') clearFamily(entry.family, t)
+        else for (const l of pingListeners) { try { l(entry.family) } catch { /* same rule */ } }
+      } else {
+        clearFamily(entry.family, t)
       }
-      clearFamily(entry.family, t)
     }
     evaluate()
   }
@@ -357,9 +383,9 @@ export function createConnectionWatchdog(opts = {}) {
       const family = watch(input, init)
       if (!family) return baseFetch(input, init)
       const ctl = makeAbortController()
-      // A caller's own signal (supabase-js `.abortSignal()`) is honoured: its
-      // abort aborts ours. It is a settle, never a loss.
-      const outer = init?.signal
+      // A caller's own signal (supabase-js `.abortSignal()`, or a Request's
+      // own) is honoured: its abort aborts ours. It is a settle, never a loss.
+      const outer = init?.signal ?? (input && typeof input === 'object' ? input.signal : null)
       if (outer) {
         if (outer.aborted) ctl.abort(outer.reason)
         else outer.addEventListener('abort', () => ctl.abort(outer.reason), { once: true })
@@ -384,10 +410,19 @@ export function createConnectionWatchdog(opts = {}) {
     return () => { listeners.delete(listener) }
   }
 
-  /** Called with the family's name each time a lost family clears (the client module's nudge). */
+  /** Called with the family's name each time a lost family clears. */
   function onRecovered(listener) {
     recoveredListeners.add(listener)
     return () => { recoveredListeners.delete(listener) }
+  }
+
+  /**
+   * Called with the family's name when an auth or rest ping answers while the
+   * family is lost: the gateway is there; the client module asks for real.
+   */
+  function onPingAnswered(listener) {
+    pingListeners.add(listener)
+    return () => { pingListeners.delete(listener) }
   }
 
   if (windowRef?.addEventListener) {
@@ -402,6 +437,7 @@ export function createConnectionWatchdog(opts = {}) {
     wrapFetch,
     subscribe,
     onRecovered,
+    onPingAnswered,
     getSnapshot: () => lostNow(),
     getPhase: () => phase,
     evaluate,
