@@ -7,8 +7,9 @@
 // italics is the module's, built the way the tab builds it, and the files
 // it names (the launch entry, the scripts, the pictures) exist by those
 // names. N1 (2026-10-27) deleted the one-off script that took its pictures,
-// `bins-gateway-shots.mjs`: the walkthrough is history and keeps the name,
-// so that one file is no longer held to existing.
+// `bins-gateway-shots.mjs`, and every session's launch entry, its
+// `gw3-worktree` among them: the walkthrough is history and keeps both names,
+// so those two are no longer held to existing.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -55,9 +56,7 @@ describe('walkthrough 62 quotes the tab\'s own sentences', () => {
     expect(MARK_MOVE_MS).toBe(30_000)
     expect(walk).toContain('every thirty seconds')
   })
-  it('names things that exist: the launch entry, the two scripts, the fifteen pictures, migration 0095 and suite 98', () => {
-    expect(walk).toContain('gw3-worktree')
-    expect(walk).toContain('port 5289')
+  it('names things that exist: the two scripts, the fifteen pictures, migration 0095 and suite 98', () => {
     for (const f of ['scripts/gateway-playback-e2e.mjs', 'scripts/gateway-fullscreen-guard.mjs', 'supabase/tests/rls/98_gateway_next_root_viewing_fraction.sql']) {
       expect(existsSync(path.join(root, f)), f).toBe(true)
       expect(walk, f).toContain(path.basename(f))

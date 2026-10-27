@@ -28,14 +28,13 @@
 //   * hover-scrub is off; a drop from the OS is answered with the sentence;
 //   * the empty states say the browser's words;
 //   * a shot's takes say "not on this computer" for a company's clip (B3),
-//     "offline" for the signed-out desktop's (B12);
-//   * the launch entry on 5286 and the module that proves it.
+//     "offline" for the signed-out desktop's (B12).
 // Every claim has a CONTROL on the desktop signed in (DESKTOP caps).
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, act, createEvent, within } from '@testing-library/react'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const state = vi.hoisted(() => ({ ctx: null, access: null }))
@@ -474,18 +473,5 @@ describe('a shot\'s takes: the word for a clip this computer cannot reach', () =
     render(<ShotTakesPanel shot={shot} entries={[entry({ id: 'f2', display_name: 'T2', original_name: 'T2.mp4', media_type: 'video', source_path: 'D:\\x\\T2.mp4', online: false })]} fps={24} canWrite />)
     expect(document.body.textContent).toContain('offline')
     expect(document.body.textContent).not.toContain(NOT_ON_THIS_COMPUTER)
-  })
-})
-
-describe('the dev server on 5286, proven by a BC3-only module', () => {
-  it('.claude/launch.json has bc3-worktree on 5286, strict, and the module it names exists in this tree', () => {
-    const launch = JSON.parse(readFileSync(resolve(process.cwd(), '..', '.claude', 'launch.json'), 'utf8'))
-    const entry = launch.configurations.find(c => c.name === 'bc3-worktree')
-    expect(entry).toBeTruthy()
-    expect(entry.port).toBe(5286)
-    expect(entry.runtimeArgs).toEqual(expect.arrayContaining(['vite', '--port', '5286', '--strictPort']))
-    const named = /src\/tools\/rabbit_v0\.1\.0\/bins\/browserCatalogue\.js/.exec(entry._comment)?.[0]
-    expect(named).toBeTruthy()
-    expect(existsSync(resolve(process.cwd(), named))).toBe(true)
   })
 })
