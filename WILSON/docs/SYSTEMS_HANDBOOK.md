@@ -5788,7 +5788,8 @@ documentation and starts being wrong answers.
   of the subject reads every column of every row of their subject, the sharer
   of an onward row reads the row they made (the onward receiver's host pointer
   among its columns) and the receiver their own; the index's nulls are what
-  the client shows, not a boundary. Design §3.6.
+  the client shows, not a boundary. The policy's three arms on a whole-row
+  SELECT grant (0100 §1); the design's §3.6 states the owner's read.
 
 ---
 
