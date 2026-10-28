@@ -433,6 +433,38 @@ check `res.ok` on each post. Found while placing the subject-share reminder
 from these imports until this is fixed); settle it with one lesson import on
 the beta.
 
+### In the company library the subject delete confirm says "permanently", and a delete there is the 30-day trash
+**MEASURED by reading (B2, 2026-10-27).** `renderDeleteSubjectConfirm` in
+`src/tools/otter_v0.3.1/Otter.jsx` says *This will permanently remove this
+subject and its lessons. This cannot be undone.* in every mode; in cloud mode
+`subject.delete` (`supabaseOtterAdapter.js`) calls `otter_soft_delete_row`,
+so the subject goes to Recently deleted for 30 days. The course delete
+confirm was corrected for exactly this in Session 11 (its comment says so);
+the subject's never was. B2 adds, for a subject with live shares, the
+design's *Shared with N people: the link stops for them while it is in the
+trash and ends when it is purged.* under it, so the dialog now names the
+trash in one sentence and denies it in the one above. Fix shape: the course
+confirm's cloud-mode wording for the subject. Outside B2's list; walkthrough
+84, B2's Q2.
+
+### While a linked subject is open, the pet has no lesson to read and is not told it is read-only
+**MEASURED by reading (B2 review rounds 1 and 2, 2026-10-27).** The agent's
+context (`src/agent/AgentProvider.jsx`) reads the subject only when
+`activeSubjectSlug` is set, and `Otter.jsx` sets it to null while a LINKED
+subject is open (its slug may be the host's own subject's, so the client
+identifies it by `link:<subject_id>`, design §5.5); B2 withholds the lesson
+id then too (alone under the host course, `lesson_1_1` would name the host's
+own lesson of that id). So for a linked subject the pet is handed the host
+course and nothing of the subject: it cannot answer about the lesson on
+screen as it can for an own subject, and the design's "the agent is told the
+subject is read-only" (§5.4) is true only by that omission. Every write is
+refused while a link is open (`applyChange` throws, for the host's own
+subjects too, since the agent's target names a slug the two can share; the
+database would refuse a write to the link anyway). Fix shape: pass the open
+link to the agent's context (`activeSubjectKey`, or a linked flag the
+provider reads) and let `getContent` serve the open body. `AgentProvider.jsx`
+is outside B2's table (design §6.2), so this is recorded, not changed.
+
 ### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
 **MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
 sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
@@ -1277,6 +1309,11 @@ range's bytes are counted as its body finishes streaming, which under load
 landed after the test's `tick()`; settle it by consuming the second
 response's body before the clock moves, or by counting before the request
 resolves. Not re-run: a re-run needs a GitHub sign-in the session has not.)*
+*(B2, 2026-10-27, MEASURED on GitHub's runner: the same test, the same
+figures — `bytes` 524,288 where 1,048,593 is expected, `fraction` 0.5 — in RLS
+tests run 40617232593's Vitest job on `ae80e2c4`, a branch that touches
+nothing under `gateway/`; it was the job's one failing test (the run's
+annotations). Twice now on CI, never on a Windows run of the suite.)*
 
 ---
 
@@ -1286,6 +1323,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul B2 (2026-10-27; `po/b2-subject-shares-client` into `feat/post-overhaul-edit-versioning`) — subject shares, the client (`docs/sessions/PLAN_TO_1_0.md` night 3; the design's §6.2): the share dialog in three modes (a subject, the whole course, passing it on), the Requests view's *Shared with you* and *Shared by you* (the batch card, the chain line, Withdraw all), the linked subject inside the receiver's course read by id and never cached, `link:<subject_id>` progress through `linkKey()`, the pet's linked entries, the reminder from the six subject-saving paths; no migration, no route, no SQL | the subject delete confirm's *permanently* in the company library (measured by reading; walkthrough 84, Q2); the pet has no lesson to read while a linked subject is open (review round 1, finding 5) | nothing. |
 | Post-overhaul R1 (2026-10-27; `po/r1-rabbit-robustness` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T. robustness (`docs/sessions/PLAN_TO_1_0.md` night 2), each item measured before it was fixed: Levels and Experiences take the Scenes rows' write gate; Replace link is one undoable step that loses nothing (the provider's `rewireDependency`, waiting its turn in the undo queue, a write after a project switch kept off another project's bundle); migration 0101 (a bid version's thin `{id, project_id}` event on the project channel; an assigned task's items on the workspace channel, never a private project's) with suite 104, 25/25 on wilson-dev, both on dev only (staging is the controller's, from the Desktop kit); every cloud file read (`listFilesWith`); the Dashboard's `task_items` listener; the Tasks CSV as the table shows it; the Rate card and Team members at 1280 and 1440 with the kit's compact cells (`Table compact`), Team members' badges wrapping under the name; two review rounds on Fable (round 1: 2 MEDIUM, 2 LOW; round 2: 1 MEDIUM, 2 LOW), every correction with a failing control. | R1-L1 to R1-L4 (R1's left-open section, at the end); S3b-02 widened to a level's and an experience's windows. | S5-02, DG1-01, "A dependency rewire deletes before it links", "Levels and Experiences have no write gate", "The Dashboard shows a task's assets as of its last load", "The Tasks CSV export leaves out the asset and the bid"; P1-30 struck with its dated line; P1-29 kept with its dated line, one cut left (R1-L3). |
 | Post-overhaul S1 (2026-10-27; `po/s1-reconnect` into `feat/post-overhaul-edit-versioning`) — night 2's reconnect after a hung session check (`docs/design/RECONNECT_DESIGN.md`: the watchdog aborts a request at its budget, the SDK keeps the session and retries by itself, the strip says *reconnecting…* and pings the service that hung, the client module refuses a data request carrying the anon key while signed in, R.A.B.B.I.T.'s dot shows the same word) and the two-factor enrolment overflow, measured closed (506.89px in a 544px well at 824 and 700 tall, Chromium and Electron alike; the shell's 544px floor of 2026-09-11). | **S1-01** (two tabs, one refresh token; INFERRED). | *One hung `getSession()` pins the whole app's auth* (fixed by the build; its two wrong claims recorded in the S1 section) and *The two-factor enrolment screen overflows the sign-in shell's band at laptop heights* (measured closed). |
 | Post-overhaul B1 (2026-10-27; `po/b1-subject-shares-server` into `feat/post-overhaul-edit-versioning`) — subject shares, the server (`docs/sessions/PLAN_TO_1_0.md` night 2; the design's §6.1): migration 0100 copied whole from the design's Appendix A (the table, the one SELECT policy, the guard trigger, the consent helper's chain walk, the six functions, the index, the audit lines, the post-conditions), 0065 removed in the same commit; suite 103 (446 probes, 446/446 on wilson-dev; the failing controls of the design's §4 and §10, and of the two review rounds' corrections, run once each against the final suite, 33 in all); `otter_subject_shares` into `rls.yml`'s `RLS_TABLES`, its `KNOWN_UNCOVERED` line gone with 0065; the adapter's seven operations under `/api/otter/subject-shares` and `/api/otter/subjects/:id`, `id` on the subject wires, `export.all`'s `linked_subjects`; the fixtures answer the six ops as nominations; 0100 applied to wilson-dev by query with its history row (md5 recorded in the hand-off; staging is the controller's); the avatars entry narrowed by measurement (the four policies, the claim function, the client's path), no 0102 since the cause is not proven; two review rounds on Fable. | **nothing new**; the avatars entry rewritten to what remains. | nothing. |
