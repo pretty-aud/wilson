@@ -62,10 +62,19 @@ export async function fetchWorkspaceStorage() {
 // Staleness matches the drive's own stated limit (S34): another admin's
 // change reaches this session at its next launch or sign-in, not live.
 let cachedRow
+// P1 (review round 1, finding 6): file panels that mount at the same moment
+// (FileManager, the Files tab) each asked for the choice; they share ONE read
+// now. Forgotten when it settles, so a failed read is retried by the next call.
+let inflight = null
 
 export async function getWorkspaceStorageCached() {
   if (cachedRow !== undefined) return cachedRow
-  return await fetchWorkspaceStorage()
+  if (!inflight) {
+    const read = fetchWorkspaceStorage()
+    inflight = read
+    read.finally(() => { if (inflight === read) inflight = null }).catch(() => {})
+  }
+  return await inflight
 }
 
 // The cached choice as it stands — undefined when never loaded (or forgotten
@@ -82,6 +91,7 @@ export function peekWorkspaceStorageCached() {
 // branch) — the next account in this window may be a different workspace.
 export function clearWorkspaceStorageCache() {
   cachedRow = undefined
+  inflight = null
 }
 
 // How many file bodies still live at a given provider (S37). Used by the

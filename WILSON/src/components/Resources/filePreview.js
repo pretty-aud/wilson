@@ -33,6 +33,9 @@ const IMAGE = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'ico'
 const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon'])
 const IMAGE_NOT_DRAWN = new Set(['tif', 'tiff', 'psd', 'psb', 'exr', 'heic', 'heif', 'raw', 'cr2', 'cr3', 'nef', 'arw', 'dng', 'dpx', 'tga', 'hdr'])
 const AUDIO = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'weba'])
+// P1: what plays by range requests (with VIDEO_EXTENSIONS) — the read signer's
+// streaming hour covers exactly these (storagePresignBoundary.test.js).
+export const AUDIO_EXTENSIONS = AUDIO
 const MARKDOWN = new Set(['md', 'markdown', 'mdown', 'mkd'])
 const ESCAPED = new Set(['html', 'htm', 'xhtml', 'svg'])
 const ESCAPED_MIME = new Set(['text/html', 'application/xhtml+xml', 'image/svg+xml'])

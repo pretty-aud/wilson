@@ -403,15 +403,18 @@ export default function FileManager({
   // (storage/index.js SERVER_MEDIA_SENTENCE). Read once from the cached
   // storage choice; any doubt (no answer, the fixtures) keeps today's words.
   // The Local Server backend lists the files themselves and never asks.
+  // The cloud backend only, as the reservation sweep above (review round 1,
+  // finding 6): Drive and the Local Server never ask.
   const [mediaOnServer, setMediaOnServer] = useState(false)
+  const cloudBackend = !managed && ctx?.adapterMode === 'supabase'
   useEffect(() => {
-    if (managed) return undefined
+    if (!cloudBackend) { setMediaOnServer(false); return undefined }
     let live = true
     getWorkspaceStorageCached()
       .then(row => { if (live) setMediaOnServer(storesMediaOnServer(row)) })
       .catch(() => { /* unknown keeps the ordinary empty state */ })
     return () => { live = false }
-  }, [managed])
+  }, [cloudBackend])
 
   // P1: the s3 rows' previews. A key keeps its last URL until a fresh one
   // comes, so a failed renewal (RabbitProvider answers an empty map) never

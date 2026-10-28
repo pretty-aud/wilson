@@ -71,8 +71,12 @@ const REFUSED = Object.freeze({
   row: 'this file is not one you can open any more',
 })
 
+/** _shared/readUrls.ts READ_URLS_MAX_FOLDERS — pinned equal beside S3_READ_BATCH. */
+export const S3_READ_FOLDERS = 10
+
 // One call per project (the signer takes at most two), at most S3_READ_BATCH
-// keys each, in the order the keys came.
+// keys and S3_READ_FOLDERS folders each (the signer reads its rows one folder
+// at a time), in the order the keys came.
 function readBatches(keys) {
   const byProject = new Map()
   for (const k of keys) {
@@ -82,7 +86,16 @@ function readBatches(keys) {
   }
   const out = []
   for (const group of byProject.values()) {
-    for (let i = 0; i < group.length; i += S3_READ_BATCH) out.push(group.slice(i, i + S3_READ_BATCH))
+    let batch = []
+    let folders = new Set()
+    for (const k of group) {
+      const folder = k.slice(0, k.lastIndexOf('/'))
+      const full = batch.length >= S3_READ_BATCH || (!folders.has(folder) && folders.size >= S3_READ_FOLDERS)
+      if (full) { out.push(batch); batch = []; folders = new Set() }
+      batch.push(k)
+      folders.add(folder)
+    }
+    if (batch.length) out.push(batch)
   }
   return out
 }

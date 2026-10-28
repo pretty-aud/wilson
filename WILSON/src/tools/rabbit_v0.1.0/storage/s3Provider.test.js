@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { createS3StorageProvider, clearS3ReadUrlCache, S3_READ_BATCH, S3_READ_RENEW_MARGIN_MS } from './s3Provider'
+import { createS3StorageProvider, clearS3ReadUrlCache, S3_READ_BATCH, S3_READ_FOLDERS, S3_READ_RENEW_MARGIN_MS } from './s3Provider'
 
 const KEY = 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/1-dailies.mov'
 
@@ -214,6 +214,14 @@ describe('getUrls — a panel\'s thumbnails, batched and cached (P1)', () => {
     expect(calls.map((c) => c.keys.length)).toEqual([S3_READ_BATCH, 30, 1])
     expect(calls[2].keys).toEqual([thumb(1, P2)])
     expect(calls[0].keys[0]).toBe(thumb(0))
+  })
+
+  it('at most S3_READ_FOLDERS folders a call: the signer reads its rows one folder at a time (round 1)', async () => {
+    const { presignReads, calls } = reader()
+    const provider = createS3StorageProvider(vi.fn(), presignReads)
+    const keys = Array.from({ length: 12 }, (_, i) => `projects/${P1}/assets/a${i}/1754612345678-f.png.jpg`)
+    await provider.getUrls(keys)
+    expect(calls.map((c) => new Set(c.keys.map((k) => k.slice(0, k.lastIndexOf('/')))).size)).toEqual([S3_READ_FOLDERS, 2])
   })
 
   it('a refused key has no URL — its tile is the file-type icon', async () => {

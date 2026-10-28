@@ -960,7 +960,7 @@ caller; money refused), a longer media expiry (a stream 3600 s, a thumbnail
 3600 s, a body read once 300 s), and `getUrl` in `REQUIRED` with all three
 providers meeting it. FileManager signs an s3 row's preview in the company's
 bucket and renews it while it is shown; the Files tab previews and plays an
-s3 file. What remains: the live check on Audrey's test bucket (P1-06), and
+s3 file. What remains: the live check on Audrey's test bucket (OSP-06), and
 the NAS half, which is the `network` entry below. `NETWORK_STORAGE_DESIGN.md`
 §9.
 
@@ -3043,32 +3043,33 @@ What P1 (night 4: browser previews on a workspace's own storage) measured
 outside its scope, or built to a limit, and did not fix. The design is
 `NETWORK_STORAGE_DESIGN.md` §9.
 
-- **P1-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
+- **OSP-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
   any row-shaped key under a project the caller can read
   (`can_presign_project_read` is project-level), so a key kept from before a
   file was trashed, or of a row purged while its body waits for collection,
   is still signed — 300 s, one key a call (design round, finding 1). The new
-  `storage-read-urls` checks the row as the caller and is not open to it.
+  `storage-read-urls` checks the row as the caller, so it is closed to a
+  READER (a writer can still forge a row in their own project: OSP-07).
   Fix shape: the same caller-scoped row read in `storage-presign`'s GET and
   HEAD. Owner: the next storage session; it needs a redeploy on every
   environment.
-- **P1-02 · A download from a company's own bucket reads the whole body into
+- **OSP-02 · A download from a company's own bucket reads the whole body into
   memory.** `s3Provider.getUrl` answers null for `{ download }` (the read
   signer signs no attachment disposition, and a cross-origin `a.download` is
   ignored), so `downloadUrl` falls back to the Blob path through
   `storage-presign` — the S42 limit, still true for s3. Fix shape: a signed
   `response-content-disposition` in `_shared/s3Presign.ts` (shared with three
   functions). Owner: the next storage session.
-- **P1-03 · A clip longer than an hour restarts at 0:00 on its re-mint** — on
+- **OSP-03 · A clip longer than an hour restarts at 0:00 on its re-mint** — on
   Petal and on a bucket alike: the player re-mints once on its first failed
   range and keys the `<video>` on the new URL. Fix shape: `VideoStage`
   keeps `currentTime` across the re-mint. Owner: none yet.
-- **P1-04 · Rows written on s3 before a switch to `network` answer "configure
+- **OSP-04 · Rows written on s3 before a switch to `network` answer "configure
   S3".** 0050's switch rule nulls the s3 config, so both signers answer their
   409 (*"…an admin sets it in Admin Terminal → Storage"*) for those rows: a
   misleading sentence for a NAS admin. None exist (no s3 workspace exists
   anywhere). Owner: the next storage session.
-- **P1-05 · A receipt uploaded to an s3 workspace before 0076 is
+- **OSP-05 · A receipt uploaded to an s3 workspace before 0076 is
   indistinguishable from any other file** (it sits under its container
   segment, unflagged; 0076 counts and reports those rows and cannot flip
   them), so either signer signs it for a reader of its project. None exists
@@ -3076,8 +3077,31 @@ outside its scope, or built to a limit, and did not fix. The design is
   receipts from before 0076 exists, count `files` rows in
   `expenses.file_ids` with `storage_provider = 's3'`; any above zero needs
   its body moved into Supabase first. Owner: the release runbook.
-- **P1-06 · The live proof waits on Audrey's test bucket.** No S3 workspace
+- **OSP-06 · The live proof waits on Audrey's test bucket.** No S3 workspace
   exists on any environment and no session holds a bucket's keys: the signer
   is proven by its tests (21 failing controls) and by its refusals on
   wilson-dev to a caller with no sign-in. Walkthrough 85, P1, is the live
   check once the controller has deployed `storage-read-urls` to staging.
+- **OSP-07 · A writer of a project can make a `files` row vouch for any key
+  under it.** `files_insert`/`_update` (0092) let anyone `can_write_project`
+  admits set `storage_path` (and `thumbnail_url`), and no CHECK ties a path to
+  its own project or stops it changing, so a writer can name a trashed file's
+  key, or a stray object's, and have `storage-read-urls` sign it (an hour if
+  it streams) — the reach `storage-presign`'s GET already gives a writer
+  (build review round 1, finding 1). Fix shape, a migration night: a CHECK
+  that `storage_path` sits under `projects/<project_id>/`, and a trigger that
+  refuses a change of it outside the re-filing. Owner: the next migration
+  session.
+- **OSP-08 · `storage-read-urls` bounds its body by the declared length.**
+  It refuses a body without a `content-length` (411) or over 128 KB (413)
+  before reading it; HTTP/1.1 framing makes the declared length binding, but
+  the house readers (`gatewayWire.ts` `readJsonLimited`, `aiFileStore.ts`
+  `readSmallJson`) stream under a cap instead (round 1, finding 5). Owner:
+  none; a consistency change.
+- **OSP-09 · A failed renewal keeps an s3 preview URL past its life.**
+  FileManager keeps a key's last URL until a fresh one arrives, so after
+  failed renewals (offline, a 5xx) a tile below the fold that loads late gets
+  a dead URL, fails once and shows the icon until the next ask (five
+  minutes, or the tab's return); a key the signer has since refused keeps its
+  last URL until it expires (round 1, finding 7). Fix shape: `getUrls`
+  returns each URL's end and the merge drops the dead. Owner: none.

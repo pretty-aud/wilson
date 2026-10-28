@@ -2467,8 +2467,11 @@ asked); per project, `can_presign_project_read` **once**, as the caller; and
 `files` row the caller can SELECT owns it — its `storage_path` (a body), or
 its `storage_path` + `.jpg` with its `thumbnail_url` saying so (a thumbnail;
 `thumbnail_url` is client-writable, so a thumbnail is never anything else).
-So `files_select` is evaluated, not copied: a trashed file, a purged row or an
-object WILSON never wrote is not signed. Then the workspace on `s3` with a
+So `files_select` is evaluated, not copied: against a reader, a trashed file,
+a purged row or an object WILSON never wrote is not signed (a WRITER of the
+project can make a row vouch for a key under it — the reach `storage-presign`
+gives them; OUTSTANDING OSP-07). The rows are read one folder at a time, so no
+filename travels to the database or its logs. Then the workspace on `s3` with a
 config and a usable secret, the prefix applied server-side. The answer:
 `{ urls, expires, refused }`, keyed by the input in its order; a refusal is a
 code (`shape`, `money`, `project`, `row`), never a sentence carrying a name.

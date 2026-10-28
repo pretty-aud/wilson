@@ -128,3 +128,58 @@ describe('🚨 wiring — the path exists AND is reached', () => {
     expect(block).toMatch(/if \(!url\) return null/)
   })
 })
+
+// =============================================================================
+// P1 review round 1, finding 3: the MIDDLE LINKS that carry the two flags.
+// The real cloud adapter, driven against registered fake providers: the stage's
+// `stream` reaches the row's provider through fileUrl, and FileManager's
+// `{ provider: 's3' }` reaches the s3 provider's batch through thumbnailUrls.
+// RabbitProvider's two pass-throughs are pinned by text below.
+// =============================================================================
+describe('the cloud adapter carries the flags to the provider (P1)', () => {
+  const S3KEY = 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/1-cut.mov'
+  async function adapterWith() {
+    vi.resetModules()
+    vi.doMock('../../../cloud/auth/supabaseClient.js', () => ({
+      supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 't' } } }) } },
+    }))
+    const { supabaseAdapter, resetSupabaseAdapter } = await import('../adapters/supabaseAdapter')
+    const { registerStorageProvider, FILE_PROVIDERS } = await import('./index.js')
+    resetSupabaseAdapter()
+    const seen = { getUrl: [], getUrls: [] }
+    const fake = (name) => ({
+      put: async () => {}, get: async () => new Blob(['x']), del: async () => {},
+      exists: async () => true, describe: async () => ({}),
+      getUrl: async (key, expiresIn, opts) => { seen.getUrl.push([name, key, expiresIn, opts]); return `https://${name}.example/${key}` },
+      getUrls: async (keys) => { seen.getUrls.push([name, keys]); return new Map(keys.map((k) => [k, `https://${name}.example/${k}`])) },
+    })
+    registerStorageProvider(FILE_PROVIDERS.S3, fake('s3'))
+    registerStorageProvider(FILE_PROVIDERS.SUPABASE, fake('supabase'))
+    return { adapter: supabaseAdapter(), seen }
+  }
+
+  it('fileUrl hands the stage\'s stream flag to the row\'s provider: a player streams by default, a still asks to read once', async () => {
+    const { adapter, seen } = await adapterWith()
+    await adapter.fileUrl({ storage_provider: 's3', storage_path: S3KEY })
+    await adapter.fileUrl({ storage_provider: 's3', storage_path: S3KEY }, { stream: false })
+    expect(seen.getUrl).toEqual([
+      ['s3', S3KEY, 3600, { stream: true }],
+      ['s3', S3KEY, 3600, { stream: false }],
+    ])
+  })
+
+  it('thumbnailUrls with { provider: \'s3\' } asks the s3 provider\'s batch, never Petal\'s bucket', async () => {
+    const { adapter, seen } = await adapterWith()
+    const map = await adapter.thumbnailUrls([`${S3KEY}.jpg`], { provider: 's3' })
+    expect(seen.getUrls).toEqual([['s3', [`${S3KEY}.jpg`]]])
+    expect(map.get(`${S3KEY}.jpg`)).toBe(`https://s3.example/${S3KEY}.jpg`)
+  })
+
+  it('RabbitProvider passes both options through, unchanged', () => {
+    const provider = read('src', 'tools', 'rabbit_v0.1.0', 'state', 'RabbitProvider.jsx')
+    expect(provider).toContain('const fileUrl = useCallback(async (file, opts) => {')
+    expect(provider).toContain('return adapterRef.current.fileUrl(file, opts);')
+    expect(provider).toContain('const thumbnailUrls = useCallback(async (paths, opts) => {')
+    expect(provider).toContain('return await adapterRef.current.thumbnailUrls(paths, opts);')
+  })
+})

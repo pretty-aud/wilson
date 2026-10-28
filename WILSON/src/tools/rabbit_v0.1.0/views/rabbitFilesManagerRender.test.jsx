@@ -224,7 +224,7 @@ describe('FileManager — previews on the company\'s own storage (P1)', () => {
   it('a company that keeps its media on its own server: the empty panel says where it is', async () => {
     storage.cached.mockReset()
     storage.cached.mockResolvedValue({ mode: 'byos', provider: 'network', root_path: '\\\\nas\\projects' })
-    cloud({ files: [] })
+    cloud({ files: [], adapterMode: 'supabase' })
     const { container } = render(<FileManager assetId="a1" projectId="p" mode="full" />)
     expect(await screen.findByText(SERVER_MEDIA_SENTENCE)).toBeTruthy()
     expect(container.querySelector('[data-fm-empty="server"]')).not.toBeNull()
@@ -237,12 +237,21 @@ describe('FileManager — previews on the company\'s own storage (P1)', () => {
   ])('CONTROL: on %s the empty panel keeps its words', async (_label, row) => {
     storage.cached.mockReset()
     storage.cached.mockResolvedValue(row)
-    cloud({ files: [] })
+    cloud({ files: [], adapterMode: 'supabase' })
     const { container } = render(<FileManager assetId="a1" projectId="p" mode="full" />)
     await waitFor(() => expect(storage.cached).toHaveBeenCalled())
     await act(async () => {})
     expect(screen.getByText('Click “Add files” to get started.')).toBeTruthy()
     expect(container.querySelector('[data-fm-empty="none"]')).not.toBeNull()
+  })
+
+  it('CONTROL: Drive (any backend but the cloud) never asks (round 1, finding 6)', async () => {
+    storage.cached.mockReset()
+    storage.cached.mockResolvedValue({ mode: 'byos', provider: 'network' })
+    cloud({ files: [], adapterMode: 'google_drive' })
+    render(<FileManager assetId="a1" projectId="p" mode="full" />)
+    await act(async () => {})
+    expect(storage.cached).not.toHaveBeenCalled()
   })
 
   it('CONTROL: the Local Server backend lists the files themselves and never asks', async () => {

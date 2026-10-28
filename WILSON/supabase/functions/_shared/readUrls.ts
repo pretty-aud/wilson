@@ -27,14 +27,23 @@
 //   5. At most two projects, each asked can_presign_project_read ONCE, as
 //      the caller (`=== true`; an error is a refusal).
 //   6. 🚨 THE ROW, AS THE CALLER. A key is signed only when a live `s3` files
-//      row the caller can SELECT owns it — its storage_path IS the key (a
-//      body), or its storage_path + '.jpg' is the key and its thumbnail_url
-//      says so (a thumbnail). files_select is EVALUATED by that read, not
-//      copied (the S33 rule): a trashed file, a purged row whose body waits
-//      for collection, or an object WILSON never wrote is not signed. And
-//      because files.thumbnail_url is client-writable, a thumbnail is only
-//      ever the key derived from the row's OWN body — never whatever that
-//      column was set to.
+//      row the caller can SELECT, IN THE KEY'S OWN PROJECT, owns it — its
+//      storage_path IS the key (a body), or its storage_path + '.jpg' is the
+//      key and its thumbnail_url says so (a thumbnail). files_select is
+//      EVALUATED by that read, not copied (the S33 rule): against a READER,
+//      a trashed file, a purged row whose body waits for collection, or an
+//      object WILSON never wrote is not signed. And because
+//      files.thumbnail_url is client-writable, a thumbnail is only ever the
+//      key derived from the row's OWN body. ⚠️ Against a WRITER of the
+//      project it holds less: files_insert/_update let a writer set
+//      storage_path, so a writer can make a row vouch for any key under
+//      their own project — the reach storage-presign's GET already gives
+//      them (review round 1; OUTSTANDING OSP-01, OSP-07). The row must be in
+//      the key's project, so a writer of one project can vouch for nothing
+//      in another.
+//      The read is BY FOLDER (`storage_path LIKE '<folder>/%'`, the key's
+//      folder holds only ids), never by key, so no filename travels in a
+//      URL or lands in an API log (review round 1, finding 4).
 //   7. The workspace on s3 with a config and a usable secret (index.ts).
 // The answer names a refusal by a code, never a sentence that could carry a
 // filename, and nothing here logs a key.
@@ -46,10 +55,12 @@ import { checkRowShapedPath } from './presignPath.ts'
 export const READ_URLS_MAX_KEYS = 100
 /** The bound on the predicate calls one request can cause. */
 export const READ_URLS_MAX_PROJECTS = 2
+/** The bound on the row reads one request can cause (one per folder). */
+export const READ_URLS_MAX_FOLDERS = 10
 /** Read before parsing: 100 keys of the 1024 the path gate allows, and change. */
 export const READ_URLS_MAX_BODY_BYTES = 128 * 1024
-/** Keys per caller-scoped row read (two paths each in the query string). */
-export const READ_URLS_ROW_CHUNK = 20
+/** What uploadFile writes: projects/<pid>/<entity>/<id>/<ts>-<name>, or deeper. */
+export const READ_URLS_MIN_SEGMENTS = 5
 
 // The expiries, by what the URL is for (§9.2). A thumbnail is read again by
 // every tile that mounts, so it lives the hour rabbit-thumbnails' signed URLs
@@ -60,11 +71,35 @@ export const THUMBNAIL_EXPIRES = 3600
 export const STREAM_EXPIRES = 3600
 export const READ_ONCE_EXPIRES = 300
 
+// 🚨 THE HOUR IS FOR WHAT ACTUALLY STREAMS (review round 1, finding 2). The
+// client's `stream` flag is a request, not a fact: a PDF or a still asked
+// for "as a stream" would otherwise get the hour. The key names the object,
+// so its extension decides. These are the client's own lists — VIDEO_EXTENSIONS
+// (storage/videoThumbnails.js) and filePreview.js's AUDIO_EXTENSIONS —
+// held to this set by storagePresignBoundary.test.js. A video with an
+// extension outside it is read once: it plays five minutes, then re-mints.
+export const STREAMABLE_EXTENSIONS: ReadonlySet<string> = new Set([
+  'mp4', 'm4v', 'mov', 'webm', 'mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', 'm2v',
+  'mts', 'm2ts', 'mxf', 'r3d', 'ari', 'arri', 'braw', 'dnx', 'dnxhd', 'dnxhr',
+  'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'weba',
+])
+
+export function streams(key: string): boolean {
+  const leaf = key.slice(key.lastIndexOf('/') + 1)
+  const dot = leaf.lastIndexOf('.')
+  return dot > 0 && STREAMABLE_EXTENSIONS.has(leaf.slice(dot + 1).toLowerCase())
+}
+
 const THUMB_SUFFIX = '.jpg'
 
 export type Refusal = 'shape' | 'money' | 'project' | 'row'
 
-export type OwnedRow = { storage_path: string | null; thumbnail_url: string | null }
+export type OwnedRow = { project_id?: string | null; storage_path: string | null; thumbnail_url: string | null }
+
+/** Every segment but the last: what the row read is scoped by. */
+export function folderOf(key: string): string {
+  return key.slice(0, key.lastIndexOf('/'))
+}
 
 type Signer = (key: string, expiresSeconds: number) => Promise<string>
 
@@ -73,9 +108,10 @@ export type ReadUrlsDeps<Ctx> = {
   rateLimited: (ctx: Ctx) => Promise<boolean>
   /** can_presign_project_read as the caller; anything but true refuses. */
   canReadProject: (ctx: Ctx, projectId: string) => Promise<unknown>
-  /** Live s3 files rows the CALLER can select, in these projects, whose
-   *  storage_path is one of `paths`. Throws when the read fails. */
-  ownedRows: (ctx: Ctx, projectIds: string[], paths: string[]) => Promise<OwnedRow[]>
+  /** Live s3 files rows the CALLER can select in `projectId` whose
+   *  storage_path lies under `folder` (`LIKE '<folder>/%'`), with their
+   *  project_id. Throws when the read fails. */
+  ownedRows: (ctx: Ctx, projectId: string, folder: string) => Promise<OwnedRow[]>
   /** The workspace's bucket, or the answer that says why there is none. */
   loadSigner: (ctx: Ctx) => Promise<
     | { ok: true; sign: Signer }
@@ -120,12 +156,19 @@ export function parseReadRequest(body: unknown):
  * storage_path is the key; a thumbnail when a row's storage_path + '.jpg' is
  * the key AND its thumbnail_url says so (thumbnailKeyFor's one rule). A key
  * that is both is a body — the shorter-lived of the two.
+ *
+ * 🚨 A row vouches only for a key in ITS OWN project (review round 1,
+ * finding 1): the key's second segment, case-folded, must be the row's
+ * project_id. Otherwise a writer of one project could insert a row there
+ * whose storage_path names a key in another project they can only read.
  */
 export function classifyOwned(keys: string[], rows: OwnedRow[]): Map<string, 'body' | 'thumbnail'> {
   const bodies = new Set<string>()
   const thumbs = new Set<string>()
   for (const r of rows) {
     if (typeof r?.storage_path !== 'string' || r.storage_path === '') continue
+    const keyProject = (r.storage_path.split('/')[1] || '').toLowerCase()
+    if (typeof r.project_id !== 'string' || r.project_id.toLowerCase() !== keyProject) continue
     bodies.add(r.storage_path)
     if (r.thumbnail_url === `${r.storage_path}${THUMB_SUFFIX}`) thumbs.add(r.thumbnail_url)
   }
@@ -169,8 +212,11 @@ export async function handleReadUrls<Ctx>(req: RequestLike, deps: ReadUrlsDeps<C
   const projectOf = new Map<string, string>()
   for (const key of keys) {
     const shape = checkRowShapedPath(key)
-    if (shape.ok) projectOf.set(key, shape.projectId)
-    else reason.set(key, shape.code)
+    if (!shape.ok) reason.set(key, shape.code)
+    // What uploadFile writes is never shallower than an entity's folder: a
+    // shallower key would scope the row read to a whole project.
+    else if (key.split('/').length < READ_URLS_MIN_SEGMENTS) reason.set(key, 'shape')
+    else projectOf.set(key, shape.projectId)
   }
 
   const projects = [...new Set(projectOf.values())]
@@ -192,20 +238,28 @@ export async function handleReadUrls<Ctx>(req: RequestLike, deps: ReadUrlsDeps<C
     else reason.set(key, 'project')
   }
 
-  // The row, as the caller, in chunks. A read that fails fails the call
-  // CLOSED: nothing is signed on a guess.
+  // The row, as the caller, ONE READ PER FOLDER: a thumbnail sits beside its
+  // body, so a key's folder holds its row either way, and the read carries
+  // only ids — never a filename (review round 1, finding 4). A read that
+  // fails fails the call CLOSED: nothing is signed on a guess.
+  const byFolder = new Map<string, string[]>()
+  for (const key of asked) {
+    const f = folderOf(key)
+    if (!byFolder.has(f)) byFolder.set(f, [])
+    byFolder.get(f)!.push(key)
+  }
+  if (byFolder.size > READ_URLS_MAX_FOLDERS) {
+    return refuse(400, 'bad_request', `at most ${READ_URLS_MAX_FOLDERS} folders per call`)
+  }
   const kind = new Map<string, 'body' | 'thumbnail'>()
-  for (let i = 0; i < asked.length; i += READ_URLS_ROW_CHUNK) {
-    const chunk = asked.slice(i, i + READ_URLS_ROW_CHUNK)
-    const paths = [...new Set(chunk.flatMap((k) =>
-      (k.endsWith(THUMB_SUFFIX) ? [k, k.slice(0, -THUMB_SUFFIX.length)] : [k])))]
+  for (const [folder, inFolder] of byFolder) {
     let rows: OwnedRow[]
     try {
-      rows = await deps.ownedRows(ctx, [...readable], paths)
+      rows = await deps.ownedRows(ctx, projectOf.get(inFolder[0])!, folder)
     } catch {
       return refuse(500, 'row_read_failed', 'the files could not be checked just now — try again')
     }
-    for (const [k, v] of classifyOwned(chunk, rows)) kind.set(k, v)
+    for (const [k, v] of classifyOwned(inFolder, rows)) kind.set(k, v)
   }
   for (const key of asked) if (!kind.has(key)) reason.set(key, 'row')
 
@@ -220,7 +274,9 @@ export async function handleReadUrls<Ctx>(req: RequestLike, deps: ReadUrlsDeps<C
     for (const key of keys) {
       const k = kind.get(key)
       if (!k) continue
-      const seconds = k === 'thumbnail' ? THUMBNAIL_EXPIRES : (stream ? STREAM_EXPIRES : READ_ONCE_EXPIRES)
+      const seconds = k === 'thumbnail'
+        ? THUMBNAIL_EXPIRES
+        : (stream && streams(key) ? STREAM_EXPIRES : READ_ONCE_EXPIRES)
       try {
         urls[key] = await signer.sign(key, seconds)
       } catch (err) {

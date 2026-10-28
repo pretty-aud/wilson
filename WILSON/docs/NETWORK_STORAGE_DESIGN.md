@@ -2060,13 +2060,18 @@ caller-scoped reads, the config and the signer):
    call's projects, `storage_path` in the keys and the keys less `.jpg`), under
    the caller's JWT, so `files_select` (0092: live row, the caller's
    workspace, a visible project, the money and Legal arms) is **evaluated, not
-   copied** (the S33 rule). Anything else is refused `row`. This is stronger
-   than `storage-presign`, which authorises a PATH in a readable project: a
-   trashed file, a row purged while its body waits for collection, or an
-   object WILSON never wrote under the project's prefix is not signed here.
-   And because `thumbnail_url` is client-writable (§17), a thumbnail is only
-   ever the key derived from the row's own body, never whatever that column
-   was set to.
+   copied** (the S33 rule). Anything else is refused `row`. Against a
+   READER this is stronger than `storage-presign`, which authorises a PATH in
+   a readable project: a trashed file, a row purged while its body waits for
+   collection, or an object WILSON never wrote under the project's prefix is
+   not signed here. And because `thumbnail_url` is client-writable (§17), a
+   thumbnail is only ever the key derived from the row's own body, never
+   whatever that column was set to. ⚠️ Against a WRITER of the project it
+   holds less (build round 1): `files_insert`/`_update` let a writer set
+   `storage_path`, so a writer can make a row in their own project vouch for
+   any key under it — the reach `storage-presign`'s GET already gives them.
+   A row vouches only for a key in its own project, and the rows are read one
+   folder at a time, so no filename travels to the database (9.7).
 9. If no key survives, the answer is given now, with no config or secret read.
 10. The workspace (the guard's verified claim): `provider = 's3'` with a
     config, else 409 with the sentence `storage-presign` uses; the mode is not
@@ -2346,4 +2351,41 @@ Nine findings, four Medium and five Low, none High; every one is folded into
    that was measured as deliberate, not a gap: `isDeckReferenceFile` refuses
    a Legal file by its own `isLegalFile` test beside it); no refusal code from
    the path gate (added); rows from before a switch to `network` (recorded
-   above, and in OUTSTANDING as P1-04).
+   above, and in OUTSTANDING as OSP-04).
+
+### 9.7 Build review round 1 (on Opus: the Fable call was refused, out of usage credits)
+
+Eight findings, four Medium and four Low, none High; the four Medium ones are
+fixed (they broke this design's own claims), two Low ones fixed, two recorded:
+
+1. *The row check could be forged, and a row in one project could vouch for a
+   key in another* (Medium) → a row vouches only for a key in its own project
+   (the row read is scoped to the key's project and `classifyOwned` checks
+   it again); step 8 above now says what it holds against a READER and what
+   it does not against a WRITER of the project (who may set `storage_path`:
+   the reach `storage-presign`'s GET already gives them). The database
+   invariant that would close it — a `storage_path` must sit under its own
+   `projects/<project_id>/` — is OUTSTANDING OSP-07, for a migration night.
+2. *`stream` was the client's word* (Medium) → the hour goes only to a key
+   whose extension is the client's own video or audio list
+   (`STREAMABLE_EXTENSIONS`, held to `VIDEO_EXTENSIONS` and
+   `AUDIO_EXTENSIONS` by a test); anything else asked to stream is read once.
+3. *The links that carry the two flags had no failing test* (Medium) → the
+   real cloud adapter is driven against fake providers (`fileUrl`'s stream,
+   `thumbnailUrls`' provider), and RabbitProvider's two pass-throughs are
+   pinned.
+4. *The row read put filenames in a URL* (Medium) → the rows are read ONE
+   FOLDER AT A TIME (`storage_path LIKE '<folder>/%'`, paged, at most 5,000
+   rows a folder), and the keys are matched in the function: only ids travel
+   to the database, and no filename lands in an API log. A key shallower than
+   an entity's folder is refused (`shape`), and a call takes at most ten
+   folders (the client splits).
+5. *The body-before-checks order was untested; the cap reads the declared
+   length* (Low) → the order is tested (no body read on 401, 429 or 413); the
+   streaming reader the gateway uses is recorded (OSP-08).
+6. *FileManager's server read ran on every backend, and panels raced* (Low) →
+   the cloud backend only, and the storage-choice read is shared while it is
+   in flight.
+7. *A failed renewal keeps a URL past its life* (Low) → recorded (OSP-09): a
+   tile that loads it fails once and shows the icon until the next ask.
+8. *Stale comments still said getUrl was optional* (Low) → rewritten.
