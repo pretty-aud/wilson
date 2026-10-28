@@ -152,7 +152,10 @@ reviewed twice.
 Measured with `scripts/probes/connection-hang.mjs` phase G against wilson-dev
 (no sign-in anywhere; the tokens are made up) and in the desktop app on a
 scratch profile, off-screen. The web pictures are the built app in Chromium
-with the cloud cut by a stub. Nothing here signed in to anything.
+with the cloud cut by a stub. Nothing here signed in to anything. The
+pictures named in the table (`po-s2-offline-…`, at 1280×800 and 1440×900)
+are in the folder *84_night_3 pictures* beside this file, and in the repo
+under `docs/sessions/handoffs/img/`.
 
 ### Your questions
 
