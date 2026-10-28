@@ -2350,6 +2350,40 @@ function startLocalServer(distPath) {
       res.json({ ok: true, added });
     });
 
+    // M3 (night 5): the WORKSPACE kinds' record — the company's rate cards,
+    // their entries and its task templates, which are nobody's project. Kept
+    // beside the stores it is about, in rabbit-data/cloud-migration/<workspace
+    // id>.json, merged by the same rule as a project's (append-only), and
+    // archived and cleared with the stores by rabbit:archive-local-data. Why
+    // not the first project's record: a workspace kind is not that project's;
+    // "the first project" moves with the list's order and goes with that
+    // project's archive or its copy to another computer; and the archive must
+    // take the stores and their record together. The id in the path is the
+    // one the body names (400 otherwise), contained as every data file is.
+    function getCloudMigrationDir() {
+      const dir = path.join(getRabbitDataDir(), 'cloud-migration');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+    function workspaceRecordPath(workspaceId) { return dataFileOrThrow(getCloudMigrationDir(), workspaceId, '.json', 'workspace record'); }
+    expressApp.get('/api/rabbit/workspaces/:workspaceId/cloud-migration-record', (req, res) => {
+      let p;
+      try { p = workspaceRecordPath(req.params.workspaceId); } catch { return rabbitNotFound(res, 'workspace record'); }
+      const holder = readJSON(p, null);
+      const record = holder && typeof holder.cloudMigration === 'object' && holder.cloudMigration && !Array.isArray(holder.cloudMigration) ? holder.cloudMigration : {};
+      res.json({ cloudMigration: record });
+    });
+    expressApp.post('/api/rabbit/workspaces/:workspaceId/cloud-migration-record', (req, res) => {
+      if (!req.body || req.body.workspace_id !== req.params.workspaceId) return res.status(400).json({ error: 'a workspace record names the workspace of its path', code: 'bad_record' });
+      let p;
+      try { p = workspaceRecordPath(req.params.workspaceId); } catch { return rabbitNotFound(res, 'workspace record'); }
+      const holder = readJSON(p, null) || {};
+      const added = mergeCloudMigrationRecord(holder, req.body);
+      if (added === null) return res.status(400).json({ error: 'a record names a workspace and the ids carried, by table', code: 'bad_record' });
+      writeJSON(p, holder);
+      res.json({ ok: true, added });
+    });
+
     expressApp.post('/api/rabbit/projects', (req, res) => {
       const now = new Date().toISOString();
       // Session 35 (TPN-NET-015): a body-supplied folder_root is validated
@@ -4987,36 +5021,63 @@ ipcMain.handle('rabbit:clear-gdrive', () => {
 // entire rabbit-data tree (minus binary files; they're already in Storage)
 // to a timestamped bundle under rabbit-data/archives/, then removes the
 // live projects/ and thumbnails/ subtrees. Idempotent.
-ipcMain.handle('rabbit:archive-local-data', () => {
-  try {
-    const rabbitDir = getRabbitDataDir();
-    const projectsDir = path.join(rabbitDir, 'projects');
-    const thumbsDir   = path.join(rabbitDir, 'thumbnails');
-    const archivesDir = path.join(rabbitDir, 'archives');
-    if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true });
+//
+// M3 (night 5): the workspace stores too — rate cards (each stored file: the
+// card, its entries, its department defaults), team members, task templates
+// and the workspace records (cloud-migration/) — archived under `workspace`
+// and cleared with the projects, so "Archive and clear local" keeps its
+// promise now that the migration carries them. A plain function of its
+// directory and its two modules, lifted by brace matching into
+// runMigrationBins.test.js (as mergeCloudMigrationRecord is) and run there
+// against a real temporary directory, with its control: a store left in place.
+function archiveLocalRabbitData(rabbitDir, fs, path) {
+  // The workspace stores, named inside (the test lifts this function alone).
+  const stores = ['rate-cards', 'team-members', 'task-templates', 'cloud-migration'];
+  const projectsDir = path.join(rabbitDir, 'projects');
+  const thumbsDir   = path.join(rabbitDir, 'thumbnails');
+  const archivesDir = path.join(rabbitDir, 'archives');
+  if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true });
 
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const snapshot = { archivedAt: ts, projects: [] };
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const snapshot = { archivedAt: ts, projects: [], workspace: {} };
 
-    if (fs.existsSync(projectsDir)) {
-      for (const projectId of fs.readdirSync(projectsDir)) {
-        const pjson = path.join(projectsDir, projectId, 'project.json');
-        if (!fs.existsSync(pjson)) continue;
-        try {
-          const bundle = JSON.parse(fs.readFileSync(pjson, 'utf-8'));
-          snapshot.projects.push(bundle);
-        } catch { /* corrupt bundle — skip */ }
+  if (fs.existsSync(projectsDir)) {
+    for (const projectId of fs.readdirSync(projectsDir)) {
+      const pjson = path.join(projectsDir, projectId, 'project.json');
+      if (!fs.existsSync(pjson)) continue;
+      try {
+        const bundle = JSON.parse(fs.readFileSync(pjson, 'utf-8'));
+        snapshot.projects.push(bundle);
+      } catch { /* corrupt bundle — skip */ }
+    }
+  }
+  const storeCounts = {};
+  for (const store of stores) {
+    const dir = path.join(rabbitDir, store);
+    const rows = [];
+    if (fs.existsSync(dir)) {
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith('.json')) continue;
+        try { rows.push(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf-8'))); } catch { /* corrupt file — skip */ }
       }
     }
+    snapshot.workspace[store] = rows;
+    storeCounts[store] = rows.length;
+  }
 
-    const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
-    fs.writeFileSync(archivePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+  const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
+  fs.writeFileSync(archivePath, JSON.stringify(snapshot, null, 2), 'utf-8');
 
-    // Clear live stores. Binary files are already uploaded to Supabase Storage.
-    fs.rmSync(projectsDir, { recursive: true, force: true });
-    fs.rmSync(thumbsDir,   { recursive: true, force: true });
+  // Clear live stores. Binary files are already uploaded to Supabase Storage.
+  fs.rmSync(projectsDir, { recursive: true, force: true });
+  fs.rmSync(thumbsDir,   { recursive: true, force: true });
+  for (const store of stores) fs.rmSync(path.join(rabbitDir, store), { recursive: true, force: true });
 
-    return { ok: true, archivePath, projectCount: snapshot.projects.length };
+  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts };
+}
+ipcMain.handle('rabbit:archive-local-data', () => {
+  try {
+    return archiveLocalRabbitData(getRabbitDataDir(), fs, path);
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }

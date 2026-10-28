@@ -357,11 +357,15 @@ export const TASK_TEMPLATES = [
     id: fid('template', 1), workspace_id: WORKSPACE_ID, project_id: null,
     name: 'Environment build',
     description: 'Drawings, build, dress, pre-light.',
+    // M3 (night 5): the desktop's shape — TaskTemplateManager writes
+    // `{ id, name, role_slug, bid_days, sort_order, depends_on }` and
+    // ProjectAssetsView reads `name`; these rows said `title`, which no
+    // screen read (the fixture is fixed, not the view).
     tasks: [
-      { title: 'Set drawings', bid_days: 3, role_slug: 'production_designer' },
-      { title: 'Build', bid_days: 8, role_slug: 'production_designer' },
-      { title: 'Dressing', bid_days: 2, role_slug: 'production_designer' },
-      { title: 'Pre-light', bid_days: 1, role_slug: 'dop' },
+      { id: fid('task', 9001), name: 'Set drawings', bid_days: 3, role_slug: 'production_designer', sort_order: 0, depends_on: [] },
+      { id: fid('task', 9002), name: 'Build', bid_days: 8, role_slug: 'production_designer', sort_order: 1, depends_on: [fid('task', 9001)] },
+      { id: fid('task', 9003), name: 'Dressing', bid_days: 2, role_slug: 'production_designer', sort_order: 2, depends_on: [fid('task', 9002)] },
+      { id: fid('task', 9004), name: 'Pre-light', bid_days: 1, role_slug: 'dop', sort_order: 3, depends_on: [fid('task', 9003)] },
     ],
     created_at: stamp(-40, 10), updated_at: stamp(-40, 10), created_by: M.mara, updated_by: M.mara,
   },
@@ -370,10 +374,10 @@ export const TASK_TEMPLATES = [
     name: 'VFX shot',
     description: 'Plates, comp, review, final.',
     tasks: [
-      { title: 'Plates', bid_days: 1, role_slug: 'dop' },
-      { title: 'Comp', bid_days: 6, role_slug: 'vfx_supervisor' },
-      { title: 'Director review', bid_days: 0.5, role_slug: 'director' },
-      { title: 'Final', bid_days: 1, role_slug: 'vfx_supervisor' },
+      { id: fid('task', 9011), name: 'Plates', bid_days: 1, role_slug: 'dop', sort_order: 0, depends_on: [] },
+      { id: fid('task', 9012), name: 'Comp', bid_days: 6, role_slug: 'vfx_supervisor', sort_order: 1, depends_on: [fid('task', 9011)] },
+      { id: fid('task', 9013), name: 'Director review', bid_days: 0.5, role_slug: 'director', sort_order: 2, depends_on: [fid('task', 9012)] },
+      { id: fid('task', 9014), name: 'Final', bid_days: 1, role_slug: 'vfx_supervisor', sort_order: 3, depends_on: [fid('task', 9013)] },
     ],
     created_at: stamp(-5, 10), updated_at: stamp(-5, 10), created_by: M.kenji, updated_by: M.kenji,
   },

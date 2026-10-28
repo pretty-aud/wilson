@@ -121,11 +121,16 @@ describe('the "Bins" help page (BC2)', () => {
     expect(text).not.toContain('comes back with it')
     // M1, M2: what moves since, what a later run carries, and what no
     // migration does (the report's two groups, binsMigration's NOT_CARRIED).
-    expect(text).toContain('A desktop project moves with its key dates, comments, shot lists and edits, its folders, its levels and experiences, the links on its tasks, its budget, and its bins, logging, marks and takes')
+    // M3 (night 5): the team by email, the files kept with rows, the cards
+    // and the templates move too; what stays is said as what no run carries.
+    expect(text).toContain('A desktop project moves with its key dates, comments, shot lists and edits, its folders, its levels and experiences, the links on its tasks, its budget, its roster, the files kept with its assets, scenes, shots, levels and experiences, and its bins, logging, marks and takes; the company\'s rate cards and task templates go once')
     expect(text).toContain('A budget moves only for a workspace admin or the project\'s manager, who alone see it in the cloud; anyone else\'s run leaves it on this computer and says so.')
-    expect(text).toContain('The team moves in a later run of the migration')
+    expect(text).toContain('Your desktop team is matched to company accounts by email, which only a workspace admin or manager may read; anyone without an account is named in the report, and their seats, crew lines, rates and tasks arrive without the person until they join (no email is sent).')
+    expect(text).toContain('A company that keeps its media on its own server keeps the files kept with its rows there; the browser says where they are.')
     expect(text).not.toContain('part 2')
-    expect(text).toContain('What a later run carries — the team, an asset\'s versions, the files kept with an asset, scene, shot, level or experience on this computer — and what no migration carries — deck attachments not yet moved into project files, comments on rows the cloud cannot hang a comment on, invoices attached by a path on this computer, and the pictures of scenes, shots, levels and experiences — stay on this computer')
+    expect(text).not.toContain('The team moves in a later run')
+    expect(text).toContain('What stays — the rows of a team member without a WILSON account until they join, a rate card\'s department defaults, an assignment\'s dates, a file\'s version label — and what no migration carries — deck attachments not yet moved into project files, comments on rows the cloud cannot hang a comment on, invoices attached by a path on this computer, and the pictures of scenes, shots, levels and experiences — stay on this computer')
+    expect(text).toContain('Archive and clear local keeps the team, the rate cards and the templates in the archive file with the projects.')
     expect(text).toContain('Use this address')
     const panel = src('src/cloud/migrate/MigrationPanel.jsx')
     expect(panel).toContain("MIGRATE_TITLE = 'Migrate to cloud'")
