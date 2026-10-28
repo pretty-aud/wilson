@@ -330,7 +330,8 @@ opened: 2026-07-30
 
 ```yaml
 id: TPN-ENC-013
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: AS-3.7
 domain: encryption
 title: "The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses"
@@ -368,13 +369,17 @@ IP SANs an explicit opt-in (`config.json`'s own-certificate option keeps them to
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** `gateway/src/certs/store.mjs` `ensure({ insideAddresses, ipSans })`: a new install's leaf names the host (`<host>`, `<host>.local`) and no address; the addresses join it only when `config.json` says `inside.ip_sans: true`, for an install made before P8 until it is set `false`, or for a host whose name is no DNS label, each an amber line (`rules/health.mjs`); the root's permitted networks are unchanged, so turning addresses on needs no new root (`certs.test.mjs`: a new store's leaf has no `IP Address:` SAN; `config.test.mjs`; `policy.test.mjs`). The names reach the cloud as `inside_names` (0104's `gateways.inside_names` under `gateway_inside_names_ok`, `gatewayShapes.ts` `cleanInsideNames`, the gateway's enrol and sync reports in the `[{ host, port }]` shape) and the browser probes them before any address (`bins/gatewayDoors.js` `probeGateway`, `adapters/gatewayBins.js` `basesOf`, `cloud/gatewayApi.js` `PLAYBACK_COLUMNS`). HARDENING §4 point 8 says what must resolve the name and §10 restates the limit. `gateway-enrol` and `gateway-sync` deployed to wilson-dev; staging owes them with 0104; the gateway half ships with the next gateway release.
+
 ---
 
 ## TPN-ENC-014 — The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure
 
 ```yaml
 id: TPN-ENC-014
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: AS-2.5
 domain: encryption
 title: "The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure"
@@ -412,13 +417,17 @@ The key-life half is TPN-ENC-016.
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** `gateway/src/platform/secrets.mjs`: a DPAPI failure refuses the write (`SecretsWriteRefused`) instead of falling to `WGPLAIN1`; off Windows the secrets are sealed (AES-256-GCM, marker `WGSEALD1`) under `WILSON_GATEWAY_SECRETS_KEY` or the Docker secret `WILSON_GATEWAY_SECRETS_KEY_FILE` names, and without one every write is refused; `WGPLAIN1` stays readable, is counted, and every store seals it again on load (`certs/store.mjs`, `runtime.mjs`, `acme/manager.mjs`, `platform/shares.mjs`). `CertStore` seals a key before any file moves, makes no root over a refusal or over a key file that does not open; the runtime refuses to enrol before the token is spent when secrets cannot be written; a share login is not kept on a refusal; the health line is red (`rules/health.mjs`), amber for unsealed files; `state.mjs` names `enrol.json` and `pipe.key` as plaintext by design. Tests: `platform.test.mjs`, `certs.test.mjs`, `runtime.test.mjs` (the real layer under a throwaway key made in the test), `policy.test.mjs`, `container.test.mjs`, `hardening.test.mjs`; the CI container job's two `docker run` lines carry a throwaway key; HARDENING §3, the NAS install story and GATEWAY_DESIGN step 3 set the key before the token. Code and tests only: it ships with the next gateway release.
+
 ---
 
 ## TPN-ENC-015 — The bucket-secret and AI-key master secrets are identical on dev, staging and production
 
 ```yaml
 id: TPN-ENC-015
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: AS-2.5
 domain: encryption
 title: "The bucket-secret and AI-key master secrets are identical on dev, staging and production"
@@ -454,13 +463,17 @@ storage-secret, storage-gc and `_shared/storageSecretCrypto.ts`; no Drive provid
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 Production takes its own value first, while it holds none (`docs/PRODUCTION_RUNBOOK.md`, *TPN-ENC-015, at release*).
 
+
+**Fixed in code and procedure 2026-10-28 (P8, night 5) — RESOLVED; the rotation on each environment is the controller's, with her go.** `supabase/functions/_shared/keyVersions.ts`: `WILSON_AI_KEY_SECRET` and `WILSON_STORAGE_KEY_SECRET` are read by version — the bare name is version 1, `_V2` to `_V9` the rest; the highest present seals a new row, whose envelope then begins `v<n>.`; a row is opened under the version its envelope names — in `aiKeyCrypto.ts` and `storageSecretCrypto.ts` (the environment through one shim, so `src/cloud/keyVersions.test.js` proves the seal, the open, the re-seal round trip and the refusals under throwaway values made in the test). `operator-ai-keys` gains `secrets_status` (versions and rows per version, names and counts) and `reseal` (`secret: 'ai' | 'storage'`): every row under another version is opened and sealed again under the current one, one `platform_audit` row `secret.resealed` (WIL-7013; 0106 §2 widens the CHECK, the TypeScript union and the console's filter agree, `platformAuditActions.test.js`) carrying the counts and never a value. The console's **Secrets** section (`src/admin/SecretsSection.jsx`, its test) shows the status and presses the re-seal behind a confirm that names the readers to redeploy first. `operator-ai-keys`, `storage-secret`, `storage-presign`, `storage-gc`, `storage-read-urls` and `ai-files` deployed to wilson-dev; no `_V2` set anywhere, no row moved. **Remaining** (`docs/PRODUCTION_RUNBOOK.md` (d), *The re-seal on dev and staging*): production's fresh version-1 values at release (no rows to move); on dev and staging a `_V2` set unseen, every reader redeployed CONFIRMED (`ai-proxy` included), **Re-seal** pressed, verified, the old name unset, the digests compared. Until that runs the three environments' values are as this finding describes.
+
 ---
 
 ## TPN-ENC-016 — The gateway's root key lives ten years on its host, and its release key has no successor
 
 ```yaml
 id: TPN-ENC-016
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: AS-2.5
 domain: encryption
 title: "The gateway's root key lives ten years on its host, and its release key has no successor"
@@ -491,6 +504,9 @@ the root's cadence sets the rating. The ten-year root is the design's pick D3, w
 (GATEWAY_QUESTIONS.md, "the design's picks stand"); that is not a ruling like G6 or D14, so it is not filed as an intentional exception.
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
+
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED; the successor key is hers to make.** `gateway/src/certs/x509.mjs` `ROOT_YEARS = 3` (the next root a year before the end, the leaf moved a month before; a root that expired while the gateway was off is replaced at the next start: `certs.test.mjs`). The release key: `compiledReleaseKeys` and `signManifest` take the slot list, so `releasePipeline.test.mjs` proves a successor in slot 2 signs a real release and verifies with both compiled keys, that a gateway built with slot 1 alone refuses it, and that a key in no slot or beyond the two slots is refused; `gateway/pipeline/cli.mjs make-key --out <folder>` (`pipeline/lib.mjs` `makeReleaseKey`) makes the successor with its private half in one file, never printed. HARDENING §10 *Rotating the release key* (five steps; the floors first after a theft), §9 and §11 point at it; the runbook's (g) 4 makes the successor before 1.0.0 so every install trusts both keys and the first rotation needs no MSI reinstall. **Remaining:** slot 2 is empty until she runs `make-key` at (g) 4; the one-key pins (`release.test.mjs`, `update.test.mjs`, `hardening.test.mjs`, `gw4Docs.test.mjs`, `docs.test.mjs`) say so until then.
 
 ---
 
@@ -809,7 +825,8 @@ opened: 2026-09-06
 
 ```yaml
 id: TPN-AUTH-012
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: TS-1.7
 domain: authentication
 title: "The file gateway serves any path a member catalogues, so a catalogue write reads the share"
@@ -861,13 +878,17 @@ re-pointed path is not confirmed.
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** Migration `0104_bins_vetted_and_gateway_names.sql`: `bin_files.vetted_at` / `vetted_by` and `bin_locations.vetted_at` / `vetted_by`, set by `fn_bin_files_vet` and `fn_bin_locations_vet` alone (BEFORE INSERT OR UPDATE): a client never chooses the mark — an admin's or manager's row is stamped (`bins_caller_may_vet`, the caller's live row, never the token's claim), a reviewer's or member's row inherits a vetted twin's mark on the same path at the same location in the same project or stays NULL, a re-pointed row is decided again, a hand-set mark is 42501 for anyone but a vetter, NULL withdraws it. `gateway_sync_apply` confirms vetted rows at vetted locations only and sends vetted locations only; `gateway_clips_for_tickets` returns vetted rows only, so no ticket is minted for an unchecked path. Suite `107_bins_vetted_and_gateway_names.sql` (47 probes) and suite 96's new probe (an unchecked seed is never confirmed). The browser says why: `adapters/gatewayBins.js` `online` needs `vetted_at` (reason `not_checked`, the sentence in `bins/binLocations.js`), and `views/bins/BinInspector.jsx` offers **Mark as checked** to an admin or manager (`project.bins.vet`). No backfill: every existing row starts unchecked (dev at the apply: 2 clips and 2 locations, all unchecked; the counts per environment go in each apply's hand-off). Applied to wilson-dev; staging owes 0104 and suite 107.
+
 ---
 
 ## TPN-AUTH-013 — The outside switch, the gateway's admin calls and the bucket settings skip the two-factor step-up
 
 ```yaml
 id: TPN-AUTH-013
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: TS-1.6
 domain: authentication
 title: "The outside switch, the gateway's admin calls and the bucket settings skip the two-factor step-up"
@@ -905,6 +926,9 @@ opened: 2026-10-28
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q2, verbatim: *"(a) Count and fix them"*): counted in the gate and fixed before the
 release, by the same session on Phase 8 as Q1's seven.
+
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** Migration `0105_two_factor_step_up.sql`: `public.two_factor_satisfied()` (the session is aal2, or the account has no verified authenticator to step up with) in `fn_workspaces_remote_viewing_live_admin` (the switch), `fn_gateway_require_admin` (every gateway RPC), `gateways_update`, `gateway_enrolment_tokens_delete` and 0048's three `workspace_storage` write policies, each restated whole with its own sentence. Suite `108_two_factor_step_up.sql` (29 probes: each arm refused at aal1 with a factor, landing at aal2, landing at aal1 without a factor, the user-claim arms kept). `gateway-reach` takes `requireWorkspaceAdmin` (adminGuard: the live admin row and aal2; 503 when the factor list cannot be read) with sentences. The app's refusal sentences name the authenticator. Applied to wilson-dev, `gateway-reach` deployed there; staging owes 0105, suite 108 and `gateway-reach`.
 
 ---
 
@@ -1528,7 +1552,8 @@ opened: 2026-07-30
 
 ```yaml
 id: TPN-NET-016
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: TS-2
 domain: network
 title: "Edge Functions fetch an admin's S3 endpoint with no private-address refusal, following redirects"
@@ -1566,6 +1591,9 @@ file: TPN-NET-002, the desktop's open URL proxies, is HIGH. Fix shape: refuse ev
 refuse a non-public address with isPublicIp, connect to the address that was checked, at save and at every use.
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
+
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** `supabase/functions/_shared/s3Reach.ts`: `vetS3Host` refuses a literal that is private, loopback, link-local, CGNAT, multicast, reserved or documentation, a local or Supabase name, and a name whose answers include any such address; `s3Request` writes one HTTP/1.1 request over TLS to the vetted literal with the name as SNI (`literal_tls`; `pinned_fetch` with `redirect: 'manual'` and a timeout where the runtime has no `Deno.connect`) and refuses every 3xx with a sentence. `storage-secret` vets at `set` (409 `refused`, the secret not saved) and at `probe`; `storage-gc`'s drain vets once per run and deletes nothing on a refusal. At save, migration `0106_s3_endpoint_public_hosts.sql` §1 (`s3_endpoint_host_ok`, the arm on `workspace_storage_s3_config_chk`; a pre-flight counts and refuses on an offending row) and `StorageSection.jsx`'s `validateS3Draft` refuse a private literal or a local name. Suite `109_s3_endpoint_public_hosts.sql` (26 probes); `src/cloud/s3Reach.test.js` (37). Both functions deployed to wilson-dev; staging owes 0106, suite 109, `storage-secret` and `storage-gc`.
 
 ---
 
@@ -2484,7 +2512,8 @@ opened: 2026-07-30
 
 ```yaml
 id: TPN-CONT-018
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: AS-3.15
 domain: content
 title: "Workspace teardown never collects bin posters: frames of the tenant's footage stay, unrecorded"
@@ -2524,13 +2553,17 @@ it on its own line; the proof is a prefix listing that finds nothing after a tea
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** `supabase/functions/_shared/teardownCollect.ts` `collectBlobPaths` lists `rabbit-thumbnails` at `projects/{id}/bin_files` for every project the workspace owns (depth at most 3, a budget with `binPostersTruncated`; a failing listing throws and the teardown refuses, as the avatars' does) and adds each poster to the paths removed in step 2, before the CASCADE; the certificate and the reply carry `bin_posters_listed` and `bin_posters_truncated`, and `thumbnails_note` says the posters are listed by prefix. `src/cloud/teardownCollect.test.js` (a fake client answering a folder tree); the collectors' pins in `thumbnails.test.js`, `storagePresignBoundary.test.js`, `storageGcReserved.test.js` and `uploadReservation.test.js` moved with their reason. `operator-workspaces` deployed to wilson-dev; staging owes it. The criterion's prefix listing after a real teardown is the runbook's (no session holds an aal2 operator).
+
 ---
 
 ## TPN-CONT-019 — The desktop's bin clip streams are served with no Cache-Control: no-store
 
 ```yaml
 id: TPN-CONT-019
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: AS-3.7
 domain: content
 title: "The desktop's bin clip streams are served with no Cache-Control: no-store"
@@ -2557,6 +2590,9 @@ Cache_Data folder settles it.
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q2, verbatim: *"(a) Count and fix them"*): counted in the gate and fixed before the
 release, by the same session on Phase 8 as Q1's seven.
+
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** `electron/rabbitBins.cjs`: both bin clip stream routes send `Cache-Control: no-store` and `Pragma: no-cache` before the file; `bins/rabbitBins.routes.test.js` and `rabbitCloudBins.routes.test.js` assert both, with a control. Outside this finding's criterion and noted here only: the poster routes still carry no `no-store`.
 
 ---
 
@@ -3611,7 +3647,8 @@ opened: 2026-10-28
 
 ```yaml
 id: TPN-AI-011
-severity: HIGH
+severity: RESOLVED
+resolved_date: 2026-10-28
 control: OR-5.0
 domain: ai_ml
 title: "ai-files falls back to the platform key, silently, whenever a company's own key fails to open"
@@ -3647,6 +3684,9 @@ file already refuses to fall back (keyForSource, ai-files/index.ts:177-186).
 
 **Her ruling, 2026-10-28** (walkthrough 85 Q2, verbatim: *"(a) Count and fix them"*): counted in the gate and fixed before the
 release, by the same session on Phase 8 as Q1's seven.
+
+
+**Fixed 2026-10-28 (P8, night 5) — RESOLVED.** `supabase/functions/_shared/aiFilesKey.ts` `resolveUploadKey`: a company row that will not open → 500 `secret_unusable` with the sentence (the file was not sent anywhere; an operator re-enters the key); a read that fails → 503 `key_read_failed`; the crypto unconfigured with a row present → 503 `crypto_unavailable`; no row → the platform key, as before. `ai-files` refuses the upload with that code and logs WIL-6002 `stage: 'key'` (no value). `src/cloud/aiFilesKey.test.js`; `aiFileStore.test.js`'s two hashes re-pinned with the reason. `ai-files` deployed to wilson-dev; staging owes it.
 
 ---
 
