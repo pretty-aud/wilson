@@ -903,6 +903,9 @@ opened: 2026-10-28
 
 **Opened by the 2026-10-28 scoped re-audit** as the four areas' own instance of TPN-AUTH-003 (no two-factor on admin paths): a choice in their own code, rated as that class is, and counted in the release gate (`SUMMARY.md`). Review round 2 widened it to 0048's writes.
 
+**Her ruling, 2026-10-28** (walkthrough 85 Q2, verbatim: *"(a) Count and fix them"*): counted in the gate and fixed before the
+release, by the same session on Phase 8 as Q1's seven.
+
 ---
 
 ## TPN-AUTH-010 — The file gateway trusts a two-minute ticket: a removed member plays on for about 155 seconds
@@ -2552,6 +2555,9 @@ it). `cacheControl: false` drops only the header; send still adds Last-Modified 
 responses. That is plausible and not measured (no app was run for this audit): a play followed by a look at the profile's
 Cache_Data folder settles it.
 
+**Her ruling, 2026-10-28** (walkthrough 85 Q2, verbatim: *"(a) Count and fix them"*): counted in the gate and fixed before the
+release, by the same session on Phase 8 as Q1's seven.
+
 ---
 
 ## TPN-CONT-020 — On a company's own bucket any project writer can presign a DELETE of any of the project's files
@@ -3638,6 +3644,9 @@ opened: 2026-10-28
 **Opened by the 2026-10-28 scoped re-audit** as the four areas' own instance of TPN-AI-005 (a tenant key failing soft to the platform key): a choice in their own code, rated as that class is, and counted in the release gate (`SUMMARY.md`). Found by review round 2. The code calls a tenant key a
 billing preference; for a file store it is also the company's choice of where its content is held, and the delete path in the same
 file already refuses to fall back (keyForSource, ai-files/index.ts:177-186).
+
+**Her ruling, 2026-10-28** (walkthrough 85 Q2, verbatim: *"(a) Count and fix them"*): counted in the gate and fixed before the
+release, by the same session on Phase 8 as Q1's seven.
 
 ---
 

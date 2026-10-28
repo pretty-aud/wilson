@@ -22,7 +22,9 @@ and I accept TPN-AI-009 for the start of the production steps, since it closes a
 So items 1 to 7 below are fixed before the release by one session on Phase 8 of `REMEDIATION_PLAN.md`, which the controller names
 (`docs/sessions/PLAN_TO_1_0.md` §5 rule 8), and item 8 is accepted for the start of the production steps, her reason in its block.
 No severity changes: the seven stay open until that session's fixes are verified, and TPN-AI-009 until the runbook's steps close it.
-**Q2, items 9 to 11, still waits for her.**
+**Q2 ruled the same day** (in chat, multiple choice, verbatim: *"(a) Count and fix them"*): items 9 to 11 stay counted and are fixed
+by the same session, so it fixes ten and item 8 is the one accepted. When its ten fixes are verified, the only High left open in
+the four areas is TPN-AI-009. She named neither near case below, so both stay uncounted unless she says otherwise.
 
 *The areas' own defects (8):*
 
@@ -78,7 +80,7 @@ door, and rated as its class is:
 - **Her rulings.** Two gaps in the areas are hers, filed INFO by the rubric's rule for an intentional, documented exception, and
   still blocking Gold: TPN-LOG-012 (office reads are not logged, her G6 of 2026-10-09) and TPN-SDLC-014 (the gateway's MSI ships
   unsigned, her D14 of 2026-10-11). Neither is in the gate.
-- **Considered and not counted** (walkthrough 85 Q2 lets her overrule either): storage-presign signs reads and writes and keeps no
+- **Considered and not counted** (walkthrough 85 Q2 let her overrule either; she named neither): storage-presign signs reads and writes and keeps no
   record of its own, where gateway-ticket records each mint; the product's record of a direct-served read is the client's
   `downloaded` event, advisory by a documented limit (`docs/SYSTEMS_HANDBOOK.md` §17: "`downloaded` is advisory for every
   direct-served provider"), so it stays TPN-LOG-002's. And the desktop's bin streams write no `downloaded` event where the
