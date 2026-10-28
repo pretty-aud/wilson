@@ -72,6 +72,12 @@ use a second browser window signed in as yourself.
    computer keeps a record of every row the migration carried. The team,
    asset versions and the files kept with assets, scenes, shots, levels and
    experiences on this computer move in a later run of the migration.*
+   If you moved this project with last night's build and it had a receipt
+   kept before receipts became money, a line under the table reads *… receipt
+   an earlier run carried as an ordinary file is open to every member of the
+   project in the cloud …*: that build carried it as an ordinary file, and
+   this one cannot move it behind the gate yet. If it must not be seen,
+   remove it in the browser; no later run brings it back.
 4. **Check it in the browser.** Open the project on the beta:
    - **Budget**: the versions, the locked one locked (*Versions*), the lines
      with their rates and days, the actuals in their periods. An actual's
