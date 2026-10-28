@@ -1268,6 +1268,7 @@ figures — `bytes` 524,288 where 1,048,593 is expected, `fraction` 0.5 — in R
 tests run 40617232593's Vitest job on `ae80e2c4`, a branch that touches
 nothing under `gateway/`; it was the job's one failing test (the run's
 annotations). Twice now on CI, never on a Windows run of the suite.)*
+*(D1, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5) in RLS tests run 40661289297's Vitest job on `8221b1a8`, a docs-only commit (D1's hand-off) whose code is `f6ca0cf1`'s, which passed in run 40660619075; the job's one failing test by its annotations. D1 touches nothing under `gateway/`. Three times now on CI.)*
 
 ---
 
