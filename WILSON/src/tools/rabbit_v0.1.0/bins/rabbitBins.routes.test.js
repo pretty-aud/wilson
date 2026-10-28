@@ -478,6 +478,13 @@ describe('stream', () => {
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toBe('video/mp4')
     expect(r.headers.get('accept-ranges')).toBe('bytes')
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache — the
+    // gateway's own two headers, on the desktop's stream too. CONTROL: the
+    // poster route, outside the criterion, still carries only send's default.
+    expect(r.headers.get('cache-control')).toBe('no-store')
+    expect(r.headers.get('pragma')).toBe('no-cache')
+    const poster = await api(`/bin-files/${clip.id}/thumbnail`)
+    expect(poster.headers.get('cache-control')).not.toBe('no-store')
     expect((await r.arrayBuffer()).byteLength).toBe(2048)
     const part = await api(`/bin-files/${clip.id}/stream`, { headers: { range: 'bytes=0-99' } })
     expect(part.status).toBe(206)
