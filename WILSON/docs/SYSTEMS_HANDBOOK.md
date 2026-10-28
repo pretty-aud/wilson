@@ -423,6 +423,11 @@ Migrations `0000`–`0033` and every Edge Function are deployed to **all three**
 (Was written as `0000`–`0029` until S22; 0030–0032 landed in S20/S21 and 0033
 in S22, each verified **by query** on all three, not by the CLI's success line.)
 
+> **Stale since August; corrected 2026-10-28 (R2).** Dev and staging hold every migration through 0101 and all 22 functions;
+> production is at 0063 and lacks most of what came since (`docs/sessions/PLAN_TO_1_0.md` §1, measured 2026-10-27).
+> `docs/PRODUCTION_RUNBOOK.md` (a) reads production first, and its (b) and (c) bring it up. A deploy is recorded nowhere but the
+> hand-offs, so read `supabase functions list --project-ref <ref>` before believing any line about what is deployed.
+
 **Anon keys are public by design and ship inside the web bundle.** This is not
 a leak: sign-ups are off, every table carries RLS — all but four with `FORCE`
 as well (the exceptions are `auth_attempt_log`, `edit_history`, `file_events`
@@ -807,6 +812,13 @@ the missed-events window.
 
 Twelve functions, three shared guards, one shared crypto module and one shared
 limiter. All run with `verify_jwt = false` (§4.2).
+
+> **Corrected 2026-10-28 (R2):** 22 functions, not twelve (`supabase/functions/`, `_shared` aside). The table lists the eleven of
+> July; the twelfth, `provision-workspace`, left in S43. The other eleven: `ai-files` (§13.1), `operator-ai-files`,
+> `operator-models`, `operator-storage-plans`, `storage-presign` and `storage-secret` (§12.7a), and the five `gateway-*`
+> (`docs/design/GATEWAY_DESIGN.md`). `adminGuard` is bundled by 20 of the 22, directly or through another guard, and 15 call the
+> shared limiter, `resolve-login` among them since Track B B1. Each function's secrets by name, and what production holds of each
+> by the documents: `docs/PRODUCTION_RUNBOOK.md` (c).
 
 | Function | Caller | Guard | Job |
 |---|---|---|---|

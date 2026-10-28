@@ -178,3 +178,29 @@ explicit instruction. Result: `TPN_AUDIT/DESIGN_REVIEW_network_storage.md`.
 - `workspaces.storage_mode` / `storage_config` are admin-writable, unvalidated
   and have **zero readers** anywhere outside migrations (TPN-CLOUD-007). Dead
   columns that are also writable are worse than dead.
+
+## 2026-10-28 — scoped re-audit (the file gateway, bins, own storage, the AI file store), R2, report only
+
+Appended; nothing above was changed.
+
+- **A scoped re-audit can follow the six-file contract if it edits narrowly.** New blocks went at the end of their domain in
+  `FINDINGS.md`; `SUMMARY.md` opens with the release gate's count; the counts in `SUMMARY.md` and `AUDIT_INDEX.md` were recounted
+  from `FINDINGS.md` (they had drifted by one since Track B's TPN-AUTH-009 of 2026-09-06); one new phase in the plan. The 2026-08-05
+  design review's eleven findings were merged with their state on that date.
+- **Before issuing an ID, `git grep` every ID minted anywhere in the repository**, merged names included: TPN-AUTH-008, TPN-CONT-013,
+  TPN-ENC-012 and TPN-SDLC-011 exist only as names merged into other findings, and the design review's TPN-AUTH-008 and TPN-AUTH-009
+  collided with this file's (now TPN-AUTH-010 and TPN-AUTH-011).
+- **When one service account reads on everyone's behalf, its authority is whatever it trusts.** The gateway trusts the bins catalogue
+  (`bin_files`, `bin_locations`), so the catalogue's WRITE policies are its read policy (TPN-AUTH-012). Next time, start from each
+  table a service-role reader trusts and audit who may write it.
+- **A row-derived teardown misses every object family added after it** (TPN-CONT-018, bin posters; before it TPN-CLOUD-005, avatars).
+  Next time: list every writer of `storage.objects` and check the teardown names each one.
+- **One guard, two places.** The gateway refuses private addresses before any connect (`_shared/gatewayReach.ts`, `isPublicIp`); the
+  S3 path, written earlier, does not (TPN-NET-016). Grep every server-side `fetch` whose host a tenant supplies.
+- **"RFC 1918 addresses in certs" was rated HIGH, not CRITICAL** (TPN-ENC-013): a private, name-constrained root trusted only on the
+  company's own computers and documented. Do not re-escalate without new evidence; a DNS-names-only default resolves it.
+- **By design, not findings:** office viewing through the gateway is not written down (`docs/gateway/HARDENING.md` §10; the mint log
+  keeps who, which clip and when for 30 days); a workspace with the outside switch on is out of Gold and is told so at the control.
+- **Re-audit checklist for these areas:** the write policies of `bin_files` and `bin_locations`; the catalogue check in
+  `gateway_sync_apply`; every `fetch` in `storage-secret` and `storage-gc`; the teardown's object sources against every bucket
+  writer; the gateway's leaf SANs; HARDENING.md's custody lines against the code.

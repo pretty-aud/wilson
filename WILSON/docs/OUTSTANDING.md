@@ -76,6 +76,15 @@ lookup's throw, so a database hiccup read as "Network error") and fixed it.
 Walkthrough `docs/walkthroughs/02_setup_link.md` is hers; the bundle merges
 after her report.
 
+### The TPN re-audit of 2026-10-28 reports four High in the file gateway, bins, own storage and the AI file store
+**MEASURED (from the code; R2, 2026-10-28; report only, nothing changed).** `docs/sessions/PLAN_TO_1_0.md` §0 item 4 holds the
+controller's production steps until this re-audit reports nothing High. It reports four (`TPN_AUDIT/SUMMARY.md`, *Release gate*):
+TPN-AUTH-012 (a member's catalogue row makes the file gateway serve any file on the share), TPN-NET-016 (the bucket test and the
+storage-gc drain fetch an admin's S3 endpoint with no private-address refusal), TPN-CONT-018 (a teardown leaves bin posters behind
+its certificate), TPN-ENC-013 (the office door's certificates name private addresses). Each has its file and line and a fix shape in
+`TPN_AUDIT/FINDINGS.md`; Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md` is the work. → **Audrey's ruling, per finding:** fixed before
+1.0, or accepted for 1.0 with the reason written into the finding.
+
 ---
 
 ## Broken features
@@ -1275,6 +1284,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul R2 (2026-10-28; `po/r2-release-readiness` into `feat/post-overhaul-edit-versioning`) — release readiness (`docs/sessions/PLAN_TO_1_0.md` night 4), documents and an audit only, two review rounds: `docs/PRODUCTION_RUNBOOK.md` (new: the controller's ordered production steps, each with its proof), `docs/RELEASE_TESTING.md` rewritten against the code, `CHANGELOG.md`'s 1.0.0 entry rewritten and dated Unreleased, and the read-only TPN re-audit of the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/`: ten findings opened, the 2026-08-05 design review's eleven merged, two of them renumbered) | **Two entries:** *The TPN re-audit of 2026-10-28 reports four High …* (under Security) and R2-01, the workspace takeout's missing tables (its own section at the end). Three entries carry a dated note of what the controller's kit records on staging and where production's step is: S4b-02, S4c-10, FX12-01. | **Nothing.** |
 | Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
@@ -1951,6 +1961,8 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   and `files_money_provider_chk` refuses an s3 row under `LEGAL` once 0088
   is applied. Owner: Audrey (`supabase functions deploy storage-presign`
   on dev, then staging).
+  *(2026-10-28, R2: the controller's kit records dev at version 4 on 2026-10-02 and staging on 2026-10-05; production holds v3,
+  from before 0088, and `docs/PRODUCTION_RUNBOOK.md` (c) redeploys it.)*
 - **S4b-03 · A manager's second window does not see a new invoice or Legal
   file until it reloads.** 0088 stops the realtime broadcast of money
   `files` rows, because the project topic is joined by every project reader
@@ -2553,6 +2565,8 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   Edge Functions from a session: `supabase functions deploy storage-gc`
   on staging, then prod, by Audrey. Until then the walkthrough says to run
   the move with the app open and the network up. Owner: Audrey.
+  *(2026-10-28, R2: the controller's kit records staging at version 12 on 2026-10-12; production holds v8, and
+  `docs/PRODUCTION_RUNBOOK.md` (c) redeploys it.)*
 - **S4c-11 · On the Local Server a rename moves the folder ROWS, never the
   directory.** As before S4c for every entity (the PATCH route's note: the
   old directory is left with whatever is in it, and a managed record stays
@@ -2679,6 +2693,8 @@ S4b-11 are untouched and still hers.
   its sweep. Fix: the deploy, then the operator's sweep (and each company
   admin's card, which also reaches a company's own key) on both, before
   2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
+  *(2026-10-28, R2: the controller's kit records `ai-files` v3 and `operator-ai-files` v1 on staging on 2026-10-26, so staging
+  owes the sweep alone; production's deploy and sweep are `docs/PRODUCTION_RUNBOOK.md` (g) step 12. TPN-AI-009 tracks it.)*
 
 ## Post-overhaul FX15 (`po/fx15-fx14-leftovers`) — left open (2026-10-26)
 
@@ -3004,3 +3020,11 @@ notes) met outside those notes and did not fix.
   `button.dog-check`, with no `<label>` (the kit has no Checkbox, A1-KR-4).
   Fix: the words inside the button's target, or the kit Checkbox when
   A1-KR-4 lands. Owner: a D.O.G. session, or the kit request.
+
+## R2 (2026-10-28, night 4 of `docs/sessions/PLAN_TO_1_0.md`) — left open
+
+- **R2-01 · The workspace takeout leaves out every table added since the money tables.** MEASURED (from the code, 2026-10-28):
+  `TAKEOUT_TABLES` in `src/components/AdminTerminal/WorkspaceTakeout.jsx` lists 23 tables, and scenes, shots, levels,
+  experiences, key dates (`milestones`), the budget tables, expenses, folders, task templates, shot lists, edits, bins and their
+  clips are not among them, while the Company card's *Workspace takeout* reads as the whole company's. Would settle it: a takeout
+  of a project that holds a scene and a budget. Owner: none named; 1.1 unless she says otherwise.

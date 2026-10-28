@@ -9,6 +9,48 @@
   Physical remains a permanent scope exclusion, and Incident Response and
   Documentation are policy-only with no code to re-resolve)
 
+## Release gate — the scoped re-audit of 2026-10-28
+
+**0 Critical and 4 High open in the four areas.** This is the line `docs/sessions/PLAN_TO_1_0.md` §0 item 4 reads: the
+controller's production steps wait until it says 0 and 0, or until Audrey has ruled on each finding it names.
+
+1. **[TPN-AUTH-012]** The file gateway serves any path a member catalogues, so a catalogue write becomes a read of the whole
+   share — `supabase/migrations/0091_bins_on_the_cloud.sql:750-757` (and `:667-690`; the check at
+   `0095_gateway_next_root_viewing_fraction.sql:347-351`)
+2. **[TPN-NET-016]** Petal's Edge Functions fetch a company admin's S3 endpoint with no refusal of private, loopback or link-local
+   addresses — `supabase/functions/_shared/s3Presign.ts:103-118`; `supabase/functions/storage-secret/index.ts:186`
+3. **[TPN-CONT-018]** Workspace teardown never collects bin posters, so frames of a destroyed tenant's footage outlive its
+   certificate — `supabase/functions/operator-workspaces/index.ts:364-428`; `supabase/migrations/0091_bins_on_the_cloud.sql:582-622`
+4. **[TPN-ENC-013]** The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses, a prohibited
+   signal — `gateway/src/certs/x509.mjs:170-171`
+
+- **Scope.** The four areas' own code, read at `51e5a0d7` on 2026-10-28 (R2, night 4, report only, her answer of 2026-10-27):
+  the file gateway (`gateway/`, the five `gateway-*` functions, 0093, 0095, `docs/gateway/HARDENING.md`); bins (0091,
+  `views/bins/`, `adapters/gatewayBins.js`, the posters); own storage (`storage/`, `storage-presign`, `storage-secret`,
+  `storage-gc`, 0048 to 0054, `StorageConnections.jsx`, `StorageSection.jsx`); the AI file store (`ai-files`,
+  `operator-ai-files`). The twelve passes ran on them; Physical is N/A, and AI/ML is N/A for the gateway and bins.
+- **Also found there:** 7 MEDIUM (TPN-AUTH-010, TPN-CONT-016, TPN-ENC-014, TPN-AI-008, TPN-AI-009, TPN-AI-010, TPN-DOC-004),
+  1 LOW (TPN-SDLC-012), 1 INFO (TPN-NET-014), and 8 RESOLVED: the 2026-08-05 design review's findings that the built code closed
+  (TPN-NET-012, -013, -015, TPN-3P-010, TPN-AUTH-011, TPN-CONT-017, TPN-CLOUD-007, -008). The review's TPN-AUTH-008 and
+  TPN-AUTH-009 collided with this pack's and are TPN-AUTH-010 and TPN-AUTH-011.
+- **What the gate does not count, on purpose.** Repo-wide findings that these areas inherit keep the full audit's ratings and were
+  not re-rated (*"report only"*): TPN-LOG-001 (no SIEM); TPN-LOG-002 and TPN-CONT-008 (the read side: the gateway's outside door
+  now writes a viewing row per play, while its office door and the desktop's bin streams write none, and the mint log keeps who,
+  which clip and when for 30 days); TPN-LOG-004 (retention); TPN-AUTH-003 (no two-factor step-up on the gateway's admin calls or the
+  outside switch, as on every RLS-gated admin write); TPN-AUTH-004; TPN-CONT-001 (the desktop's stable download path; the s3 links
+  last 300 s and 900 s); TPN-CONT-003 (the desktop's bin streams send no Cache-Control; the gateway's own responses do); TPN-CONT-005
+  and TPN-ENC-005 (a visible name over the picture, no forensic watermark); TPN-NET-009 (`*` CORS on the five functions);
+  TPN-SDLC-003 and TPN-3P-001 (no SAST or SCA; the gateway's release builds with provenance and SBOM off); TPN-SDLC-009 (the MSI is
+  unsigned, its updates are signed); TPN-3P-004 and TPN-3P-007 (`supabase-js@2.45.4` from esm.sh); TPN-CLOUD-002 (no per-tenant
+  key); TPN-ENC-002's Drive half; TPN-ENC-011's shape, which the storage secret shares. Read across the whole pack the count is
+  3 Critical and 47 High.
+- **Credits** worth carrying into a studio conversation: the gateway's TLS floor and headers (no-store, HSTS, nosniff), its signed
+  two-minute one-clip tickets, its signed updates, its least-privilege service account and distroless container, the outside switch
+  off by default with its TPN sentence at the control, and the outside door's viewing record; storage-presign as an authorisation
+  boundary (live member, rate limit, row-shaped paths, money and Legal never signed, the caller's own RLS); AES-256-GCM bucket
+  secrets in a table no client reaches; the AI file store's delete routes, sweeps and neutral file names.
+
+
 ## 🚨 Immediate Action Required
 
 - **A live workspace-admin credential for the hosted `wilson-dev` project is
@@ -76,16 +118,20 @@ time.
 | Severity | Count |
 |---|---|
 | CRITICAL | 3 |
-| HIGH | 43 |
-| MEDIUM | 31 |
-| LOW | 7 |
-| INFO | 1 |
-| RESOLVED | 6 |
+| HIGH | 47 |
+| MEDIUM | 38 |
+| LOW | 9 |
+| INFO | 2 |
+| RESOLVED | 14 |
 | N/A | 1 |
 
-**Total: 92** — 44 carried from the baseline, 48 opened by this re-audit. A
+**Total: 114 on 2026-10-28** (the release gate above). At the 2026-07-30 re-audit it was 92 — 44 carried from the baseline, 48 opened by that re-audit. A
 further 5 re-audit findings were merged into an existing ID as the same defect
 seen from a second domain pass.
+
+> **Recount, 2026-10-28.** Track B added TPN-AUTH-009 (LOW, 2026-09-06) without updating this table, so `FINDINGS.md` held 93
+> before the scoped re-audit, which opened ten and merged the 2026-08-05 design review's eleven. The table is recounted from
+> `FINDINGS.md`, the source of truth.
 
 > **Correction to the baseline's own arithmetic.** The 2026-04-15
 > `AUDIT_INDEX.md` frontmatter and `SUMMARY.md` both reported 40 findings
@@ -172,6 +218,9 @@ seen from a second domain pass.
   of rebuild tripled the sub-processor count and added a second, entirely
   unscanned Deno/esm.sh dependency universe.
 
+*(2026-10-28: no colour changes. The scoped re-audit's four HIGHs land in Authentication, Network, Content and Encryption,
+which were yellow already, and it opened no CRITICAL.)*
+
 ## Blocking Controls for Gold Shield
 
 Every Best Practice control carrying an open CRITICAL or HIGH:
@@ -179,20 +228,21 @@ Every Best Practice control carrying an open CRITICAL or HIGH:
 1. **TS-1.14** (secure development / secrets) — TPN-SDLC-007, -008, -009
 2. **TS-1.5** (logging & monitoring) — TPN-LOG-001 … -007
 3. **TS-1.6** (authentication & MFA) — TPN-AUTH-002, TPN-AUTH-003
-4. **TS-2** (network security) — TPN-NET-001, -002, -004
+4. **TS-2** (network security) — TPN-NET-001, -002, -004, -016 (2026-10-28)
 5. **TS-4.0** (third-party / supply chain) — TPN-3P-001, -003, -004, -005,
    TPN-SDLC-003
 6. **AS-2.5** (key management) — TPN-ENC-002
 7. **AS-3.6** (encryption at rest) — TPN-ENC-002
-8. **AS-3.7** (content transfer / links) — TPN-CONT-001, TPN-CONT-003
+8. **AS-3.7** (content transfer / links) — TPN-CONT-001, TPN-CONT-003, TPN-ENC-013 (2026-10-28)
 9. **AS-3.8** (session & access control) — TPN-AUTH-004, TPN-NET-004
 10. **AS-3.14** (forensic watermarking) — TPN-ENC-005, TPN-CONT-005
-11. **AS-3.15** (content lifecycle) — TPN-CONT-006, -007, -008, -009, -011
+11. **AS-3.15** (content lifecycle) — TPN-CONT-006, -007, -008, -009, -011, -018 (2026-10-28)
 12. **CS-1.13** (cloud configuration) — TPN-CLOUD-004 (TPN-CLOUD-003 closed 2026-07-30)
 13. **OR-1.1 / OR-1.2** (incident response, BCP/DR) — TPN-IR-001, TPN-IR-002
 14. **OR-3.4** (vendor risk) — TPN-3P-003
 15. **OR-5.0** (AI/ML) — TPN-AI-001, TPN-AI-004, TPN-AI-005
 16. **Documentation set** — TPN-DOC-001, -002, -003
+17. **TS-1.7** (RBAC on content, 2026-10-28) — TPN-AUTH-012
 
 ## Path Forward
 
