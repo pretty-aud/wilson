@@ -56,7 +56,9 @@ describe('Otter.jsx reaches the adapter seam', () => {
   it('🚨 cloudMode is re-derived when the mode moves, not only on a session change', () => {
     // Without libraryMode in the deps the sharing/trash/requests affordances
     // keep rendering against a backend that has no idea what they are.
-    expect(otterCode).toContain('[perms.ready, perms.workspaceId, libraryMode]')
+    // S2 (night 3): and on the confirmation of a sign-in held at an offline
+    // launch, when the library the routes reach changes under the same mode.
+    expect(otterCode).toContain('[perms.ready, perms.workspaceId, libraryMode, perms.offline]')
   })
 })
 
@@ -77,8 +79,12 @@ describe('switching libraries throws away the other library state', () => {
   // A `throw` here, not an `expect`, because a throw at module scope in the
   // describe callback takes the whole block down loudly instead of leaving the
   // other tests to run on garbage.
-  const START = 'const lastLibraryModeRef'
-  const END = '  }, [libraryMode, invalidateCache, loadSoftwareList]);'
+  // S2 (night 3, 2026-10-27): the effect is keyed on the library the screen
+  // EFFECTIVELY shows (`libraryKey`: the mode, with `:held` while a sign-in is
+  // held at an offline launch), so its confirmation runs this same reset. The
+  // slice now starts at the key's definition and ends at the new deps line.
+  const START = 'const libraryKey = perms.offline'
+  const END = '  }, [libraryKey, invalidateCache, loadSoftwareList]);'
   const from = otterCode.indexOf(START)
   const to = otterCode.indexOf(END, from)
   if (from < 0 || to <= from) {
@@ -121,13 +127,20 @@ describe('switching libraries throws away the other library state', () => {
     expect(effect).toContain('loadSoftwareList();')
     // …and it must be a DEPENDENCY, asserted against the SLICE. A whole-file
     // toContain here is the exact failure mode this file's header names.
-    expect(effect).toContain('}, [libraryMode, invalidateCache, loadSoftwareList]);')
+    expect(effect).toContain('}, [libraryKey, invalidateCache, loadSoftwareList]);')
+  })
+
+  it('S2: the confirmation of a sign-in held offline is a switch too — the key carries the held state', () => {
+    // On the desktop the held session shows this computer's library and its
+    // confirmation the company's: a slug-space change, so the same reset.
+    expect(effect).toContain('const libraryKey = perms.offline ? `${libraryMode}:held` : libraryMode;')
+    expect(effect).toContain('const lastLibraryModeRef = useRef(libraryKey);')
   })
 
   it('🚨 guards the FIRST run — a mount must not look like a switch', () => {
     // Without the ref the effect fires on mount, closing the course the user
     // just opened from a deep link and re-listing for no reason.
-    expect(effect).toContain('if (lastLibraryModeRef.current === libraryMode) return;')
+    expect(effect).toContain('if (lastLibraryModeRef.current === libraryKey) return;')
   })
 
   it('🚨 a load already in flight cannot install the OTHER library', () => {
@@ -173,7 +186,10 @@ describe('switching libraries throws away the other library state', () => {
   })
 
   it('the ref is seeded from the current mode, not from a constant', () => {
-    expect(effect).toContain('useRef(libraryMode)')
+    // S2: seeded from the current key, which is the current mode (with `:held`
+    // while a sign-in is held offline): still never a constant.
+    expect(effect).toContain('useRef(libraryKey)')
+    expect(effect).toContain('const libraryKey = perms.offline ? `${libraryMode}:held` : libraryMode;')
   })
 })
 
@@ -270,6 +286,8 @@ describe('App.jsx: the pet index follows the switch', () => {
     // person's library survive into the next person's session.
     const idx = appCode.indexOf('clearPetKnowledgeCache();')
     expect(idx).toBeGreaterThan(-1)
-    expect(appCode.slice(idx, idx + 120)).toContain('[perms.ready, perms.userId, perms.workspaceId]')
+    // S2: one more trigger beside the identity, the confirmation of a sign-in
+    // held at an offline launch (O.T.T.E.R.'s library changes then).
+    expect(appCode.slice(idx, idx + 400)).toContain('[perms.ready, perms.userId, perms.workspaceId, perms.offline]')
   })
 })

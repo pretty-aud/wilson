@@ -441,6 +441,28 @@ correctly. This is stated in `issue-session/index.ts:44-48`, in each guard, and
 in `supabase/config.toml:85-91`. **Do not "fix" a function by turning
 `verify_jwt` back on** — it will break, not harden.
 
+**A launch with the cloud out of reach (S2, 2026-10-27;
+`docs/design/RECONNECT_DESIGN.md` §11).** Step 9's saved session is restored
+at the next launch through `hydrateSupabase`, and on the app surface
+(`/wilson`, the desktop) a saved sign-in less than four hours old opens the
+shell even when the auth server cannot be reached (her ruling of 2026-10-27,
+*"A sign-in less than 4 hours old"*). The four hours start at the earlier of
+the cap's own record and the token's own sign-in time, its `amr` claim
+(`sessionTimeouts.js` `insideSessionCap`; on the desktop the record never
+survives a relaunch, OUTSTANDING S2-01). Inside them the launch asks GoTrue's
+`GET /auth/v1/health` first, within 5 s, and only a JSON answer lets the SDK
+restore, with S1's budgets, the whole decided within 10 s
+(`connectionWatchdog.js` `restoreSavedSession`). Reached nothing: the saved
+session is HELD (`heldSession.js`): every PostgREST and storage request is
+refused before the network, `usePermissions` reads the held token's claims
+with no network read (`offline` true), the strip is up from the first paint,
+and the first answered ping gives the session back to the SDK (`SIGNED_IN`
+or `TOKEN_REFRESHED`). A refusal (400, 401, 403, `session_not_found`) clears
+the stored session if it still holds the refused refresh token: at launch the
+sign-in screen follows; on the way back the session ends with one line on the
+sign-in screen. Outside the cap, and on the operator console always, the
+restore is what it was. A sign-in itself still cannot succeed offline.
+
 ### 4.3 The frozen JWT claim shape
 
 ```
@@ -2661,12 +2683,15 @@ moves the DATA local; it stays for the Friday demo, which runs in two parts
 provider's second half (`NETWORK_STORAGE_DESIGN.md` §4a2b): a post-Friday
 session.
 
-**Limits, stated.** Sign-in is required, and a LAUNCH needs the auth
-server however fresh the saved sign-in: restoring it goes through
-`supabase.auth.setSession()`, and `@supabase/auth-js` 2.101.1
+**Limits, stated.** Sign-in is required. A LAUNCH needs the auth server
+only outside the 4-hour cap: `@supabase/auth-js` 2.101.1
 (`GoTrueClient._setSession`) confirms an unexpired token with a `_getUser`
-request, so an offline launch lands on the sign-in screen (corrected
-2026-09-10; `OUTSTANDING.md` carries the fix shape). An OPEN window keeps
+request and saves nothing when it fails, so before S2 every offline launch
+landed on the sign-in screen (measured 2026-09-10, and again on 2026-10-27
+by `scripts/probes/connection-hang.mjs` phase G); since S2 (2026-10-27,
+`docs/design/RECONNECT_DESIGN.md` §11) a saved sign-in inside the cap whose
+launch reaches nothing opens the shell offline, every cloud call refused
+honestly, and the first answered ping restores it (§4.2). An OPEN window keeps
 its session in memory: a refresh that fails with a network error keeps the
 session (`_callRefreshToken` removes it only on a non-retryable error), so
 after about an hour only the cloud features report unavailable. Open/close
@@ -4213,14 +4238,24 @@ optional avatar, then stamps `onboarded_at`.
 
 **The pet** is a persistent companion with a breed (otter, bird, octopus, blob,
 rabbit, pig, monkey, and a rare demon), a life stage (`egg` → `baby`/`adult` →
-`corpse` → `ghost`) and hunger/happiness stats. Two 30-second intervals run:
-one applies decay, sleep, evolution and death; the other auto-saves. State
-lives at `/api/pet` in Electron and in `localStorage['wilson.pet']` on the web.
+`corpse` → `ghost`) and hunger/happiness stats. One 30-second interval
+applies decay, sleep, evolution and death; there is no auto-save timer (S31
+removed it): a save follows a change, through one coalescing queue
+(`lib/coalescingSave.js`). The pet lives in the account (`user_pets`, one
+row per person, migration 0046); this computer keeps a cache per account
+(`/api/pet` in Electron, `localStorage['wilson.pet.<userId>']` on the web),
+read at launch before the account answers. A failed read of the account
+keeps the cache on screen and refuses saves until a read lands; since S2
+(2026-10-27) it is retried without a relaunch, 5 s, 15 s, 45 s, 2 min 15 s
+and 5 min, then on the window coming online, a lost connection recovering
+or an offline launch's confirmation (`petLifecycle.js`
+`createPetSyncRetry`; §17).
 
-> **Known and accepted:** the web stores are full-object overwrites with no
-> cross-tab sync, so two open tabs both run the 30 s timers and clobber each
-> other. Accepted for v1 as a one-window product — the same class as two
-> Electron windows. A `storage`-event merge is the fix if it ever matters.
+> **Two windows** (two tabs, or the web and the desktop) each hold a copy:
+> migration 0068 refuses a write whose decay anchor is older than the
+> account's, and that window says *Your pet changed on another device —
+> refreshed.* and reloads the account's copy. The pet does not sync live
+> between machines (1.1).
 
 **The agent** is a chat companion that can propose and apply changes. Its
 system prompt is per-tool and user-overridable; the registry holds both tools'
@@ -5610,7 +5645,8 @@ of a session — this section is limits by design, that file is faults.
   asks again on the clear. Uploads, the resumable path and every Edge Function
   call (all raw fetch) are outside it by construction; the start-up session
   check keeps its own 15 s ceiling (`checkSessionValid`, the stored tokens
-  kept). Reproduction and the recovery, with times, in
+  kept) outside the 4-hour cap — inside it, S2's offline launch (the last
+  group of this section). Reproduction and the recovery, with times, in
   `scripts/probes/connection-hang.mjs` (phases A–F).
 
 **Correctness**
@@ -5860,6 +5896,41 @@ documentation and starts being wrong answers.
   SELECT grant (0100 §1); the design's §3.6 states the owner's read.
 
 ---
+
+**The offline launch and the pet's retry (S2, 2026-10-27; `docs/design/RECONNECT_DESIGN.md` §11)**
+
+- **The offline launch, and its limits.** A saved sign-in opens the shell
+  offline only inside the 4-hour cap and only on the app surface (the
+  operator console restores as before). The cap's start is the earlier of its
+  own record and the token's `amr`; on the desktop the record never survives
+  a relaunch (a new origin every launch, OUTSTANDING S2-01), so the token's
+  time decides there. While the session is held, every PostgREST and storage
+  request is refused before the network (*"Could not reach the database, so
+  the request was not sent."*), each tool screen says one sentence and offers
+  no New or Create (R.A.B.B.I.T.'s and D.O.G.'s on the cloud adapter only: the
+  desktop's Local Server works offline), the strip says "reconnecting" until
+  the first answer and never "reload", and the MFA enrolment gate, the
+  new-user welcome, the model tiers, the desktop's NAS root and the pet's
+  course index read again on the confirmation. Pages outside that list (the
+  rate card, team members, the Admin Terminal) show their own error offline
+  and read again on their own refresh or at the next launch; R.A.B.B.I.T.
+  does not reopen the last open project after the confirmation. On the
+  desktop O.T.T.E.R. shows this computer's library while held and switches to
+  the company's at the confirmation, as Settings → Library does (an open
+  local course is left: her question in walkthrough 84). The access token's
+  lifetime on wilson-dev was not measured (the read was refused; the repo
+  says 3,600 s), and nothing depends on it. The offline test rests on data on
+  this computer (the record, the token's claims) that no server checks while
+  offline; what it opens reaches nothing in the cloud.
+- **The pet's retry, and its bound.** A failed read of the account's pet is
+  retried after 5 s, 15 s, 45 s, 2 min 15 s and 5 min (five tries, 8 min 20 s),
+  then only on a trigger — the window coming online, a lost connection
+  family recovering, an offline launch's confirmation — each starting the
+  count again; never while a session is held (the confirmation is the
+  retry). A save before the retry lands is still refused with *"…Reopen
+  WILSON to try again."* (pinned); the error toast goes when a read lands, its
+  Settings copy at the next successful save (`petLifecycle.js`
+  `createPetSyncRetry`).
 
 ## Appendix A — Glossary
 

@@ -423,34 +423,6 @@ check `res.ok` on each post. Found while placing the subject-share reminder
 from these imports until this is fixed); settle it with one lesson import on
 the beta.
 
-### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
-**MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
-sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
-`GET /auth/v1/user` is cancelled 10 ms after the page loads (`[wilson]
-setSession failed: Failed to fetch`) and the sign-in screen is up 4.5 s after
-the page loads, the same as a signed-out launch; with `=stall` the restore
-times out at 15.0 s (`session restore timed out after 15000ms`) and the
-sign-in screen follows 4.3 s later — never an orange window.**
-`checkSessionValid()` (App.jsx) restores the saved
-session through `hydrateSupabase()` → `supabase.auth.setSession()`, and
-`@supabase/auth-js` 2.101.1 `GoTrueClient._setSession` calls `_getUser()`
-(GET `/auth/v1/user`) for a token that has NOT expired
-(`dist/main/GoTrueClient.js` line 2815); an unreachable auth server turns that
-into an error, `hydrateSupabase` returns null, and the boot lands on the
-sign-in screen with no way through. The demo script's step 6 ("close and
-relaunch … pull the cable at any point") therefore holds only when the
-relaunch happens online; walkthrough 18 "The cable pulled" says so. Fix
-shape (a policy decision, asked in the local-storage hand-off): in
-`hydrateSupabase`, when the saved token is unexpired and `setSession` fails
-with a retryable fetch error, return the saved session so the shell opens
-offline; cloud calls then fail honestly and the Storage card follows
-solo-user rules until the next online launch. Owner: the local-storage
-session (`demo/local-storage`). **2026-09-10, later:** Audrey chose cloud data
-for part 1 of the demo (`DEMO_LOCAL_STORAGE_BRIEF.md` §7), so an offline
-LAUNCH is no longer a Friday requirement and the offline-tolerant launch is
-not being built; the bounded restore (`c5e5a77`) stands, measured above. The
-limit itself stands and is stated in walkthrough 18 "The cable pulled".
-
 ### `otterContext` is written on every O.T.T.E.R. navigation and read by nothing
 
 **OBSERVED (2026-08-14, Phase 6.)** `App.jsx` declares
@@ -500,26 +472,6 @@ Deliberate for now: agent mode is a different feature with its own prompt, its o
 `AgentProvider` context assembly and an approval gate on every write, and giving
 it retrieval is a design question rather than a port. Recorded because the
 behaviour changes under a toggle with no explanation on screen.
-
-### A failed pet sync is never retried until WILSON is relaunched
-
-**MEASURED by the A3 review rounds (2026-09-07).** When `resolveUserPet` throws
-— a transient Supabase blip on sign-in — `petUserIdRef` is deliberately left
-null so the failure cannot re-point writes at the account (that is the fix for
-the entry this replaced). Nothing then installs it: the identity effect is keyed
-`[perms.ready, perms.userId]`, both primitives, and `usePermissions` re-renders
-on `TOKEN_REFRESHED` without changing `userId`, so the effect never runs again
-for that session. Every subsequent pet save fails for the life of the process.
-
-It is not silent — the save reports *"Your pet could not be reached in your
-account, so this change was not saved. Reopen WILSON to try again."*, and the
-copy names the relaunch precisely because nothing retries. The pet on screen is
-this account's cached one, so nothing is lost or shown wrongly.
-
-Would fix it: a nonce ref bumped on a failed resolve and included in the
-effect's dependencies, driven by a bounded backoff or by `navigator.onLine`.
-Small. Not scheduled — it needs a decision about how hard to retry against a
-service that may be refusing on purpose.
 
 ### The pet does not sync live between machines
 
@@ -1276,6 +1228,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul R1 (2026-10-27; `po/r1-rabbit-robustness` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T. robustness (`docs/sessions/PLAN_TO_1_0.md` night 2), each item measured before it was fixed: Levels and Experiences take the Scenes rows' write gate; Replace link is one undoable step that loses nothing (the provider's `rewireDependency`, waiting its turn in the undo queue, a write after a project switch kept off another project's bundle); migration 0101 (a bid version's thin `{id, project_id}` event on the project channel; an assigned task's items on the workspace channel, never a private project's) with suite 104, 25/25 on wilson-dev, both on dev only (staging is the controller's, from the Desktop kit); every cloud file read (`listFilesWith`); the Dashboard's `task_items` listener; the Tasks CSV as the table shows it; the Rate card and Team members at 1280 and 1440 with the kit's compact cells (`Table compact`), Team members' badges wrapping under the name; two review rounds on Fable (round 1: 2 MEDIUM, 2 LOW; round 2: 1 MEDIUM, 2 LOW), every correction with a failing control. | R1-L1 to R1-L4 (R1's left-open section, at the end); S3b-02 widened to a level's and an experience's windows. | S5-02, DG1-01, "A dependency rewire deletes before it links", "Levels and Experiences have no write gate", "The Dashboard shows a task's assets as of its last load", "The Tasks CSV export leaves out the asset and the bid"; P1-30 struck with its dated line; P1-29 kept with its dated line, one cut left (R1-L3). |
 | Post-overhaul S1 (2026-10-27; `po/s1-reconnect` into `feat/post-overhaul-edit-versioning`) — night 2's reconnect after a hung session check (`docs/design/RECONNECT_DESIGN.md`: the watchdog aborts a request at its budget, the SDK keeps the session and retries by itself, the strip says *reconnecting…* and pings the service that hung, the client module refuses a data request carrying the anon key while signed in, R.A.B.B.I.T.'s dot shows the same word) and the two-factor enrolment overflow, measured closed (506.89px in a 544px well at 824 and 700 tall, Chromium and Electron alike; the shell's 544px floor of 2026-09-11). | **S1-01** (two tabs, one refresh token; INFERRED). | *One hung `getSession()` pins the whole app's auth* (fixed by the build; its two wrong claims recorded in the S1 section) and *The two-factor enrolment screen overflows the sign-in shell's band at laptop heights* (measured closed). |
 | Post-overhaul B1 (2026-10-27; `po/b1-subject-shares-server` into `feat/post-overhaul-edit-versioning`) — subject shares, the server (`docs/sessions/PLAN_TO_1_0.md` night 2; the design's §6.1): migration 0100 copied whole from the design's Appendix A (the table, the one SELECT policy, the guard trigger, the consent helper's chain walk, the six functions, the index, the audit lines, the post-conditions), 0065 removed in the same commit; suite 103 (446 probes, 446/446 on wilson-dev; the failing controls of the design's §4 and §10, and of the two review rounds' corrections, run once each against the final suite, 33 in all); `otter_subject_shares` into `rls.yml`'s `RLS_TABLES`, its `KNOWN_UNCOVERED` line gone with 0065; the adapter's seven operations under `/api/otter/subject-shares` and `/api/otter/subjects/:id`, `id` on the subject wires, `export.all`'s `linked_subjects`; the fixtures answer the six ops as nominations; 0100 applied to wilson-dev by query with its history row (md5 recorded in the hand-off; staging is the controller's); the avatars entry narrowed by measurement (the four policies, the claim function, the client's path), no 0102 since the cause is not proven; two review rounds on Fable. | **nothing new**; the avatars entry rewritten to what remains. | nothing. |
@@ -2836,6 +2789,42 @@ fix:
   operator console has its own token under its own key. Owner: a session in
   `src/cloud/auth/` (the fix shape: re-read the stored session before a tab
   refreshes a token older than the one in storage).
+
+## S2 (2026-10-27, night 3 of `docs/sessions/PLAN_TO_1_0.md`)
+
+The offline launch (`docs/design/RECONNECT_DESIGN.md` §11; her two rulings of
+2026-10-27, *"A sign-in less than 4 hours old"* and *"One offline sentence on
+each screen, no empty-state words"*) and the pet's retry, designed, reviewed
+and built. Two entries are deleted as fixed, each closed by measurement:
+*An offline launch cannot get past the sign-in screen, however fresh the saved
+sign-in* (`scripts/probes/connection-hang.mjs` phase G on the build: a launch
+inside the 4-hour cap that reaches nothing holds the saved sign-in at once, or
+at 5 s when the network stalls, sends no real request while it is dead, and
+is confirmed 8.5 s after the network returns; its fix shape's "solo-user
+rules" for the Storage card became the person's own role, read from the saved
+token) and *A failed pet sync is never retried until WILSON is relaunched*
+(`src/lib/petLifecycle.js` `createPetSyncRetry`: 5 s, 15 s, 45 s, 2 min 15 s
+and 5 min, then only on a trigger — the decision its entry asked for is that
+bound). What S2 met and did not fix:
+
+- **S2-01 · On the desktop the 4-hour cap restarts at every launch.**
+  MEASURED 2026-10-27 in the desktop app (a development-mode build of
+  `cc6b0e3b`, Electron 33, a scratch userData, every cloud request aborted):
+  the window loads `http://127.0.0.1:<port>` and the port is the local
+  server's `listen(0)` (`electron/main.cjs`, `startLocalServer`), new at every
+  launch, so each launch is a new origin with an empty localStorage; a key and
+  a cap record (`wilson.dev.session.start`) written at one launch were absent
+  at the next (ports 53343, then 53359). `sessionTimeouts.js` keeps the cap's
+  start and the idle clock in localStorage, so `start()` finds no record at a
+  desktop launch and hands the session a fresh four hours: the absolute cap
+  (TPN AS-3.8) holds within one desktop launch and is reset by a relaunch.
+  The web keeps one origin and is not affected. Security-adjacent, for the
+  controller to place (the cap is not S2's brief to change). The offline
+  launch does not lean on the record there: it takes the earlier of the
+  record and the token's own sign-in time (`amr`), `RECONNECT_DESIGN.md`
+  §11.3. Fix shape: keep the cap's start where a relaunch finds it (the main
+  process, beside the encrypted session), or take it from `amr` as the launch
+  does; the idle clock likewise.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

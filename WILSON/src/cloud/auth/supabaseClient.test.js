@@ -20,7 +20,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const captured = vi.hoisted(() => ({ fetch: null, listeners: [], getSession: null, signOut: null, from: null, head: null }))
+const captured = vi.hoisted(() => ({ fetch: null, listeners: [], getSession: null, signOut: null, setSession: null, from: null, head: null }))
 vi.mock('@supabase/supabase-js', () => ({
   createClient: (url, key, opts) => {
     captured.fetch = opts.global.fetch
@@ -33,15 +33,20 @@ vi.mock('@supabase/supabase-js', () => ({
         onAuthStateChange: (cb) => { captured.listeners.push(cb); return { data: { subscription: { unsubscribe() {} } } } },
         getSession: (...a) => captured.getSession(...a),
         signOut: (...a) => captured.signOut(...a),
-        setSession: vi.fn(async () => ({ data: { session: null }, error: null })),
+        setSession: (...a) => captured.setSession(...a),   // S2: the test decides what the SDK's restore does
       },
       from: (...a) => captured.from(...a),
     }
   },
 }))
-const stored = vi.hoisted(() => ({ saveSession: null }))
-vi.mock('./sessionStorage', () => ({ saveSession: (...a) => stored.saveSession(...a) }))
-const wd = vi.hoisted(() => ({ ping: [], recovered: [] }))
+const stored = vi.hoisted(() => ({ saveSession: null, loadSession: null, clearSession: null }))
+vi.mock('./sessionStorage', () => ({
+  SESSION_STORAGE_KEY: 'wilson.dev.session',   // S2: sessionTimeouts.js (the cap's own record) reads it
+  saveSession: (...a) => stored.saveSession(...a),
+  loadSession: (...a) => stored.loadSession(...a),
+  clearSession: (...a) => stored.clearSession(...a),
+}))
+const wd = vi.hoisted(() => ({ ping: [], recovered: [], launchProbe: null, launchedOffline: null, launchEnded: null, quietWhile: null }))
 vi.mock('../connectionWatchdog', async (orig) => {
   const real = await orig()
   return {
@@ -50,6 +55,11 @@ vi.mock('../connectionWatchdog', async (orig) => {
       wrapFetch: (f) => f,
       onRecovered: (l) => { wd.recovered.push(l); return () => {} },
       onPingAnswered: (l) => { wd.ping.push(l); return () => {} },
+      // S2: the launch path, each a spy the test reads
+      launchProbe: (...a) => wd.launchProbe(...a),
+      launchedOffline: (...a) => wd.launchedOffline(...a),
+      launchEnded: (...a) => wd.launchEnded(...a),
+      quietWhile: (...a) => wd.quietWhile(...a),
       subscribe: () => () => {},
       getSnapshot: () => false,
       getPhase: () => 'ok',
@@ -73,7 +83,14 @@ beforeEach(async () => {
   captured.listeners = []
   wd.ping = []
   wd.recovered = []
+  wd.launchProbe = vi.fn(async () => false)
+  wd.launchedOffline = vi.fn()
+  wd.launchEnded = vi.fn()
+  wd.quietWhile = vi.fn()
+  captured.setSession = vi.fn(async () => ({ data: { session: null }, error: null }))
   stored.saveSession = vi.fn(async () => {})
+  stored.loadSession = vi.fn(async () => null)
+  stored.clearSession = vi.fn(async () => {})
   base = vi.fn(async () => ({ ok: true, status: 200 }))
   vi.stubGlobal('fetch', base)
   mod = await import('./supabaseClient')
@@ -158,5 +175,143 @@ describe('the sign-out latch (round 2, F1)', () => {
     fire('TOKEN_REFRESHED', session())
     await tick()
     expect(stored.saveSession).toHaveBeenCalledTimes(1)
+  })
+})
+
+// =============================================================================
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.4, §11.5): the
+// session HELD at an offline launch. A saved sign-in inside the 4-hour cap
+// (here: the token's own amr, an hour old; the record is absent, as on the
+// desktop) whose launch reached nothing is held: the guard latched from the
+// hold, the watchdog told, the store untouched; the first answered auth ping
+// re-hydrates; a refusal clears the store if it still holds the refused token
+// and tells App; a sign-out during a re-hydration stays a sign-out.
+// =============================================================================
+describe('S2 — the session held at an offline launch', () => {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const savedSession = ({ signedInAgoMs = 60 * 60_000, sid = 'held-sid' } = {}) => {
+    const now = Math.floor(Date.now() / 1000)
+    const claims = { sub: 'u-held', session_id: sid, exp: now + 3000, amr: [{ method: 'password', timestamp: now - Math.floor(signedInAgoMs / 1000) }], app_metadata: { workspace_id: 'w1', app_role: 'user' } }
+    return { access_token: `${b64({ alg: 'ES256' })}.${b64(claims)}.sig`, refresh_token: 'held-refresh', expires_at: now + 3000, user: { id: 'u-held' } }
+  }
+  const held = async () => (await import('./heldSession')).heldSession()
+
+  it('reached nothing inside the cap: the saved session is held and returned, the SDK never asked, the guard latched', async () => {
+    const saved = savedSession()
+    const r = await mod.hydrateSupabase(saved, { holdOffline: true })
+    expect(r).toBe(saved)
+    expect(await held()).toBe(saved)
+    expect(wd.launchProbe).toHaveBeenCalledWith({ origin: BASE, apikey: ANON })
+    expect(captured.setSession).not.toHaveBeenCalled()
+    expect(wd.launchedOffline).toHaveBeenCalledWith({ origin: BASE, apikey: ANON })
+    fire('INITIAL_SESSION', null)                          // the SDK's own first event carries nothing
+    await expect(anonRead()).rejects.toThrow('Could not reach the database, so the request was not sent.')
+    expect(base).not.toHaveBeenCalled()
+    expect(stored.clearSession).not.toHaveBeenCalled()
+  })
+
+  it('CONTROL: the same launch without `holdOffline` (the operator console) is today\'s restore — no probe, no hold, the guard open', async () => {
+    const r = await mod.hydrateSupabase(savedSession())
+    expect(r).toBeNull()
+    expect(captured.setSession).toHaveBeenCalledTimes(1)
+    expect(wd.launchProbe).not.toHaveBeenCalled()
+    expect(await held()).toBeNull()
+    await anonRead()
+    expect(base).toHaveBeenCalledTimes(1)
+  })
+
+  it('outside the cap (signed in five hours ago): today\'s restore, never held', async () => {
+    const r = await mod.hydrateSupabase(savedSession({ signedInAgoMs: 5 * 60 * 60_000 }), { holdOffline: true })
+    expect(r).toBeNull()
+    expect(wd.launchProbe).not.toHaveBeenCalled()
+    expect(captured.setSession).toHaveBeenCalledTimes(1)
+    expect(await held()).toBeNull()
+  })
+
+  it('answered, then refused (403): no session, and the store cleared — only while it still holds the refused token', async () => {
+    wd.launchProbe = vi.fn(async () => true)
+    captured.setSession = vi.fn(async () => ({ data: { session: null }, error: Object.assign(new Error('bad_jwt'), { name: 'AuthApiError', status: 403 }) }))
+    const saved = savedSession()
+    stored.loadSession = vi.fn(async () => ({ refresh_token: 'held-refresh' }))
+    expect(await mod.hydrateSupabase(saved, { holdOffline: true })).toBeNull()
+    expect(stored.clearSession).toHaveBeenCalledTimes(1)
+    stored.clearSession.mockClear()
+    stored.loadSession = vi.fn(async () => ({ refresh_token: 'another-tab-saved-a-newer-one' }))
+    expect(await mod.hydrateSupabase(saved, { holdOffline: true })).toBeNull()
+    expect(stored.clearSession).not.toHaveBeenCalled()
+    expect(await held()).toBeNull()
+  })
+
+  it('the re-hydration: the first answered auth ping gives the held session to the SDK (quietly), SIGNED_IN ends the hold', async () => {
+    const saved = savedSession()
+    await mod.hydrateSupabase(saved, { holdOffline: true })
+    captured.setSession = vi.fn(async (s) => {
+      const session = { ...saved, ...s }
+      fire('SIGNED_IN', session)                           // what auth-js does inside setSession for an unexpired token
+      return { data: { session }, error: null }
+    })
+    wd.ping[0]('auth')
+    expect(captured.setSession).toHaveBeenCalledWith({ access_token: saved.access_token, refresh_token: 'held-refresh' })
+    expect(captured.getSession).not.toHaveBeenCalled()     // while held the real question is the session itself
+    expect(wd.quietWhile).toHaveBeenCalledWith('auth', expect.any(Promise))
+    await tick(); await tick()
+    expect(await held()).toBeNull()
+    expect(wd.launchEnded).toHaveBeenCalled()
+    await tokenRead()
+    expect(base).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refusal on the way back: the hold ends, the store is cleared, App is told', async () => {
+    const saved = savedSession()
+    await mod.hydrateSupabase(saved, { holdOffline: true })
+    stored.loadSession = vi.fn(async () => ({ refresh_token: 'held-refresh' }))
+    captured.setSession = vi.fn(async () => ({ data: { session: null }, error: Object.assign(new Error('invalid refresh'), { name: 'AuthApiError', status: 400 }) }))
+    const refused = vi.fn()
+    mod.onHeldSessionRefused(refused)
+    wd.ping[0]('auth')
+    await tick(); await tick(); await tick()
+    expect(refused).toHaveBeenCalledTimes(1)
+    expect(stored.clearSession).toHaveBeenCalledTimes(1)
+    expect(await held()).toBeNull()
+  })
+
+  it('reached nothing again on the way back: still held, nothing cleared, App not told', async () => {
+    const saved = savedSession()
+    await mod.hydrateSupabase(saved, { holdOffline: true })
+    captured.setSession = vi.fn(async () => ({ data: { session: null }, error: Object.assign(new Error('Failed to fetch'), { name: 'AuthRetryableFetchError', status: 0 }) }))
+    const refused = vi.fn()
+    mod.onHeldSessionRefused(refused)
+    wd.ping[0]('auth')
+    await tick(); await tick()
+    expect(await held()).toBe(saved)
+    expect(refused).not.toHaveBeenCalled()
+    expect(stored.clearSession).not.toHaveBeenCalled()
+  })
+
+  it('a SIGNED_OUT while held (the SDK\'s, inside a refused restore) leaves the latch on', async () => {
+    await mod.hydrateSupabase(savedSession(), { holdOffline: true })
+    fire('SIGNED_OUT', null)
+    await expect(anonRead()).rejects.toThrow(/Could not reach the database/)
+    expect(base).not.toHaveBeenCalled()
+  })
+
+  it('a sign-out ends the hold at once, and a sign-out DURING a re-hydration stays a sign-out', async () => {
+    const saved = savedSession()
+    await mod.hydrateSupabase(saved, { holdOffline: true })
+    let finish
+    captured.setSession = vi.fn(() => new Promise((res) => { finish = res }))
+    wd.ping[0]('auth')
+    mod.endSessionLocally()                                // the person signs out while it is out
+    expect(await held()).toBeNull()
+    expect(wd.launchEnded).toHaveBeenCalled()
+    fire('SIGNED_IN', { ...saved })                        // the late re-hydration lands: the SAME session id
+    expect(captured.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    await anonRead()                                       // the guard still reads the person as signed out
+    expect(base).toHaveBeenCalledTimes(1)
+    finish({ data: { session: { ...saved } }, error: null })
+    await tick(); await tick()
+    expect(captured.signOut).toHaveBeenCalledTimes(2)      // and the session it gave the SDK is dropped
+    fire('SIGNED_IN', savedSession({ sid: 'a-new-sign-in' }))   // CONTROL: a real new sign-in is a sign-in
+    await expect(anonRead()).rejects.toThrow(/session check failed/)
   })
 })

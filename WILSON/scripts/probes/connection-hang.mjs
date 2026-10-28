@@ -28,13 +28,21 @@
 //      A REQUEST (no /rest/v1/ line after the hang begins): that is the pin
 //   C  the watchdog — the same sequence through connectionWatchdog.wrapFetch
 //      with a 5-second budget raises `lost` at the budget and keeps it raised
+//   D, E, F  S1's: a second client, the abort, the build end to end (below)
+//   G  S2's: a cold launch with a saved session under six networks, restored
+//      as App.jsx did before S2 (the sign-in screen's times) and through the
+//      build's restoreSavedSession (held, refused, the way back); run alone
+//      with `node scripts/probes/connection-hang.mjs .env.local G`
 //
 // Nothing here is printed but paths, methods and milliseconds.
 // =============================================================================
 
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
-import { createConnectionWatchdog, createAnonGuard } from '../../src/cloud/connectionWatchdog.js'
+import {
+  createConnectionWatchdog, createAnonGuard, restoreSavedSession, rehydrateSession,
+  LAUNCH_BUDGET_MS, LAUNCH_CEILING_MS,
+} from '../../src/cloud/connectionWatchdog.js'
 
 const envPath = process.argv[2]
 if (!envPath) { console.error('usage: node connection-hang.mjs <env-file>'); process.exit(2) }
@@ -533,18 +541,131 @@ async function phaseG() {
   return out
 }
 
-// `node connection-hang.mjs <env> G` runs phase G alone (about two minutes); no letter runs them all.
+// ── Phase G, the build (S2): the same launches through the decision the app
+// now makes inside the cap — `restoreSavedSession`, exported by the watchdog
+// module so this runs the code the app runs: GoTrue's health first within the
+// launch budget, then the SDK with S1's budgets, the whole within the launch
+// ceiling. "Held" is the shell opening offline. Then the way back: the hold's
+// loss pinged, the network returning, the first answered ping re-hydrating.
+async function launchBuildCase({ name, token, net }) {
+  const { state, fetchImpl } = launchNetwork(net, name)
+  const wd = createConnectionWatchdog({ tickMs: 250, isOnline: () => true, windowRef: null })
+  let signedIn = false
+  const guard = createAnonGuard({ anonKey: ANON, isSignedIn: () => signedIn })
+  const sb = makeClient(guard(wd.wrapFetch(fetchImpl)))
+  sb.auth.onAuthStateChange((event, session) => { if (event === 'SIGNED_OUT') signedIn = false; else if (session) signedIn = true })
+  const saved = { access_token: token, refresh_token: 'refresh-token-made-up' }
+  const tLaunch = Date.now()
+  const r = await restoreSavedSession({ auth: sb.auth, saved, probe: () => wd.launchProbe({ origin: URL_, apikey: ANON }) })
+  const decidedMs = Date.now() - tLaunch
+  const out = {
+    name, outcome: r.outcome, reason: r.reason ?? null, decidedMs,
+    error: r.error ? `${r.error.name}${r.error.status != null ? ` status ${r.error.status}` : ''}${r.error.code ? ` code ${r.error.code}` : ''}` : 'none',
+    requests: state.seen.map((s) => `${s.method} ${s.path.replace(/^.*\/(auth|rest)\/v1/, '/$1/v1')}@${s.at - (tLaunch - t0)}`).join(', '),
+    realRequests: state.seen.filter((s) => !s.path.endsWith('/auth/v1/health')).length,
+  }
+  log(`G+: ${name}`)
+  log(`G+:   ${out.outcome}${out.reason ? ` (${out.reason})` : ''} at ${decidedMs} ms; ${out.error}; on the wire: ${out.requests || 'nothing'}`)
+  wd.reset()
+  try { sb.auth.stopAutoRefresh() } catch { /* not started */ }
+  return out
+}
+
+/** A launch that holds, then the network returns: GoTrue's health and GET /user answer (the made-up user). */
+async function rehydrationCase() {
+  const state = { back: false, seen: [] }
+  const fetchImpl = (input, init) => {
+    const path = pathOf(input).split('?')[0]
+    const method = (init?.method ?? 'GET').toUpperCase()
+    state.seen.push({ at: Date.now() - t0, method, path })
+    if (!state.back) {
+      return new Promise((_, reject) => {
+        const signal = init?.signal
+        if (!signal) return
+        const fail = () => reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+        if (signal.aborted) fail(); else signal.addEventListener('abort', fail, { once: true })
+      })
+    }
+    if (path.endsWith('/auth/v1/health')) return jsonResponse({ name: 'GoTrue', version: 'made-up' })
+    if (path.endsWith('/auth/v1/user') && method === 'GET') return jsonResponse(MADE_UP_USER)
+    return fetch(input, init)
+  }
+  const wd = createConnectionWatchdog({ tickMs: 250, isOnline: () => true, windowRef: null })
+  const sb = makeClient(wd.wrapFetch(fetchImpl))
+  const events = []
+  sb.auth.onAuthStateChange((event) => events.push({ at: Date.now(), event }))
+  const saved = { access_token: unexpiredToken(), refresh_token: 'refresh-token-made-up' }
+  const tLaunch = Date.now()
+  const r = await restoreSavedSession({ auth: sb.auth, saved, probe: () => wd.launchProbe({ origin: URL_, apikey: ANON }) })
+  const heldMs = Date.now() - tLaunch
+  wd.launchedOffline({ origin: URL_, apikey: ANON })
+  const phases = []
+  wd.subscribe((lost, phase) => phases.push({ at: Date.now(), lost, phase }))
+  let rehydrated = null
+  wd.onPingAnswered((family) => {
+    if (family !== 'auth' || rehydrated) return
+    rehydrated = rehydrateSession({ auth: sb.auth, held: saved })
+    wd.quietWhile('auth', rehydrated)
+  })
+  log(`G+: the way back — held (${r.outcome}, ${r.reason}) at ${heldMs} ms; phase ${wd.getPhase()}`)
+  await sleep(12_000)
+  log(`G+:   ${Date.now() - tLaunch} ms: still ${wd.getPhase()}; health pings sent ${state.seen.filter((s) => s.path.endsWith('/auth/v1/health')).length}`)
+  state.back = true
+  const tBack = Date.now()
+  log('G+:   the network is back (the stub answers health and GET /user)')
+  await sleep(14_000)
+  const signedInAt = events.find((e) => e.event === 'SIGNED_IN')?.at
+  const clearAt = phases.find((p) => !p.lost && p.at >= tBack)?.at
+  const out = {
+    heldMs, outcome: r.outcome,
+    signedInMs: signedInAt ? signedInAt - tBack : null,
+    stripClearedMs: clearAt ? clearAt - tBack : null,
+    phaseNow: wd.getPhase(),
+    session: (await sb.auth.getSession()).data.session ? 'the SDK holds it' : 'none',
+  }
+  log(`G+:   SIGNED_IN ${out.signedInMs ?? '—'} ms after the network returned; the strip cleared ${out.stripClearedMs ?? '—'} ms after; phase ${out.phaseNow}; ${out.session}`)
+  wd.reset()
+  try { sb.auth.stopAutoRefresh() } catch { /* not started */ }
+  return out
+}
+
+async function phaseGBuild() {
+  log(`── Phase G, the build — restoreSavedSession inside the cap: the health probe first (${LAUNCH_BUDGET_MS} ms), the SDK with S1's budgets, the decision within ${LAUNCH_CEILING_MS} ms`)
+  const out = {}
+  out.userStalls = await launchBuildCase({ name: 'G1+ the network stalls (an unexpired token)', token: unexpiredToken(), net: 'stall' })
+  out.userFails = await launchBuildCase({ name: 'G2+ the network fails at once (an unexpired token)', token: unexpiredToken(), net: 'fail' })
+  out.refreshStalls = await launchBuildCase({ name: 'G3+ the network stalls (an expired token)', token: expiredToken(), net: 'stall' })
+  out.refreshFails = await launchBuildCase({ name: 'G4+ the network fails at once (an expired token)', token: expiredToken(), net: 'fail' })
+  out.userRefused = await launchBuildCase({ name: 'G5+ the real project, GET /user for a made-up token', token: unexpiredToken(), net: 'real' })
+  out.refreshRefused = await launchBuildCase({ name: 'G6+ the real project, the refresh of a made-up refresh token', token: expiredToken(), net: 'real' })
+  out.back = await rehydrationCase()
+  return out
+}
+
+function buildOk(b) {
+  return b.userStalls.outcome === 'held' && b.userStalls.decidedMs >= LAUNCH_BUDGET_MS - 100 && b.userStalls.decidedMs < LAUNCH_BUDGET_MS + 1000 && b.userStalls.realRequests === 0
+    && b.userFails.outcome === 'held' && b.userFails.decidedMs < 1000 && b.userFails.realRequests === 0
+    && b.refreshStalls.outcome === 'held' && b.refreshStalls.decidedMs < LAUNCH_BUDGET_MS + 1000 && b.refreshStalls.realRequests === 0
+    && b.refreshFails.outcome === 'held' && b.refreshFails.decidedMs < 1000 && b.refreshFails.realRequests === 0
+    && b.userRefused.outcome === 'refused' && b.refreshRefused.outcome === 'refused'
+    && b.back.outcome === 'held' && b.back.signedInMs != null && b.back.stripClearedMs != null && b.back.stripClearedMs < 12_000 && b.back.phaseNow === 'ok'
+}
+
+// `node connection-hang.mjs <env> G` runs phase G alone, today's restore and the build's (about three minutes); no letter runs them all.
 const only = (process.argv[3] || '').toUpperCase()
+const todayOk = (g) => g.userStalls.signInScreenMs >= 14900 && g.userStalls.signInScreenMs < 15500
+  && g.userFails.signInScreenMs < 2000
+  && g.refreshStalls.signInScreenMs >= 14900 && g.refreshStalls.signInScreenMs < 15500
+  && g.refreshFails.signInScreenMs >= 14900 && g.refreshFails.signInScreenMs < 15500
+  && g.userRefused.signInScreenMs < 5000 && g.refreshRefused.signInScreenMs < 5000
+  && Object.values(g).every((r) => !r.storeTouched && !r.shellOpened)
 if (only === 'G') {
   log(`project host: ${new URL(URL_).host}; supabase-js as installed; persistSession:false autoRefreshToken:true`)
   const g = await phaseG()
-  const okG = g.userStalls.signInScreenMs >= 14900 && g.userStalls.signInScreenMs < 15500
-    && g.userFails.signInScreenMs < 2000
-    && g.refreshStalls.signInScreenMs >= 14900 && g.refreshStalls.signInScreenMs < 15500
-    && g.refreshFails.signInScreenMs >= 14900 && g.refreshFails.signInScreenMs < 15500
-    && g.userRefused.signInScreenMs < 5000 && g.refreshRefused.signInScreenMs < 5000
-    && Object.values(g).every((r) => !r.storeTouched && !r.shellOpened)
-  log(okG ? 'RESULT: today every offline launch lands on the sign-in screen (15 s when the network stalls, at once when it fails or refuses) and nothing clears the stored session' : 'RESULT: something did not behave as described — read the lines above')
+  const gb = await phaseGBuild()
+  const okG = todayOk(g) && buildOk(gb)
+  log(`the build: held at ${gb.userStalls.decidedMs} ms (a stall) and ${gb.userFails.decidedMs} ms (a failure), no real request sent; refused at ${gb.userRefused.decidedMs} and ${gb.refreshRefused.decidedMs} ms; the way back: SIGNED_IN ${gb.back.signedInMs} ms and the strip cleared ${gb.back.stripClearedMs} ms after the network returned`)
+  log(okG ? 'RESULT: today every offline launch lands on the sign-in screen and nothing clears the stored session; the build holds the saved sign-in inside the cap at once or within the 5 s probe, sends no real request while the network is dead, refuses what the server refuses, and re-hydrates on the first answered ping' : 'RESULT: something did not behave as described — read the lines above')
   process.exit(okG ? 0 : 1)
 }
 
@@ -557,6 +678,7 @@ const d = await phaseD()
 const e = await phaseE()
 const f = await phaseF()
 const g = await phaseG()
+const gb = await phaseGBuild()
 log('── Summary')
 log(`pinned PostgREST read: ${b.pinnedRead}; pinned getSession(): ${b.pinnedGetSession}; /rest/v1/ requests issued behind the hang: ${b.restIssued}`)
 log(`watchdog raised lost after ${c.lostAfterMs} ms with ${c.pending} watched request(s) pending`)
@@ -566,5 +688,7 @@ log(`the build: lost after ${f.lostAfterMs} ms; both callers held while the netw
 const ok = b.pinnedRead && b.pinnedGetSession && b.restIssued === 0 && c.lostAfterMs != null && c.lostAfterMs >= 5000 && c.lostAfterMs < 6500
   && e.sessionKeptAfterAbort && e.recovered
   && f.lostAfterMs != null && f.lostAfterMs >= 20000 && f.lostAfterMs < 22500 && f.holderHeldWhileDead && f.recoveredMs != null && f.recoveredMs < 12000 && f.secondReadWithToken && f.firstReadRefused && !f.firstReadSent
-log(ok ? 'RESULT: hang reproduced and caught; the abort lets the SDK recover on its own once the network answers; the build does the same with its real budget' : 'RESULT: something did not behave as described — read the lines above')
+  && todayOk(g) && buildOk(gb)
+log(`the offline launch (S2): today the sign-in screen at ${g.userStalls.signInScreenMs} ms (a stall) and ${g.userFails.signInScreenMs} ms (a failure); the build holds at ${gb.userStalls.decidedMs} and ${gb.userFails.decidedMs} ms with no real request, and the way back clears the strip ${gb.back.stripClearedMs} ms after the network returns`)
+log(ok ? 'RESULT: hang reproduced and caught; the abort lets the SDK recover on its own once the network answers; the build does the same with its real budget; an offline launch inside the cap holds and re-hydrates' : 'RESULT: something did not behave as described — read the lines above')
 process.exit(ok ? 0 : 1)

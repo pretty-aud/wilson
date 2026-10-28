@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { useHeldOffline } from '../../cloud/auth/heldSession';
+import { offlineSentence } from '../../cloud/ConnectionLostBanner';
 import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
@@ -141,6 +143,9 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // RABBIT itself). Local state only owns the new-project modal
   // form fields and the currently-selected project id.
   const rabbitCtx = useRabbit();
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the
+  // cloud adapter — card 1 says so in one sentence and offers no New project.
+  const projectsHeldOffline = useHeldOffline() && rabbitCtx?.adapterMode === 'supabase';
   const projectsIndex = rabbitCtx?.projectsIndex || {};
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
@@ -4169,11 +4174,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </select>
                     <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
+                  {!projectsHeldOffline && (
                   <Button variant="secondary" onClick={() => setShowNewProjectModal(true)}>
                     <Plus aria-hidden="true" />
                     New project
                   </Button>
+                  )}
                 </div>
+                {projectsHeldOffline && (
+                  <p className="ui-field-hint dog-field-hint">{offlineSentence('projects')}</p>
+                )}
                 {selectedProject && (selectedProject.description || storedFilesBusy || storedFilesError) && (
                   <div className="dog-project-details">
                     {selectedProject.description && (

@@ -173,9 +173,14 @@ describe('the sign-in gate stays (Audrey, 2026-09-10)', () => {
   // Audrey, 2026-09-10: her own app opened as an all-orange window — a
   // 2026-09-07 session whose refresh stalled, and nothing renders until the
   // restore returns. The restore is bounded like every await in LoginScreen.
+  // S2 (night 3, 2026-10-27; RECONNECT_DESIGN.md §11.4): `holdOffline` adds the
+  // offline launch for a saved sign-in inside the 4-hour cap, decided within
+  // 10 s by the client module, so this bound is still the outer one — reached
+  // only by a launch outside the cap (measured: probe phase G). A sign-in itself
+  // still cannot succeed offline (the pins above and below are unchanged).
   it('the session restore at boot is BOUNDED, so the sign-in screen appears within the auth ceiling', () => {
     const fn = appJsx.slice(appJsx.indexOf('async function checkSessionValid()'), appJsx.indexOf('const EASE ='))
-    expect(fn).toContain("withTimeout(hydrateSupabase(saved), AUTH_TIMEOUT_MS, 'session restore')")
+    expect(fn).toContain("withTimeout(hydrateSupabase(saved, { holdOffline: true }), AUTH_TIMEOUT_MS, 'session restore')")
     expect(fn).toContain('return null')
     expect(fn).not.toContain('await hydrateSupabase(saved);')
     // its own import line: petKnowledgeWiring.test.js (otter, not edited here) pins the withTimeout import verbatim

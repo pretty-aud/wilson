@@ -49,8 +49,10 @@ export default function ProjectsPage({ onNavigate }) {
 
   // Create/delete affordances (Session 6) — DB-side RLS is the real gate;
   // cloud mode hides them below the matrix roles, local mode stays open.
-  const { can } = usePermissions()
+  const { can, offline } = usePermissions()
   const cloud = ctx?.adapterMode === 'supabase'
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the cloud.
+  const heldOffline = !!offline && cloud
   // 🚨 §6 #31 trap (f): gate on the adapter MODE, never on
   // `typeof adapter.uploadFile`. Every adapter HAS an uploadFile — the Google
   // Drive one is `readOnly('uploadFile')`, a function that throws — so a
@@ -596,7 +598,8 @@ export default function ProjectsPage({ onNavigate }) {
   return (
     <ProjectListPanel
       projects={projects}
-      onCreate={canCreate ? () => setView('create') : null}
+      offline={heldOffline}
+      onCreate={canCreate && !heldOffline ? () => setView('create') : null}
       onOpen={handleOpen}
       onUpdateStatus={(id, status) => updateProject?.(id, { status })}
       deleteConfirm={deleteConfirm}

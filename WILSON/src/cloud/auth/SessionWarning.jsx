@@ -86,6 +86,12 @@ const EXPIRY_NOTICES = {
   session_cap: 'Signed out: sessions end after 4 hours. Sign in again to continue.',
 }
 
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.5): the line the
+// sign-in screen shows when a sign-in held at an offline launch was refused by
+// the cloud once the connection returned. Not an expiry reason: no auth_events
+// row is written (there is no token left to write one with).
+export const HELD_REFUSED_NOTICE = 'Signed out: your saved sign-in was not accepted when the connection returned. Sign in again to continue.'
+
 // The cap notice's title AND its accessible name, one constant by
 // construction: the stack toast takes it as `title` and `name`, the corner
 // card as `title` and `aria-label`, so the word a person sees and the word a
