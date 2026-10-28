@@ -198,7 +198,7 @@ export async function saveWorkspaceStorage({ workspaceId, exists, patch }) {
       .select()
       .maybeSingle()
     if (!ins.error) {
-      if (!ins.data) throw new Error('workspace storage save failed: the write was refused (are you still an admin of this workspace?)')
+      if (!ins.data) throw new Error('workspace storage save failed: the write was refused (are you still an admin of this workspace, signed in with your authenticator code?)')
       cachedRow = ins.data
       return ins.data
     }
@@ -216,7 +216,9 @@ export async function saveWorkspaceStorage({ workspaceId, exists, patch }) {
     .select()
     .maybeSingle()
   if (error) throw new Error(`workspace storage save failed: ${error.message}`)
-  if (!data) throw new Error('workspace storage save failed: the write was refused (are you still an admin of this workspace?)')
+  // P8 (0105, TPN-AUTH-013): the row's writes need the two-factor step-up
+  // too, so the refusal names the authenticator beside the admin row.
+  if (!data) throw new Error('workspace storage save failed: the write was refused (are you still an admin of this workspace, signed in with your authenticator code?)')
   cachedRow = data
   return data
 }

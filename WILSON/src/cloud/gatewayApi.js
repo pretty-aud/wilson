@@ -51,7 +51,10 @@ const PLAYBACK_COLUMNS = 'id, workspace_id, name, platform, version, inside_addr
 const SAID = {
   signIn: 'Sign in again: WILSON could not confirm who is asking for this.',
   network: 'WILSON could not reach the cloud. Check the connection and try again.',
-  notAdmin: 'Only a workspace admin can add or change the file gateway.',
+  // P8 (0105, TPN-AUTH-013): the gateway's writes need a live admin signed in
+  // with their authenticator (where they have one); a refusal below aal2 reads
+  // as this sentence or as the RPC's own.
+  notAdmin: 'Only a workspace admin, signed in with their authenticator code, can add or change the file gateway.',
   gone: 'That gateway is not in this company\'s list any more, or only a workspace admin can change it.',
   read: 'WILSON could not read the file gateway\'s details just now. Try again in a moment.',
   token: 'WILSON could not make a token just now. Try again in a moment.',

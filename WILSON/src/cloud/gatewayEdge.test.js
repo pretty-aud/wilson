@@ -575,7 +575,10 @@ describe('the five functions keep the house order and the S33 rule (text pins)',
       ['gateway-sync', 'requireGateway(req)', "'gateway-sync'", 'parseSyncRequest(', "rpc('gateway_sync_apply'"],
       ['gateway-events', 'requireGateway(req)', "'gateway-events'", 'parseEventsRequest(', "rpc('gateway_events_apply'"],
       ['gateway-ticket', 'requireActiveMember(req)', "'gateway-ticket'", 'parseTicketRequest(', "rpc('gateway_clips_for_tickets'"],
-      ['gateway-reach', 'requireActiveMember(req)', "'gateway-reach'", 'parseReachRequest(', "rpc('gateway_reach_begin'"],
+      // P8 (TPN-AUTH-013): gateway-reach takes adminGuard's requireWorkspaceAdmin
+      // (the live admin row AND the two-factor step-up), as storage-secret and
+      // storage-gc do in the same areas; the house order is unchanged.
+      ['gateway-reach', 'requireWorkspaceAdmin(req)', "'gateway-reach'", 'parseReachRequest(', "rpc('gateway_reach_begin'"],
     ]) {
       const src = fn(name)
       const at = order(src, [guard, bucket, parse, rpc])
