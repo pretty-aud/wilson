@@ -281,7 +281,8 @@ describe('shot lists and edits (post-overhaul S3a, migration 0084)', () => {
   it('every row has the contract shape; one per (title, version); snapshots are objects', () => {
     expect(SHOT_LISTS.length).toBe(2)
     expect(SHOT_LIST_ITEMS.length).toBe(29)
-    expect(EDITS).toEqual([]) // D11 creates no edit
+    // D11 creates no edit; M1 (night 3) seeds three on list 2 (their own test below).
+    expect(EDITS.length).toBe(3)
     for (const l of SHOT_LISTS) {
       expect(Object.keys(l).sort()).toEqual([
         'archived_at', 'archived_by', 'created_at', 'created_by', 'id', 'project_id', 'snapshot',
@@ -329,6 +330,48 @@ describe('shot lists and edits (post-overhaul S3a, migration 0084)', () => {
       const numbers = [...rows].sort(byPos).map((i) => shotById.get(i.shot_id).shot_number)
       expect(numbers, key).toEqual([...numbers].sort((a, b) => a - b))
     }
+  })
+
+  it('the three seeded edits (M1): one linear chain on list 2 — a root, one child each, the parent in the same list and made first — the first Saved, the last archived; the contract shape; every item a shot of the list', () => {
+    expect(EDITS.map((e) => e.id)).toEqual([fid('edit', 1), fid('edit', 2), fid('edit', 3)])
+    for (const e of EDITS) {
+      expect(Object.keys(e).sort()).toEqual([
+        'archived_at', 'archived_by', 'created_at', 'created_by', 'id', 'items', 'parent_edit_id', 'project_id',
+        'shot_list_id', 'snapshot', 'summary', 'title', 'updated_at', 'updated_by', 'version', 'workspace_id',
+      ])
+      expect(e.project_id).toBe(PROJECT.id)
+      expect(e.workspace_id).toBe(WORKSPACE.id)
+      expect(e.shot_list_id).toBe(list2.id)
+      expect(e.title.trim().length).toBeGreaterThan(0)
+      expect(Number.isInteger(e.version) && e.version >= 1).toBe(true)
+      expect(Array.isArray(e.items) && e.items.length > 0).toBe(true)
+      expect(e.snapshot === null || (typeof e.snapshot === 'object' && !Array.isArray(e.snapshot))).toBe(true)
+      // Every item names a shot of the list (D6: shots, in scene order, repeats allowed).
+      const listShots = new Set(itemsOf(list2).filter((i) => i.shot_id).map((i) => i.shot_id))
+      for (const it of e.items) {
+        expect(Object.keys(it).sort()).toEqual(['id', 'label', 'notes', 'scene_id', 'shot_id'])
+        expect(listShots.has(it.shot_id), it.id).toBe(true)
+        expect(shotById.get(it.shot_id).scene_id).toBe(it.scene_id)
+      }
+    }
+    // One chain (0084's two unique indexes): one root, one child each, the
+    // parent of the same list and made before its child.
+    expect(EDITS.filter((e) => !e.parent_edit_id).map((e) => e.id)).toEqual([fid('edit', 1)])
+    expect(new Set(EDITS.filter((e) => e.parent_edit_id).map((e) => e.parent_edit_id)).size).toBe(2)
+    for (const e of EDITS.filter((x) => x.parent_edit_id)) {
+      const parent = EDITS.find((p) => p.id === e.parent_edit_id)
+      expect(parent.shot_list_id).toBe(e.shot_list_id)
+      expect(parent.created_at < e.created_at).toBe(true)
+    }
+    expect(new Set(EDITS.map((e) => `${e.shot_list_id}|${e.title.trim()}|${e.version}`)).size).toBe(EDITS.length)
+    // The first Saved (buildEditSnapshot's shape, naming every shot it holds),
+    // the second never Saved, the third archived by Mara before the list was.
+    expect(EDITS[0].snapshot).toMatchObject({ kind: 'edit', saved_by: MEMBER_ID.theo, item_count: EDITS[0].items.length })
+    expect(Object.keys(EDITS[0].snapshot.shots).sort()).toEqual(EDITS[0].items.map((i) => i.shot_id).sort())
+    expect(EDITS[1].snapshot).toBeNull()
+    expect(EDITS.filter((e) => e.archived_at).map((e) => e.id)).toEqual([fid('edit', 3)])
+    expect(EDITS[2].archived_by).toBe(MEMBER_ID.mara)
+    expect(EDITS[2].archived_at < list2.archived_at).toBe(true)
   })
 
   it('list 2 is archived by Mara, not active, a strict subset of list 1, and every item resolves', () => {

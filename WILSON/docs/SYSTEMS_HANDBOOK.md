@@ -292,7 +292,7 @@ exists anywhere); product name `WILSON`.
 | `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_references.json`, `_corrections.json`. **Legacy per-course `_quiz-history.json` files remain on existing installs and are no longer read or created (S30) — all six were empty, because nothing ever wrote one.** |
 | `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json`, **`_quiz-history.json`** | Single-object stores. Quiz history lives at the ROOT, beside `software/`, because a quiz spans courses and deleting a course must not take somebody's marks with it. |
 | `{userData}/rabbit-data/` | R.A.B.B.I.T. root (`getRabbitDataDir()`, `main.cjs:51-55`) |
-| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents`; since S3a (0084) also `shotLists, shotListItems, edits` |
+| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project.** Born with (`emptyBundle`, `electron/main.cjs`): `project, phases, assets, tasks, dependencies, taskLinks, taskItems, tableViews, itemGroupings, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, projectRateOverrides, scenes, shots, levels, experiences, folders, fileEvents, shotLists, shotListItems, edits`. Made on first write: `milestones`, `bins`, `binFiles`, `binRoots`, `shotTakes` (`electron/rabbitBins.cjs`), `ingestionChunks`, `tableViewRevision`, and the S4b Legal clean-up's `legalLabelsStripped` / `legalLabelsSettled`. What the desktop → cloud migration carries of each: the table below (M1, 2026-10-28). |
 | `{userData}/rabbit-data/projects/{id}/files/` | Fallback blob storage when no user-visible project folder is configured |
 | `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/{id}.json` | Workspace-scoped flat stores |
 | `{userData}/rabbit-data/thumbnails/` | Thumbnail cache |
@@ -308,6 +308,35 @@ team / tasks / timeline / budget JSON, and since S3a `scenes.json` — shot
 lists, their items, scenes, shots and edits; Audrey D21), `{slug}_FILES/`,
 `{slug}_RECEIPTS&INVOICES/`, `{slug}_CREWINVOICES/`, `{slug}_TALENTINVOICES/`,
 and `.trash/`.
+
+#### What the desktop → cloud migration carries (the M1 inventory, 2026-10-28)
+
+Measured from the code (`src/cloud/migrate/runMigration.js`, its pure halves
+`binsMigration.js` and `migrationRows.js`, and the desktop's writers in
+`electron/`), not from a plan. "The runner" is Settings → R.A.B.B.I.T. →
+Migrate to cloud. "Part 2" is M2, night 4 of `docs/sessions/PLAN_TO_1_0.md`.
+The report names, before Archive and clear local is offered, everything a
+bundle holds that stays (`NOT_CARRIED`, part 2's apart from the rest).
+
+| Kept on the desktop | Carried by | Where in the cloud, and what stays |
+|---|---|---|
+| `project` | the runner; M1 through the cloud's columns | `projects`. Stays: `documents` and `visualAssets` (no columns: Settings' "Move deck attachments into project files" moves them; the report counts any left), `files_dir` and `folder_root` (this computer's folders; the cloud takes a project folder only from an admin or a manager inside the company's drive), `budget_active_version_id` and `open_budget_version_id` (part 2 sets them with the budgets), who the file says made it (the cloud stamps the person; `fn_projects_auto_staff` makes them the project's manager). `active_shot_list_id` is set by M1 through `set_active_shot_list()` once the lists are in. Before M1 every desktop project was refused whole (measured: 42703 on `documents`). |
+| `phases`, `assets`, `tasks`, `dependencies` | the runner | `phases`, `assets`, `tasks`, `task_dependencies` and `phase_dependencies`. An asset's links to levels and experiences wait for part 2. |
+| `milestones` | M1 | `milestones` (the Timeline's key dates), after the phases. One in this computer's Recently deleted is not carried; one in the cloud's trash keeps its id there and is skipped (read through `milestones_trash_index`). A phase link only to this project's phase. |
+| `comments` | M1 | `comments`, after the rows they hang on, through the cloud's columns (no `project_id`, which the desktop stamps; no `author_user_id`, a claim the file cannot prove). One on a row removed on this computer, or not this project's in the cloud, is not carried; one on a kind the cloud's comments cannot name stays, named. |
+| `shotLists`, `shotListItems`, `edits` | M1 | `shot_lists`, `shot_list_items`, `edits`, after the scenes and shots. A list or edit arrives live (0084 refuses one inserted archived) and is archived after through `archive_shot_list()` / `archive_edit()`; edits each after the edit they continue. |
+| `folders` | M1 | `folders`, parents first, matched where the cloud holds the folder (by id, by its row, or at its path). A level's or an experience's waits for part 2. |
+| `files` | the runner; M1 files each one | `files` and its body in `rabbit-files`; since M1 each row filed in the folder the desktop shows it in (its entity's: the desktop writes no `folder_id`), a Legal file in none. |
+| `scenes`, `shots`, `bins`, `binFiles`, `binRoots`, `shotTakes` | the runner (BC3) | `scenes`, `shots`, `bins`, `bin_files` under the footage location each root was named as (the roots are the question), `shot_takes`. A scene's or shot's picture stays (a file on this computer). |
+| `taskItems` | the runner (FX2) | `task_items`; a task's items about levels and experiences wait for part 2. |
+| `tableViews`, `itemGroupings` | the runner (VW1c) | `table_views`, `item_groupings`; a grouping of levels or experiences waits for part 2. |
+| `budgetVersions`, `budgetLines`, `budgetActuals`, `expenses`, `projectRateOverrides`, `levels`, `experiences`, `teamAssignments`, `projectTeam`, `taskLinks` | part 2 | Named in the report as part 2's until then. |
+| `assetVersions`, `managedFiles` | no night of the plan | Named in the report (managed files: the files kept with an asset, scene, shot, level or experience in its folder on this computer). `docs/OUTSTANDING.md` M1-L1. |
+| `fileEvents`, `ingestionRuns`, `ingestionChunks`, `tableViewRevision`, `legalLabelsStripped`, `legalLabelsSettled` | not a migration's | This computer's own records: what happened to its files (the cloud's `file_events` is written by the database from the move on), past intake runs, its view-revision counter (the cloud numbers its own), the S4b label clean-up. Kept in the archive file. |
+| `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/` | no night of the plan | Workspace-level stores, not a project's: the runner reads projects only. `docs/OUTSTANDING.md` M1-L2. |
+| O.T.T.E.R.'s courses (`otter-data/`) | its own migration | `runOtterMigration.js` (the O.T.T.E.R. panel beside this one). |
+| The pet, O.T.T.E.R.'s settings, the agent's skills | adoption on sign-in | `src/lib/userState.js`, per person (0046), not the runner. |
+| `session.enc`, `env.json`, the Drive files, the thumbnail cache, `archives/` | not a migration's | This computer's. Notes are cloud-only; D.O.G. has no local deck store. |
 
 #### The IPC surface
 
@@ -2939,7 +2968,9 @@ labels are stripped on read, and that relink never takes an invoice or a
 Legal file. The desktop→cloud migration (`src/cloud/migrate/runMigration.js`)
 puts a Legal body under `LEGAL` and an invoice's under `INVOICES` — and only
 where the cloud locks `LEGAL`; before round 1 it put every body under a
-`files` segment every member could read.
+`files` segment every member could read. Since M1 (2026-10-28) it files each
+row in the folder the desktop shows it in, and a Legal file in none (its
+LEGAL node has no row, as the cloud's own upload files it).
 
 **What review round 2 added (0088 §5c, §9b).** `trg_file_events_money` flags
 every `file_events` row at INSERT by 0074's `file_event_is_financial`,
@@ -4156,7 +4187,15 @@ Electron 33's Chromium).
 resumable, idempotent single-user → cloud migrations. RABBIT's reads local
 projects from the Express server and writes rows plus Storage blobs; after a
 clean run it offers **Archive + Clear Local**, user-initiated and never
-automatic. O.T.T.E.R.'s reads local courses with **raw `fetch`, never
+automatic. Since M1 (night 3, 2026-10-28) it carries a project's key dates,
+comments, shot lists with their items and edits, and its folders, each file
+filed in its folder, and the project row through the cloud's columns (every
+desktop project row had been refused whole); budgets, expenses, levels,
+experiences and the team are part 2's (night 4), and the report names them
+apart from what no migration carries. What each bundle key becomes is §3.1's
+inventory. A second run skips every row already in the cloud, a row in the
+cloud's trash included (it keeps its id); a row removed from the cloud for
+good since comes back (`docs/OUTSTANDING.md`, the resurrection entry). O.T.T.E.R.'s reads local courses with **raw `fetch`, never
 `otterFetch`** — because `otterFetch` routes to the cloud once a session
 exists, which is exactly when a migration runs, and it would copy the cloud
 onto itself and report success. Everything lands as `personal` visibility: a
@@ -5456,6 +5495,34 @@ of a session — this section is limits by design, that file is faults.
   at 14% (whole on hover; 15% would cut a six-figure rate). `pages.test.js`
   holds each share to what its column cannot cut (P1-29, Audrey's to
   overrule).
+
+**The desktop → cloud migration, part 1 (M1 — 2026-10-28; part 2 is night 4)**
+
+- **Part 2 carries the rest** (M2, `docs/sessions/PLAN_TO_1_0.md` night 4):
+  budgets with their versions, lines and actuals, expenses, a project's rate
+  overrides, levels and experiences (and their task items, folders and
+  groupings, and an asset's links to them), the team, the links on tasks, and
+  a project's locked and open bid version pointers. Until then the report
+  names each as part 2's. Asset versions and the desktop's own file store
+  (`managedFiles`) are no night's yet (`docs/OUTSTANDING.md` M1-L1).
+- **An archived list or edit arrives live and is archived after**, through
+  the cloud's functions: its archive's moment and person become the run's.
+  A seat that may not archive it (not a workspace admin or the project's
+  manager, and the row touched: Saved, or a live edit on it — 0086) leaves it
+  live, said; a second run archives nothing and says it is live there
+  (`LIVE_IN_CLOUD`). The active list is set only where the run carried it and
+  no list is active in the cloud yet.
+- **A comment's id that another project's comment holds reads as already
+  there**: a comment has no project, and the cloud's trash hides a removed one
+  from a read, so the runner cannot tell the two apart (key dates can: their
+  trash has an index, `milestones_trash_index`). Nothing is written into the
+  other project.
+- **A file is filed by the desktop's own rule**: the folder its `folder_id`
+  names, else its entity's, else none. An invoice, a project-level file and a
+  Legal file sit at the project's top, as on the desktop.
+- **A folder whose place in the cloud a namesake holds** (another row's
+  folder at its path) is not carried; its files sit at the project's top there.
+  A second run never moves a row already in the cloud.
 
 **Security-adjacent**
 

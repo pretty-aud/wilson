@@ -114,8 +114,12 @@ describe('the "Bins" help page (BC2)', () => {
     expect(text).toContain('never dropped')
     expect(text).toContain(`only while ${REMOTE_VIEWING_LABEL} is on`)
     // Review round 1: a second run brings back a row removed from the cloud
-    // since (every table of the runner always did); Help says so plainly.
-    expect(text).toContain('Running it again skips every row already in the cloud; a row a teammate removed from the cloud since comes back with it')
+    // since; M1 (night 3) measured which: a row in the cloud's trash keeps
+    // its id and is skipped, one removed for good comes back. Help says so.
+    expect(text).toContain('Running it again skips every row already in the cloud, one in the cloud\'s trash included; a scene, shot, clip, folder or shot list item a teammate removed from the cloud for good comes back with it')
+    // M1: what moves since, and what part 2 carries.
+    expect(text).toContain('A desktop project moves with its key dates, comments, shot lists and edits, its folders, and its bins, logging, marks and takes')
+    expect(text).toContain('Budgets, expenses, levels, experiences and the team move in part 2 of the migration')
     expect(text).toContain('Use this address')
     const panel = src('src/cloud/migrate/MigrationPanel.jsx')
     expect(panel).toContain("MIGRATE_TITLE = 'Migrate to cloud'")

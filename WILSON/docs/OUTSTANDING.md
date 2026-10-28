@@ -291,37 +291,32 @@ walked in 33–44 ms over the stood-up share. Settle it by timing a folder of a
 few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
 worker thread, as the root question now is.
 
-### The desktop→cloud migration carries no shot lists, list items, edits, folders, comments, milestones, budgets, expenses, levels, experiences, team or links on tasks
-**INFERRED (BC3, 2026-10-09; read from `src/cloud/migrate/runMigration.js`;
-widened by review round 2).** The runner copies projects, phases, assets,
-tasks, the two edge tables, files, and — since BC3, because a take needs its
-shot — scenes, shots, bins, footage locations, clips and takes. It copies
-none of the desktop bundle's other collections: `shotLists`,
-`shotListItems`, `edits`, `folders` (S3a, `active_shot_list_id` dropped,
-scope#9, chose not to carry lists, and nothing since has), nor `comments`,
-`assetVersions`, `milestones`, `budgetVersions`, `budgetLines`,
+### The desktop→cloud migration does not carry budgets, expenses, levels, experiences, the team or links on tasks yet (part 2)
+**INFERRED (BC3, 2026-10-09); narrowed by M1 (2026-10-28, night 3 of
+`docs/sessions/PLAN_TO_1_0.md`), which carries the key dates, comments, shot
+lists with their items and edits, and folders.** The runner copies projects
+(through the cloud's columns since M1 — until then every desktop project row
+was refused whole: MEASURED on wilson-dev, rolled back, 42703 on
+`documents`), phases, assets, tasks, the two edge tables, files (each filed
+in its folder since M1), scenes, shots, bins, footage locations, clips,
+takes, a task's items, saved views and groupings, and since M1 the
+milestones (key dates), comments, `shot_lists`, `shot_list_items`, `edits`
+(the active list and the archived ones through 0084's functions) and
+`folders`. It does not copy `budgetVersions`, `budgetLines`,
 `budgetActuals`, `expenses`, `projectRateOverrides`, `levels`,
-`experiences`, `teamAssignments`, `projectTeam` or `taskLinks` — each a
-route the desktop serves (`rabbitSubentityRoutes` in `electron/main.cjs`)
-and keeps in the same bundle; nor a scene's or shot's `thumbnail_image` (a
-file on the desktop's disk). "Archive and clear local" then moves the only
-copy of all of it into the archive JSON, which no screen reads back. Since
-review round 2 the report names what stays, by count, BEFORE the archive is
-offered (`NOT_CARRIED` / `notCarriedOf` in `src/cloud/migrate/binsMigration.js`,
-the panel's "Stays on this computer (the migration does not carry it)"
-line, the archive button's hover), so "Done" means what moved and this says
-what did not. Settle it by migrating a desktop project that has a budget,
-two lists and an edit and opening its tabs in the cloud. Fix shape: carry
-`shot_lists` and `shot_list_items` after the shots (ids kept; the composite
-FKs of 0084 allow it), then `edits`, with `active_shot_list_id` set last;
-`folders` after the files; the budget tables in their own order (versions,
-lines, actuals, expenses, overrides); comments, asset versions, milestones,
-levels, experiences and the team after their parents — and the archive
-button waiting until the list is empty. Since FX2 (0096) the runner carries a task's items
-about an asset, a scene or a shot (`task_items`, after the takes); its items
-about a level or an experience stay with the levels and experiences, counted
-in the report and named in the same line (*levels and experiences named on
-tasks*, `NOT_CARRIED` → `taskLevelItems`).
+`experiences` — nor what names them: a task's items about them, an asset's
+links to them, their folders, the groupings of them — `teamAssignments`,
+`projectTeam` or `taskLinks`; nor a project's locked and open bid version
+pointers (`budget_active_version_id`, `open_budget_version_id`: the cloud's
+foreign keys refuse an id it does not hold, which refused the whole project
+— MEASURED, 23503 — so the project goes up without them). The report names
+each as part 2's (`NOT_CARRIED`, its `part2` flag; the panel's "Stays on this
+computer for now (part 2 of the migration carries it)" line), apart from what
+no migration carries (M1-L1, M1-L2 below), before the archive is offered.
+Settle it with part 2 (M2, night 4). Fix shape: the budget tables in their
+order (versions, then the project's two pointers set, then lines, actuals,
+expenses, overrides), the levels and experiences and then what names them,
+the team, and the links on tasks, each after its parents, ids kept.
 
 ### The cloud's own address CHECK admits control and formatting characters
 **INFERRED (BC2 review round 2 deferred it; BC3 review rounds 1 and 2 widened
@@ -354,7 +349,17 @@ migrating, removing a clip in the browser, and running again. Fix shape: a
 per-computer record of the ids each run carried (the desktop's own settings
 file, as the per-computer folder of a footage location is kept), so a later
 run inserts only ids never carried; until then, archive and clear the
-desktop's copy once everything is in the cloud.
+desktop's copy once everything is in the cloud. **M1's kinds (2026-10-28,
+read from 0014, 0067, 0084 and 0041, pinned by the round trip in
+`runMigrationBins.test.js`):** a key date or a comment removed in the cloud
+is soft-deleted and keeps its id, so a second run skips it (a key date is
+checked against the trash's own index, `milestones_trash_index`; a comment
+meets its key, 23505) and does not bring it back — nor does it for a project,
+phase, asset, task or file, soft-deleted the same way (0014), while the row
+is in the trash; a shot list or an edit is never deleted (archived), and a
+second run neither adds it again nor changes its archive (one a teammate
+restored stays restored); a list item or a folder removed in the cloud is
+gone for good, so a second run puts it back, as BC3's rows.
 
 ### The cloud keeps no sample rate or channel count on a clip
 **INFERRED (BC3 review round 1, 2026-10-09).** The desktop's probe writes
@@ -2874,3 +2879,42 @@ two review rounds found outside its scope.
   predate R1. Fix: show the stored value as a disabled option, or refuse
   values outside the lists where they are written. Owner: the Tasks table's
   next session.
+
+## Post-overhaul M1 (`po/m1-migration-part-1`) — left open (2026-10-28)
+
+What M1 (night 3: the desktop → cloud migration, part 1) found outside its
+list while taking the inventory of the bundle (the handbook's §3.1 table).
+
+- **M1-L1 · No night of the plan carries asset versions or the desktop's own
+  file store.** The plan's §2 list for *the migration carries everything*
+  names shot lists, edits, folders, comments, milestones, budgets, expenses,
+  levels and experiences; a bundle's `assetVersions` (an asset's version
+  history) and `managedFiles` (the files FileManager keeps with an asset,
+  scene, shot, level or experience, in its folder on this computer — on the
+  desktop every entity's files are of this kind, `ctx.supportsManagedFiles`)
+  are in neither M1's brief nor M2's. MEASURED from the code: the runner reads
+  neither, and the report did not even name the managed files until M1 added
+  them to `NOT_CARRIED` (with asset versions, under "the migration does not
+  carry it"). Archive and clear local keeps their records in the archive
+  file; the bodies stay in the project's folders on disk. Fix shape: each
+  live managed file as a `files` row with its body (its folder by its
+  `folder_path`, its entity link), after the folders; asset versions after the
+  assets and files. Owner: the controller (a line for the plan).
+- **M1-L2 · No migration carries the workspace's rate cards, team members or
+  task templates.** `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/`
+  are workspace stores; the runner reads projects only
+  (`/api/rabbit/projects`), and neither night's brief names them. A desktop's
+  rate card stays on this computer; the cloud's Rate card page starts from the
+  company's. MEASURED from the code. Fix shape: a workspace step before the
+  projects (rate cards and their entries, task templates; team members want a
+  decision — the cloud's directory seats people with accounts). Owner: the
+  controller.
+- **M1-L3 · A desktop file linked to a level or an experience fails until
+  part 2 carries its row.** The runner sends a file's `level_id` /
+  `experience_id` as the desktop holds them, and 0043's foreign keys refuse an
+  id the cloud does not hold (`files_level_id_fkey`); levels and experiences
+  are part 2's. INFERRED from 0043 and the runner: the desktop's upload routes
+  write neither link (`electron/projectFileStream.cjs`), so only a file patched
+  with one meets it. Fix shape: part 2 carries levels and experiences before
+  the files, or lets the link go and says so, as M1 does for a scene or shot
+  link that did not land. Owner: M2.

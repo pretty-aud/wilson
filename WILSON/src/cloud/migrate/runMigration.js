@@ -8,13 +8,19 @@
 // original prompt referred to the Express-backed JSON store.
 //
 // Writes to Supabase via the shared authenticated client, scoped by RLS
-// to the target workspace. Tables, in order: projects, phases, assets,
-// tasks, task_dependencies + phase_dependencies (Track A A2 — the edges were
-// dropped on the floor before 2026-09-06), files, then — BC3 (Audrey's B9,
-// "bins move with the project") — scenes, shots, bins, bin_locations,
-// bin_files, shot_takes, and the clips' pictures to rabbit-thumbnails while
-// the company's switch is on; then — VW1c (0098) — the project's saved views
-// and groupings, through the cloud adapter's own INSERTs. The migration is:
+// to the target workspace. Tables, in order: projects, phases, milestones
+// (M1), assets, tasks, task_dependencies + phase_dependencies (Track A A2 —
+// the edges were dropped on the floor before 2026-09-06), comments (M1),
+// then — BC3 (Audrey's B9, "bins move with the project") — scenes and
+// shots; then — M1, night 3 of docs/sessions/PLAN_TO_1_0.md — shot_lists
+// with their shot_list_items and edits (the active list and the archived
+// ones through 0084's functions), folders, and files (each filed in its
+// folder, so after them); then bins, bin_locations, bin_files, shot_takes,
+// a task's items (FX2, 0096), the project's saved views and groupings
+// (VW1c, 0098, through the cloud adapter's own INSERTs), and the clips'
+// pictures to rabbit-thumbnails while the company's switch is on. Part 2
+// (M2, night 4) carries the budgets, expenses, levels, experiences and the
+// team. The migration is:
 //   - idempotent: already-migrated rows are detected by id and skipped
 //   - resumable: a mid-flight failure leaves the cloud in a consistent
 //                state; re-running picks up only the missing rows
@@ -38,8 +44,15 @@ import { isLegalFile, LEGAL_SEGMENT, LEGAL_UNAVAILABLE } from '../../tools/rabbi
 // BC3 (B9): the bins' part — the roots, the question's answers, the cloud
 // row shape — is pure and lives beside this file.
 import {
-  binRootsOf, mergeRoots, pathKey, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, takePairKey, notCarriedOf, notCarriedLabel, POSTER_MEDIA,
+  binRootsOf, mergeRoots, pathKey, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, takePairKey, notCarriedOf, notCarriedLabel, notCarriedPart2, POSTER_MEDIA,
 } from './binsMigration'
+// M1 (night 3): the project row, the five kinds' rows and the orders their
+// keys need — pure, beside this file as the bins' part is.
+import {
+  projectRowForCloud, projectLeftAtHome, milestoneRowForCloud, COMMENT_TARGETS, commentRowForCloud,
+  isArchived, shotListRowForCloud, shotListItemRowForCloud, editRowForCloud, listLabel, itemsInListOrder,
+  editsParentsFirst, foldersParentsFirst, folderRowForCloud, folderDecision, cloudFolderIndex, desktopFolderOfFile,
+} from './migrationRows'
 
 const RABBIT_BASE = '/api/rabbit'
 const POSTER_BUCKET = 'rabbit-thumbnails'
@@ -54,8 +67,18 @@ export const POSTERS_SWITCH_OFF = 'pictures stay on this computer: the company h
 // never reached Done).
 export const ORPHAN_TAKES = (n) => `${n} take${n === 1 ? '' : 's'} of a shot or clip removed on this computer (kept there for undo) not carried`
 // What the migration does not carry, said under the report BEFORE the
-// archive is offered (review round 2).
-export const NOT_CARRIED_SENTENCE = (list) => `Stays on this computer (the migration does not carry it): ${list.map(x => `${x.count} ${x.label}`).join(', ')}. Archive and clear local keeps a copy in the archive file only.`
+// archive is offered (review round 2) — since M1, what part 2 of the
+// migration carries apart from what no migration carries (`part2`).
+export const NOT_CARRIED_SENTENCE = (list) => {
+  const words = (xs) => xs.map(x => `${x.count} ${x.label}`).join(', ')
+  const later = list.filter(x => x.part2)
+  const never = list.filter(x => !x.part2)
+  return [
+    later.length ? `Stays on this computer for now (part 2 of the migration carries it): ${words(later)}.` : '',
+    never.length ? `Stays on this computer (the migration does not carry it): ${words(never)}.` : '',
+    'Archive and clear local keeps a copy in the archive file only.',
+  ].filter(Boolean).join(' ')
+}
 // VW1c (0098): the views' part's sentences (the panel and the tests quote them).
 // A view filtering by a level or an experience goes up; the rows its filter
 // names do not (levels and experiences are not carried), so it matches nothing.
@@ -66,6 +89,30 @@ export const TABLE_VIEWS_UNREAD = (message) => `could not read the saved views a
 // report's words, binsMigration's notCarriedLabel shape).
 const LEVEL_GROUPINGS_KEY = 'levelGroupings'
 const levelGroupingsLabel = (n) => (n === 1 ? 'grouping of levels or experiences' : 'groupings of levels or experiences')
+// M1 (night 3): the project row's and the five kinds' sentences (the panel
+// and the tests quote them). A project row's locked and open bid versions
+// wait for the budgets, part 2's; its folder on this computer stays this
+// computer's (measured: the cloud takes a project folder only from an admin
+// or a manager, inside the company's storage drive).
+export const BID_VERSIONS_PART_2 = (n) => `${plural(n, 'project')} ${n === 1 ? 'names' : 'name'} a locked or open bid version: part 2 of the migration sets ${n === 1 ? 'it' : 'them'} with the budgets, so the cloud has none yet`
+export const PROJECT_FOLDER_STAYS = (n) => `${plural(n, 'project folder')} on this computer ${n === 1 ? 'stays' : 'stay'} this computer's setting: in the cloud a workspace admin or manager sets a project's folder, inside the company's storage drive`
+export const KEY_DATES_TRASHED = (n) => `${plural(n, 'key date')} in this computer's Recently deleted not carried`
+export const COMMENTS_REMOVED = (n) => `${plural(n, 'comment')} marked removed on this computer not carried`
+export const COMMENTS_ON_GONE_ROWS = (n) => `${plural(n, 'comment')} on a row removed on this computer, or in the cloud's trash, not carried`
+export const ITEMS_ON_GONE_ROWS = (n) => `${plural(n, 'item')} of a shot list on a scene or shot removed on this computer not carried`
+export const FOLDERS_OF_GONE_ROWS = (n) => `${plural(n, 'folder')} of a row removed on this computer, or in the cloud's trash, not carried`
+export const FOLDERS_TAKEN = (n) => `${plural(n, 'folder')} not carried: the cloud has another row's folder in ${n === 1 ? 'its' : 'their'} place, so ${n === 1 ? 'its' : 'their'} files sit at the project's top there`
+export const FILES_PLACED = (n) => `${plural(n, 'file')} filed in ${n === 1 ? 'its folder' : 'their folders'}, as on this computer`
+export const ARCHIVED_AGAIN = (labels) => `Archived on this computer, so archived in the cloud once carried: ${labels.join(', ')} (a workspace admin or the project's manager can; anyone else, only a list or edit nobody has saved or built on)`
+export const LIVE_IN_CLOUD = (n) => `${n} ${n === 1 ? 'shot list or edit' : 'shot lists or edits'} archived on this computer ${n === 1 ? 'is' : 'are'} live in the cloud: a run archives only what it carries (archive ${n === 1 ? 'it' : 'them'} on the Scenes tab)`
+export const SHOT_LIST_NAME_TAKEN = (label) => `a shot list called "${label}" is already in the cloud under another id (made there since), so this one was not carried: rename it on this computer and run again`
+export const EDIT_NAME_TAKEN = (label) => `this shot list already has an edit called "${label}" in the cloud (made there since), so this one was not carried: rename it on this computer and run again`
+export const EDIT_CHAIN_TAKEN = 'the shot list\'s edits in the cloud continue from an edit made there since, so this one was not carried'
+// The panel's line for the lists and edits archived as on this computer.
+export const ARCHIVED_IN_CLOUD = (lists, edits, dry) => {
+  const what = [lists ? plural(lists, 'shot list') : '', edits ? plural(edits, 'edit') : ''].filter(Boolean).join(' and ')
+  return dry ? `${what} archived on this computer: archived in the cloud too, once carried` : `${what} archived in the cloud too, as on this computer`
+}
 
 async function fetchLocalProjectsList() {
   const res = await localFetch(`${RABBIT_BASE}/projects`)
@@ -165,14 +212,41 @@ function withoutSetAside(row) {
 // id that belongs to another project's row (a copied project file; the same
 // desktop moved into a second company) is a FAILURE with its reason, never a
 // quiet skip that reads as done (review round 2).
-async function insertOrSkip(table, row, ours = null) {
+//
+// M1: `keys`, for a table with unique keys besides its id. A duplicate on
+// one of those is ANOTHER row of this project holding the key (a list's
+// name, a list's scene, an edit's place in its chain), never "this row is
+// already there": `keys[name]` is 'skip' (the cloud holds the same fact) or
+// the sentence of a failure. Postgres names the key in its message, which
+// PostgREST passes on; a key the map does not name falls to the id rule.
+async function insertOrSkip(table, row, ours = null, keys = null) {
   const { error } = await supabase.from(table).insert(row)
   if (!error) return { status: 'inserted' }
   if (error.code === '23505') { // unique_violation
+    const key = uniqueKeyOf(error)
+    if (keys && key && keys[key]) {
+      if (keys[key] === 'skip') return { status: 'skipped' }
+      throw new Error(`${table}: ${keys[key]}`)
+    }
     if (!ours || ours(row)) return { status: 'skipped' }
     throw new Error(`${table}: a row with this id is in the cloud but is not this project's, so nothing was written for it (${error.message})`)
   }
   throw new Error(`${table}: ${error.message}`)
+}
+
+/** The unique key a 23505 names ("…violates unique constraint "shot_lists_pkey""), or null. */
+function uniqueKeyOf(error) {
+  const m = /unique constraint "([^"]+)"/.exec(String(error?.message || ''))
+  return m ? m[1] : null
+}
+
+/** A database function's answer, never a throw: `{ data, error }`. */
+async function callRpc(fn, args) {
+  try {
+    return await supabase.rpc(fn, args)
+  } catch (err) {
+    return { data: null, error: err }
+  }
 }
 
 // VW1c (0098): a view or grouping write the cloud adapter refused, said as
@@ -183,6 +257,9 @@ function viewWriteMessage(table, err) {
   return `${table}: ${err?.message || err}`
 }
 const hasId = (row) => row?.id != null && row.id !== ''
+const isObj = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
+const named = (v) => v != null && v !== ''
+const idSet = (rows) => new Set((Array.isArray(rows) ? rows : []).filter(isObj).map(r => r.id))
 const NO_ID = 'no id recorded, so it was not carried (a second run could not tell it apart from a new one)'
 
 // FX2 (0096): the kinds of a task's item the runner carries — the rows it
@@ -359,7 +436,7 @@ function makeReport() {
     tasks:         { total: 0, inserted: 0, skipped: 0, failed: 0 },
     taskLinks:     { total: 0, inserted: 0, skipped: 0, failed: 0 },
     phaseLinks:    { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0 },
+    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0 },
     // BC3 (B9): the bins' part. `binFiles.leftBehind` counts the clips whose
     // root nobody named (listed in `clipsLeftBehind`, never dropped);
     // `posters` counts the pictures (uploaded only while the switch is on).
@@ -383,6 +460,24 @@ function makeReport() {
     // named in `notCarried`).
     tableViews:    { total: 0, inserted: 0, skipped: 0, failed: 0, filtersLeftBehind: 0 },
     itemGroupings: { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
+    // M1 (night 3). A row the run does not try to carry is counted beside
+    // `total`, never in it: `trashed` (in this computer's Recently deleted,
+    // or marked removed), `orphans` (on a row removed on this computer, or in
+    // the cloud's trash), `leftBehind` (part 2's, or a kind the cloud cannot
+    // hold), a folder whose place is `taken`. `archived`: the lists and edits
+    // archived in the cloud as on this computer; `files.placed`: the files
+    // filed in a folder.
+    milestones:    { total: 0, inserted: 0, skipped: 0, failed: 0, trashed: 0 },
+    comments:      { total: 0, inserted: 0, skipped: 0, failed: 0, trashed: 0, orphans: 0, leftBehind: 0 },
+    shotLists:     { total: 0, inserted: 0, skipped: 0, failed: 0, archived: 0 },
+    shotListItems: { total: 0, inserted: 0, skipped: 0, failed: 0, orphans: 0 },
+    edits:         { total: 0, inserted: 0, skipped: 0, failed: 0, archived: 0 },
+    folders:       { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0, orphans: 0, taken: 0 },
+    // What the project rows leave on this computer (projectRowForCloud): how
+    // many name a locked or open bid version (part 2), how many a folder;
+    // and the lists and edits archived here that the cloud holds live.
+    projectsLeftAtHome: { bidVersions: 0, folders: 0 },
+    liveInCloud: 0,
     posters:       { total: 0, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
     // What the bundles hold that the runner does not carry (notCarriedOf),
     // summed over the projects: `[{ key, label, count }]`.
@@ -441,13 +536,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // project (the question), and the locations made in this run.
   const binsState = { locations: null, locationsError: null, switch: null, roots: [], answers: locations || {} }
   const notCarried = new Map()
+  // One line of the not-carried sentence, summed over the projects: its
+  // words from NOT_CARRIED (binsMigration.js) unless given, `part2` when part
+  // 2 of the migration carries it (M1: the panel says the two apart).
+  const addNotCarried = (key, count, { label, part2 } = {}) => {
+    if (!count) return
+    const e = notCarried.get(key) || { key, count: 0 }
+    e.count += count
+    e.label = label ? label(e.count) : notCarriedLabel(key, e.count)
+    e.part2 = part2 ?? notCarriedPart2(key)
+    notCarried.set(key, e)
+  }
   const countNotCarried = (bundle) => {
-    for (const { key, count } of notCarriedOf(bundle)) {
-      const e = notCarried.get(key) || { key, count: 0 }
-      e.count += count
-      e.label = notCarriedLabel(key, e.count)
-      notCarried.set(key, e)
-    }
+    for (const { key, count } of notCarriedOf(bundle)) addNotCarried(key, count)
   }
   // The live takes of a bundle: those whose shot and clip are in it. The rest
   // are the desktop's orphans (kept for undo, shown to nobody): not carried.
@@ -543,11 +644,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     report.itemGroupings.total += part.left.length
     report.itemGroupings.leftBehind += part.left.length
     report.tableViews.filtersLeftBehind += part.views.filter(viewFiltersLeftBehind).length
-    if (!part.left.length) return
-    const e = notCarried.get(LEVEL_GROUPINGS_KEY) || { key: LEVEL_GROUPINGS_KEY, count: 0 }
-    e.count += part.left.length
-    e.label = levelGroupingsLabel(e.count)
-    notCarried.set(LEVEL_GROUPINGS_KEY, e)
+    addNotCarried(LEVEL_GROUPINGS_KEY, part.left.length, { label: levelGroupingsLabel, part2: true })
   }
   // VW1e (0099), counted alike by the dry run and the real one: the assets
   // whose level and experience links stay here (assetRowForCloud sends the
@@ -555,14 +652,338 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   const countAssetLinksLeftBehind = (assets) => {
     const n = (assets ?? []).filter(namesLevelOrExperience).length
     report.assets.linksLeftBehind += n
-    if (!n) return
-    const e = notCarried.get(ASSET_LEVEL_LINKS_KEY) || { key: ASSET_LEVEL_LINKS_KEY, count: 0 }
-    e.count += n
-    e.label = assetLevelLinksLabel(e.count)
-    notCarried.set(ASSET_LEVEL_LINKS_KEY, e)
+    addNotCarried(ASSET_LEVEL_LINKS_KEY, n, { label: assetLevelLinksLabel, part2: true })
   }
   const viewsNote = (part, views, groupings, where = '') => `  ${plural(views, 'saved view')} and ${plural(groupings, 'grouping')}${where}` +
     (part.left.length ? `; ${plural(part.left.length, 'grouping')} of levels or experiences ${part.left.length === 1 ? 'stays' : 'stay'} on this computer` : '')
+
+  // ── M1 (night 3): the project row and the five kinds ───────────────────
+  //
+  // Each kind is one function for the dry run and the real one alike
+  // (`dry`: counted as the real run would take it, nothing written), so the
+  // dry run's promise is the real run's code. A row of the five kinds keeps
+  // its id; a second run skips what is there, and writes nothing for it.
+
+  // What a project row leaves on this computer, said per project.
+  const countProjectLeftAtHome = (bundle) => {
+    const home = projectLeftAtHome(bundle.project)
+    if (home.bidVersions) { report.projectsLeftAtHome.bidVersions++; note(`  ${BID_VERSIONS_PART_2(1)}`) }
+    if (home.folder) { report.projectsLeftAtHome.folders++; note(`  ${PROJECT_FOLDER_STAYS(1)}`) }
+  }
+
+  // This project's key dates in the cloud by id, its trash included: a key
+  // date removed there keeps its id (0067), so a second run skips it rather
+  // than bringing it back. `{ ids }`, or `{ error }` for the caller to say.
+  // The trash is read through 0067's index (a trashed row is invisible to a
+  // read of the table); a project not in the cloud yet has neither.
+  const cloudMilestoneIds = async (projectId) => {
+    const live = await listCloud('milestones', 'project_id', projectId, 'id')
+    if (live.error) return { error: live.error }
+    const ids = new Set(live.rows.map(r => r.id))
+    const { data, error } = await callRpc('milestones_trash_index', { p_project_id: projectId })
+    if (!error) {
+      for (const r of Array.isArray(data) ? data : []) if (r?.id) ids.add(r.id)
+      return { ids }
+    }
+    try {
+      const there = await supabase.from('projects').select('id').eq('id', projectId).maybeSingle()
+      if (!there.error && !there.data) return { ids }
+    } catch { /* the trash's refusal is the answer */ }
+    return { error }
+  }
+
+  // Key dates (0067), after the phases they may sit in.
+  const carryMilestones = async (bundle, projectId, stateOf, dry) => {
+    const all = (bundle.milestones ?? []).filter(isObj)
+    const live = all.filter(m => !named(m.deleted_at))
+    if (all.length > live.length) {
+      report.milestones.trashed += all.length - live.length
+      note(`  ${KEY_DATES_TRASHED(all.length - live.length)}`)
+    }
+    if (!live.length) return
+    const known = await cloudMilestoneIds(projectId)
+    if (known.error) report.errors.push({ scope: 'milestones', projectId, message: `could not read the key dates already in the cloud, so one refused as a duplicate reads as already there: ${known.error.message || known.error}` })
+    for (const m of live) {
+      if (!hasId(m)) { report.errors.push({ scope: 'milestone', projectId, message: NO_ID }); bumpFailed(report.milestones); continue }
+      if (known.ids?.has(m.id)) { bumpSkipped(report.milestones); continue }
+      const row = milestoneRowForCloud(m, projectId)
+      const name = m.title || m.name || m.id
+      // Its phase is a plain foreign key (no project in it): only a phase the
+      // cloud shows under THIS project is kept; one that did not land in this
+      // run fails the key date with it (a second run brings both); one
+      // removed on this computer, or not this project's, is let go and said.
+      if (named(row.phase_id)) {
+        const st = await stateOf('phases', row.phase_id)
+        if (st === 'failed') { report.errors.push({ scope: 'milestone', projectId, id: m.id, message: `${name}: its phase is not in the cloud, so the key date was not carried (a second run brings both)` }); bumpFailed(report.milestones); continue }
+        if (st === 'gone') { report.errors.push({ scope: 'milestone', projectId, id: m.id, message: `${name}: its phase was removed on this computer, or is not this project's in the cloud, so the key date's phase was left empty` }); row.phase_id = null }
+      }
+      if (dry) { bumpInserted(report.milestones); continue }
+      try {
+        const r = await insertOrSkip('milestones', row, known.ids ? (x) => known.ids.has(x.id) : null)
+        r.status === 'inserted' ? bumpInserted(report.milestones) : bumpSkipped(report.milestones)
+      } catch (err) {
+        report.errors.push({ scope: 'milestone', projectId, id: m.id, message: `${name}: ${err.message}` })
+        bumpFailed(report.milestones)
+      }
+    }
+  }
+
+  // Comments (0000), after the rows they hang on. The dry run counts the
+  // ones whose row goes up (Total, as for phases, assets and tasks: which are
+  // there already the cloud cannot say by project — a comment has none).
+  const carryComments = async (bundle, projectId, stateOf, dry) => {
+    const counts = { removed: 0, gone: 0, elsewhere: 0 }
+    for (const c of (bundle.comments ?? []).filter(isObj)) {
+      if (named(c.deleted_at)) { counts.removed++; continue }
+      const table = COMMENT_TARGETS[c.entity_type]
+      if (!table) { counts.elsewhere++; continue }
+      const st = table === 'projects' ? (String(c.entity_id) === String(projectId) ? 'landed' : 'gone') : await stateOf(table, c.entity_id)
+      if (st === 'gone') { counts.gone++; continue }
+      if (st === 'failed') { report.errors.push({ scope: 'comment', projectId, id: c.id, message: `its ${c.entity_type} is not in the cloud, so the comment was not carried (a second run brings both)` }); bumpFailed(report.comments); continue }
+      if (!hasId(c)) { report.errors.push({ scope: 'comment', projectId, message: NO_ID }); bumpFailed(report.comments); continue }
+      if (dry) { report.comments.total++; continue }
+      try {
+        // A comment removed in the cloud keeps its id there (0014), unseen
+        // by a read: a duplicate counts as already there, never comes back.
+        const r = await insertOrSkip('comments', commentRowForCloud(c))
+        r.status === 'inserted' ? bumpInserted(report.comments) : bumpSkipped(report.comments)
+      } catch (err) {
+        report.errors.push({ scope: 'comment', projectId, id: c.id, message: err.message })
+        bumpFailed(report.comments)
+      }
+    }
+    report.comments.trashed += counts.removed
+    report.comments.orphans += counts.gone
+    report.comments.leftBehind += counts.elsewhere
+    addNotCarried('commentsElsewhere', counts.elsewhere)
+    if (counts.removed) note(`  ${COMMENTS_REMOVED(counts.removed)}`)
+    if (counts.gone) note(`  ${COMMENTS_ON_GONE_ROWS(counts.gone)}`)
+  }
+
+  // The project's active shot list in the cloud: `{ id }` (null: none), or `{ error }`.
+  const cloudActiveList = async (projectId) => {
+    try {
+      const { data, error } = await supabase.from('projects').select('active_shot_list_id').eq('id', projectId).maybeSingle()
+      return error ? { error } : { id: data?.active_shot_list_id ?? null }
+    } catch (err) {
+      return { error: err }
+    }
+  }
+  const nameKeyOf = (row) => `${String(row?.title ?? '').trim()}|${row?.version ?? 1}`
+
+  // Shot lists, their items and edits (0084), after the scenes and shots.
+  // A list arrives LIVE (0084 refuses a row inserted archived — 42501,
+  // measured) and is archived after, through archive_shot_list(), as the
+  // client archives one; the active list is set through
+  // set_active_shot_list() once the lists are in. Items keep their list and
+  // position; edits come each after the edit it continues (0084's guard).
+  // `landed`: the scenes and shots in the cloud for this project.
+  const carryShotLists = async (bundle, projectId, landed, dry) => {
+    const lists = (bundle.shotLists ?? []).filter(isObj)
+    const items = (bundle.shotListItems ?? []).filter(isObj)
+    const edits = (bundle.edits ?? []).filter(isObj)
+    if (!lists.length && !items.length && !edits.length) return
+    const read = async (table, columns, rows) => {
+      if (!rows.length) return { rows: [] }
+      const r = await listCloud(table, 'project_id', projectId, columns)
+      if (r.error) report.errors.push({ scope: table, projectId, message: `could not read what the cloud already holds, so a row refused as a duplicate reads as already there: ${r.error.message || r.error}` })
+      return r
+    }
+    const haveLists = await read('shot_lists', 'id, title, version, archived_at', lists)
+    const haveItems = await read('shot_list_items', 'id, shot_list_id, scene_id, shot_id', items)
+    const haveEdits = await read('edits', 'id, shot_list_id, title, version, archived_at', edits)
+    const cloudLists = new Map((haveLists.rows || []).map(l => [l.id, l]))
+    const cloudEdits = new Map((haveEdits.rows || []).map(e => [e.id, e]))
+    const listNames = new Set((haveLists.rows || []).map(nameKeyOf))
+    const editNames = new Set((haveEdits.rows || []).map(e => `${e.shot_list_id}|${nameKeyOf(e)}`))
+    const listsHere = idSet(lists)
+    const scenesHere = idSet(bundle.scenes)
+    const shotsHere = idSet(bundle.shots)
+    const landedLists = new Set()
+    const insertedLists = new Set()
+    let liveThere = 0
+    for (const l of lists) {
+      if (!hasId(l)) { report.errors.push({ scope: 'shot_list', projectId, message: NO_ID }); bumpFailed(report.shotLists); continue }
+      const there = cloudLists.get(l.id)
+      if (there) { bumpSkipped(report.shotLists); landedLists.add(l.id); if (isArchived(l) && !isArchived(there)) liveThere++; continue }
+      if (listNames.has(nameKeyOf(l))) { report.errors.push({ scope: 'shot_list', projectId, id: l.id, message: SHOT_LIST_NAME_TAKEN(listLabel(l)) }); bumpFailed(report.shotLists); continue }
+      if (dry) { bumpInserted(report.shotLists); landedLists.add(l.id); insertedLists.add(l.id); continue }
+      try {
+        const r = await insertOrSkip('shot_lists', shotListRowForCloud(l, projectId), haveLists.error ? null : (x) => cloudLists.has(x.id), { shot_lists_project_title_version_key: SHOT_LIST_NAME_TAKEN(listLabel(l)) })
+        if (r.status === 'inserted') { bumpInserted(report.shotLists); insertedLists.add(l.id) } else bumpSkipped(report.shotLists)
+        landedLists.add(l.id)
+      } catch (err) {
+        report.errors.push({ scope: 'shot_list', projectId, id: l.id, message: err.message })
+        bumpFailed(report.shotLists)
+      }
+    }
+    const pairOf = (i) => (named(i?.scene_id) ? `${i.shot_list_id}|scene|${i.scene_id}` : `${i?.shot_list_id}|shot|${i?.shot_id}`)
+    const itemIds = new Set((haveItems.rows || []).map(i => i.id))
+    const itemPairs = new Set((haveItems.rows || []).map(pairOf))
+    let itemsGone = 0
+    for (const it of itemsInListOrder(items, lists)) {
+      if (!hasId(it)) { report.errors.push({ scope: 'shot_list_item', projectId, message: NO_ID }); bumpFailed(report.shotListItems); continue }
+      if (!landedLists.has(it.shot_list_id)) {
+        if (listsHere.has(it.shot_list_id)) { report.errors.push({ scope: 'shot_list_item', projectId, id: it.id, message: 'its shot list is not in the cloud, so the item was not carried (a second run brings both)' }); bumpFailed(report.shotListItems) }
+        else itemsGone++
+        continue
+      }
+      if (itemIds.has(it.id) || itemPairs.has(pairOf(it))) { bumpSkipped(report.shotListItems); continue }
+      const kind = named(it.scene_id) ? 'scene' : 'shot'
+      const rowId = kind === 'scene' ? it.scene_id : it.shot_id
+      if (!(kind === 'scene' ? landed.scenes : landed.shots).has(rowId)) {
+        if ((kind === 'scene' ? scenesHere : shotsHere).has(rowId)) { report.errors.push({ scope: 'shot_list_item', projectId, id: it.id, message: `its ${kind} is not in the cloud, so the item was not carried (a second run brings both)` }); bumpFailed(report.shotListItems) }
+        else itemsGone++
+        continue
+      }
+      if (dry) { bumpInserted(report.shotListItems); continue }
+      try {
+        const r = await insertOrSkip('shot_list_items', shotListItemRowForCloud(it, projectId), haveItems.error ? null : (x) => itemIds.has(x.id), { shot_list_items_list_scene_key: 'skip', shot_list_items_list_shot_key: 'skip' })
+        r.status === 'inserted' ? bumpInserted(report.shotListItems) : bumpSkipped(report.shotListItems)
+      } catch (err) {
+        report.errors.push({ scope: 'shot_list_item', projectId, id: it.id, message: err.message })
+        bumpFailed(report.shotListItems)
+      }
+    }
+    report.shotListItems.orphans += itemsGone
+    if (itemsGone) note(`  ${ITEMS_ON_GONE_ROWS(itemsGone)}`)
+    const landedEdits = new Set()
+    const insertedEdits = new Set()
+    for (const e of editsParentsFirst(edits)) {
+      if (!hasId(e)) { report.errors.push({ scope: 'edit', projectId, message: NO_ID }); bumpFailed(report.edits); continue }
+      const there = cloudEdits.get(e.id)
+      if (there) { bumpSkipped(report.edits); landedEdits.add(e.id); if (isArchived(e) && !isArchived(there)) liveThere++; continue }
+      const fail = (message) => { report.errors.push({ scope: 'edit', projectId, id: e.id, message: `${listLabel(e)}: ${message}` }); bumpFailed(report.edits) }
+      if (!landedLists.has(e.shot_list_id)) { fail('its shot list is not in the cloud, so the edit was not carried (a second run brings both)'); continue }
+      if (named(e.parent_edit_id) && !landedEdits.has(e.parent_edit_id)) { fail('the edit it continues is not in the cloud, so it was not carried (a second run brings both)'); continue }
+      if (editNames.has(`${e.shot_list_id}|${nameKeyOf(e)}`)) { fail(EDIT_NAME_TAKEN(listLabel(e))); continue }
+      if (dry) { bumpInserted(report.edits); landedEdits.add(e.id); insertedEdits.add(e.id); continue }
+      try {
+        const r = await insertOrSkip('edits', editRowForCloud(e, projectId), haveEdits.error ? null : (x) => cloudEdits.has(x.id), {
+          edits_list_title_version_key: EDIT_NAME_TAKEN(listLabel(e)), edits_one_root_per_list_key: EDIT_CHAIN_TAKEN, edits_one_child_key: EDIT_CHAIN_TAKEN,
+        })
+        if (r.status === 'inserted') { bumpInserted(report.edits); insertedEdits.add(e.id) } else bumpSkipped(report.edits)
+        landedEdits.add(e.id)
+      } catch (err) {
+        report.errors.push({ scope: 'edit', projectId, id: e.id, message: err.message })
+        bumpFailed(report.edits)
+      }
+    }
+    report.liveInCloud += liveThere
+    if (liveThere) note(`  ${LIVE_IN_CLOUD(liveThere)}`)
+    note(`  ${plural(lists.length, 'shot list')} with ${plural(items.length, 'item')} and ${plural(edits.length, 'edit')}`)
+    // The active list: this computer's, once this run carried it, live, and
+    // only where no list is active in the cloud yet (a teammate's choice is
+    // left alone; a second run sets nothing).
+    const activeId = bundle.project?.active_shot_list_id
+    const active = named(activeId) ? lists.find(l => l.id === activeId) : null
+    if (active && insertedLists.has(active.id) && !isArchived(active)) {
+      if (dry) note(`  "${listLabel(active)}" will be the active shot list in the cloud, if none is active there`)
+      else {
+        const cur = await cloudActiveList(projectId)
+        const refuse = (why) => report.errors.push({ scope: 'shot_list', projectId, id: active.id, message: `"${listLabel(active)}" was not made the active shot list in the cloud: ${why} (a workspace admin or the project's manager can, on the Scenes tab)` })
+        if (cur.error) refuse(`its active list could not be read (${cur.error.message || cur.error})`)
+        else if (cur.id == null) {
+          const { error } = await callRpc('set_active_shot_list', { p_project: projectId, p_list: active.id })
+          if (error) refuse(error.message || String(error))
+          else note(`  "${listLabel(active)}" is the active shot list in the cloud`)
+        }
+      }
+    }
+    // Archived on this computer: archived in the cloud too, through 0084's
+    // functions — the edits before their lists (an untouched list's maker
+    // may archive it only once no live edit is on it, 0086), and only what
+    // this run carried (a second run archives nothing; a list a teammate
+    // restored in the cloud stays restored).
+    const toArchive = [
+      ...edits.filter(e => insertedEdits.has(e.id) && isArchived(e)).map(row => ({ row, fn: 'archive_edit', args: { p_edit: row.id, p_archived: true }, bucket: report.edits, scope: 'edit' })),
+      ...lists.filter(l => insertedLists.has(l.id) && isArchived(l)).map(row => ({ row, fn: 'archive_shot_list', args: { p_list: row.id, p_archived: true }, bucket: report.shotLists, scope: 'shot_list' })),
+    ]
+    if (!toArchive.length) return
+    if (dry) {
+      for (const a of toArchive) a.bucket.archived++
+      note(`  ${ARCHIVED_AGAIN(toArchive.map(a => `"${listLabel(a.row)}"`))}`)
+      return
+    }
+    for (const a of toArchive) {
+      const { error } = await callRpc(a.fn, a.args)
+      if (error) report.errors.push({ scope: a.scope, projectId, id: a.row.id, message: `"${listLabel(a.row)}" is archived on this computer but live in the cloud: ${error.message || error}` })
+      else a.bucket.archived++
+    }
+  }
+
+  // Folders (0041), after the assets, scenes and shots they are of, parents
+  // first; each a row by its path, matched where the cloud holds it (by id,
+  // by its row, or at its path) and never made twice. Answers the folder in
+  // the cloud of each desktop folder that is there (desktop id → cloud id),
+  // which the files are filed in. `state(fk, id)`: the row a folder is of,
+  // as this run left it (folderDecision says how each answer is taken).
+  const FOLDER_READ = 'id, path, kind, asset_id, scene_id, shot_id, level_id, experience_id'
+  const carryFolders = async (bundle, projectId, state, dry) => {
+    const folderOf = new Map()
+    const folders = (bundle.folders ?? []).filter(isObj)
+    if (!folders.length) return folderOf
+    const have = await listCloud('folders', 'project_id', projectId, FOLDER_READ)
+    if (have.error) {
+      report.errors.push({ scope: 'folders', projectId, message: `could not read the project's folders in the cloud, so none was carried and its files go to the project's top (run again): ${have.error.message || have.error}` })
+      report.folders.total += folders.length
+      report.folders.failed += folders.length
+      return folderOf
+    }
+    let cloud = cloudFolderIndex(have.rows)
+    const decided = new Map()
+    const counts = { left: 0, gone: 0, taken: 0 }
+    for (const f of foldersParentsFirst(folders)) {
+      if (!hasId(f)) { report.errors.push({ scope: 'folder', projectId, message: NO_ID }); bumpFailed(report.folders); continue }
+      const parent = f.kind === 'root' ? null : decided.get(f.parent_id)
+      let d = folderDecision(f, { parent, cloud, state })
+      const where = f.path || 'the project folder'
+      if (d.action === 'insert' && dry) d = { action: 'inserted', cloudId: f.id }
+      else if (d.action === 'insert') {
+        try {
+          const { error } = await supabase.from('folders').insert(folderRowForCloud(f, projectId, d.parentCloudId))
+          if (!error) d = { action: 'inserted', cloudId: f.id }
+          else if (error.code === '23505') {
+            // Made meanwhile (a teammate, the cloud's own planner): read
+            // again and decide again — matched, or its place taken by a
+            // namesake; anything else is an id another project holds.
+            const again = await listCloud('folders', 'project_id', projectId, FOLDER_READ)
+            if (!again.error) cloud = cloudFolderIndex(again.rows)
+            const d2 = again.error ? null : folderDecision(f, { parent, cloud, state })
+            if (d2?.action !== 'matched' && d2?.action !== 'taken') throw new Error(`folders: a folder with this id is in the cloud but is not this project's, so nothing was written for it (${error.message})`)
+            d = d2
+          } else throw new Error(`folders: ${error.message}`)
+        } catch (err) {
+          report.errors.push({ scope: 'folder', projectId, id: f.id, message: `${where}: ${err.message}` })
+          d = { action: 'failed', said: true }
+        }
+      }
+      if (d.action === 'inserted') bumpInserted(report.folders)
+      else if (d.action === 'matched') bumpSkipped(report.folders)
+      else if (d.action === 'left') counts.left++
+      else if (d.action === 'orphan') counts.gone++
+      else if (d.action === 'taken') counts.taken++
+      else if (d.action === 'failed') {
+        if (!d.said) report.errors.push({ scope: 'folder', projectId, id: f.id, message: `${where}: ${d.why}, so the folder was not carried (a second run brings it)` })
+        bumpFailed(report.folders)
+      }
+      decided.set(f.id, d)
+      if (d.cloudId) folderOf.set(f.id, d.cloudId)
+    }
+    report.folders.leftBehind += counts.left
+    report.folders.orphans += counts.gone
+    report.folders.taken += counts.taken
+    addNotCarried('levelFolders', counts.left)
+    if (counts.gone) note(`  ${FOLDERS_OF_GONE_ROWS(counts.gone)}`)
+    if (counts.taken) note(`  ${FOLDERS_TAKEN(counts.taken)}`)
+    return folderOf
+  }
+  // The cloud folder a desktop file is filed in, by the desktop's own rule
+  // (desktopFolderOfFile, fileTree.js's), or null (the project's top).
+  const cloudFolderOfFile = (file, bundle, folderOf) => {
+    const here = desktopFolderOfFile(file, bundle.folders)
+    return here ? (folderOf.get(here.id) ?? null) : null
+  }
 
   // Fetch the local project list. On a fresh install there may be no local
   // server — handle a 404/network error as "nothing to migrate".
@@ -641,6 +1062,25 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       await wouldWrite(report.shots, 'shots', bundle.shots ?? [])
       await wouldWrite(report.bins, 'bins', bundle.bins ?? [])
       countNotCarried(bundle)
+      // M1 (night 3): the project row, then the five kinds as the real run
+      // takes them — every row of the bundle taken to land (the dry run
+      // writes nothing to fail).
+      countProjectLeftAtHome(bundle)
+      {
+        const here = { phases: idSet(bundle.phases), assets: idSet(bundle.assets), tasks: idSet(bundle.tasks), scenes: idSet(bundle.scenes), shots: idSet(bundle.shots), levels: idSet(bundle.levels), experiences: idSet(bundle.experiences) }
+        const stateOf = async (table, id) => (here[table]?.has(id) ? 'landed' : 'gone')
+        await carryMilestones(bundle, projectId, stateOf, true)
+        await carryComments(bundle, projectId, stateOf, true)
+        await carryShotLists(bundle, projectId, { scenes: here.scenes, shots: here.shots }, true)
+        const folderOf = await carryFolders(bundle, projectId, (fk, id) => (
+          fk === 'level_id' ? (here.levels.has(id) ? 'left' : 'gone')
+            : fk === 'experience_id' ? (here.experiences.has(id) ? 'left' : 'gone')
+              : here[{ asset_id: 'assets', scene_id: 'scenes', shot_id: 'shots' }[fk]]?.has(id) ? 'landed' : 'gone'
+        ), true)
+        const placed = (bundle.files ?? []).filter(f => cloudFolderOfFile(f, bundle, folderOf)).length
+        report.files.placed += placed
+        if (placed) note(`  ${FILES_PLACED(placed)}`)
+      }
       if ((bundle.bins ?? []).length || (bundle.binFiles ?? []).length) {
         const clips = bundle.binFiles ?? []
         const roots = binRootsOf(bundle)
@@ -730,30 +1170,55 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       continue
     }
 
-    // Project row. Drop workspace_id if already present on the local row
-    // (shouldn't be; v0.1 seeded a hardcoded uuid) and set our target.
+    // Project row, through the cloud's columns, in the target workspace
+    // (projectRowForCloud, migrationRows.js, says what stays and why).
     //
-    // active_shot_list_id is dropped too (0084; S3a review round 1, scope#9).
-    // The Local Server sets it (its read-time backfill on every legacy bundle,
-    // set-active after that), but it names a LOCAL list this runner never
-    // copies (it carries no scenes, shots or lists), so the composite FK
+    // active_shot_list_id stays here (0084; S3a review round 1, scope#9): it
+    // names a list not in the cloud yet, so the composite FK
     // projects_active_shot_list_fk refused the whole project (23503) — and
-    // its phases, assets and tasks with it. A database without 0084 has no
-    // such column at all (PGRST204). The migrated project starts with no
-    // active list: every scene and shot shows (D10).
+    // its phases, assets and tasks with it. M1 sets it through
+    // set_active_shot_list() once the lists are in. Measured on wilson-dev
+    // (M1, rolled back): the desktop's `documents` refused the whole row
+    // (42703; through PostgREST, PGRST204), so did a locked or open bid
+    // version the cloud does not hold (23503) and a folder on this computer
+    // (P0001) — every desktop project, until this allowlist.
+    countProjectLeftAtHome(bundle)
     try {
-      const p = {
-        ...(bundle.project ?? {}),
-        workspace_id: workspaceId,
-      }
-      delete p.active_shot_list_id
-      const r = await insertOrSkip('projects', p)
+      const r = await insertOrSkip('projects', projectRowForCloud(bundle.project ?? {}, workspaceId))
       if (r.status === 'inserted') bumpInserted(report.projects)
       else bumpSkipped(report.projects)
     } catch (err) {
       report.errors.push({ scope: 'project', projectId, message: err.message })
       bumpFailed(report.projects)
       continue // don't try children if the project itself failed
+    }
+
+    // M1: which of this project's rows did not land in this run (a comment,
+    // a key date or a folder on one fails with it, and a second run brings
+    // both), and this project's rows as the cloud shows them, read once per
+    // table when a kind needs them: a row whose id another project holds is
+    // skipped by its key below, and must never take this project's comment,
+    // key date or folder.
+    const failedRows = { phases: new Set(), assets: new Set(), tasks: new Set() }
+    const here = { phases: idSet(bundle.phases), assets: idSet(bundle.assets), tasks: idSet(bundle.tasks), scenes: idSet(bundle.scenes), shots: idSet(bundle.shots), levels: idSet(bundle.levels), experiences: idSet(bundle.experiences) }
+    const cloudRowsOf = new Map()
+    const verified = async (table) => {
+      if (cloudRowsOf.has(table)) return cloudRowsOf.get(table)
+      const r = await cloudIds(table, projectId)
+      if (r.error) report.errors.push({ scope: table, projectId, message: `could not read the project's ${table} in the cloud, so nothing that hangs on them was carried (run again): ${r.error.message || r.error}` })
+      cloudRowsOf.set(table, r.error ? null : r.ids)
+      return cloudRowsOf.get(table)
+    }
+    // A row of `table` as this run left it: 'landed' (the cloud shows it
+    // under this project), 'failed' (its insert failed in this run, or the
+    // read did), 'gone' (removed on this computer — or in the cloud, but not
+    // as this project's row: in its trash, or another project's id).
+    const stateOf = async (table, id) => {
+      if (!here[table]?.has(id)) return 'gone'
+      const ids = await verified(table)
+      if (!ids) return 'failed'
+      if (ids.has(id)) return 'landed'
+      return failedRows[table]?.has(id) ? 'failed' : 'gone'
     }
 
     // Phases / assets / tasks — parent-join-based RLS. assets and tasks
@@ -765,8 +1230,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       } catch (err) {
         report.errors.push({ scope: 'phase', projectId, id: ph.id, message: err.message })
         bumpFailed(report.phases)
+        failedRows.phases.add(ph?.id)
       }
     }
+    // M1: the key dates, after the phases they may sit in.
+    await carryMilestones(bundle, projectId, stateOf, false)
     countAssetLinksLeftBehind(bundle.assets)
     for (const a of bundle.assets ?? []) {
       try {
@@ -775,6 +1243,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       } catch (err) {
         report.errors.push({ scope: 'asset', projectId, id: a.id, message: err.message })
         bumpFailed(report.assets)
+        failedRows.assets.add(a?.id)
       }
     }
     for (const t of bundle.tasks ?? []) {
@@ -784,6 +1253,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       } catch (err) {
         report.errors.push({ scope: 'task', projectId, id: t.id, message: err.message })
         bumpFailed(report.tasks)
+        failedRows.tasks.add(t?.id)
       }
     }
 
@@ -813,8 +1283,78 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       }
     }
 
+    // M1: the comments, after every row they can hang on (the project, its
+    // phases, assets and tasks).
+    await carryComments(bundle, projectId, stateOf, false)
+
+    // ── BC3 (B9): the bins — "bins move with the project" ────────────────
+    // Scenes and shots first: a take links a shot to a clip, and a clip may
+    // be logged to a scene and a shot, so their rows must be in the cloud
+    // before the bins' (the runner carried neither before BC3). Since M1 the
+    // shot lists, their items and edits, the folders and the files (each in
+    // its folder) come next, before the bins. Then the bins, parents first; then each clip under the
+    // footage location its root was named as; then the takes whose shot and
+    // clip both landed; then the pictures, while the switch is on. Every
+    // row keeps its id (the desktop's UUIDs are 0091's), so a second run
+    // skips what is there.
+    const landed = { scenes: new Set(), shots: new Set(), bins: new Set(), clips: new Set() }
+    countNotCarried(bundle)
+    // What the cloud already holds for THIS project, per table, so that a
+    // duplicate key is "already there" only for this project's own row
+    // (review round 2). A read that fails is said; its table then skips a
+    // duplicate as before.
+    const known = {}
+    for (const [key, table] of [['scenes', 'scenes'], ['shots', 'shots'], ['bins', 'bins']]) {
+      if (!(bundle[key] ?? []).length) continue
+      const r = await cloudIds(table, projectId)
+      if (r.error) { known[table] = null; report.errors.push({ scope: table, projectId, message: `could not read what the cloud already holds, so a row refused as a duplicate reads as already there: ${r.error.message || r.error}` }) }
+      else known[table] = r.ids
+    }
+    const oursIn = (table) => (known[table] ? (row) => known[table].has(row.id) : null)
+    for (const sc of bundle.scenes ?? []) {
+      try {
+        const r = await insertOrSkip('scenes', toColumns('scenes', withoutSetAside(cloudRowOf(sc, projectId))), oursIn('scenes'))
+        r.status === 'inserted' ? bumpInserted(report.scenes) : bumpSkipped(report.scenes)
+        landed.scenes.add(sc.id)
+      } catch (err) {
+        report.errors.push({ scope: 'scene', projectId, id: sc.id, message: err.message })
+        bumpFailed(report.scenes)
+      }
+    }
+    for (const sh of bundle.shots ?? []) {
+      try {
+        const row = withoutSetAside(cloudRowOf(sh, projectId))
+        // 0040's scene link is a plain FK (no project in it): a scene that
+        // did not land here — failed, or another project's — is let go, and
+        // said (review round 2, security: a migrated shot must not hang off
+        // a scene of another project).
+        if (row.scene_id && !landed.scenes.has(row.scene_id)) { report.errors.push({ scope: 'shot', projectId, id: sh.id, message: `${sh.name || sh.id}: its scene is not in the cloud, so the shot's scene link was left empty` }); row.scene_id = null }
+        const r = await insertOrSkip('shots', toColumns('shots', row), oursIn('shots'))
+        r.status === 'inserted' ? bumpInserted(report.shots) : bumpSkipped(report.shots)
+        landed.shots.add(sh.id)
+      } catch (err) {
+        report.errors.push({ scope: 'shot', projectId, id: sh.id, message: err.message })
+        bumpFailed(report.shots)
+      }
+    }
+    // ── M1 (night 3): shot lists with their items and edits, then the
+    // folders, after the scenes and shots they name (and the assets) ──────
+    await carryShotLists(bundle, projectId, landed, false)
+    const folderAssets = (bundle.folders ?? []).some(f => isObj(f) && named(f.asset_id)) ? await verified('assets') : new Set()
+    const folderOf = await carryFolders(bundle, projectId, (fk, id) => {
+      if (fk === 'level_id') return here.levels.has(id) ? 'left' : 'gone'
+      if (fk === 'experience_id') return here.experiences.has(id) ? 'left' : 'gone'
+      if (fk === 'scene_id') return landed.scenes.has(id) ? 'landed' : here.scenes.has(id) ? 'failed' : 'gone'
+      if (fk === 'shot_id') return landed.shots.has(id) ? 'landed' : here.shots.has(id) ? 'failed' : 'gone'
+      if (fk === 'asset_id') return !here.assets.has(id) ? 'gone' : !folderAssets ? 'failed' : folderAssets.has(id) ? 'landed' : failedRows.assets.has(id) ? 'failed' : 'gone'
+      return 'gone'
+    }, false)
+
     // Files — upload the binary, then the metadata row (which gets the
-    // cloud storage_path).
+    // cloud storage_path). Since M1 after the folders: each row is filed in
+    // the folder the desktop shows it in (cloudFolderOfFile), and after the
+    // scenes and shots, which a file's own links may name.
+    let placed = 0
     for (const f of bundle.files ?? []) {
       try {
         // S4b: a Legal file (on the desktop, its tag) goes under LEGAL with
@@ -881,6 +1421,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           ...f,
           storage_provider: 'supabase',
           storage_path:     objectPath,
+          // M1: the folder in the cloud, never the desktop's own id.
+          folder_id:        cloudFolderOfFile(f, bundle, folderOf),
+        }
+        // M1 put the files after the scenes and shots, so a file's own
+        // scene or shot link can land with it — but 0043's are plain foreign
+        // keys (no project in them): one to a scene or shot that did not land
+        // here (failed, or another project's) is let go, and said, as a
+        // clip's is (BC3's review round 2, security).
+        for (const [key, kind, there] of [['scene_id', 'scene', landed.scenes], ['shot_id', 'shot', landed.shots]]) {
+          if (row[key] && !there.has(row[key])) {
+            report.errors.push({ scope: 'file', projectId, id: f.id, message: `${f.name || f.id}: its ${kind} is not in the cloud, so the file's ${kind} link was left empty` })
+            row[key] = null
+          }
         }
         if (legal) {
           row.tags = ['legal', ...(Array.isArray(f.tags) ? f.tags.filter(t => t !== 'legal') : [])]
@@ -890,62 +1443,15 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         }
         const r = await insertOrSkip('files', row)
         r.status === 'inserted' ? bumpInserted(report.files) : bumpSkipped(report.files)
+        if (r.status === 'inserted' && row.folder_id) placed++
       } catch (err) {
         report.errors.push({ scope: 'file', projectId, id: f.id, message: err.message })
         bumpFailed(report.files)
       }
     }
+    report.files.placed += placed
+    if (placed) note(`  ${FILES_PLACED(placed)}`)
 
-    // ── BC3 (B9): the bins — "bins move with the project" ────────────────
-    // Scenes and shots first: a take links a shot to a clip, and a clip may
-    // be logged to a scene and a shot, so their rows must be in the cloud
-    // before the bins' (the runner carried neither before BC3, and 0084's
-    // lists are still not carried: the migrated project shows every scene
-    // and shot, D10). Then the bins, parents first; then each clip under the
-    // footage location its root was named as; then the takes whose shot and
-    // clip both landed; then the pictures, while the switch is on. Every
-    // row keeps its id (the desktop's UUIDs are 0091's), so a second run
-    // skips what is there.
-    const landed = { scenes: new Set(), shots: new Set(), bins: new Set(), clips: new Set() }
-    countNotCarried(bundle)
-    // What the cloud already holds for THIS project, per table, so that a
-    // duplicate key is "already there" only for this project's own row
-    // (review round 2). A read that fails is said; its table then skips a
-    // duplicate as before.
-    const known = {}
-    for (const [key, table] of [['scenes', 'scenes'], ['shots', 'shots'], ['bins', 'bins']]) {
-      if (!(bundle[key] ?? []).length) continue
-      const r = await cloudIds(table, projectId)
-      if (r.error) { known[table] = null; report.errors.push({ scope: table, projectId, message: `could not read what the cloud already holds, so a row refused as a duplicate reads as already there: ${r.error.message || r.error}` }) }
-      else known[table] = r.ids
-    }
-    const oursIn = (table) => (known[table] ? (row) => known[table].has(row.id) : null)
-    for (const sc of bundle.scenes ?? []) {
-      try {
-        const r = await insertOrSkip('scenes', toColumns('scenes', withoutSetAside(cloudRowOf(sc, projectId))), oursIn('scenes'))
-        r.status === 'inserted' ? bumpInserted(report.scenes) : bumpSkipped(report.scenes)
-        landed.scenes.add(sc.id)
-      } catch (err) {
-        report.errors.push({ scope: 'scene', projectId, id: sc.id, message: err.message })
-        bumpFailed(report.scenes)
-      }
-    }
-    for (const sh of bundle.shots ?? []) {
-      try {
-        const row = withoutSetAside(cloudRowOf(sh, projectId))
-        // 0040's scene link is a plain FK (no project in it): a scene that
-        // did not land here — failed, or another project's — is let go, and
-        // said (review round 2, security: a migrated shot must not hang off
-        // a scene of another project).
-        if (row.scene_id && !landed.scenes.has(row.scene_id)) { report.errors.push({ scope: 'shot', projectId, id: sh.id, message: `${sh.name || sh.id}: its scene is not in the cloud, so the shot's scene link was left empty` }); row.scene_id = null }
-        const r = await insertOrSkip('shots', toColumns('shots', row), oursIn('shots'))
-        r.status === 'inserted' ? bumpInserted(report.shots) : bumpSkipped(report.shots)
-        landed.shots.add(sh.id)
-      } catch (err) {
-        report.errors.push({ scope: 'shot', projectId, id: sh.id, message: err.message })
-        bumpFailed(report.shots)
-      }
-    }
     for (const b of binsParentsFirst(bundle.bins ?? [])) {
       try {
         const r = await insertOrSkip('bins', toColumns('bins', { ...cloudRowOf(b, projectId), workspace_id: workspaceId }), oursIn('bins'))

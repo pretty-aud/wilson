@@ -672,8 +672,11 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Moving a desktop project to the cloud</h4>
             <p className={T.listItem}>
-              A desktop project moves with its bins, logging, marks and takes:
-              App settings, Storage, Migrate to cloud. Dry-run lists what will
+              A desktop project moves with its key dates, comments, shot lists
+              and edits, its folders, and its bins, logging, marks and takes:
+              App settings, Storage, Migrate to cloud. Budgets, expenses, levels,
+              experiences and the team move in part 2 of the migration; the
+              report names them until then. Dry-run lists what will
               move and asks, once for each folder the clips were added from,
               {' '}{LOCATION_QUESTION_WORDS} An existing location of the company
               is matched by its network address; a new one is named now. A
@@ -685,9 +688,11 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Use this address, or type one. Pictures go up only while
               {' '}{REMOTE_VIEWING_WORDS} is on; off, they stay on this computer
               and the desktop makes them again where it reaches the file.
-              Running it again skips every row already in the cloud; a row a
-              teammate removed from the cloud since comes back with it, so
-              archive and clear the desktop&apos;s copy once everything is there.
+              Running it again skips every row already in the cloud, one in
+              the cloud&apos;s trash included; a scene, shot, clip, folder or
+              shot list item a teammate removed from the cloud for good comes
+              back with it, so archive and clear the desktop&apos;s copy once
+              everything is there.
               What the migration does not carry — comments, milestones,
               budgets, expenses, levels, experiences, the team, shot lists,
               edits, folders, and the scenes&apos; and shots&apos; pictures —
