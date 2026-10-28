@@ -19,7 +19,7 @@
 // Assert the EXECUTABLE form, always.
 // =============================================================================
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -31,6 +31,7 @@ import {
   removeThumbnail,
   putThumbnailTo,
   removeThumbnailFrom,
+  thumbnailUrlsAt,
   THUMBNAIL_BUCKET,
   THUMBNAIL_MAX_EDGE,
   THUMBNAIL_MAX_BYTES,
@@ -553,7 +554,9 @@ describe('wiring: the upload path actually generates and stores a thumbnail', ()
 
   it('exposes a batched signing method rather than one call per tile', () => {
     expect(adapter).toMatch(/async thumbnailUrls\(/)
-    expect(adapter).toMatch(/signedThumbnailUrls\(client/)
+    // P1: through the third dispatcher, whose Petal arm is the batch.
+    expect(adapter).toMatch(/thumbnailUrlsAt\(provider, paths, \{ client \}\)/)
+    expect(executable(read('storage', 'thumbnails.js'))).toMatch(/return signedThumbnailUrls\(client, keys\)/)
   })
 })
 
@@ -581,15 +584,15 @@ describe('wiring: the display path reaches the screen', () => {
     expect(manager).toMatch(/\.map\(f => f\.thumbnail_url\)\s*\n?\s*\.filter\(Boolean\)/)
   })
 
-  it('🚨 S44: only PETAL-HOSTED previews are asked for — s3 rows are excluded', () => {
+  it('🚨 S44 + P1: the Petal batch asks for Petal-hosted previews only; s3 rows go to the customer-bucket arm', () => {
     // Since S44 a thumbnail lives at its body's provider, so an s3 row's
     // preview is in the CUSTOMER's bucket and signedThumbnailUrls cannot reach
-    // it. Filtering here rather than letting createSignedUrls miss them is the
-    // difference between a stated behaviour and a lookup that quietly finds
-    // nothing — and this is the exact line the deferred display session
-    // extends. Display was scoped out by Audrey on 2026-08-08: it needs a batch
-    // presign that does not exist, and no S3 workspace exists anywhere to
-    // verify one against.
+    // it. This pin said s3 rows were EXCLUDED until P1 (night 4) built the
+    // batch GET signer S44 deferred (storage-read-urls): now the Petal batch
+    // keeps its filter and the s3 rows are asked of the company's bucket,
+    // `{ provider: 's3' }`, never of Petal's.
+    expect(manager).toMatch(/\.filter\(f => f\.storage_provider === 's3'\)/)
+    expect(manager).toMatch(/signThumbnails\(s3ThumbKeys, \{ provider: 's3' \}\)/)
     //
     // 🚨 `!== 's3'`, NOT `=== 'supabase'`. All THREE copies of "which previews
     // are on Petal" must be the same expression — this filter, 0054's thumbnail
@@ -865,5 +868,27 @@ describe('wiring: disposal and CI registration', () => {
       join(process.cwd(), '..', '.github', 'workflows', 'rls.yml'), 'utf-8',
     )
     expect(yml).toContain('supabase/tests/rls/64_thumbnail_provider.sql')
+  })
+})
+
+// P1 (night 4): the THIRD dispatcher — where a preview is READ, by the same
+// mapping the three pinned copies state.
+describe('thumbnailUrlsAt — a preview is read where it lives', () => {
+  it('an s3 key goes to the s3 provider\'s batch, never to Petal\'s bucket', async () => {
+    const getUrls = vi.fn(async (keys) => new Map(keys.map((k) => [k, `https://bucket.example/${k}`])))
+    const client = { storage: { from: vi.fn() } }
+    const map = await thumbnailUrlsAt('s3', ['projects/p/a/1-x.png.jpg'], { client, getProvider: () => ({ getUrls }) })
+    expect(map.get('projects/p/a/1-x.png.jpg')).toBe('https://bucket.example/projects/p/a/1-x.png.jpg')
+    expect(client.storage.from).not.toHaveBeenCalled()
+  })
+
+  it.each(['supabase', 'local_server', 'google_drive', undefined])('%s goes to rabbit-thumbnails, as the three copies say', async (provider) => {
+    const createSignedUrls = vi.fn(async (keys) => ({ data: keys.map((k) => ({ path: k, signedUrl: `https://petal.example/${k}` })), error: null }))
+    const from = vi.fn(() => ({ createSignedUrls }))
+    const getProvider = vi.fn()
+    const map = await thumbnailUrlsAt(provider, ['projects/p/a/1-x.png.jpg'], { client: { storage: { from } }, getProvider })
+    expect(from).toHaveBeenCalledWith('rabbit-thumbnails')
+    expect(map.get('projects/p/a/1-x.png.jpg')).toBe('https://petal.example/projects/p/a/1-x.png.jpg')
+    expect(getProvider).not.toHaveBeenCalled()
   })
 })

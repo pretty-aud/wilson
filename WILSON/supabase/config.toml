@@ -199,6 +199,13 @@ verify_jwt = false
 [functions.storage-secret]
 verify_jwt = false
 
+# P1 (night 4, 2026-10-28): storage-read-urls, the GET-only batch signer for
+# an s3 workspace's thumbnails and previews (NETWORK_STORAGE_DESIGN.md §9.2).
+# Member tier like storage-presign: memberGuard + the predicate and the row
+# read as the caller. Same gateway opt-out.
+[functions.storage-read-urls]
+verify_jwt = false
+
 # GW1 (post-overhaul, 2026-10-10): the file gateway's cloud side. Same
 # gateway opt-out as every function here — the Edge gateway's built-in
 # verify_jwt only speaks HS256 and would refuse this project's ES256 tokens

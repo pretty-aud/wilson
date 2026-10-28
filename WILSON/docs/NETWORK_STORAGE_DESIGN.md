@@ -1938,3 +1938,488 @@ question the design had not asked itself.
 
 **Still open, and genuinely small:** nothing blocking. Phase 0 can start on
 approval.
+
+---
+
+## 9. Browser previews on a workspace's own storage (P1, night 4, 2026-10-28)
+
+The plan's P1 row (`docs/sessions/PLAN_TO_1_0.md` §2): *thumbnails shown in
+the browser for S3 and NAS workspaces, within the rule that money-gated files
+never leave Supabase.* Two OUTSTANDING entries were the starting ground: *A BYO
+workspace's thumbnails have no browser preview* (the S3 half) and *A
+`network`-provider workspace can never have cloud previews at all* (the NAS
+half). This section measures first, designs the S3 half to be built tonight,
+and puts the NAS half to Audrey.
+
+### 9.1 What was measured (2026-10-28, from the code and wilson-dev)
+
+| Where a stored file is previewed | `supabase` row | `s3` row | `local_server` row (a private project) |
+|---|---|---|---|
+| **Entity panels' thumbnails** (`FileManager` → `FileThumbnail`, two render sites) | one batched `createSignedUrls` against `rabbit-thumbnails`, 3600 s | **icon**: filtered out before signing (`storage_provider !== 's3'`), no request | the desktop that holds it: `localMediaUrl`, no signing; anywhere else: icon |
+| **Files tab preview, image / audio / PDF / text** (`FilePreviewDialog` → `SourcedStage` → `ctx.fileUrl`) | `createSignedUrl`, 3600 s | **sentence**: `getUrl` absent on `s3Provider`, `fileUrl` answers null, `unavailableSentence` says *"…stored in your own bucket"* | the desktop that holds it: its own server; elsewhere `NOT_HERE`'s sentence |
+| **Video** (`VideoStage`, both the Files preview and FileManager's player) | the same signed URL, Range requests against it, `crossOrigin="anonymous"`, one re-mint on error | **sentence** (as above) | as above |
+| **D.O.G.'s references** (`useReferences.preview` → `downloadFile`) | the whole body as a Blob | **works today**: `s3Provider.get` presigns one GET through `storage-presign` (300 s) and reads the body | as above |
+| **Bins posters** (`BinPoster` → `binFilePosterUrl`) | not a `files` row: a poster in `rabbit-thumbnails`, written only while the workspace's remote viewing is on (B4); signed per read, 3600 s, cached 50 min | (bins have no provider column; the footage stays on the company's server) | — |
+| **Entity pictures** (`EntityListView`'s `thumbnail_image`) | not a stored file: an absolute path the OS picker returned, set from the desktop; served by the desktop's Express route from a local bundle; no bucket on any backend | — | — |
+
+A **NAS (`network`) workspace** has no row in this table at all: its media is
+not in the cloud (9.4).
+
+**The desktop** runs the same cloud adapter in cloud mode, so every cell above
+is the same there; its Local Server mode keeps its managed files and `sharp`
+routes, which have no `files` row and no bucket. **CORS:** the desktop renderer
+is Chromium with webSecurity on, so it needs the bucket's CORS rule exactly as a
+browser does (§12.7a of the handbook carries the JSON; it already allows `GET`).
+
+**The signer today.** `storage-presign` signs ONE key per call with a 300 s GET
+under a 240-per-minute limit per person (`STORAGE_PRESIGN_RPM`), so a panel of
+fifty thumbnails would be fifty calls and a grid left open six minutes goes
+dead. Its refusals, in order: `requireActiveMember`; the limit;
+`checkRowShapedPath` (row-shaped, canonical, and **money segments refused
+wholesale: INVOICES, FINANCE and, since 0088, LEGAL**, case-folded);
+`can_presign_project_read` evaluated as the caller (`=== true`); a workspace
+whose `provider` is `s3` with a config (the mode is not checked for a GET, so a
+workspace that went back to Petal still reaches what it wrote); the secret;
+the prefix applied server-side. **S4b-02 (the deployed copy lacks LEGAL)
+is stale for dev and staging:** the deployed `storage-presign` was downloaded
+from both tonight (dev v5, 2026-10-02; staging v5, 2026-10-06) and is the
+repository's copy byte for byte, LEGAL included. **Production's** is v3 of
+2026-08-08, before LEGAL; production is at migration 0063, where LEGAL does not
+exist, and the release runbook redeploys it.
+
+**What exists to test against: nothing.** wilson-dev has four workspaces, no
+`workspace_storage` row and no stored bucket secret; its `files` are sixteen
+`supabase` rows, nine with a thumbnail. No session holds a bucket's keys. So
+tonight's proof is the tests, the fixtures and the new function on dev
+answering its refusals to a caller with no sign-in; the first signed URL from a
+real bucket is Audrey's test bucket on the beta, after the controller's staging
+deploy.
+
+### 9.2 The S3 half: `storage-read-urls`, a GET-only batch signer
+
+**A new function, not an op on `storage-presign`.** Four reasons, each from
+the code:
+
+1. `storage-presign`'s safety argument is that it signs **exactly one key**
+   (its rate-limit comment: *"The real bound on a single request is that this
+   function signs exactly ONE key"*), and its 240-a-minute budget is sized in
+   *uploads* (two calls per image since S44). A batch op inside it would
+   change both for every op that shares the bucket. A separate function has
+   its own limiter bucket, so a grid of thumbnails cannot spend the upload
+   budget and an upload burst cannot blank a grid.
+2. **GET only by construction.** The new function has no `op` field and no
+   PUT, DELETE or HEAD path to admit by mistake.
+3. A different answer (`{urls, refused}`) and a different expiry.
+4. `storage-presign` is the upload path's boundary on staging and production
+   (production's copy is from August). The read signer ships, and could be
+   rolled back, without redeploying the upload boundary.
+
+The cost: one more directory and one `config.toml` entry, and the
+workspace-config and secret read written a fourth time (`storage-presign`,
+`storage-secret` and `storage-gc` each read it their own way already).
+
+**The request:** `POST /functions/v1/storage-read-urls` with
+`{ keys: string[], stream?: true }`, row-shaped keys exactly as
+`files.storage_path` and `files.thumbnail_url` hold them (never a prefix).
+
+**The checks, in order** (the pure part in `_shared/readUrls.ts`, importable by
+vitest across the Deno line, as `presignPath.ts` is; the Deno wiring in
+`storage-read-urls/index.ts` only supplies the guard, the limiter, the two
+caller-scoped reads, the config and the signer):
+
+1. `OPTIONS` answers the CORS preflight; anything but `POST` is 405.
+2. `requireActiveMember`: a live, active `workspace_members` row, not only a JWT.
+3. The rate limit, its own bucket `storage-read-urls`,
+   `STORAGE_READ_URLS_RPM`, default **120 calls a minute per person**, which in
+   URLs is at most 12,000 a minute, each for a file row the person can already
+   read (step 8). A budget, not a containment guarantee, as the limiter's own
+   header says.
+4. The body: at most **128 KB**, streamed under that cap by the house reader
+   (`readJsonLimited`; 413 beyond; a declared length is not required: 9.8);
+   JSON with `keys` an array of 1 to **100**
+   strings (the bound on one call; 400 beyond, and the client splits);
+   `stream: true` only with exactly one key. Duplicates are signed once.
+5. **Per key:** `checkRowShapedPath`, which now names its refusal: a key
+   outside `projects/<uuid>/…`, a dot or empty segment, a character the
+   uploader never writes is `shape`; **a money segment (INVOICES, FINANCE,
+   LEGAL, any case) is `money`**, before any project or row is asked. Money
+   never leaves Supabase, so a money-shaped key is hostile or a bug and is
+   never signed. (`storage-presign` ignores the new field; its behaviour and
+   its deployed copy are unchanged.) A key shallower than an entity's folder
+   (`projects/<pid>/<entity>/<id>/<leaf>`, five segments, what `uploadFile`
+   always writes) is `shape` too: it would scope the row read to a project.
+6. **At most 2 distinct projects** among the surviving keys (400 beyond): the
+   bound on the predicate calls one request can cause. The client sends one
+   project's keys per call.
+7. **`can_presign_project_read` once per distinct project**, as the caller
+   (the anon client carrying the caller's own token; `=== true`; an error is a
+   refusal): every key of a project it refuses is refused `project`.
+8. **🚨 The row, as the caller (design round, finding 1).** A key is signed
+   only if a live `s3` `files` row the caller can SELECT owns it: its
+   `storage_path` is the key (a **body**), or its `storage_path` plus `.jpg`
+   is the key AND its `thumbnail_url` is the key (a **thumbnail**:
+   `thumbnailKeyFor`'s one rule). The rows are read ONE FOLDER AT A TIME
+   (at most ten folders a call): `storage_provider = 's3'`, `deleted_at IS
+   NULL`, `project_id` the key's, `storage_path LIKE '<folder>/%'` and NOT
+   `LIKE '<folder>/%/%'` (the folder's own files, not its shots'), by cursor
+   on the row id to the first empty page, at most 5,000 rows (9.7, 9.8) —
+   only ids travel; the keys are matched in the function. Under
+   the caller's JWT, so `files_select` (0092: live row, the caller's
+   workspace, a visible project, the money and Legal arms) is **evaluated, not
+   copied** (the S33 rule). Anything else is refused `row`. Against a
+   READER this is stronger than `storage-presign`, which authorises a PATH in
+   a readable project: a trashed file, a row purged while its body waits for
+   collection, or an object WILSON never wrote under the project's prefix is
+   not signed here. And because `thumbnail_url` is client-writable (§17), a
+   thumbnail is only ever the key derived from the row's own body, never
+   whatever that column was set to. ⚠️ Against a WRITER of the project it
+   holds less (build round 1): `files_insert`/`_update` let a writer set
+   `storage_path`, so a writer can make a row in their own project vouch for
+   any key under it — the reach `storage-presign`'s GET already gives them.
+   A row vouches only for a key in its own project, and the rows are read one
+   folder at a time, so no filename travels to the database (9.7).
+9. If no key survives, the answer is given now, with no config or secret read.
+10. The workspace (the guard's verified claim): `provider = 's3'` with a
+    config, else 409 with the sentence `storage-presign` uses; the mode is not
+    checked (a GET, as there). The secret: 503 if the master key is not set on
+    the environment, 409 if none is stored, 500 if it cannot be decrypted.
+11. Each surviving key signed `GET`, the prefix prepended here and only here.
+
+**The answer:** `{ ok: true, urls: { [key]: url }, expires: { [key]: seconds },
+refused: { [key]: reason } }`, each keyed by the input string and in the
+order the keys were sent; a reason is `shape`, `money`, `project` or `row`,
+never a sentence that could carry a filename. The function logs no key.
+
+**The expiry, by what the URL is for (design round, finding 5):**
+
+- **A thumbnail: 3600 s.** A 256px frame of the content (handbook §12.7b: *a
+  still frame is the content*). An hour is the horizon `rabbit-thumbnails`'
+  signed URLs have had since S39, so a frame is exactly as exposed in the
+  company's own bucket as on Petal. TPN-CONT-001 asks that links expire; they
+  do, and the client renews them before they do (9.3).
+- **A body read once: 300 s.** The preview's image, PDF and text stages load
+  or fetch the URL once (the PDF and text into a typed Blob); like a download
+  (S42: *a download URL is a bearer capability over pre-release content*) it
+  only has to *start*. Five minutes, against Petal's hour for the same stages,
+  is a twelvefold cut in a leaked URL's life and in a removed member's
+  remaining reach.
+- **A body that streams: 3600 s, one key per call** (`stream: true`). A
+  `<video>` or `<audio>` plays by Range requests for as long as it plays; a
+  URL that dies mid-clip stops it with a 403 the element reports as a stall.
+  An hour is the Petal arm's `fileUrl` horizon (S40). A clip longer than that
+  re-mints once on its first failed range and restarts at 0:00, the limit the
+  Petal arm already has (recorded in OUTSTANDING, not changed here: resuming
+  mid-clip is a `VideoStage` change on both arms).
+- **Downloads keep their path.** `getUrl` with `{ download }` answers null for
+  s3: a cross-origin `a.download` is ignored, and the attachment disposition
+  would have to be signed into the URL, which the read signer does not do.
+  `downloadUrl`'s caller falls back to the Blob path through `storage-presign`
+  (300 s), as today.
+
+### 9.3 The client
+
+- **`storageApi.presignReadUrls(keys)`** calls the function the house way (raw
+  fetch, the caller's token) and throws on a whole-call refusal with the
+  server's sentence and the status, as `presignStorage` does.
+- **`s3Provider.getUrl(key, _, { download, stream })`**: one key through the
+  read signer, signed fresh every time (a URL starts its life when the stage
+  starts); `stream` asks for the streaming hour; a refused key throws a
+  sentence, so the preview shows *why* instead of "no preview"; `download` →
+  null (above). `fileUrl(file, { stream })` carries the flag from the stage:
+  `VideoStage` streams (the default), `SourcedStage` streams audio and reads
+  everything else once. The Petal arm ignores the flag and keeps its hour.
+- **A money key never leaves the client.** `presignReadUrls` is the only
+  caller of the function, and it answers a key whose third segment is a money
+  segment as refused `money` itself, before anything is sent (`isMoneyKey` in
+  `storage/index.js`, held to `_shared/moneySegments.ts` by a test; the
+  connection dot's own copy in `connectionStatus.js` is replaced by it, so the
+  client keeps one). This is depth, not the gate: since 0076 a receipt is
+  `financial` and pinned to Supabase, and 0050's CHECK refuses a money row on
+  `s3`. ⚠️ **The one exception is on the record:** a receipt uploaded to an s3
+  workspace *before* 0076 sits under its container segment, unflagged (0076
+  counts and reports those rows and cannot flip them), so neither signer can
+  tell it from any other file. None exists on any environment (no s3
+  workspace does); the release runbook keeps that count.
+- **`s3Provider.getUrls(keys)`**, the batch: keys in calls of at most 100;
+  each URL cached in memory (module-level, as the pet's course index is) until
+  the moment it stops being worth handing out (`sent + expiresIn − 10 min`, on
+  the client's own clock from when the call was sent, so a skewed clock cannot
+  stretch it); a cached URL with more than ten minutes left is handed out again
+  without a call. `App.jsx` clears it whenever the person or the workspace
+  changes (keyed on both, as the pet's course index is, not on the workspace
+  alone as the storage-choice cache is), and the clear bumps a generation
+  that a call still in flight checks before it writes, so an answer for the
+  last person never refills the cache for the next.
+- **`getUrl` joins `REQUIRED`** (`storage/index.js`): all three registered
+  providers implement it (`supabase` signs, `local_server` answers its own
+  server's URL or `NOT_HERE`, `s3` as above), so `registerStorageProvider`
+  refuses a provider without it from now on, and the adapter's
+  `typeof provider.getUrl` checks go (`downloadUrl` still answers null when
+  `getUrl` does).
+- **The thumbnails' third dispatcher.** `thumbnails.js` already has the two
+  S44 wrote — `putThumbnailTo` and `removeThumbnailFrom`, where a preview goes
+  and where it is removed. **`thumbnailUrlsAt(provider, keys)`** is the third,
+  where it is *read*: `s3` → `s3Provider.getUrls`; everything else →
+  `signedThumbnailUrls` against `rabbit-thumbnails`. The mapping is the one the
+  three pinned copies already state (`s3` → the customer's bucket, everything
+  else → Petal).
+- **`ctx.thumbnailUrls(paths, { provider } = {})`**, Petal when no provider is
+  named, so the pinned `signThumbnails(thumbKeys)` call is unchanged; the
+  adapter's unused positional `expiresIn` goes, and RabbitProvider forwards
+  the options.
+- **FileManager** keeps its Petal batch exactly as it is (the `!== 's3'`
+  filter, one of the three pinned copies, stays: it still says which previews
+  are on Petal) and gains the complement: s3 rows' `thumbnail_url`s, asked of
+  `ctx.thumbnailUrls(keys, { provider: 's3' })` in their own effect, into
+  their own state. **The two states are merged by a `useMemo` into the one
+  `thumbUrls` both render sites read** (design round, finding 2: one state
+  written by two effects lets the later answer erase the other provider's
+  tiles, and a panel that holds both is normal for a workspace that moved to
+  its bucket). The s3 effect merges into what it had: a key keeps its last URL
+  until a fresh one comes, so a failed renewal never blanks a drawn tile. It
+  re-asks every five minutes while s3 keys are on screen, and at once when the
+  tab becomes visible again or the browser comes back online (a hidden or
+  sleeping tab's timers stall); a URL is only handed out with more than ten
+  minutes left. A tile that loads against a URL that expired while the machine
+  slept is repaired at the next ask (`FileThumbnail` remembers which URL
+  failed, not that one did). A key the signer refused, or a call that failed,
+  has no URL: the tile is the file-type icon, as a Petal key RLS refuses is
+  today.
+- **The preview dialog takes an s3 URL with one change.** `ctx.fileUrl(row)`
+  → `resolveFileProvider(row).getUrl(…)` now answers for an s3 row; the image,
+  audio, PDF and text stages and `VideoStage` take it as they take a Petal URL
+  (the PDF and text stages fetch it, which the bucket's CORS rule admits; the
+  player's `crossOrigin="anonymous"` is already set). The change is the
+  `stream` flag above. `unavailableSentence` loses its s3 arm, and
+  `VideoStage`'s own fallback sentence, which named the bucket, becomes
+  generic: no provider answers null for a playable row any more.
+- **The desktop** calls the same function and the same bucket under the same
+  CORS rule; nothing differs.
+- **The three copies `thumbnails.test.js` pins all stay**: FileManager's
+  `!== 's3'` (now: the Petal arm, beside an s3 arm), the teardown sweep's
+  `.neq('storage_provider', 's3')` and 0054's enqueue. **The pins that move,
+  each because the deferral it guarded is over:** `thumbnails.test.js`'s *s3
+  rows are excluded* (now: signed by the customer-bucket arm, never by
+  Petal's); `videoThumbnails.test.js`'s *getUrl is OPTIONAL — adding it to
+  REQUIRED breaks s3* (now: required, and s3 has it);
+  `largeDownload.test.js`'s `typeof provider.getUrl` (now: null when `getUrl`
+  answers null); `FilePreview.test.jsx`'s *your own bucket* sentence and
+  `rabbitVideoRender.test.jsx`'s (now: no s3 arm; a generic sentence); the
+  provider fakes in `storageRegistry.test.js`, `legalUpload.test.js` and
+  `shotRefilingCloud.test.js` gain a `getUrl`.
+- **S44's reversal stays safe.** A pre-0054 s3 row's preview sits on Petal; the
+  display now asks the customer's bucket for it, finds nothing, and shows the
+  icon — the same outcome as before. The key-migration rule stands.
+
+**No migration** (the predicate exists since 0051), **no CSP** (none exists;
+TPN-NET-006 is not this design's), **nothing under `gateway/`**, **no byte
+through Petal**: the function returns URLs; the bytes go between the app and
+the customer's bucket.
+
+### 9.4 The NAS half: measured one level up, and put to Audrey
+
+**What a `network` workspace's media is, measured (2026-10-28).** The brief
+expected NAS rows showing icons. There are no NAS rows. The storage setting
+never chooses the backend: the browser always runs the cloud adapter, the
+desktop runs the backend its own settings name (Local Server by default).
+
+- **The desktop on Local Server** (where a NAS workspace's media is added): a
+  file is a `managedFiles` record in that computer's own
+  `rabbit-data/projects/<id>/project.json`, its body copied onto the NAS under
+  the workspace drive. Its picture is made by `sharp` (or ffmpeg, or the
+  renderer's decode) from the NAS body and cached in that computer's app data;
+  the six Express thumbnail routes and the stream route serve it. **Nothing of
+  it reaches the cloud.**
+- **The desktop on the cloud backend, and the browser:** `uploadFile` refuses
+  a non-money file for an active `network` workspace (*"add files from the
+  desktop app in Local Server mode"*). So the cloud holds no `files` row for a
+  body on the NAS — no `storage_provider` names one — and the browser's entity
+  panels show *No files yet* and its Files tab the cloud's empty folders. A
+  money or Legal file (pinned to Supabase) and a private project's file (on
+  the computer that added it) are the only rows such a workspace has.
+- **The one cloud catalogue of NAS bodies is Bins** (`bin_files`: a
+  location's `unc_path` + a relative path). A clip's poster is made by the
+  desktop that added it and uploaded to `rabbit-thumbnails` **only while the
+  company's remote viewing is on** — checked by the client twice and refused
+  by the database's RESTRICTIVE policies when it is off (0091, her B4: *"if the
+  user allows external access pictures are fine. never take images when
+  external access is denied."*).
+- **The gateway serves catalogued Bins clips' bytes and nothing else**
+  (`/v1/health`, `/v1/path`, `/v1/clips/{id}`, its renew, the status page); its
+  design rules out transcoding, thumbnails and temp files (G7: *"its disk holds
+  … never a frame"*).
+
+So "browser previews for a NAS workspace" is blocked one level above
+previews: **the browser has no record of a NAS workspace's project files to
+preview.** Each option below therefore starts with that.
+
+| Option | What it builds | What it puts where | Cost |
+|---|---|---|---|
+| **(a) As today, said in words** | nothing but a sentence: in the browser, a NAS workspace's Files tab and entity panels say that this company's media lives on its own server and opens in the desktop app (footage: the Bins tab) | nothing moves | a few lines; no new ruling needed for the sentence itself (every unavailable state is a sentence) — but whether to say it at all is hers |
+| **(b) Catalogue, then pictures under the switch** | a cloud row per NAS file, the body staying on the server (Bins' shape: a location and a path), written by the desktop that adds it; the browser lists them; the desktop makes a 256px picture and uploads it to `rabbit-thumbnails` **only while remote viewing is on**, as Bins posters are | the list in Petal's Postgres; a frame of each picture on Petal's storage while the switch is on | a feature, not a preview: the catalogue, its migration and policies, the desktop's writer, the migration path from Local Server bundles; its own design night after 1.0 |
+| **(c) Catalogue, then pictures from the gateway** | the same catalogue; the gateway decodes and serves a still per file | the list in Postgres; no frame on Petal | the catalogue as in (b), plus a gateway change (decode on the NAS: an image library and ffmpeg in the gateway, against G7), its own signed release and a TPN review; pictures only where the gateway is reachable (inside always, outside only while the switch is on) |
+
+**Pictures follow B4: a reading, not a new ruling (design round, finding
+4).** S44 (2026-08-08, *"the image should be kept in the company storage. if
+the thumbnail lived in the petal cloud it would break tpn inherently"*) was
+ruled for an s3 workspace, before any switch existed. For media on a NAS her
+later rulings settle it: B4 and B5a made the remote-viewing switch *the TPN
+compliance boundary* for that media (*"if the user allows external access
+pictures are fine. never take images when external access is denied."*), B9
+applied B4 to a desktop project moving to the cloud, and A9 asks the same
+behaviour on the cloud, the Local Server and a NAS. Read together: a picture
+of NAS media reaches Petal's storage only while the switch is on. Q2 asks her
+to confirm that reading rather than assuming it.
+
+**What is new, and so hers: whether the server's project files are listed in
+the cloud at all, and when.** It meets night 5: M3 carries *"the files the
+desktop keeps with an asset, scene, shot, level or experience, their contents
+uploaded"* (her ruling of 2026-10-28), and on a NAS workspace `uploadFile`
+refuses exactly that upload. So M3 has to know what a NAS workspace's managed
+files become; under (a) below they stay on the server and in the desktop app
+for 1.0, and M3 leaves them there and says so.
+
+**The questions** (also in `85_night_4.md`, P1, and the hand-off):
+
+- **Q1. A company that keeps its media on its own server: its project files
+  in the browser.** Today the browser lists none of them (only the Bins tab
+  lists the server's footage). **(a)** For 1.0 they stay on the server and in
+  the desktop app; the browser says so where they would be, and night 5's M3
+  leaves them where they are on such a company and says so (Recommended: the
+  list is a feature of its own, a design night and a build night at least, and
+  Bins already gives footage a browser view). **(b)** Night 5's M3 lists them
+  in the cloud: a row per file naming where it is on the server, the file
+  staying there, as a Bins clip is; the browser shows the list (pictures as
+  Q2; playing them would wait for the file gateway). **(c)** List them after
+  1.0, in its own design night.
+- **Q2. If they are listed (Q1 b or c), their pictures.** **(a)** As your B4
+  rule for footage: made by the desktop that adds the file, kept on Petal's
+  storage only while the company's remote viewing is on (Recommended: the
+  reading above, and how Bins posters already work). **(b)** Never on Petal's
+  storage: icons in the browser; pictures only later, through the file
+  gateway (a gateway release with its own signed build and a TPN review).
+  **(c)** No pictures for them in the browser at all.
+
+**Built tonight from the NAS half: (a)'s sentence only**, which the design
+round found needs no new ruling (`uploadFile` already says it when a file is
+refused, and B5 and BC3's browser notice say it for footage). On the cloud
+backend, when the workspace's active provider is `network`, FileManager's
+empty state and the Files tab say that this company keeps its media on its
+own server and that it is added and opened in the desktop app (footage: the
+Bins tab). It is keyed on the active provider, read once from the cached
+storage choice; `unavailableSentence` cannot carry it, because a NAS
+workspace has no rows for it to speak about.
+
+**Also measured, and recorded rather than changed:** a workspace that wrote s3
+rows and then switched to `network` has its s3 config nulled (0050's switch
+rule), so those rows' reads answer the 409 that tells an admin to configure
+S3 — a misleading sentence for a NAS admin, the same in both signers
+(OUTSTANDING).
+
+### 9.5 Tonight's build, and what it does not touch
+
+Built: the function, its pure module and its `config.toml` entry (deployed to
+wilson-dev only); `checkRowShapedPath`'s refusal code; the client binding;
+`s3Provider`'s `getUrl` and `getUrls` with the cache, its generation and the
+identity clear; `getUrl` in `REQUIRED`; `isMoneyKey` as the client's one
+copy; `thumbnailUrlsAt`; `fileUrl`'s `stream` flag; FileManager's s3 arm,
+the merge and the renewal; the NAS sentence; `unavailableSentence`,
+`VideoStage`'s fallback and the stale comments; the tests with their failing
+controls; the handbook and OUTSTANDING lines. Not touched: `storage-presign`'s
+behaviour, any migration, any policy, `gateway/`, any CSP, Bins.
+
+### 9.6 The design round (on Opus: the Fable call was refused, out of usage credits)
+
+Nine findings, four Medium and five Low, none High; every one is folded into
+9.1–9.5 above:
+
+1. *The signer authorises paths, not rows* (Medium) → step 8, the row as the
+   caller; at most 2 projects a call; the 128 KB body cap; the budget stated
+   in URLs.
+2. *One map written by two effects clobbers* (Medium) → two states, one memo;
+   the s3 state merges into itself.
+3. *The NAS recommendation silently decided night 5's M3* (Medium) → Q1 is
+   asked for M3, and (a) says what M3 does.
+4. *The questions were missing, and S44 against B4 is a reading* (Medium) →
+   both written in above.
+5. *An hour is more than a read-once body needs* (Low) → 300 s for a body
+   unless it streams.
+6. *`thumbnailUrls`' second argument was `expiresIn`* (Low) → an options
+   object, Petal by default.
+7. *`REQUIRED` breaks fakes and pins the design did not name* (Low) → listed
+   in 9.3; `VideoStage`'s sentence made generic.
+8. *A stalled timer, a person switch, a call in flight at sign-out* (Low) →
+   re-ask on visibility and online; cleared on person or workspace; a
+   generation.
+9. *Statements the code contradicts* (Low): pre-0076 receipts on s3 (9.3, and
+   a release check); two client copies of the money words (the connection
+   dot's replaced by `isMoneyKey`; D.O.G.'s `moneySegment` lacks LEGAL, and
+   that was measured as deliberate, not a gap: `isDeckReferenceFile` refuses
+   a Legal file by its own `isLegalFile` test beside it); no refusal code from
+   the path gate (added); rows from before a switch to `network` (recorded
+   above, and in OUTSTANDING as OSP-04).
+
+### 9.7 Build review round 1 (on Opus: the Fable call was refused, out of usage credits)
+
+Eight findings, four Medium and four Low, none High; the four Medium ones are
+fixed (they broke this design's own claims), two Low ones fixed, two recorded:
+
+1. *The row check could be forged, and a row in one project could vouch for a
+   key in another* (Medium) → a row vouches only for a key in its own project
+   (the row read is scoped to the key's project and `classifyOwned` checks
+   it again); step 8 above now says what it holds against a READER and what
+   it does not against a WRITER of the project (who may set `storage_path`:
+   the reach `storage-presign`'s GET already gives them). The database
+   invariant that would close it — a `storage_path` must sit under its own
+   `projects/<project_id>/` — is OUTSTANDING OSP-07, for a migration night.
+2. *`stream` was the client's word* (Medium) → the hour goes only to a key
+   whose extension is the client's own video or audio list
+   (`STREAMABLE_EXTENSIONS`, held to `VIDEO_EXTENSIONS` and
+   `AUDIO_EXTENSIONS` by a test); anything else asked to stream is read once.
+3. *The links that carry the two flags had no failing test* (Medium) → the
+   real cloud adapter is driven against fake providers (`fileUrl`'s stream,
+   `thumbnailUrls`' provider), and RabbitProvider's two pass-throughs are
+   pinned.
+4. *The row read put filenames in a URL* (Medium) → the rows are read ONE
+   FOLDER AT A TIME (`storage_path LIKE '<folder>/%'`, paged, at most 5,000
+   rows a folder), and the keys are matched in the function: only ids travel
+   to the database, and no filename lands in an API log. A key shallower than
+   an entity's folder is refused (`shape`), and a call takes at most ten
+   folders (the client splits).
+5. *The body-before-checks order was untested; the cap reads the declared
+   length* (Low) → the order is tested (no body read on 401, 429 or 413); the
+   streaming reader the gateway uses is recorded (OSP-08).
+6. *FileManager's server read ran on every backend, and panels raced* (Low) →
+   the cloud backend only, and the storage-choice read is shared while it is
+   in flight.
+7. *A failed renewal keeps a URL past its life* (Low) → recorded (OSP-09): a
+   tile that loads it fails once and shows the icon until the next ask.
+8. *Stale comments still said getUrl was optional* (Low) → rewritten.
+
+### 9.8 Build review round 2 (on Fable)
+
+Round 2 attacked round 1's corrections. Six findings, two Medium and four Low,
+none High; the two Medium ones, one Low and a docs gap are fixed, two Low are
+recorded:
+
+1. *A scene's folder read took in every nested shot's files; the 5,000-row
+   bound was reachable, off by one, and its loop untested* (Medium) → the read
+   takes only the files DIRECTLY in the folder (`NOT LIKE '<folder>/%/%'`),
+   pages by cursor on the row id, and ends at the first EMPTY page (a hosted
+   project's max-rows may cap a page below the ask); the loop lives in the
+   pure module (`readFolderRows`) and is tested: exactly 5,000 rows read
+   whole, one more refused, a capped page not taken for the end.
+2. *A storage-choice read answered after a sign-out refilled the cache with
+   the last identity's row* (Medium) — and `uploadFile` routes the next body
+   by that row → `workspaceStorage.js` now has a generation: the clear bumps
+   it, a read that began before it neither fills the slot nor answers a
+   caller who asked after it (that caller asks again).
+3. *The 411 was the repo's first hard requirement on a declared length,
+   unproven behind the platform's edge* (Low) → the body is read by the house
+   reader, `readJsonLimited`, streamed under the cap; no length is required.
+   OSP-08 closes with it.
+4. *A clip the client plays by MIME alone streams for 300 s* (Low) →
+   recorded (OSP-10).
+5. *§9.2 still described the read round 1 replaced* (Low) → rewritten.
+6. *The dev fixtures pass the cloud-backend gate and try a real storage read*
+   (Low, harmless: it fails and the ordinary words stay) → recorded (OSP-11).

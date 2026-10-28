@@ -1168,15 +1168,16 @@ describe('wiring: generation and playback reach the screen', () => {
     expect(player).toMatch(/remints\.current < MAX_REMINTS/)
   })
 
-  it('getUrl is OPTIONAL in the registry — adding it to REQUIRED breaks s3', () => {
+  it('getUrl is REQUIRED in the registry since P1, and s3 implements it', () => {
+    // This pinned the opposite until P1 (night 4): s3 could not honour getUrl
+    // (storage-presign's 300 s GET would kill a clip at five minutes), so it
+    // was optional. storage-read-urls signs a stream for the hour, so all
+    // three registered providers implement it and the registry requires it.
     const index = executable(read('storage', 'index.js'))
-    expect(index).toMatch(/const REQUIRED = \['put', 'get', 'del', 'exists', 'describe'\]/)
-    expect(index).not.toMatch(/'getUrl'/)
-    // Supabase implements it; s3 deliberately does not (its presigned GET
-    // expires in 300s, and no S3 workspace exists anywhere to verify a
-    // longer-lived signer against — the same deferral S44 took for display).
+    expect(index).toMatch(/const REQUIRED = \['put', 'get', 'del', 'exists', 'describe', 'getUrl'\]/)
     expect(executable(read('storage', 'supabaseProvider.js'))).toMatch(/async getUrl\(/)
-    expect(executable(read('storage', 's3Provider.js'))).not.toMatch(/async getUrl\(/)
+    expect(executable(read('storage', 's3Provider.js'))).toMatch(/async getUrl\(/)
+    expect(executable(read('storage', 'localServerProvider.js'))).toMatch(/async getUrl\(/)
   })
 })
 

@@ -171,21 +171,16 @@ export function createSupabaseStorageProvider(requireClient) {
 
     // ── Session 40: a URL a <video> can stream from ─────────────────────────
     //
-    // 🚨 OPTIONAL BY DESIGN — NOT a sixth entry in REQUIRED. `get()` returns a
-    // whole Blob, which is the right shape for a download and the wrong one for
-    // playback: a <video> needs a URL it can issue Range requests against, and
-    // a 5 GB master cannot be a Blob at all. But adding `getUrl` to
-    // storage/index.js's REQUIRED list would make registerStorageProvider
-    // REFUSE every provider that lacks it — and s3's implementation is exactly
-    // the deferred work (its presigned GET expires in 300s, against this
-    // function's 3600s, and there is no S3 workspace on any environment to
-    // verify a longer-lived one against). So callers ask with `?.` and a
-    // provider that cannot mint one simply has no playback, which is the
-    // fail-closed direction.
+    // `get()` returns a whole Blob, which is the right shape for a download
+    // and the wrong one for playback: a <video> needs a URL it can issue Range
+    // requests against, and a 5 GB master cannot be a Blob at all.
     //
-    // When s3 can do it, this becomes REQUIRED and both implement it. That is a
-    // one-line change here and a session's work there; putting it in REQUIRED
-    // now would break registration for the provider that cannot yet comply.
+    // ✅ P1 (night 4): getUrl IS the sixth entry in REQUIRED now. It was
+    // optional from S40 because s3 could not honour it (its only signer was
+    // storage-presign's 300 s GET); storage-read-urls gave s3 one, so all
+    // three registered providers implement it and registerStorageProvider
+    // refuses a provider without it. A provider that cannot mint a URL for a
+    // given use answers null (s3 for a download), and the caller says so.
     //
     // ⚠️ 3600s is Supabase's signing horizon, not a promise about playback. A
     // clip longer than the remaining validity stops mid-stream with a 403 the

@@ -1671,8 +1671,13 @@ migration 0050). Do not merge them.**
 
 | | Column | Values | Says |
 |---|---|---|---|
-| Configuration | `workspace_storage.provider` | `petal`, `network` | what the workspace **chose** |
-| Fact | `files.storage_provider` | `supabase`, `google_drive`, `local_server` | where **this body** actually is |
+| Configuration | `workspace_storage.provider` | `petal`, `network`, `s3` | what the workspace **chose** |
+| Fact | `files.storage_provider` | `supabase`, `google_drive`, `local_server`, `s3` | where **this body** actually is |
+
+⚠️ **Corrected by P1 (2026-10-28): this table and the paragraph above it
+omitted `s3`.** S37 shipped the S3-compatible provider and 0051 added `s3` to
+both vocabularies (the CHECK and the enum); the "post-1.0" in the locked
+decision above is history.
 
 They cannot be one list, because a **financial file is `supabase` whatever the
 workspace chose** (§12.1a). The mapping between them is
@@ -1753,7 +1758,7 @@ segment — for any caller that bypasses the client.
 |---|---|---|---|---|
 | `local_server` | A bare disk filename, **relative to whatever the project's files directory resolves to right now** — not portable on its own | Express download route → `sendFile` | Base64 JSON body → `writeFileSync` | ✗ |
 | `supabase` | The full object key inside the private `rabbit-files` bucket | `storage.download(path)` | `storage.upload(path, file, {upsert:false})` | ✓ |
-| `s3` (S37) | The **row-shaped** key (`projects/{id}/…`) — the workspace's bucket **prefix is deliberately NOT stored**: `files_money_provider_chk` reads the third segment, and a prefix edit must not orphan keys. The presign function prepends the prefix at resolution | presigned GET, direct to the customer's bucket | presigned PUT, direct (`storage-presign` is the authorisation boundary; the secret never reaches any client) | ✓ |
+| `s3` (S37) | The **row-shaped** key (`projects/{id}/…`) — the workspace's bucket **prefix is deliberately NOT stored**: `files_money_provider_chk` reads the third segment, and a prefix edit must not orphan keys. The presign function prepends the prefix at resolution | presigned GET, direct to the customer's bucket; for DISPLAY (thumbnails, the preview, the player) a batch of GETs from `storage-read-urls` (P1, §12.7b) | presigned PUT, direct (`storage-presign` is the authorisation boundary; the secret never reaches any client) | ✓ |
 | `google_drive` | **Not a path** — the Drive file's opaque id | `files/{id}?alt=media` | Every write throws `readOnly()` | ✗ |
 
 `local_server` resolution order: the project's `files_dir` override if set
@@ -2443,28 +2448,67 @@ unrelated-sounding message.
   `uploadFile`'s compensating delete to save it — which is why
   `removeThumbnailFrom` throws rather than resolving, and the caller logs.
 
-#### ⚠️ What S44 deliberately did NOT build: browser display
+#### Browser display of an s3 workspace's previews (P1, night 4, 2026-10-28)
 
-An s3 workspace's previews are **written and disposed of correctly but are not
-displayed** — the grid shows file-type icons. `signedThumbnailUrls` can only
-sign objects in Petal's bucket, and `FileManager` filters to
-`storage_provider === 'supabase'` so this is a stated behaviour rather than a
-lookup that quietly finds nothing.
+S44 wrote and disposed of an s3 workspace's previews correctly and left their
+**display** for its own session (Audrey's call, 2026-08-08): it needed a batch
+signer that did not exist (`storage-presign` signs **one key per call** at
+**300 s**), and no S3 workspace existed anywhere to verify one against.
+🚨 **Generation was the one-way door, not display** — which is why the write
+half shipped first, and why P1 could be a signer and a client change: no
+backfill, no egress. The design is `NETWORK_STORAGE_DESIGN.md` §9.
 
-**Why (Audrey's call, 2026-08-08):** display needs a batch presign that does not
-exist — `storage-presign` authorises **one key per call**, and its GET expiry is
-**300s** against the Supabase arm's **3600s**, so a grid left open six minutes
-goes dead. And **no S3 workspace exists on any environment to verify a new
-signing endpoint against**, so the first real customer would be the test.
+**`storage-read-urls`**, a function of its own (not an op on
+`storage-presign`, whose bound is one key and whose budget is sized in
+uploads): **GET only**, up to **100 keys**, **2 projects** and **10 folders** a
+call, a body streamed under a 128 KB cap, `STORAGE_READ_URLS_RPM` (default
+**120 calls a minute per person**, its own limiter bucket). Per key, the path
+gate (row-shaped; **INVOICES, FINANCE and LEGAL refused** before anything is
+asked); per project, `can_presign_project_read` **once**, as the caller; and
+🚨 **per key, the row, as the caller**: a key is signed only when a live `s3`
+`files` row the caller can SELECT owns it — its `storage_path` (a body), or
+its `storage_path` + `.jpg` with its `thumbnail_url` saying so (a thumbnail;
+`thumbnail_url` is client-writable, so a thumbnail is never anything else).
+So `files_select` is evaluated, not copied: against a reader, a trashed file,
+a purged row or an object WILSON never wrote is not signed (a WRITER of the
+project can make a row vouch for a key under it — the reach `storage-presign`
+gives them; OUTSTANDING OSP-07). The rows are read one folder at a time (its
+own files, not its shots', by cursor, at most 5,000), so no filename travels
+to the database or its logs. Then the workspace on `s3` with a
+config and a usable secret, the prefix applied server-side. The answer:
+`{ urls, expires, refused }`, keyed by the input in its order; a refusal is a
+code (`shape`, `money`, `project`, `row`), never a sentence carrying a name.
 
-🚨 **Generation is the one-way door, not display — which is why the write half
-shipped anyway.** A preview that exists can be displayed later by a pure client
-change: no backfill, no egress. A preview that was never generated can only be
-made later by downloading the full source, the one expensive design this section
-already refuses.
+**Expiries** (TPN-CONT-001: links expire): a **thumbnail 3600 s**, the horizon
+`rabbit-thumbnails`' own signed URLs have; a **body read once 300 s** (the
+preview's image, PDF and text stages only have to start, like a download); a
+**body that streams 3600 s**, one key a call (a `<video>` or `<audio>` reads by
+range requests while it plays; a clip longer than the hour re-mints once and
+restarts, as on Petal). A download keeps the Blob path through
+`storage-presign` (`getUrl` with `{ download }` answers null for s3).
 
-⚠️ **A `network` workspace gets icons regardless**, and no design fixes that: a
-browser cannot read a NAS. So this rule is uniform while its *outcome* is not.
+**The client.** `getUrl` joined the provider contract's `REQUIRED` (all three
+registered providers implement it). The thumbnails' third dispatcher,
+`thumbnailUrlsAt`, reads a preview where it lives: `s3` →
+`s3Provider.getUrls`, everything else → `rabbit-thumbnails`. FileManager keeps
+its Petal batch (`!== 's3'`) and asks the s3 rows of the company's bucket in
+its own state, merged with the Petal one, re-asking every five minutes and when
+the tab returns or the browser comes back online; `s3Provider` hands a cached
+URL out only with more than ten minutes left, and `App.jsx` clears that cache
+when the person or the workspace changes. A money key is never sent
+(`presignReadUrls` answers it itself). A key the signer refused is the
+file-type icon; a refused preview says why. **The desktop** calls the same
+function and the same bucket under the same CORS rule (§12.7a).
+
+**What it costs Petal:** a call per panel and a call per preview; never a byte
+of the footage, which goes between the app and the company's bucket.
+
+⚠️ **A `network` (NAS) workspace has no cloud row for its media at all**
+(measured 2026-10-28): it is recorded in the desktop's Local Server mode and
+`uploadFile` refuses it on the cloud, so the browser has nothing to list or
+preview. Its file panels say so in one sentence (`SERVER_MEDIA_SENTENCE`);
+whether those files are ever listed in the cloud is Audrey's question (walkthrough
+85, P1).
 
 📒 **HISTORICAL — S39-era, RESOLVED BY S44. Kept because it is the argument that
 won, not because it describes current state.** The case against what S39 built:
@@ -2502,7 +2546,8 @@ implemented.** It was a provider lookup.
 - **Signed URLs expire after an hour.** A list open longer than that re-signs
   when its contents change; a tile that loads against an expired URL recovers
   as soon as a fresh one arrives (the component remembers *which* URL failed,
-  not merely that one did).
+  not merely that one did). An s3 row's preview URL is also renewed while it
+  is on screen (above), so it does not wait for the list to change.
 
 ### 12.7c Video — preview and the still frame (S40, no migration)
 
@@ -2576,14 +2621,13 @@ carries the install and which build to download. Packaged by
 
 #### Limits, stated
 
-- **s3 playback and s3 still-display are deferred**, matching S44's decision for
-  images and for the same measured reasons: no batch presign, `storage-presign`'s
-  GET expiry is 300 s, and no S3 workspace exists on any environment to verify
-  either against. `getUrl` is therefore **optional** in the registry, not a sixth
-  `REQUIRED` function — promoting it would make `registerStorageProvider` refuse
-  s3.
-- **A `network` workspace has no cloud preview at all**, unchanged and not
-  fixable: a browser cannot read a NAS.
+- **s3 playback and s3 still-display are built** (P1, 2026-10-28, §12.7b):
+  a stream is signed for the hour by `storage-read-urls`, and `getUrl` is the
+  sixth `REQUIRED` function. Proven by tests and a fake signer; the first real
+  bucket is Audrey's test bucket on the beta.
+- **A `network` workspace has no cloud preview at all**: its media has no
+  cloud row (§12.7b), so there is nothing for a browser to preview, and its
+  file panels say where the media is.
 - **Professional codecs get no preview until the ffmpeg binary is installed.**
 - **A managed video added before that binary arrives keeps its icon** — the
   ffmpeg arm generates on demand, the renderer fallback runs only at add time,
@@ -4869,10 +4913,13 @@ of a session — this section is limits by design, that file is faults.
   list before and returns 401 with an empty body after. See "The local server's
   security model" above for the two arms and for what is deliberately left
   unguarded.
-- **s3 video playback and s3 still-display are deferred**, matching S44's
-  decision for images: no batch presign, a 300 s presigned-GET expiry against a
-  3600 s Supabase one, and no S3 workspace anywhere to verify either against.
-  **Generation ships regardless — it is the one-way door.**
+- **s3 video playback and s3 still-display are built** (P1, 2026-10-28):
+  `storage-read-urls` signs a thumbnail for 3600 s, a body read once for 300 s
+  and a streaming body for 3600 s (§12.7b). No S3 workspace exists on any
+  environment, so the live proof is Audrey's test bucket on the beta after the
+  function reaches staging. A download from a bucket still reads the whole
+  body into memory (`downloadUrl` answers null for s3): recorded in
+  OUTSTANDING.
 - **Professional codecs need an ffmpeg binary that is deliberately not in git**
   (the repo is public). Browser-native formats work with no binary at all.
 - **`canThumbnail()` refuses video on purpose.** The video decoder is a separate
@@ -5118,13 +5165,14 @@ of a session — this section is limits by design, that file is faults.
   decision Audrey has not explicitly confirmed"* — **she confirmed it, in the
   opposite direction, on 2026-08-08, and S44 shipped it.** A preview now goes to
   the provider its body went to, and is disposed of there. §12.7b carries it.
-- ⚠️ **BUT an `s3` workspace's previews are NOT DISPLAYED in the browser** —
-  written and disposed of correctly, shown as file-type icons. Deferred
-  deliberately: signing a key in the customer's bucket needs a batch presign
-  that does not exist, and no S3 workspace exists on any environment to verify
-  one against. In `OUTSTANDING.md`.
-- ⚠️ **A `network` workspace gets icons regardless** — a browser cannot read a
-  NAS. The rule is uniform; its outcome is not.
+- ✅ **An `s3` workspace's previews are DISPLAYED** (P1, 2026-10-28): signed
+  in the company's own bucket by `storage-read-urls`, only for a row the
+  caller can read, renewed while on screen (§12.7b).
+- ⚠️ **A `network` workspace has no cloud preview** — and, measured
+  2026-10-28, no cloud row for its media at all: the media is recorded in the
+  desktop's Local Server mode, so its browser panels say where it is instead.
+  The rule is uniform; its outcome is not. Listing those files in the cloud is
+  Audrey's question (walkthrough 85, P1, Q1–Q2).
 - **No orphan sweep over ANY thumbnail location** — neither `rabbit-thumbnails`
   nor a customer bucket (WILSON never enumerates one, §12.4). The queue drain
   and teardown cover the Petal side only. A thumbnail stranded by a browser

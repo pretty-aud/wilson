@@ -8,8 +8,9 @@
 //
 //   * MANAGED (desktop) — the Range-capable Express stream route this session
 //     added. Local disk, no egress, and Range is what lets the element seek.
-//   * CLOUD  — a signed URL from the provider the ROW names. `petal` can mint
-//     one; `s3` cannot yet and says so.
+//   * CLOUD  — a signed URL from the provider the ROW names. `petal` mints
+//     one; since P1 (night 4) `s3` does too, through storage-read-urls, for
+//     the hour a stream needs.
 //
 // 🚨 WHY NOT downloadFile(). It returns a whole Blob. That is right for a
 // download and useless here: playback needs a URL to issue Range requests
@@ -146,9 +147,11 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
       const url = await resolveSrc()
       if (!url) {
         setStatus('unavailable')
-        // The s3 case, stated rather than mystifying. Same deferral as S44's
-        // thumbnail display, and for the same two measured reasons.
-        setDetail(nullSourceDetailRef.current || 'Playback isn\'t available yet for media stored in your own bucket.')
+        // A backend that mints no URL at all (the dev fixtures; the Files
+        // preview names them with nullSourceDetail). This named the company's
+        // own bucket until P1 gave s3 a signer: a refusal there throws its own
+        // sentence now, and no provider answers null for a playable row.
+        setDetail(nullSourceDetailRef.current || 'Playback isn\'t available for this file here.')
         return
       }
       setSrc(url)
@@ -215,7 +218,8 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
             // Files preview (E9) — the caller says which.
             autoPlay={autoPlay}
             // Same reason as the thumbnail path: set BEFORE the source is
-            // fetched, and required the day an s3 presigned URL lands here.
+            // fetched. Required since P1: an s3 URL is the company's bucket,
+            // another origin, and its CORS rule (handbook §12.7a) admits it.
             crossOrigin="anonymous"
             onError={handleError}
             // A successful load means the previous failure was transient, so
