@@ -76,14 +76,25 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
     // CONTROL: this is the kit Switch label's step and ink.
     expect(INDEX).toMatch(/\.ui-switch-label \{ font-size: var\(--text-body\);[^}]*color: var\(--color-ink\); \}/)
   })
+  // DG1: "Use uploaded assets" read "Use visual assets" (Audrey's brief). DG4
+  // (her notes 2 to 4, 2026-10-28): the Generate outline card keeps two,
+  // "Place visual" (was "Use visual assets") and "Theme generator"; "Use
+  // project assets" is gone; card 1 has "Core files only" (ReferencesCard).
+  // A label may carry a hover (`title={…}`); its words are the checkbox's name.
   it('the words are written in sentence case, on the screen and to a screen reader alike', () => {
-    const src = read('./DeckOutlineGenerator.jsx')
-    // DG1: "Use uploaded assets" reads "Use visual assets" (Audrey's brief).
-    for (const w of ['Theme generator', 'Use visual assets', 'Use project assets']) {
+    const dog = read('./DeckOutlineGenerator.jsx')
+    const card = read('./references/ReferencesCard.jsx')
+    const label = (w) => new RegExp(`<span className="dog-check-label"(?: title=\\{[A-Z_]+\\})?>${w}</span>`)
+    for (const [src, w] of [[dog, 'Place visual'], [dog, 'Theme generator'], [card, 'Core files only']]) {
       expect(src).toContain(`aria-label="${w}"`)
-      expect(src).toContain(`<span className="dog-check-label">${w}</span>`)
+      expect(src).toMatch(label(w))
     }
-    expect(src).not.toMatch(/className="dog-check-label">[^<]*\b[A-Z][a-z]* [A-Z]/)
+    for (const src of [dog, card]) expect(src).not.toMatch(/className="dog-check-label"[^>]*>[^<]*\b[A-Z][a-z]* [A-Z]/)
+    // The retired boxes are not drawn, and no flag of theirs is read.
+    expect(dog).not.toMatch(/aria-label="Use (visual|project|uploaded) assets"|>Use (visual|project|uploaded) assets</)
+    expect(`${dog}${card}${read('./references/useReferences.js')}`).not.toMatch(/\buse(Project|Uploaded)Assets\b/)
+    // CONTROL: the scan would see the old box.
+    expect('<span className="dog-check-label">Use project assets</span>').toMatch(/>Use (visual|project|uploaded) assets</)
   })
 
   // Review rounds one and two: Help quoted the controls by their old names.
@@ -92,16 +103,68 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
     const page = read('../../components/HelpPage.jsx')
     // Review round two (R2-02) added the mode Switch, "Full deck". The Slides
     // extension's own "Full Deck" button is named unquoted, as it writes it.
-    const OLD = /"(Theme Generator|Use Uploaded Assets|Use Project Assets|Generate Image Prompts|Full Deck)"/
+    // DG4 retires "Use visual assets" and "Use project assets".
+    const OLD = /"(Theme Generator|Use Uploaded Assets|Use Project Assets|Generate Image Prompts|Full Deck|Use visual assets|Use project assets)"/
     expect(help).not.toMatch(OLD)
     expect(page).not.toMatch(OLD)
-    for (const q of ['"Theme generator"', '"Use visual assets"', '"Use project assets"', '"Generate image prompts"', '"Full deck"', '"Single page"']) expect(help, q).toContain(q)
-    expect(help).not.toMatch(/Use uploaded assets/)
+    for (const q of ['"Theme generator"', '"Place visual"', '"Core files only"', '"Generate image prompts"', '"Full deck"', '"Single page"']) expect(help, q).toContain(q)
+    for (const q of ['"Place visual"', '"Core files only"']) expect(page, q).toContain(q)
+    for (const src of [help, page]) expect(src).not.toMatch(/Use (uploaded|visual|project) assets/i)
     // CONTROL: the export dialog's own label is the one Help quotes, and so
-    // is the mode Switch's.
+    // are the mode Switch's and the boxes'.
     expect(read('./modals/HistoryModal.jsx')).toContain("'Generate image prompts'")
     expect(read('./DeckOutlineGenerator.jsx')).toContain('aria-label="Full deck"')
+    expect(read('./DeckOutlineGenerator.jsx')).toContain('aria-label="Place visual"')
+    expect(read('./references/ReferencesCard.jsx')).toContain('aria-label="Core files only"')
     expect('Toggle "Full Deck" to generate').toMatch(OLD)
+    expect('Enable "Use project assets" to let').toMatch(OLD)
+  })
+})
+
+// =============================================================================
+// DG4 (Audrey, 2026-10-28, note 1, verbatim): "the status bar for how many
+// files have been added for reference is way too long in a wide monitor. so
+// lets make it a fixes size the is about the length of the text lines above
+// in the card. make the bar a little thicker too." Measured before, in
+// Chromium: the track was the card's whole width (998px at 1280, 1158 at
+// 1440, 2278 at 2560) and 6px tall; the contract line above it 571.28px.
+// Card 1's column is 576px, the meter in it that fixed width, the track 8px
+// in the card and the window alike; the window's footer meter keeps flex: 1.
+// =============================================================================
+describe('dog.css: the References meter in card 1 is a fixed width, and thicker (DG4)', () => {
+  const ruleFor = (css, sel) => allRules(css).find((r) => splitTop(r.sel).map(norm).includes(sel))
+  const decl = (css, sel) => Object.fromEntries(decls(ruleFor(css, sel)?.body || ''))
+  const pins = (css) => ({
+    measure: decl(css, '.dog-card-project')['--dog-refs-measure'],
+    column: decl(css, '.dog-refs')['max-width'],
+    details: decl(css, '.dog-card-project .dog-project-details')['max-width'],
+    meter: decl(css, '.dog-refs .dog-refs-meter').width,
+    track: decl(css, '.dog-refs-meter-track').height,
+    foot: decl(css, '.dog-refs-foot .dog-refs-meter'),
+  })
+
+  it('the card\'s meter is the column\'s width, a length and never a share of the card; the track is 8px; the footer\'s meter still flexes', () => {
+    const p = pins(DOG)
+    expect(p.measure).toBe('576px')
+    expect(p.meter).toBe('var(--dog-refs-measure)')
+    expect(p.column).toBe('var(--dog-refs-measure)')
+    expect(p.details).toBe('var(--dog-refs-measure)')
+    expect(`${p.measure} ${p.meter}`).not.toMatch(/%|vw|fr\b/)
+    expect(p.track).toBe('8px')
+    expect(p.foot).toEqual({ flex: '1' })
+  })
+
+  it('CONTROL: the rules as they were (the meter the card\'s width, a 6px track) fail the pins above', () => {
+    const before = DOG
+      .replace(/\.dog-card-project \{ --dog-refs-measure: 576px; \}/, '')
+      .replace(/\.dog-refs \.dog-refs-meter \{[^}]*\}/, '')
+      .replace(/(\.dog-refs-meter-track \{[^}]*?height: )8px/, '$16px')
+    expect(before).not.toBe(DOG)
+    const p = pins(before)
+    expect(p.measure).toBeUndefined()
+    expect(p.meter).toBeUndefined()
+    expect(p.track).toBe('6px')
+    expect(p.foot).toEqual({ flex: '1' })
   })
 })
 

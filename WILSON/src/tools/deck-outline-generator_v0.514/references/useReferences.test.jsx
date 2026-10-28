@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import * as Y from 'yjs';
 import { useReferences } from './useReferences';
+import { IMAGE_TOKEN_ESTIMATE } from './referenceModel';
 import { u8ToB64 } from '../../../components/Dashboard/noteSync';
 
 const P1 = 'p1';
@@ -285,5 +286,142 @@ describe('useReferences: the preview says "recorded" only when this preview down
     expect(shown.line).toBe(null);
     await act(async () => { shown = await now(hook).preview('file:f1'); });
     expect(shown.line).toBe(null);
+  });
+});
+
+// =============================================================================
+// DG4 (Audrey, 2026-10-28, note 4, verbatim): "lets also add a way for the
+// user to just press a checkbox to bypass selecting files and letting the
+// generator just reference the files marked as core project files. since
+// these core project files have the core details of what the project is,
+// this is enough references for decks." With `coreOnly` on, what is listed,
+// counted and read is the project's readable Core files (coreFileKeys over
+// the pool: the window's own All Core files test); the window's set steps
+// aside untouched. Every name here is made up.
+// =============================================================================
+const CORE_FILES = () => [
+  fileRow({ id: 'c1', name: 'core-brief.txt', body: 'CORE BRIEF', size_bytes: 40 }),
+  fileRow({ id: 'c2', name: 'core-board.png', mime_type: 'image/png', size_bytes: 2048, storage_path: `${KEY}/DOCUMENTS/core-board.png` }),
+  // Core, and D.O.G. cannot read it: never listed (a Photoshop file).
+  fileRow({ id: 'c3', name: 'core-prop.psd', mime_type: 'image/vnd.adobe.photoshop', size_bytes: 9000, storage_path: `${KEY}/DOCUMENTS/core-prop.psd` }),
+  // Core, and never offered: a money file and a trashed one (the pool's gate).
+  fileRow({ id: 'c4', name: 'core-invoice.pdf', mime_type: 'application/pdf', storage_path: `${KEY}/INVOICES/core-invoice.pdf` }),
+  fileRow({ id: 'c5', name: 'core-old.txt', deleted_at: '2026-10-20T09:00:00Z' }),
+  // Readable, not Core.
+  fileRow({ id: 'r1', name: 'ref-notes.txt', body: 'REF NOTES', is_core_definer: false }),
+];
+
+describe('useReferences: Core files only (DG4)', () => {
+  it('lists the readable Core files by name and nothing a person may not read; the window\'s set steps aside and comes back as it was', async () => {
+    const { hook } = setup(CORE_FILES());
+    await act(async () => { await now(hook).loadPool(); });
+    // CONTROL: the data has a Core file D.O.G. cannot read, and two the pool never offers.
+    const psd = now(hook).pool.files.find(f => f.id === 'c3');
+    expect(psd.isCore && !psd.readable).toBe(true);
+    expect(now(hook).pool.files.some(f => f.id === 'c4' || f.id === 'c5')).toBe(false);
+    expect(now(hook).core).toEqual({ state: 'ready', count: 2, legacy: 0 });
+    act(() => now(hook).tick(['file:r1', 'note:n1']));
+    expect(now(hook).coreOnly).toBe(false);
+    act(() => now(hook).setCoreOnly(true));
+    expect(now(hook).chosenList.map(s => s.key)).toEqual(['file:c2', 'file:c1']);
+    expect(now(hook).chosenList.every(s => s.isCore)).toBe(true);
+    expect([...now(hook).listedKeys]).toEqual(['file:c2', 'file:c1']);
+    expect([...now(hook).chosen]).toEqual(['file:r1', 'note:n1']);
+    act(() => now(hook).setCoreOnly(false));
+    expect(now(hook).chosenList.map(s => s.key)).toEqual(['file:r1', 'note:n1']);
+    expect([...now(hook).listedKeys]).toEqual(['file:r1', 'note:n1']);
+  });
+
+  it('Generate reads exactly the readable Core files, now; cleared, the window\'s set again', async () => {
+    const { hook, adapter } = setup(CORE_FILES());
+    await act(async () => { await now(hook).loadPool(); });
+    act(() => now(hook).tick(['file:r1']));
+    act(() => now(hook).setCoreOnly(true));
+    let out;
+    await act(async () => { out = await now(hook).resolveForGeneration(); });
+    expect(out.files.map(f => f.file.name)).toEqual(['[Project · CORE] core-board.png', '[Project · CORE] core-brief.txt']);
+    expect(out.files.map(f => f.refKey)).toEqual(['file:c2', 'file:c1']);
+    expect(adapter.downloadFile.mock.calls.map(([row]) => row.id).sort()).toEqual(['c1', 'c2']);
+    expect(out.unreadable).toEqual([]);
+    act(() => now(hook).setCoreOnly(false));
+    await act(async () => { out = await now(hook).resolveForGeneration(); });
+    expect(out.files.map(f => f.file.name)).toEqual(['[Project · REF] ref-notes.txt']);
+    expect(out.files[0].content).toBe('REF NOTES');
+  });
+
+  it('a file marked Core since the card listed is read, and the card follows the same fresh list', async () => {
+    const { hook, files } = setup(CORE_FILES());
+    await act(async () => { await now(hook).loadPool(); });
+    act(() => now(hook).setCoreOnly(true));
+    files[5] = { ...files[5], is_core_definer: true };
+    let out;
+    await act(async () => { out = await now(hook).resolveForGeneration(); });
+    expect(out.files.map(f => f.refKey)).toEqual(['file:c2', 'file:c1', 'file:r1']);
+    expect(now(hook).chosenList.map(s => s.key)).toEqual(['file:c2', 'file:c1', 'file:r1']);
+  });
+
+  it('the meter counts what is listed: the Core files while ticked, the window\'s set when cleared', async () => {
+    const { hook } = setup(CORE_FILES());
+    await act(async () => { await now(hook).loadPool(); });
+    act(() => now(hook).tick(['file:r1']));
+    const window = { tokens: now(hook).chosenTokens, bytes: now(hook).chosenBytes };
+    expect(window).toEqual({ tokens: Math.ceil(20 / 4), bytes: 20 });
+    act(() => now(hook).setCoreOnly(true));
+    expect(now(hook).chosenTokens).toBe(Math.ceil(40 / 4) + IMAGE_TOKEN_ESTIMATE);
+    expect(now(hook).chosenBytes).toBe(40 + 2048);
+    expect(now(hook).chosenUncounted).toBe(0);
+    act(() => now(hook).setCoreOnly(false));
+    expect({ tokens: now(hook).chosenTokens, bytes: now(hook).chosenBytes }).toEqual(window);
+  });
+
+  it('its states: no project, not listed yet, a failed list, no Core file D.O.G. can read', async () => {
+    const none = setup([CORE_FILES()[2], CORE_FILES()[5]]);
+    expect(now(none.hook).core.state).toBe('listing');
+    await act(async () => { await now(none.hook).loadPool(); });
+    expect(now(none.hook).core).toEqual({ state: 'none', count: 0, legacy: 0 });
+    const failed = setup(CORE_FILES());
+    failed.adapter.failFiles = true;
+    await act(async () => { await now(failed.hook).loadPool(); });
+    expect(now(failed.hook).core.state).toBe('failed');
+    const noProject = setup(CORE_FILES());
+    noProject.hook.rerender({ ...noProject.props, projectId: '', project: null });
+    expect(now(noProject.hook).core.state).toBe('no-project');
+    act(() => now(noProject.hook).setCoreOnly(true));
+    let out;
+    await act(async () => { out = await now(noProject.hook).resolveForGeneration(); });
+    expect(out.files).toEqual([]);
+    expect(noProject.adapter.listFiles).not.toHaveBeenCalled();
+  });
+
+  it('a files list that fails at Generate stops it, as a chosen file\'s does', async () => {
+    const { hook, adapter } = setup(CORE_FILES());
+    await act(async () => { await now(hook).loadPool(); });
+    act(() => now(hook).setCoreOnly(true));
+    adapter.failFiles = true;
+    let err;
+    await act(async () => { await now(hook).resolveForGeneration().catch(e => { err = e; }); });
+    expect(err?.code).toBe('DOG_LIST_FAILED');
+    expect(err?.lists).toEqual(['files']);
+    expect(adapter.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it('a legacy project on the Local Server: an older attachment counts as Core unless it was marked otherwise (isCore defaults to true there)', async () => {
+    const project = {
+      id: P1, title: 'Salt Hours',
+      // As the Local Server stored them before C3: data URLs on the record.
+      documents: [
+        { id: 'd1', name: 'old-brief.txt', type: 'text/plain', content: `data:text/plain;base64,${btoa('OLD BRIEF')}` },
+        { id: 'd2', name: 'old-ref.txt', type: 'text/plain', content: `data:text/plain;base64,${btoa('OLD REF')}`, isCore: false },
+      ],
+    };
+    const adapter = { loadProject: vi.fn(async () => ({ files: [], folders: [] })), downloadFile: vi.fn() };
+    const hook = renderHook((p) => useReferences(p), { initialProps: { getAdapter: () => adapter, adapterMode: 'local_server', projectId: P1, project } });
+    await act(async () => { await now(hook).loadPool(); });
+    expect(now(hook).core).toEqual({ state: 'ready', count: 1, legacy: 1 });
+    act(() => now(hook).setCoreOnly(true));
+    let out;
+    await act(async () => { out = await now(hook).resolveForGeneration(); });
+    expect(out.files.map(f => f.content)).toEqual(['OLD BRIEF']);
+    expect(adapter.downloadFile).not.toHaveBeenCalled();
   });
 });
