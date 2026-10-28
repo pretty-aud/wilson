@@ -1302,7 +1302,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul M2 (2026-10-28; `po/m2-migration-part-2` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 2 (`docs/sessions/PLAN_TO_1_0.md` night 4): every part-2 row shape rehearsed on wilson-dev first (rolled back); the budgets behind the money gate (versions, lines, actuals, expenses, role rates, the two pointers, receipts kept money), the levels and experiences with what names them, the links on tasks; the phases', assets' and tasks' own checks; the second run's record; migration **0103** (the desktop's three statuses, her ruling of 2026-10-28) and suite **106**, on wilson-dev only; a cleared Director or Producer sent as NULL; two review rounds | M2-L1 (night 5's kinds, for M3), M2-L2 (`upsertTaskLink` sends `project_id`; measured, unreachable today), M2-L3 (a dry run on a cloud without 0103), and from review round 1 M2-L4 (receipts an earlier build left open, said every run), M2-L5 (crew lines out of the Crew tab until night 5), M2-L6 (what the dry run does not foresee), M2-L7 (a removed picture, unreachable), M2-L8 (the id trusted where no read can tell) | the part-2 entry and the resurrection entry (closed, the second narrowed); M1-L3, M1-L4 and M1-L5 closed; M1-L1 and M1-L2 to night 5 (M2-L1). |
+| Post-overhaul M2 (2026-10-28; `po/m2-migration-part-2` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 2 (`docs/sessions/PLAN_TO_1_0.md` night 4): every part-2 row shape rehearsed on wilson-dev first (rolled back); the budgets behind the money gate (versions, lines, actuals, expenses, role rates, the two pointers, receipts kept money), the levels and experiences with what names them, the links on tasks; the phases', assets' and tasks' own checks; the second run's record; migration **0103** (the desktop's three statuses, her ruling of 2026-10-28) and suite **106**, on wilson-dev only; a cleared Director or Producer sent as NULL; two review rounds | M2-L1 (night 5's kinds, for M3), M2-L2 (`upsertTaskLink` sends `project_id`; measured, unreachable today), M2-L3 (a dry run on a cloud without 0103), and from review round 1 M2-L4 (receipts an earlier build left open, said every run), M2-L5 (crew lines out of the Crew tab until night 5), M2-L6 (what the dry run does not foresee), M2-L7 (a removed picture, unreachable), M2-L8 (the id trusted where no read can tell), and from review round 2 M2-L9 (three record rules that are choices) | the part-2 entry and the resurrection entry (closed, the second narrowed); M1-L3, M1-L4 and M1-L5 closed; M1-L1 and M1-L2 to night 5 (M2-L1). |
 | Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
@@ -3069,9 +3069,11 @@ outside its list.
   every member of the project.** The night-3 build routed a file by its own
   flag, so a receipt kept before C4 (`is_financial` false, named by an
   expense or an actual) went up under `files/`, flagged false. Since review
-  round 1 the runner says so on every run (`RECEIPTS_LEFT_OPEN`,
-  `report.files.receiptsOpen`, a line under the report) and never records
-  it, so no run goes quiet about it; it cannot move it. Putting it behind the
+  round 1 the runner says so on every run while it stays open
+  (`RECEIPTS_LEFT_OPEN`, `report.files.receiptsOpen`, a line under the
+  report), never as a carried file; since round 2 it keeps the receipt apart
+  in the record (`receipts_open`), so an admin's removal there stands
+  (counted, named, never uploaded again). It cannot move it. Putting it behind the
   gate is an object move from `files/` to `INVOICES/` and the row's
   `is_financial` and `storage_path` together, and the storage API's move
   under 0042's policies was not measured (no sign-in on M2's run). Fix shape:
@@ -3091,7 +3093,15 @@ outside its list.
   assets that wait on a level whose owner could not be read; a receipt an
   earlier build left open (M2-L4), which only the real run's per-file read
   finds. Fixed in round 1: the money files a shut gate keeps here are no
-  longer in the dry run's files total. INFERRED from the runner. Owner: none.
+  longer in the dry run's files total. Review round 2 adds three: an actual or
+  a role rate whose place the cloud holds under another id (`taken`) is
+  found only by the real run's insert, so the dry run counts it as going (F3,
+  MEASURED by the reviewer's probe: dry `{total 4, taken 0}`, real `{total 3,
+  taken 1}`; fix shape: read this project's actuals' line and period and its
+  rates' roles in the dry run, one paged read each); a project whose id is
+  held out of the person's sight reads as arriving in the dry run, and only
+  the real run meets its key (F7: no read can see it); the dry run counts no
+  set-aside rows. INFERRED from the runner unless said. Owner: none.
 - **M2-L7 · A clip's picture removed in the cloud would come back on the next
   run** (review round 1, L4). The runner uploads a picture for a clip whose
   cloud row has none; the record holds the clip, not its picture. Unreachable
@@ -3108,6 +3118,15 @@ outside its list.
   would then call it removed. Round 1 settled the pair keys (L2: never
   recorded) and every table with a read (recorded only once known). INFERRED.
   Owner: none.
+- **M2-L9 · Three record rules that are choices, said** (review round 2, F4,
+  F5 and a nit). A Legal file is never asked about by the record (0092's gate
+  is not asked per project), so a teammate's removal of one is never named,
+  though it is never brought back either (MEASURED by the reviewer: re-uploaded
+  0). The rows set aside again are recorded by row, not by bid version, so a
+  row set aside once under one version is not set aside again under a later
+  one (fix shape, if wanted: `<version>:<row>`). `SET_ASIDE_AGAIN` counts the
+  rows asked, not those the function changed (it keeps an earlier stamp).
+  INFERRED from the runner. Owner: none.
 
 ## Post-overhaul DG4 (`po/dg4-dog-project-references-card`) — left open (2026-10-28)
 

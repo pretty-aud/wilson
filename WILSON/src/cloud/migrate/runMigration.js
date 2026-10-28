@@ -129,7 +129,7 @@ export const REMOVED_SINCE_LAST_RUN = (words) => `Removed in the cloud since an 
 // measured), so none is sent; said, never a failed project.
 export const MONEY_GATE_LEFT = (n, rows) => `${n === 1 ? "1 project's budget" : `${n} projects' budgets`} (${plural(rows, 'row')}, with ${n === 1 ? 'its' : 'their'} receipts) ${n === 1 ? 'stays' : 'stay'} on this computer: in the cloud only a workspace admin or the project's manager sees its budget, and you are neither (a workspace admin can make you the project's manager; then run again)`
 export const ROW_LINKS_LET_GO = (n) => `${plural(n, 'link')} of a phase, asset, task, shot, clip or bid version to a row removed on this computer, removed in the cloud (or in its trash), or not this project's there let go`
-export const ACTUALS_ON_GONE_LINES = (n) => `${plural(n, 'actual')} on a budget line removed on this computer, or in the cloud since an earlier run, not carried`
+export const ACTUALS_ON_GONE_LINES = (n) => `${plural(n, 'actual')} on a budget line removed on this computer, removed in the cloud since an earlier run, or not this project's there, not carried`
 export const TASK_LINKS_ON_GONE_TASKS = (n) => `${plural(n, 'link')} on a task removed on this computer, or in the cloud's trash, not carried`
 export const RECEIPTS_GATED = (n) => `${plural(n, 'receipt')} kept as an ordinary file on this computer ${n === 1 ? 'goes' : 'go'} up behind the money gate, as the expense or actual naming ${n === 1 ? 'it' : 'them'} does`
 export const SET_ASIDE_AGAIN = (n) => `${plural(n, 'row')} of the schedule set aside by the open bid version, as on this computer`
@@ -137,8 +137,8 @@ export const RECORD_NOT_KEPT = (why) => `this computer could not keep its record
 // Review round 1 (M2): a project whose id the cloud holds outside this
 // workspace (the same desktop moved into a second company) or out of this
 // person's sight is not this run's to fill — and was recorded, then called
-// removed by the next run.
-export const PROJECT_NOT_OURS = 'a project with this id is in the cloud, but not in this workspace or not one you can see, so none of it was written (it may have been moved into another company from this computer)'
+// removed by the next run. Review round 2: the cloud's trash hides one too.
+export const PROJECT_NOT_OURS = "a project with this id is in the cloud, but not one you can see in this workspace (another company's, a private one, or one in the cloud's trash — restored, it carries on the next run), so none of it was written"
 // A line's own percentage the cloud's column cannot hold refused the line and
 // every actual on it, on every run (budget_lines_pct_nonneg, NUMERIC(7,3)'s
 // room — measured): left out, so the line takes the project's, said.
@@ -148,9 +148,10 @@ export const LINE_PCTS_LEFT_OUT = (n) => `${plural(n, 'budget line')} ${n === 1 
 export const ACTUALS_TAKEN = (n) => `${plural(n, 'actual')} not carried: the cloud has another for the same budget line and period (entered there since)`
 export const RATES_TAKEN = (n) => `${plural(n, 'role rate')} not carried: the cloud has another rate for the same role on this project (set there since)`
 // A receipt an earlier build carried as an ordinary file (before M2 routed
-// receipts as money): said on every run, never recorded, so no run goes quiet
-// about it (review round 1).
-export const RECEIPTS_LEFT_OPEN = (n) => `${plural(n, 'receipt')} an earlier run carried as ${n === 1 ? 'an ordinary file' : 'ordinary files'} ${n === 1 ? 'is' : 'are'} open to every member of the project in the cloud: the migration cannot put ${n === 1 ? 'it' : 'them'} behind the money gate yet (a workspace admin can remove ${n === 1 ? 'it' : 'them'} there)`
+// receipts as money): said on every run while it stays open, never recorded
+// as carried (review round 1); kept apart in the record, so its removal
+// there stands (review round 2).
+export const RECEIPTS_LEFT_OPEN = (n) => `${plural(n, 'receipt')} an earlier run carried as ${n === 1 ? 'an ordinary file' : 'ordinary files'} ${n === 1 ? 'is' : 'are'} open to every member of the project in the cloud: the migration cannot put ${n === 1 ? 'it' : 'them'} behind the money gate yet (a workspace admin can remove ${n === 1 ? 'it' : 'them'} there, and no later run brings ${n === 1 ? 'it' : 'them'} back)`
 
 // The words for a row of each table the record names (REMOVED_SINCE_LAST_RUN).
 const TABLE_WORDS = {
@@ -1321,7 +1322,9 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         return removedNow.get(table)?.has(k) ? 'removed' : 'there'
       },
       // What this computer did once and never again (review round 1, H5):
-      // `pointers` (`locked:<id>`, `open:<id>`) and `set_aside` (row ids).
+      // `pointers` (`locked:<id>`, `open:<id>`) and `set_aside` (row ids);
+      // and the receipts it found open in the cloud (`receipts_open`, review
+      // round 2), whose removal there then stands.
       has: (key, id) => !!had.get(key)?.has(String(id)),
       removed(table, row, name) {
         report.removed.byTable[table] = (report.removed.byTable[table] || 0) + 1
@@ -1476,10 +1479,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         const r = await insertOrSkip(table, shaped, known[table] ? (x) => known[table].has(x.id) : null, keys)
         if (r.status === 'taken') return 'taken'
         if (r.status === 'inserted') { bumpInserted(bucket); rc.add(table, row.id, true); return 'inserted' }
+        // A skip by its id: with the project's rows read, this project's row
+        // was found above (`known`) and another project's throws, so the read
+        // failed — whose it is is not known.
         bumpSkipped(bucket)
-        if (!known[table]) return 'unread'
-        if (keepsId(r)) rc.add(table, row.id)
-        return 'there'
+        return 'unread'
       } catch (err) {
         report.errors.push({ scope, projectId, id: row.id, message: `${name}: ${err.message}` })
         bumpFailed(bucket)
@@ -1591,6 +1595,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       report.errors.push({ scope: 'project', projectId, message: `the project's locked and open bid versions were not set in the cloud (run again): its own could not be read (${err?.message || err})` })
       return
     }
+    // Review round 2: one the cloud already holds at this computer's value (a
+    // teammate's, or set by a run whose record was not kept) is recorded as
+    // set, so a teammate who clears it later is not overruled.
+    for (const [col, word] of POINTERS) if (col in want && String(cur[col] ?? '') === String(want[col])) rc.add('pointers', `${word}:${want[col]}`)
     const patch = {}
     for (const [col, v] of Object.entries(want)) if (cur[col] == null) patch[col] = v
     if (Object.keys(patch).length) {
@@ -1763,7 +1771,17 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         if (toCarry.length) {
           const have = await cloudIds('files', projectId)
           if (have.error) report.errors.push({ scope: 'files', projectId, message: `could not read the files already in the cloud: ${have.error.message || have.error}` })
-          else toCarry = toCarry.filter(f => !have.ids.has(f.id))
+          else {
+            toCarry = toCarry.filter((f) => {
+              if (have.ids.has(f.id)) return false
+              // A receipt an earlier run found open, gone since: removed
+              // there (the real run's rule, review round 2).
+              if (!rc.has('receipts_open', f.id)) return true
+              rc.removed('files', f)
+              report.files.total--
+              return false
+            })
+          }
         }
         toCarry = toCarry.filter(f => !folders.failed.has(desktopFolderOfFile(f, bundle.folders)?.id))
         const placeable = toCarry.filter(f => cloudFolderOfFile(f, bundle, folders.cloudOf))
@@ -2258,17 +2276,22 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           continue
         }
         const already = asked.row
+        // Review round 2: a receipt an earlier run found open that the cloud
+        // no longer shows was removed there (as RECEIPTS_LEFT_OPEN says an
+        // admin may, or put in the trash): counted, named, never uploaded.
+        if (!already && rc.has('receipts_open', f.id)) { rc.removed('files', f); continue }
         if (already) {
           // Review round 1 (M2): another project's file is not this one, and
           // never joins the record (a later run, not seeing it, would call it
           // removed); a receipt an earlier build carried as an ordinary file
-          // is said on every run, so it never goes quiet (not recorded).
+          // is said on every run while it stays open (review round 2: kept in
+          // the record apart, `receipts_open`, not as a carried file).
           if (already.project_id != null && already.project_id !== projectId) {
             report.errors.push({ scope: 'file', projectId, id: f.id, message: `${f.name || f.id}: a file with this id is in the cloud but is not this project's, so nothing was written for it` })
             bumpFailed(report.files)
             continue
           }
-          if (isMoney && already.is_financial === false) { receiptsOpen++; bumpSkipped(report.files); continue }
+          if (isMoney && already.is_financial === false) { receiptsOpen++; rc.add('receipts_open', f.id); bumpSkipped(report.files); continue }
           if (already.storage_path && already.storage_path !== objectPath) {
             report.errors.push({
               scope: 'file', projectId, id: f.id,

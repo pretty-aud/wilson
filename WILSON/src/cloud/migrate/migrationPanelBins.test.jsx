@@ -381,7 +381,7 @@ describe('the question, once per root', () => {
     }))
     const said = (id) => screen.getByTestId(id).textContent
     expect(said('receipts-left-open')).toBe(`${RECEIPTS_LEFT_OPEN(1)}.`)
-    expect(RECEIPTS_LEFT_OPEN(1)).toBe('1 receipt an earlier run carried as an ordinary file is open to every member of the project in the cloud: the migration cannot put it behind the money gate yet (a workspace admin can remove it there)')
+    expect(RECEIPTS_LEFT_OPEN(1)).toBe('1 receipt an earlier run carried as an ordinary file is open to every member of the project in the cloud: the migration cannot put it behind the money gate yet (a workspace admin can remove it there, and no later run brings it back)')
     expect(said('line-pcts-left-out')).toBe(`${LINE_PCTS_LEFT_OUT(2)}.`)
     expect(said('actuals-taken')).toBe(`${ACTUALS_TAKEN(1)}.`)
     expect(said('rates-taken')).toBe(`${RATES_TAKEN(1)}.`)

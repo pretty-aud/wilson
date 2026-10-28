@@ -2517,7 +2517,7 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(again.files.receiptsOpen).toBe(1)
   })
 
-  it('M2: someone the money gate shuts out asks nothing of the money files an earlier run carried, and calls none of them removed', async () => {
+  it('M2: someone the money gate shuts out leaves the money files an earlier run carried before the record is asked: none called removed, none written', async () => {
     const b = desktopFixtures()
     serve([b])
     await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
@@ -2624,5 +2624,56 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(dry.files.total).toBe(ALL_FILES.length - FILES.filter(f => f.is_financial).length)
     const real = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(real.files.total).toBe(dry.files.total)
+  })
+})
+
+// ── M2 review round 2 (Fable): round 1's corrections attacked ─────────────
+describe('M2 review round 2: what round 1 promised, held', () => {
+  it('F1: a pointer the cloud already holds at this computer\'s value is recorded as set, so a teammate who clears it later is not overruled', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    // A teammate locked the same version in the browser before this run.
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: WS, budget_active_version_id: versionV2, open_budget_version_id: null }]
+    const first = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(first.errors).toEqual([])
+    expect(fake.state.updates.filter(u => u.table === 'projects')).toEqual([])
+    expect(recordOf(b).pointers).toEqual([`locked:${versionV2}`])
+    // The teammate unlocks it: no later run locks it again.
+    fake.state.lists.projects[0].budget_active_version_id = null
+    fake.state.updates = []
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(fake.state.updates.filter(u => u.table === 'projects')).toEqual([])
+    expect(fake.state.lists.projects[0].budget_active_version_id).toBeNull()
+  })
+
+  it('F2: a receipt found open, then removed in the cloud, stays removed — counted and named, its body never uploaded; the dry run says the same', async () => {
+    const b = desktopFixtures()
+    const preC4 = FILES.filter(f => f.is_financial)[1].id
+    b.files = b.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
+    serve([b])
+    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: `projects/${PROJECT.id}/files/${preC4}/receipt.pdf`, is_financial: false }]
+    const first = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(first.files.receiptsOpen).toBe(1)
+    expect(recordOf(b).receipts_open).toEqual([preC4])
+    // An admin removes it in the browser, as the report's sentence says they may.
+    fake.state.lists.files = fake.state.lists.files.filter(f => f.id !== preC4)
+    fake.state.uploads = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const r of [dry, again]) {
+      expect(r.removed.rows).toEqual([expect.objectContaining({ table: 'files', id: preC4 })])
+      expect(r.files.receiptsOpen).toBe(0)
+    }
+    expect(dry.files.total).toBe(again.files.total)
+    expect(fake.state.uploads.filter(u => u.path.includes(preC4))).toEqual([])
+    expect(byId('files', preC4)).toBeUndefined()
+  })
+
+  it('F6: a project of this workspace in the cloud\'s trash (hidden from every read, its id still holding the key) is said in words that name the trash', async () => {
+    serve([desktopFixtures()])
+    fake.state.failWith = (table) => (table === 'projects' ? { code: '23505', message: 'duplicate key value violates unique constraint "projects_pkey"' } : null)
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([{ scope: 'project', projectId: PROJECT.id, message: PROJECT_NOT_OURS }])
+    expect(PROJECT_NOT_OURS).toBe("a project with this id is in the cloud, but not one you can see in this workspace (another company's, a private one, or one in the cloud's trash — restored, it carries on the next run), so none of it was written")
   })
 })
