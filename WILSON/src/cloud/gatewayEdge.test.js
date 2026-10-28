@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash, createHmac } from 'node:crypto'
 import {
-  isInsideHost, isPrivateLiteral, cleanInsideAddresses, clientAddress, compareVersions,
+  isInsideHost, isPrivateLiteral, cleanInsideAddresses, cleanInsideNames, clientAddress, compareVersions,
   parseEnrolRequest, parseSyncRequest, parseTicketRequest, parseEventsRequest, parseReachRequest,
   webAppOrigins, isSingleCertificatePem, cleanGatewayName, VERSION_RE, ENROL_ANSWER_FIELDS, SYNC_ANSWER_FIELDS,
 } from '../../supabase/functions/_shared/gatewayShapes.ts'
@@ -56,6 +56,12 @@ describe('inside addresses — what a member\'s browser may be sent to probe', (
     expect(cleanInsideAddresses(Array.from({ length: 40 }, (_, i) => `10.0.0.${i + 1}`))).toHaveLength(16)
     expect(cleanInsideAddresses('192.168.1.10')).toEqual([])
     expect(isPrivateLiteral('192.168.0.1')).toBe(true)
+  })
+  it('P8 (TPN-ENC-013): cleanInsideNames keeps the names and drops every literal (a browser probes these first, so a certificate naming the host alone opens the door)', () => {
+    expect(cleanInsideNames(['Studio-NAS', 'studio-nas.local', '192.168.1.10', 'fd12:3456::1', '8.8.8.8', 'evil.example.com', { host: 'nas.local', port: 9443 }], 8443)).toEqual([
+      { host: 'studio-nas', port: 8443 }, { host: 'studio-nas.local', port: 8443 }, { host: 'nas.local', port: 9443 },
+    ])
+    expect(cleanInsideNames(undefined)).toEqual([])
   })
 })
 
@@ -116,6 +122,11 @@ describe('parseEnrolRequest — gateway-enrol\'s shape', () => {
     const r = parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body({ inside_addresses: ['8.8.8.8', '192.168.1.10'] }))
     expect(r.value.gateway.inside_addresses).toEqual([{ host: '192.168.1.10', port: 8443 }])
   })
+  it('P8 (TPN-ENC-013): inside_names ride with the enrolment as [{ host, port }], literals dropped; absent is an empty list', () => {
+    const r = parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body({ inside_names: [{ host: 'Studio-NAS', port: 8443 }, { host: 'studio-nas.local', port: 8443 }, { host: '192.168.1.10', port: 8443 }] }))
+    expect(r.value.gateway.inside_names).toEqual([{ host: 'studio-nas', port: 8443 }, { host: 'studio-nas.local', port: 8443 }])
+    expect(parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body()).value.gateway.inside_names).toEqual([])
+  })
   it('isSingleCertificatePem: one certificate block only', () => {
     expect(isSingleCertificatePem(PEM)).toBe(true)
     expect(isSingleCertificatePem(PEM.replace('CERTIFICATE', 'PRIVATE KEY'))).toBe(false)
@@ -138,6 +149,10 @@ describe('parseSyncRequest — the heartbeat, reduced to what the cloud keeps', 
     expect(r.report.health.update).toHaveLength(128)
     expect(r.report.health.extra).toBeUndefined()
     expect(r.report.evil).toBeUndefined()
+  })
+  it('P8 (TPN-ENC-013): inside_names reported are cleaned like the addresses, literals out; a sync without them leaves the stored names alone', () => {
+    expect(parseSyncRequest({ inside_names: ['Studio-NAS', '192.168.1.10'], inside_port: 9443 }).report.inside_names).toEqual([{ host: 'studio-nas', port: 9443 }])
+    expect(parseSyncRequest({ version: '1.0.0' }).report.inside_names).toBeUndefined()
   })
   it('a reported version with words after it is not taken; a name is cleaned (round 2, finding 2)', () => {
     const r = parseSyncRequest({ version: '1.2.3 call Petal on 0800', name: 'Studio\u202e NAS' })

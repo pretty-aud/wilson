@@ -174,14 +174,17 @@ describe('the store: the certificates\' life (§3 "The day it expires")', () => 
     expect(await again.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ rootMade: false, leafMade: false });
     expect(again.state().rootFingerprint).toBe(s.state().rootFingerprint);
   });
-  it('an address change inside the /24 makes a new leaf only; outside it, a new root (and the line says so)', async () => {
+  // P8 (TPN-ENC-013): with the addresses IN the leaf (inside.ip_sans true, or an
+  // earlier install); a names-only leaf, the new default, follows no address at
+  // all (its own describe at the end of this file).
+  it('an address change inside the /24 makes a new leaf only; outside it, a new root (and the line says so) — when the leaf names addresses', async () => {
     const dir = path.join(tmp, 's2'); const now = { t: NOW };
     const s = store(dir, now); await s.load();
-    await s.ensure({ insideAddresses: ['192.168.1.10'] });
+    await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: true });
     const fp = s.state().rootFingerprint;
-    expect(await s.ensure({ insideAddresses: ['192.168.1.77'] })).toMatchObject({ rootMade: false, leafMade: true });
+    expect(await s.ensure({ insideAddresses: ['192.168.1.77'], ipSans: true })).toMatchObject({ rootMade: false, leafMade: true });
     expect(s.state().rootFingerprint).toBe(fp);
-    expect(await s.ensure({ insideAddresses: ['10.0.5.20'] })).toMatchObject({ rootMade: true, rootReplacedFor: '10.0.5.20', leafMade: true });
+    expect(await s.ensure({ insideAddresses: ['10.0.5.20'], ipSans: true })).toMatchObject({ rootMade: true, rootReplacedFor: '10.0.5.20', leafMade: true });
     expect(s.state().rootFingerprint).not.toBe(fp);
     expect(fs.existsSync(path.join(dir, 'root-previous.pem'))).toBe(true);
   });
@@ -255,12 +258,13 @@ describe('P8 (TPN-ENC-014): the store under a refusing secrets layer, and over a
   it('an address change outside the /24 under a refusal keeps the old root, on disk and in memory; the next ensure() with writes working replaces it', async () => {
     const dir = path.join(tmp, 'p2'); const now = { t: NOW };
     const s = mk(dir, plain, now);
-    await s.load(); await s.ensure({ insideAddresses: ['192.168.1.10'] });
+    // ipSans true throughout: the addresses in the leaf, so an address change does ask for a new root (P8, TPN-ENC-013).
+    await s.load(); await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: true });
     const fp = s.state().rootFingerprint;
     const rootPem = fs.readFileSync(path.join(dir, 'root.pem'), 'utf8');
     const leafPem = fs.readFileSync(path.join(dir, 'leaf.pem'), 'utf8');
     s.secrets = refusing;
-    expect(await s.ensure({ insideAddresses: ['10.0.5.20'] })).toMatchObject({ rootMade: false, rootReplacedFor: null, leafMade: false, refused: REASON });
+    expect(await s.ensure({ insideAddresses: ['10.0.5.20'], ipSans: true })).toMatchObject({ rootMade: false, rootReplacedFor: null, leafMade: false, refused: REASON });
     expect(s.state().rootFingerprint).toBe(fp);
     expect(s.state().writeRefused).toBe(REASON);
     expect(fs.readFileSync(path.join(dir, 'root.pem'), 'utf8')).toBe(rootPem);
@@ -268,10 +272,10 @@ describe('P8 (TPN-ENC-014): the store under a refusing secrets layer, and over a
     expect(fs.existsSync(path.join(dir, 'root-previous.pem'))).toBe(false);
     // The leaf's renewal under a refusal: the loaded leaf serves on.
     s.secrets = refusing; now.t = NOW + 380 * 86_400_000;
-    expect(await s.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ leafMade: false, refused: REASON });
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: true })).toMatchObject({ leafMade: false, refused: REASON });
     expect(fs.readFileSync(path.join(dir, 'leaf.pem'), 'utf8')).toBe(leafPem);
     s.secrets = plain;
-    expect(await s.ensure({ insideAddresses: ['10.0.5.20'] })).toMatchObject({ rootMade: true, rootReplacedFor: '10.0.5.20', leafMade: true, refused: null });
+    expect(await s.ensure({ insideAddresses: ['10.0.5.20'], ipSans: true })).toMatchObject({ rootMade: true, rootReplacedFor: '10.0.5.20', leafMade: true, refused: null });
     expect(s.state().writeRefused).toBeNull();
     expect(fs.existsSync(path.join(dir, 'root-previous.pem'))).toBe(true);
   });
@@ -307,5 +311,61 @@ describe('P8 (TPN-ENC-014): the store under a refusing secrets layer, and over a
     const third = mk(dir, real, now);
     expect(await third.load()).toBe(true);
     expect(real.status().unsealed).toBe(0);
+  });
+});
+
+// P8 (TPN-ENC-013): the office-door leaf names the host, not its private
+// addresses. The root's permitted networks are unchanged (turning addresses
+// on later needs no new root); an earlier install keeps its addresses until
+// inside.ip_sans says; a host with no DNS-label name keeps them always.
+describe('P8 (TPN-ENC-013): the office-door leaf names the host, not its addresses', () => {
+  const plain = { protect: async (b) => Buffer.from(b), unprotect: async (b) => Buffer.from(b) };
+  const san = (dir) => certInfo(fs.readFileSync(path.join(dir, 'leaf.pem'), 'utf8')).subjectAltName;
+  const mk = (dir, now, hostname = 'studio-nas') => new CertStore({ dir, secrets: plain, hostname, now: () => now.t });
+
+  it('a new store: DNS names only, no IP Address SAN; an address change outside the /24 replaces no root; ip_sans true adds the addresses under the same root; false drops them', async () => {
+    const dir = path.join(tmp, 'n1'); const now = { t: NOW };
+    const s = mk(dir, now); await s.load();
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ rootMade: true, leafMade: true });
+    expect(san(dir)).toContain('DNS:studio-nas');
+    expect(san(dir)).toContain('DNS:studio-nas.local');
+    expect(san(dir)).not.toContain('IP Address');
+    expect(s.state()).toMatchObject({ ipSans: null, rootPermitted: { dns: ['studio-nas', 'studio-nas.local'], nets: ['192.168.1.0/24'] } });
+    const fp = s.state().rootFingerprint;
+    expect(await s.ensure({ insideAddresses: ['10.0.5.20'] })).toMatchObject({ rootMade: false, rootReplacedFor: null, leafMade: false });
+    expect(s.state().rootFingerprint).toBe(fp);
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: true })).toMatchObject({ rootMade: false, leafMade: true });
+    expect(san(dir)).toContain('IP Address:192.168.1.10');
+    expect(s.state()).toMatchObject({ ipSans: 'config', rootFingerprint: fp });
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: false })).toMatchObject({ rootMade: false, leafMade: true });
+    expect(san(dir)).not.toContain('IP Address');
+    expect(s.state().ipSans).toBeNull();
+  });
+  it('an earlier install (its leaf names addresses) keeps them while ip_sans is unset, with the reason for the line; false drops them at the next ensure()', async () => {
+    const dir = path.join(tmp, 'n2'); const now = { t: NOW };
+    const s = mk(dir, now); await s.load();
+    await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: true });
+    const back = mk(dir, now); await back.load();
+    expect(back.legacyIpSans()).toBe(true);
+    expect(await back.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ leafMade: false });
+    expect(back.state().ipSans).toBe('legacy');
+    expect(san(dir)).toContain('IP Address:192.168.1.10');
+    expect(await back.ensure({ insideAddresses: ['192.168.1.77'] })).toMatchObject({ rootMade: false, leafMade: true });
+    expect(san(dir)).toContain('IP Address:192.168.1.77');
+    expect(back.state().ipSans).toBe('legacy');
+    expect(await back.ensure({ insideAddresses: ['192.168.1.77'], ipSans: false })).toMatchObject({ leafMade: true });
+    expect(san(dir)).not.toContain('IP Address');
+    expect(back.state().ipSans).toBeNull();
+    const third = mk(dir, now); await third.load();
+    expect(third.legacyIpSans()).toBe(false);
+    expect(await third.ensure({ insideAddresses: ['192.168.1.77'] })).toMatchObject({ leafMade: false });
+    expect(third.state().ipSans).toBeNull();
+  });
+  it('a host whose name is no DNS label keeps its addresses in the leaf whatever ip_sans says (never a leafless door), and the state says why', async () => {
+    const dir = path.join(tmp, 'n3'); const now = { t: NOW };
+    const s = mk(dir, now, 'studio nas!'); await s.load();
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'], ipSans: false })).toMatchObject({ rootMade: true, leafMade: true });
+    expect(san(dir)).toBe('IP Address:192.168.1.10');
+    expect(s.state().ipSans).toBe('no_name');
   });
 });

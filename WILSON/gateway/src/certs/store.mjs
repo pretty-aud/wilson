@@ -56,6 +56,8 @@ export class CertStore {
     // key file is present but does not open.
     this.writeRefused = null;
     this.unreadable = new Map();
+    // P8 (TPN-ENC-013): why the leaf names addresses ('config' | 'legacy' | 'no_name'), or null (names only).
+    this.ipSans = null;
   }
 
   #f(name) { return path.join(this.dir, name); }
@@ -130,12 +132,23 @@ export class CertStore {
   }
 
   /**
-   * @param {{ insideAddresses: string[] }} p
+   * @param {{ insideAddresses: string[], ipSans?: boolean|null }} p
    */
-  async ensure({ insideAddresses }) {
+  async ensure({ insideAddresses, ipSans = null }) {
     const t = this.now();
     const addresses = [...new Set((insideAddresses || []).map(normalizeIp).filter(Boolean))];
     const names = hostNames(this.hostname);
+    // P8 (TPN-ENC-013): the LEAF names this host's addresses only when config
+    // inside.ip_sans asks (true); when the option is unset and the leaf loaded
+    // from disk already names them (an earlier install keeps what its office
+    // computers reach it by, until the option says otherwise); or when this
+    // host has no DNS-label name (a leaf with no name and no address would
+    // close the doors). The ROOT's permitted networks are made from the
+    // addresses either way, so turning the option on later needs no new root,
+    // and a names-only leaf never replaces the root for an address change.
+    const ipWhy = ipSans === true ? 'config' : names.length === 0 ? 'no_name' : (ipSans == null && this.legacyIpSans()) ? 'legacy' : null;
+    const leafAddresses = ipWhy ? addresses : [];
+    this.ipSans = ipWhy;
     const out = { rootMade: false, rootReplacedFor: null, nextRootMade: false, nextRootPromoted: false, leafMade: false, refused: null, unreadable: null };
     await this.fsp.mkdir(this.dir, { recursive: true });
 
@@ -155,7 +168,7 @@ export class CertStore {
       this.root = fresh;
       out.rootMade = true;
     } else {
-      const cover = this.#covers(this.root, { names, addresses });
+      const cover = this.#covers(this.root, { names, addresses: leafAddresses });
       if (!cover.ok) {
         const fresh = this.#makeRootPair(addresses);
         const sealed = await this.#sealKey(fresh);
@@ -191,7 +204,7 @@ export class CertStore {
     }
 
     const wantNames = names;
-    const wantAddresses = addresses;
+    const wantAddresses = leafAddresses; // P8 (TPN-ENC-013)
     const leafOk = this.leaf
       && this.leaf.meta.rootFingerprint === this.root.meta.fingerprint
       && this.leaf.meta.notAfter - t > LEAF_RENEW_DAYS * DAY
@@ -216,6 +229,11 @@ export class CertStore {
     return out;
   }
 
+  /** P8 (TPN-ENC-013): does the leaf loaded from disk name addresses? (An earlier install keeps them until inside.ip_sans says.) */
+  legacyIpSans() {
+    return !!this.leaf && (this.leaf.meta.addresses || []).length > 0;
+  }
+
   state() {
     const t = this.now();
     return {
@@ -232,6 +250,8 @@ export class CertStore {
       // P8 (TPN-ENC-014): for the health line.
       writeRefused: this.writeRefused,
       unreadable: this.unreadable.get('root') ?? this.unreadable.get('leaf') ?? null,
+      // P8 (TPN-ENC-013): why the leaf names addresses, or null.
+      ipSans: this.ipSans,
     };
   }
 }

@@ -120,7 +120,8 @@ describe('enrolment (§2)', () => {
       // contain wgc_x", failed whenever a random credential began with an x: CI, 00e25939.)
       expect(fs.readFileSync(path.join(W.stateDir, 'credential.bin')).subarray(0, 8).toString('latin1')).toBe('WGSEALD1');
       const enrolBody = W.cloud.state.gateways.get(W.cloud.onlyGateway()).enrolBody;
-      expect(enrolBody).toMatchObject({ name: 'studio-nas', hostname: 'studio-nas', version: VERSION, inside_addresses: [], inside_names: ['studio-nas', 'studio-nas.local'] });
+      // P8 (TPN-ENC-013): the names in the cloud's [{ host, port }] shape (gateways.inside_names, 0104).
+      expect(enrolBody).toMatchObject({ name: 'studio-nas', hostname: 'studio-nas', version: VERSION, inside_addresses: [], inside_names: [{ host: 'studio-nas', port: 8443 }, { host: 'studio-nas.local', port: 8443 }] });
       expect(enrolBody.root_cert_pem).toMatch(/BEGIN CERTIFICATE/);
       expect(enrolBody.root_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     } finally { await W.close(); }

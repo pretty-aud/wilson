@@ -144,7 +144,7 @@ export class Gateway {
     await this.#chooseAddresses();
     this.certs = new CertStore({ dir: path.join(this.stateDir, FILES.certs), secrets: this.secrets, hostname: this.hostname, now: this.now });
     await this.certs.load();
-    const made = await this.certs.ensure({ insideAddresses: this.choice.addresses.map((a) => a.address) });
+    const made = await this.certs.ensure({ insideAddresses: this.choice.addresses.map((a) => a.address), ipSans: this.config.inside.ip_sans });
     this.#noteCertChange(made);
     // GW4: the outside door's free certificate (design §3, D4).
     this.acme = new AcmeManager({
@@ -284,7 +284,7 @@ export class Gateway {
       root_cert_pem: st.rootPem,
       root_fingerprint: st.rootFingerprint,
       inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.inside.servers.get(a.address)?.port || this.config.inside.port })),
-      inside_names: hostNames(this.hostname),
+      inside_names: this.#insideNames(), // P8 (TPN-ENC-013): [{ host, port }], probed before the addresses
     });
     if (!res.ok) return { ok: false, error: res.status === 401 || res.status === 403 || res.status === 404 || res.status === 410 ? ENROL_SENTENCES.refused : res.unreachable ? ENROL_SENTENCES.unreachable(url) : (res.error || ENROL_SENTENCES.refused) };
     const clean = cleanEnrolAnswer(res.data);
@@ -341,7 +341,7 @@ export class Gateway {
     const before = (this.choice?.addresses || []).map((a) => a.address).sort().join(',');
     await this.#chooseAddresses();
     const after = this.choice.addresses.map((a) => a.address).sort().join(',');
-    const made = await this.certs.ensure({ insideAddresses: this.choice.addresses.map((a) => a.address) });
+    const made = await this.certs.ensure({ insideAddresses: this.choice.addresses.map((a) => a.address), ipSans: this.config.inside.ip_sans });
     this.#noteCertChange(made);
     if (before !== after || made.leafMade || made.rootMade) {
       this.log('addresses', { before, after });
@@ -568,7 +568,7 @@ export class Gateway {
       platform: this.platform,
       hostname: this.hostname,
       inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.inside.servers.get(a.address)?.port || this.config.inside.port })),
-      inside_names: hostNames(this.hostname),
+      inside_names: this.#insideNames(), // P8 (TPN-ENC-013): [{ host, port }], probed before the addresses
       root_fingerprint: st.rootFingerprint,
       // A location not checked yet is left out: the cloud takes the four words only.
       reach: Object.fromEntries([...this.locations.values()].filter((l) => l.state !== 'unknown').map((l) => [l.id, l.state])),
@@ -765,7 +765,7 @@ export class Gateway {
       locations: [...this.locations.values()].map((l) => ({ name: l.name, unc: l.unc, state: l.state === 'unknown' ? null : l.state, since: l.since, mountAt: containerRootFor(l.unc) })),
       // P8 (TPN-ENC-014): a refused write or an unreadable key file reaches the line even with no leaf to show.
       certificate: this.ownInside ? { kind: 'own', ownUntil: this.ownInside.notAfter, refused: st.writeRefused, unreadable: st.unreadable }
-        : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null, refused: st.writeRefused, unreadable: st.unreadable }
+        : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null, refused: st.writeRefused, unreadable: st.unreadable, ipSans: st.ipSans ?? null }
         : (st.writeRefused || st.unreadable) ? { kind: 'none', refused: st.writeRefused, unreadable: st.unreadable } : null,
       outsideCertificate: this.#outsideCertificateState(),
       update: (() => { const u = this.updates.state(); return { ...u, running: VERSION, channel: this.updates.channel?.() ?? null }; })(),
@@ -802,6 +802,18 @@ export class Gateway {
       line: line.text,
       warnings: line.warnings.map((w) => w.text),
     };
+  }
+
+  /**
+   * P8 (TPN-ENC-013): the names the office door answers to, with its port, in
+   * the cloud's [{ host, port }] shape (gateways.inside_names, 0104). A
+   * member's browser probes these before the addresses, so a certificate that
+   * names the host alone still opens the door.
+   */
+  #insideNames() {
+    const servers = [...this.inside.servers.values()];
+    const port = servers.length === 1 ? servers[0].port : this.config.inside.port;
+    return hostNames(this.hostname).map((host) => ({ host, port }));
   }
 
   /** status.json, for `wilson-gateway doctor` (the inside door refuses this very computer). */

@@ -18,6 +18,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'src', 'cli.mjs');
 
 describe('config.json (config.mjs)', () => {
+  it('P8 (TPN-ENC-013): inside.ip_sans is true, false or absent (null); anything else is named and ignored', () => {
+    expect(parseConfig('{}').config.inside.ip_sans).toBeNull();
+    expect(parseConfig(JSON.stringify({ inside: { ip_sans: true } })).config.inside.ip_sans).toBe(true);
+    expect(parseConfig(JSON.stringify({ inside: { ip_sans: false } })).config.inside.ip_sans).toBe(false);
+    const { config, problems } = parseConfig(JSON.stringify({ inside: { ip_sans: 'yes' } }));
+    expect(config.inside.ip_sans).toBeNull();
+    expect(problems).toEqual(['inside.ip_sans (true or false)']);
+  });
   it('the defaults: 8443 inside, 8444 outside, no proxy, the gateway\'s own certificates', () => {
     const { config, problems } = parseConfig('');
     expect(config).toEqual(DEFAULT_CONFIG);

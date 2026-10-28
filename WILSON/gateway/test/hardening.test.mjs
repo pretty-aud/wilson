@@ -82,8 +82,12 @@ describe('every setting it gives parses to what it says (config.mjs)', () => {
   });
   it('the company\'s own certificate for either door, and a domain\'s servers', () => {
     expect(parse(lines.find((l) => l.startsWith('"outside": { "certificate"'))).config.outside.certificate).toEqual({ cert: 'outside.pem', key: 'outside-key.pem' });
-    const inside = parse(lines.find((l) => l.startsWith('"inside"')).replace(/…/g, 'x.pem'));
+    // P8 (TPN-ENC-013): the guide's first `"inside"` snippet is now ip_sans (§4 point 8); the certificate's is found by name.
+    const inside = parse(lines.find((l) => l.startsWith('"inside": { "certificate"')).replace(/…/g, 'x.pem'));
     expect(inside.config.inside.certificate).toEqual({ cert: 'x.pem', key: 'x.pem' });
+    const ipSans = parse(lines.find((l) => l.startsWith('"inside": { "ip_sans"')));
+    expect(ipSans.problems).toEqual([]);
+    expect(ipSans.config.inside.ip_sans).toBe(true);
     const domain = parse(lines.find((l) => l.startsWith('"connect_without_login"')));
     expect(domain.problems).toEqual([]);
     expect(domain.config.connect_without_login).toEqual(['nas']);
@@ -203,12 +207,21 @@ describe('what the guide tells an admin to check or do is the code\'s', () => {
     expect(ids).toEqual(['TS-2', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
     expect(s11).toContain('| TS-2 (segmentation, default deny) |');
   });
-  it('names the one signal TPN\'s list would flag, and the office door\'s certificate does carry the office address', () => {
+  // P8 (TPN-ENC-013): the signal is retired by default — the office certificate
+  // names the host alone; the addresses only on request, said in amber.
+  it('P8 (TPN-ENC-013): §10 says the office certificate names the host, not its addresses, and §4 says what must resolve the name', () => {
     const s10 = guide.slice(guide.indexOf('## 10. '), guide.indexOf('## 11. '));
-    expect(s10).toContain("- **The office door's certificate names private addresses.** TPN's list of prohibited signals includes private (RFC 1918) addresses in certificates");
+    expect(s10).toContain("- **The office door's certificate names the host, not its addresses — unless told to.** TPN's list of prohibited signals includes private (RFC 1918) addresses in certificates. Since P8 (TPN-ENC-013)");
+    expect(s10).not.toContain("- **The office door's certificate names private addresses.**");
+    const s4 = guide.slice(guide.indexOf('## 4. '), guide.indexOf('## 5. '));
+    expect(s4).toContain('**And the office computers must resolve the gateway\'s name** (P8, TPN-ENC-013)');
+    expect(s4).toContain('`"inside": { "ip_sans": true }`');
+    // The primitive still takes addresses (the store passes none by default: certs.test.mjs).
     const root = makeRoot({ hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
-    const leaf = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
-    expect(new crypto.X509Certificate(leaf.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
+    const named = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: [] });
+    expect(new crypto.X509Certificate(named.certPem).subjectAltName).toBe('DNS:studio-pc, DNS:studio-pc.local');
+    const withAddress = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
+    expect(new crypto.X509Certificate(withAddress.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
   });
 });
 

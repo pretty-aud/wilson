@@ -265,7 +265,7 @@ describe('GW3: the browser\'s playback calls', () => {
     expect(res.ok).toBe(true)
     expect(holder.sb.log).toContainEqual(['from', 'gateways_visible'])
     const select = holder.sb.log.find(l => l[0] === 'select')[1]
-    for (const col of ['id', 'workspace_id', 'name', 'inside_addresses', 'reach', 'last_seen_at', 'root_fingerprint', 'outside_address']) expect(select).toContain(col)
+    for (const col of ['id', 'workspace_id', 'name', 'inside_addresses', 'inside_names', 'reach', 'last_seen_at', 'root_fingerprint', 'outside_address']) expect(select).toContain(col)
     expect(select).not.toMatch(/root_cert_pem|reach_nonce|revoked_at/)
     expect(holder.sb.log).toContainEqual(['order', 'name'])
   })

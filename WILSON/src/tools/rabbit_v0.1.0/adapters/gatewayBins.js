@@ -207,7 +207,9 @@ export function composeGatewayBins(cloud, {
     }
   }
   function basesOf(g) {
-    const inside = Array.isArray(g.inside_addresses) ? g.inside_addresses.filter((a) => a && a.host).map((a) => doorBase(a.host, a.port)) : []
+    const doors = (list) => (Array.isArray(list) ? list.filter((a) => a && a.host).map((a) => doorBase(a.host, a.port)) : [])
+    // P8 (TPN-ENC-013): the names before the addresses, as the probe tries them.
+    const inside = [...doors(g.inside_names), ...doors(g.inside_addresses)]
     const out = g.outside_address && g.outside_address.host ? [doorBase(g.outside_address.host, g.outside_address.port)] : []
     return [...inside, ...out]
   }
@@ -284,7 +286,9 @@ export function composeGatewayBins(cloud, {
     else if (reached.length) state = 'reached'
     else if (S.gateways.length) state = S.gateways.every(unseen) ? 'unseen' : 'unreachable'
     const first = S.gateways.find((g) => !unseen(g)) || S.gateways[0] || null
-    const address = first ? (first.inside_addresses?.[0] ? `${first.inside_addresses[0].host}:${first.inside_addresses[0].port}` : (first.outside_address ? `${first.outside_address.host}:${first.outside_address.port}` : null)) : null
+    // P8 (TPN-ENC-013): the first name before the first address, as the probe tries them.
+    const door = first ? (first.inside_names?.[0] || first.inside_addresses?.[0] || first.outside_address || null) : null
+    const address = door && door.host ? `${door.host}:${door.port}` : null
     const seen = first ? Date.parse(first.last_seen_at) : NaN
     return {
       state,

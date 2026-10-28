@@ -573,6 +573,17 @@ describe('round 1\'s corrections (GW3 review round 1)', () => {
     expect(w.doors.probe).toHaveBeenCalledTimes(2)
     expect(w.c.summary().reached[0].base).toBe('https://192.168.1.44:8443')
   })
+  it('P8 (TPN-ENC-013): a door reached at one of the gateway\'s NAMES is believed and kept, and the summary names it before any address', async () => {
+    const list = [gw({ inside_names: [{ host: 'studio-nas.local', port: 8443 }] })]
+    const w = world({ gateways: () => list })
+    w.doors.probe.mockImplementationOnce(async (g) => ({ door: 'inside', base: 'https://studio-nas.local:8443', gatewayId: g.id }))
+    await w.c.discover()
+    expect(w.c.summary().reached[0].base).toBe('https://studio-nas.local:8443')
+    expect(w.c.summary().address).toBe('studio-nas.local:8443')
+    await w.c.refreshGateways()
+    expect(w.doors.probe).toHaveBeenCalledTimes(1)
+    expect(w.c.summary().reached[0].base).toBe('https://studio-nas.local:8443')
+  })
 })
 
 function refuseRenewal(w) { w.doors.renew.mockImplementationOnce(async () => ({ ok: false, status: 401 })) }

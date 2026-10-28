@@ -244,6 +244,13 @@ describe('the health line (§8)', () => {
     expect(none.segments.find((s) => /^certificate:/.test(s.text))).toEqual({ text: 'certificate: not made yet', tone: 'amber' });
     expect(none.warnings).toEqual([['red', `the gateway could not write its certificates (${NO_KEY}): nothing is made or renewed until secrets can be written`]].map(([tone, text]) => ({ text, tone })));
   });
+  it('P8 (TPN-ENC-013): an office certificate that names addresses is said in amber, with why', () => {
+    const w = (ipSans) => composeHealthLine({ ...example, certificate: { ...example.certificate, ipSans } }).warnings;
+    expect(w(null)).toEqual([]);
+    expect(w('legacy')).toEqual([{ text: 'the office certificate still names this computer\u2019s addresses (an earlier install): set inside.ip_sans false in config.json to name the host alone at the next renewal, or true to keep them', tone: 'amber' }]);
+    expect(w('config')).toEqual([{ text: 'the office certificate names this computer\u2019s addresses (inside.ip_sans is true): browsers may reach the gateway by address, which the TPN asks to retire', tone: 'amber' }]);
+    expect(w('no_name')).toEqual([{ text: 'this computer\u2019s name is no DNS label, so the office certificate names its addresses only: give it a name browsers can resolve', tone: 'amber' }]);
+  });
   it('the lines under it: the red public-address line, the amber relay line, the root\'s notice', () => {
     const w = composeHealthLine({ ...example, inside: { ...example.inside, refusedPublic: 12, port: 8443, relay: { viewers: 14, address: '192.168.1.77' } }, certificate: { ...example.certificate, rootExpiryNotice: true }, revoked: true, smb: [{ unc: '\\\\nas\\footage', dialect: '2.1' }, { unc: '\\\\nas\\grade', dialect: '3.1.1' }] }).warnings;
     expect(w).toEqual([

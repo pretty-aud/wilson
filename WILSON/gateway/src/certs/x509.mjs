@@ -167,6 +167,10 @@ export function makeLeaf({ rootCertPem, rootKeyPem, hostname, insideAddresses, n
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
   const spki = publicKey.export({ type: 'spki', format: 'der' });
   const dns = [...hostNames(hostname), ...extraDnsNames];
+  // P8 (TPN-ENC-013): the store passes NO addresses here unless config
+  // inside.ip_sans asks for them, an earlier install's leaf already named
+  // them, or the host has no DNS-label name (certs/store.mjs): a new
+  // install's office-door leaf names the host alone.
   const ips = (insideAddresses || []).map((a) => parseIp(String(a))).filter(Boolean);
   const sans = [...dns.map((d) => implicitPrimitive(2, Buffer.from(d, 'ascii'))), ...ips.map((ip) => implicitPrimitive(7, ipBytes(ip)))];
   if (sans.length === 0) throw new Error('certificate: a leaf needs a name or an address');
