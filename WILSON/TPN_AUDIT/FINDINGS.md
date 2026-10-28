@@ -366,6 +366,8 @@ published, and the misuse the ban targets (a publicly trusted certificate for a 
 it as CRITICAL; the release gate holds production either way. Fix shape: DNS names only by default, the office door probed by name,
 IP SANs an explicit opt-in (`config.json`'s own-certificate option keeps them today).
 
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
+
 ---
 
 ## TPN-ENC-014 — The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure
@@ -408,6 +410,8 @@ administrator of the gateway's computer (or whoever owns the NAS's `/data`) can 
 accepts it, so it is not filed as an intentional exception. Review round 2 removed round 1's share login from the container's list.
 The key-life half is TPN-ENC-016.
 
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
+
 ---
 
 ## TPN-ENC-015 — The bucket-secret and AI-key master secrets are identical on dev, staging and production
@@ -447,6 +451,9 @@ removed two claims of round 1: no code seals Google Drive tokens with this secre
 storage-secret, storage-gc and `_shared/storageSecretCrypto.ts`; no Drive provider was built), and sessions do not hold the value
 (OWED_AUDREY.md forbids it; the CLI and the dashboard show a digest only).
 
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
+Production takes its own value first, while it holds none (`docs/PRODUCTION_RUNBOOK.md`, *TPN-ENC-015, at release*).
+
 ---
 
 ## TPN-ENC-016 — The gateway's root key lives ten years on its host, and its release key has no successor
@@ -482,6 +489,8 @@ range, on the key every office computer trusts, which is the HIGH case of a Best
 are credentials, checklist step 1). The release key's missing successor alone would be MEDIUM (audit-passes: no rotation mechanism);
 the root's cadence sets the rating. The ten-year root is the design's pick D3, which stands among the picks she did not reopen
 (GATEWAY_QUESTIONS.md, "the design's picks stand"); that is not a ruling like G6 or D14, so it is not filed as an intentional exception.
+
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
 ---
 
@@ -849,6 +858,8 @@ materially unmet for everything the gateway serves. The desktop does not have it
 credentials, so the share's permissions apply. Fix shape: limit the rows the gateway serves, and writes to bin_locations and
 bin_files' paths, to admins and managers, or scope each location's root to a project; a pgTAP probe that a reviewer-inserted or
 re-pointed path is not confirmed.
+
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
 ---
 
@@ -1550,6 +1561,8 @@ opened: 2026-10-28
 reach is the platform's to bound: the gap is certain from the code, the reachability is not measurable read-only. Precedent in this
 file: TPN-NET-002, the desktop's open URL proxies, is HIGH. Fix shape: refuse every 3xx (redirect: 'manual'), resolve the host and
 refuse a non-public address with isPublicIp, connect to the address that was checked, at save and at every use.
+
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
 ---
 
@@ -2505,6 +2518,8 @@ opened: 2026-10-28
 left, systematically, where CONT-014's orphans are an edge case. Measured from the code, not from a teardown. Fix shape: collect
 bin_files.poster_path, or list `projects/{id}/bin_files/` by prefix as the avatar pass lists its own, before the CASCADE, and certify
 it on its own line; the proof is a prefix listing that finds nothing after a teardown.
+
+**Her ruling, 2026-10-28** (walkthrough 85 Q1, (a)): fixed before the release, by one session on Phase 8 of `REMEDIATION_PLAN.md`.
 
 ---
 
@@ -3516,6 +3531,11 @@ the release gate like the other ten (review round 2 removed round 1's carve-out,
 It closes by the release's own steps (`docs/PRODUCTION_RUNBOOK.md` (c), the two FX12 functions, and (g) 17, the sweep) and by her
 sweep on staging, which is why walkthrough 85 Q1 asks her to accept it for the start of the production steps. Production had no
 users on 2026-09-07 (track-c-C2), so its half may be empty: the runbook's a7 counts it.
+
+**Accepted for the start of the production steps** by her ruling of 2026-10-28 (walkthrough 85 Q1, in chat, verbatim): *"(a) —
+one session fixes the other seven before the release (Phase 8), and I accept TPN-AI-009 for the start of the production steps,
+since it closes at the runbook's (c) and (g) 17 before 9 November."* It stays HIGH and open until those steps close it, and her
+reason rests on that date: if (g) 17 cannot run before 2026-11-09, it no longer holds. The next audit checks that they closed it.
 
 ---
 

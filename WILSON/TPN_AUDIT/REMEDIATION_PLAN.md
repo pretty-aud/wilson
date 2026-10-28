@@ -444,6 +444,10 @@ change of its own. TPN-LOG-012 and TPN-SDLC-014 are her rulings (G6, D14), filed
 **Entry criteria:**
 - Audrey's ruling, per HIGH: fixed before 1.0, or accepted for 1.0 with the reason recorded in `FINDINGS.md` (walkthrough 85 Q1
   and Q2 put it to her).
+  **Q1, ruled on 2026-10-28, (a):** TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013 and TPN-ENC-016
+  are fixed before the release by one session on this phase; TPN-AI-009 is accepted for the start of the production steps (her
+  words in its block). **Q2 waits:** whether TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 join that session or follow their classes
+  past 1.0.
 - A wilson-dev session that may apply a migration, deploy functions there and cut a gateway release (the house method,
   `docs/sessions/handoffs/po-b1-2026-10-27.md` §4; the gateway's own pipeline).
 

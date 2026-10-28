@@ -17,6 +17,13 @@ the controller's on production, after the TPN re-audit reports nothing High." Wa
 ruling on each finding below (fixed before 1.0, or accepted for 1.0 with the reason written into the finding) stand for "nothing
 High"; that is R2's proposal, not the plan's text, and until she rules the controller's production steps wait.
 
+**Q1 ruled on 2026-10-28** (Audrey, in chat, verbatim): *"(a) — one session fixes the other seven before the release (Phase 8),
+and I accept TPN-AI-009 for the start of the production steps, since it closes at the runbook's (c) and (g) 17 before 9 November."*
+So items 1 to 7 below are fixed before the release by one session on Phase 8 of `REMEDIATION_PLAN.md`, which the controller names
+(`docs/sessions/PLAN_TO_1_0.md` §5 rule 8), and item 8 is accepted for the start of the production steps, her reason in its block.
+No severity changes: the seven stay open until that session's fixes are verified, and TPN-AI-009 until the runbook's steps close it.
+**Q2, items 9 to 11, still waits for her.**
+
 *The areas' own defects (8):*
 
 1. **[TPN-AUTH-012]** The file gateway serves any path a member catalogues, so a catalogue write reads the share —
@@ -37,7 +44,7 @@ High"; that is R2's proposal, not the plan's text, and until she rules the contr
 8. **[TPN-AI-009]** Pre-FX12 AI-file uploads on staging and production never expire and soon cannot be attributed —
    `docs/OUTSTANDING.md` FX12-01; production lacks `ai-files`' and `operator-ai-files`' FX12 copies. It closes by the release's
    own steps (`docs/PRODUCTION_RUNBOOK.md` (c) and (g) 17) and her sweep on staging, so it cannot be fixed before the production
-   steps start: walkthrough 85 Q1 asks her to accept it for their start.
+   steps start: walkthrough 85 Q1 asked her to accept it for their start, and she did on 2026-10-28.
 
 *The areas' own instances of this pack's open classes (3),* each a choice in the areas' own code, where the same areas do more next
 door, and rated as its class is:

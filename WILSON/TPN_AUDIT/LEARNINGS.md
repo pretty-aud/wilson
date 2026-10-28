@@ -226,3 +226,6 @@ Appended; nothing above was changed.
   against every bucket writer; the gateway's leaf SANs, key lifetimes and secret store; HARDENING.md's custody and timing lines against
   the code; the environments' encryption-secret digests; every admin write made through RLS (0048, 0093) for an aal check; ai-files'
   key resolution; her rulings in the `*_QUESTIONS.md` files.
+- **Accepted by her on 2026-10-28 (walkthrough 85 Q1, (a)): TPN-AI-009, for the start of the production steps,** because the
+  runbook's (c) and (g) 17 close it before 2026-11-09. The next audit checks it closed by those steps and does not re-escalate it
+  without new evidence. The other seven of the areas' own HIGHs she chose to have fixed before the release (Phase 8).

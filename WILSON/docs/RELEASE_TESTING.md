@@ -578,7 +578,8 @@ Plan §0, the four conditions, as boxes:
       beta before 2026-11-09.
 - [ ] **The TPN re-audit** (plan §0 item 4: "after the TPN re-audit reports nothing High"): `TPN_AUDIT/SUMMARY.md`'s *Release gate*
       reads 0 Critical and 0 High open in the four areas. On 2026-10-28 it reads 11 High; walkthrough 85 Q1 and Q2 propose that her
-      ruling on each count as nothing High.
+      ruling on each count as nothing High. Q1 was ruled the same day: seven fixed before the release (Phase 8), TPN-AI-009
+      accepted for the start of the production steps; Q2 waits.
 - [ ] **The controller's production steps**: `docs/PRODUCTION_RUNBOOK.md` in the order of its (g), her steps and the controller's
       interleaved, production's AI-files sweep before 2026-11-09 among them.
 - [ ] **The release**: `package.json` at `1.0.0` (it is); `CHANGELOG.md`'s 1.0.0 entry dated in the release commit; PR #4
