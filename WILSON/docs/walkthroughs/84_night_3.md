@@ -337,7 +337,7 @@ one with files you marked Core in R.A.B.B.I.T.'s Files tab.
 | 1 | Open D.O.G. | One card at the top, **1 PROJECT AND REFERENCES**, *None chosen* at its right: *Choose a project*, the dropdown and New project; then *What goes to the AI…*, Uploads, *Choose a project to reference its items and files…*, the bar, **Add references** and beside it **Core files only**, grey, with *Core files come from a project: choose one above.* under it |
 | 2 | On your widest window, look at the bar | It ends where *What goes to the AI…* ends, not at the card's edge |
 | 3 | Choose a project with Core files | *Core files only* turns on, with no sentence. (A project with none keeps it grey: *This project has no Core files D.O.G. can read.*) |
-| 4 | **Add references**, tick one file, **Done** | It is listed under Files, as before |
+| 4 | **Add references**, tick one file that is not marked Core, **Done** | It is listed under Files, as before |
 | 5 | Tick **Core files only** | The list becomes the project's Core files, each with its CORE mark and an eye, no ×; the count and the bar follow; Add references greys out; under it: *Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.* A Core file D.O.G. cannot read (a Photoshop file, say) is not listed |
 | 6 | Clear it | The file from step 4 is back; Add references is on |
 | 7 | Look at **2 GENERATE OUTLINE** | Under the switch: **Place visual** and **Theme generator**, side by side, nothing after them. Switch to Single page: the same two |
@@ -368,8 +368,9 @@ fixtures' tester (a made-up project and files; no upload). In the folder
 - **Proximity:** the project's dropdown sits right above the references it
   scopes; Core files only sits beside Add references; its sentence is 8px
   under it, the card's parts 16px apart.
-- **Hick's law:** D.O.G. opens with 10 Tab stops, was 12 (a card header and
-  a checkbox fewer); Generate outline asks two questions, not three.
+- **Hick's law:** D.O.G. opens with 11 Tab stops, was 12 (a card header
+  fewer; Core files only is a stop even while grey, so it can say why);
+  Generate outline asks two questions, not three.
 - **Fitts's law:** Core files only is 16px from Add references; a row's eye
   and × stay within 576px of its name at any width (at 2560 they were up to
   2,278px away).

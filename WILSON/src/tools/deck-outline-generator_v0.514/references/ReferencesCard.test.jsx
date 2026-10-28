@@ -333,6 +333,9 @@ describe('DG4: Core files only, beside Add references', () => {
   const box = () => screen.getByRole('checkbox', { name: 'Core files only' })
   const said = (c) => c.body().querySelector('.dog-refs-core-said')
   const add = () => screen.getByRole('button', { name: 'Add references' })
+  // Off is `aria-disabled`, never `disabled` (review round 2, finding 1): a
+  // disabled button loses focus in Chromium, to <body>.
+  const off = () => { expect(box().disabled).toBe(false); return box().getAttribute('aria-disabled') === 'true' }
 
   it('a D.O.G. checkbox right after Add references, sentence case, its hover saying what it does; off at the start', () => {
     mount({ chosen: [ITEM] })
@@ -340,7 +343,7 @@ describe('DG4: Core files only, beside Add references', () => {
     expect(b.tagName).toBe('BUTTON')
     expect(b.matches('button.dog-check[role="checkbox"]')).toBe(true)
     expect(b.getAttribute('aria-checked')).toBe('false')
-    expect(b.disabled).toBe(false)
+    expect(off()).toBe(false)
     expect(b.getAttribute('title')).toBe(CORE_TITLE)
     const row = b.closest('.dog-check-row')
     expect(row.querySelector('.dog-check-label').textContent).toBe('Core files only')
@@ -356,18 +359,22 @@ describe('DG4: Core files only, beside Add references', () => {
     ['no Core file D.O.G. can read', { core: { state: 'none', count: 0, legacy: 0 } }, 'This project has no Core files D.O.G. can read.'],
   ]
   for (const [why, { projectChosen = true, core }, words] of OFF) {
-    it(`off, with one sentence, when ${why}`, () => {
+    it(`off, with one sentence, when ${why}; still a Tab stop, and a press does nothing`, () => {
       const c = mount({ projectChosen, refs: fakeRefs([], { core }) })
-      expect(box().disabled).toBe(true)
+      expect(off()).toBe(true)
+      expect(box().tabIndex).toBe(0)
       expect(said(c).textContent).toBe(words)
       expect(box().getAttribute('aria-describedby')).toBe(said(c).id)
       expect(document.getElementById(box().getAttribute('aria-describedby'))).toBe(said(c))
+      fireEvent.click(box())
+      expect(c.refs.setCoreOnly).not.toHaveBeenCalled()
+      expect(c.refs.loadPool).not.toHaveBeenCalled()
     })
   }
 
   it('on when the project has Core files D.O.G. can read, with no sentence; a press ticks it and lists the project again', () => {
     const c = mount({ refs: fakeRefs([ITEM], { core: { state: 'ready', count: 3, legacy: 0 } }) })
-    expect(box().disabled).toBe(false)
+    expect(off()).toBe(false)
     expect(said(c)).toBe(null)
     expect(box().hasAttribute('aria-describedby')).toBe(false)
     fireEvent.click(box())
@@ -401,11 +408,11 @@ describe('DG4: Core files only, beside Add references', () => {
   // window's choices went, whatever the state.
   it('ticked, it can always be cleared: a project with no Core files since, or none chosen, leaves it on and says so', () => {
     const none = mount({ refs: fakeRefs([], { coreOnly: true, core: { state: 'none', count: 0, legacy: 0 } }) })
-    expect(box().disabled).toBe(false)
+    expect(off()).toBe(false)
     expect(said(none).textContent).toBe('This project has no Core files D.O.G. can read. Clear this to choose references yourself.')
     cleanup()
     const gone = mount({ projectChosen: false, refs: fakeRefs([], { coreOnly: true, core: { state: 'no-project', count: 0, legacy: 0 }, chosen: new Set(['note:n1']) }) })
-    expect(box().disabled).toBe(false)
+    expect(off()).toBe(false)
     expect(said(gone).textContent).toBe('Core files come from a project: choose one above. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
   })
 
@@ -512,33 +519,40 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     })
   }
 
-  // Review round 1, finding 1 (MEASURED in Chromium): ticked, the box stays
-  // on where it could not be ticked again; cleared there it goes off under
-  // the keyboard's focus, which Chromium drops on <body>.
-  function clearing({ keyboard }) {
-    const props = (coreOnly) => ({
-      refs: fakeRefs([], { coreOnly, core: { state: 'none', count: 0, legacy: 0 } }),
-      uploads: { files: [], busy: false, add: vi.fn(), remove: vi.fn() }, projectChosen: true, onAdd: vi.fn(), onPreview: vi.fn(),
-    })
-    const first = props(true)
+  // Review rounds 1 and 2, finding 1 (MEASURED in Chromium): the box went off
+  // under the keyboard's focus, after a clear where it could not be ticked
+  // again (round 1) or after a list at Generate that failed or found no Core
+  // file (round 2), and Chromium dropped focus on <body>, where D.O.G.'s next
+  // Enter makes a deck. jsdom keeps focus on a disabled button, so what is
+  // pinned is the cause: in no state is the box `disabled`; off, it stays
+  // focusable and a Tab stop. Chromium's own result is in the DG4 hand-off.
+  const props = (over) => ({
+    refs: fakeRefs([], over),
+    uploads: { files: [], busy: false, add: vi.fn(), remove: vi.fn() }, projectChosen: true, onAdd: vi.fn(), onPreview: vi.fn(),
+  })
+  it('the box is never disabled: off after a clear from the keyboard, it keeps focus', () => {
+    const first = props({ coreOnly: true, core: { state: 'none', count: 0, legacy: 0 } })
     const view = render(<ReferencesCard {...first} />)
     const b = screen.getByRole('checkbox', { name: 'Core files only' })
-    expect(b.disabled).toBe(false)
-    if (keyboard) press(b)
-    else { fireEvent.mouseDown(b); b.focus(); fireEvent.click(b) }
+    press(b)
     expect(first.refs.setCoreOnly).toHaveBeenCalledWith(false)
-    view.rerender(<ReferencesCard {...props(false)} />)
-    expect(screen.getByRole('checkbox', { name: 'Core files only' }).disabled).toBe(true)
-  }
-
-  it('Core files only cleared from the keyboard where it then goes off: focus goes to Add references, which the clear turns on', () => {
-    clearing({ keyboard: true })
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+    view.rerender(<ReferencesCard {...props({ coreOnly: false, core: { state: 'none', count: 0, legacy: 0 } })} />)
+    expect(b.getAttribute('aria-disabled')).toBe('true')
+    expect(b.hasAttribute('disabled')).toBe(false)
+    expect(document.activeElement).toBe(b)
   })
 
-  it('CONTROL, the pointer as before: a click that clears it moves nothing', () => {
-    clearing({ keyboard: false })
-    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: 'Add references' }))
+  it('the box is never disabled: turned off by a list while it holds focus (a failed list, or no Core file left), it keeps focus', () => {
+    for (const state of ['failed', 'none', 'listing']) {
+      const view = render(<ReferencesCard {...props({ core: { state: 'ready', count: 2, legacy: 0 } })} />)
+      const b = screen.getByRole('checkbox', { name: 'Core files only' })
+      b.focus()
+      view.rerender(<ReferencesCard {...props({ core: { state, count: 0, legacy: 0 } })} />)
+      expect(b.getAttribute('aria-disabled')).toBe('true')
+      expect(b.hasAttribute('disabled')).toBe(false)
+      expect(document.activeElement).toBe(b)
+      cleanup()
+    }
   })
 
   it('Remove all references from the keyboard goes to Add references (it goes itself)', () => {

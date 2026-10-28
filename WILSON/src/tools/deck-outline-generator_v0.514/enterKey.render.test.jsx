@@ -1274,6 +1274,8 @@ function withProject(files) {
   return adapter
 }
 const coreBox = () => screen.getByRole('checkbox', { name: 'Core files only' })
+// Off is aria-disabled, never disabled (DG4 review round 2, finding 1).
+const coreIsOff = () => { expect(coreBox().disabled).toBe(false); return coreBox().getAttribute('aria-disabled') === 'true' }
 const coreSaid = () => document.querySelector('#dog-card1-body .dog-refs-core-said')
 /** Choose the project and wait for its list (the checkbox's "Looking for…" gone). */
 async function chooseProject(d) {
@@ -1418,10 +1420,10 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
   it('off, with its sentence, before a project is chosen; off while the project has no Core file D.O.G. can read', async () => {
     withProject([CORE()[2], CORE()[3]])
     const d = await openDog({ upload: false })
-    expect(coreBox().disabled).toBe(true)
+    expect(coreIsOff()).toBe(true)
     expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
     await chooseProject(d)
-    expect(coreBox().disabled).toBe(true)
+    expect(coreIsOff()).toBe(true)
     expect(coreSaid().textContent).toBe('This project has no Core files D.O.G. can read.')
   })
 
@@ -1429,7 +1431,7 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     const adapter = withProject(CORE())
     const d = await openDog({ upload: false })
     await chooseProject(d)
-    expect(coreBox().disabled).toBe(false)
+    expect(coreIsOff()).toBe(false)
     expect(coreSaid()).toBe(null)
     expect(refNames()).toEqual([])
     await act(async () => { fireEvent.click(coreBox()) })
@@ -1500,11 +1502,11 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     const adapter = withProject(files)
     const d = await openDog({ upload: false })
     await chooseProject(d)
-    expect(coreBox().disabled).toBe(true)
+    expect(coreIsOff()).toBe(true)
     files.push(fileRow({ id: 'c9', name: 'core-new.txt', body: 'MARKED SINCE.' }))   // marked Core in R.A.B.B.I.T. meanwhile
     await showPage(d, 'rabbit')
     await showPage(d, 'dog')
-    await waitFor(() => expect(coreBox().disabled).toBe(false))
+    await waitFor(() => expect(coreIsOff()).toBe(false))
     expect(adapter.listFiles).toHaveBeenCalledTimes(2)
   })
 
@@ -1528,22 +1530,46 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
   // S2 merged first (her ruling of 2026-10-27, "One offline sentence on each
   // screen"): card 1 keeps its one offline sentence and no New project, and
   // the box adds nothing of its own.
-  it('a sign-in held at an offline launch: the box is off and silent, card 1 says its one offline sentence, no New project', async () => {
+  // Review round 2, finding 2: DG2's no-project note sat in card 2 on S2's
+  // tip; in the one card it is card 1's too, so it goes while held offline.
+  it('a sign-in held at an offline launch: the box is off and silent, card 1 says its one offline sentence and nothing else of its own, no New project', async () => {
     withProject(CORE())
     setHeldSession({ access_token: 'held-for-a-test' })
     try {
       const d = await openDog({ upload: false })
       const card1 = d.q('#dog-card1-body')
-      expect(coreBox().disabled).toBe(true)
+      expect(coreIsOff()).toBe(true)
       expect(coreSaid()).toBe(null)
       expect(coreBox().hasAttribute('aria-describedby')).toBe(false)
-      expect([...card1.querySelectorAll('.dog-field-hint')].filter((p) => /^Could not reach the database/.test(p.textContent))).toHaveLength(1)
+      expect([...card1.querySelectorAll('p')].filter((p) => /^Could not reach the database/.test(p.textContent))).toHaveLength(1)
+      expect(card1.textContent).not.toContain('Choose a project to reference')
       expect(within(card1).queryByRole('button', { name: 'New project' })).toBe(null)
     } finally {
       await act(async () => { setHeldSession(null) })
     }
-    // CONTROL: the hold over, the box says why it is off again.
+    // CONTROL: the hold over, the box and the note say why it is off again.
     expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
+    expect(document.querySelector('#dog-card1-body').textContent).toContain('Choose a project to reference')
+  })
+
+  // Review round 2, finding 4 (b): off for the hold itself, not for want of a project.
+  it('held offline with a project chosen that has Core files: the box is still off, and a press does nothing', async () => {
+    withProject(CORE())
+    setHeldSession({ access_token: 'held-for-a-test' })
+    try {
+      const d = await openDog({ upload: false })
+      await act(async () => { fireEvent.change(d.q('select.dog-project-select'), { target: { value: PROJECT.id } }) })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(coreIsOff()).toBe(true)
+      expect(coreSaid()).toBe(null)
+      await act(async () => { fireEvent.click(coreBox()) })
+      expect(coreBox().getAttribute('aria-checked')).toBe('false')
+      expect(refNames()).toEqual([])
+    } finally {
+      await act(async () => { setHeldSession(null) })
+    }
+    // CONTROL: the hold over, the same project's box comes on.
+    await waitFor(() => expect(coreIsOff()).toBe(false))
   })
 
   it('Enter on it is D.O.G.\'s, as on its other tick boxes: the box empty, it asks, and the tick stays', async () => {
@@ -1576,10 +1602,13 @@ describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
   // project', 'References', 'Choose file', 'Add references', 'Generate
   // outline', 'Full deck', 'Use visual assets', 'Use project assets',
   // 'Theme generator', 'Deck Context & Guidelines': twelve stops.
-  it('at the start: ten stops, one header and one checkbox fewer; Core files only is no stop until a project has Core files', async () => {
+  // Review round 2, finding 1: off, Core files only stays a stop (aria-disabled,
+  // so it can say why it is off and never loses focus), right after Add references.
+  it('at the start: eleven stops, one card header fewer, Place visual for the two media boxes, Core files only after Add references', async () => {
     const d = await openDog({ upload: false })
-    expect(stopNames(d)).toEqual(['Project and references', 'Choose a project', 'New project', 'Choose file', 'Add references',
+    expect(stopNames(d)).toEqual(['Project and references', 'Choose a project', 'New project', 'Choose file', 'Add references', 'Core files only',
       'Generate outline', 'Full deck', 'Place visual', 'Theme generator', 'Deck Context & Guidelines'])
+    expect(coreIsOff()).toBe(true)
   })
 
   it('with a project that has Core files: Core files only is the stop after Add references', async () => {

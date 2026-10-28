@@ -3601,8 +3601,11 @@ set steps aside and is listed again when it is cleared; Add references and
 Remove all references are off, the Core rows have no Remove; uploads still
 go. It is off, with one sentence under it, with no project, before the
 project's list lands, after a failed list, or when no file D.O.G. can read
-is marked Core; ticked, it can always be cleared, and cleared from the
-keyboard where it then goes off, focus goes to Add references. The pool is
+is marked Core; ticked, it can always be cleared. Off is `aria-disabled`,
+never `disabled`: it stays a Tab stop that says why it is off, a press does
+nothing, and a clear or a list at Generate that turns it off never takes
+focus from it (both review rounds measured a disabled box dropping focus on
+`<body>`, where D.O.G.'s Enter makes a deck). The pool is
 listed when a project is chosen, again when the New project window has
 stored its files, and on a return to D.O.G. only while the box is ticked or
 off for want of Core files or a list (lists, never a body; on the Local
@@ -3613,8 +3616,9 @@ marked Ref (`legacyPoolFiles`' default), and the ticked box says so. With Add
 references off, a Remove, Undo or Dismiss from the keyboard hands focus to
 Choose file, else a row's Remove, never to the checkbox (where Enter makes a
 deck). While a sign-in is held at an offline launch (S2), card 1 keeps S2's
-one offline sentence and no New project, and the box is off and says
-nothing of its own (`offline`). Walkthrough 84, its DG4 section.
+one offline sentence and no New project, DG2's *Choose a project…* note is
+not shown, and the box is off and says nothing of its own (`offline`).
+Walkthrough 84, its DG4 section.
 
 ### 13.2 O.T.T.E.R.
 

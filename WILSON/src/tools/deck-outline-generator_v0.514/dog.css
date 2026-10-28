@@ -491,14 +491,16 @@
   }
   /* DG4: Core files only is the first D.O.G. checkbox that can be off (no
      project, or none of its files marked Core that D.O.G. can read). Off is
-     the kit's disabled reading of a control on dark (`.ui-btn:disabled`):
-     the rule's hairline, the third ink, and the cursor repeated here because
-     `cursor: pointer` above is in a later layer than base's `:disabled`. */
-  .dog-check:disabled {
+     `aria-disabled`, never `disabled`, so it keeps focus (review round 2,
+     finding 1), drawn as the kit draws a disabled control on dark
+     (`.ui-btn:disabled`): the rule's hairline, the third ink, and the cursor
+     repeated here because `cursor: pointer` above is in a later layer than
+     base's `[aria-disabled="true"]`. */
+  .dog-check[aria-disabled='true'] {
     border-color: var(--color-rule);
     cursor: not-allowed;
   }
-  .dog-check:disabled + .dog-check-label { color: var(--color-ink-3); }
+  .dog-check[aria-disabled='true'] + .dog-check-label { color: var(--color-ink-3); }
   @media (prefers-reduced-motion: reduce) {
     .dog-check { transition: none; }
   }

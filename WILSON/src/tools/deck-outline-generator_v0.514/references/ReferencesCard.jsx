@@ -299,25 +299,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   const coreOff = !coreOnly && (offline || !projectChosen || refs.core?.state !== 'ready');
   const setAside = coreOnly ? [...(refs.chosen || [])].filter(k => !refs.listedKeys?.has(k)).length : 0;
   const coreSaid = offline && !coreOnly ? '' : coreLine({ projectChosen, core: refs.core, coreOnly, setAside });
-  // Review round 1, finding 1 (MEASURED): cleared where it could not be
-  // ticked again, the box turns off under the keyboard's focus, which
-  // Chromium drops on <body>, where D.O.G.'s next Enter makes a deck. Focus
-  // goes to Add references, which the clear turns on (Choose file if not);
-  // only from the keyboard (`:focus-visible`), as focusAfterRemove.
-  const root = useRef(null);
-  const clearedByKeyboard = useRef(false);
-  useLayoutEffect(() => {
-    if (coreOnly || !clearedByKeyboard.current) return;
-    clearedByKeyboard.current = false;
-    const doc = root.current?.ownerDocument;
-    const held = doc?.activeElement;
-    if (!doc || (held && held !== doc.body && !held.disabled)) return;
-    (root.current.querySelector('.dog-refs-actions .ui-btn:not(:disabled)')
-      || root.current.querySelector('.dog-refs-uploads button.dog-upload'))?.focus();
-  }, [coreOnly]);
 
   return (
-    <div ref={root} className="dog-refs">
+    <div className="dog-refs">
       {refs.notice && (
         <p className="dog-details-note dog-refs-notice" role="status">
           {refs.notice}
@@ -402,8 +386,10 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
       </div>
 
       {/* Under the uploads: a project is needed for items and files, not
-          for uploads (DG2). */}
-      {!projectChosen && (
+          for uploads (DG2). Not while a sign-in is held offline (DG4 review
+          round 2, finding 2: S2's one sentence is card 1's only words then,
+          and notes are a cloud read the hold refuses). */}
+      {!projectChosen && !offline && (
         <p className="dog-details-note">
           Choose a project to reference its items and files. Your notes can be referenced without one.
         </p>
@@ -453,17 +439,24 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
           <Plus aria-hidden="true" />
           Add references
         </Button>
+        {/* Off is `aria-disabled`, never `disabled` (review rounds 1 and 2,
+            finding 1, MEASURED in Chromium): a clear, or a list at Generate
+            that finds no Core file or fails, turned the box off under the
+            keyboard's focus, which Chromium then dropped on <body>, where
+            D.O.G.'s next Enter makes a deck. Off, it keeps focus and stays a
+            Tab stop that says why it is off (its sentence); a press does
+            nothing. */}
         <span className="dog-check-row">
           <button
             type="button"
-            onClick={(e) => {
-              if (coreOnly) clearedByKeyboard.current = keyboardHeld(e.currentTarget);
-              else refs.loadPool?.();
+            onClick={() => {
+              if (coreOff) return;
+              if (!coreOnly) refs.loadPool?.();
               refs.setCoreOnly?.(!coreOnly);
             }}
             className="dog-check" data-checked={coreOnly} role="checkbox" aria-checked={coreOnly} aria-label="Core files only"
             aria-describedby={coreSaid ? 'dog-refs-core-said' : undefined}
-            disabled={coreOff}
+            aria-disabled={coreOff || undefined}
             title={CORE_TITLE}
           >
             {coreOnly && <Check className="dog-check-glyph" aria-hidden="true" />}
