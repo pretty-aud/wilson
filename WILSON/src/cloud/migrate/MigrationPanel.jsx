@@ -42,7 +42,7 @@ import {
   FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, removedWords, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS,
-  RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT,
+  RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
 } from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
@@ -64,7 +64,12 @@ export const NO_PATH_LEFT = (n) => `${n} clip${n === 1 ? ' has' : 's have'} no p
 // asset's versions and the files kept with its rows here move in a later run
 // (night 5).
 export const MIGRATE_DONE = 'Done. Running it again writes nothing already in the cloud and brings back nothing a teammate removed there since: this computer keeps a record of every row the migration carried. The team, asset versions and the files kept with assets, scenes, shots, levels and experiences on this computer move in a later run of the migration.'
-export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer whole — what a later run of the migration carries and what no migration carries (both named under the report), this computer\'s own records of its files and intake runs, and its record of what each run carried — then clears the live copy.'
+// Review round 1 (M2): a run that left a budget here, or whose record this
+// computer could not keep, is not done — no Archive, which would clear the
+// only copy of that budget and its receipts, or the record a later run needs.
+export const MIGRATE_AGAIN_MONEY = (n) => `${n === 1 ? "1 project's budget is" : `${n} projects' budgets are`} still on this computer, so it keeps its copy: once a workspace admin makes you ${n === 1 ? "the project's" : "each project's"} manager, Migrate again.`
+export const MIGRATE_AGAIN_RECORD = 'This computer could not keep its record of what the run carried: Migrate again, so that no later run brings back a row a teammate removes in the cloud.'
+export const ARCHIVE_KEEPS_NOT_CARRIED ='Archives every project on this computer whole — what a later run of the migration carries and what no migration carries (both named under the report), this computer\'s own records of its files and intake runs, and its record of what each run carried — then clears the live copy.'
 
 export default function MigrationPanel() {
   // The active workspace, as every gate reads it (the session's claims; the
@@ -175,7 +180,11 @@ export default function MigrationPanel() {
   // recorded, and no question (review round 2).
   const leftRooted = report && !report.dryRun ? (report.clipsLeftBehind || []).filter((c) => c.root).length : 0
   const leftNoPath = Math.max(0, leftBehind - leftRooted)
-  const completed = report && !report.dryRun && report.errors.length === 0 && leftBehind === 0
+  // M2 (review round 1): a budget left here (the money gate), or a record
+  // this computer could not keep, is not done either.
+  const moneyLeft = report && !report.dryRun ? (report.moneyLeft?.projects || 0) : 0
+  const recordLost = !!report && !report.dryRun && report.recordKept === false
+  const completed = report && !report.dryRun && report.errors.length === 0 && leftBehind === 0 && moneyLeft === 0 && !recordLost
   const notCarried = report?.notCarried || []
   // The real run waits for a dry run that found the roots, and for their
   // answers (never a disabled control without its reason: the title says).
@@ -183,7 +192,9 @@ export default function MigrationPanel() {
     : !everyRootAnswered ? MIGRATE_WAITS
       : completed ? MIGRATE_DONE
         : leftRooted ? MIGRATE_AGAIN_LEFT(leftRooted)
-          : leftNoPath ? NO_PATH_LEFT(leftNoPath) : null
+          : leftNoPath ? NO_PATH_LEFT(leftNoPath)
+            : moneyLeft ? MIGRATE_AGAIN_MONEY(moneyLeft)
+              : recordLost ? MIGRATE_AGAIN_RECORD : null
 
   return (
     <Section
@@ -318,9 +329,14 @@ function CarriedLines({ r }) {
     // M2: said first (after what an earlier run carried, RemovedLines) —
     // why a budget stays here.
     ['money-gate-left', r.moneyLeft?.projects, (n) => MONEY_GATE_LEFT(n, r.moneyLeft.rows)],
+    // Review round 1: what is open in the cloud that should not be, next.
+    ['receipts-left-open', r.files?.receiptsOpen, RECEIPTS_LEFT_OPEN],
     ['record-not-kept', r.recordKept === false ? 1 : 0, () => RECORD_NOT_KEPT('the desktop did not take it')],
     ['files-placed', r.files?.placed, FILES_PLACED],
     ['receipts-gated', r.files?.receiptsGated, RECEIPTS_GATED],
+    ['line-pcts-left-out', r.budgetLines?.pctsLeftOut, LINE_PCTS_LEFT_OUT],
+    ['actuals-taken', r.budgetActuals?.taken, ACTUALS_TAKEN],
+    ['rates-taken', r.rateOverrides?.taken, RATES_TAKEN],
     ['archived-in-cloud', (r.shotLists?.archived || 0) + (r.edits?.archived || 0), () => ARCHIVED_IN_CLOUD(r.shotLists?.archived || 0, r.edits?.archived || 0, r.dryRun)],
     ['live-in-cloud', r.liveInCloud, LIVE_IN_CLOUD],
     ['set-aside-again', r.setAside, SET_ASIDE_AGAIN],

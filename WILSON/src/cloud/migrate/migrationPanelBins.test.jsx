@@ -30,13 +30,14 @@ vi.mock('./runMigration', async (orig) => {
 })
 vi.mock('../auth/supabaseClient', () => ({ supabase: {} }))
 
-const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED } = await import('./MigrationPanel')
+const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED, MIGRATE_AGAIN_MONEY, MIGRATE_AGAIN_RECORD } = await import('./MigrationPanel')
 const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE,
   FILES_PLACED, ARCHIVED_IN_CLOUD, LIVE_IN_CLOUD, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED,
   COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT,
+  RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
 } = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
 
@@ -351,6 +352,42 @@ describe('the question, once per root', () => {
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0 }, removed: { byTable: {}, rows: [] }, moneyLeft: { projects: 0, rows: 0, receipts: 0 }, setAside: 0, rowLinksLetGo: 0, recordKept: true }))
     for (const id of ['removed-since-last-run', 'money-gate-left', 'receipts-gated', 'set-aside-again', 'row-links-let-go', 'actuals-on-gone-lines', 'task-links-on-gone-tasks', 'record-not-kept']) expect(screen.queryByTestId(id), id).toBeNull()
+  })
+
+  it('M2 review round 1 (H1): a run that left a budget here, or could not keep its record, is not Done — no archive (it would clear the only copy), and Migrate says why', async () => {
+    const clean = { dryRun: false, footageRoots: [], files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0 }, removed: { byTable: {}, rows: [] }, setAside: 0, rowLinksLetGo: 0 }
+    const archive = () => screen.queryByRole('button', { name: /Archive and clear local/ })
+    await dryRun(report({ ...clean, moneyLeft: { projects: 1, rows: 12, receipts: 2 }, recordKept: true }))
+    expect(archive()).toBeNull()
+    expect(migrate().title).toBe(MIGRATE_AGAIN_MONEY(1))
+    expect(migrate().disabled).toBe(false)
+    cleanup()
+    await dryRun(report({ ...clean, moneyLeft: { projects: 0, rows: 0, receipts: 0 }, recordKept: false }))
+    expect(archive()).toBeNull()
+    expect(migrate().title).toBe(MIGRATE_AGAIN_RECORD)
+    // CONTROL: neither — Done, and the archive is offered.
+    cleanup()
+    await dryRun(report({ ...clean, moneyLeft: { projects: 0, rows: 0, receipts: 0 }, recordKept: true }))
+    expect(archive()).not.toBeNull()
+    expect(migrate().title).toBe(MIGRATE_DONE)
+    expect(MIGRATE_AGAIN_MONEY(2)).toBe("2 projects' budgets are still on this computer, so it keeps its copy: once a workspace admin makes you each project's manager, Migrate again.")
+  })
+
+  it('M2 review round 1: the lines it adds — receipts open in the cloud, a line\'s own percentage left out, actuals and role rates whose place is taken — only when it happened', async () => {
+    await dryRun(report({
+      dryRun: false, footageRoots: [],
+      files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 1 },
+      budgetLines: { ...bucket(4), pctsLeftOut: 2 }, budgetActuals: { ...bucket(4), orphans: 0, taken: 1 }, rateOverrides: { ...bucket(1), taken: 1 },
+    }))
+    const said = (id) => screen.getByTestId(id).textContent
+    expect(said('receipts-left-open')).toBe(`${RECEIPTS_LEFT_OPEN(1)}.`)
+    expect(RECEIPTS_LEFT_OPEN(1)).toBe('1 receipt an earlier run carried as an ordinary file is open to every member of the project in the cloud: the migration cannot put it behind the money gate yet (a workspace admin can remove it there)')
+    expect(said('line-pcts-left-out')).toBe(`${LINE_PCTS_LEFT_OUT(2)}.`)
+    expect(said('actuals-taken')).toBe(`${ACTUALS_TAKEN(1)}.`)
+    expect(said('rates-taken')).toBe(`${RATES_TAKEN(1)}.`)
+    cleanup()
+    await dryRun(report({ dryRun: false, footageRoots: [], files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 0 }, budgetLines: { ...bucket(4), pctsLeftOut: 0 }, budgetActuals: { ...bucket(4), orphans: 0, taken: 0 }, rateOverrides: { ...bucket(1), taken: 0 } }))
+    for (const id of ['receipts-left-open', 'line-pcts-left-out', 'actuals-taken', 'rates-taken']) expect(screen.queryByTestId(id), id).toBeNull()
   })
 
   it('M1: one line each under the report for what the five kinds and the project rows did beside the counts, only when it happened', async () => {

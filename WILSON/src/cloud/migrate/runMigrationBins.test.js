@@ -42,7 +42,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, pre0103: false, inReads: [] }
+  const state = { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [] }
   // M1: the cloud's columns for the tables the project row and the five
   // kinds reach — wilson-dev's, read from information_schema (2026-10-27).
   const COLUMNS = {
@@ -102,6 +102,8 @@ const fake = vi.hoisted(() => {
     for (const k of UUID_COLUMNS[table] || []) if (row[k] === '') return no('22P02', 'invalid input syntax for type uuid: ""')
     // M2: part 2's types, NOT NULLs and CHECKs (measured on wilson-dev).
     for (const k of NUMBERS[table] || []) if (row[k] === '' || (row[k] != null && !Number.isFinite(Number(row[k])))) return no('22P02', `invalid input syntax for type numeric: "${row[k]}"`)
+    // A line's own percentages are NUMERIC(7,3) (measured, review round 1).
+    if (table === 'budget_lines' && ['margin_pct', 'contingency_pct', 'talent_agency_fee_pct'].some(k => row[k] != null && Math.abs(Number(row[k])) >= 9999.9995)) return no('22003', 'numeric field overflow')
     for (const k of NOT_NULL[table] || []) if (k in row && row[k] == null) return no('23502', `null value in column "${k}" of relation "${table}" violates not-null constraint`)
     if (table === 'budget_versions' && !('name' in row)) return no('23502', 'null value in column "name" of relation "budget_versions" violates not-null constraint')
     if (table === 'budget_versions' && row.type != null && !['bid', 'actual', 'final'].includes(row.type)) return chk(table, 'budget_versions_type_check')
@@ -136,7 +138,11 @@ const fake = vi.hoisted(() => {
     }
     if (table === 'edits' && row.parent_edit_id != null && !has('edits', e => e.id === row.parent_edit_id)) return no('23503', "an edit's parent must be another edit of the same shot list")
     if (row?.id && has(table, r => r.id === row.id)) return dup(`${table}_pkey`)
-    if (table === 'bin_locations' && has(table, r => String(r.unc_path).toLowerCase() === String(row.unc_path).toLowerCase())) return dup('bin_locations_workspace_unc_key')
+    // Review round 1: the pair keys wilson-dev holds (measured): the same
+    // fact under another id.
+    if (table === 'task_items' && has(table, i => i.task_id === row.task_id && i.entity_type === row.entity_type && i.entity_id === row.entity_id)) return dup('task_items_task_entity_key')
+    if (table === 'task_dependencies' && has(table, d => d.predecessor_id === row.predecessor_id && d.successor_id === row.successor_id)) return dup('task_dependencies_predecessor_id_successor_id_key')
+    if (table === 'bin_locations' &&has(table, r => String(r.unc_path).toLowerCase() === String(row.unc_path).toLowerCase())) return dup('bin_locations_workspace_unc_key')
     if (table === 'shot_lists' && has(table, l => l.project_id === row.project_id && sameName(l, row))) return dup('shot_lists_project_title_version_key')
     if (table === 'shot_list_items') {
       if (row.scene_id != null && has(table, i => i.shot_list_id === row.shot_list_id && i.scene_id === row.scene_id)) return dup('shot_list_items_list_scene_key')
@@ -208,6 +214,10 @@ const fake = vi.hoisted(() => {
     }
     return null
   }
+  // The money gate (0037, 0038) and the Legal gate (0092) hide their rows from
+  // anyone they shut out (review round 1).
+  const hiddenByGate = (table, r) => (state.moneyGate === false && (MONEY.includes(table) || (table === 'files' && r?.is_financial === true)))
+    || (state.legalGate === false && table === 'files' && Array.isArray(r?.tags) && r.tags.includes('legal'))
   const builder = (table) => {
     const q = { table, cols: null, filters: [], range: null, ins: [] }
     const api = {
@@ -221,8 +231,9 @@ const fake = vi.hoisted(() => {
         if (state.singleError) return { data: null, error: state.singleError }
         const by = q.filters.find(f => f[0] === 'id')
         // A row set for the test, else the row in the cloud by its id (M1:
-        // a project's active list, a file already there on a second run).
-        const one = state.single[table]?.[by?.[1]] ?? (state.lists[table] || []).find(r => r.id === by?.[1]) ?? null
+        // a project's active list, a file already there on a second run) —
+        // review round 1: not a money file past a shut gate (0038's RLS).
+        const one = state.single[table]?.[by?.[1]] ?? (state.lists[table] || []).find(r => r.id === by?.[1] && !hiddenByGate(table, r)) ?? null
         return { data: one && state.single[table]?.[by?.[1]] ? one : one ? { ...one } : null, error: null }
       },
       // A list read: `await client.from(t).select(c).eq(k, v).order().range()`.
@@ -231,8 +242,9 @@ const fake = vi.hoisted(() => {
         if (state.listError) return resolve({ data: null, error: state.listError })
         if (state.listErrorFor?.[table]) return resolve({ data: null, error: state.listErrorFor[table] })
         const all = (state.lists[table] || []).filter(r => q.filters.every(([c, v]) => r[c] === v) && q.ins.every(([c, vs]) => vs.includes(String(r[c]))))
-          // The money gate hides a money table's rows from anyone else (0037).
-          .filter(() => !(state.moneyGate === false && MONEY.includes(table)))
+          // The money gate hides a money table's rows from anyone else
+          // (0037), and a money file (0038 — review round 1).
+          .filter(r => !hiddenByGate(table, r))
           .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         const rows = q.range ? all.slice(q.range[0], Math.min(q.range[1] + 1, q.range[0] + 1000)) : all.slice(0, 1000)
         return resolve({ data: rows.map(r => ({ ...r })), error: null })
@@ -261,6 +273,9 @@ const fake = vi.hoisted(() => {
             // A teammate's removal between the insert and this PATCH.
             if (state.dropOnUpdate) state.lists[table] = (state.lists[table] || []).filter(r => !state.dropOnUpdate(table, r, u))
             const hit = (state.lists[table] || []).filter(r => u.filters.every(([c, v]) => r[c] === v))
+            // Review round 1: a write the network or the database refused.
+            const forced = state.failUpdate?.(table, patch)
+            if (forced) return resolve({ data: null, error: forced })
             // M2: the guards and keys an UPDATE meets (updateRefusal).
             for (const r of hit) { const refused = updateRefusal(table, patch, r); if (refused) return resolve({ data: null, error: refused }) }
             for (const r of hit) Object.assign(r, patch)
@@ -336,9 +351,10 @@ const {
   KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   KEY_DATES_PHASE_LET_GO, FILE_LINKS_LET_GO, EDITS_CHAIN_TAKEN, STATUS_NOT_IN_CLOUD, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, TASK_LINKS_ON_GONE_TASKS, ROW_LINKS_LET_GO, removedWords,
+  PROJECT_NOT_OURS, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN, RECEIPTS_LEFT_OPEN,
 } = await import('./runMigration')
 const { pathKey } = await import('./binsMigration')
-const { projectRowForCloud, cloudDay, RECORD_KEY } = await import('./migrationRows')
+const { projectRowForCloud, cloudDay, RECORD_KEY, budgetLineRowForCloud } = await import('./migrationRows')
 const { BINS, BIN_FILES, SHOT_TAKES, SCENES, SHOTS, BIN_LOCATIONS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS, TASK_ITEMS, GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, GAME_TASK_ITEMS } = await import('../../dev/fixtures/data/scenes')
 const { PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, COMMENTS, TASK_LINKS, ASSET_ID } = await import('../../dev/fixtures/data/project')
 const { FOLDERS, FILES, GAME_FOLDERS, GAME_FILES } = await import('../../dev/fixtures/data/files')
@@ -475,7 +491,7 @@ function serve(bundles) {
 }
 
 beforeEach(() => {
-  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, listErrorFor: {}, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, pre0103: false, inReads: [] })
+  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, listErrorFor: {}, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [] })
   fake.state.single.workspaces = { [WS]: { remote_viewing_enabled: false } }
   posterStatus = {}
   bundleWrites = []
@@ -1682,8 +1698,12 @@ describe('M1: shot lists, their items and edits', () => {
 
   it('the active list is left alone where the cloud has one already (a teammate\'s choice), and where this run did not carry the list', async () => {
     serve([desktopFixtures()])
-    fake.state.lists.projects = [{ id: PROJECT.id, active_shot_list_id: 'their-list' }]
-    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    // The project in the cloud, in this workspace (M2 review round 1: one
+    // in no workspace of this run's is none of it — the lists never went).
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: WS, active_shot_list_id: 'their-list' }]
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.projects).toMatchObject({ skipped: 1, failed: 0 })
+    expect(ins('shot_lists')).toHaveLength(SHOT_LISTS.length)
     expect(rpcsCalled('set_active_shot_list')).toEqual([])
     expect(fake.state.lists.projects[0].active_shot_list_id).toBe('their-list')
   })
@@ -2331,5 +2351,278 @@ describe('M2: phases, assets and tasks get the "is it this project\'s" check (OU
     expect(report.notCarried).toContainEqual({ key: 'assetTemplates', label: "asset's task template", count: 1, later: true })
     // CONTROL: the asset as the desktop keeps it is refused whole.
     expect((await fake.client.from('assets').insert({ ...b.assets[0], id: 'a-x' })).error).toMatchObject({ code: '23503', message: expect.stringMatching(/assets_task_template_id_fkey/) })
+  })
+})
+
+// ── M2 review round 1 (Opus): its findings, each pinned with the run that ──
+// showed it. The record names a row only once it is known to be this
+// project's in the cloud; what could not be told waits for a run that can.
+describe('M2 review round 1: whose a row is, before the record names it', () => {
+  it('H2: a project whose id another workspace holds is said, none of it written or recorded — and the next run does not call it removed', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: 'ws-other' }]
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([{ scope: 'project', projectId: PROJECT.id, message: PROJECT_NOT_OURS }])
+    expect(report.projects).toMatchObject({ failed: 1, skipped: 0 })
+    expect(fake.state.log).toEqual(['projects'])
+    expect(recordOf(b)).toEqual({})
+    // Out of sight (a private project, another company's): its key met, the read answers nothing.
+    fake.state.lists.projects = []
+    fake.state.failWith = (table) => (table === 'projects' ? { code: '23505', message: 'duplicate key value violates unique constraint "projects_pkey"' } : null)
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.errors).toEqual([{ scope: 'project', projectId: PROJECT.id, message: PROJECT_NOT_OURS }])
+    expect(again.removed.rows).toEqual([])
+    expect(recordOf(b)).toEqual({})
+    // The dry run says the same of another workspace's, and counts none of it.
+    fake.state.failWith = null
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: 'ws-other' }]
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(dry.errors).toContainEqual({ scope: 'project', projectId: PROJECT.id, message: PROJECT_NOT_OURS })
+    expect(dry.phases.total).toBe(0)
+  })
+
+  it('H2: a file whose id another project holds is said, never uploaded or recorded', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    const theirs = FILES.find(f => !f.is_financial && f.asset_id).id
+    fake.state.lists.files = [{ id: theirs, project_id: 'p-other', storage_path: `projects/p-other/files/${theirs}/other.pdf`, is_financial: false }]
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id: theirs, message: expect.stringMatching(/is in the cloud but is not this project's/) })])
+    expect(recordOf(b).files).not.toContain(theirs)
+    expect(fake.state.uploads.some(u => u.path.includes(theirs))).toBe(false)
+  })
+
+  it('H3: an actual whose line and period the cloud holds under another id, and a role rate whose role it holds, are counted and said — no error, never recorded, never called removed', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    const a = BUDGET_ACTUALS[2]
+    // Entered in the browser since: another id, the same place.
+    fake.state.lists.budget_actuals = [{ id: 'actual-teammate', project_id: PROJECT.id, line_id: a.line_id, column_index: a.column_index }]
+    fake.state.lists.project_rate_overrides = [{ id: 'rate-teammate', project_id: PROJECT.id, role_slug: ROLE_RATE.role_slug }]
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(report.budgetActuals.taken).toBe(1)
+    expect(report.rateOverrides.taken).toBe(1)
+    expect(lines).toContain(`  ${ACTUALS_TAKEN(1)}`)
+    expect(lines).toContain(`  ${RATES_TAKEN(1)}`)
+    expect(recordOf(b).budget_actuals).not.toContain(a.id)
+    expect(recordOf(b).project_rate_overrides ?? []).not.toContain(ROLE_RATE.id)
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.errors).toEqual([])
+    expect(again.removed.rows).toEqual([])
+    expect(again.budgetActuals.taken).toBe(1)
+  })
+
+  it('H4: a line\'s own percentage the cloud cannot hold goes up empty and is said; the line and the actuals on it land', async () => {
+    const b = desktopFixtures()
+    const negative = BUDGET_ACTUALS[2].line_id
+    const huge = BUDGET_ACTUALS[3].line_id
+    b.budgetLines = b.budgetLines.map(l => (l.id === negative ? { ...l, margin_pct: -5 } : l.id === huge ? { ...l, contingency_pct: 12000, talent_agency_fee_pct: 'ten' } : l))
+    serve([b])
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(byId('budget_lines', negative).margin_pct).toBeNull()
+    expect(byId('budget_lines', huge)).toMatchObject({ contingency_pct: null, talent_agency_fee_pct: null })
+    expect(report.budgetLines.pctsLeftOut).toBe(2)
+    expect(lines).toContain(`  ${LINE_PCTS_LEFT_OUT(2)}`)
+    for (const a of [BUDGET_ACTUALS[2], BUDGET_ACTUALS[3]]) expect(byId('budget_actuals', a.id), a.id).toBeTruthy()
+    // CONTROL: the line with the desktop's value is refused whole (measured: 23514, 22003, 22P02).
+    const plain = BUDGET_LINES.find(l => !l.is_section_header)
+    const insert = (over) => fake.client.from('budget_lines').insert({ ...budgetLineRowForCloud(plain, PROJECT.id), id: `bl-${Object.keys(over)[0]}`, ...over })
+    expect((await insert({ margin_pct: -5 })).error).toMatchObject({ code: '23514', message: expect.stringMatching(/budget_lines_pct_nonneg/) })
+    expect((await insert({ contingency_pct: 12000 })).error).toMatchObject({ code: '22003' })
+    expect((await insert({ talent_agency_fee_pct: 'ten' })).error).toMatchObject({ code: '22P02' })
+  })
+
+  it('H5: a pointer whose write failed is set by the next run; once set, no later run sets it again, even after a teammate clears it', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    fake.state.failUpdate = (table) => (table === 'projects' ? { code: '08006', message: 'connection failure' } : null)
+    const first = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(first.errors).toEqual([expect.objectContaining({ scope: 'project', message: expect.stringMatching(/was not set in the cloud \(run again\)/) })])
+    expect(fake.state.lists.projects[0].budget_active_version_id ?? null).toBeNull()
+    expect(recordOf(b).pointers ?? []).toEqual([])
+    fake.state.failUpdate = null
+    const second = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(second.errors).toEqual([])
+    expect(fake.state.lists.projects[0].budget_active_version_id).toBe(versionV2)
+    expect(recordOf(b).pointers).toEqual([`locked:${versionV2}`])
+    // A teammate unlocks it in the browser: no later run locks it again.
+    fake.state.lists.projects[0].budget_active_version_id = null
+    fake.state.updates = []
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(fake.state.updates.filter(u => u.table === 'projects')).toEqual([])
+    expect(fake.state.lists.projects[0].budget_active_version_id).toBeNull()
+  })
+
+  it('H5: rows a build before M2 carried live, set aside by the open version on this computer, are set aside by the run that carries the version — once: a row a teammate brings back stays back', async () => {
+    const b = desktopFixtures()
+    const aside = TASKS[TASKS.length - 1].id
+    const versions = b.budgetVersions
+    b.project = { ...b.project, budget_active_version_id: null, open_budget_version_id: versionV2 }
+    b.tasks = b.tasks.map(t => (t.id === aside ? { ...t, set_aside_at: '2026-10-20T10:00:00.000Z' } : t))
+    // An earlier build's run: the schedule went up, no bid version, no record.
+    b.budgetVersions = []
+    serve([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(rpcsCalled('set_aside_schedule_rows')).toEqual([])
+    delete b[RECORD_KEY]
+    b.budgetVersions = versions
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([])
+    expect(fake.state.lists.projects[0].open_budget_version_id).toBe(versionV2)
+    expect(rpcsCalled('set_aside_schedule_rows')).toEqual([{ p_project: PROJECT.id, p_on: true, p_tasks: [aside], p_phases: [], p_milestones: [] }])
+    expect(fake.state.lists.tasks.find(t => t.id === aside).set_aside_at).toBeTruthy()
+    // A teammate brings it back in the browser: no later run sets it aside again.
+    fake.state.lists.tasks.find(t => t.id === aside).set_aside_at = null
+    fake.state.rpcs = []
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(rpcsCalled('set_aside_schedule_rows')).toEqual([])
+    expect(fake.state.lists.tasks.find(t => t.id === aside).set_aside_at).toBeNull()
+  })
+
+  it('H5: a set-aside the cloud refused is made by the next run', async () => {
+    const b = desktopFixtures()
+    const aside = TASKS[TASKS.length - 1].id
+    b.project = { ...b.project, budget_active_version_id: null, open_budget_version_id: versionV2 }
+    b.tasks = b.tasks.map(t => (t.id === aside ? { ...t, set_aside_at: '2026-10-20T10:00:00.000Z' } : t))
+    serve([b])
+    fake.state.rpcRefuse.set_aside_schedule_rows = { code: '08006', message: 'connection failure' }
+    const first = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(first.errors).toEqual([expect.objectContaining({ scope: 'set_aside', message: expect.stringMatching(/\(run again\)/) })])
+    delete fake.state.rpcRefuse.set_aside_schedule_rows
+    fake.state.rpcs = []
+    const second = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(second.errors).toEqual([])
+    expect(rpcsCalled('set_aside_schedule_rows')).toEqual([{ p_project: PROJECT.id, p_on: true, p_tasks: [aside], p_phases: [], p_milestones: [] }])
+  })
+
+  it('M1: a receipt an earlier build carried as an ordinary file is said on every run, and never recorded', async () => {
+    const b = desktopFixtures()
+    const preC4 = FILES.filter(f => f.is_financial)[1].id
+    b.files = b.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
+    serve([b])
+    // An earlier build carried it by its own flag, as an ordinary file.
+    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: `projects/${PROJECT.id}/files/${preC4}/receipt.pdf`, is_financial: false }]
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.files.receiptsOpen).toBe(1)
+    expect(lines).toContain(`  ${RECEIPTS_LEFT_OPEN(1)}`)
+    expect(report.errors).toEqual([])
+    expect(recordOf(b).files).not.toContain(preC4)
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.files.receiptsOpen).toBe(1)
+  })
+
+  it('M2: someone the money gate shuts out asks nothing of the money files an earlier run carried, and calls none of them removed', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const money = FILES.filter(f => f.is_financial).map(f => f.id)
+    expect(recordOf(b).files).toEqual(expect.arrayContaining(money))
+    fake.state.moneyGate = false
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.removed.rows).toEqual([])
+    expect(again.moneyLeft.projects).toBe(1)
+  })
+
+  it('M2: someone the Legal gate shuts out asks nothing of the Legal files an earlier run carried, and calls none of them removed — nor writes them again', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const legal = FILES.filter(f => Array.isArray(f.tags) && f.tags.includes('legal')).map(f => f.id)
+    expect(legal.length).toBeGreaterThan(0)
+    expect(recordOf(b).files).toEqual(expect.arrayContaining(legal))
+    fake.state.legalGate = false
+    fake.state.uploads = []
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.removed.rows).toEqual([])
+    for (const id of legal) expect(fake.state.uploads.some(u => u.path.includes(id)), id).toBe(false)
+    // CONTROL: the fake hides a Legal file from that person, as 0092 does.
+    expect((await fake.client.from('files').select('id').in('id', legal)).data).toEqual([])
+  })
+
+  it('M3: a level skipped while the read of the project\'s levels failed is not known to be this project\'s — an asset in it waits (run again), never loses the link; the next run brings both', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    const level = GAME_LEVELS[0]
+    fake.state.lists.levels = [{ ...omit(level, ['workspace_id']), project_id: PROJECT.id }]
+    fake.state.listErrorFor = { levels: { message: 'network down' } }
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const inLevel = [...LEVEL_OF].filter(([, l]) => l.level_ids.includes(level.id)).map(([id]) => id)
+    expect(inLevel.length).toBeGreaterThan(0)
+    for (const id of inLevel) {
+      expect(byId('assets', id), id).toBeUndefined()
+      expect(report.errors.find(e => e.scope === 'asset' && e.id === id)?.message, id).toMatch(/whether its level is this project's in the cloud could not be checked/)
+    }
+    expect(recordOf(b).levels ?? []).not.toContain(level.id)
+    fake.state.listErrorFor = {}
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const id of inLevel) expect(byId('assets', id)?.level_ids, id).toContain(level.id)
+  })
+
+  it('M3: a bid version on a shot list skipped while the read of the project\'s lists failed waits (run again), its list kept for the next run', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    fake.state.lists.shot_lists = [{ id: LIST_1, project_id: PROJECT.id, title: 'already there', version: 1 }]
+    fake.state.listErrorFor = { shot_lists: { message: 'network down' } }
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('budget_versions', BUDGET_VERSIONS[0].id)).toBeUndefined()
+    expect(report.errors.find(e => e.scope === 'budget_version' && e.id === BUDGET_VERSIONS[0].id)?.message).toMatch(/whether its shot list is this project's in the cloud could not be checked/)
+    fake.state.listErrorFor = {}
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('budget_versions', BUDGET_VERSIONS[0].id).shot_list_id).toBe(LIST_1)
+  })
+
+  it('M6: an actual on a line skipped while the read of the project\'s lines failed waits (run again) — it never hangs on a line not known to be this project\'s', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    const a = BUDGET_ACTUALS[2]
+    // The line's id is another project's row, and the read of this project's lines fails.
+    fake.state.lists.budget_lines = [{ id: a.line_id, project_id: 'p-other' }]
+    fake.state.listErrorFor = { budget_lines: { message: 'network down' } }
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('budget_actuals', a.id)).toBeUndefined()
+    expect(report.errors.find(e => e.scope === 'budget_actual' && e.id === a.id)?.message).toMatch(/whether its budget line is this project's in the cloud could not be checked/)
+    expect(recordOf(b).budget_lines ?? []).not.toContain(a.line_id)
+  })
+
+  it('L2: a task\'s item or a dependency the cloud holds under another id (the same pair) is skipped, never recorded — no later run calls it removed', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    const item = b.taskItems[0]
+    const dep = DEPENDENCIES.find(d => d.kind === 'task')
+    fake.state.lists.task_items = [{ id: 'item-teammate', task_id: item.task_id, project_id: PROJECT.id, entity_type: item.entity_type, entity_id: item.entity_id }]
+    fake.state.lists.task_dependencies = [{ id: 'dep-teammate', predecessor_id: dep.predecessor_id, successor_id: dep.successor_id }]
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(recordOf(b).task_items).not.toContain(item.id)
+    expect(recordOf(b).task_dependencies).not.toContain(dep.id)
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.removed.rows).toEqual([])
+  })
+
+  it('L3: a money question the cloud did not answer is an error, said as one — never "you are neither" — and none of the budget goes', async () => {
+    serve([desktopFixtures()])
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: WS }]
+    fake.state.rpcRefuse.can_access_project_money = { code: '08006', message: 'connection failure' }
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toContainEqual({ scope: 'budget', projectId: PROJECT.id, message: "could not ask whether you can see this project's budget in the cloud, so none of it was carried (run again): connection failure" })
+    expect(report.moneyLeft.projects).toBe(0)
+    expect(lines.some(l => /you are neither/.test(l))).toBe(false)
+    for (const t of ['budget_versions', 'budget_lines', 'budget_actuals', 'expenses', 'project_rate_overrides']) expect(fake.state.log, t).not.toContain(t)
+  })
+
+  it('L1: the dry run counts no money file the gate keeps here, as the real run carries none', async () => {
+    serve([desktopFixtures()])
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: WS }]
+    fake.state.moneyGate = false
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(dry.files.total).toBe(ALL_FILES.length - FILES.filter(f => f.is_financial).length)
+    const real = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(real.files.total).toBe(dry.files.total)
   })
 })

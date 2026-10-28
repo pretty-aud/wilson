@@ -101,6 +101,10 @@ use a second browser window signed in as yourself.
    computer: in the cloud only a workspace admin or the project's manager
    sees its budget, and you are neither (a workspace admin can make you the
    project's manager; then run again).* Nothing else of the project fails.
+   **Archive and clear local** is not offered (it would clear the only copy
+   of that budget), and hovering **Migrate** reads *1 project's budget is
+   still on this computer, so it keeps its copy: once a workspace admin
+   makes you the project's manager, Migrate again.*
 
 **Questions**
 

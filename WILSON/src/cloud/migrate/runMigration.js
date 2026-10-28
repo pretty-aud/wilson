@@ -59,7 +59,7 @@ import {
   isArchived, shotListRowForCloud, shotListItemRowForCloud, editRowForCloud, listLabel, itemsInListOrder,
   editsParentsFirst, foldersParentsFirst, folderRowForCloud, folderDecision, cloudFolderIndex, desktopFolderOfFile,
   budgetVersionRowForCloud, budgetLineRowForCloud, budgetActualRowForCloud, expenseRowForCloud, rateOverrideRowForCloud,
-  levelRowForCloud, taskLinkRowForCloud, receiptFileIds, isLegacyAttachment, isMemberRate, phasesParentsFirst, carriedRecordOf,
+  levelRowForCloud, taskLinkRowForCloud, receiptFileIds, isLegacyAttachment, isMemberRate, phasesParentsFirst, carriedRecordOf, LINE_PCTS,
 } from './migrationRows'
 
 const RABBIT_BASE = '/api/rabbit'
@@ -134,6 +134,23 @@ export const TASK_LINKS_ON_GONE_TASKS = (n) => `${plural(n, 'link')} on a task r
 export const RECEIPTS_GATED = (n) => `${plural(n, 'receipt')} kept as an ordinary file on this computer ${n === 1 ? 'goes' : 'go'} up behind the money gate, as the expense or actual naming ${n === 1 ? 'it' : 'them'} does`
 export const SET_ASIDE_AGAIN = (n) => `${plural(n, 'row')} of the schedule set aside by the open bid version, as on this computer`
 export const RECORD_NOT_KEPT = (why) => `this computer could not keep its record of what this run carried (${why}): a later run may bring back a row a teammate removes in the cloud`
+// Review round 1 (M2): a project whose id the cloud holds outside this
+// workspace (the same desktop moved into a second company) or out of this
+// person's sight is not this run's to fill — and was recorded, then called
+// removed by the next run.
+export const PROJECT_NOT_OURS = 'a project with this id is in the cloud, but not in this workspace or not one you can see, so none of it was written (it may have been moved into another company from this computer)'
+// A line's own percentage the cloud's column cannot hold refused the line and
+// every actual on it, on every run (budget_lines_pct_nonneg, NUMERIC(7,3)'s
+// room — measured): left out, so the line takes the project's, said.
+export const LINE_PCTS_LEFT_OUT = (n) => `${plural(n, 'budget line')} ${n === 1 ? 'has its own percentage' : 'have their own percentage'} (margin, contingency or agency fee) the cloud cannot hold — below zero, past 9,999.999, or no number: left out, so ${n === 1 ? 'it takes' : 'they take'} the project's`
+// A key's place another row holds (review round 1): no run can change it, so
+// counted and said, never an error.
+export const ACTUALS_TAKEN = (n) => `${plural(n, 'actual')} not carried: the cloud has another for the same budget line and period (entered there since)`
+export const RATES_TAKEN = (n) => `${plural(n, 'role rate')} not carried: the cloud has another rate for the same role on this project (set there since)`
+// A receipt an earlier build carried as an ordinary file (before M2 routed
+// receipts as money): said on every run, never recorded, so no run goes quiet
+// about it (review round 1).
+export const RECEIPTS_LEFT_OPEN = (n) => `${plural(n, 'receipt')} an earlier run carried as ${n === 1 ? 'an ordinary file' : 'ordinary files'} ${n === 1 ? 'is' : 'are'} open to every member of the project in the cloud: the migration cannot put ${n === 1 ? 'it' : 'them'} behind the money gate yet (a workspace admin can remove ${n === 1 ? 'it' : 'them'} there)`
 
 // The words for a row of each table the record names (REMOVED_SINCE_LAST_RUN).
 const TABLE_WORDS = {
@@ -193,9 +210,12 @@ async function fetchLocalFileBlob(projectId, fileId) {
 // refused by the storage policies like any other write they may not make.
 // An ERROR is not "not there" (review round 2's re-check, R3-BEH-02): the
 // file is then failed with the reason, not uploaded on a guess.
+// M2 (review round 1): with its project and its money flag, so another
+// project's file is never taken as this one's (nor recorded), and a receipt
+// an earlier build carried ungated is said.
 async function cloudFileRow(fileId) {
   try {
-    const { data, error } = await supabase.from('files').select('id, storage_path').eq('id', fileId).maybeSingle()
+    const { data, error } = await supabase.from('files').select('id, storage_path, project_id, is_financial').eq('id', fileId).maybeSingle()
     return error ? { error } : { row: data || null }
   } catch (err) {
     return { error: err }
@@ -266,19 +286,26 @@ function withoutSetAside(row) {
 // already there": `keys[name]` is 'skip' (the cloud holds the same fact) or
 // the sentence of a failure. Postgres names the key in its message, which
 // PostgREST passes on; a key the map does not name falls to the id rule.
+//
+// M2 review round 1: `byId` on a skip says whether the row's OWN id was met.
+// A key that holds a pair of the row's references (a dependency's two rows,
+// an item's task and row, a take's shot and clip) is the cloud holding the
+// same fact under another id: skipped, but this id is not in the cloud, so
+// the record must not name it (a later run would call it removed).
 async function insertOrSkip(table, row, ours = null, keys = null) {
   const { error } = await supabase.from(table).insert(row)
   if (!error) return { status: 'inserted' }
   if (error.code === '23505') { // unique_violation
     const key = uniqueKeyOf(error)
     if (keys && key && keys[key]) {
-      if (keys[key] === 'skip') return { status: 'skipped' }
+      if (keys[key] === 'skip') return { status: 'skipped', byId: false }
       // The key's place belongs to a row made in the cloud since, which no
       // run can move: the caller counts it, never as an error (review round 1).
       if (keys[key] === 'taken') return { status: 'taken' }
       throw new Error(`${table}: ${keys[key]}`)
     }
-    if (!ours || ours(row)) return { status: 'skipped' }
+    const byId = key == null || key === `${table}_pkey` || key === `${table}_id_project_key`
+    if (!ours || ours(row)) return { status: 'skipped', byId }
     // M2: marked, so what hangs on this row lets its link go (as on a row
     // removed on this computer) rather than wait for a run that never comes.
     const err = new Error(`${table}: a row with this id is in the cloud but is not this project's, so nothing was written for it (${error.message})`)
@@ -293,6 +320,15 @@ function uniqueKeyOf(error) {
   const m = /unique constraint "([^"]+)"/.exec(String(error?.message || ''))
   return m ? m[1] : null
 }
+
+/**
+ * Whether insertOrSkip's answer puts the row's id in the record (M2 review
+ * round 1): it landed, or its own id was met in the cloud and — where the
+ * caller reads the project's rows first — known to be this project's row
+ * (`verified`). An id met while that read failed may be another project's,
+ * which a later run, not seeing it, would call removed.
+ */
+const keepsId = (r, verified = true) => r.status === 'inserted' || (r.status === 'skipped' && r.byId !== false && verified)
 
 /** A database function's answer, never a throw: `{ data, error }`. */
 async function callRpc(fn, args) {
@@ -505,11 +541,16 @@ function makeReport() {
     experiences:   { total: 0, inserted: 0, skipped: 0, failed: 0 },
     taskLinks:     { total: 0, inserted: 0, skipped: 0, failed: 0, orphans: 0 },
     budgetVersions: { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    budgetLines:   { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    budgetActuals: { total: 0, inserted: 0, skipped: 0, failed: 0, orphans: 0 },
+    // Review round 1: `pctsLeftOut`, lines whose own percentage the cloud
+    // cannot hold (LINE_PCTS_LEFT_OUT); `taken`, an actual or a role rate
+    // whose place another row holds (ACTUALS_TAKEN, RATES_TAKEN).
+    budgetLines:   { total: 0, inserted: 0, skipped: 0, failed: 0, pctsLeftOut: 0 },
+    budgetActuals: { total: 0, inserted: 0, skipped: 0, failed: 0, orphans: 0, taken: 0 },
     expenses:      { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    rateOverrides: { total: 0, inserted: 0, skipped: 0, failed: 0 },
-    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0 },
+    rateOverrides: { total: 0, inserted: 0, skipped: 0, failed: 0, taken: 0 },
+    // `receiptsOpen` (review round 1): receipts an earlier build carried as
+    // ordinary files, said on every run (RECEIPTS_LEFT_OPEN).
+    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 0 },
     // BC3 (B9): the bins' part. `binFiles.leftBehind` counts the clips whose
     // root nobody named (listed in `clipsLeftBehind`, never dropped);
     // `posters` counts the pictures (uploaded only while the switch is on).
@@ -747,11 +788,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     const files = (bundle.files ?? []).filter(f => isObj(f) && (f.is_financial === true || receipts.has(String(f.id))))
     return { rows: MONEY_KEYS.reduce((s, k) => s + (bundle[k] ?? []).filter(isObj).length, 0), receipts, files }
   }
+  // `{ sees, unasked }`: a question the cloud did not answer is an error, said
+  // as one — never MONEY_GATE_LEFT's "you are neither" (review round 1).
   const canSeeMoney = async (projectId) => {
     const { data, error } = await callRpc('can_access_project_money', { p_project: projectId })
-    if (error) report.errors.push({ scope: 'budget', projectId, message: `could not ask whether you can see this project's budget in the cloud, so none of it was carried: ${error.message || error}` })
-    return data === true
+    if (error) report.errors.push({ scope: 'budget', projectId, message: `could not ask whether you can see this project's budget in the cloud, so none of it was carried (run again): ${error.message || error}` })
+    return { sees: data === true, unasked: !!error }
   }
+  const moneyAsk = async (money, projectId, inserting) => (
+    !(money.rows || money.files.length) || inserting ? { sees: true, unasked: false } : canSeeMoney(projectId)
+  )
   const leaveMoney = (money) => {
     report.moneyLeft.projects++
     report.moneyLeft.rows += money.rows
@@ -789,11 +835,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       note(`  ${VALUES_NOT_IN_CLOUD(1, home.values)}`)
     }
   }
-  // Whether the project is in the cloud already, for the dry run: `{ there }`, or `{ error }`.
+  // Whether the project is in the cloud already: `{ there, ours }` — `ours`,
+  // in this workspace (M2 review round 1: a project's id another workspace
+  // holds is not this run's to fill) — or `{ error }`.
   const cloudProjectThere = async (projectId) => {
     try {
-      const { data, error } = await supabase.from('projects').select('id').eq('id', projectId).maybeSingle()
-      return error ? { error } : { there: !!data }
+      const { data, error } = await supabase.from('projects').select('id, workspace_id').eq('id', projectId).maybeSingle()
+      return error ? { error } : { there: !!data, ours: !!data && data.workspace_id === workspaceId }
     } catch (err) {
       return { error: err }
     }
@@ -858,7 +906,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       try {
         const r = await insertOrSkip('milestones', row, known.ids ? (x) => known.ids.has(x.id) : null)
         r.status === 'inserted' ? bumpInserted(report.milestones) : bumpSkipped(report.milestones)
-        rc.add('milestones', m.id, r.status === 'inserted')
+        if (keepsId(r, !!known.ids)) rc.add('milestones', m.id, r.status === 'inserted')
         if (letGo && r.status === 'inserted') phaseLetGo++
       } catch (err) {
         report.errors.push({ scope: 'milestone', projectId, id: m.id, message: `${name}: ${err.message}` })
@@ -892,7 +940,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // by a read: a duplicate counts as already there, never comes back.
         const r = await insertOrSkip('comments', commentRowForCloud(c))
         r.status === 'inserted' ? bumpInserted(report.comments) : bumpSkipped(report.comments)
-        rc.add('comments', c.id)
+        if (keepsId(r)) rc.add('comments', c.id)
       } catch (err) {
         report.errors.push({ scope: 'comment', projectId, id: c.id, message: err.message })
         bumpFailed(report.comments)
@@ -926,12 +974,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // `landed`: the scenes and shots in the cloud for this project. Answers
   // (M2) the lists in the cloud as this project's (`ours`: inserted, or read
   // there; a bid version's shot list is kept only to one of these) and those
-  // that failed in this run (a version on one waits with it).
+  // that failed in this run (a version on one waits with it); review round
+  // 1: `unread`, those skipped by their key while the read of the project's
+  // lists failed — in the cloud, whose not known (a version on one waits).
   const carryShotLists = async (bundle, projectId, landed, dry, rc) => {
     const lists = (bundle.shotLists ?? []).filter(isObj)
     const items = (bundle.shotListItems ?? []).filter(isObj)
     const edits = (bundle.edits ?? []).filter(isObj)
-    const outcome = { ours: new Set(), failed: new Set() }
+    const outcome = { ours: new Set(), failed: new Set(), unread: new Set() }
     if (!lists.length && !items.length && !edits.length) return outcome
     const read = async (table, columns, rows) => {
       if (!rows.length) return { rows: [] }
@@ -962,14 +1012,17 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       if (there) { bumpSkipped(report.shotLists); landedLists.add(l.id); outcome.ours.add(l.id); rc.add('shot_lists', l.id); if (isArchived(l) && !isArchived(there)) liveThere++; continue }
       const g = rc.gate('shot_lists', l.id)
       if (g === 'removed') { rc.removed('shot_lists', l, listLabel(l)); removedLists.add(l.id); continue }
-      if (g === 'there') { bumpSkipped(report.shotLists); landedLists.add(l.id); continue }
+      // In the record and in the cloud: this project's (the record names only
+      // rows known to be; review round 1, M3).
+      if (g === 'there') { bumpSkipped(report.shotLists); landedLists.add(l.id); outcome.ours.add(l.id); continue }
       if (listNames.has(nameKeyOf(l))) { report.errors.push({ scope: 'shot_list', projectId, id: l.id, message: SHOT_LIST_NAME_TAKEN(listLabel(l)) }); bumpFailed(report.shotLists); outcome.failed.add(l.id); continue }
       if (dry) { bumpInserted(report.shotLists); landedLists.add(l.id); insertedLists.add(l.id); outcome.ours.add(l.id); continue }
       try {
         const r = await insertOrSkip('shot_lists', shotListRowForCloud(l, projectId), haveLists.error ? null : (x) => cloudLists.has(x.id), { shot_lists_project_title_version_key: SHOT_LIST_NAME_TAKEN(listLabel(l)) })
         if (r.status === 'inserted') { bumpInserted(report.shotLists); insertedLists.add(l.id); outcome.ours.add(l.id) } else bumpSkipped(report.shotLists)
+        if (r.status !== 'inserted') outcome[haveLists.error ? 'unread' : 'ours'].add(l.id)
         landedLists.add(l.id)
-        rc.add('shot_lists', l.id)
+        if (keepsId(r, !haveLists.error)) rc.add('shot_lists', l.id)
       } catch (err) {
         report.errors.push({ scope: 'shot_list', projectId, id: l.id, message: err.message })
         bumpFailed(report.shotLists)
@@ -1055,7 +1108,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         if (r.status === 'taken') { takenEdits.add(e.id); continue }
         if (r.status === 'inserted') { bumpInserted(report.edits); insertedEdits.add(e.id) } else bumpSkipped(report.edits)
         landedEdits.add(e.id)
-        rc.add('edits', e.id)
+        if (keepsId(r, !haveEdits.error)) rc.add('edits', e.id)
         holdPlace(e)
       } catch (err) {
         report.errors.push({ scope: 'edit', projectId, id: e.id, message: err.message })
@@ -1223,11 +1276,17 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   }
   // `money`: whether this project's budget is the person's to see (a money
   // table's rows are invisible to anyone else, so none of its rows is asked).
+  // Review round 1 (M2): nor is a Legal file (0092's gate, which the runner
+  // does not ask per project): to a person it shuts out, an earlier run's
+  // would read as removed. A recorded one stays `there`, never written
+  // again. (A money file never meets the record while the money gate is shut
+  // to the person: the runner leaves it here before it asks.)
   const recordContext = async (projectId, bundle, { dry, money }) => {
     const had = carriedRecordOf(bundle, workspaceId)
+    const unseen = new Set((bundle.files ?? []).filter(f => isObj(f) && isLegalFile(f)).map(f => String(f.id)))
     const removedNow = new Map()
     for (const [table, rows] of recordedKinds(bundle)) {
-      const ids = rows.map(r => String(r.id)).filter(id => had.get(table)?.has(id))
+      const ids = rows.map(r => String(r.id)).filter(id => had.get(table)?.has(id) && !(table === 'files' && unseen.has(id)))
       if (!ids.length || (MONEY_TABLES.has(table) && !money)) continue
       const r = await listCloudIn(table, 'id', ids)
       if (r.error) { report.errors.push({ scope: table, projectId, message: `could not read which rows an earlier run carried are still in the cloud, so none of them was written again: ${r.error.message || r.error}` }); continue }
@@ -1261,6 +1320,9 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         if (!had.get(table)?.has(k)) return 'new'
         return removedNow.get(table)?.has(k) ? 'removed' : 'there'
       },
+      // What this computer did once and never again (review round 1, H5):
+      // `pointers` (`locked:<id>`, `open:<id>`) and `set_aside` (row ids).
+      has: (key, id) => !!had.get(key)?.has(String(id)),
       removed(table, row, name) {
         report.removed.byTable[table] = (report.removed.byTable[table] || 0) + 1
         report.removed.rows.push({ projectId, table, id: row.id, name: String(name || row.name || row.title || row.label || row.display_name || row.url || row.id) })
@@ -1293,26 +1355,33 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // Levels and experiences (0040), after the project and before what names
   // them (M2): their folders, an asset's links, a file's, a task's items,
   // the groupings. Answers this project's rows in the cloud (`ours`:
-  // inserted, or read there) and those that failed in this run.
+  // inserted, or read there) and those that failed in this run; review round
+  // 1 (M3): `unread`, those skipped by their key while the read of the
+  // project's rows failed — in the cloud, whose not known, so what names one
+  // waits for a run that can tell (an asset's link let go here was lost for
+  // good: the asset lands, and joins the record).
   const carryLevels = async (bundle, projectId, dry, rc) => {
-    const out = { levels: { ours: new Set(), failed: new Set() }, experiences: { ours: new Set(), failed: new Set() } }
+    const out = { levels: { ours: new Set(), failed: new Set(), unread: new Set() }, experiences: { ours: new Set(), failed: new Set(), unread: new Set() } }
     for (const [table, bucket, scope] of [['levels', report.levels, 'level'], ['experiences', report.experiences, 'experience']]) {
       const rows = (bundle[table] ?? []).filter(isObj)
       if (!rows.length) continue
       const known = await cloudIds(table, projectId)
-      if (known.error) report.errors.push({ scope: table, projectId, message: `could not read the project's ${table} in the cloud, so one refused as a duplicate reads as another project's: ${known.error.message || known.error}` })
+      if (known.error) report.errors.push({ scope: table, projectId, message: `could not read the project's ${table} in the cloud, so what names one already there waits for a run that can (run again): ${known.error.message || known.error}` })
       for (const row of rows) {
         if (!hasId(row)) { report.errors.push({ scope, projectId, message: NO_ID }); bumpFailed(bucket); continue }
         const g = rc.gate(table, row.id)
         if (g === 'removed') { rc.removed(table, row); continue }
         if (known.ids?.has(row.id)) { bumpSkipped(bucket); out[table].ours.add(row.id); rc.add(table, row.id); continue }
-        if (g === 'there') { bumpSkipped(bucket); continue }
+        // In the record and in the cloud: this project's (the record names
+        // only rows known to be).
+        if (g === 'there') { bumpSkipped(bucket); out[table].ours.add(row.id); continue }
         if (dry) { bumpInserted(bucket); out[table].ours.add(row.id); continue }
         try {
           const r = await insertOrSkip(table, levelRowForCloud(row, projectId), known.ids ? (x) => known.ids.has(x.id) : null)
           r.status === 'inserted' ? bumpInserted(bucket) : bumpSkipped(bucket)
           if (r.status === 'inserted') out[table].ours.add(row.id)
-          rc.add(table, row.id)
+          else out[table].unread.add(row.id)
+          if (keepsId(r, !!known.ids)) rc.add(table, row.id)
         } catch (err) {
           report.errors.push({ scope, projectId, id: row.id, message: `${row.name || row.id}: ${err.message}` })
           bumpFailed(bucket)
@@ -1351,7 +1420,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       try {
         const r = await insertOrSkip('task_links', taskLinkRowForCloud(l), have.error ? null : (x) => there.has(String(x.id)))
         r.status === 'inserted' ? bumpInserted(report.taskLinks) : bumpSkipped(report.taskLinks)
-        rc.add('task_links', l.id)
+        if (keepsId(r, !have.error)) rc.add('task_links', l.id)
       } catch (err) {
         report.errors.push({ scope: 'task_link', projectId, id: l.id, message: `${name}: ${err.message}` })
         bumpFailed(report.taskLinks)
@@ -1364,13 +1433,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // The budget (0037), behind the money gate, after the shot lists a bid
   // version is built against (M2): the bid versions, then the lines, the
   // actuals on them, the expenses and the role rates; then the project's
-  // locked and open bid versions by UPDATE, each only to a version this run
-  // carried for this project (the lock's key is single-column and takes any
+  // locked and open bid versions by UPDATE, each only to a version the cloud
+  // holds as this project's (the lock's key is single-column and takes any
   // project's version — measured) and only where the cloud's is still empty
-  // (a teammate's choice is left alone; a second run sets nothing); then the
-  // rows the open version set aside on this computer, carried live, are set
-  // aside again (0090's set_aside_schedule_rows). `lists`: carryShotLists'
+  // (a teammate's choice is left alone); then the rows the open version set
+  // aside on this computer, carried live, are set aside again (0090's
+  // set_aside_schedule_rows). Review round 1 (H5): a version an earlier run
+  // carried counts as one carried now, and so does a row of the schedule (one
+  // a build before M2 carried live among them); each pointer and each
+  // set-aside row is done once, the record keeping it (`pointers`,
+  // `set_aside`), so one that did not take is tried again by the next run and
+  // one a teammate undid in the cloud stays undone. `lists`: carryShotLists'
   // answer.
+  const POINTERS = [['budget_active_version_id', 'locked'], ['open_budget_version_id', 'open']]
   const carryBudgets = async (bundle, projectId, lists, dry, rc) => {
     const versions = (bundle.budgetVersions ?? []).filter(isObj)
     const lines = (bundle.budgetLines ?? []).filter(isObj)
@@ -1381,21 +1456,30 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     for (const [table, rows] of [['budget_versions', versions], ['budget_lines', lines], ['budget_actuals', actuals], ['expenses', expenses], ['project_rate_overrides', rates]]) {
       if (!rows.length) continue
       const r = await cloudIds(table, projectId)
-      if (r.error) report.errors.push({ scope: table, projectId, message: `could not read the project's budget in the cloud, so a row refused as a duplicate reads as another project's: ${r.error.message || r.error}` })
+      if (r.error) report.errors.push({ scope: table, projectId, message: `could not read the project's budget in the cloud, so what hangs on a row already there waits for a run that can (run again): ${r.error.message || r.error}` })
       known[table] = r.error ? null : r.ids
     }
-    // One row: `removed`, `there` (in the cloud: skipped), `inserted` or
+    // One row: `removed`, `there` (this project's, in the cloud: skipped),
+    // `inserted`, `taken` (review round 1, H3: a unique key's place another
+    // row holds — counted by the caller, never an error, never recorded),
+    // `unread` (M6: skipped by its id while the read of the project's rows
+    // failed — whose it is is not known, so nothing hangs on it in this run,
+    // and the record does not name it), `elsewhere` (another project's id) or
     // `failed`, said; the dry run takes every new row to land.
-    const carryRow = async (table, bucket, row, shaped, scope, name) => {
+    const carryRow = async (table, bucket, row, shaped, scope, name, keys = null) => {
       const g = rc.gate(table, row.id)
       if (g === 'removed') { rc.removed(table, row, name); return 'removed' }
-      if (known[table]?.has(row.id) || g === 'there') { bumpSkipped(bucket); if (known[table]?.has(row.id)) rc.add(table, row.id); return 'there' }
+      if (known[table]?.has(row.id)) { bumpSkipped(bucket); rc.add(table, row.id); return 'there' }
+      if (g === 'there') { bumpSkipped(bucket); return 'there' }
       if (dry) { bumpInserted(bucket); return 'inserted' }
       try {
-        const r = await insertOrSkip(table, shaped, known[table] ? (x) => known[table].has(x.id) : null)
-        r.status === 'inserted' ? bumpInserted(bucket) : bumpSkipped(bucket)
-        rc.add(table, row.id)
-        return r.status === 'inserted' ? 'inserted' : 'there'
+        const r = await insertOrSkip(table, shaped, known[table] ? (x) => known[table].has(x.id) : null, keys)
+        if (r.status === 'taken') return 'taken'
+        if (r.status === 'inserted') { bumpInserted(bucket); rc.add(table, row.id, true); return 'inserted' }
+        bumpSkipped(bucket)
+        if (!known[table]) return 'unread'
+        if (keepsId(r)) rc.add(table, row.id)
+        return 'there'
       } catch (err) {
         report.errors.push({ scope, projectId, id: row.id, message: `${name}: ${err.message}` })
         bumpFailed(bucket)
@@ -1404,89 +1488,138 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     const fail = (bucket, scope, id, message) => { report.errors.push({ scope, projectId, id, message }); bumpFailed(bucket) }
     let letGo = 0
-    const carriedVersions = new Set()
+    // The versions the cloud holds as this project's (carried now, or there):
+    // the only ones a pointer may name.
+    const versionsOurs = new Set()
     for (const v of versions) {
       if (!hasId(v)) { fail(report.budgetVersions, 'budget_version', undefined, NO_ID); continue }
       const row = budgetVersionRowForCloud(v, projectId)
       const name = `"${row.name}"`
       let dropped = false
       // Its shot list (0084's key holds it to this project's lists): kept to
-      // a list in the cloud as this project's; one that failed in this run
-      // keeps the version with it; one removed on this computer is let go.
-      if (named(row.shot_list_id) && !lists.ours.has(row.shot_list_id) && rc.gate('budget_versions', v.id) === 'new') {
+      // a list in the cloud as this project's; one that failed in this run,
+      // or whose owner could not be read (review round 1, M3), keeps the
+      // version with it; one removed on this computer is let go. A version
+      // already there is skipped, whatever its list.
+      const there = known.budget_versions?.has(v.id) || rc.gate('budget_versions', v.id) !== 'new'
+      if (!there && named(row.shot_list_id) && !lists.ours.has(row.shot_list_id)) {
         if (lists.failed.has(row.shot_list_id)) { fail(report.budgetVersions, 'budget_version', v.id, `${name}: its shot list is not in the cloud, so the bid version was not carried (a second run brings both)`); continue }
+        if (lists.unread.has(row.shot_list_id)) { fail(report.budgetVersions, 'budget_version', v.id, `${name}: whether its shot list is this project's in the cloud could not be checked (the read failed), so the bid version was not carried (run again)`); continue }
         row.shot_list_id = null
         dropped = true
       }
       const out = await carryRow('budget_versions', report.budgetVersions, v, row, 'budget_version', name)
-      if (out === 'inserted') { carriedVersions.add(String(v.id)); if (dropped) letGo++ }
+      if (out === 'inserted' || out === 'there') versionsOurs.add(String(v.id))
+      if (out === 'inserted' && dropped) letGo++
     }
     const linesHere = idSet(lines)
     const linesLanded = new Set()
     const linesFailed = new Set()
+    const linesUnread = new Set()
+    let pctLines = 0
     for (const l of lines) {
       if (!hasId(l)) { fail(report.budgetLines, 'budget_line', undefined, NO_ID); continue }
-      const out = await carryRow('budget_lines', report.budgetLines, l, budgetLineRowForCloud(l, projectId), 'budget_line', l.label || l.department || l.id)
+      const shaped = budgetLineRowForCloud(l, projectId)
+      const out = await carryRow('budget_lines', report.budgetLines, l, shaped, 'budget_line', l.label || l.department || l.id)
       if (out === 'inserted' || out === 'there') linesLanded.add(l.id)
       if (out === 'failed') linesFailed.add(l.id)
+      if (out === 'unread') linesUnread.add(l.id)
+      // Review round 1 (H4): its own percentage left out, said.
+      if (out === 'inserted' && LINE_PCTS.some(k => named(l[k]) && shaped[k] == null)) pctLines++
     }
+    report.budgetLines.pctsLeftOut += pctLines
+    if (pctLines) note(`  ${LINE_PCTS_LEFT_OUT(pctLines)}`)
     // An actual's line is a plain key (any project's line — measured): kept
-    // only to a line of this project that is in the cloud.
+    // only to a line of this project that is in the cloud; one whose line's
+    // owner could not be read waits (review round 1, M6).
     let orphans = 0
+    let actualsTaken = 0
     for (const a of actuals) {
       if (!hasId(a)) { fail(report.budgetActuals, 'budget_actual', undefined, NO_ID); continue }
       const name = a.invoice_number || `actual ${a.id}`
       const g = rc.gate('budget_actuals', a.id)
       if (g === 'removed') { rc.removed('budget_actuals', a, name); continue }
       if (g === 'new' && !known.budget_actuals?.has(a.id)) {
-        if (!linesHere.has(a.line_id) || !(linesLanded.has(a.line_id) || linesFailed.has(a.line_id))) { orphans++; continue }
+        if (!linesHere.has(a.line_id)) { orphans++; continue }
+        if (linesUnread.has(a.line_id)) { fail(report.budgetActuals, 'budget_actual', a.id, `${name}: whether its budget line is this project's in the cloud could not be checked (the read failed), so the actual was not carried (run again)`); continue }
         if (linesFailed.has(a.line_id)) { fail(report.budgetActuals, 'budget_actual', a.id, `${name}: its budget line is not in the cloud, so the actual was not carried (a second run brings both)`); continue }
+        if (!linesLanded.has(a.line_id)) { orphans++; continue }
       }
-      await carryRow('budget_actuals', report.budgetActuals, a, budgetActualRowForCloud(a, projectId), 'budget_actual', name)
+      const out = await carryRow('budget_actuals', report.budgetActuals, a, budgetActualRowForCloud(a, projectId), 'budget_actual', name, { budget_actuals_line_column_uniq: 'taken' })
+      if (out === 'taken') actualsTaken++
     }
     report.budgetActuals.orphans += orphans
     if (orphans) note(`  ${ACTUALS_ON_GONE_LINES(orphans)}`)
+    report.budgetActuals.taken += actualsTaken
+    if (actualsTaken) note(`  ${ACTUALS_TAKEN(actualsTaken)}`)
     for (const e of expenses) {
       if (!hasId(e)) { fail(report.expenses, 'expense', undefined, NO_ID); continue }
       await carryRow('expenses', report.expenses, e, expenseRowForCloud(e, projectId), 'expense', e.title || e.id)
     }
+    let ratesTaken = 0
     for (const o of rates) {
       if (!hasId(o)) { fail(report.rateOverrides, 'rate_override', undefined, NO_ID); continue }
-      await carryRow('project_rate_overrides', report.rateOverrides, o, rateOverrideRowForCloud(o, projectId), 'rate_override', o.role_slug || o.id)
+      const out = await carryRow('project_rate_overrides', report.rateOverrides, o, rateOverrideRowForCloud(o, projectId), 'rate_override', o.role_slug || o.id, { project_rate_overrides_role_uniq: 'taken' })
+      if (out === 'taken') ratesTaken++
     }
+    report.rateOverrides.taken += ratesTaken
+    if (ratesTaken) note(`  ${RATES_TAKEN(ratesTaken)}`)
     report.rowLinksLetGo += letGo
     note(`  ${plural(versions.length, 'bid version')}, ${plural(lines.length, 'budget line')}, ${plural(actuals.length, 'actual')}, ${plural(expenses.length, 'expense')}, ${plural(rates.length, 'role rate')}`)
 
-    // The project's locked and open bid versions.
+    // The project's locked and open bid versions, each set once.
     const p = bundle.project ?? {}
     const want = {}
-    for (const col of ['budget_active_version_id', 'open_budget_version_id']) if (named(p[col]) && carriedVersions.has(String(p[col]))) want[col] = p[col]
-    if (!Object.keys(want).length) return
-    if (dry) { note(`  the ${Object.keys(want).map(c => (c === 'open_budget_version_id' ? 'open' : 'locked')).join(' and ')} bid version will be set in the cloud as on this computer, if none is there`); return }
+    for (const [col, word] of POINTERS) if (named(p[col]) && versionsOurs.has(String(p[col])) && !rc.has('pointers', `${word}:${p[col]}`)) want[col] = p[col]
+    // The rows the open version set aside on this computer that this one has
+    // not set aside again before.
+    const openId = named(p.open_budget_version_id) && versionsOurs.has(String(p.open_budget_version_id)) ? String(p.open_budget_version_id) : null
+    const asideOf = (key) => (openId ? (bundle[key] ?? []).filter(r => isObj(r) && hasId(r) && named(r.set_aside_at) && !named(r.deleted_at) && !rc.has('set_aside', r.id)) : [])
+    const asideRows = { p_tasks: asideOf('tasks'), p_phases: asideOf('phases'), p_milestones: asideOf('milestones') }
+    const anyAside = Object.values(asideRows).some(x => x.length)
+    if (!Object.keys(want).length && !anyAside) return
+    if (dry) {
+      if (Object.keys(want).length) note(`  the ${Object.keys(want).map(c => (c === 'open_budget_version_id' ? 'open' : 'locked')).join(' and ')} bid version will be set in the cloud as on this computer, if none is there`)
+      return
+    }
     let cur = null
     try {
       const { data, error } = await supabase.from('projects').select('budget_active_version_id, open_budget_version_id').eq('id', projectId).maybeSingle()
       if (error) throw error
       cur = data || {}
     } catch (err) {
-      report.errors.push({ scope: 'project', projectId, message: `the project's locked and open bid versions were not set in the cloud: its own could not be read (${err?.message || err})` })
+      report.errors.push({ scope: 'project', projectId, message: `the project's locked and open bid versions were not set in the cloud (run again): its own could not be read (${err?.message || err})` })
       return
     }
     const patch = {}
     for (const [col, v] of Object.entries(want)) if (cur[col] == null) patch[col] = v
-    if (!Object.keys(patch).length) return
-    const { error } = await (async () => { try { return await supabase.from('projects').update(patch).eq('id', projectId).select('id') } catch (err) { return { error: err } } })()
-    if (error) { report.errors.push({ scope: 'project', projectId, message: `the project's locked or open bid version was not set in the cloud: ${error.message || error}` }); return }
-    if (!patch.open_budget_version_id) return
-    // The rows the open version set aside on this computer, of those this run
-    // inserted (a row there already keeps the state the cloud gave it).
-    const asideOf = (key) => (bundle[key] ?? []).filter(r => isObj(r) && named(r.set_aside_at) && !named(r.deleted_at) && rc.insertedOf(key).has(String(r.id))).map(r => r.id)
-    const aside = { p_tasks: asideOf('tasks'), p_phases: asideOf('phases'), p_milestones: asideOf('milestones') }
+    if (Object.keys(patch).length) {
+      const { error } = await (async () => { try { return await supabase.from('projects').update(patch).eq('id', projectId).select('id') } catch (err) { return { error: err } } })()
+      if (error) { report.errors.push({ scope: 'project', projectId, message: `the project's locked or open bid version was not set in the cloud (run again): ${error.message || error}` }); return }
+      for (const [col, word] of POINTERS) if (col in patch) rc.add('pointers', `${word}:${patch[col]}`)
+      cur = { ...cur, ...patch }
+    }
+    // Set aside again only under the version that set them aside: the
+    // cloud's open version is this computer's (set now, or there already).
+    if (!anyAside || String(cur.open_budget_version_id ?? '') !== openId) return
+    // Each this project's live row in the cloud — carried now or by an
+    // earlier run; one in the cloud's trash, or another project's, is not
+    // asked about.
+    const aside = {}
+    for (const [arg, table] of [['p_tasks', 'tasks'], ['p_phases', 'phases'], ['p_milestones', 'milestones']]) {
+      aside[arg] = []
+      if (!asideRows[arg].length) continue
+      const r = await cloudIds(table, projectId)
+      if (r.error) { report.errors.push({ scope: 'set_aside', projectId, message: `the open bid version's set-aside rows show live in the cloud (run again): the project's ${table} could not be read (${r.error.message || r.error})` }); return }
+      aside[arg] = asideRows[arg].filter(x => r.ids.has(x.id)).map(x => x.id)
+    }
     const n = aside.p_tasks.length + aside.p_phases.length + aside.p_milestones.length
     if (!n) return
     const set = await callRpc('set_aside_schedule_rows', { p_project: projectId, p_on: true, ...aside })
-    if (set.error) report.errors.push({ scope: 'set_aside', projectId, message: `the open bid version's set-aside rows show live in the cloud: they could not be set aside again (${set.error.message || set.error})` })
-    else { report.setAside += n; note(`  ${SET_ASIDE_AGAIN(n)}`) }
+    if (set.error) { report.errors.push({ scope: 'set_aside', projectId, message: `the open bid version's set-aside rows show live in the cloud: they could not be set aside again (run again): ${set.error.message || set.error}` }); return }
+    for (const id of [...aside.p_tasks, ...aside.p_phases, ...aside.p_milestones]) rc.add('set_aside', id)
+    report.setAside += n
+    note(`  ${SET_ASIDE_AGAIN(n)}`)
   }
 
   // Fetch the local project list. On a fresh install there may be no local
@@ -1528,6 +1661,9 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       // says it), and a second dry run counts it as there.
       const projectThere = await cloudProjectThere(projectId)
       if (projectThere.error) report.errors.push({ scope: 'project', projectId, message: `could not read whether the project is in the cloud already: ${projectThere.error.message || projectThere.error}` })
+      // Review round 1 (M2): another workspace's project is none of this
+      // run's, as the real run says.
+      if (projectThere.there && !projectThere.ours) { report.errors.push({ scope: 'project', projectId, message: PROJECT_NOT_OURS }); bumpFailed(report.projects); continue }
       // M2: a project an earlier run carried that the cloud no longer shows
       // is not carried again, nor anything of it (the real run's rule).
       if (!projectThere.error && !projectThere.there && carriedRecordOf(bundle, workspaceId).get('projects')?.has(String(projectId))) {
@@ -1539,7 +1675,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       // M2: the money, as the real run will take it — a project about to be
       // inserted is the person's to manage (fn_projects_auto_staff).
       const money = moneyOf(bundle)
-      const moneyGoes = !(money.rows || money.files.length) || !projectThere.there || await canSeeMoney(projectId)
+      const asked = await moneyAsk(money, projectId, !projectThere.there)
+      const moneyGoes = asked.sees
       const rc = await recordContext(projectId, bundle, { dry: true, money: moneyGoes })
       const removedBefore = { ...report.removed.byTable }
       const linksBefore = report.rowLinksLetGo
@@ -1619,9 +1756,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // meets its key and skips it. M2: one removed in the cloud since an
         // earlier run is not carried again; money stays behind the gate (a
         // receipt kept as an ordinary file goes up as money), or here.
-        let toCarry = toTry('files', bundle.files).filter(isObj)
+        // Money left here (the gate shut to this person) is none of this
+        // run's files, in the count too, as in the real run (review round 1).
+        let toCarry = toTry('files', (bundle.files ?? []).filter(f => moneyGoes || !money.files.includes(f))).filter(isObj)
         report.files.total += toCarry.length
-        if (!moneyGoes) toCarry = toCarry.filter(f => !money.files.includes(f))
         if (toCarry.length) {
           const have = await cloudIds('files', projectId)
           if (have.error) report.errors.push({ scope: 'files', projectId, message: `could not read the files already in the cloud: ${have.error.message || have.error}` })
@@ -1639,7 +1777,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         report.files.linksLetGo += letGo
         if (letGo) note(`  ${FILE_LINKS_LET_GO(letGo)}`)
         if (moneyGoes) await carryBudgets(bundle, projectId, lists, true, rc)
-        else if (money.rows || money.files.length) leaveMoney(money)
+        else if (!asked.unasked) leaveMoney(money)
       }
       if ((bundle.bins ?? []).length || (bundle.binFiles ?? []).length) {
         const clips = bundle.binFiles ?? []
@@ -1774,7 +1912,17 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         statusRefused = String(status)
       }
       if (r.status === 'inserted') { bumpInserted(report.projects); arriving = true }
-      else bumpSkipped(report.projects)
+      else {
+        // Review round 1 (M2): skipped by its key, the project is this run's
+        // to fill only if the cloud shows it in THIS workspace. An id held
+        // elsewhere (the same desktop moved into a second company) or out of
+        // this person's sight is said, and none of it written or recorded (the
+        // record named it, and the next run called it removed).
+        const mine = await cloudProjectThere(projectId)
+        if (mine.error) throw new Error(`could not check whether the project already in the cloud is in this workspace, so none of it was written (run again): ${mine.error.message || mine.error}`)
+        if (!mine.ours) throw new Error(PROJECT_NOT_OURS)
+        bumpSkipped(report.projects)
+      }
     } catch (err) {
       report.errors.push({ scope: 'project', projectId, message: err.message })
       bumpFailed(report.projects)
@@ -1787,7 +1935,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // this run inserted is the person's to manage — fn_projects_auto_staff),
     // and the record of what earlier runs carried into this workspace.
     const money = moneyOf(bundle)
-    const moneyGoes = !(money.rows || money.files.length) || await canSeeMoney(projectId)
+    const asked = await moneyAsk(money, projectId, false)
+    const moneyGoes = asked.sees
     const rc = await recordContext(projectId, bundle, { dry: false, money: moneyGoes })
     rc.add('projects', projectId)
     const removedBefore = { ...report.removed.byTable }
@@ -1857,7 +2006,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         r.status === 'inserted' ? bumpInserted(bucket) : bumpSkipped(bucket)
         if (r.status === 'inserted') schedLetGo += letGo
         if (r.status === 'inserted' || knownSched[table]) onLanded?.(src.id)
-        rc.add(table, src.id, r.status === 'inserted')
+        if (keepsId(r, !!knownSched[table])) rc.add(table, src.id, r.status === 'inserted')
       } catch (err) {
         report.errors.push({ scope, projectId, id: src?.id, message: err.message })
         bumpFailed(bucket)
@@ -1897,6 +2046,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           for (const id of Array.isArray(src[k]) ? src[k] : []) {
             if (levelsOut[table].ours.has(id)) { if (!keep[k].includes(id)) keep[k].push(id) }
             else if (levelsOut[table].failed.has(id)) throw new Error(`${src.name || src.id}: its ${what} is not in the cloud, so it was not carried (a second run brings both)`)
+            // Review round 1 (M3): let go here, the link was lost for good.
+            else if (levelsOut[table].unread.has(id)) throw new Error(`${src.name || src.id}: whether its ${what} is this project's in the cloud could not be checked (the read failed), so it was not carried (run again)`)
             else letGo++
           }
         }
@@ -1939,7 +2090,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         delete columns.predecessor
         const r = await insertOrSkip(table, toColumns(table, columns))
         r.status === 'inserted' ? bumpInserted(bucket) : bumpSkipped(bucket)
-        rc.add(table, dep.id)
+        if (keepsId(r)) rc.add(table, dep.id)
       } catch (err) {
         report.errors.push({ scope: kind === 'phase' ? 'phase_link' : 'task_dependency', projectId, id: dep.id, message: err.message })
         bumpFailed(bucket)
@@ -1995,7 +2146,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         r.status === 'inserted' ? bumpInserted(report.scenes) : bumpSkipped(report.scenes)
         landed.scenes.add(sc.id)
         if (r.status === 'inserted' || known.scenes) landedOurs.scenes.add(sc.id)
-        rc.add('scenes', sc.id)
+        if (keepsId(r, !!known.scenes)) rc.add('scenes', sc.id)
       } catch (err) {
         report.errors.push({ scope: 'scene', projectId, id: sc.id, message: err.message })
         bumpFailed(report.scenes)
@@ -2027,7 +2178,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         r.status === 'inserted' ? bumpInserted(report.shots) : bumpSkipped(report.shots)
         landed.shots.add(sh.id)
         if (r.status === 'inserted' || known.shots) landedOurs.shots.add(sh.id)
-        rc.add('shots', sh.id)
+        if (keepsId(r, !!known.shots)) rc.add('shots', sh.id)
       } catch (err) {
         report.errors.push({ scope: 'shot', projectId, id: sh.id, message: err.message })
         bumpFailed(report.shots)
@@ -2040,7 +2191,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // on it (M2: one removed in the cloud since an earlier run is gone; the
     // levels and experiences land before the folders and files).
     const sceneShotState = (kind, id) => (landedOurs[kind].has(id) ? 'landed' : here[kind].has(id) && !removedHere[kind].has(id) ? 'failed' : 'gone')
-    const levelState = (table, id) => (levelsOut[table].ours.has(id) ? 'landed' : levelsOut[table].failed.has(id) ? 'failed' : 'gone')
+    const levelState = (table, id) => (levelsOut[table].ours.has(id) ? 'landed' : levelsOut[table].failed.has(id) ? 'failed' : levelsOut[table].unread.has(id) ? 'unread' : 'gone')
     const folderAssets = (bundle.folders ?? []).some(f => isObj(f) && named(f.asset_id)) ? await verified('assets') : new Set()
     const folders = await carryFolders(bundle, projectId, (fk, id) => {
       if (fk === 'level_id') return levelState('levels', id)
@@ -2074,16 +2225,18 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     let placed = 0
     let linksLetGo = 0
     let receiptsGated = 0
+    let receiptsOpen = 0
     for (const f of bundle.files ?? []) {
-      // M2: removed in the cloud since an earlier run — never uploaded
-      // again. Money (an invoice, or a receipt an expense or an actual names,
+      // M2: money (an invoice, or a receipt an expense or an actual names,
       // whatever its own flag) goes up behind the money gate, or — when the
-      // person cannot see this project's budget — stays here with it.
+      // person cannot see this project's budget — stays here with it, asked
+      // nothing (review round 1: its record would read it as removed). One
+      // removed in the cloud since an earlier run is never uploaded again.
+      const isMoney = isObj(f) && (f.is_financial === true || money.receipts.has(String(f.id)))
+      if (isMoney && !moneyGoes) continue
       const g = hasId(f) ? rc.gate('files', f.id) : 'new'
       if (g === 'removed') { rc.removed('files', f); continue }
       if (g === 'there') { bumpSkipped(report.files); continue }
-      const isMoney = isObj(f) && (f.is_financial === true || money.receipts.has(String(f.id)))
-      if (isMoney && !moneyGoes) continue
       try {
         // S4b: a Legal file (on the desktop, its tag) goes under LEGAL with
         // its tag, never core — or, where the cloud does not lock LEGAL, not
@@ -2106,6 +2259,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         }
         const already = asked.row
         if (already) {
+          // Review round 1 (M2): another project's file is not this one, and
+          // never joins the record (a later run, not seeing it, would call it
+          // removed); a receipt an earlier build carried as an ordinary file
+          // is said on every run, so it never goes quiet (not recorded).
+          if (already.project_id != null && already.project_id !== projectId) {
+            report.errors.push({ scope: 'file', projectId, id: f.id, message: `${f.name || f.id}: a file with this id is in the cloud but is not this project's, so nothing was written for it` })
+            bumpFailed(report.files)
+            continue
+          }
+          if (isMoney && already.is_financial === false) { receiptsOpen++; bumpSkipped(report.files); continue }
           if (already.storage_path && already.storage_path !== objectPath) {
             report.errors.push({
               scope: 'file', projectId, id: f.id,
@@ -2190,12 +2353,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         } else if (Array.isArray(f.tags) && f.tags.includes('legal')) {
           row.tags = f.tags.filter(t => t !== 'legal') // not Legal: a label only
         }
+        // Not there a moment ago: a duplicate now is a row this person cannot
+        // see (another company's, a trashed one), never this run's to record.
         const r = await insertOrSkip('files', row)
         r.status === 'inserted' ? bumpInserted(report.files) : bumpSkipped(report.files)
         if (r.status === 'inserted' && row.folder_id) placed++
         if (r.status === 'inserted') linksLetGo += Object.entries(links).filter(([k]) => f[k] !== '').length
         if (r.status === 'inserted' && isMoney && f.is_financial !== true) receiptsGated++
-        rc.add('files', f.id)
+        if (r.status === 'inserted') rc.add('files', f.id)
       } catch (err) {
         report.errors.push({ scope: 'file', projectId, id: f.id, message: err.message })
         bumpFailed(report.files)
@@ -2207,11 +2372,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     if (linksLetGo) note(`  ${FILE_LINKS_LET_GO(linksLetGo)}`)
     report.files.receiptsGated += receiptsGated
     if (receiptsGated) note(`  ${RECEIPTS_GATED(receiptsGated)}`)
+    report.files.receiptsOpen += receiptsOpen
+    if (receiptsOpen) note(`  ${RECEIPTS_LEFT_OPEN(receiptsOpen)}`)
 
     // M2: the budget, after the shot lists a bid version is built against and
-    // the files its receipts are; behind the money gate, or left here, said.
+    // the files its receipts are; behind the money gate, or left here, said
+    // (a question the cloud did not answer is an error, said as one).
     if (moneyGoes) await carryBudgets(bundle, projectId, lists, false, rc)
-    else leaveMoney(money)
+    else if (!asked.unasked) leaveMoney(money)
 
     for (const b of binsParentsFirst(bundle.bins ?? [])) {
       const g = hasId(b) ? rc.gate('bins', b.id) : 'new'
@@ -2221,7 +2389,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         const r = await insertOrSkip('bins', toColumns('bins', { ...cloudRowOf(b, projectId), workspace_id: workspaceId }), oursIn('bins'))
         r.status === 'inserted' ? bumpInserted(report.bins) : bumpSkipped(report.bins)
         landed.bins.add(b.id)
-        rc.add('bins', b.id)
+        if (keepsId(r, !!known.bins)) rc.add('bins', b.id)
       } catch (err) {
         report.errors.push({ scope: 'bin', projectId, id: b.id, message: err.message })
         bumpFailed(report.bins)
@@ -2308,7 +2476,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         const r = await insertOrSkip('bin_files', toColumns('bin_files', row), cloudClipsUnknown ? null : (x) => cloudClips.has(x.id))
         r.status === 'inserted' ? bumpInserted(report.binFiles) : bumpSkipped(report.binFiles)
         landed.clips.add(clip.id)
-        rc.add('bin_files', clip.id)
+        if (keepsId(r, !cloudClipsUnknown)) rc.add('bin_files', clip.id)
         if (POSTER_MEDIA.has(clip.media_type) && !cloudClipsUnknown) wantPicture.push(clip)
         else if (POSTER_MEDIA.has(clip.media_type)) { report.posters.total++; report.posters.skipped++ }
       } catch (err) {
@@ -2364,7 +2532,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       try {
         const r = await insertOrSkip('shot_takes', toColumns('shot_takes', { ...cloudRowOf(t, projectId), workspace_id: workspaceId }), cloudTakesUnknown ? null : (x) => thereTakes.has(x.id) || thereTakes.has(takePairKey(x)))
         r.status === 'inserted' ? report.shotTakes.inserted++ : report.shotTakes.skipped++
-        rc.add('shot_takes', t.id)
+        if (keepsId(r, !cloudTakesUnknown)) rc.add('shot_takes', t.id)
       } catch (err) {
         report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: err.message })
         report.shotTakes.failed++
@@ -2393,7 +2561,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           ...(it.created_at ? { created_at: it.created_at } : {}),
         }))
         r.status === 'inserted' ? report.taskItems.inserted++ : report.taskItems.skipped++
-        rc.add('task_items', it.id)
+        if (keepsId(r)) rc.add('task_items', it.id)
       } catch (err) {
         report.errors.push({ scope: 'task_item', projectId, id: it.id, message: err.message })
         report.taskItems.failed++

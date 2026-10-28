@@ -494,6 +494,11 @@ export function budgetVersionRowForCloud(v, projectId) {
 export const LINE_SHEETS = Object.freeze(['crew', 'talent', 'expenses_travel'])
 const LINE_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.budget_lines), STAMPED)
 const LINE_DEFAULTED = ['sheet', 'sort_order', 'is_section_header', 'rate', 'days', 'qty', 'cost', 'is_na_days', 'is_na_qty', 'agency_opt_out', 'created_at', 'updated_at']
+/** A line's own percentages (null: the project's applies). NUMERIC(7,3), none below zero (budget_lines_pct_nonneg) — measured. */
+export const LINE_PCTS = Object.freeze(['margin_pct', 'contingency_pct', 'talent_agency_fee_pct'])
+// NUMERIC(7,3)'s room: a value that rounds to 10,000 overflows (22003).
+const PCT_ROOM = 9999.9995
+const pctHeld = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n < PCT_ROOM }
 
 /**
  * A desktop budget line as the cloud's `budget_lines` takes it. A section
@@ -501,14 +506,20 @@ const LINE_DEFAULTED = ['sheet', 'sort_order', 'is_section_header', 'rate', 'day
  * desktop's own add writes 0. Its `team_member_id` names one of the desktop's
  * team members, never a cloud person (0037's comment: on the cloud it is a
  * workspace member's user id), so it goes up empty — team members move with
- * a later run (night 5) — and the runner counts it.
+ * a later run (night 5) — and the runner counts it. A percentage of its own
+ * the column cannot hold — below zero (the desktop's inputs do not stop one),
+ * past NUMERIC(7,3)'s room, or no number — refused the whole line, and every
+ * actual on it, on every run (23514, 22003, 22P02 — measured; review round
+ * 1): it goes up empty, so the line takes the project's, and the runner says
+ * so.
  */
 export function budgetLineRowForCloud(line, projectId) {
   const row = onlyColumns(line, LINE_ROW_COLUMNS)
   row.project_id = projectId
   if ('team_member_id' in row) row.team_member_id = null
   if ('sheet' in row && !LINE_SHEETS.includes(row.sheet)) delete row.sheet
-  blankToNull(row, ['margin_pct', 'contingency_pct', 'talent_agency_fee_pct'])
+  blankToNull(row, LINE_PCTS)
+  for (const k of LINE_PCTS) if (row[k] != null && !pctHeld(row[k])) row[k] = null
   return dropBlank(row, LINE_DEFAULTED)
 }
 
