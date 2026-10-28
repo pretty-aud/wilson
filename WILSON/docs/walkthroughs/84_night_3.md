@@ -322,7 +322,9 @@ library and on the cloud. Single page's grey line now names only your deck
 context (the theme generator is on screen there), and only when the box has
 words. On your computer's library a project from before its files moved to
 the Files tab counts its older attachments as Core unless they were marked
-Ref, and the ticked box says so. The app's main file grew by 1,938 bytes.
+Ref, and the ticked box says so. Opened offline (S2's section, above), card 1
+keeps S2's one sentence and no New project, and *Core files only* stays grey
+and silent. The app's main file grew by 1,938 bytes.
 
 ### What to click
 

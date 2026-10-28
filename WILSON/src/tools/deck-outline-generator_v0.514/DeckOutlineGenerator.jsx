@@ -4247,6 +4247,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 onAdd={() => setShowRefsPicker(true)}
                 onPreview={refPreview.open}
                 uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
+                offline={projectsHeldOffline}
               />
             </div>
             )}

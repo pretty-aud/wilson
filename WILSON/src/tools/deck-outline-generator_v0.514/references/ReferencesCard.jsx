@@ -259,8 +259,11 @@ export function coreLine({ projectChosen, core, coreOnly, setAside = 0 }) {
  *           add: (e) => void, remove: (id) => void }} props.uploads
  *        D.O.G.'s uploads (DG2): its `uploadedFiles`, `isFileLoading`,
  *        `handleFileUpload` and `removeFile`, drawn here as the first group
+ * @param {boolean} [props.offline] a sign-in held at an offline launch (S2):
+ *        card 1 says so in its one sentence, so Core files only is off and
+ *        says nothing of its own
  */
-export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, extraUncounted = 0, onAdd, onPreview, uploads }) {
+export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, extraUncounted = 0, onAdd, onPreview, uploads, offline = false }) {
   const fileInput = useRef(null);
   const uploadsGroup = useRef(null);
   const rows = refs.chosenList;
@@ -289,10 +292,13 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   // no Remove (the Files tab marks them), Add references and Remove all
   // references are off, and the sentence under it says where the window's
   // choices went.
+  // S2's rule, merged into this card (her ruling of 2026-10-27, "One offline
+  // sentence on each screen"): while a sign-in is held offline the box is off
+  // and silent; card 1's offline sentence says why.
   const coreOnly = !!refs.coreOnly;
-  const coreOff = !coreOnly && (!projectChosen || refs.core?.state !== 'ready');
+  const coreOff = !coreOnly && (offline || !projectChosen || refs.core?.state !== 'ready');
   const setAside = coreOnly ? [...(refs.chosen || [])].filter(k => !refs.listedKeys?.has(k)).length : 0;
-  const coreSaid = coreLine({ projectChosen, core: refs.core, coreOnly, setAside });
+  const coreSaid = offline && !coreOnly ? '' : coreLine({ projectChosen, core: refs.core, coreOnly, setAside });
   // Review round 1, finding 1 (MEASURED): cleared where it could not be
   // ticked again, the box turns off under the keyboard's focus, which
   // Chromium drops on <body>, where D.O.G.'s next Enter makes a deck. Focus

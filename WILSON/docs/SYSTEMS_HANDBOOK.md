@@ -3612,7 +3612,9 @@ the Local Server a legacy project's older attachments read as Core unless
 marked Ref (`legacyPoolFiles`' default), and the ticked box says so. With Add
 references off, a Remove, Undo or Dismiss from the keyboard hands focus to
 Choose file, else a row's Remove, never to the checkbox (where Enter makes a
-deck). Walkthrough 84, its DG4 section.
+deck). While a sign-in is held at an offline launch (S2), card 1 keeps S2's
+one offline sentence and no New project, and the box is off and says
+nothing of its own (`offline`). Walkthrough 84, its DG4 section.
 
 ### 13.2 O.T.T.E.R.
 

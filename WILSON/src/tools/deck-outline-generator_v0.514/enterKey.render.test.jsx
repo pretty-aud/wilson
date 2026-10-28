@@ -47,6 +47,7 @@ import DeckOutlineGenerator from './DeckOutlineGenerator'
 import { ToastProvider } from '../../ui'
 import { ASK_FOR_CONTEXT } from './enterGenerates'
 import { _resetOverlaysForTests } from '../../ui/overlay'
+import { setHeldSession } from '../../cloud/auth/heldSession'
 
 const CONTEXT = 'A pitch deck for a watch launch, five pages.'
 
@@ -1522,6 +1523,27 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     await showPage(d, 'rabbit')
     await showPage(d, 'dog')
     await waitFor(() => expect(adapter.listFiles.mock.calls.length).toBe(ticked + 1))
+  })
+
+  // S2 merged first (her ruling of 2026-10-27, "One offline sentence on each
+  // screen"): card 1 keeps its one offline sentence and no New project, and
+  // the box adds nothing of its own.
+  it('a sign-in held at an offline launch: the box is off and silent, card 1 says its one offline sentence, no New project', async () => {
+    withProject(CORE())
+    setHeldSession({ access_token: 'held-for-a-test' })
+    try {
+      const d = await openDog({ upload: false })
+      const card1 = d.q('#dog-card1-body')
+      expect(coreBox().disabled).toBe(true)
+      expect(coreSaid()).toBe(null)
+      expect(coreBox().hasAttribute('aria-describedby')).toBe(false)
+      expect([...card1.querySelectorAll('.dog-field-hint')].filter((p) => /^Could not reach the database/.test(p.textContent))).toHaveLength(1)
+      expect(within(card1).queryByRole('button', { name: 'New project' })).toBe(null)
+    } finally {
+      await act(async () => { setHeldSession(null) })
+    }
+    // CONTROL: the hold over, the box says why it is off again.
+    expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
   })
 
   it('Enter on it is D.O.G.\'s, as on its other tick boxes: the box empty, it asks, and the tick stays', async () => {
