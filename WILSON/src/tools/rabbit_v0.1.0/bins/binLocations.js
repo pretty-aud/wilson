@@ -191,6 +191,10 @@ export function gatewayClipSentence(locationName, state) {
       return `No file gateway is enrolled, so the clip cannot be played in a browser; the desktop app on a computer that reaches the share plays it. ${tail}`
     case 'gateway_unreachable':
       return `This browser cannot reach the company's file gateway, so the clip cannot be played here. ${tail}`
+    // P8 (0104, TPN-AUTH-012): the gateway serves a path only once a workspace
+    // admin or manager has checked it (bin_files.vetted_at).
+    case 'not_checked':
+      return `This clip was added by a reviewer or member and has not been checked by a workspace admin or manager yet, so the file gateway does not serve it. ${tail}`
     case 'unseen':
       return `The company's file gateway has not answered WILSON, so the clip cannot be played here. ${tail}`
     case 'not_mounted':

@@ -106,6 +106,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const { can, reasonFor, gateCtx } = useProjectAccess()
   const canWrite = can('project.bins.write')
   const writeReason = reasonFor('project.bins.write')
+  // P8 (0104, TPN-AUTH-012): the checked mark the file gateway requires is a
+  // workspace admin's or manager's to set (bins_caller_may_vet); the control
+  // shows for them alone, on a company's clip in the inspector.
+  const canVet = can('project.bins.vet')
   const supports = !!ctx?.supportsBins
   // What this backend can do with a FILE (BC1's capability object). Null
   // before the first list: read as "yes" so the signed-out desktop's tab is
@@ -923,6 +927,15 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   }, [notConnected, ctx, say])
   const [unreachableDismissed, setUnreachableDismissed] = useState(false)
   const [reachBusy, setReachBusy] = useState(false)
+  // P8 (0104): a footage location an admin or manager marks as checked for
+  // the file gateway (the trigger stamps it; anyone else is refused, 42501).
+  const vetLocation = useCallback(async (locationId) => {
+    if (!locationId || typeof ctx?.updateBinLocation !== 'function') return
+    try {
+      await ctx.updateBinLocation(locationId, { vetted_at: new Date().toISOString() })
+      say('The location is marked as checked for the file gateway.', 'ok', 5000)
+    } catch (e) { say(e?.message || String(e), 'error') }
+  }, [ctx, say])
   const pickOneUnreachable = useCallback(async () => {
     const one = unreachable[0]
     if (!one || typeof ctx?.pickBinLocationLocalPath !== 'function') return
@@ -1305,6 +1318,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive}
           locationOf={locationOf} addedByOf={addedByOf} remoteViewsFor={remoteViewsFor} onOpenRemoteViews={openRemoteViews}
+          canVet={canVet} onVetLocation={vetLocation}
           canStream={mode.canStream} canOpen={mode.canOpen} canProbe={mode.canProbe} catalogue={catalogue}
           gateway={gatewayInfo} streamInfoFor={streamInfoFor} onTicketWanted={ensureTicket} onRenew={renewStream} onFreshSrc={freshSrc} onDiagnose={diagnose}
           viewer={viewer} spaceTogglesPreview={!catalogue} />

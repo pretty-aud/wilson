@@ -108,7 +108,9 @@ export const SHOTS = SHOT_ROWS.map(([n, scene, shot_number, name, status, framin
 // (data/workspace.js), as a real company's would have been.
 
 export const BIN_LOCATIONS = [
-  { id: fid('binLocation', 1), workspace_id: WORKSPACE_ID, name: 'Footage NAS', unc_path: '\\\\salthours-nas\\footage', added_by: MEMBER_ID.sofia, created_at: stamp(30, 9), updated_at: stamp(30, 9) },
+  // P8 (0104, TPN-AUTH-012): checked for the file gateway by the admin who
+  // named it, as a real location an admin names is.
+  { id: fid('binLocation', 1), workspace_id: WORKSPACE_ID, name: 'Footage NAS', unc_path: '\\\\salthours-nas\\footage', added_by: MEMBER_ID.sofia, created_at: stamp(30, 9), updated_at: stamp(30, 9), vetted_at: stamp(30, 9), vetted_by: MEMBER_ID.sofia },
 ]
 const LOCATION_ID = BIN_LOCATIONS[0].id
 
@@ -207,6 +209,10 @@ export const BIN_FILES = BIN_FILE_ROWS.map(([n, bin, name, extension, media_type
     poster_path: posterKey(n, name),
     added_by: bin === 7 ? MEMBER_ID.kenji : MEMBER_ID.sofia,
     added_at: stamp(51 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0), 20, i),
+    // P8 (0104, TPN-AUTH-012): checked for the file gateway (the mark the
+    // gateway's confirmation requires), by the admin, when it was added.
+    vetted_at: stamp(51 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0), 21, i),
+    vetted_by: MEMBER_ID.sofia,
     updated_at: stamp(52 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0), 10, i),
     online: true,
     // Not a column. The fixtures adapter serves this as the poster.

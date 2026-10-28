@@ -45,7 +45,7 @@
 
 BEGIN;
 
-SELECT plan(161);
+SELECT plan(162);
 
 SELECT * FROM tests.rls_setup();
 
@@ -208,6 +208,19 @@ INSERT INTO public.bin_files (id, project_id, workspace_id, bin_id, location_id,
    '96960000-0000-0000-0000-0000000000d2', '96960000-0000-0000-0000-0000000000c1', 'P001/secret.mov', 'secret', 'secret.mov', 'mov', 'video/quicktime', 'video'),
   ('96960000-0000-0000-0000-0000000000f3', 'bbbb2222-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222',
    '96960000-0000-0000-0000-0000000000d3', '96960000-0000-0000-0000-0000000000c2', 'B001/b.mov', 'b', 'b.mov', 'mov', 'video/quicktime', 'video');
+-- 0104 (TPN-AUTH-012): the gateway confirms CHECKED clips at CHECKED locations
+-- only. The three clips and both locations are checked here as postgres (a
+-- non-client keeps what it supplies); a fourth clip and a third location stay
+-- unchecked for the probes that pin the mark (125, 125b, 126).
+UPDATE public.bin_files SET vetted_at = now(), vetted_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+ WHERE id IN ('96960000-0000-0000-0000-0000000000f1', '96960000-0000-0000-0000-0000000000f2', '96960000-0000-0000-0000-0000000000f3');
+UPDATE public.bin_locations SET vetted_at = now(), vetted_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+ WHERE id IN ('96960000-0000-0000-0000-0000000000c1', '96960000-0000-0000-0000-0000000000c2');
+INSERT INTO public.bin_locations (id, workspace_id, name, unc_path) VALUES
+  ('96960000-0000-0000-0000-0000000000c3', '11111111-1111-1111-1111-111111111111', 'Unchecked 96', '\\studio-nas96\unchecked');
+INSERT INTO public.bin_files (id, project_id, workspace_id, bin_id, location_id, relative_path, display_name, original_name, extension, mime_type, media_type) VALUES
+  ('96960000-0000-0000-0000-0000000000f4', 'aaaa1111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   '96960000-0000-0000-0000-0000000000d1', '96960000-0000-0000-0000-0000000000c1', 'A001/unchecked.mov', 'unchecked', 'unchecked.mov', 'mov', 'video/quicktime', 'video');
 
 
 -- ── 14-24: the token (§2 step 1) ───────────────────────────────────────────
@@ -1292,17 +1305,21 @@ SELECT set_config('wg96.sync1', public.gateway_sync_apply(current_setting('wg96.
   jsonb_build_array(
     jsonb_build_object('clip', '96960000-0000-0000-0000-0000000000f1', 'loc', '96960000-0000-0000-0000-0000000000c1', 'path', 'A001/other.mov'),
     jsonb_build_object('clip', '96960000-0000-0000-0000-0000000000f3', 'loc', '96960000-0000-0000-0000-0000000000c2', 'path', 'B001/b.mov'),
-    jsonb_build_object('clip', '96960000-0000-0000-0000-0000000000f2', 'loc', '96960000-0000-0000-0000-0000000000c1', 'path', 'P001/secret.mov'))
+    jsonb_build_object('clip', '96960000-0000-0000-0000-0000000000f2', 'loc', '96960000-0000-0000-0000-0000000000c1', 'path', 'P001/secret.mov'),
+    jsonb_build_object('clip', '96960000-0000-0000-0000-0000000000f4', 'loc', '96960000-0000-0000-0000-0000000000c1', 'path', 'A001/unchecked.mov'))
 )::text, true);
 
 SELECT is(current_setting('wg96.sync1')::jsonb -> 'confirmed',
   '["96960000-0000-0000-0000-0000000000f2"]'::jsonb,
   '🚨 the catalogue check confirms a clip of this company at its own path (the private one too: workspace scope, R23) — never a clip at another path, never another company''s clip (D22)');
+SELECT ok(
+  NOT ((current_setting('wg96.sync1')::jsonb -> 'confirmed') @> '["96960000-0000-0000-0000-0000000000f4"]'::jsonb),
+  '🚨 0104 (TPN-AUTH-012): a clip WITHOUT the checked mark, at its own path and location, is never confirmed');
 SELECT is(
   (SELECT jsonb_agg(l ->> 'id') FROM jsonb_array_elements(current_setting('wg96.sync1')::jsonb -> 'bin_locations') AS l
     WHERE l ->> 'id' LIKE '96960000-%'),
   '["96960000-0000-0000-0000-0000000000c1"]'::jsonb,
-  'the gateway is told its own company''s locations and not another''s');
+  'the gateway is told its own company''s CHECKED locations (0104): not another company''s, not the unchecked one');
 SELECT ok(
   (current_setting('wg96.sync1')::jsonb ->> 'remote_viewing') = 'false'
   AND current_setting('wg96.sync1')::jsonb -> 'outside_address' = '{"host": "gateway.example.com", "port": 8444}'::jsonb

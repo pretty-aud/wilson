@@ -631,6 +631,8 @@ const EDIT_COLUMNS = new Set([
 const BIN_LOCATION_COLUMNS = new Set([
   'id', 'workspace_id', 'name', 'unc_path',
   'added_by', 'created_at', 'updated_at',
+  // P8 (0104, TPN-AUTH-012): the checked mark; vetted_by is the trigger's.
+  'vetted_at', 'vetted_by',
 ]);
 
 const BIN_COLUMNS = new Set([
@@ -649,6 +651,8 @@ const BIN_FILE_COLUMNS = new Set([
   'duration_sec', 'width', 'height', 'fps', 'codec', 'timecode_start',
   'probe_status', 'sort_order', 'poster_path',
   'added_by', 'added_at', 'updated_at',
+  // P8 (0104, TPN-AUTH-012): the checked mark; vetted_by is the trigger's.
+  'vetted_at', 'vetted_by',
 ]);
 
 const SHOT_TAKE_COLUMNS = new Set([
@@ -2520,7 +2524,7 @@ function notSupportedHere(what) {
 const BIN_SERVER_OWNED = ['created_at', 'created_by', 'updated_at', 'updated_by'];
 // What a bin_files patch never sends: identity, who added it and when, the
 // stamps, and `online` (not a column — a fact about the reading computer).
-const BIN_FILE_PATCH_DROP = ['id', 'project_id', 'workspace_id', 'added_by', 'added_at', 'updated_at', 'online'];
+const BIN_FILE_PATCH_DROP = ['id', 'project_id', 'workspace_id', 'added_by', 'added_at', 'updated_at', 'online', 'vetted_by', 'not_checked', 'gateway_missing'];
 const BIN_KINDS_0091 = ['footage', 'audio', 'stills', 'graphics', 'vfx', 'selects', 'other'];
 const POSTER_BUCKET = 'rabbit-thumbnails';
 const POSTER_MAX_BYTES = 262144; // the bucket's own cap (0053)
@@ -5466,7 +5470,7 @@ export function supabaseAdapter() {
       const unc_path = String(location?.unc_path ?? '').trim();
       if (!name) throw binsRefusal(BINS_REFUSALS.locationName, 'invalid');
       if (!unc_path) throw binsRefusal(BINS_REFUSALS.locationShape, 'invalid');
-      const row = toColumns('bin_locations', sanitize({ ...location, name, unc_path }, ['added_by', 'created_at', 'updated_at', 'workspace_id']));
+      const row = toColumns('bin_locations', sanitize({ ...location, name, unc_path }, ['added_by', 'created_at', 'updated_at', 'workspace_id', 'vetted_at', 'vetted_by']));
       return unwrapBins(await client.from('bin_locations').insert(row).select().single(), missing0091Table);
     },
     async updateBinLocation(id, patch) {
@@ -5475,7 +5479,7 @@ export function supabaseAdapter() {
       const p = { ...(patch || {}) };
       if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw binsRefusal(BINS_REFUSALS.locationName, 'invalid'); }
       if ('unc_path' in p) { p.unc_path = String(p.unc_path ?? '').trim(); if (!p.unc_path) throw binsRefusal(BINS_REFUSALS.locationShape, 'invalid'); }
-      const cols = toColumns('bin_locations', sanitize(p, ['id', 'workspace_id', 'added_by', 'created_at', 'updated_at']));
+      const cols = toColumns('bin_locations', sanitize(p, ['id', 'workspace_id', 'added_by', 'created_at', 'updated_at', 'vetted_by']));
       if (!cols || Object.keys(cols).length === 0) return null;
       const rows = unwrapBins(await client.from('bin_locations').update(cols).eq('id', id ?? null).select(), missing0091Table);
       if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.locationsGate, '42501');

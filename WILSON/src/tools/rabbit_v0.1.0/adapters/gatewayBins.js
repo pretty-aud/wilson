@@ -181,7 +181,11 @@ export function composeGatewayBins(cloud, {
     const t = Date.parse(g?.last_seen_at)
     return !Number.isFinite(t) || now() - t > UNSEEN_AFTER_MS
   }
-  const online = (row) => !!(row && row.location_id && gatewayFor(row.location_id))
+  // P8 (0104, TPN-AUTH-012): a clip plays through the gateway only once an
+  // admin or manager has checked its path (vetted_at): the cloud confirms
+  // and mints for checked rows alone, so an unchecked row is offline here
+  // with its own reason, and no ticket is ever asked for it.
+  const online = (row) => !!(row && row.location_id && row.vetted_at && gatewayFor(row.location_id))
 
   c.binsCapabilities = () => caps
 
@@ -251,12 +255,14 @@ export function composeGatewayBins(cloud, {
   // A row the gateway answered 404 for stays "not at its path" until the
   // rows are read again from the cloud (which drops the flag): the reach
   // report is per location and cannot vouch for one clip (round 1, finding 5).
-  c.markOnline = (rows) => (rows || []).map((r) => (r && r.location_id ? { ...r, online: r.gateway_missing ? false : online(r) } : r))
+  c.markOnline = (rows) => (rows || []).map((r) => (r && r.location_id
+    ? { ...r, online: r.gateway_missing ? false : online(r), ...(r.vetted_at ? {} : { not_checked: true }) }
+    : r))
   c.resolveBinFiles = async (rows) => {
     const out = new Map()
     for (const r of rows || []) {
       if (!r || !r.id || !r.location_id) continue
-      out.set(r.id, online(r) ? { online: true } : { online: false, reason: reachState(r.location_id) })
+      out.set(r.id, online(r) ? { online: true } : { online: false, reason: r.vetted_at ? reachState(r.location_id) : 'not_checked' })
     }
     return out
   }

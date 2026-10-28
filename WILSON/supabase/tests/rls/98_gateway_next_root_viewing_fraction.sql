@@ -58,13 +58,16 @@ ON CONFLICT (workspace_id, user_id) DO UPDATE SET app_role = EXCLUDED.app_role, 
 
 -- The catalogue the fraction probes read: one location, one bin, one clip
 -- of 1,000 bytes in A's public project (rls_setup's).
-INSERT INTO public.bin_locations (id, workspace_id, name, unc_path) VALUES
-  ('98980000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111', 'Footage 98', '\\studio-nas98\footage');
+-- 0104 (TPN-AUTH-012): the gateway confirms a CHECKED clip at a CHECKED
+-- location only; both carry the mark here, as postgres (a non-client keeps
+-- what it supplies).
+INSERT INTO public.bin_locations (id, workspace_id, name, unc_path, vetted_at) VALUES
+  ('98980000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111', 'Footage 98', '\\studio-nas98\footage', now());
 INSERT INTO public.bins (id, project_id, workspace_id, name, kind) VALUES
   ('98980000-0000-0000-0000-0000000000d1', 'aaaa1111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Day 98', 'footage');
-INSERT INTO public.bin_files (id, project_id, workspace_id, bin_id, location_id, relative_path, display_name, original_name, extension, mime_type, media_type, size_bytes) VALUES
+INSERT INTO public.bin_files (id, project_id, workspace_id, bin_id, location_id, relative_path, display_name, original_name, extension, mime_type, media_type, size_bytes, vetted_at) VALUES
   ('98980000-0000-0000-0000-0000000000f1', 'aaaa1111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
-   '98980000-0000-0000-0000-0000000000d1', '98980000-0000-0000-0000-0000000000c1', 'A001/A001_C098.mov', 'A001_C098', 'A001_C098.mov', 'mov', 'video/quicktime', 'video', 1000);
+   '98980000-0000-0000-0000-0000000000d1', '98980000-0000-0000-0000-0000000000c1', 'A001/A001_C098.mov', 'A001_C098', 'A001_C098.mov', 'mov', 'video/quicktime', 'video', 1000, now());
 
 -- Three "certificates": the DER is a byte 0x30 and ninety of one value, which
 -- gateway_pem_fingerprint accepts (96's shape); A is the enrolment's root, B
