@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   pathKey, isUnder, relativeUnder, isCloudRelativePath, shareRootOf, rootKind, rootOfClip, binRootsOf, mergeRoots,
   suggestedAnswer, confirmedAnswers, holdingLocation, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, takePairKey,
-  notCarriedOf, notCarriedLabel, NOT_CARRIED, POSTER_MEDIA, ADDRESS_NEEDED,
+  notCarriedOf, notCarriedLabel, notCarriedPart2, NOT_CARRIED, POSTER_MEDIA, ADDRESS_NEEDED,
 } from './binsMigration'
 
 // The refusal sentence is the cloud adapter's, word for word. The adapter's
@@ -253,8 +253,9 @@ describe('the takes that can land', () => {
 
 describe('what the migration does not carry', () => {
   it('names each non-empty collection the runner leaves on this computer, and the scenes\' and shots\' pictures, in the right number; nothing the runner carries is in the list', () => {
-    expect(notCarriedOf({ comments: [{}], budgetLines: [{}, {}], shotLists: [], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
-      { key: 'comments', label: 'comment', count: 1 },
+    // M1 (night 3): comments, key dates, shot lists, their items, edits and
+    // folders are carried now, so a bundle's are never named here.
+    expect(notCarriedOf({ comments: [{}], milestones: [{}], budgetLines: [{}, {}], shotLists: [{}], shotListItems: [{}], edits: [{}], folders: [{}], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
       { key: 'budgetLines', label: 'budget lines', count: 2 },
       { key: 'thumbnails', label: 'scene and shot pictures', count: 2 },
     ])
@@ -265,7 +266,26 @@ describe('what the migration does not carry', () => {
     expect(notCarriedLabel('thumbnails', 1)).toBe('scene and shot picture')
     expect(notCarriedLabel('expenses', 1)).toBe('expense')
     for (const k of ['scenes', 'shots', 'bins', 'binFiles', 'binRoots', 'shotTakes', 'phases', 'assets', 'tasks', 'dependencies', 'files', 'project']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
-    for (const k of ['comments', 'milestones', 'budgetLines', 'expenses', 'shotLists', 'shotListItems', 'edits', 'folders', 'levels', 'experiences', 'thumbnails']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
+    for (const k of ['comments', 'milestones', 'shotLists', 'shotListItems', 'edits', 'folders']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
+    for (const k of ['budgetLines', 'expenses', 'levels', 'experiences', 'thumbnails', 'assetVersions', 'managedFiles']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
+  })
+
+  it('says which part 2 of the migration carries (the budgets, expenses, levels, experiences, the team, links on tasks) and which none does', () => {
+    for (const k of ['budgetVersions', 'budgetLines', 'budgetActuals', 'expenses', 'projectRateOverrides', 'levels', 'experiences', 'teamAssignments', 'projectTeam', 'taskLinks', 'taskLevelItems', 'levelFolders']) expect(notCarriedPart2(k), k).toBe(true)
+    for (const k of ['assetVersions', 'managedFiles', 'thumbnails', 'deckAttachments', 'commentsElsewhere', 'not-a-key']) expect(notCarriedPart2(k), k).toBe(false)
+  })
+
+  it('counts the live files of the desktop\'s own store, never a removed one, and the deck attachments still on the project row', () => {
+    const bundle = {
+      managedFiles: [{ id: 'm1' }, { id: 'm2', deleted_at: '2026-10-01T00:00:00Z' }, { id: 'm3' }],
+      project: { id: 'p', documents: [{ name: 'brief.pdf' }], visualAssets: [{ name: 'a.png' }, { name: 'b.png' }] },
+    }
+    expect(notCarriedOf(bundle)).toEqual([
+      { key: 'managedFiles', label: 'files kept with assets, scenes, shots, levels and experiences on this computer', count: 2 },
+      { key: 'deckAttachments', label: 'deck attachments not yet moved into project files', count: 3 },
+    ])
+    // CONTROL: moved (the arrays empty) and nothing kept: nothing named.
+    expect(notCarriedOf({ managedFiles: [{ id: 'm2', deleted_at: '2026-10-01T00:00:00Z' }], project: { documents: [], visualAssets: [] } })).toEqual([])
   })
 })
 

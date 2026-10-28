@@ -114,8 +114,15 @@ describe('the "Bins" help page (BC2)', () => {
     expect(text).toContain('never dropped')
     expect(text).toContain(`only while ${REMOTE_VIEWING_LABEL} is on`)
     // Review round 1: a second run brings back a row removed from the cloud
-    // since (every table of the runner always did); Help says so plainly.
-    expect(text).toContain('Running it again skips every row already in the cloud; a row a teammate removed from the cloud since comes back with it')
+    // since; M1 (night 3) measured which: a row in the cloud's trash keeps
+    // its id and is skipped (until the trash is emptied), one removed for
+    // good comes back — every table with no trash. Help says so.
+    expect(text).toContain('Running it again skips every row already in the cloud, one in its trash included; a row a teammate removed from the cloud for good comes back with it (a scene, shot, bin, clip, take, folder, saved view, grouping, task or phase link, or an item of a list or a task), as does one in the trash once it is emptied after 30 days')
+    // M1: what moves since, what part 2 carries, and what no migration does
+    // (the report's two groups, binsMigration's NOT_CARRIED).
+    expect(text).toContain('A desktop project moves with its key dates, comments, shot lists and edits, its folders, and its bins, logging, marks and takes')
+    expect(text).toContain('Budgets, expenses, levels, experiences, the team and links on tasks move in part 2 of the migration')
+    expect(text).toContain('What part 2 carries, and what no migration carries — an asset\'s versions, the files kept with an asset, scene, shot, level or experience on this computer, deck attachments not yet moved into project files, comments on rows the cloud cannot hang a comment on, and the scenes\' and shots\' pictures — stay on this computer')
     expect(text).toContain('Use this address')
     const panel = src('src/cloud/migrate/MigrationPanel.jsx')
     expect(panel).toContain("MIGRATE_TITLE = 'Migrate to cloud'")
