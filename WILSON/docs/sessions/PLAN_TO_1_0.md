@@ -117,6 +117,7 @@ Also that day: the ninth beta merge (`69546e1d`); the RLS workflow pinned to `ub
 | **B2 Subject shares, the client** | The share, accept and revoke screens; a linked subject read live inside the receiver's course; per-user progress; the pet reads it; the batch card in Requests, *Share this course with…*, *Pass on…*, the reminder when a subject is added to a course shared whole; the night's walkthrough |
 | **M1 Migration, part 1** | An inventory of what the desktop holds against what the migration carries, then shot lists, edits, folders, comments and milestones carried, pinned by a round trip on the fixtures |
 | **S2 Offline launch** | The policy (a saved, unexpired sign-in opens the shell offline; which cards say what), the build, the pet retry beside it |
+| **DG4 D.O.G.'s Project and References as one card** (added by her 2026-10-28 ~00:53 UTC, *"make this its own session of course"*; a fourth session on night 3 at her word) | Her five notes verbatim in `briefs/po-dg4-dog-project-references-card.md`: the References meter a fixed width and thicker; *Use visual assets* renamed *Place visual* without its subtitle; *Use project assets* removed; *Theme generator* beside *Place visual*, the only two checkboxes; a checkbox that references the project's Core files instead of a selection; cards 1 and 2 merged and laid out by the laws of UX; its section in walkthrough 84 |
 
 ### Night 4
 | Session | Scope |
