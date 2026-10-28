@@ -3541,14 +3541,18 @@ set steps aside and is listed again when it is cleared; Add references and
 Remove all references are off, the Core rows have no Remove; uploads still
 go. It is off, with one sentence under it, with no project, before the
 project's list lands, after a failed list, or when no file D.O.G. can read
-is marked Core; ticked, it can always be cleared. The pool is listed when a
-project is chosen and when D.O.G. comes back on screen (a list, never a body).
-The AI file store's owners are what is listed (`refs.listedKeys`), so a Core
-file a deck sent is kept for Regenerate. On the Local Server a legacy
-project's older attachments read as Core unless marked Ref
-(`legacyPoolFiles`' default), and the ticked box says so. With Add
-references off, a Remove from the keyboard hands focus to Choose file, never
-to the checkbox (where Enter makes a deck). Walkthrough 84, its DG4 section.
+is marked Core; ticked, it can always be cleared, and cleared from the
+keyboard where it then goes off, focus goes to Add references. The pool is
+listed when a project is chosen, again when the New project window has
+stored its files, and on a return to D.O.G. only while the box is ticked or
+off for want of Core files or a list (lists, never a body; on the Local
+Server the project's bundle). The AI file store's owners are what is listed
+(`refs.listedKeys`), so a Core file a deck sent is kept for Regenerate. On
+the Local Server a legacy project's older attachments read as Core unless
+marked Ref (`legacyPoolFiles`' default), and the ticked box says so. With Add
+references off, a Remove, Undo or Dismiss from the keyboard hands focus to
+Choose file, else a row's Remove, never to the checkbox (where Enter makes a
+deck). Walkthrough 84, its DG4 section.
 
 ### 13.2 O.T.T.E.R.
 

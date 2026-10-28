@@ -405,6 +405,34 @@ describe('useReferences: Core files only (DG4)', () => {
     expect(adapter.downloadFile).not.toHaveBeenCalled();
   });
 
+  // Review round 1, finding 3: the New project window chooses the project
+  // (D.O.G. lists it then) before it stores the files and hands them here.
+  it('files adopted after the project was listed are listed again, so Core files only sees them', async () => {
+    const files = []
+    const { hook, adapter } = setup(files)
+    await act(async () => { await now(hook).loadPool(); })
+    expect(now(hook).core.state).toBe('none')
+    const row = fileRow({ id: 'n1', name: 'new-brief.txt' })
+    files.push(row)
+    await act(async () => { now(hook).adoptUploadedFiles([row]); })
+    await waitFor(() => expect(now(hook).core).toEqual({ state: 'ready', count: 1, legacy: 0 }))
+    expect(adapter.listFiles).toHaveBeenCalledTimes(2)
+    expect([...now(hook).chosen]).toEqual(['file:n1'])
+  });
+
+  it('a handler made before the project was chosen lists the project it fills, not the one before', async () => {
+    const files = []
+    const { hook, adapter, props } = setup(files)
+    const stale = now(hook).adoptUploadedFiles;            // made while P1 was chosen
+    hook.rerender({ ...props, projectId: P2, project: { id: P2, title: 'Lighthouse' } })
+    const row = fileRow({ id: 'n2', project_id: P2, name: 'new-board.txt' })
+    files.push(row)
+    await act(async () => { stale([row]); })
+    await waitFor(() => expect(adapter.listFiles).toHaveBeenCalled())
+    expect(adapter.listFiles.mock.calls.map(([pid]) => pid)).toEqual([P2])
+    await waitFor(() => expect(now(hook).core.count).toBe(1))
+  });
+
   it('a legacy project on the Local Server: an older attachment counts as Core unless it was marked otherwise (isCore defaults to true there)', async () => {
     const project = {
       id: P1, title: 'Salt Hours',

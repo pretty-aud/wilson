@@ -174,7 +174,10 @@ export function focusAfterRemove(button) {
   if (!body) return null;
   const add = body.querySelector('.dog-refs-actions .ui-btn:not(:disabled)')
     || body.querySelector('.dog-refs-uploads button.dog-upload');
-  if (!button.classList.contains('dog-refs-remove')) return add === button ? null : add;
+  // DG4 review round 1, finding 2 (MEASURED): with Core files only holding
+  // Add references off and the 20th upload taking Choose file away, the
+  // notice's Undo and Dismiss found nothing; a row's Remove is what is left.
+  if (!button.classList.contains('dog-refs-remove')) return add === button ? null : (add || body.querySelector('.dog-refs-remove'));
   const all = [...body.querySelectorAll('.dog-refs-remove')];
   const i = all.indexOf(button);
   return all[i + 1] || all[i - 1] || add || null;
@@ -228,15 +231,19 @@ export const CORE_TITLE = 'The deck reads the project’s files marked Core in R
  * (referenceModel.legacyPoolFiles), so a ticked box says so there.
  */
 export function coreLine({ projectChosen, core, coreOnly, setAside = 0 }) {
-  if (!projectChosen) return 'Core files come from a project: choose one above.';
-  if (core?.state === 'listing') return 'Looking for the project’s Core files…';
-  if (core?.state === 'failed') return 'The project’s files could not be listed.';
-  if (core?.state === 'none') return 'This project has no Core files D.O.G. can read.';
-  if (!coreOnly) return '';
-  const said = [setAside
-    ? `Your ${setAside} chosen reference${setAside === 1 ? ' is' : 's are'} set aside while this is ticked; ${setAside === 1 ? 'it comes' : 'they come'} back when you clear it.`
-    : 'Clear this to choose references yourself.'];
-  if (core?.legacy) said.push('Older attachments count as Core unless marked Ref.');
+  const said = [];
+  if (!projectChosen) said.push('Core files come from a project: choose one above.');
+  else if (core?.state === 'listing') said.push('Looking for the project’s Core files…');
+  else if (core?.state === 'failed') said.push('The project’s files could not be listed.');
+  else if (core?.state === 'none') said.push('This project has no Core files D.O.G. can read.');
+  // Ticked, it also says where the window's choices went, whatever the state
+  // (review round 1, finding 6): `setAside` counts only those not listed.
+  if (coreOnly) {
+    said.push(setAside
+      ? `Your ${setAside} chosen reference${setAside === 1 ? ' is' : 's are'} set aside while this is ticked; ${setAside === 1 ? 'it comes' : 'they come'} back when you clear it.`
+      : 'Clear this to choose references yourself.');
+    if (core?.legacy) said.push('Older attachments count as Core unless marked Ref.');
+  }
   return said.join(' ');
 }
 
@@ -284,10 +291,27 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   // choices went.
   const coreOnly = !!refs.coreOnly;
   const coreOff = !coreOnly && (!projectChosen || refs.core?.state !== 'ready');
-  const coreSaid = coreLine({ projectChosen, core: refs.core, coreOnly, setAside: refs.chosen?.size || 0 });
+  const setAside = coreOnly ? [...(refs.chosen || [])].filter(k => !refs.listedKeys?.has(k)).length : 0;
+  const coreSaid = coreLine({ projectChosen, core: refs.core, coreOnly, setAside });
+  // Review round 1, finding 1 (MEASURED): cleared where it could not be
+  // ticked again, the box turns off under the keyboard's focus, which
+  // Chromium drops on <body>, where D.O.G.'s next Enter makes a deck. Focus
+  // goes to Add references, which the clear turns on (Choose file if not);
+  // only from the keyboard (`:focus-visible`), as focusAfterRemove.
+  const root = useRef(null);
+  const clearedByKeyboard = useRef(false);
+  useLayoutEffect(() => {
+    if (coreOnly || !clearedByKeyboard.current) return;
+    clearedByKeyboard.current = false;
+    const doc = root.current?.ownerDocument;
+    const held = doc?.activeElement;
+    if (!doc || (held && held !== doc.body && !held.disabled)) return;
+    (root.current.querySelector('.dog-refs-actions .ui-btn:not(:disabled)')
+      || root.current.querySelector('.dog-refs-uploads button.dog-upload'))?.focus();
+  }, [coreOnly]);
 
   return (
-    <div className="dog-refs">
+    <div ref={root} className="dog-refs">
       {refs.notice && (
         <p className="dog-details-note dog-refs-notice" role="status">
           {refs.notice}
@@ -426,7 +450,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
         <span className="dog-check-row">
           <button
             type="button"
-            onClick={() => { if (!coreOnly) refs.loadPool?.(); refs.setCoreOnly?.(!coreOnly); }}
+            onClick={(e) => {
+              if (coreOnly) clearedByKeyboard.current = keyboardHeld(e.currentTarget);
+              else refs.loadPool?.();
+              refs.setCoreOnly?.(!coreOnly);
+            }}
             className="dog-check" data-checked={coreOnly} role="checkbox" aria-checked={coreOnly} aria-label="Core files only"
             aria-describedby={coreSaid ? 'dog-refs-core-said' : undefined}
             disabled={coreOff}

@@ -1384,6 +1384,33 @@ describe('DG4 on the rendered D.O.G.: Place visual places an upload\'s media and
     await deckWith({ place: true })
     expect(sent()).toMatch(/AVAILABLE VISUAL ASSETS FOR PLACEMENT:\\n1\. picture-01\.png \(image\)\\n2\. core-board\.png \(image\)\\n/)
   })
+
+  // Review round 1, finding 4: a listed video is read only to be placed, so
+  // only with Place visual; it is never sent to the AI either way.
+  for (const place of [false, true]) {
+    it(`a listed video with Place visual ${place ? 'on is read and offered for placement' : 'off is neither read nor named'}`, async () => {
+      const adapter = withProject([
+        fileRow({ id: 'v1', name: 'core-clip.mp4', mime_type: 'video/mp4', size_bytes: 64 }),
+        fileRow({ id: 'c1', name: 'core-brief.txt', body: 'THE CORE BRIEF.' }),
+      ])
+      const d = await openDog({ upload: false })
+      await chooseProject(d)
+      await act(async () => { fireEvent.click(coreBox()) })
+      await waitFor(() => expect(refNames()).toEqual(['core-brief.txt', 'core-clip.mp4']))
+      if (place) await act(async () => { fireEvent.click(d.check('Place visual')) })
+      await type(d.box(), CONTEXT)
+      await act(async () => { fireEvent.click(fullDeckButton(d)) })
+      await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+      const read = adapter.downloadFile.mock.calls.map(([row]) => row.id).sort()
+      if (place) {
+        expect(read).toEqual(['c1', 'v1'])
+        expect(sent()).toMatch(/AVAILABLE VISUAL ASSETS FOR PLACEMENT:\\n1\. core-clip\.mp4 \(video\)\\n/)
+      } else {
+        expect(read).toEqual(['c1'])
+        expect(sent()).not.toContain('core-clip.mp4')
+      }
+    })
+  }
 })
 
 describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
@@ -1460,6 +1487,41 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     await act(async () => { fireEvent.click(coreBox()) })
     await waitFor(() => expect(deleteAIFiles).toHaveBeenCalledTimes(1))
     expect(deleteAIFiles).toHaveBeenCalledWith(['file_dg2_1'])
+  })
+
+  // Review round 1, finding 5: a list on every return to D.O.G. was the
+  // whole pool; it is made again only when what the box shows depends on it.
+  const showPage = async (d, page) => {
+    await act(async () => { d.view.rerender(<ToastProvider bar="0px"><DeckOutlineGenerator currentPage={page} /></ToastProvider>) })
+  }
+  it('back on D.O.G., a project whose box is off for want of Core files is listed again: a file marked Core meanwhile turns it on', async () => {
+    const files = [CORE()[2], CORE()[3]]
+    const adapter = withProject(files)
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    expect(coreBox().disabled).toBe(true)
+    files.push(fileRow({ id: 'c9', name: 'core-new.txt', body: 'MARKED SINCE.' }))   // marked Core in R.A.B.B.I.T. meanwhile
+    await showPage(d, 'rabbit')
+    await showPage(d, 'dog')
+    await waitFor(() => expect(coreBox().disabled).toBe(false))
+    expect(adapter.listFiles).toHaveBeenCalledTimes(2)
+  })
+
+  it('back on D.O.G. with the box on and clear, nothing is listed again', async () => {
+    const adapter = withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    expect(adapter.listFiles).toHaveBeenCalledTimes(1)
+    await showPage(d, 'rabbit')
+    await showPage(d, 'dog')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(adapter.listFiles).toHaveBeenCalledTimes(1)
+    // CONTROL: ticked, the return lists again (its rows follow the list).
+    await act(async () => { fireEvent.click(coreBox()) })
+    const ticked = adapter.listFiles.mock.calls.length
+    await showPage(d, 'rabbit')
+    await showPage(d, 'dog')
+    await waitFor(() => expect(adapter.listFiles.mock.calls.length).toBe(ticked + 1))
   })
 
   it('Enter on it is D.O.G.\'s, as on its other tick boxes: the box empty, it asks, and the tick stays', async () => {

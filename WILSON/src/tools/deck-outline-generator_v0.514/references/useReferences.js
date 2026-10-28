@@ -270,6 +270,10 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     poolPromise.current = run;
     return run;
   }, [getAdapter, adapterMode, projectId, project]);
+  // The newest loadPool, for a caller holding an older one (the New project
+  // window's handler was made before it chose the project it then fills).
+  const loadPoolRef = useRef(loadPool);
+  useEffect(() => { loadPoolRef.current = loadPool; }, [loadPool]);
 
   /** The newest pool: if this read was overtaken, the one that overtook it. */
   const freshPool = useCallback(async () => {
@@ -409,6 +413,10 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       return;
     }
     adoptRows(list);
+    // DG4 review round 1, finding 3: the window chose the project, which
+    // listed it, before storing these; list again, or Core files only (off,
+    // "no Core files") and its rows would miss what Generate then sends.
+    loadPoolRef.current?.();
   }, [snapshotOf]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── What is listed: the chosen set, or the project's Core files (DG4) ─────

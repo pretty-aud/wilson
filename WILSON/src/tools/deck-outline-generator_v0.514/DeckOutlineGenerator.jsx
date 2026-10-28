@@ -219,13 +219,23 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // with D.O.G.'s other windows.
   const refPreview = useReferencePreview(refs);
   // DG4: Core files only can be ticked only when the project has Core files
-  // D.O.G. can read, so its list (a cheap list, never a body, as the window
-  // makes each time it opens) is read when a project is chosen and each time
-  // D.O.G. comes back on screen. Choosing a project still sends nothing (Q2).
+  // D.O.G. can read, so the project is listed when it is chosen: the list the
+  // window makes each time it opens (lists, never a file's body; on the Local
+  // Server the project's bundle). Choosing a project still sends nothing (Q2).
+  // Back on D.O.G. it is listed again only when what the box shows depends on
+  // it (review round 1, finding 5: a list on every return was the whole pool):
+  // ticked, its rows follow the list; off for want of Core files or a list,
+  // files marked Core in R.A.B.B.I.T. meanwhile turn it on.
   const onDogPage = currentPage === 'dog';
   useEffect(() => {
-    if (onDogPage && selectedProjectId) refs.loadPool();
-  }, [onDogPage, selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (selectedProjectId) refs.loadPool();
+  }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wasOnDogPage = useRef(onDogPage);
+  useEffect(() => {
+    const back = onDogPage && !wasOnDogPage.current;
+    wasOnDogPage.current = onDogPage;
+    if (back && selectedProjectId && (refs.coreOnly || refs.core?.state !== 'ready')) refs.loadPool();
+  }, [onDogPage]); // eslint-disable-line react-hooks/exhaustive-deps
   // The New project window's own upload state (C3): its busy line and its
   // failure line sit under the project. The failure is its own state, so
   // nothing else can overwrite it (C3 review round 2).

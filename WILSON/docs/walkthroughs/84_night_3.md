@@ -132,7 +132,7 @@ one with files you marked Core in R.A.B.B.I.T.'s Files tab.
 
 | # | Do | You should see |
 |---|---|---|
-| 1 | Open D.O.G. | One card at the top, **1 PROJECT AND REFERENCES**, *None chosen* at its right: *Choose a project*, the dropdown and New project; then *What goes to the AI…*, Uploads, the bar, **Add references** and beside it **Core files only**, grey, with *Core files come from a project: choose one above.* under it |
+| 1 | Open D.O.G. | One card at the top, **1 PROJECT AND REFERENCES**, *None chosen* at its right: *Choose a project*, the dropdown and New project; then *What goes to the AI…*, Uploads, *Choose a project to reference its items and files…*, the bar, **Add references** and beside it **Core files only**, grey, with *Core files come from a project: choose one above.* under it |
 | 2 | On your widest window, look at the bar | It ends where *What goes to the AI…* ends, not at the card's edge |
 | 3 | Choose a project with Core files | *Core files only* turns on, with no sentence. (A project with none keeps it grey: *This project has no Core files D.O.G. can read.*) |
 | 4 | **Add references**, tick one file, **Done** | It is listed under Files, as before |

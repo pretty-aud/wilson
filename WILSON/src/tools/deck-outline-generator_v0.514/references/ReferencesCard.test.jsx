@@ -36,7 +36,8 @@ const UPLOADS = () => [up('note-01.txt', 'text', 2048), up('picture-01.png', 'im
 
 function fakeRefs(chosenList = [], over = {}) {
   return {
-    chosenList, chosen: new Set(chosenList.map((s) => s.key)), unavailable: new Set(), notice: '', undoable: false,
+    chosenList, chosen: new Set(chosenList.map((s) => s.key)), listedKeys: new Set(chosenList.map((s) => s.key)),
+    unavailable: new Set(), notice: '', undoable: false,
     chosenTokens: 0, chosenUncounted: 0, chosenBytes: 0, pdfPages: new Map(),
     coreOnly: false, core: { state: 'ready', count: 2, legacy: 0 },
     untick: vi.fn(), removeAll: vi.fn(), undoRemoveAll: vi.fn(), clearNotice: vi.fn(),
@@ -396,14 +397,22 @@ describe('DG4: Core files only, beside Add references', () => {
     expect(c.refs.loadPool).not.toHaveBeenCalled()
   })
 
+  // Review round 1, finding 6: ticked, the sentence also says where the
+  // window's choices went, whatever the state.
   it('ticked, it can always be cleared: a project with no Core files since, or none chosen, leaves it on and says so', () => {
     const none = mount({ refs: fakeRefs([], { coreOnly: true, core: { state: 'none', count: 0, legacy: 0 } }) })
     expect(box().disabled).toBe(false)
-    expect(said(none).textContent).toBe('This project has no Core files D.O.G. can read.')
+    expect(said(none).textContent).toBe('This project has no Core files D.O.G. can read. Clear this to choose references yourself.')
     cleanup()
-    const gone = mount({ projectChosen: false, refs: fakeRefs([], { coreOnly: true, core: { state: 'no-project', count: 0, legacy: 0 } }) })
+    const gone = mount({ projectChosen: false, refs: fakeRefs([], { coreOnly: true, core: { state: 'no-project', count: 0, legacy: 0 }, chosen: new Set(['note:n1']) }) })
     expect(box().disabled).toBe(false)
-    expect(said(gone).textContent).toBe('Core files come from a project: choose one above.')
+    expect(said(gone).textContent).toBe('Core files come from a project: choose one above. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
+  })
+
+  it('the count of what is set aside leaves out a chosen file that is listed anyway, as one of the Core files', () => {
+    const CORE_A = { key: 'file:c1', kind: 'file', name: 'core-01.pdf', dogType: 'pdf', id: 'c1', size: 1000, isCore: true }
+    const c = mount({ refs: fakeRefs([CORE_A], { coreOnly: true, chosen: new Set(['file:c1', 'note:n1']) }) })
+    expect(said(c).textContent).toBe('Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
   })
 
   it('ticked with nothing chosen in the window, or on a legacy Local Server project, the sentence says that instead', () => {
@@ -486,6 +495,50 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     press(removeOf(files[0].file.name))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose file' }))
     expect(document.activeElement.matches('.dog-check')).toBe(false)
+  })
+
+  // Review round 1, finding 2 (MEASURED in Chromium): Add references off,
+  // Choose file gone at the 20th upload, and the notice's buttons found
+  // nothing to hand focus to; it fell to <body>.
+  for (const [name, call] of [['Dismiss', 'clearNotice'], ['Undo', 'undoRemoveAll']]) {
+    it(`20 uploads and Core files only ticked: the notice's ${name} from the keyboard goes to the first upload's Remove`, () => {
+      const files = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
+      const c = mount({ files, refs: fakeRefs([], { coreOnly: true, notice: '2 references removed.', undoable: true }) })
+      expect(screen.queryByRole('button', { name: 'Choose file' })).toBe(null)
+      expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(true)
+      press(screen.getByRole('button', { name }))
+      expect(c.refs[call]).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(removeOf('note-01.txt'))
+    })
+  }
+
+  // Review round 1, finding 1 (MEASURED in Chromium): ticked, the box stays
+  // on where it could not be ticked again; cleared there it goes off under
+  // the keyboard's focus, which Chromium drops on <body>.
+  function clearing({ keyboard }) {
+    const props = (coreOnly) => ({
+      refs: fakeRefs([], { coreOnly, core: { state: 'none', count: 0, legacy: 0 } }),
+      uploads: { files: [], busy: false, add: vi.fn(), remove: vi.fn() }, projectChosen: true, onAdd: vi.fn(), onPreview: vi.fn(),
+    })
+    const first = props(true)
+    const view = render(<ReferencesCard {...first} />)
+    const b = screen.getByRole('checkbox', { name: 'Core files only' })
+    expect(b.disabled).toBe(false)
+    if (keyboard) press(b)
+    else { fireEvent.mouseDown(b); b.focus(); fireEvent.click(b) }
+    expect(first.refs.setCoreOnly).toHaveBeenCalledWith(false)
+    view.rerender(<ReferencesCard {...props(false)} />)
+    expect(screen.getByRole('checkbox', { name: 'Core files only' }).disabled).toBe(true)
+  }
+
+  it('Core files only cleared from the keyboard where it then goes off: focus goes to Add references, which the clear turns on', () => {
+    clearing({ keyboard: true })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+  })
+
+  it('CONTROL, the pointer as before: a click that clears it moves nothing', () => {
+    clearing({ keyboard: false })
+    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: 'Add references' }))
   })
 
   it('Remove all references from the keyboard goes to Add references (it goes itself)', () => {
