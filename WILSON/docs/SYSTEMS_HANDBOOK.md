@@ -299,7 +299,7 @@ exists anywhere); product name `WILSON`.
 | `{userData}/rabbit-data/{gdrive-config,gdrive-tokens}.json` | Google Drive OAuth material |
 | `{userData}/rabbit-data/archives/` | Snapshot written before "archive + clear local" after a cloud migration |
 | `{userData}/session.enc` | safeStorage-encrypted Supabase session |
-| `{userData}/renderer-storage.json` (`renderer-storage.dev.json` unpackaged) | The renderer's `localStorage` keys, kept across a relaunch because every launch is a new origin (D1, `electron/rendererStorage.cjs`); never a session key, an idle clock, a tus fingerprint or a loopback address |
+| `{userData}/renderer-storage.json` (`renderer-storage.dev.json` unpackaged) | The renderer's `localStorage` keys, kept across a relaunch because every launch is a new origin (D1, `electron/rendererStorage.cjs`); never a session key, an idle clock or a tus fingerprint |
 | `{userData}/env.json` | Packaged-build environment overrides |
 
 A project may additionally have a **user-visible folder** on disk, created and
@@ -6166,8 +6166,10 @@ documentation and starts being wrong answers.
   sends what changed once a second, when the window is hidden and at
   `pagehide` (synchronously); the channels answer only the main window's top
   frame at the launch's origin. Never kept: the session keys, the idle clocks,
-  tus-js-client's `tus::` fingerprints, a value naming `://127.0.0.1:`. A
-  crash loses the last second (measured); the earlier launches' origins are
+  tus-js-client's `tus::` fingerprints; no module that builds a loopback
+  address writes `localStorage` (a source test pins it). A file Windows still
+  holds as WILSON starts leaves that launch on the window's own storage,
+  writing nothing. A crash loses the last second (measured); the earlier launches' origins are
   cleared once the server has bound (`clearData` with `excludeOrigins`, not
   awaited); the first launch after the update starts from the defaults once.
   A page the window is sent to (a dropped file) is handed the bridges:
