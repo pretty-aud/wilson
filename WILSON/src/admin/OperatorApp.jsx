@@ -42,7 +42,7 @@ import { supabase, hydrateSupabase, endSessionLocally } from '../cloud/auth/supa
 import { loadSession, clearSession } from '../cloud/auth/sessionStorage'
 import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from '../cloud/auth/authEvents'
 import { withTimeout } from '../cloud/auth/withTimeout'
-import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from '../cloud/auth/sessionTimeouts'
+import { useSessionTimeouts, sessionIdOf, tokenSignedInAt, EXPIRE_REASONS } from '../cloud/auth/sessionTimeouts'
 import SessionWarning, { describeSessionExpiry } from '../cloud/auth/SessionWarning'
 import ConnectionLostBanner from '../cloud/ConnectionLostBanner'
 import OperatorLogin from './OperatorLogin'
@@ -70,6 +70,9 @@ const NAV = [
 export default function OperatorApp() {
   const [booted, setBooted] = useState(false)
   const [session, setSession] = useState(null)
+  // D1 (RECONNECT_DESIGN.md §12.2): the token's own sign-in time at the boot's
+  // restore only; a fresh sign-in sets null, as App's does.
+  const [sessionSignedInAt, setSessionSignedInAt] = useState(null)
   const [isOperator, setIsOperator] = useState(false)
   const [section, setSection] = useState('companies')
   // B2 part 2: why the operator is back at the login screen, if a timeout
@@ -109,6 +112,7 @@ export default function OperatorApp() {
         if (live?.user?.id) {
           const ok = await checkOperator(live.user.id)
           if (cancelled) return
+          setSessionSignedInAt(tokenSignedInAt(live))
           setSession(live)
           setIsOperator(ok)
         }
@@ -123,6 +127,7 @@ export default function OperatorApp() {
     // sign-out's flight is over, so the guard in handleSignOut lets go.
     signingOutRef.current = null
     const ok = await checkOperator(next?.user?.id)
+    setSessionSignedInAt(null)
     setSession(next)
     setIsOperator(ok)
     setNotice('')
@@ -172,6 +177,7 @@ export default function OperatorApp() {
         await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out')
       } catch { /* a hung revoke must not strand the operator on a signed-in console */ }
       setSession(null)
+      setSessionSignedInAt(null)
       setIsOperator(false)
     })()
     signingOutRef.current = run
@@ -187,6 +193,7 @@ export default function OperatorApp() {
   const sessionTimeouts = useSessionTimeouts({
     enabled: !!session,
     sessionId: sessionIdOf(session),
+    signedInAt: sessionSignedInAt,
     onExpire: (reason) => { handleSignOut({ event: reason }) },
   })
 

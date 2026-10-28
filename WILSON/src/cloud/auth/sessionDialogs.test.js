@@ -21,11 +21,13 @@
 // never restated.
 // =============================================================================
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createElement as h } from 'react'
 import { renderToString } from 'react-dom/server'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, renderHook, screen, cleanup, fireEvent } from '@testing-library/react'
 import SessionWarning, { describeSessionExpiry } from './SessionWarning'
+import { useSessionTimeouts } from './sessionTimeouts'
+import { SESSION_STORAGE_KEY } from './sessionStorage'
 import ConnectionLostBanner, { CONNECTION_LOST_COPY, RECONNECTING_COPY } from '../ConnectionLostBanner'
 import { createConnectionWatchdog, RELOAD_AFTER_MS } from '../connectionWatchdog'
 import { ToastProvider } from '../../ui'
@@ -260,5 +262,38 @@ describe('ConnectionLostBanner', () => {
     expect(rule('.connection-banner')).toMatch(/top:\s*var\(--titlebar-offset\)/)
     expect(layerOf('.connection-banner')).toBeGreaterThan(layerOf('.session-layer'))
     expect(layerOf('.connection-banner')).toBeGreaterThan(layerOf('.ui-toast-stack'))
+  })
+})
+
+// D1 (night 4, 2026-10-28; docs/design/RECONNECT_DESIGN.md §12.2): the hook
+// the two surfaces mount carries the token's own sign-in time to start(), at
+// a restore, and never restarts the clock for it. jsdom here because the hook
+// binds to the document; the rule itself is sessionTimeouts.test.js's.
+describe('useSessionTimeouts — the token\'s sign-in time at a restore (D1)', () => {
+  const START_KEY = `${SESSION_STORAGE_KEY}.start`
+  afterEach(() => { localStorage.clear() })
+
+  it('a restore whose token signed in five hours ago ends at once; a fresh sign-in, passing no time, does not', () => {
+    const fresh = vi.fn()
+    const a = renderHook(() => useSessionTimeouts({ enabled: true, sessionId: 'd1-fresh', onExpire: fresh }))
+    expect(fresh).not.toHaveBeenCalled()
+    a.unmount()
+    const restored = vi.fn()
+    const b = renderHook(() => useSessionTimeouts({ enabled: true, sessionId: 'd1-restore', signedInAt: Date.now() - 5 * 60 * 60 * 1000, onExpire: restored }))
+    expect(restored).toHaveBeenCalledWith('session_cap')
+    b.unmount()
+  })
+
+  it('a different time for the same session id restarts nothing: the record keeps the start it was given', () => {
+    const onExpire = vi.fn()
+    let at = Date.now() - 60 * 1000
+    const { rerender, unmount } = renderHook(() => useSessionTimeouts({ enabled: true, sessionId: 'd1-same', signedInAt: at, onExpire }))
+    const first = JSON.parse(localStorage.getItem(START_KEY))
+    expect(first).toEqual({ sid: 'd1-same', at })
+    at = Date.now() - 5 * 60 * 60 * 1000
+    rerender()
+    expect(onExpire).not.toHaveBeenCalled()
+    expect(JSON.parse(localStorage.getItem(START_KEY))).toEqual(first)
+    unmount()
   })
 })
