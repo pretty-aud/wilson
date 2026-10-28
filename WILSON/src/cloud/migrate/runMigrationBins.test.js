@@ -275,9 +275,9 @@ const fake = vi.hoisted(() => {
   // producer who is a member of the workspace, as its managers; the trigger
   // swallows a refusal, so a producer who is no member is not seated and the
   // project lands. A seat already there is left as it is.
-  const autoStaff = (project) => {
+  const autoStaff = (project, who = [state.callerId, project.producer_id]) => {
     const seats = (state.lists.project_members ||= [])
-    for (const userId of [state.callerId, project.producer_id]) {
+    for (const userId of who) {
       if (!userId || seats.some(s => s.project_id === project.id && s.user_id === userId)) continue
       if (userId !== state.callerId && !has('workspace_members', m => m.user_id === userId && m.workspace_id === (project.workspace_id ?? FAKE_WS) && m.is_active !== false)) continue
       seats.push({ project_id: project.id, user_id: userId, workspace_id: project.workspace_id ?? FAKE_WS, project_role: 'manager', project_title: null })
@@ -358,7 +358,7 @@ const fake = vi.hoisted(() => {
             if (forced) return resolve({ data: null, error: forced })
             // M2: the guards and keys an UPDATE meets (updateRefusal).
             for (const r of hit) { const refused = updateRefusal(table, patch, r); if (refused) return resolve({ data: null, error: refused }) }
-            for (const r of hit) Object.assign(r, patch)
+            for (const r of hit) { Object.assign(r, patch); if (table === 'projects' && 'producer_id' in patch) autoStaff(r, [r.producer_id]) }
             return resolve({ data: u.selected ? hit.map(r => ({ id: r.id })) : null, error: null })
           },
         }
@@ -2887,6 +2887,18 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: `${to}.jpg` })
     expect(fake.state.objects.filter(o => o.name.includes(preC4)).map(o => o.name).sort()).toEqual([to, `${to}.jpg`].sort())
     expect(recordOf(b).files).toContain(preC4)
+    // CONTROL (review round 2): the same row with no body anywhere in the bucket is left as it is — said open with the reason, never flagged money over a key the bucket does not hold.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [], moves: [], updates: [] })
+    const c = desktopFixtures()
+    c.files = c.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
+    serve([c])
+    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: to, is_financial: false, thumbnail_url: null }]
+    const bodiless = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(bodiless.receiptsMoved).toBe(0)
+    expect(bodiless.files.receiptsOpen).toBe(1)
+    expect(bodiless.errors).toEqual([expect.objectContaining({ scope: 'file', id: preC4, message: expect.stringMatching(/its body is not in the cloud at the place its row names, so the row was left as it is/) })])
+    expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: false, storage_path: to })
+    expect(fake.state.updates.filter(u => u.table === 'files')).toEqual([])
   })
 
   it('M2: someone the money gate shuts out leaves the money files an earlier run carried before the record is asked: none called removed, none written', async () => {
@@ -3219,7 +3231,7 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(large).toMatchObject({ name: 'plate_scan.mov', scene_id: SCENES[0].id, folder_id: FOLDERS.find(f => f.scene_id === SCENES[0].id).id, description: 'v002 · second pass', size_bytes: MANAGED.large.size_bytes })
     for (const row of [small, large]) for (const k of ['stored_name', 'version', 'version_label', 'folder_path', 'extension', 'original_name', 'file_name', 'thumbnail_path', 'uploaded_by', 'notes', 'deleted_at']) expect(row, k).not.toHaveProperty(k)
     expect(byId('files', MANAGED.deleted.id)).toBeUndefined()
-    expect(report.managedFiles).toMatchObject({ total: 2, inserted: 2, skipped: 0, failed: 0, bytes: 3 + MANAGED.large.size_bytes, placed: 2, bodiesGone: 0, server: 0, overCap: 0, overBound: 0, versions: 1 })
+    expect(report.managedFiles).toMatchObject({ total: 2, inserted: 2, skipped: 0, failed: 0, uploaded: 2, bytes: 3 + MANAGED.large.size_bytes, placed: 2, bodiesGone: 0, server: 0, overCap: 0, overBound: 0, versions: 1 })
     expect(report.notCarried).toContainEqual({ key: 'managedVersions', label: 'version label of a file kept with an asset, scene, shot, level or experience (the cloud keeps the file, not its number)', count: 1, later: false })
     // The small body: one GET, the standard put (the Blob); the large: Range requests only, six MiB at a time, the resumable path reserved first and released.
     const smallCalls = streamCalls.filter(c => c.id === MANAGED.small.id)
@@ -3276,7 +3288,8 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     const listsBefore = JSON.stringify(fake.state.lists)
     const objectsBefore = JSON.stringify(fake.state.objects)
     fake.state.log = []; fake.state.updates = []; fake.state.uploads = []; fake.state.tus = []; fake.state.reservations = []; streamCalls = []
-    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const said = []
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => said.push(m) })
     expect(JSON.stringify(fake.state.lists)).toBe(listsBefore)
     expect(JSON.stringify(fake.state.objects)).toBe(objectsBefore)
     expect(fake.state.log.filter(t => t !== 'bin_locations')).toEqual(['projects'])
@@ -3286,6 +3299,9 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(streamCalls).toEqual([])
     for (const k of ['projectMembers', 'rateCards', 'rateCardEntries', 'taskTemplates', 'managedFiles']) { expect(again[k].inserted, k).toBe(0); expect(again[k].failed, k).toBe(0) }
     expect(again.projectMembers.skipped).toBe(4)
+    // Review round 2: a role outside the three is said left only where a seat is given — not on a run that gave none.
+    expect(again.projectMembers.rolesLeft).toBe(0)
+    expect(said).not.toContain(`  ${ROLES_LEFT(1)}`)
     expect(again.managedFiles.skipped).toBe(2)
     expect(again.assetTemplatesLinked).toBe(0)
     expect(again.removed.rows).toEqual([])
@@ -3330,6 +3346,11 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect((await insert('project_members', { project_id: PROJECT.id, user_id: MEMBER_ID.mara, project_role: 'producer' })).error).toMatchObject({ code: '23514' })
     expect((await insert('project_members', { project_id: PROJECT.id, user_id: MEMBER_ID.mara, project_role: 'manager' })).error).toBeNull()
     expect((await insert('project_members', { project_id: PROJECT.id, user_id: MEMBER_ID.mara, project_role: 'member' })).error).toMatchObject({ code: '23505', message: expect.stringMatching(/project_members_pkey/) })
+    // fn_projects_auto_staff on UPDATE OF producer_id (review round 2): a member producer is seated manager; a stranger is not, and the project lands.
+    expect((await fake.client.from('projects').update({ producer_id: MEMBER_ID.priya }).eq('id', PROJECT.id)).error).toBeNull()
+    expect(fake.state.lists.project_members.find(r => r.user_id === MEMBER_ID.priya)).toMatchObject({ project_id: PROJECT.id, project_role: 'manager' })
+    expect((await fake.client.from('projects').update({ producer_id: 'nobody' }).eq('id', PROJECT.id)).error).toBeNull()
+    expect(fake.state.lists.project_members.some(r => r.user_id === 'nobody')).toBe(false)
     // A card with the desktop's workspace, a type outside the two; an entry with the desktop's total, a blank wage, a type outside percent|fixed.
     expect((await insert('rate_cards', { ...stores.rateCards[0].card })).error).toMatchObject({ code: '42501' })
     expect((await insert('rate_cards', { id: 'rc-x', workspace_id: WS, name: 'x', type: 'vendor' })).error).toMatchObject({ code: '23514', message: expect.stringMatching(/rc_type_chk/) })
@@ -3378,18 +3399,28 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(fake.client.from('project_members').upsert).toBeUndefined()
     expect(recordOf(b).project_members).toContain(MEMBER_ID.mara)
     expect(report.projectMembers).toMatchObject({ skipped: 2, inserted: 2 })
-    // A seat a teammate removes stays removed.
-    fake.state.lists.project_members = fake.state.lists.project_members.filter(r => r.user_id !== MEMBER_ID.theo)
+    // A seat a teammate removes stays removed — Theo's, and Dev's, whom the desktop lists twice (one seat, said removed once: review round 2).
+    fake.state.lists.project_members = fake.state.lists.project_members.filter(r => r.user_id !== MEMBER_ID.theo && r.user_id !== MEMBER_ID.dev)
     const said = []
     const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS, onProgress: (m) => said.push(m) })
     const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => said.push(m) })
-    expect(fake.state.lists.project_members.some(r => r.user_id === MEMBER_ID.theo)).toBe(false)
+    expect(fake.state.lists.project_members.some(r => r.user_id === MEMBER_ID.theo || r.user_id === MEMBER_ID.dev)).toBe(false)
     for (const r of [dry, again]) {
-      expect(r.removed.byTable).toEqual({ project_members: 1 })
-      expect(r.removed.rows[0].name).toBe(nameOf('theo'))
+      expect(r.removed.byTable).toEqual({ project_members: 2 })
+      expect(r.removed.rows.map(x => x.name).sort()).toEqual([nameOf('dev'), nameOf('theo')].sort())
     }
     // Review round 1: the progress log says it too (the snapshot is taken before the roster).
-    expect(said.filter(l => l === `  ${REMOVED_SINCE_LAST_RUN(removedWords({ project_members: 1 }))}`)).toHaveLength(2)
+    expect(said.filter(l => l === `  ${REMOVED_SINCE_LAST_RUN(removedWords({ project_members: 2 }))}`)).toHaveLength(2)
+  })
+
+  it('a roster the cloud did not answer fails the seats this run would have given — the people without an account stay unmatched, as on any run (review round 2)', async () => {
+    serveM3([desktopFixtures()])
+    fake.state.listErrorFor = { project_members: { code: '08006', message: 'connection failure' } }
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'project_members', projectId: PROJECT.id, message: expect.stringMatching(/could not read the project's roster in the cloud, so no seat was given \(run again\)/) })])
+    expect(report.projectMembers).toMatchObject({ total: 4, inserted: 0, skipped: 0, failed: 4, unmatched: 2 })
+    expect(ins('project_members')).toEqual([])
+    expect(report.notCarried).toContainEqual({ key: 'teamAssignments', label: 'team assignments of people without a WILSON account', count: 2, later: true })
   })
 
   it('below admin or manager nobody is matched: said once, no seat, every person column empty and none counted as a person without an account (the one sentence covers the team — review round 1), the run not done (the panel\'s gate) — and a directory the cloud did not answer is an error, never "ask an admin"', async () => {
@@ -3629,6 +3660,8 @@ describe('M3: the files kept with rows — the storage rule, the body, the key',
     expect(byId('files', MANAGED.large.id).storage_path).toBe(`${dir}/1700000000000-plate_scan.mov`)
     expect(fake.state.tus).toEqual([])
     expect(report.managedFiles.bytes).toBe(3)
+    // Review round 2: the bodies sent, apart from the rows inserted (the panel's line counts these).
+    expect(report.managedFiles).toMatchObject({ inserted: 2, uploaded: 1 })
     // The small one's stray object is another size: a new key, uploaded.
     expect(byId('files', MANAGED.small.id).storage_path).not.toBe(`projects/${PROJECT.id}/files/${MANAGED.small.id}/1700000000000-plate.png`)
     expect(fake.state.uploads.filter(u => u.path.includes(MANAGED.small.id))).toHaveLength(1)

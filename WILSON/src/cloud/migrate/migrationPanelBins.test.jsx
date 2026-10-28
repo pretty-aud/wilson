@@ -478,7 +478,7 @@ describe('the question, once per root', () => {
       rateCards: { ...bucket(2), empty: 1, defaultsLeft: 1, left: 0 }, rateCardEntries: { ...bucket(20), unmatched: 1, left: 3 }, taskTemplates: { ...bucket(2), orphans: 1, left: 1 },
       assetTemplatesLinked: 2, receiptsMoved: 1,
       files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 2, receiptsGated: 0 },
-      managedFiles: { ...bucket(4), inserted: 2, bytes: 62_914_563, placed: 2, linksLetGo: 1, bodiesGone: 1, server: 0, privateHome: 0, overCap: 1, overBound: 0, versions: 1 },
+      managedFiles: { ...bucket(4), inserted: 2, uploaded: 1, bytes: 62_914_563, placed: 2, linksLetGo: 1, bodiesGone: 1, server: 0, privateHome: 0, overCap: 1, overBound: 0, versions: 1 },
     }))
     const said = (id) => screen.getByTestId(id).textContent
     expect(said('people-matched')).toBe(`${PEOPLE_MATCHED(8, 10)}.`)
@@ -497,7 +497,8 @@ describe('the question, once per root', () => {
     expect(said('templates-left')).toBe(`${TEMPLATES_LEFT(1)}.`)
     expect(said('templates-orphan')).toBe(`${TEMPLATES_ORPHAN(1)}.`)
     expect(said('asset-templates-linked')).toBe(`${ASSET_TEMPLATES_LINKED(2)}.`)
-    expect(said('managed-files-uploaded')).toBe(`${MANAGED_FILES_UPLOADED(2, 62_914_563)}.`)
+    // Review round 2: the bodies sent (one; the other row's body was found in place), as the runner's own line counts them.
+    expect(said('managed-files-uploaded')).toBe(`${MANAGED_FILES_UPLOADED(1, 62_914_563)}.`)
     expect(said('bodies-gone')).toBe(`${BODIES_GONE(1)}.`)
     expect(said('managed-over-cap')).toBe(`${MANAGED_OVER_CAP(1)}.`)
     expect(said('receipts-moved')).toBe(`${RECEIPTS_MOVED(1)}.`)

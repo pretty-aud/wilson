@@ -369,7 +369,10 @@ function CarriedLines({ r }) {
     ['templates-left', r.taskTemplates?.left, TEMPLATES_LEFT],
     ['templates-orphan', r.taskTemplates?.orphans, TEMPLATES_ORPHAN],
     ['asset-templates-linked', r.assetTemplatesLinked, ASSET_TEMPLATES_LINKED],
-    ['managed-files-uploaded', r.managedFiles?.inserted, (n) => (r.dryRun ? MANAGED_FILES_WILL_UPLOAD(n, r.managedFiles.bytes || 0) : MANAGED_FILES_UPLOADED(n, r.managedFiles.bytes || 0))],
+    // Review round 2: the bodies sent, as the runner's own line counts them (a
+    // body found in place is a row, not an upload); a report from before the
+    // count falls back to the rows.
+    ['managed-files-uploaded', r.managedFiles?.uploaded ?? r.managedFiles?.inserted, (n) => (r.dryRun ? MANAGED_FILES_WILL_UPLOAD(n, r.managedFiles.bytes || 0) : MANAGED_FILES_UPLOADED(n, r.managedFiles.bytes || 0))],
     ['bodies-gone', r.managedFiles?.bodiesGone, BODIES_GONE],
     ['managed-server', r.managedFiles?.server, SERVER_MEDIA_STAY],
     ['managed-private', r.managedFiles?.privateHome, PRIVATE_MEDIA_STAY],

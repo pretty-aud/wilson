@@ -3178,7 +3178,11 @@ outside its list.
   rates' roles in the dry run, one paged read each); a project whose id is
   held out of the person's sight reads as arriving in the dry run, and only
   the real run meets its key (F7: no read can see it); the dry run counts no
-  set-aside rows. INFERRED from the runner unless said. Owner: none.
+  set-aside rows. M3's review round 2 adds one of the files kept with rows: one
+  whose id the cloud holds under another project is found only by the real
+  run's per-file read (said as not this project's), so the dry run counts it
+  as going and probes its body. INFERRED from the runner unless said. Owner:
+  none.
 - **M2-L7 · A clip's picture removed in the cloud would come back on the next
   run** (review round 1, L4). The runner uploads a picture for a clip whose
   cloud row has none; the record holds the clip, not its picture. Unreachable

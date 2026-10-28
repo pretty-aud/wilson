@@ -683,7 +683,7 @@ function makeReport() {
     rateCards:       { total: 0, inserted: 0, skipped: 0, failed: 0, empty: 0, defaultsLeft: 0, left: 0 },
     rateCardEntries: { total: 0, inserted: 0, skipped: 0, failed: 0, unmatched: 0, left: 0 },
     taskTemplates:   { total: 0, inserted: 0, skipped: 0, failed: 0, orphans: 0, left: 0 },
-    managedFiles:    { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, linksLetGo: 0, bodiesGone: 0, server: 0, privateHome: 0, overCap: 0, overBound: 0, versions: 0 },
+    managedFiles:    { total: 0, inserted: 0, skipped: 0, failed: 0, uploaded: 0, bytes: 0, placed: 0, linksLetGo: 0, bodiesGone: 0, server: 0, privateHome: 0, overCap: 0, overBound: 0, versions: 0 },
     people: { canMatch: null, desktop: 0, matched: 0, unmatched: [], shared: 0, managersSeated: [], set: 0, needAdmin: false, unread: null },
     needsRights: { rateCards: false, templates: false, roster: false },
     receiptsMoved: 0,
@@ -2114,8 +2114,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     const have = await listCloud('project_members', 'project_id', projectId, 'user_id, project_role', 'user_id')
     if (have.error) {
       report.errors.push({ scope: 'project_members', projectId, message: `could not read the project's roster in the cloud, so no seat was given (run again): ${have.error.message || have.error}` })
-      report.projectMembers.total += assignments.length
-      report.projectMembers.failed += assignments.length
+      // Review round 2: the seats this run would have given fail; the people
+      // without an account are unmatched, as on any run.
+      const matched = assignments.filter(a => people.userOf(a.member_id)).length
+      report.projectMembers.total += matched
+      report.projectMembers.failed += matched
+      report.projectMembers.unmatched += assignments.length - matched
+      addNotCarried('teamAssignments', assignments.length - matched)
       return
     }
     const seated = new Set([...have.rows.map(r => String(r.user_id)), ...autoSeated.filter(Boolean).map(String)])
@@ -2124,16 +2129,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     let roles = 0
     let left = 0
     let refused = false
+    const removedSeats = new Set()
     for (const a of assignments) {
       const shaped = projectMemberRowForCloud(a, projectId, people, membersById.get(String(a.member_id)))
       if (!shaped) { unmatched++; continue }
       const { row, roleLeft, datesLeft } = shaped
-      if (roleLeft) roles++
       dates += datesLeft
       const g = rc.gate('project_members', row.user_id)
-      if (g === 'removed') { rc.removed('project_members', { id: row.user_id }, seatName(a.member_id)); continue }
+      // Review round 2: two desktop entries for one person are one seat, said
+      // removed once; and a role outside the three is said left only where the
+      // seat is given (never on a run that gave none).
+      if (g === 'removed') { if (!removedSeats.has(row.user_id)) { removedSeats.add(row.user_id); rc.removed('project_members', { id: row.user_id }, seatName(a.member_id)) } continue }
       if (seated.has(row.user_id) || g === 'there') { bumpSkipped(report.projectMembers); if (seated.has(row.user_id)) rc.add('project_members', row.user_id); continue }
-      if (dry) { bumpInserted(report.projectMembers); seated.add(row.user_id); if (row.project_role === 'manager') report.people.managersSeated.push(seatName(a.member_id)); continue }
+      if (dry) { bumpInserted(report.projectMembers); seated.add(row.user_id); if (roleLeft) roles++; if (row.project_role === 'manager') report.people.managersSeated.push(seatName(a.member_id)); continue }
       if (refused) { left++; continue }
       try {
         const r = await insertOrSkip('project_members', row, null, { project_members_pkey: 'skip' })
@@ -2141,6 +2149,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // The pair holds this project's id, so a skip is this project's seat.
         rc.add('project_members', row.user_id, r.status === 'inserted')
         seated.add(row.user_id)
+        if (r.status === 'inserted' && roleLeft) roles++
         if (r.status === 'inserted' && row.project_role === 'manager') report.people.managersSeated.push(seatName(a.member_id))
       } catch (err) {
         if (/row-level security/.test(err.message)) { refused = true; left++; continue }
@@ -2470,6 +2479,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         bumpFailed(report.managedFiles)
       }
     }
+    report.managedFiles.uploaded += counts.uploaded
     report.managedFiles.bytes += counts.bytes
     report.managedFiles.placed += counts.placed
     report.managedFiles.linksLetGo += counts.letGo
@@ -2530,6 +2540,9 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       } else if (await existsAt(bucket, from)) {
         throw new Error('its body is at both its old and its new place in the cloud; both were left')
       }
+    } else if (!(await existsAt(bucket, to))) {
+      // Review round 2: the flag may say money only once the body is there.
+      throw new Error('its body is not in the cloud at the place its row names, so the row was left as it is')
     }
     const { data, error } = await supabase.from('files').update({ is_financial: true, storage_path: to, thumbnail_url: thumbTo }).eq('id', f.id).eq('project_id', projectId).eq('is_financial', false).select('id')
     if (error) throw new Error(`its row could not be put behind the gate: ${error.message}`)
