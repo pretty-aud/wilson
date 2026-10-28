@@ -2,7 +2,8 @@
 
 One file for the night (`docs/sessions/PLAN_TO_1_0.md` §5, rule 3), one
 section per session: **B2** (subject shares in O.T.T.E.R.), **M1** (the
-desktop → cloud migration, part 1) and **S2** (an offline launch). Each
+desktop → cloud migration, part 1) and **S2** (an offline launch), and
+**DG4** (D.O.G.'s project and references card), which Audrey added. Each
 section stands on its own; answer its questions by their numbers.
 
 ## B2 — Subject shares in O.T.T.E.R.
@@ -291,3 +292,112 @@ computer's library (the desktop, opened offline), what should O.T.T.E.R. do?
   while offline and read again on their own refresh or the next launch;
   R.A.B.B.I.T. does not reopen the project you last had open once the
   connection returns.
+
+## DG4 — D.O.G.'s project and references card
+
+1. **Project and References are one card**, *1 Project and references*:
+   the project first, then what the deck reads in your order (the line
+   *What goes to the AI…*, Uploads, Items, Files, Notes, the bar, Add
+   references). The Generate outline card is *2* now.
+2. **The bar is a fixed length, and a little thicker.** It is as long as
+   the line above it (576px; that line measured 571px) at any window size;
+   it was the card's whole width, 2,278px on a 2560 monitor. 8px thick, was
+   6px. In the Add references window it still spans the footer.
+3. **Generate outline has two checkboxes, side by side**: **Place visual**
+   (was *Use visual assets*; no subtitle; hover it for what it does), then
+   **Theme generator**, on the line under the Single page / Full deck
+   switch, on both sides of it (a single page uses the theme generator too).
+   **Use project assets** is gone: what card 1 lists is what is read, and
+   Place visual places pictures and videos from your uploads and your
+   references alike.
+4. **Core files only**, beside Add references: ticked, the deck reads the
+   project's files marked Core in R.A.B.B.I.T.'s Files tab instead of what
+   you chose; your uploads still go. Clear it and what you chose comes back
+   as it was.
+
+**What this is.** DG4, which you added to night 3 (your five notes verbatim
+in `docs/sessions/briefs/po-dg4-dog-project-references-card.md`). D.O.G.
+only: no migration, nothing on the server, the same on your computer's
+library and on the cloud. Single page's grey line now names only your deck
+context (the theme generator is on screen there), and only when the box has
+words. On your computer's library a project from before its files moved to
+the Files tab counts its older attachments as Core unless they were marked
+Ref, and the ticked box says so. Opened offline (S2's section, above), card 1
+keeps S2's one sentence and no New project, and *Core files only* stays grey
+and silent. The app's main file grew by 1,938 bytes.
+
+### What to click
+
+On the beta after the morning's merge, or the development copy (`session-a`,
+the dev fixtures' tester, its project *Salt Hours*). The project to try is
+one with files you marked Core in R.A.B.B.I.T.'s Files tab.
+
+| # | Do | You should see |
+|---|---|---|
+| 1 | Open D.O.G. | One card at the top, **1 PROJECT AND REFERENCES**, *None chosen* at its right: *Choose a project*, the dropdown and New project; then *What goes to the AI…*, Uploads, *Choose a project to reference its items and files…*, the bar, **Add references** and beside it **Core files only**, grey, with *Core files come from a project: choose one above.* under it |
+| 2 | On your widest window, look at the bar | It ends where *What goes to the AI…* ends, not at the card's edge |
+| 3 | Choose a project with Core files | *Core files only* turns on, with no sentence. (A project with none keeps it grey: *This project has no Core files D.O.G. can read.*) |
+| 4 | **Add references**, tick one file that is not marked Core, **Done** | It is listed under Files, as before |
+| 5 | Tick **Core files only** | The list becomes the project's Core files, each with its CORE mark and an eye, no ×; the count and the bar follow; Add references greys out; under it: *Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.* A Core file D.O.G. cannot read (a Photoshop file, say) is not listed |
+| 6 | Clear it | The file from step 4 is back; Add references is on |
+| 7 | Look at **2 GENERATE OUTLINE** | Under the switch: **Place visual** and **Theme generator**, side by side, nothing after them. Switch to Single page: the same two |
+| 8 | (on the beta) Upload a picture, keep Core files only ticked on a project with a Core picture, tick **Place visual**, write a line in the deck context box, **Generate full deck outline** | Both pictures can be placed in the slides; with Place visual off neither is, and both are still read |
+| 9 | Fold card 1 by its chevron | Its header keeps the count |
+
+### Pictures
+
+From Chromium at a real 1280×800, 1440×900 and 2560×1440 window, on the dev
+fixtures' tester (a made-up project and files; no upload). In the folder
+*84_night_3 pictures* beside this file:
+
+- `po-dg4-before-01-cards-…` and `po-dg4-after-01-cards-…` — D.O.G. as it
+  opens, no project: two cards then, one now.
+- `po-dg4-before-02-project-…` and `po-dg4-after-02-project-…` — *Salt
+  Hours* chosen; at 2560 the bar's length is your note 1.
+- `po-dg4-after-03-core-files-…` — Core files only ticked: the project's six
+  Core files D.O.G. can read (its Photoshop file left out), the count, the
+  bar's words (new; no before).
+- `po-dg4-before-03-single-page-…` and `po-dg4-after-04-single-page-…` —
+  Single page: two boxes and a subtitle, no Theme generator, then; Place
+  visual and Theme generator now.
+
+### The laws of UX in the layout pass (your note 5)
+
+- **Common region:** one card, one header, one fold: choosing the project
+  and choosing what it reads are one decision.
+- **Proximity:** the project's dropdown sits right above the references it
+  scopes; Core files only sits beside Add references; its sentence is 8px
+  under it, the card's parts 16px apart.
+- **Hick's law:** D.O.G. opens with 11 Tab stops, was 12 (a card header
+  fewer; Core files only is a stop even while grey, so it can say why);
+  Generate outline asks two questions, not three.
+- **Fitts's law:** Core files only is 16px from Add references; a row's eye
+  and × stay within 576px of its name at any width (at 2560 they were up to
+  2,278px away).
+- **The text measure:** card 1 is one 576px column, the length of its
+  longest line; the project's description wraps to two short lines instead
+  of one line about 1,070px long at 1440.
+- **Vertical rhythm:** 16px between the card's parts, 8px between a control
+  and its own sentence, on the house's 8px steps; the bar 8px.
+- **Alignment:** the dropdown, Choose file, the bar, Add references and the
+  rows share one left edge (261px from the window's at all three sizes,
+  measured).
+
+### Questions
+
+- **Q1. The card's title.** (a) *Project and references* (Recommended: your
+  two names, kept). (b) *Project and sources*. (c) Another, in your words.
+- **Q2. The new checkbox's name.** (a) *Core files only* (Recommended: it
+  says what the deck reads while ticked). (b) *Use Core files*. (c)
+  *Reference Core files*.
+- **Q3. Your notes while Core files only is ticked.** Everything you chose
+  in Add references steps aside, your notes too: only the Core files and
+  your uploads go. (a) As built (Recommended). (b) Keep chosen notes going
+  with the Core files.
+- **Q4. Generate outline on a wide window.** Card 1 is a 576px column now;
+  the deck context box and the Generate button below still span the window
+  (2,278px at 2560). (a) Leave it for 1.1 (Recommended). (b) Give that card
+  the same column.
+- **Q5. A click on a checkbox's words.** It does nothing; only the small box
+  ticks it, in D.O.G. as before (`docs/OUTSTANDING.md`, DG4-01). (a) Make the
+  words tick it too, in 1.1 (Recommended). (b) Before 1.0.

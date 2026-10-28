@@ -159,9 +159,13 @@ describe('D.O.G. lets go when a file or reference leaves, and never after a gene
   const at = (s) => SRC.indexOf(s)
   const firstGenerator = at('const generatePageOutline = useCallback')
 
-  it('one effect releases what no upload or chosen reference owns, and stands down while a generation runs', () => {
+  // DG4: the owners are what is LISTED (refs.listedKeys: the chosen set, or
+  // the project's Core files while Core files only is ticked), so a Core file
+  // a generation sent is kept for the next Regenerate. The rendered D.O.G.
+  // pins the behaviour (enterKey.render.test.jsx, DG4's let-go case).
+  it('one effect releases what no upload or listed reference owns, and stands down while a generation runs', () => {
     expect(SRC).toMatch(/const generationBusy = isGenerating \|\| isRegenerating;/)
-    expect(SRC).toMatch(/useEffect\(\(\) => \{\n {4}if \(generationBusy\) return;\n {4}letGoOfAIFiles\(aiFileIdCache\.current\.release\(liveOwners\(uploadedFiles, refs\.chosen\)\)\);\n {2}\}, \[generationBusy, uploadedFiles, refs\.chosen, letGoOfAIFiles\]\);/)
+    expect(SRC).toMatch(/useEffect\(\(\) => \{\n {4}if \(generationBusy\) return;\n {4}letGoOfAIFiles\(aiFileIdCache\.current\.release\(liveOwners\(uploadedFiles, refs\.listedKeys\)\)\);\n {2}\}, \[generationBusy, uploadedFiles, refs\.listedKeys, letGoOfAIFiles\]\);/)
   })
   it('the app\'s close and a sign-out reach the cache (holdAIFiles)', () => {
     expect(SRC).toMatch(/useEffect\(\(\) => holdAIFiles\(\(\) => aiFileIdCache\.current\.takeAll\(\)\), \[\]\);/)

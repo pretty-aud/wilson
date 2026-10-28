@@ -24,6 +24,16 @@
 // (design review round 2, finding 5): a chosen reference is greyed only when
 // a list that succeeded lacks it, and a generation whose fresh list failed
 // stops and says so instead of dropping what was chosen.
+//
+// DG4 (Audrey, 2026-10-28: "a way for the user to just press a checkbox to
+// bypass selecting files and letting the generator just reference the files
+// marked as core project files"). While `coreOnly` is on, what is LISTED (the
+// card's rows, the meter's count, Generate's reads, the AI file store's
+// owners) is the chosen project's readable Core files, coreFileKeys over the
+// pool: the window's own All Core files test, so nothing the pool does not
+// offer is listed or sent. The set chosen in the window steps aside untouched
+// and is listed again when it is cleared. Off at the start and kept while
+// WILSON is open, as D.O.G.'s other checkboxes are; nothing reaches disk.
 // =============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -32,7 +42,7 @@ import {
   ITEM_KINDS, KIND_SOURCE, buildPool, poolIndex, kindOfKey, keysKeptOnProjectChange,
   itemWords, noteWords, referencesText, notesText, REFERENCES_SOURCE_NAME, NOTES_SOURCE_NAME,
   fileEntry, legacyFileEntry, fileTokens, textTokens, countPdfPages, folderTrail,
-  VIDEO_PLACE_LIMIT,
+  VIDEO_PLACE_LIMIT, coreFileKeys,
 } from './referenceModel';
 
 const ADAPTER_READS = Object.freeze({
@@ -136,6 +146,12 @@ const listOf = (key) => {
 /** What a kept body is kept by: the file's size and date (a changed file is read again). */
 const bodySig = (entry) => `${entry.size}:${entry.row?.updated_at || entry.uploadedAt || ''}`;
 
+/** A pool's readable Core files (DG4), by name, as the window lists files. */
+function coreKeysByName(p) {
+  const idx = poolIndex(p);
+  return coreFileKeys(p).sort((a, b) => (idx.get(a)?.name || '').localeCompare(idx.get(b)?.name || ''));
+}
+
 /**
  * @param {object} args
  * @param {() => object} args.getAdapter  RabbitProvider's stable getter
@@ -156,6 +172,8 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
   const [noteTexts, setNoteTexts] = useState(() => new Map()); // note id -> text
   const [pdfPages, setPdfPages] = useState(() => new Map());   // file id -> pages | null
   const [readIds, setReadIds] = useState(() => new Set());     // bodies already read this session
+  // DG4: Core files only (the header says what it lists).
+  const [coreOnly, setCoreOnly] = useState(false);
   const poolSeq = useRef(0);
   const poolPromise = useRef(null);
   const bodyCache = useRef(new Map()); // file id -> { sig, content }
@@ -252,6 +270,10 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     poolPromise.current = run;
     return run;
   }, [getAdapter, adapterMode, projectId, project]);
+  // The newest loadPool, for a caller holding an older one (the New project
+  // window's handler was made before it chose the project it then fills).
+  const loadPoolRef = useRef(loadPool);
+  useEffect(() => { loadPoolRef.current = loadPool; }, [loadPool]);
 
   /** The newest pool: if this read was overtaken, the one that overtook it. */
   const freshPool = useCallback(async () => {
@@ -391,20 +413,45 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       return;
     }
     adoptRows(list);
+    // DG4 review round 1, finding 3: the window chose the project, which
+    // listed it, before storing these; list again, or Core files only (off,
+    // "no Core files") and its rows would miss what Generate then sends.
+    loadPoolRef.current?.();
   }, [snapshotOf]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── What is listed: the chosen set, or the project's Core files (DG4) ─────
+  // A list not made yet and a files list that failed are told apart from a
+  // project with none, so the checkbox never says "none" when it could not
+  // look. A re-list keeps the last pool until it lands: no flicker.
+  const coreKeys = useMemo(() => (projectId && pool && !pool.errors?.files ? coreKeysByName(pool) : []), [projectId, pool]);
+  const core = useMemo(() => {
+    if (!projectId) return { state: 'no-project', count: 0, legacy: 0 };
+    if (!pool) return { state: 'listing', count: 0, legacy: 0 };
+    if (pool.errors?.files) return { state: 'failed', count: 0, legacy: 0 };
+    const idx = poolIndex(pool);
+    const legacy = coreKeys.filter(k => idx.get(k)?.source === 'legacy').length;
+    return { state: coreKeys.length ? 'ready' : 'none', count: coreKeys.length, legacy };
+  }, [projectId, pool, coreKeys]);
+  // Each Core file as the card shows it, from the list (never a body).
+  const coreSnapshots = useMemo(() => {
+    const idx = poolIndex(pool);
+    return new Map(coreKeys.map(k => [k, snapshotOf(idx.get(k), pool)]));
+  }, [coreKeys, pool, snapshotOf]);
+  const listed = useMemo(() => (coreOnly ? new Set(coreKeys) : chosen), [coreOnly, coreKeys, chosen]);
+  const listedSnaps = coreOnly ? coreSnapshots : snapshots;
 
   // ── Size ──────────────────────────────────────────────────────────────────
   /**
-   * { tokens, uncounted, bytes }: PDFs whose pages are not known yet are not
-   * guessed; `bytes` is what Generate will download (videos aside: they are
-   * read only to be placed, and never past VIDEO_PLACE_LIMIT).
+   * { tokens, uncounted, bytes } of what is listed: PDFs whose pages are not
+   * known yet are not guessed; `bytes` is what Generate will download (videos
+   * aside: they are read only to be placed, and never past VIDEO_PLACE_LIMIT).
    */
   const chosenSize = useMemo(() => {
     let tokens = 0;
     let uncounted = 0;
     let bytes = 0;
-    for (const k of chosen) {
-      const s = snapshots.get(k);
+    for (const k of listed) {
+      const s = listedSnaps.get(k);
       if (!s || unavailable.has(k)) continue;
       if (s.kind === 'note') { tokens += textTokens(noteTexts.get(s.noteId) || '') + 20; continue; }
       if (s.kind === 'file' && s.dogType !== 'video' && s.source !== 'legacy' && !readIds.has(s.id)) bytes += s.size || 0;
@@ -416,7 +463,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       tokens += s.tokens || 0;
     }
     return { tokens, uncounted, bytes };
-  }, [chosen, snapshots, unavailable, noteTexts, pdfPages, readIds]);
+  }, [listed, listedSnaps, unavailable, noteTexts, pdfPages, readIds]);
 
   // ── Reading a body ────────────────────────────────────────────────────────
   // A body is kept for the session by its size and date; a read that finds it
@@ -478,7 +525,7 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       : bodyKept(entry) ? ' Already read while WILSON is open, so showing it here is not recorded again.'
         : ' Reading it here is recorded in the file’s activity, as any download is.';
     if (entry.dogType === 'video') {
-      return { title: entry.name, line: 'A video is never sent to the AI. With Use project assets ticked it can be placed in a slide.', tokens: 0 };
+      return { title: entry.name, line: 'A video is never sent to the AI. With Place visual ticked it can be placed in a slide.', tokens: 0 };
     }
     if (entry.dogType === 'image' && entry.source === 'stored' && entry.size > PREVIEW_IMAGE_MAX_BYTES) {
       return { title: entry.name, line: 'A large picture: it is not previewed here. It is sent as a picture the AI looks at.', tokens: fileTokens('image', entry.size) };
@@ -515,12 +562,22 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
    * `DOG_LIST_FAILED` rather than dropping what was chosen.
    *
    * A video is never sent to the AI; it is read only when `includeVideo`
-   * ("Use project assets" may place it), and never past VIDEO_PLACE_LIMIT.
+   * (Place visual may place it), and never past VIDEO_PLACE_LIMIT.
+   *
+   * DG4: with Core files only ticked, the references are the project's
+   * readable Core files in THIS fresh list (one marked or unmarked since the
+   * card last listed is as it is now, and the card follows the same list); a
+   * files list that failed stops the deck as a chosen file's does.
    */
   const resolveForGeneration = useCallback(async ({ includeVideo = false } = {}) => {
-    const keys = [...chosenRef.current];
-    if (!keys.length) return { files: [], referencesSource: null, notesSource: null, unreadable: [] };
+    const none = { files: [], referencesSource: null, notesSource: null, unreadable: [] };
+    if (coreOnly ? !projectId : !chosenRef.current.size) return none;
     const p = (await freshPool()) || pool;
+    if (coreOnly && p?.errors?.files) {
+      throw Object.assign(new Error('a list failed'), { code: 'DOG_LIST_FAILED', lists: ['files'] });
+    }
+    const keys = coreOnly ? coreKeysByName(p) : [...chosenRef.current];
+    if (!keys.length) return none;
     const failedLists = [...new Set(keys.map(listOf).filter(l => p?.errors?.[l]))];
     if (failedLists.length) {
       throw Object.assign(new Error('a list failed'), { code: 'DOG_LIST_FAILED', lists: failedLists });
@@ -578,13 +635,16 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
       notesSource: notesBody ? textSource('dog-notes', NOTES_SOURCE_NAME, notesBody, { inlineOnly: true }) : null,
       unreadable,
     };
-  }, [freshPool, pool, readNoteText, readBody]);
+  }, [coreOnly, projectId, freshPool, pool, readNoteText, readBody]);
 
-  const chosenList = useMemo(() => [...chosen].map(k => snapshots.get(k)).filter(Boolean), [chosen, snapshots]);
+  // What the card lists, the meter counts and Generate reads (DG4: the Core
+  // files while Core files only is ticked). `chosen` stays the window's set.
+  const chosenList = useMemo(() => [...listed].map(k => listedSnaps.get(k)).filter(Boolean), [listed, listedSnaps]);
 
   return {
-    chosen, chosenList, unavailable, pool, poolBusy, notice, undoable: !!undoable,
+    chosen, chosenList, listedKeys: listed, unavailable, pool, poolBusy, notice, undoable: !!undoable,
     chosenTokens: chosenSize.tokens, chosenUncounted: chosenSize.uncounted, chosenBytes: chosenSize.bytes, pdfPages,
+    coreOnly, setCoreOnly, core,
     loadPool, tick, untick, toggle, removeAll, undoRemoveAll, adoptUploadedFiles, preview, resolveForGeneration,
     clearNotice: () => { setNotice(''); setUndoable(null); },
   };

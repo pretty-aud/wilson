@@ -3411,7 +3411,8 @@ from CORE to REF and change generation output.
 **References (post-overhaul DG1, 2026-10-16) — supersedes the paragraph
 above.** Choosing a project no longer sends its attachments: it sends only the
 project's title and description, and the person ticks what else the deck
-reads in the **References** card (`references/`: `referenceModel.js` pure,
+reads in the **References** card (card 1's lower part since DG4, below;
+`references/`: `referenceModel.js` pure,
 `useReferences.js` the I/O, `ReferencesCard.jsx`, `ReferencesPicker.jsx`) —
 R.A.B.B.I.T. items (assets, scenes, shots, levels, experiences, tasks, phases,
 milestones), files, and the person's own Dashboard notes (read through
@@ -3480,8 +3481,9 @@ D.O.G.'s tick boxes (`.dog-check`) excepted (`enterGenerates.js`,
 `enterIsDogs`); it starts something only with no page yet, none running and
 something to read. With Full deck on it starts a full deck only when the deck
 context box has words (whitespace is empty; `enterStarts`): with the box
-empty nothing starts, the box (named by its label) gets focus (card 3 opens
-if folded) and the kit toast stack says why, one toast at a time, with no
+empty nothing starts, the box (named by its label) gets focus (the Generate
+outline card, 3 until DG4 and 2 since, opens if folded) and the kit toast
+stack says why, one toast at a time, with no
 timer: it goes when the box has words, Single page is on, a deck starts or
 another page shows (Audrey, 2026-10-26: "Enter needs text in the box"). The box's own Enter follows the same rule; the Generate
 button, Single page and the regenerate box are untouched. Enter on the Single
@@ -3489,16 +3491,18 @@ page / Full deck switch is the kit Switch's own, so it flips ("Enter moves the
 switch"). Alt flips the switch from any page, kept by her ruling. Walkthrough
 77.
 
-**D.O.G.'s card title bars (post-overhaul FX14).** The three folding cards
-(1 *Project*, named *Project documentation* until DG2; 2 *References*, 3 *Generate outline*) each carry a
+**D.O.G.'s card title bars (post-overhaul FX14).** The folding cards (three
+until DG4: 1 *Project*, named *Project documentation* until DG2; 2
+*References*, 3 *Generate outline*; since DG4 two: 1 *Project and
+references*, 2 *Generate outline*) each carry a
 kit `IconButton` in their header's `ui-panel-actions`: the chevron its glyph,
 named by the heading's words (`aria-labelledby` on a span in the kept `<h2>`),
 `aria-expanded`, `aria-controls` on the body while it is drawn. It has no
 handler of its own; Enter and Space click it and the click reaches the bar's
 one handler, as a pointer's does. Enter on it folds and generates nothing (a
 focused button is left to itself, `enterIsDogs`). The fold state is where it
-was (`section1Collapsed`, `section2Collapsed`, `ReferencesCard`'s
-`collapsed`). D.O.G.'s note is a kit toast: focus on its × when it goes comes
+was (`section1Collapsed`, `section2Collapsed`; `ReferencesCard`'s own
+`collapsed` went with its card in DG4). D.O.G.'s note is a kit toast: focus on its × when it goes comes
 back to where it came from (`TimedToast`, FX14). Walkthrough 78.
 
 **D.O.G.'s uploads in References (post-overhaul DG2, 2026-10-26; Audrey's
@@ -3507,8 +3511,9 @@ card").** The uploads are the References card's first group, **Uploads (n)**,
 always drawn: its hint, a `dog-refs-row` per upload (the glyph by type,
 `fileGlyph`; the name; the size as the old chip showed it, `uploadSize`; a
 video's *placed only, not read*; Remove named *Remove <name>*), and Choose file
-at its foot (the same `<label>` round a hidden `input[type=file]`,
-`UPLOAD_ACCEPT`) while under `UPLOAD_LIMIT` (20). No Preview on an upload.
+at its foot (a kit button since DG3, beside the hidden `input[type=file]`
+its press clicks, `UPLOAD_ACCEPT`; in DG2 it was a `<label>` round the input)
+while under `UPLOAD_LIMIT` (20). No Preview on an upload.
 Then the *Choose a project…* note, Items, Files, Notes, the meter and Add
 references. The contract sentence reads *"What goes to the AI: what is listed
 here and the project's title and description, with what you write below."*;
@@ -3526,10 +3531,11 @@ starting, as the banner was. The state and handlers stay in
 `DeckOutlineGenerator.jsx` (`uploadedFiles`, `isFileLoading`,
 `handleFileUpload`, `removeFile`) and reach the card as one `uploads` prop, so
 the sources, the AI file ids and their let-go (FX12), the meter's figures, the
-Enter rule's "something to read" and *Use visual assets* are unchanged. Card 1
-is **1 Project** (the dropdown, New project, the description). Choose file is
-not a Tab stop and has no accessible name, as before (OUTSTANDING DG2-01;
-since DG3 a kit button, below).
+Enter rule's "something to read" and *Use visual assets* (*Place visual* since
+DG4) are unchanged. Card 1 was **1 Project** (the dropdown, New project, the
+description) until DG4 made it one card with the references (below). In DG2
+Choose file was not a Tab stop and had no accessible name (OUTSTANDING DG2-01,
+closed by DG3, below).
 Walkthrough 80.
 
 **D.O.G.'s settings drawer and dropdowns, for a screen reader (post-overhaul
@@ -3545,7 +3551,7 @@ page's layout dropdown (`#dog-slide-layout`) are tied to their labels with
 
 **D.O.G.'s closed list (post-overhaul DG3, 2026-10-27).** The `#dog-project`
 label reads *Choose a project* (Audrey's words), so Chromium names the dropdown
-*"CHOOSE A PROJECT"*; the card's title stays *1 Project* (`#dog-card1-title`).
+*"CHOOSE A PROJECT"*; the card's title stayed *1 Project* (`#dog-card1-title`) until DG4 (below).
 Choose file is a kit secondary `Button` (named *Choose file* by `aria-label`,
 its kinds its description through `aria-describedby`) beside the hidden
 `input[type=file]`, which its press clicks: a Tab stop between the uploads'
@@ -3560,6 +3566,59 @@ button does not move before the release and the click lands (DG2-02, closed).
 Enter and Space on a focused Generate button are as before. The cursor stays in
 the box after the click, so Alt does nothing until it leaves the box (D.O.G.'s
 Alt leaves a text box's keys to it; OUTSTANDING DG3-04). Walkthrough 81.
+
+**D.O.G.'s project and references card (post-overhaul DG4, 2026-10-28;
+Audrey's five notes, verbatim in `docs/sessions/briefs/po-dg4-dog-project-references-card.md`).**
+Cards 1 and 2 are one card, **1 Project and references** (`#dog-card1-title`,
+`#dog-card1-body`, the fold `section1Collapsed`, now an updater): the project
+first (*Choose a project*, its hint, the dropdown, New project, the
+description), then the references in her DG2 order under the contract line
+(Uploads, Items, Files, Notes, the meter, Add references). `ReferencesCard.jsx`
+is that lower part (`.dog-refs`), with no card, header or fold of its own; its
+`ReferencesCount` is the header's number (*None chosen* / *N chosen*, the
+meter's warning when folded). The Generate outline card is step 2 (its ids
+keep `card3`). The card is one column 576px wide (`--dog-refs-measure` on
+`.dog-card-project`): the contract line, its longest line, measured 571.28px
+in Chromium at 1280, 1440 and 2560, and no house measure was within a few
+pixels (66ch is 700px at the meter's 16px). The meter in the card is that
+fixed width, never a share of the card (it was the card's whole width:
+998px at 1280, 2278px at 2560); the track is 8px, was 6px; the window's
+footer meter keeps `flex: 1`. **Place visual** (was *Use visual assets*, its
+subtitle gone, its meaning on the hover) is the one placement box:
+`placementFrom` places the uploads' pictures and videos and the listed
+references' alike, and a listed reference's video is read only then;
+*Use project assets* and its flag are gone (a reference is read because it is
+listed). **Theme generator** sits to its right in `.dog-checks`, both sides of
+the switch, since a single page reads it (`generatePageOutline`); Single
+page's line names the deck context alone, and only when there is one.
+**Core files only**, a `button.dog-check` beside Add references: ticked
+(`useReferences`' `coreOnly`, off at the start, kept while WILSON is open, as
+the other boxes are), what is listed, counted by the meter and read at
+Generate is the chosen project's readable Core files (`coreFileKeys` over
+the pool, the window's All Core files test, so a Legal, money, trashed or
+unreadable file never is), read from Generate's fresh list; the window's
+set steps aside and is listed again when it is cleared; Add references and
+Remove all references are off, the Core rows have no Remove; uploads still
+go. It is off, with one sentence under it, with no project, before the
+project's list lands, after a failed list, or when no file D.O.G. can read
+is marked Core; ticked, it can always be cleared. Off is `aria-disabled`,
+never `disabled`: it stays a Tab stop that says why it is off, a press does
+nothing, and a clear or a list at Generate that turns it off never takes
+focus from it (both review rounds measured a disabled box dropping focus on
+`<body>`, where D.O.G.'s Enter makes a deck). The pool is
+listed when a project is chosen, again when the New project window has
+stored its files, and on a return to D.O.G. only while the box is ticked or
+off for want of Core files or a list (lists, never a body; on the Local
+Server the project's bundle). The AI file store's owners are what is listed
+(`refs.listedKeys`), so a Core file a deck sent is kept for Regenerate. On
+the Local Server a legacy project's older attachments read as Core unless
+marked Ref (`legacyPoolFiles`' default), and the ticked box says so. With Add
+references off, a Remove, Undo or Dismiss from the keyboard hands focus to
+Choose file, else a row's Remove, never to the checkbox (where Enter makes a
+deck). While a sign-in is held at an offline launch (S2), card 1 keeps S2's
+one offline sentence and no New project, DG2's *Choose a project…* note is
+not shown, and the box is off and says nothing of its own (`offline`).
+Walkthrough 84, its DG4 section.
 
 ### 13.2 O.T.T.E.R.
 

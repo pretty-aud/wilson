@@ -1275,6 +1275,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
 | Post-overhaul B2 (2026-10-27; `po/b2-subject-shares-client` into `feat/post-overhaul-edit-versioning`) — subject shares, the client (`docs/sessions/PLAN_TO_1_0.md` night 3; the design's §6.2): the share dialog in three modes (a subject, the whole course, passing it on), the Requests view's *Shared with you* and *Shared by you* (the batch card, the chain line, Withdraw all), the linked subject inside the receiver's course read by id and never cached, `link:<subject_id>` progress through `linkKey()`, the pet's linked entries, the reminder from the six subject-saving paths; no migration, no route, no SQL | the subject delete confirm's *permanently* in the company library (measured by reading; walkthrough 84, Q2); the pet has no lesson to read while a linked subject is open (review round 1, finding 5) | nothing. |
@@ -2988,3 +2989,18 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   read this project's rows first, as BC3 does for scenes, shots and bins, and
   give the three tables the `ours` test and their phase links the key dates'
   check. Owner: M2 (it reworks those inserts for the budgets).
+
+## Post-overhaul DG4 (`po/dg4-dog-project-references-card`) — left open (2026-10-28)
+
+What DG4 (night 3: D.O.G.'s project and references card, Audrey's five
+notes) met outside those notes and did not fix.
+
+- **DG4-01 · A click on a D.O.G. checkbox's words does nothing; only its
+  14px box ticks it.** MEASURED in Chromium at 1280x800 (DG4's scratchpad
+  probe): a click in the middle of *Place visual*'s words (76x21px) and of
+  *Theme generator*'s (108x21px) left each as it was; a click on the box
+  (14x14px) ticked it. The same for *Core files only*, and before DG4 for
+  every D.O.G. checkbox: the words are a `span.dog-check-label` beside the
+  `button.dog-check`, with no `<label>` (the kit has no Checkbox, A1-KR-4).
+  Fix: the words inside the button's target, or the kit Checkbox when
+  A1-KR-4 lands. Owner: a D.O.G. session, or the kit request.
