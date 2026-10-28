@@ -58,7 +58,7 @@ import {
 import { otterFetch } from '../adapters'
 import {
   shareCall, runShareLoop, inboxRows, inboxEntries, sentRows, sentEntries, isLiveShare, shareStateWords,
-  offerLine, batchCardTitle, batchGoneLine, batchLine, viaLabel, withdrawConfirmText, removeConfirmText,
+  offerLine, batchCardTitle, batchGoneLine, batchLine, sentPersonLine, withdrawConfirmText, removeConfirmText,
   timeAgo,
 } from './otterSharing.js'
 import { Button, IconButton, SectionTitle, Banner, Loading, Spinner, StatusBadge, statusMeta } from '../../../ui'
@@ -444,6 +444,11 @@ export default function RequestsView({
     }, { skip: (r) => r.state === 'gone' })
     setShareBusy(null)
     if (result.stoppedAt || !result.done.length) {
+      // Rows accepted before the refusal landed in a host the first accept
+      // may have MADE: the course list is re-read so it appears (§5.3: "the
+      // host may be new"; B2 review round 1, finding 1). The card stays,
+      // holding what is left.
+      if (result.done.length) onCoursesChanged?.()
       await onSharesChanged?.()
       if (result.text) setShareError(result.text)
       return
@@ -451,7 +456,7 @@ export default function RequestsView({
     // Otter.jsx re-reads the course list (the host may be new), opens the
     // host with the linked rows marked, and says so (this view unmounts).
     onSharesAccepted?.({ hostCourseId: host, rows: result.done })
-  }, [shareBusy, shareAct, onSharesChanged, onSharesAccepted])
+  }, [shareBusy, shareAct, onSharesChanged, onSharesAccepted, onCoursesChanged])
 
   // Decline (one row, Decline all, or Dismiss on a `gone` row): every row,
   // `gone` ones INCLUDED (a decline reads nothing of the subject), stopping
@@ -466,10 +471,7 @@ export default function RequestsView({
     if (result.stoppedAt) setShareError(result.text)
   }, [shareBusy, shareAct, onSharesChanged])
 
-  const personOf = useCallback((r) => {
-    const via = viaLabel(r, sharesById)
-    return `${r.receiver_label ?? 'someone'}${via ? ` via ${via}` : ''}`
-  }, [sharesById])
+  const personOf = useCallback((r) => sentPersonLine(r, sharesById), [sharesById])
 
   // The inline confirm under an entry (Withdraw, Withdraw all, Remove).
   const confirmUnder = (key, verbLabel) => (shareConfirm?.key === key ? (

@@ -76,6 +76,7 @@ function freshWorld() {
     nextId: 2,
     shares: [LINK],
     sharesAfter404: null,
+    sharesFail: false,
     linked: LINKED_FULL,
     reads: [],
     writes: [],
@@ -107,13 +108,15 @@ async function fakeOtterFetch(url, init) {
   if (method !== 'GET') return json({ ok: true })
   if (url === '/api/otter/subjects/sub-L') {
     if (world.linked) return json(world.linked)
-    if (world.sharesAfter404) world.shares = world.sharesAfter404
+    if (world.sharesAfter404 === 'fail') world.sharesFail = true
+    else if (world.sharesAfter404) world.shares = world.sharesAfter404
     return json({ error: 'Not found' }, 404)
   }
   if (url.startsWith('/api/software/host-1/subjects/')) {
     const s = world.subjects.find(x => x.slug === url.split('/').pop())
     return s ? json(s) : json({ error: 'Not found' }, 404)
   }
+  if (url === '/api/otter/subject-shares' && world.sharesFail) return json({ error: 'JWT expired' }, 500)
   const routes = {
     '/api/software': [HOST],
     '/api/software/host-1': HOST,
@@ -149,6 +152,12 @@ vi.mock('../../permissions', () => ({
   usePermissions: () => ({ ready: true, role: 'member', userId: 'u-me', workspaceId: 'w-1' }),
 }))
 vi.mock('../../agent', () => ({ useAgent: () => null }))
+vi.mock('../../components/TeamMembers/useWorkspaceMembers', () => ({
+  useWorkspaceMembers: () => ({
+    members: [{ user_id: 'u-me', display_name: 'Me', is_active: true }, { user_id: 'u-mara', display_name: 'Mara', is_active: true }],
+    loading: false, error: null,
+  }),
+}))
 vi.mock('@monaco-editor/react', () => ({ default: () => null }))
 vi.mock('../../cloud/aiProxy', () => ({ callAI: vi.fn(), isRetryableAIError: () => false }))
 vi.mock('../../lib/localData', () => ({
@@ -307,6 +316,39 @@ describe('a 404 on open (design §5.4)', () => {
     expect(row.querySelector('.otter-subject-delete').getAttribute('title')).toBe('Remove from my course')
   })
 
+  it('a closed link REOPENS when the owner restores it: the next list read gives it back (round 1, finding 2)', async () => {
+    world.linked = null
+    world.sharesAfter404 = [{ ...LINK, state: 'gone' }]
+    const { linkedBtn } = await openHost()
+    fireEvent.click(linkedBtn)
+    await screen.findByText(/is no longer available: the owner removed it/)
+    const linked = () => rows().find(x => x.querySelector('.otter-subject-link'))
+    await waitFor(() => expect(linked().getAttribute('data-closed')).toBe('true'))
+    // The owner restores it within the 30 days.
+    world.linked = LINKED_FULL
+    world.shares = [LINK]
+    // Any list read: the library, then the course again (a course select re-reads the index).
+    fireEvent.click(screen.getByRole('tab', { name: /Library/ }))
+    const courseBtn = document.querySelector('.otter-course-open')
+    fireEvent.click(courseBtn)                  // selects it again: a course select re-reads the index
+    if (!linked()) fireEvent.click(courseBtn)   // and unfolds it, if that click folded it
+    await waitFor(() => expect(linked()?.getAttribute('data-closed')).toBeNull())
+    expect(linked()).toBeTruthy()
+    fireEvent.click(linked().querySelector('.otter-subject-open'))
+    expect(await screen.findByRole('heading', { name: 'Linked lesson' })).toBeTruthy()
+  })
+
+  it('a 404 whose re-read FAILED says only that, and leaves the row open (round 1, finding 7)', async () => {
+    world.linked = null
+    world.sharesAfter404 = 'fail'
+    const { linkedBtn, linkedRow } = await openHost()
+    fireEvent.click(linkedBtn)
+    expect(await screen.findByText('«Modifiers» could not be read just now. Try again in a moment.')).toBeTruthy()
+    expect(screen.queryByText(/the owner removed it/)).toBeNull()
+    expect(linkedRow.getAttribute('data-closed')).toBeNull()
+    expect(linkedBtn.disabled).toBe(false)
+  })
+
   it('a state the functions could not have made reads as gone, and the row closes anyway', async () => {
     world.linked = null
     world.sharesAfter404 = [{ ...LINK }]   // still "accepted", yet the read is a 404
@@ -314,6 +356,26 @@ describe('a 404 on open (design §5.4)', () => {
     fireEvent.click(linkedBtn)
     expect(await screen.findByText(/is no longer available: the owner removed it/)).toBeTruthy()
     await waitFor(() => expect(rows().find(x => x.querySelector('.otter-subject-link')).getAttribute('data-closed')).toBe('true'))
+  })
+})
+
+describe('the study view answers where it is asked (round 1, finding 4)', () => {
+  it('Share… from the study view of my own subject says its sentence there, not only in the library', async () => {
+    const { ownRow } = await openHost()
+    fireEvent.click(ownRow.querySelector('.otter-subject-open'))
+    await screen.findByRole('heading', { name: 'Own lesson' })
+    fireEvent.click(screen.getByRole('button', { name: 'Share…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Share a subject' })
+    const select = within(dialog).getByLabelText('With')
+    fireEvent.change(select, { target: { value: 'u-mara' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Share' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share a subject' })).toBeNull())
+    // The library stays mounted (hidden) and draws the same banner; the
+    // point is the copy INSIDE the study page, where the person is.
+    const said = await screen.findAllByText('Shared with Mara. It is waiting for them to accept.')
+    expect(said.some(n => n.closest('.otter-study-page')), 'the sentence is in the study view itself').toBe(true)
+    expect(world.writes.filter(w => w.url === '/api/otter/subject-shares').map(w => w.body))
+      .toEqual([{ subject_id: 'own-1', shared_with: 'u-mara', message: null }])
   })
 })
 
@@ -404,6 +466,11 @@ describe('the readers of a linked body, by source', () => {
     const linkedPart = quiz.slice(quiz.indexOf('linkedRowsForHost('))
     expect(linkedPart.length).toBeGreaterThan(100)
     expect(linkedPart).not.toMatch(CACHE_WRITE)
+  })
+
+  it('the agent is refused a write on a linked subject, and is handed no read-only flag nobody reads (round 1, finding 5)', () => {
+    expect(OTTER_SRC).toMatch(/async applyChange\(target, changes\) \{[\s\S]{0,700}if \(activeLinked\) throw new Error\('This subject is linked from a colleague and is read-only\.'\)/)
+    expect(OTTER_SRC).not.toMatch(/activeSubjectReadOnly/)
   })
 
   it('CONTROL: the scan fires on each cache write it forbids', () => {

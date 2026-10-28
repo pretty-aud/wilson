@@ -140,8 +140,20 @@ const PATHS = {
   agentGenerateCourse:        { before: /slugsBefore = existingSubs\.map\(s => s\.slug\)/ },
   generateSingleSubject:      { before: /const slugsBefore = await slugsHeldBy\(activeSoftwareSlug\)/ },
   agentGenerateSingleSubject: { before: /const slugsBefore = await slugsHeldBy\(swSlug\)/ },
-  handleImportFile:           { calls: 2, before: /const slugsBefore = await slugsHeldBy\(slug\)/ },
+  // The import has two branches, each its own run: judged one by one, so a
+  // call moved above ITS branch's saves is caught even though the other
+  // branch's call still follows its own (B2 review round 1, finding 6).
+  handleImportFile:           { branches: ['if (data.version', 'if (data.lesson'], before: /const slugsBefore = await slugsHeldBy\(slug\)/ },
   undoDeleteSubject:          { before: /const slugsBefore = await slugsHeldBy\(last\.softwareSlug\)/ },
+}
+
+/** A path's body, or each of its branches, judged on its own. */
+function judgePath(body, rule) {
+  if (!rule.branches) return judge(body, rule)
+  const starts = rule.branches.map(b => body.indexOf(b))
+  if (starts.some(i => i < 0)) return ['a branch was not found']
+  return starts.flatMap((from, k) => judge(body.slice(from, starts[k + 1] ?? body.length), { ...rule, calls: 1 })
+    .map(f => `${rule.branches[k]}: ${f}`))
 }
 
 describe('the helper hangs from all six subject-saving paths (design §5.9)', () => {
@@ -149,9 +161,18 @@ describe('the helper hangs from all six subject-saving paths (design §5.9)', ()
     it(`${name}: once, after its last save, not awaited, with what the course held before`, () => {
       const body = callbackBody(OTTER, name)
       expect(body, `${name} was found`).toBeTruthy()
-      expect(judge(body, rule)).toEqual([])
+      expect(judgePath(body, rule)).toEqual([])
     })
   }
+
+  it('CONTROL: the export branch\'s call moved above its own save loop is caught, though the lesson branch\'s still follows its save', () => {
+    const body = callbackBody(OTTER, 'handleImportFile')
+    const call = '          offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs);\n'
+    expect(body).toContain(call)
+    const moved = body.replace(call, '').replace('          const savedSlugs = [];\n', `          const savedSlugs = [];\n${call}`)
+    expect(judge(moved, { calls: 2 }), 'the old whole-body judge misses it').toEqual([])
+    expect(judgePath(moved, PATHS.handleImportFile).join()).toMatch(/if \(data\.version: a subject\.save follows the last call/)
+  })
 
   it('the before-read comes BEFORE the first save in the paths that make one', () => {
     for (const name of ['generateSingleSubject', 'agentGenerateSingleSubject', 'undoDeleteSubject']) {
@@ -160,13 +181,15 @@ describe('the helper hangs from all six subject-saving paths (design §5.9)', ()
     }
   })
 
-  it('the import calls it once per course INSIDE the export loop, with that course\'s slugs', () => {
+  it('the import calls it once per course INSIDE the export loop, after that course\'s saves, with its slugs', () => {
     const body = callbackBody(OTTER, 'handleImportFile')
     const loop = body.indexOf('for (const sw of data.software)')
+    const pushed = body.indexOf('savedSlugs.push(')
     const call = body.indexOf('offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs)')
     const leave = body.indexOf('invalidateCache();')
     expect(loop).toBeGreaterThan(-1)
-    expect(call).toBeGreaterThan(loop)
+    expect(pushed).toBeGreaterThan(loop)
+    expect(call).toBeGreaterThan(pushed)
     expect(call).toBeLessThan(leave)
   })
 

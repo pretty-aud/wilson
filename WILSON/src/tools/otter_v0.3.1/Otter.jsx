@@ -65,6 +65,7 @@ import {
   courseMatchesFilter, canWriteCourse, canReadCourse, findStandardByName,
   VISIBILITY_META, filtersFor,
   linkKey, activeSubjectKeyOf, linkedRowsForHost, isClosedLink, linkedFromLine, linkClosedWords,
+  linkUnreadWords, reopenRestoredLinks,
   acceptedSignature, shareInboxCount, ownerShareLine, deleteShareSentence, removeConfirmText,
   newSlugsOf, batchReceivers, planNewSubjectReminder, shareCall, acceptedSentence,
 } from './components/otterSharing.js';
@@ -363,9 +364,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   const [activeLinked, setActiveLinked] = useState(null);
   const activeLinkedRef = useRef(null);
   activeLinkedRef.current = activeLinked;
-  // Links that answered 404 this session: closed (greyed, Remove) whatever
-  // state the index gives them (design §5.4; N2b round 2, finding 5).
-  const [closedLinkIds, setClosedLinkIds] = useState(() => new Set());
+  // Links that answered 404 this session, each with the state the re-read
+  // gave it: closed (greyed, Remove) whatever the index says (design §5.4; N2b
+  // round 2, finding 5) — until the owner RESTORES it, when the index gives
+  // it back as accepted and the next list read reopens it (§1.1: the link
+  // resumes with nothing to redo; B2 review round 1, finding 2).
+  const [closedLinkIds, setClosedLinkIds] = useState(() => new Map());
   // The rows an accept just placed, marked in the host course until the next open.
   const [arrivedShareIds, setArrivedShareIds] = useState(() => new Set());
   const [shareSubjectDialog, setShareSubjectDialog] = useState(null);   // { mode, course, subject, share }
@@ -393,6 +397,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }
     const rows = Array.isArray(out.data) ? out.data : [];
     setSubjectShares(rows);
+    setClosedLinkIds(prev => reopenRestoredLinks(prev, rows));
     // The pet's warm index names linked subjects by title for up to
     // INDEX_TTL_MS: when the readable set changes, it is cleared (§5.6).
     const sig = acceptedSignature(rows);
@@ -471,8 +476,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     const toolInterface = {
       toolName: 'otter',
       get currentContext() {
-        // B2: a linked subject is a colleague's, read-only (design §5.4).
-        return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId, activeSubjectReadOnly: !!activeLinked };
+        return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId };
       },
       async getAvailableSubjects() {
         if (!activeSoftwareSlug) return [];
@@ -493,7 +497,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       },
       async applyChange(target, changes) {
         // B2 (design §5.4): a linked subject is the owner's row; the receiver
-        // cannot change it (the database would refuse the write anyway).
+        // cannot change it (the database would refuse the write anyway). While
+        // one is open activeSubjectSlug is null, and the agent's context keys
+        // on it, so the agent is handed no subject to change in the first
+        // place; this is the belt (B2 review round 1, finding 5).
         if (activeLinked) throw new Error('This subject is linked from a colleague and is read-only.');
         // Load the full subject
         const res = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects/${target.subject_slug}`);
@@ -845,15 +852,22 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // closed in the course, and the pet's index is cleared (§5.6).
   const closeLinkAfter404 = useCallback(async (row) => {
     const fresh = await loadSubjectShares();
-    const now = (fresh ?? []).find(r => r.id === row.id) ?? null;
-    setClosedLinkIds(prev => new Set(prev).add(row.id));
     clearPetKnowledgeCache();
+    setSharingError(null);
+    if (!fresh) {
+      // The re-read FAILED: there is no state to choose words by and no
+      // ground to close the row on, so it stays as it was and says only that
+      // it could not be read (B2 review round 1, finding 7).
+      setSharingNotice({ tone: 'info', text: linkUnreadWords(row.subject_title) });
+      return;
+    }
+    const now = fresh.find(r => r.id === row.id) ?? null;
+    setClosedLinkIds(prev => new Map(prev).set(row.id, now?.state ?? null));
     if (activeLinkedRef.current?.shareId === row.id) {
       setActiveLinked(null);
       setActiveSubject(null);
       setCurrentView('library');
     }
-    setSharingError(null);
     setSharingNotice({ tone: 'info', text: linkClosedWords(now, row.subject_title) });
   }, [loadSubjectShares]);
 
@@ -5039,6 +5053,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       return (
         <div className="otter-view">
           <div className="otter-view-page" data-width="subject">
+            {/* B2: Share… and Pass on… answer here too (round 1, finding 4). */}
+            {renderSharingBanner()}
             <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
@@ -5112,6 +5128,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       <div className="otter-study">
         {selectedLesson ? (
           <div className="otter-study-page">
+            {/* B2: Share… and Pass on… answer here too (round 1, finding 4). */}
+            {renderSharingBanner()}
             {/* One line (S2b, C5). Giving way, in order: the subject and the
                 section (one run, down to "› …"), then the course, and the
                 lesson only when it alone is longer than the line. The whole

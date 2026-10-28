@@ -140,13 +140,17 @@ describe('a batch is ONE card (design §1.5, §5.3)', () => {
 
   it('Accept all stops at the first OTHER refusal, says it, and leaves the rest pending (the card stays)', async () => {
     refuse = { '/api/otter/subject-shares/d/accept': { status: 409, error: 'that subject has changed hands since it was shared' } }
-    const { onSharesAccepted, onSharesChanged } = mount(batch)
+    const onCoursesChanged = vi.fn()
+    const { onSharesAccepted, onSharesChanged } = mount(batch, { onCoursesChanged })
     const before = onSharesChanged.mock.calls.length
     fireEvent.click(within(card()).getByRole('button', { name: 'Accept all' }))
     expect(await screen.findByText('that subject has changed hands since it was shared')).toBeTruthy()
     expect(shareCalls()).toEqual(['POST /api/otter/subject-shares/a/accept', 'POST /api/otter/subject-shares/d/accept'])
     expect(onSharesAccepted).not.toHaveBeenCalled()
     expect(onSharesChanged.mock.calls.length).toBeGreaterThan(before)   // the card is re-read, holding what is left
+    // 'a' was accepted before the refusal: its host may be a course the accept
+    // MADE, so the course list is re-read too (round 1, finding 1).
+    expect(onCoursesChanged).toHaveBeenCalledTimes(1)
   })
 
   it('Decline all TAKES the gone row too, and stops at the first refusal', async () => {
@@ -162,11 +166,13 @@ describe('a batch is ONE card (design §1.5, §5.3)', () => {
 
   it('a 500 stops the loop too, and is not shown as a refusal', async () => {
     refuse = { '/api/otter/subject-shares/a/accept': { status: 500, error: 'JWT expired' } }
-    mount(batch)
+    const onCoursesChanged = vi.fn()
+    mount(batch, { onCoursesChanged })
     fireEvent.click(within(card()).getByRole('button', { name: 'Accept all' }))
     expect(await screen.findByText(/did not reach the workspace \(HTTP 500\)/)).toBeTruthy()
     expect(screen.queryByText('JWT expired')).toBeNull()
     expect(shareCalls()).toEqual(['POST /api/otter/subject-shares/a/accept'])
+    expect(onCoursesChanged, 'nothing was accepted: no course list re-read').not.toHaveBeenCalled()
   })
 })
 
@@ -213,6 +219,19 @@ describe('"Shared by you" (design §5.3, §1.4)', () => {
     fireEvent.click(within(line).getByRole('button', { name: 'Withdraw all' }))
     fireEvent.click(within(line.querySelector('.otter-req-confirm')).getByRole('button', { name: 'Withdraw all' }))
     await waitFor(() => expect(shareCalls()).toEqual(['POST /api/otter/subject-shares/l2/revoke', 'POST /api/otter/subject-shares/l1/revoke']))
+  })
+
+  it('a middle person\'s own onward rows read "Ben", never "Ben via <me>" (round 1, finding 3)', () => {
+    // Mara holds an accepted link (her own row, in no list of hers here) and
+    // passed it on to Ben: her "Shared by you" lists the row she made.
+    const asMara = [
+      row({ id: 'mine', shared_with: ME, receiver_label: 'Mara', status: 'accepted', state: 'accepted' }),
+      row({ id: 'k', shared_by: ME, sharer_label: 'Mara', shared_with: 'u-ben', receiver_label: 'Ben', via_share_id: 'mine', chain_depth: 2, is_mine: true }),
+    ]
+    mount(asMara)
+    const s = section('Shared by you')
+    expect(within(s).getByText('Ben · waiting')).toBeTruthy()
+    expect(within(s).queryByText(/via/)).toBeNull()
   })
 
   it('decided rows fold under Show decided, in the receiver-removed words', () => {

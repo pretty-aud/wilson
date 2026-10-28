@@ -22,6 +22,7 @@ import {
   shareStateWords, shareFailureText, NOT_A_MEMBER_WORDS, shareCall, runShareLoop,
   inboxRows, inboxEntries, shareInboxCount, offerLine, batchCardTitle, batchGoneLine, acceptedSentence,
   sentRows, sentEntries, viaLabel, batchLine, withdrawConfirmText, removeConfirmText, ownerShareLine,
+  sentPersonLine, reopenRestoredLinks, linkUnreadWords,
   deleteShareSentence, linkedRowsForHost, isClosedLink, linkedFromLine, linkClosedWords, acceptedSignature,
   shareContractLine, sharedSentence, sharedCourseSentence, courseCountLine, passOnExcluded,
   newSlugsOf, batchReceivers, planNewSubjectReminder, reminderPairs, reminderTitle, reminderLine,
@@ -341,6 +342,14 @@ describe('B2: "Shared by you" — the owner\'s list and the chain line (design �
     expect(viaLabel(byId.get('m'), byId)).toBeNull()
   })
 
+  it('a middle person\'s own onward rows name no via; the owner\'s view of the same row does (round 1, finding 3)', () => {
+    // The owner sees Ben's row with Mara as its via.
+    expect(sentPersonLine(byId.get('b'), byId)).toBe('Ben via Mara')
+    // Mara sees the row SHE made: no "via Mara".
+    expect(sentPersonLine({ ...byId.get('b'), is_mine: true, is_owner: false }, byId)).toBe('Ben')
+    expect(sentPersonLine(byId.get('m'), byId)).toBe('Mara')
+  })
+
   it('the batch line: who, how many, and the states counted', () => {
     expect(batchLine([byId.get('l1'), byId.get('l2')])).toBe('shared whole with Lee · 2 subjects · 1 accepted, 1 waiting')
   })
@@ -403,6 +412,22 @@ describe('B2: the linked subject inside the receiver\'s course (design §5.4)', 
     expect(linkClosedWords(host({ state: 'gone' }))).toBe('«Modifiers» is no longer available: the owner removed it. It comes back if they restore it.')
     expect(linkClosedWords(host({ state: 'accepted' }))).toMatch(/no longer available: the owner removed it/)
     expect(linkClosedWords(null, 'Modifiers')).toMatch(/^«Modifiers» is no longer available/)
+  })
+
+  it('a link a 404 closed reopens when the owner RESTORES it (gone → accepted); one that 404d while accepted stays closed (round 1, finding 2)', () => {
+    const closed = new Map([['restored', 'gone'], ['odd', 'accepted'], ['still', 'gone']])
+    const rows = [host({ id: 'restored' }), host({ id: 'odd' }), host({ id: 'still', state: 'gone' })]
+    const next = reopenRestoredLinks(closed, rows)
+    expect([...next.keys()]).toEqual(['odd', 'still'])
+    expect(closed.size, 'the Map it was given is not changed').toBe(3)
+    // Nothing to reopen: the same Map back (no needless re-render).
+    expect(reopenRestoredLinks(next, rows)).toBe(next)
+    const empty = new Map()
+    expect(reopenRestoredLinks(empty, rows)).toBe(empty)
+  })
+
+  it('a 404 whose re-read failed says only that it could not be read', () => {
+    expect(linkUnreadWords('Modifiers')).toBe('«Modifiers» could not be read just now. Try again in a moment.')
   })
 
   it('the readable set changes when a link ends, goes, or loses its host — and not otherwise', () => {

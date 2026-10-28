@@ -455,6 +455,15 @@ export function viaLabel(row, rowsById) {
   return rowsById?.get(row.via_share_id)?.receiver_label ?? row.sharer_label ?? null
 }
 
+/** The person on a "Shared by you" line: the receiver, and, on a row someone
+ *  ELSE made for the owner's subject, "via" whoever passed it on (§5.3). A
+ *  middle person's own onward rows name no via: its parent is their own link,
+ *  and "Ben via <me>" would say nothing (B2 review round 1, finding 3). */
+export function sentPersonLine(row, rowsById) {
+  const via = row?.is_mine === true ? null : viaLabel(row, rowsById)
+  return `${row?.receiver_label ?? 'someone'}${via ? ` via ${via}` : ''}`
+}
+
 /** The live rows hanging DIRECTLY below a row (`mineOnly`: the ones I passed
  *  on). Everyone further down falls with them (§1.4); the sentence says so. */
 export function liveChildren(row, shares, { mineOnly = false } = {}) {
@@ -549,6 +558,26 @@ export function isClosedLink(row, closedIds) {
   return row?.state === 'gone' || !!closedIds?.has(row?.id)
 }
 
+/**
+ * The links a 404 closed (id → the state the re-read gave), less those the
+ * owner has since RESTORED: a row the index now gives as `accepted` that was
+ * not `accepted` when it closed (gone → accepted is a restore within the
+ * 30 days, and §1.1 says the link resumes with nothing to redo). A row that
+ * 404'd while the index said `accepted` stays closed: nothing has changed.
+ * Returns the same Map when nothing reopens (B2 review round 1, finding 2).
+ */
+export function reopenRestoredLinks(closed, rows) {
+  if (!closed?.size) return closed
+  let next = null
+  for (const r of rows ?? []) {
+    if (closed.has(r?.id) && r.state === 'accepted' && closed.get(r.id) !== 'accepted') {
+      next = next ?? new Map(closed)
+      next.delete(r.id)
+    }
+  }
+  return next ?? closed
+}
+
 /** "Linked from Audrey's Blender 5.0 · read only" — the row hint, and with
  *  `study` the study view's line (an onward link names who passed it on). */
 export function linkedFromLine(row, { study = false } = {}) {
@@ -567,6 +596,12 @@ export function linkClosedWords(row, title) {
   const t = quoted(row?.subject_title || title)
   if (row?.state === 'revoked') return `${t} is no longer shared with you.`
   return `${t} is no longer available: the owner removed it. It comes back if they restore it.`
+}
+
+/** A 404 whose re-read of the list FAILED has no state to choose words by:
+ *  say only that it could not be read (B2 review round 1, finding 7). */
+export function linkUnreadWords(title) {
+  return `${quoted(title)} could not be read just now. Try again in a moment.`
 }
 
 /** The links a receiver can read, as one comparable string. When it changes
