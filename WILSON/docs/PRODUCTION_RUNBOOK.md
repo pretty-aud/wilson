@@ -90,9 +90,9 @@ The link asks for production's database password; she types it. Proof: `supabase
 
 ## (b) The migrations, by file, in order
 
-**What production lacks** ([P] §1, [K]): every file from 0064 to the last merged. On 2026-10-28 that is the 33 files below,
-through **0101**; **0103** follows if M2 has merged (night 4), while P1 merged with none (`po-p1-2026-10-28.md` §2). Dev and staging are at 0101
-([P] night 3, 2026-10-28 05:05 UTC).
+**What production lacks** ([P] §1, [K]): every file from 0064 to the last merged. On 2026-10-28 that is the 34 files below: the
+33 through **0101**, and **0103**, which M2 merged (night 4; P1 merged with none, `po-p1-2026-10-28.md` §2). Dev and staging are at
+0101 ([P] night 3, 2026-10-28 05:05 UTC), and dev also holds 0103 (`po-m2-2026-10-28.md`, by query).
 
 **The house method, per file** ([B1] §4; [K]). For file `NNNN_name.sql`:
 
@@ -169,14 +169,14 @@ suite 106.
 | `0099_asset_level_links` | refuses without 0098 or 0084 | 102 | `3999b0c5a43a8d8e941ace2650bb181b` |
 | `0100_otter_subject_shares` | refuses unless the applying role has BYPASSRLS (a1) | 103 | `19491dd13c1a118dbc0627bc5e6a7146` |
 | `0101_versions_and_items_realtime` | needs 0096, 0072, 0037, 0016 and 0018. Probe ([K]): triggers `trg_budget_versions_realtime:O, trg_task_items_ws_realtime:O`, and `md5(replace(prosrc, chr(13), ''))` of `public.fn_realtime_broadcast()` still `e5abdcf2b8abce914416acb148144971` | 104 | `d87f3daed0de606a12f42970f89aedc0` |
-| `0103_project_status_desktop_values` (M2, if merged) | adds three `project_status` values with `ALTER TYPE … ADD VALUE`; read its header for how it is applied; its suite runs after it, never in its rehearsal. **An enum value cannot be removed** (h) | 106 | from the release commit |
+| `0103_project_status_desktop_values` (M2) | three `ALTER TYPE public.project_status ADD VALUE IF NOT EXISTS` and nothing else, since a value cannot be used in the transaction that adds it; applied as its header says, the statements in one call and the history row in a second; rehearse it alone (step 2), and run suite 106 only after it commits, never in one transaction with it. **An enum value cannot be removed** (h) | 106 | `1426f7c5501dd8000b25e903975d9cf7` (at `4953cf64`, as M2 recorded it) |
 
 **The numbers with no file, so nobody looks for them:** **0065** (the subject-shares draft of 2026-08-12, applied on no
 environment, removed by B1; 0100 replaced it); **0079** and **0080** (reserved on paper for bins and assemblies, retired by 0091:
 they would sort before files already applied everywhere, and edits superseded assemblies); **0087** (held for S3b, never used);
 **0094** (reserved, with suite 97, for aligning 0091's `unc_path` CHECK, BC3's deferral; `po-gw5-2026-10-12.md` leaves it to the
 controller); **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6). 0094 already sorts
-before files applied on dev and staging (0095 to 0101), and once 0103 is applied 0102 will too, the reason 0079 was retired:
+before files applied on dev and staging (0095 to 0101), and 0102 does on dev, where M2 applied 0103, the reason 0079 was retired:
 walkthrough 85, Q5.
 
 ---

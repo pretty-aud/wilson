@@ -21,7 +21,22 @@
 // company's storage drive, or none); a comment for `project_id` (42703); a
 // milestone for `name` (42703, the fixtures carry it); a shot list or an
 // edit that arrives archived (42501, 0084's guard); an edit before its parent
-// (23503); a level's folder while levels stay on this computer (23503).
+// (23503); a level's folder while levels stayed on this computer (23503).
+//
+// M2 (night 4) adds part 2's rows — a project's bid versions, budget lines,
+// actuals, expenses and rate overrides, its levels and experiences, the
+// links on its tasks — and the record of what each run carried (the second
+// run's). Measured on wilson-dev (2026-10-28, rolled back; the M2 hand-off
+// quotes every response): a version naming a shot list the cloud does not
+// hold (23503 budget_versions_shot_list_fk), with no name (23502) or a type
+// outside bid, actual, final (23514); a section header's null rate (23502)
+// and a cleared number, '' (22P02); an actual's source outside manual,
+// timecard, expense (23514: the fixtures' invoice and timesheet) and its line
+// not there (23503); an expense's '' purchase date (22007) and a null array
+// (23502); a rate override naming both a role and a person (23514); a level
+// with the older add's `files` key (42703) or a null status (23502); a link
+// on a task carrying `project_id` (42703); an asset naming a task template
+// the cloud does not hold (23503 assets_task_template_id_fkey).
 // =============================================================================
 
 import { COLUMN_ALLOWLIST } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
@@ -68,9 +83,10 @@ export function cloudDay(v) {
  *   - its active shot list: set through set_active_shot_list() once its lists
  *     are in (0084: the pointer's composite foreign key, and the guard that
  *     reserves it for that function);
- *   - its locked and open bid versions: budgets move in part 2 of the
- *     migration, which sets them again (measured: both foreign keys refuse an
- *     id the cloud does not hold, and with it the whole project);
+ *   - its locked and open bid versions: both foreign keys refuse an id the
+ *     cloud does not hold, and with it the whole project (measured), so the
+ *     runner sets them by UPDATE once this run has carried the versions
+ *     (M2), each only to a version of this project;
  *   - its folder on this computer: the cloud takes a project folder only from
  *     an admin or a manager, inside the company's storage drive (measured: no
  *     seat, or no drive, refuses the whole project) — and a path on one
@@ -92,12 +108,14 @@ export const PROJECT_LEFT_AT_HOME = Object.freeze([
 const PROJECT_ROW_COLUMNS = without(new Set([...COLUMN_ALLOWLIST.projects, 'folder_slug']), PROJECT_LEFT_AT_HOME)
 
 /**
- * The cloud's `project_status` values (0000's enum, read on wilson-dev). The
- * desktop also offers `draft` and `wrapped` (the project's settings) and
- * `inactive` (the Projects page), which the type refuses (22P02) — and with
- * them the whole project.
+ * The cloud's `project_status` values: 0000's five and, since 0103 (M2,
+ * Audrey's ruling of 2026-10-28), the desktop's `draft` and `wrapped` (the
+ * project's settings) and `inactive` (the Projects page), so a project keeps
+ * its own. A cloud without 0103 refuses those three (22P02, measured) — and
+ * with them the whole project; the runner then sends the row again without
+ * its status and says so (STATUS_NOT_IN_CLOUD).
  */
-export const CLOUD_PROJECT_STATUSES = Object.freeze(['active', 'on_hold', 'completed', 'archived', 'cancelled'])
+export const CLOUD_PROJECT_STATUSES = Object.freeze(['draft', 'active', 'on_hold', 'inactive', 'wrapped', 'completed', 'archived', 'cancelled'])
 // Columns that are NOT NULL with a default (read on wilson-dev): an explicit
 // null refuses the whole row (23502) — a cleared frame rate is stored null —
 // so it is left out and the default applies.
@@ -192,12 +210,11 @@ export function projectValuesLeftOut(project) {
   return out
 }
 
-/** What the project row leaves on this computer that the report names: its bid version pointers (part 2), its folder, a status the cloud does not have, the values it cannot hold, its deck attachments not yet moved. */
+/** What the project row leaves on this computer that the report names: its folder, a status the cloud does not have, the values it cannot hold, its deck attachments not yet moved. (Its bid version pointers are set after its versions, M2.) */
 export function projectLeftAtHome(project) {
   const p = isRow(project) ? project : {}
   const count = (k) => (Array.isArray(p[k]) ? p[k].length : 0)
   return {
-    bidVersions: named(p.budget_active_version_id) || named(p.open_budget_version_id),
     folder: named(p.folder_root),
     status: named(p.status) && !CLOUD_PROJECT_STATUSES.includes(p.status) ? String(p.status) : null,
     values: projectValuesLeftOut(p),
@@ -210,7 +227,8 @@ export function projectLeftAtHome(project) {
 // The editor's columns and the spine; not workspace_id (stamped from the
 // project), not who made it, not deleted_at (a trashed row is not carried:
 // the cloud's trash is its own) nor set_aside_at (a set-aside row arrives
-// live, as phases and tasks do: bid versions are part 2's). Not `name`, which
+// live, as phases and tasks do; M2 sets it aside again once its open bid
+// version is in, through 0090's set_aside_schedule_rows()). Not `name`, which
 // the fixtures carry beside `title` (42703, measured).
 const MILESTONE_ROW_COLUMNS = without(COLUMN_ALLOWLIST.milestones, ['workspace_id', 'created_by', 'updated_by'])
 
@@ -340,9 +358,6 @@ export function folderRowForCloud(folder, projectId, parentCloudId) {
  *            folder of the same kind at its path (one path per project) —
  *            and its children and files use the cloud's id;
  *   insert   it goes up with its id, under its parent's id in the cloud;
- *   left     a level's or an experience's (part 2 carries levels and
- *            experiences; the cloud refuses a folder of a row it does not
- *            hold, 23503 — measured), and anything inside one;
  *   orphan   the row it is the folder of, or its parent folder, was removed
  *            on this computer (the desktop keeps a removed row's folder; the
  *            cloud's foreign keys would have taken it): not carried, and not
@@ -355,19 +370,20 @@ export function folderRowForCloud(folder, projectId, parentCloudId) {
  *   parent   the decision for its parent folder (absent: none on this
  *            computer; ignored for the root)
  *   cloud    { byId, byPath, byEntity } — this project's folders in the cloud
- *   state    (fk, id) → 'landed' | 'failed' | 'gone' | 'left' — the row a
- *            folder is about, as this run left it
+ *   state    (fk, id) → 'landed' | 'failed' | 'unread' | 'gone' — the row a
+ *            folder is about, as this run left it (since M2 a level's and an
+ *            experience's as well: the levels land before the folders)
  */
 export function folderDecision(folder, { parent, cloud, state }) {
   if (folder.kind !== 'root') {
     if (!parent) return { action: 'orphan' }
-    if (['left', 'orphan', 'taken'].includes(parent.action)) return { action: parent.action }
+    if (['orphan', 'taken', 'removed'].includes(parent.action)) return { action: parent.action === 'removed' ? 'orphan' : parent.action }
     if (parent.action === 'failed') return { action: 'failed', why: 'its parent folder is not in the cloud' }
   }
   const ent = entityOf(folder)
   if (ent) {
     const s = state(ent.fk, ent.id)
-    if (s === 'left' || s === 'gone') return { action: s === 'left' ? 'left' : 'orphan' }
+    if (s === 'gone') return { action: 'orphan' }
     if (s === 'unread') return { action: 'failed', why: `whether its ${ent.fk.replace(/_id$/, '')} is in the cloud could not be checked (the read failed)` }
     if (s !== 'landed') return { action: 'failed', why: `its ${ent.fk.replace(/_id$/, '')} is not in the cloud` }
   }
@@ -422,4 +438,224 @@ export function desktopFolderOfFile(file, folders) {
     if (hit) return hit
   }
   return null
+}
+
+// ── Part 2 (M2, night 4): budgets, levels and experiences, links on tasks ──
+//
+// Each row through its table's columns (the cloud adapter's allowlist, less
+// what the cloud stamps: the workspace, from the project, 0004; who made or
+// changed it) and each value as its column takes it. Measured on wilson-dev:
+// a NOT NULL column with a default refuses an explicit null (23502) and a
+// number column a cleared field, '' (22P02) — the default applies when the
+// key is left out.
+
+const STAMPED = ['workspace_id', 'created_by', 'updated_by']
+// The days a row was made and changed go up as this computer kept them (the
+// cloud's columns take them; the adapter's lists leave them to its defaults).
+const DAYS = ['created_at', 'updated_at']
+const withDays = (set) => new Set([...set, ...DAYS])
+
+/** Leave out each key whose value is null or '' (a NOT NULL column with a default). */
+function dropBlank(row, keys) {
+  for (const k of keys) if (k in row && (row[k] == null || row[k] === '')) delete row[k]
+  return row
+}
+/** A nullable number or reference cleared to '' is none (22P02 in a number, a uuid or a timestamp). */
+function blankToNull(row, keys) {
+  for (const k of keys) if (row[k] === '') row[k] = null
+  return row
+}
+
+/** The kinds 0037's CHECK takes (budget_versions_type_check). */
+export const VERSION_TYPES = Object.freeze(['bid', 'actual', 'final'])
+// Not locked_by: who locked it is a person on this computer, and the cloud
+// knows people by their accounts (a claim the file cannot prove — the rule
+// for every maker column here); the lock's day goes up.
+const VERSION_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.budget_versions), [...STAMPED, 'locked_by'])
+
+/**
+ * A desktop bid version as the cloud's `budget_versions` takes it. Its shot
+ * list is the runner's to keep or let go (0084's composite key refuses a
+ * list the cloud does not hold for this project, 23503 — measured); a version
+ * with no name gets one in the app's words for a nameless row ("Untitled
+ * scene", "Untitled shot"): `name` is NOT NULL with no default (23502), and
+ * the desktop's own add refuses an empty one.
+ */
+export function budgetVersionRowForCloud(v, projectId) {
+  const row = onlyColumns(v, VERSION_ROW_COLUMNS)
+  row.project_id = projectId
+  if (!named(String(row.name ?? '').trim())) row.name = 'Untitled version'
+  if ('type' in row && !VERSION_TYPES.includes(row.type)) delete row.type
+  blankToNull(row, ['shot_list_id', 'summary', 'locked_at'])
+  return dropBlank(row, ['type', 'is_active', 'snapshot', 'created_at', 'updated_at'])
+}
+
+/** The sheets 0037's CHECK takes (budget_lines_sheet_check). */
+export const LINE_SHEETS = Object.freeze(['crew', 'talent', 'expenses_travel'])
+const LINE_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.budget_lines), STAMPED)
+const LINE_DEFAULTED = ['sheet', 'sort_order', 'is_section_header', 'rate', 'days', 'qty', 'cost', 'is_na_days', 'is_na_qty', 'agency_opt_out', 'created_at', 'updated_at']
+/** A line's own percentages (null: the project's applies). NUMERIC(7,3), none below zero (budget_lines_pct_nonneg) — measured. */
+export const LINE_PCTS = Object.freeze(['margin_pct', 'contingency_pct', 'talent_agency_fee_pct'])
+// NUMERIC(7,3)'s room: a value that rounds to 10,000 overflows (22003).
+const PCT_ROOM = 9999.9995
+const pctHeld = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n < PCT_ROOM }
+
+/**
+ * A desktop budget line as the cloud's `budget_lines` takes it. A section
+ * header's numbers are null in the fixtures (23502 on rate — measured); the
+ * desktop's own add writes 0. Its `team_member_id` names one of the desktop's
+ * team members, never a cloud person (0037's comment: on the cloud it is a
+ * workspace member's user id), so it goes up empty — team members move with
+ * a later run (night 5) — and the runner counts it. A percentage of its own
+ * the column cannot hold — below zero (the desktop's inputs do not stop one),
+ * past NUMERIC(7,3)'s room, or no number — refused the whole line, and every
+ * actual on it, on every run (23514, 22003, 22P02 — measured; review round
+ * 1): it goes up empty, so the line takes the project's, and the runner says
+ * so.
+ */
+export function budgetLineRowForCloud(line, projectId) {
+  const row = onlyColumns(line, LINE_ROW_COLUMNS)
+  row.project_id = projectId
+  if ('team_member_id' in row) row.team_member_id = null
+  if ('sheet' in row && !LINE_SHEETS.includes(row.sheet)) delete row.sheet
+  blankToNull(row, LINE_PCTS)
+  for (const k of LINE_PCTS) if (row[k] != null && !pctHeld(row[k])) row[k] = null
+  return dropBlank(row, LINE_DEFAULTED)
+}
+
+/** The sources 0037's CHECK takes (budget_actuals_source_check). */
+export const ACTUAL_SOURCES = Object.freeze(['manual', 'timecard', 'expense'])
+/** An attachment that is a files row of this project: `file:<uuid>` (InvoiceAttachment.jsx). */
+export const FILE_REF = 'file:'
+/** An actual's attachment that is a path on one computer (the desktop-only builds before InvoiceAttachment): no address in the cloud. */
+export const isLegacyAttachment = (path) => named(path) && !String(path).startsWith(FILE_REF)
+const ACTUAL_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.budget_actuals), STAMPED)
+
+/**
+ * A desktop actual as the cloud's `budget_actuals` takes it: a source the
+ * CHECK lacks is left out (manual applies; the desktop's own writes are
+ * manual); an attachment that is a path on this computer is left out with
+ * its name (the runner counts it); its line is the runner's to check.
+ */
+export function budgetActualRowForCloud(a, projectId) {
+  const row = onlyColumns(a, ACTUAL_ROW_COLUMNS)
+  row.project_id = projectId
+  if ('source' in row && !ACTUAL_SOURCES.includes(row.source)) delete row.source
+  if (isLegacyAttachment(row.attachment_path)) { row.attachment_path = null; row.attachment_name = null }
+  blankToNull(row, ['attachment_path', 'invoice_number', 'notes'])
+  if (row.expense_id != null && !UUID.test(String(row.expense_id))) row.expense_id = null
+  return dropBlank(row, ['value', 'source', 'created_at', 'updated_at'])
+}
+
+const EXPENSE_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.expenses), STAMPED)
+const EXPENSE_ARRAYS = ['asset_ids', 'phase_ids', 'task_ids', 'file_ids']
+
+/**
+ * A desktop expense as the cloud's `expenses` takes it: its purchase day as a
+ * DATE stores one (the desktop's add writes '', 22007 — measured), each of
+ * its four lists an array of ids (NOT NULL, 23502; an entry that is no id
+ * would refuse the row, 22P02).
+ */
+export function expenseRowForCloud(e, projectId) {
+  const row = onlyColumns(e, EXPENSE_ROW_COLUMNS)
+  row.project_id = projectId
+  if ('purchase_date' in row) row.purchase_date = cloudDay(row.purchase_date)
+  for (const k of EXPENSE_ARRAYS) {
+    if (!(k in row)) continue
+    if (Array.isArray(row[k])) row[k] = row[k].filter(id => UUID.test(String(id)))
+    else delete row[k]
+  }
+  return dropBlank(row, ['title', 'estimated_cost', 'actual_cost', 'created_at', 'updated_at'])
+}
+
+/** A rate set for one of the desktop's team members (its member_id), which a later run carries with the team (night 5). The desktop writes a role's or a person's, never both (0037's CHECK). */
+export const isMemberRate = (o) => named(o?.member_id)
+const OVERRIDE_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.project_rate_overrides), STAMPED)
+
+/** A desktop role rate as the cloud's `project_rate_overrides` takes it. */
+export function rateOverrideRowForCloud(o, projectId) {
+  const row = onlyColumns(o, OVERRIDE_ROW_COLUMNS)
+  row.project_id = projectId
+  row.member_id = null
+  blankToNull(row, ['day_rate', 'week_rate', 'month_rate', 'wage', 'notes'])
+  return dropBlank(row, ['currency', 'created_at', 'updated_at'])
+}
+
+/** The statuses 0040's CHECK takes (levels_status_chk, experiences_status_chk): EntityListView's nine. */
+export const ENTITY_STATUSES = Object.freeze(['not_started', 'in_progress', 'pending_review', 'needs_revisions', 'approved', 'final', 'blocked', 'on_hold', 'omitted'])
+// Not thumbnail_image: a path to a picture on this computer's disk (counted
+// with the scenes' and shots' pictures, NOT_CARRIED's `thumbnails`).
+const LEVEL_ROW_COLUMNS = without(COLUMN_ALLOWLIST.levels, [...STAMPED, 'thumbnail_image'])
+
+/**
+ * A desktop level or experience (0040 gives both the same columns) as the
+ * cloud's table takes it: not the older add's `files` key (42703 — measured;
+ * since S4c the picked files are uploaded instead), a status the CHECK takes
+ * or the default (a null status refuses the row, 23502 — measured), its days
+ * as a DATE stores them.
+ */
+export function levelRowForCloud(row0, projectId) {
+  const row = onlyColumns(row0, LEVEL_ROW_COLUMNS)
+  row.project_id = projectId
+  if ('status' in row && !ENTITY_STATUSES.includes(row.status)) delete row.status
+  for (const k of ['start_date', 'end_date']) if (k in row) row[k] = cloudDay(row[k])
+  return dropBlank(row, ['status', 'sort_order', 'created_at', 'updated_at'])
+}
+
+// 0000's columns less what the cloud stamps (fn_audit_touch: who made it,
+// measured; the edit columns). NOT project_id: the desktop stamps one and
+// the cloud has no such column (42703 — measured).
+const TASK_LINK_ROW_COLUMNS = new Set(['id', 'task_id', 'label', 'url', 'created_at'])
+
+/** A desktop link on a task as the cloud's `task_links` takes it. */
+export function taskLinkRowForCloud(link) {
+  return dropBlank(onlyColumns(link, TASK_LINK_ROW_COLUMNS), ['created_at'])
+}
+
+/**
+ * The files a bundle names as receipts — an expense's `file_ids`, an
+ * actual's `file:<id>` attachment — which go up behind the money gate
+ * whatever their own flag: a receipt uploaded before C4 went in as an
+ * ordinary file (`{ type: 'expense' }`, read by nothing), is_financial false,
+ * and would have landed where every project member reads it (the handbook's
+ * §12.9, residual 3).
+ */
+export function receiptFileIds(bundle) {
+  const ids = new Set()
+  for (const e of Array.isArray(bundle?.expenses) ? bundle.expenses : []) {
+    for (const id of Array.isArray(e?.file_ids) ? e.file_ids : []) if (named(id)) ids.add(String(id))
+  }
+  for (const a of Array.isArray(bundle?.budgetActuals) ? bundle.budgetActuals : []) {
+    const p = a?.attachment_path
+    if (typeof p === 'string' && p.startsWith(FILE_REF) && p.length > FILE_REF.length) ids.add(p.slice(FILE_REF.length))
+  }
+  return ids
+}
+
+/** Phases, each after the phase it sits in (phases_parent_phase_id_fkey is a plain, immediate key). */
+export const phasesParentsFirst = (phases) => parentsFirst(phases, 'parent_phase_id')
+
+// ── The second run's record (M2) ────────────────────────────────────────────
+//
+// Every table the runner carries is hard delete, or soft delete with a purge
+// (0014): a row a teammate removed in the cloud would come back on the next
+// run, which skipped by key only. The record is the ids each run carried,
+// per workspace, kept in the desktop's bundle beside the rows it is about —
+// read with the bundle the runner already fetches (the dry run reads the same
+// one), written through the desktop's own route as rows land, archived with
+// the bundle by "Archive and clear local", and copied with the project's
+// folder to another computer. An id in it is never inserted again.
+
+/** The key of the record in a desktop bundle (electron/main.cjs's route writes it). */
+export const RECORD_KEY = 'cloudMigration'
+
+/** What earlier runs carried into `workspaceId` from this bundle: `Map<table, Set<id>>`. */
+export function carriedRecordOf(bundle, workspaceId) {
+  const carried = bundle?.[RECORD_KEY]?.[workspaceId]?.carried
+  const out = new Map()
+  if (!carried || typeof carried !== 'object' || Array.isArray(carried)) return out
+  for (const [table, ids] of Object.entries(carried)) {
+    if (Array.isArray(ids)) out.set(table, new Set(ids.filter(named).map(String)))
+  }
+  return out
 }

@@ -2308,6 +2308,48 @@ function startLocalServer(distPath) {
       res.json(bundle);
     });
 
+    // M2 (night 4 of docs/sessions/PLAN_TO_1_0.md): the desktop → cloud
+    // migration's record of what each run carried, per workspace — the ids,
+    // by cloud table — kept in the bundle beside the rows it is about
+    // (`cloudMigration`, src/cloud/migrate/migrationRows.js's RECORD_KEY). The
+    // runner reads it with the bundle (the GET above) and never inserts an id
+    // it holds again, so a row a teammate removed in the cloud stays removed.
+    // Append-only: the body's ids join the record, nothing leaves it; a body
+    // that names no workspace, or no ids by table, changes nothing (null).
+    // Lifted by brace matching into runMigrationBins.test.js, so it stays a
+    // plain function with no helper of this file.
+    function mergeCloudMigrationRecord(bundle, body) {
+      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+      const ws = body && typeof body.workspace_id === 'string' ? body.workspace_id : '';
+      const carried = body ? body.carried : null;
+      if (!ws || ws.length > 64 || !isObj(carried)) return null;
+      const record = isObj(bundle.cloudMigration) ? bundle.cloudMigration : {};
+      const mine = isObj(record[ws]) ? record[ws] : {};
+      const had = isObj(mine.carried) ? mine.carried : {};
+      let added = 0;
+      for (const [table, ids] of Object.entries(carried)) {
+        if (!/^[a-z_]{1,64}$/.test(table) || !Array.isArray(ids)) continue;
+        const set = new Set(Array.isArray(had[table]) ? had[table].filter(x => typeof x === 'string') : []);
+        for (const id of ids) {
+          if (typeof id === 'string' && id && id.length <= 64 && !set.has(id)) { set.add(id); added++; }
+        }
+        had[table] = [...set];
+      }
+      record[ws] = { ...mine, carried: had, updated_at: new Date().toISOString() };
+      bundle.cloudMigration = record;
+      return added;
+    }
+    // touch:false — a record is not an edit of the project: its updated_at
+    // (the list's order) and the ${slug}_DATABASES mirrors stay as they were.
+    expressApp.post('/api/rabbit/projects/:projectId/cloud-migration-record', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const added = mergeCloudMigrationRecord(bundle, req.body);
+      if (added === null) return res.status(400).json({ error: 'a record names a workspace and the ids carried, by table', code: 'bad_record' });
+      writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+      res.json({ ok: true, added });
+    });
+
     expressApp.post('/api/rabbit/projects', (req, res) => {
       const now = new Date().toISOString();
       // Session 35 (TPN-NET-015): a body-supplied folder_root is validated
