@@ -19,8 +19,8 @@
 //   1. requireActiveMember (the guard) — a live membership, not just a JWT.
 //   2. The rate limit — its own bucket, so thumbnails and uploads never spend
 //      each other's budget.
-//   3. The body: bounded by its length BEFORE it is parsed; 1..100 keys;
-//      `stream` only for one key.
+//   3. The body: bounded AS IT IS READ (readJsonLimited, the house reader);
+//      1..100 keys; `stream` only for one key.
 //   4. Per key, checkRowShapedPath: row-shaped and canonical, and a money
 //      segment (INVOICES, FINANCE, LEGAL, any case) refused before any
 //      project or row is asked. Money never leaves Supabase.
@@ -50,6 +50,7 @@
 // =============================================================================
 
 import { checkRowShapedPath } from './presignPath.ts'
+import { readJsonLimited } from './gatewayWire.ts'
 
 /** The bound on one call; the client splits a longer list. */
 export const READ_URLS_MAX_KEYS = 100
@@ -94,11 +95,44 @@ const THUMB_SUFFIX = '.jpg'
 
 export type Refusal = 'shape' | 'money' | 'project' | 'row'
 
-export type OwnedRow = { project_id?: string | null; storage_path: string | null; thumbnail_url: string | null }
+export type OwnedRow = { id?: string; project_id?: string | null; storage_path: string | null; thumbnail_url: string | null }
 
 /** Every segment but the last: what the row read is scoped by. */
 export function folderOf(key: string): string {
   return key.slice(0, key.lastIndexOf('/'))
+}
+
+// The row read's page, and the most rows one folder may hold before the call
+// fails closed (review round 2, finding 1). Five thousand files directly in
+// one entity's folder — not under its shots: the read excludes deeper paths.
+export const READ_URLS_ROW_PAGE = 1000
+export const READ_URLS_MAX_FOLDER_ROWS = 5000
+
+type RowPage = (afterId: string | null, limit: number) => Promise<OwnedRow[]>
+
+/**
+ * One folder's rows, page by page on the row id, to the FIRST EMPTY PAGE —
+ * not to the first short one, because a hosted PostgREST may cap a page below
+ * what was asked (its max-rows), and a short page is then not the end (round 2,
+ * finding 1). A folder of exactly READ_URLS_MAX_FOLDER_ROWS is read whole; one
+ * more row and it throws, which fails the call closed.
+ */
+export async function readFolderRows(page: RowPage): Promise<OwnedRow[]> {
+  const rows: OwnedRow[] = []
+  let after: string | null = null
+  for (;;) {
+    const got = await page(after, READ_URLS_ROW_PAGE)
+    if (!got || got.length === 0) return rows
+    rows.push(...got)
+    if (rows.length > READ_URLS_MAX_FOLDER_ROWS) {
+      throw new Error('one folder holds more files than a preview read takes')
+    }
+    const last = got[got.length - 1]?.id
+    if (typeof last !== 'string' || last === '' || last === after) {
+      throw new Error('the row read did not move forward')
+    }
+    after = last
+  }
 }
 
 type Signer = (key: string, expiresSeconds: number) => Promise<string>
@@ -108,10 +142,11 @@ export type ReadUrlsDeps<Ctx> = {
   rateLimited: (ctx: Ctx) => Promise<boolean>
   /** can_presign_project_read as the caller; anything but true refuses. */
   canReadProject: (ctx: Ctx, projectId: string) => Promise<unknown>
-  /** Live s3 files rows the CALLER can select in `projectId` whose
-   *  storage_path lies under `folder` (`LIKE '<folder>/%'`), with their
-   *  project_id. Throws when the read fails. */
-  ownedRows: (ctx: Ctx, projectId: string, folder: string) => Promise<OwnedRow[]>
+  /** ONE PAGE of the live s3 files rows the CALLER can select in `projectId`
+   *  whose storage_path lies DIRECTLY in `folder` (`LIKE '<folder>/%'` and
+   *  NOT `LIKE '<folder>/%/%'`), ordered by id, after `afterId`, at most
+   *  `limit`, with id and project_id. Throws when the read fails. */
+  rowPage: (ctx: Ctx, projectId: string, folder: string, afterId: string | null, limit: number) => Promise<OwnedRow[]>
   /** The workspace's bucket, or the answer that says why there is none. */
   loadSigner: (ctx: Ctx) => Promise<
     | { ok: true; sign: Signer }
@@ -123,12 +158,6 @@ export type ReadUrlsOutcome =
   | { preflight: true }
   | { res: unknown }
   | { status: number; body: Record<string, unknown> }
-
-type RequestLike = {
-  method: string
-  headers: { get(name: string): string | null }
-  json(): Promise<unknown>
-}
 
 const refuse = (status: number, error: string, detail?: string): ReadUrlsOutcome =>
   ({ status, body: detail ? { error, detail } : { error } })
@@ -180,7 +209,7 @@ export function classifyOwned(keys: string[], rows: OwnedRow[]): Map<string, 'bo
   return out
 }
 
-export async function handleReadUrls<Ctx>(req: RequestLike, deps: ReadUrlsDeps<Ctx>): Promise<ReadUrlsOutcome> {
+export async function handleReadUrls<Ctx>(req: Request, deps: ReadUrlsDeps<Ctx>): Promise<ReadUrlsOutcome> {
   if (req.method === 'OPTIONS') return { preflight: true }
   if (req.method !== 'POST') return refuse(405, 'method_not_allowed')
 
@@ -192,19 +221,15 @@ export async function handleReadUrls<Ctx>(req: RequestLike, deps: ReadUrlsDeps<C
     return refuse(429, 'rate_limited', 'too many preview requests — wait a minute and retry')
   }
 
-  // Bounded BEFORE it is parsed: a body is read whole by req.json().
-  const declared = req.headers.get('content-length')
-  const length = declared === null || declared.trim() === '' ? NaN : Number(declared)
-  if (!Number.isFinite(length)) return refuse(411, 'length_required', 'the request must say its length')
-  if (length > READ_URLS_MAX_BODY_BYTES) return refuse(413, 'too_large', 'the request is too large')
-
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return refuse(400, 'bad_request', 'the request body is not JSON')
-  }
-  const parsed = parseReadRequest(body)
+  // Bounded AS IT IS READ, by the house reader the gateway's functions use
+  // (review round 2, finding 3): a declared length over the cap is refused
+  // unread, and a body without one is streamed and cut at the cap — never
+  // read whole first, and never refused merely for not declaring a length
+  // (a relay may re-frame it).
+  const read = await readJsonLimited(req, READ_URLS_MAX_BODY_BYTES)
+  if (read === null) return refuse(400, 'bad_request', 'the request body is not JSON')
+  if (read.length > READ_URLS_MAX_BODY_BYTES) return refuse(413, 'too_large', 'the request is too large')
+  const parsed = parseReadRequest(read.value)
   if (!parsed.ok) return refuse(400, 'bad_request', parsed.detail)
   const { keys, stream } = parsed
 
@@ -255,7 +280,8 @@ export async function handleReadUrls<Ctx>(req: RequestLike, deps: ReadUrlsDeps<C
   for (const [folder, inFolder] of byFolder) {
     let rows: OwnedRow[]
     try {
-      rows = await deps.ownedRows(ctx, projectOf.get(inFolder[0])!, folder)
+      const projectId = projectOf.get(inFolder[0])!
+      rows = await readFolderRows((afterId, limit) => deps.rowPage(ctx, projectId, folder, afterId, limit))
     } catch {
       return refuse(500, 'row_read_failed', 'the files could not be checked just now — try again')
     }

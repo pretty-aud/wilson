@@ -2034,8 +2034,9 @@ caller-scoped reads, the config and the signer):
    URLs is at most 12,000 a minute, each for a file row the person can already
    read (step 8). A budget, not a containment guarantee, as the limiter's own
    header says.
-4. The body: at most **128 KB** by its `content-length`, before it is parsed
-   (413 beyond; 411 without one); JSON with `keys` an array of 1 to **100**
+4. The body: at most **128 KB**, streamed under that cap by the house reader
+   (`readJsonLimited`; 413 beyond; a declared length is not required: 9.8);
+   JSON with `keys` an array of 1 to **100**
    strings (the bound on one call; 400 beyond, and the client splits);
    `stream: true` only with exactly one key. Duplicates are signed once.
 5. **Per key:** `checkRowShapedPath`, which now names its refusal: a key
@@ -2044,7 +2045,9 @@ caller-scoped reads, the config and the signer):
    LEGAL, any case) is `money`**, before any project or row is asked. Money
    never leaves Supabase, so a money-shaped key is hostile or a bug and is
    never signed. (`storage-presign` ignores the new field; its behaviour and
-   its deployed copy are unchanged.)
+   its deployed copy are unchanged.) A key shallower than an entity's folder
+   (`projects/<pid>/<entity>/<id>/<leaf>`, five segments, what `uploadFile`
+   always writes) is `shape` too: it would scope the row read to a project.
 6. **At most 2 distinct projects** among the surviving keys (400 beyond): the
    bound on the predicate calls one request can cause. The client sends one
    project's keys per call.
@@ -2055,9 +2058,12 @@ caller-scoped reads, the config and the signer):
    only if a live `s3` `files` row the caller can SELECT owns it: its
    `storage_path` is the key (a **body**), or its `storage_path` plus `.jpg`
    is the key AND its `thumbnail_url` is the key (a **thumbnail**:
-   `thumbnailKeyFor`'s one rule). One PostgREST select per 20 keys
-   (`storage_provider = 's3'`, `deleted_at IS NULL`, `project_id` in the
-   call's projects, `storage_path` in the keys and the keys less `.jpg`), under
+   `thumbnailKeyFor`'s one rule). The rows are read ONE FOLDER AT A TIME
+   (at most ten folders a call): `storage_provider = 's3'`, `deleted_at IS
+   NULL`, `project_id` the key's, `storage_path LIKE '<folder>/%'` and NOT
+   `LIKE '<folder>/%/%'` (the folder's own files, not its shots'), by cursor
+   on the row id to the first empty page, at most 5,000 rows (9.7, 9.8) —
+   only ids travel; the keys are matched in the function. Under
    the caller's JWT, so `files_select` (0092: live row, the caller's
    workspace, a visible project, the money and Legal arms) is **evaluated, not
    copied** (the S33 rule). Anything else is refused `row`. Against a
@@ -2389,3 +2395,31 @@ fixed (they broke this design's own claims), two Low ones fixed, two recorded:
 7. *A failed renewal keeps a URL past its life* (Low) → recorded (OSP-09): a
    tile that loads it fails once and shows the icon until the next ask.
 8. *Stale comments still said getUrl was optional* (Low) → rewritten.
+
+### 9.8 Build review round 2 (on Fable)
+
+Round 2 attacked round 1's corrections. Six findings, two Medium and four Low,
+none High; the two Medium ones, one Low and a docs gap are fixed, two Low are
+recorded:
+
+1. *A scene's folder read took in every nested shot's files; the 5,000-row
+   bound was reachable, off by one, and its loop untested* (Medium) → the read
+   takes only the files DIRECTLY in the folder (`NOT LIKE '<folder>/%/%'`),
+   pages by cursor on the row id, and ends at the first EMPTY page (a hosted
+   project's max-rows may cap a page below the ask); the loop lives in the
+   pure module (`readFolderRows`) and is tested: exactly 5,000 rows read
+   whole, one more refused, a capped page not taken for the end.
+2. *A storage-choice read answered after a sign-out refilled the cache with
+   the last identity's row* (Medium) — and `uploadFile` routes the next body
+   by that row → `workspaceStorage.js` now has a generation: the clear bumps
+   it, a read that began before it neither fills the slot nor answers a
+   caller who asked after it (that caller asks again).
+3. *The 411 was the repo's first hard requirement on a declared length,
+   unproven behind the platform's edge* (Low) → the body is read by the house
+   reader, `readJsonLimited`, streamed under the cap; no length is required.
+   OSP-08 closes with it.
+4. *A clip the client plays by MIME alone streams for 300 s* (Low) →
+   recorded (OSP-10).
+5. *§9.2 still described the read round 1 replaced* (Low) → rewritten.
+6. *The dev fixtures pass the cloud-backend gate and try a real storage read*
+   (Low, harmless: it fails and the ordinary words stay) → recorded (OSP-11).

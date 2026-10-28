@@ -26,10 +26,6 @@ import { decryptStorageSecret, storageSecretCryptoConfigured } from '../_shared/
 import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
 import { handleReadUrls } from '../_shared/readUrls.ts'
 
-// The row read's page, and how many pages one folder may take (5,000 rows).
-const ROW_PAGE = 1000
-const ROW_PAGES = 5
-
 type S3Config = {
   endpoint?: string
   region: string
@@ -64,28 +60,25 @@ Deno.serve(async (req: Request) => {
       return error ? false : data
     },
 
-    // BY FOLDER, never by key (review round 1, finding 4): the pattern holds
+    // BY FOLDER, never by key (review round 1, finding 4): the patterns hold
     // only the key's folder — ids and an entity word — so no filename travels
-    // in the query string or lands in an API log. The keys are matched in
-    // readUrls.ts. Paged, and bounded: a folder past ROW_PAGES pages fails
-    // the call closed rather than reading without end.
-    ownedRows: async (_ctx, projectId, folder) => {
-      const rows: { project_id: string | null; storage_path: string | null; thumbnail_url: string | null }[] = []
-      for (let page = 0; page < ROW_PAGES; page++) {
-        const { data, error } = await asCaller()
-          .from('files')
-          .select('project_id, storage_path, thumbnail_url')
-          .eq('project_id', projectId)
-          .eq('storage_provider', 's3')
-          .is('deleted_at', null)
-          .like('storage_path', `${folder}/%`)
-          .order('id')
-          .range(page * ROW_PAGE, page * ROW_PAGE + ROW_PAGE - 1)
-        if (error) throw new Error(error.message)
-        rows.push(...((data ?? []) as typeof rows))
-        if (!data || data.length < ROW_PAGE) return rows
-      }
-      throw new Error('one folder holds more files than a preview read takes')
+    // in the query string or lands in an API log. DIRECTLY in the folder (a
+    // scene's folder does not pull in its shots' files: review round 2,
+    // finding 1). One page after `afterId`; readUrls.ts walks the pages to
+    // the first empty one and matches the keys.
+    rowPage: async (_ctx, projectId, folder, afterId, limit) => {
+      let q = asCaller()
+        .from('files')
+        .select('id, project_id, storage_path, thumbnail_url')
+        .eq('project_id', projectId)
+        .eq('storage_provider', 's3')
+        .is('deleted_at', null)
+        .like('storage_path', `${folder}/%`)
+        .not('storage_path', 'like', `${folder}/%/%`)
+      if (afterId) q = q.gt('id', afterId)
+      const { data, error } = await q.order('id').limit(limit)
+      if (error) throw new Error(error.message)
+      return (data ?? []) as { id: string; project_id: string | null; storage_path: string | null; thumbnail_url: string | null }[]
     },
 
     // The workspace's choice. ctx.workspaceId is the guard's verified claim,

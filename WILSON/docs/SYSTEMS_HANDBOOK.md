@@ -2458,8 +2458,8 @@ backfill, no egress. The design is `NETWORK_STORAGE_DESIGN.md` §9.
 
 **`storage-read-urls`**, a function of its own (not an op on
 `storage-presign`, whose bound is one key and whose budget is sized in
-uploads): **GET only**, up to **100 keys** and **2 projects** a call, a body of
-at most 128 KB read by its length first, `STORAGE_READ_URLS_RPM` (default
+uploads): **GET only**, up to **100 keys**, **2 projects** and **10 folders** a
+call, a body streamed under a 128 KB cap, `STORAGE_READ_URLS_RPM` (default
 **120 calls a minute per person**, its own limiter bucket). Per key, the path
 gate (row-shaped; **INVOICES, FINANCE and LEGAL refused** before anything is
 asked); per project, `can_presign_project_read` **once**, as the caller; and
@@ -2470,8 +2470,9 @@ its `storage_path` + `.jpg` with its `thumbnail_url` saying so (a thumbnail;
 So `files_select` is evaluated, not copied: against a reader, a trashed file,
 a purged row or an object WILSON never wrote is not signed (a WRITER of the
 project can make a row vouch for a key under it — the reach `storage-presign`
-gives them; OUTSTANDING OSP-07). The rows are read one folder at a time, so no
-filename travels to the database or its logs. Then the workspace on `s3` with a
+gives them; OUTSTANDING OSP-07). The rows are read one folder at a time (its
+own files, not its shots', by cursor, at most 5,000), so no filename travels
+to the database or its logs. Then the workspace on `s3` with a
 config and a usable secret, the prefix applied server-side. The answer:
 `{ urls, expires, refused }`, keyed by the input in its order; a refusal is a
 code (`shape`, `money`, `project`, `row`), never a sentence carrying a name.

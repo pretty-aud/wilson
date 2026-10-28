@@ -3092,7 +3092,10 @@ outside its scope, or built to a limit, and did not fix. The design is
   that `storage_path` sits under `projects/<project_id>/`, and a trigger that
   refuses a change of it outside the re-filing. Owner: the next migration
   session.
-- **OSP-08 · `storage-read-urls` bounds its body by the declared length.**
+- ~~**OSP-08 · `storage-read-urls` bounds its body by the declared length.**~~
+  **CLOSED by build review round 2 (2026-10-28):** the body is read by
+  `readJsonLimited`, streamed under the 128 KB cap; no declared length is
+  required. The entry as it stood:
   It refuses a body without a `content-length` (411) or over 128 KB (413)
   before reading it; HTTP/1.1 framing makes the declared length binding, but
   the house readers (`gatewayWire.ts` `readJsonLimited`, `aiFileStore.ts`
@@ -3105,3 +3108,16 @@ outside its scope, or built to a limit, and did not fix. The design is
   minutes, or the tab's return); a key the signer has since refused keeps its
   last URL until it expires (round 1, finding 7). Fix shape: `getUrls`
   returns each URL's end and the merge drops the dead. Owner: none.
+- **OSP-10 · A clip the preview plays by its MIME type alone streams for
+  five minutes.** `previewKindFor` picks the player on `video/` or `audio/`,
+  while `storage-read-urls` gives the streaming hour only to the extensions
+  it knows (`STREAMABLE_EXTENSIONS`, the client's own lists), so an s3
+  `.ogv`, `.3gp`, `.aif` or `.wma` gets 300 s, stalls, re-mints once
+  (OSP-03) and stalls again (build review round 2, finding 4). Fix shape: the
+  s3 arm decides the stage by extension, or the lists grow. Owner: none.
+- **OSP-11 · The dev fixtures pass the server-media read's cloud gate.**
+  The fixtures adapter reports `adapterMode` 'supabase', so FileManager and
+  the Files tab ask the shared client for the storage choice; the read fails
+  (the fixtures' address is a closed port) and the ordinary words stay, so
+  nothing shows (round 2, finding 6). Fix shape: gate on the adapter's own
+  `mode !== 'fixtures'`. Owner: none.
