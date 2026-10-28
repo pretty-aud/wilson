@@ -336,7 +336,7 @@ describe('the numbers', () => {
 // the cap cannot prove an age (no record on the desktop: a new origin at every
 // launch).
 // =============================================================================
-import { sessionStartOf, insideSessionCap } from './sessionTimeouts'
+import { sessionStartOf, insideSessionCap, tokenSignedInAt } from './sessionTimeouts'
 
 describe('S2 — sessionStartOf / insideSessionCap', () => {
   const NOW = 1_800_000_000_000
@@ -401,14 +401,125 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
     expect(events.filter((e) => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
   })
 
-  it('CONTROL — and stricter where the cap proves nothing: with no record start() hands out a fresh four hours, while the launch refuses an old amr', () => {
-    const h = harness()
+  // D1 (night 4, 2026-10-28; RECONNECT_DESIGN.md §12.2): this CONTROL pinned
+  // the gap S2 found — with no record, start() handed a five-hour-old sign-in
+  // a fresh four hours, so the desktop's cap restarted at every launch
+  // (OUTSTANDING S2-01). Moved, with its reason: at a restore the surfaces pass
+  // the token's own sign-in time through the option they use, and start() runs
+  // from it. Red on the code before D1 (start() read no such option).
+  // D1: the cap's tests run at a real epoch, so a sign-in hours ago is a
+  // positive Unix time, as every real token's is (build review round 2, note 10a).
+  const atRealEpoch = () => { const h = harness(); h.advance(NOW - h.now()); return h }
+
+  it('CONTROL, moved by D1: at a restore with no record, start() runs from the token\'s sign-in, so a five-hour-old sign-in ends at once', () => {
+    const h = atRealEpoch()
     const s = storageWith(null)
-    const sess = session({ amrAgoMs: 5 * HOUR, amrAt: h.now() - 5 * HOUR })
+    const sess = session({ amrAt: h.now() - 5 * HOUR })
     expect(insideSessionCap(sess, { storage: s, now: h.now() })).toBe(false)
-    const { ctl, events } = make(h, s, { sessionId: sessionIdOf(sess) })
+    const { ctl, events } = make(h, s, { sessionId: sessionIdOf(sess), signedInAt: tokenSignedInAt(sess) })
     ctl.start()
-    expect(events.some((e) => e[0] === 'expire')).toBe(false)
-    expect(ctl.getState().phase).toBe('active')
+    expect(events.filter((e) => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
+  })
+
+  describe('D1 — at a restore, start() takes the start the offline launch tests', () => {
+    const restore = (h, s, sess) => make(h, s, { sessionId: sessionIdOf(sess), signedInAt: tokenSignedInAt(sess) })
+    /** Advance with activity every ten minutes, so only the cap can end the session. */
+    const busyFor = (h, ctl, ms) => {
+      for (let left = ms; left > 0; left -= 10 * MIN) { h.advance(Math.min(10 * MIN, left)); ctl.activity() }
+    }
+
+    it('tokenSignedInAt: the earliest amr in ms, raw (start() judges the future at its own clock), null without one', () => {
+      expect(tokenSignedInAt(session({ amrAt: NOW - 2 * HOUR }))).toBe(NOW - 2 * HOUR)
+      expect(tokenSignedInAt(session({ amrAt: NOW + HOUR }))).toBe(NOW + HOUR)
+      expect(tokenSignedInAt(session())).toBeNull()
+      expect(tokenSignedInAt({ access_token: 'not-a-jwt', refresh_token: 'r' })).toBeNull()
+      expect(tokenSignedInAt(null)).toBeNull()
+    })
+
+    it('a relaunch inside the cap keeps the sign-in\'s deadline: the notice at four hours less five minutes from the sign-in, the end at four hours', () => {
+      const h = atRealEpoch()
+      const s = storageWith(null)                        // the desktop's relaunch: a new origin, no record
+      const sess = session({ amrAt: h.now() - 2 * HOUR })
+      const signedIn = tokenSignedInAt(sess)
+      const { ctl, events } = restore(h, s, sess)
+      ctl.start()
+      expect(ctl.getState().startedAt).toBe(signedIn)
+      expect(JSON.parse(s.getItem('wilson.dev.session.start'))).toEqual({ sid: SID, at: signedIn })
+      busyFor(h, ctl, 2 * HOUR - CAP_WARN_MS - MIN)
+      expect(ctl.getState().phase).toBe('active')
+      busyFor(h, ctl, 2 * MIN)
+      expect(ctl.getState()).toMatchObject({ phase: 'cap-warning', deadline: signedIn + SESSION_CAP_MS })
+      busyFor(h, ctl, 4 * MIN)
+      expect(events.filter((e) => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
+    })
+
+    it('a relaunch past the cap ends the session the moment it starts', () => {
+      const h = atRealEpoch()
+      const { ctl, events } = restore(h, storageWith(null), session({ amrAt: h.now() - SESSION_CAP_MS - 1000 }))
+      ctl.start()
+      expect(events.filter((e) => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
+    })
+
+    it('the record and the token: the earlier wins, either way round', () => {
+      const h = atRealEpoch()
+      const older = session({ amrAt: h.now() - 3 * HOUR })
+      const a = restore(h, storageWith({ sid: SID, at: h.now() - 1 * HOUR }), older)
+      a.ctl.start()
+      expect(a.ctl.getState().startedAt).toBe(tokenSignedInAt(older))
+      const b = restore(h, storageWith({ sid: SID, at: h.now() - 3 * HOUR }), session({ amrAt: h.now() - 1 * HOUR }))
+      b.ctl.start()
+      expect(b.ctl.getState().startedAt).toBe(h.now() - 3 * HOUR)
+    })
+
+    it('a fresh sign-in passes no time: its record is now, whatever the token says (a clock hours ahead is not signed out at the sign-in)', () => {
+      const h = atRealEpoch()
+      const s = storageWith(null)
+      const sess = session({ amrAt: h.now() - 5 * HOUR })   // what a clock five hours ahead of the server reads at a sign-in
+      const { ctl, events } = make(h, s, { sessionId: sessionIdOf(sess) })   // App's handleAuth, the console's handleSignedIn
+      ctl.start()
+      expect(events.some((e) => e[0] === 'expire')).toBe(false)
+      expect(ctl.getState().startedAt).toBe(h.now())
+      expect(JSON.parse(s.getItem('wilson.dev.session.start'))).toEqual({ sid: SID, at: h.now() })
+    })
+
+    it('what proves nothing leaves the cap as before: a token without amr, an amr in the future, another session\'s record', () => {
+      const h = atRealEpoch()
+      const plain = session()
+      const r1 = restore(h, storageWith({ sid: SID, at: h.now() - HOUR }), plain)
+      r1.ctl.start()
+      expect(r1.ctl.getState().startedAt).toBe(h.now() - HOUR)          // the web's reload: the record decides
+      const r2 = restore(h, storageWith(null), plain)
+      r2.ctl.start()
+      expect(r2.ctl.getState().startedAt).toBe(h.now())                 // nothing proved: now, as before
+      const r3 = restore(h, storageWith(null), session({ amrAt: h.now() + HOUR }))
+      r3.ctl.start()
+      expect(r3.ctl.getState().startedAt).toBe(h.now())                 // a clock behind the server's: the future proves nothing
+      const own = session({ amrAt: h.now() - 2 * HOUR })
+      const r4 = restore(h, storageWith({ sid: 'other', at: h.now() - 3 * HOUR }), own)
+      r4.ctl.start()
+      expect(r4.ctl.getState().startedAt).toBe(tokenSignedInAt(own))   // another session's record proves nothing
+    })
+
+    it('agreement: at a restore, start() ends the session at once exactly when insideSessionCap says outside, whenever a start is proved', () => {
+      const records = [null, { sid: 'other', at: -3 * HOUR }, { sid: SID, at: HOUR }, { sid: SID, at: -HOUR }, { sid: SID, at: -SESSION_CAP_MS - 1000 }, { sid: SID, at: -SESSION_CAP_MS + MIN }]
+      const amrs = [null, HOUR, -2 * HOUR, -SESSION_CAP_MS - 1000, -SESSION_CAP_MS + MIN]
+      let cases = 0
+      for (const rec of records) {
+        for (const amr of amrs) {
+          const h = atRealEpoch()
+          const s = storageWith(rec && { sid: rec.sid, at: h.now() + rec.at })
+          const sess = session({ amrAt: amr == null ? null : h.now() + amr })
+          const proved = sessionStartOf(sess, { storage: s, now: h.now() }) != null
+          const inside = insideSessionCap(sess, { storage: s, now: h.now() })
+          const { ctl, events } = restore(h, s, sess)
+          ctl.start()
+          const endedAtOnce = events.some((e) => e[0] === 'expire')
+          // Neither proved: a fresh four hours online, as before; offline the launch refuses (§11.3).
+          expect(endedAtOnce).toBe(proved ? !inside : false)
+          cases += 1
+        }
+      }
+      expect(cases).toBe(30)
+    })
   })
 })

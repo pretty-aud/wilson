@@ -299,6 +299,7 @@ exists anywhere); product name `WILSON`.
 | `{userData}/rabbit-data/{gdrive-config,gdrive-tokens}.json` | Google Drive OAuth material |
 | `{userData}/rabbit-data/archives/` | Snapshot written before "archive + clear local" after a cloud migration |
 | `{userData}/session.enc` | safeStorage-encrypted Supabase session |
+| `{userData}/renderer-storage.json` (`renderer-storage.dev.json` unpackaged) | The renderer's `localStorage` keys, kept across a relaunch because every launch is a new origin (D1, `electron/rendererStorage.cjs`); never a session key, an idle clock or a tus fingerprint |
 | `{userData}/env.json` | Packaged-build environment overrides |
 
 A project may additionally have a **user-visible folder** on disk, created and
@@ -477,8 +478,9 @@ at the next launch through `hydrateSupabase`, and on the app surface
 shell even when the auth server cannot be reached (her ruling of 2026-10-27,
 *"A sign-in less than 4 hours old"*). The four hours start at the earlier of
 the cap's own record and the token's own sign-in time, its `amr` claim
-(`sessionTimeouts.js` `insideSessionCap`; on the desktop the record never
-survives a relaunch, OUTSTANDING S2-01). Inside them the launch asks GoTrue's
+(`sessionTimeouts.js` `insideSessionCap`; since D1 the desktop keeps the
+record across a relaunch, and the online cap takes the same start at every
+restore, §17). Inside them the launch asks GoTrue's
 `GET /auth/v1/health` first, within 5 s, and only a JSON answer lets the SDK
 restore, with S1's budgets, the whole decided within 10 s
 (`connectionWatchdog.js` `restoreSavedSession`). Reached nothing: the saved
@@ -6153,9 +6155,9 @@ documentation and starts being wrong answers.
 - **The offline launch, and its limits.** A saved sign-in opens the shell
   offline only inside the 4-hour cap and only on the app surface (the
   operator console restores as before). The cap's start is the earlier of its
-  own record and the token's `amr`; on the desktop the record never survives
-  a relaunch (a new origin every launch, OUTSTANDING S2-01), so the token's
-  time decides there. While the session is held, every PostgREST and storage
+  own record and the token's `amr`; since D1 the desktop keeps its record
+  across a relaunch, and the online cap takes the same start at every restore
+  (the D1 entry below). While the session is held, every PostgREST and storage
   request is refused before the network (*"Could not reach the database, so
   the request was not sent."*), each tool screen says one sentence and offers
   no New or Create (R.A.B.B.I.T.'s and D.O.G.'s on the cloud adapter only: the
@@ -6188,6 +6190,40 @@ documentation and starts being wrong answers.
   WILSON to try again."* (pinned); the error toast goes when a read lands, its
   Settings copy at the next successful save (`petLifecycle.js`
   `createPetSyncRetry`).
+
+**The desktop's stored state across a relaunch (D1, 2026-10-28; `docs/design/RECONNECT_DESIGN.md` §12)**
+
+- **The 4-hour cap at a restore.** App's start-up check (every desktop
+  launch, every web reload) and the operator console's boot pass the token's
+  own sign-in time (`tokenSignedInAt`, its earliest `amr`) to
+  `useSessionTimeouts`, and `start()` resumes the earlier of that and its
+  record: the start the offline launch tests. A fresh sign-in passes none (its
+  record is the sign-in). A computer whose clock runs X ahead of the server's
+  ends its four hours X early after a reload or a relaunch (four hours or more
+  ahead: signed out at every reload or relaunch, never at the sign-in itself);
+  one behind reads the token's time as in the future, which proves nothing. A
+  launch is activity: the idle clock starts again at every start, as a reload's
+  does on the web. A sleep followed by a key is OUTSTANDING D1-02.
+- **The renderer's storage.** Every launch is still a new origin (`listen(0)`;
+  the token, the cookie and the lock reason from it). The renderer's
+  `localStorage` is kept in `{userData}/renderer-storage.json`
+  (`renderer-storage.dev.json` for an unpackaged build: the two share a
+  userData folder on Windows) by `electron/rendererStorage.cjs`. The preload,
+  after both bridges, asks for the kept pairs at every load, makes the
+  launch's first load exactly those pairs before the page's first script, and
+  sends what changed once a second, when the window is hidden and at
+  `pagehide` (synchronously); the channels answer only the main window's top
+  frame at the launch's origin. Never kept: the session keys, the idle clocks,
+  tus-js-client's `tus::` fingerprints; no module that builds a loopback
+  address writes `localStorage` (a source test pins it). A file Windows still
+  holds as WILSON starts leaves that load on the window's own storage,
+  writing nothing, and what changes in it is not kept; the next load reads
+  again. An unparseable file is set aside beside itself. A crash loses the
+  last second (measured); the earlier launches' origins are
+  cleared once the server has bound (`clearData` with `excludeOrigins`, not
+  awaited); the first launch after the update starts from the defaults once.
+  A page the window is sent to (a dropped file) is handed the bridges:
+  OUTSTANDING D1-01.
 
 ## Appendix A — Glossary
 
