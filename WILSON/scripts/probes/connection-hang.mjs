@@ -419,6 +419,135 @@ async function phaseF() {
   }
 }
 
+// ── S2 (night 3 of PLAN_TO_1_0, 2026-10-27): the offline LAUNCH. Phase G
+// starts a client cold, composed as the app composes it (the guard outside the
+// watchdog's wrapper, the real 20 s budget), and restores a SAVED session the
+// way App.jsx's checkSessionValid does today: `withTimeout(hydrate(saved),
+// 15 s)`, where hydrate is supabaseClient.js's hydrateSupabase (setSession;
+// an error is "no session"). A null is the sign-in screen. Six networks:
+// GET /auth/v1/user stalls or fails at once (an unexpired token: auth-js
+// checks it with that one request), the refresh stalls or fails at once (an
+// expired token: refreshed first, in the SDK's own retry loop), and the real
+// project answering a made-up token (a refusal). The stored session is
+// modelled as the object the app keeps (sessionStorage.js): read after each
+// case to say whether anything cleared it. Made-up tokens only; nothing
+// printed but paths, methods, error names, statuses and milliseconds.
+
+/** An unexpired token: the shape a saved session has when its last refresh was recent. */
+function unexpiredToken() {
+  const now = Math.floor(Date.now() / 1000)
+  const sub = '00000000-0000-4000-8000-000000000000'
+  return `${b64url({ alg: 'ES256', typ: 'JWT' })}.${b64url({
+    sub, aud: 'authenticated', role: 'authenticated', session_id: '22222222-2222-4222-8222-222222222222',
+    iat: now - 600, exp: now + 3000, app_metadata: { workspace_id: '33333333-3333-4333-8333-333333333333', app_role: 'user' }, user_metadata: {},
+  })}.${b64url({ sig: 'not-checked-client-side' })}`
+}
+
+/** A network for one launch: 'stall' (abortable black hole), 'fail' (rejects at once), 'real' (passes through). */
+function launchNetwork(kind, label) {
+  const state = { seen: [] }
+  const fetchImpl = (input, init) => {
+    const path = pathOf(input).split('?')[0]
+    const method = (init?.method ?? 'GET').toUpperCase()
+    state.seen.push({ at: Date.now() - t0, method, path })
+    if (kind === 'fail') return Promise.reject(new TypeError('Failed to fetch'))
+    if (kind === 'stall') {
+      return new Promise((_, reject) => {
+        const signal = init?.signal
+        if (!signal) return
+        const fail = () => reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+        if (signal.aborted) fail()
+        else signal.addEventListener('abort', fail, { once: true })
+      })
+    }
+    return fetch(input, init)
+  }
+  return { state, fetchImpl, label }
+}
+
+async function launchCase({ name, token, net, waitMs }) {
+  const { withTimeout, AUTH_TIMEOUT_MS } = await import('../../src/cloud/auth/withTimeout.js')
+  const { state, fetchImpl } = launchNetwork(net, name)
+  const wd = createConnectionWatchdog({ tickMs: 250, isOnline: () => true, windowRef: null })
+  const marks = []
+  wd.subscribe((lost, phase) => marks.push({ at: Date.now(), lost, phase }))
+  let signedIn = false
+  const guard = createAnonGuard({ anonKey: ANON, isSignedIn: () => signedIn })
+  const sb = makeClient(guard(wd.wrapFetch(fetchImpl)))
+  const events = []
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') signedIn = false; else if (session) signedIn = true
+    events.push({ at: Date.now(), event })
+  })
+  const saved = { access_token: token, refresh_token: 'refresh-token-made-up', expires_at: Number(JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).exp), token_type: 'bearer', user: MADE_UP_USER }
+  const store = { session: saved }                  // the app's stored session, as sessionStorage.js keeps it
+  const before = JSON.stringify(store.session)
+  const tLaunch = Date.now()
+  let settledAt = null; let settled = null
+  // supabaseClient.js hydrateSupabase, as it stands
+  const restore = sb.auth.setSession({ access_token: saved.access_token, refresh_token: saved.refresh_token })
+    .then((r) => { settledAt = Date.now(); settled = r; return r.error ? null : r.data.session })
+  // App.jsx checkSessionValid, as it stands
+  const session = await withTimeout(restore, AUTH_TIMEOUT_MS, 'session restore').catch(() => null)
+  const signInMs = Date.now() - tLaunch
+  const lostAtSignIn = wd.getSnapshot()
+  await Promise.race([restore.catch(() => {}), sleep(waitMs)])
+  await sleep(300)
+  const err = settled?.error
+  const mem = await Promise.race([sb.auth.getSession().then((r) => (r.data.session ? 'a session' : 'none')), sleep(1000).then(() => 'getSession() pending')])
+  const strip = marks.find((m) => m.lost)
+  const r = {
+    name,
+    signInScreenMs: session ? null : signInMs,
+    shellOpened: !!session,
+    restoreSettledMs: settledAt ? settledAt - tLaunch : null,
+    error: err ? `${err.name}${err.status != null ? ` status ${err.status}` : ''}${err.code ? ` code ${err.code}` : ''}` : (settled ? 'none' : 'still pending'),
+    stripMs: strip ? strip.at - tLaunch : null,
+    stripPhase: wd.getPhase(),
+    lostAtSignIn,
+    sdkMemory: mem,
+    events: events.map((e) => `${e.event}@${e.at - tLaunch}`).join(' ') || 'none',
+    requests: state.seen.map((s) => `${s.method} ${s.path.replace(/^.*\/(auth|rest)\/v1/, '/$1/v1')}@${s.at - (tLaunch - t0)}`).join(', '),
+    storeTouched: JSON.stringify(store.session) !== before,
+    lock: sdkState(sb),
+  }
+  log(`G: ${name}`)
+  log(`G:   the sign-in screen at ${r.signInScreenMs ?? '—'} ms (shell opened: ${r.shellOpened}); the restore settled at ${r.restoreSettledMs ?? 'never (in the wait)'} ms with ${r.error}`)
+  log(`G:   the strip: ${r.stripMs != null ? `up at ${r.stripMs} ms` : 'never'} (lost at the sign-in screen: ${r.lostAtSignIn}; phase now ${r.stripPhase}); auth events: ${r.events}`)
+  log(`G:   the SDK holds ${r.sdkMemory}; ${r.lock}; the stored session touched: ${r.storeTouched}`)
+  log(`G:   on the wire: ${r.requests || 'nothing'}`)
+  wd.reset()
+  try { sb.auth.stopAutoRefresh() } catch { /* not started */ }
+  return r
+}
+
+async function phaseG() {
+  log('── Phase G — S2: a cold launch with a saved session, restored as App.jsx does today (bounded at 15 s)')
+  const out = {}
+  out.userStalls = await launchCase({ name: 'G1 GET /auth/v1/user stalls (an unexpired token)', token: unexpiredToken(), net: 'stall', waitMs: 25000 })
+  out.userFails = await launchCase({ name: 'G2 GET /auth/v1/user fails at once (an unexpired token)', token: unexpiredToken(), net: 'fail', waitMs: 2000 })
+  out.refreshStalls = await launchCase({ name: 'G3 the refresh stalls (an expired token)', token: expiredToken(), net: 'stall', waitMs: 45000 })
+  out.refreshFails = await launchCase({ name: 'G4 the refresh fails at once (an expired token)', token: expiredToken(), net: 'fail', waitMs: 35000 })
+  out.userRefused = await launchCase({ name: 'G5 the real project answers GET /auth/v1/user for a made-up token', token: unexpiredToken(), net: 'real', waitMs: 5000 })
+  out.refreshRefused = await launchCase({ name: 'G6 the real project answers the refresh of a made-up refresh token', token: expiredToken(), net: 'real', waitMs: 5000 })
+  return out
+}
+
+// `node connection-hang.mjs <env> G` runs phase G alone (about two minutes); no letter runs them all.
+const only = (process.argv[3] || '').toUpperCase()
+if (only === 'G') {
+  log(`project host: ${new URL(URL_).host}; supabase-js as installed; persistSession:false autoRefreshToken:true`)
+  const g = await phaseG()
+  const okG = g.userStalls.signInScreenMs >= 14900 && g.userStalls.signInScreenMs < 15500
+    && g.userFails.signInScreenMs < 2000
+    && g.refreshStalls.signInScreenMs >= 14900 && g.refreshStalls.signInScreenMs < 15500
+    && g.refreshFails.signInScreenMs >= 14900 && g.refreshFails.signInScreenMs < 15500
+    && g.userRefused.signInScreenMs < 5000 && g.refreshRefused.signInScreenMs < 5000
+    && Object.values(g).every((r) => !r.storeTouched && !r.shellOpened)
+  log(okG ? 'RESULT: today every offline launch lands on the sign-in screen (15 s when the network stalls, at once when it fails or refuses) and nothing clears the stored session' : 'RESULT: something did not behave as described — read the lines above')
+  process.exit(okG ? 0 : 1)
+}
+
 const host = new URL(URL_).host
 log(`project host: ${host}; supabase-js as installed; persistSession:false autoRefreshToken:true`)
 await phaseA()
@@ -427,6 +556,7 @@ const c = await phaseC()
 const d = await phaseD()
 const e = await phaseE()
 const f = await phaseF()
+const g = await phaseG()
 log('── Summary')
 log(`pinned PostgREST read: ${b.pinnedRead}; pinned getSession(): ${b.pinnedGetSession}; /rest/v1/ requests issued behind the hang: ${b.restIssued}`)
 log(`watchdog raised lost after ${c.lostAfterMs} ms with ${c.pending} watched request(s) pending`)

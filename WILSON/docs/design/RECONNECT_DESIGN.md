@@ -14,7 +14,8 @@ installed; `scripts/probes/connection-hang.mjs` against wilson-dev with two new
 phases (D, E); the app on port 5303 in Chromium 147 and in the desktop app
 (Electron 33.4.11, Chromium 130). Nothing was signed in; no real token exists
 in any of it. Review round 1 (Fable, the design alone) found what §9 lists;
-this is the corrected design the build follows.
+this is the corrected design the build follows. §11 is S2's (night 3,
+2026-10-27): the offline launch, her ruling and its design.
 
 ---
 
@@ -82,7 +83,7 @@ By fact 2 the first caller — the one whose `getSession()` started the hung ref
 
 Both sentences contain *Connection lost*; the button is *Reload* in both: `tests/e2e/sessions.spec.ts` scenario 11 and `sessionDialogs.test.js` keep passing as written (run before claiming it, §6). On the **sign-in screen** the strip appears too, as today, for a sign-in or MFA request that hangs: the screen's own 15 s ceiling has already shown its message, and "reconnecting…" is still the true word for what the watchdog is doing to the service, session or no session (round 1, F12). Nothing changes in the sign-in flow, the wizards or the enrolment gate.
 
-**At start-up** (round 1, F2b): a hung session check already ends in the sign-in screen at 15 s with the stored tokens kept (fact 4) — the case her pending *offline launch* ruling is about, untouched here. What changes under it: the SDK's attempts end at 40.2 s instead of never, so the work after a sign-in typed on that screen — every read, which awaits the session check — is no longer queued for ever behind the hung one (the sign-in request itself takes no lock and goes out at once, today and after S1: round 2, F7); a late success keeps being harmless, as the restore path's comment says.
+**At start-up** (round 1, F2b): a hung session check already ends in the sign-in screen at 15 s with the stored tokens kept (fact 4) — the case her *offline launch* ruling is about: ruled on 2026-10-27 and designed in §11 (S2). What changes under it: the SDK's attempts end at 40.2 s instead of never, so the work after a sign-in typed on that screen — every read, which awaits the session check — is no longer queued for ever behind the hung one (the sign-in request itself takes no lock and goes out at once, today and after S1: round 2, F7); a late success keeps being harmless, as the restore path's comment says.
 
 ## 5. What is never retried, and what an abort costs
 
@@ -117,3 +118,124 @@ Verdict: the build can go without a ruling. Two High: **F1**, a PostgREST ping w
 ## 10. Review round 2 (Fable, the build attacked, 2026-10-27)
 
 Verdict: not as is; two things first, both done. **F1 (High):** a sign-out made during a hang would have been re-persisted once the SDK's queue drained and a refresh landed on the network's return — the latch in §3, called from both sign-outs, with its test. **F2 (Medium):** an auth or rest ping answers from the gateway while the database behind it is stuck, so clearing on it made the strip flicker every budget and never reach the reload words (measured on the build as it first stood) — §3's rule: the storage ping clears, the auth and rest pings tell the client module, which asks for real, and the real answer clears; the clock runs on. **F3:** the committed probe had not been run end to end (the log the commit quoted carried a red verdict from an earlier flag) — it has been, the hand-off's numbers are that run's. **F4–F5:** three behaviours the code had and no test exercised (a second family raised later, a request sent after the ping, the guard reading signed-in per request), and the client module untested — added, and the module's own test file. **F6:** every body got a full extra second and strings were counted in characters — a second per whole 50 KB, in bytes (§2). **F7:** the sign-in request takes no lock (§4). **F8–F13, notes:** the CONTROL's label; an answer landing after its own abort (§3's rule now); a `Request`'s own signal is joined; the abort's reason is a sentence a view can show; the dot's files words are the last probe's, not "reconnecting" (§4); the walkthrough's numbers re-taken from the final run.
+
+## 11. The offline launch — her policy and its design (S2, night 3, 2026-10-27)
+
+Night 3 of `docs/sessions/PLAN_TO_1_0.md` (brief `docs/sessions/briefs/po-s2-offline-launch.md`). §4's start-up case waited on her ruling; she ruled on 2026-10-27, in chat, multiple choice:
+
+- Which saved sign-ins open WILSON past the sign-in screen offline: **"A sign-in less than 4 hours old (Recommended)"** (the option read: *The app's own 4-hour session cap already runs from the original sign-in. Inside it, the saved sign-in opens the shell offline; past it, the launch goes to the sign-in screen as today. Nothing about the cap changes.*).
+- What the tool screens say once the shell has opened offline: **"One offline sentence on each screen, no empty-state words (Recommended)"** (the option read: *Each tool shows one line that it could not reach the database and that your projects appear when the connection returns; New and Create controls are not offered. The strip says reconnecting throughout.*).
+
+Her rule of 2026-09-10 stands: no signed-out entry, and a sign-in cannot succeed offline (`src/lib/localDemoWiring.test.js`). An offline launch is a **saved** sign-in, never a new one.
+
+### 11.1 What was measured (phase G, the code at `cc6b0e3b`)
+
+`scripts/probes/connection-hang.mjs`, phase G (`node scripts/probes/connection-hang.mjs .env.local G`): a client started cold and composed as the app composes it (the guard outside the watchdog's wrapper, the real 20 s budget) restores a saved session the way `checkSessionValid` does, `withTimeout(hydrateSupabase(saved), 15 s)`. Made-up tokens, wilson-dev with the anon key, nothing signed in.
+
+| Case | The sign-in screen | The restore settled | The strip | On the wire |
+|---|---|---|---|---|
+| G1 `GET /auth/v1/user` stalls (an unexpired token) | 15.0 s (the ceiling) | 20.0 s, `AuthRetryableFetchError` 0 (the watchdog's abort) | up at 20.0 s, on the sign-in screen | `GET /user`; `GET /health` at 20.0 s |
+| G2 `GET /auth/v1/user` fails at once | 1 ms | 1 ms, retryable 0 | never | `GET /user` |
+| G3 the refresh stalls (an expired token) | 15.0 s | 40.5 s (attempts at 0 and 20.3 s) | up at 20.1 s, on the sign-in screen | `POST /token` ×2, `GET /health` ×3 |
+| G4 the refresh fails at once | 15.0 s | 25.5 s (eight attempts on the SDK's backoff: 0, 0.2, 0.6, 1.4, 3.0, 6.2, 12.6, 25.4 s) | never (nothing hung) | `POST /token` ×8 |
+| G5 the real project answers `GET /user` for a made-up token | 0.5 s | 0.5 s, `AuthApiError` 403 `bad_jwt` | never | `GET /user` |
+| G6 the real project answers the refresh of a made-up refresh token | 0.1 s | 0.1 s, `AuthApiError` 400 `validation_failed`, then `SIGNED_OUT` | never | `POST /token` |
+
+In all six the SDK holds no session afterwards and its queue is empty, and **nothing touched the stored session**: the app keeps the saved tokens whatever the outcome. Her timings of 2026-09-10 are the control and agree: with `WILSON_DEV_OFFLINE=1` the restore fails in 10 ms and the sign-in screen is up 4.5 s after the page loads; with `=stall` it times out at 15.0 s and the screen follows 4.3 s later (the 4.3–4.5 s is the sign-in screen's own entrance). Two things the table adds: an expired token's restore keeps the SDK's queue held for 25–40 s after the screen has given up (G3, G4), and a stalled launch raises S1's strip on the sign-in screen at 20 s (G1, G3). **The token's lifetime** (the brief: measure it, do not assume 3,600 s): the one read that measures it on wilson-dev, the spacing of a session's refreshes in `auth.refresh_tokens` aggregated with no token selected, was refused by the permission classifier ("Production Reads"); the repo says 3,600 s (`supabase/config.toml` `jwt_expiry`; handbook §4.3). Nothing below depends on it: with an hour's token inside a four-hour cap both paths, unexpired and expired, are ordinary, and both are designed.
+
+### 11.2 Which failures open the shell, and what a refusal does to the stored tokens
+
+The shell opens offline only when the saved sign-in is inside the cap (§11.3) **and** the auth server could not be reached:
+
+- **Reached nothing:** auth-js's `AuthRetryableFetchError` (status 0: the fetch rejected, was aborted, or the answer was not GoTrue's JSON, which is a captive portal's page; or 502, 503, 504), an `AuthApiError` with a status of 500 or more, an `AuthUnknownError` (an error answer that is not GoTrue's, such as a proxy's page), and the restore's own ceiling (§11.4).
+- **A refusal:** every other answer from GoTrue: 400 (an invalid or spent refresh token: G6), 401, 403 (G5, `bad_jwt`), 404, 429, and `session_not_found` (`AuthSessionMissingError`, after which the SDK emits `SIGNED_OUT`). The launch goes to the sign-in screen, as today.
+
+**The stored tokens after a refusal.** Today nothing clears them (G5, G6). After S2, a refusal that ends the session (400, 401, 403, `session_not_found`) clears the stored session **if it still holds the refresh token that was refused**: another tab of `/wilson` may have saved a newer one since this launch read it (the desktop has one renderer). A refused sign-in is not a saved sign-in, and kept, it would open the shell at a later offline launch inside the cap. Any other refusal (a 404, a 429) keeps them, as today, and a launch that reached nothing never touches the store.
+
+### 11.3 The four-hour test, on the cap's own clock
+
+`sessionTimeouts.js` keeps one record per surface, `<surfaceKey>.start = { sid, at }`, keyed by `sessionIdOf(session)` (the JWT's `session_id`, kept across refreshes), and ends a session when `now - at >= SESSION_CAP_MS` (`evaluate()`); a resumed session keeps its original start (`start()`). The launch reads **that record, under that key, with that comparison**, through one new read-only export of the same file, `capStartOf(storage, surfaceKey, sessionId, now)`, which returns the start `start()` would resume or null; no rule in the file changes, and a test pins that the cap's own `start()` expires at once exactly when the launch calls a session outside. Inside means a record for this session's id, a start that is not in the future (`at <= now`, `start()`'s own condition), and `now - at < SESSION_CAP_MS`. No record (a session older than B2 part 2; a cleared localStorage beside a surviving encrypted session on the desktop) or a start in the future (a clock moved back) cannot prove its age, so it counts as outside: the sign-in screen, as today. The shell therefore never opens on a session the cap ends at once: the cap's first evaluation, milliseconds later on the same clock, finds the same answer, and its five-minute warning covers the end of the four hours, as it does online.
+
+### 11.4 The launch, step by step (`hydrateSupabase`)
+
+1. No tokens: no session, as today.
+2. Outside the cap: today's restore, untouched. `setSession`, bounded at 15 s by `checkSessionValid`; any failure is "no session"; no launch window. Online, a session past the cap restores and the cap ends it at once with its notice, as today.
+3. Inside the cap, and the browser says offline (`navigator.onLine === false`): **hold** at once, with no request (the SDK could only fail, and for an expired token its retry loop would hold its queue for 25 s: G4).
+4. Inside the cap, an **expired** access token: first `GET /auth/v1/health`, with the anon key, through the client's own fetch inside the launch window (§11.6). No answer under 500: **hold**, and the SDK's refresh loop never starts (G3 and G4 hold no queue). An answer: step 5.
+5. `setSession(saved)` inside the launch window, raced against the **launch ceiling, 10 s**: a session is the shell, online, as today; reached nothing (§11.2) or the ceiling is a **hold**; a refusal is no session, with the store cleared as §11.2 says. `checkSessionValid`'s 15 s bound stays where it is (pinned) and is reached only by step 2.
+
+The decision is one exported function of `connectionWatchdog.js`, `restoreSavedSession({ auth, saved, watchdog, insideCap, health, … })`, so the probe runs the code the app runs; `hydrateSupabase` gives it the app's client, watchdog and cap answer and acts on its outcome (`online`, `held`, `refused`, `none`).
+
+**Hold** means: the client module keeps `saved` as the held session, latches `signedIn` (§11.5), tells the watchdog the launch reached nothing (§11.6), and returns `saved`, so `checkSessionValid` hands the mount effect a session exactly as it hands a restored one, and `authed`, the session id and the shell follow unchanged. The id is the saved token's `session_id`, so the cap's clock resumes from the original sign-in and the idle clock starts as at any launch.
+
+### 11.5 Holding a session the SDK does not
+
+`_setSession` saved nothing (G1–G4), so for as long as the hold lasts:
+
+- **The guard is latched from launch.** `signedIn` is set when the session is held, not by an auth event (none fires). supabase-js then sends every PostgREST and storage request with the anon bearer (`getSession()` returns null at once: nothing queues, nothing is pending), and the guard refuses each one before the network, with the offline sentence of §11.8 as its reason (status 0): the caller's own error path, never an empty success, never the anon key on the wire. A `SIGNED_OUT` while a session is held (the SDK's, inside a refused re-hydration) leaves the latch on; the hold's end turns it off. Edge Function calls (raw fetch) carry no session token and fail at the network.
+- **`usePermissions` reads the held token's claims, with no network read:** `userId` (`sub`), `workspaceId` (`app_metadata.workspace_id`), `workspaceIds`, the role and the operator flag, exactly as `snapshot()` reads a live session's. Its rule becomes *the SDK's session if it has one, else the held one*, recomputed on every auth event and on every change of the hold, so an `INITIAL_SESSION` with no session arriving after the hold cannot empty it; a new field, `offline`, is true while the claims come from a held session. **`ready` means what it means online**: the first session read has resolved, and the claims follow the hold the way they follow `SIGNED_IN`. So a company member stays one offline (`cloudMode` is only `app_metadata.workspace_id`), the pet keeps its owner, and the "solo-user rules" of OUTSTANDING's fix shape become **the person's own role, from the saved token**: an admin may still change this computer's storage folder and a member may not (`canEditMachineRoot`); only a token with no workspace keeps a solo user's control. The fix shape as written would have handed every company member that control while offline.
+- **The re-hydration.** The hold marks the auth family lost (§11.6), so the watchdog pings `GET /auth/v1/health` every 10 s while the browser says online, and at once on the window's `online` event. The first answered ping reaches the client module (`onPingAnswered('auth')`, S1's seam), which, while a session is held, calls `setSession(held)` (one at a time) instead of asking for the session: an unexpired token is checked with `GET /user` and the SDK emits `SIGNED_IN`; an expired one is refreshed, `TOKEN_REFRESHED`, and the existing hook saves it. Either event ends the hold (the SDK holds the session now), and that request's answer clears the auth family, so the strip goes. R.A.B.B.I.T. re-lists on the event as it does today (`RabbitProvider`'s listener: `status()`, then `listProjects()`), and `usePermissions.offline` turns false, which the other screens and the once-per-sign-in reads key on (§11.9). Reached nothing again: still held, and the next answered ping tries again. **A refusal on the way back:** the hold ends, the store is cleared as §11.2 says, and App ends the session through `signOutLocal` with no `auth_events` row (there is no token left to write one with), so the person lands on the sign-in screen with one notice line: *"Signed out: your saved sign-in was not accepted when the connection returned. Sign in again to continue."*
+- **What the queued callers do meanwhile: nothing queues.** With no session in the SDK, `getSession()` answers at once, so a read is refused by the guard at once rather than held, and a screen's own retry is refused the same way until the re-hydration lands. During the re-hydration the SDK's queue is held for one round trip, and a caller arriving then gets the session. The one exception is a partial outage: GoTrue answers `/health` but its refresh stalls (step 5). The SDK's own loop then holds its queue until it ends, about 30 s, which is S1's case, with the strip up; if the refresh lands meanwhile, `TOKEN_REFRESHED` ends the hold.
+- **A sign-out while held** (the Settings button, the idle timeout, the cap): `endSessionLocally()` also ends the hold, so the guard, `usePermissions` and the pet follow the sign-out at once.
+
+### 11.6 The watchdog's launch path (none of S1's budgets moves)
+
+- **The launch window.** The restore opens it around steps 4 and 5, inside the cap only. While it is open, an auth-family request (`/auth/v1/user`, `/auth/v1/token`, `/auth/v1/health`) gets the **launch budget, 5 s** (the ping's own number) instead of 20 s. A stalled `GET /user` is then aborted at 5 s (`withTimeout` cannot do this; it only races) and the SDK reads the abort as retryable: G1's error at 20 s arrives at 5 s. S1's 20 s budget, 10 s cadence, 5 s ping budget and 60 s words are unchanged.
+- **`launchedOffline({ origin, apikey })`.** The hold tells the watchdog the auth family is lost from now, and where its ping goes: the client module's URL and anon key, because at a launch with the browser offline no request has been seen to remember them from. The strip is therefore up from the first paint of the shell, whether or not the browser says online. S1's watchdog raises only on an abort and aborts only while `navigator.onLine` is true, so a real offline never showed the strip.
+- **"Reconnecting" throughout on a launch that was never online.** Until a lost family has answered once, the phase stays `reconnecting` however long the loss lasts; it never turns to `reload` at 60 s, because a reload would only launch offline again (her ruling: *the strip says reconnecting throughout*). After the first answer, S1's rules apply unchanged.
+
+### 11.7 What the person sees
+
+| When | The strip | The screens | The dot (R.A.B.B.I.T.) | The pet |
+|---|---|---|---|---|
+| The shell opens offline: at once when the network fails or the browser is offline; at 5 s when it stalls | "Connection lost — reconnecting…", **Reload** | one sentence each (§11.8); no New or Create | browser offline: *Offline: no network*; otherwise *Reconnecting to the database* (*Database: reconnecting… · Files: not known (the storage setting could not be read)*): never *Not signed in* while a session is held (its probe falls back to the held token) | the cached pet, no error toast |
+| Any time offline | the same; never "reload" | a screen's own retry is refused at once; the sentence stays | the same | a save is refused with the pinned sentence (*…Reopen WILSON to try again.*) |
+| The network answers | gone within the ping cadence plus a round trip (about 11 s at most) | the lists arrive: R.A.B.B.I.T. re-lists on the auth event; the Dashboard's tasks and notes and O.T.T.E.R. read again when `offline` turns false | asks again at once, goes green | read from the account (§11.10); a toast only if that read fails |
+| The saved sign-in is refused on the way back | gone (the refusal is an answer) | the sign-in screen, with §11.5's notice | — | the cache leaves with the person (`signOutLocal`) |
+
+### 11.8 The screens: one sentence each, no empty-state words, no New or Create
+
+One sentence, from one helper beside the strip's copy in `ConnectionLostBanner.jsx`: **"Could not reach the database — your *projects* appear when the connection returns."**, the noun per screen. Each screen shows it while `usePermissions().offline` is true, in the place its empty state would take:
+
+| Screen | Offline today (the empty data's words) | While a session is held |
+|---|---|---|
+| R.A.B.B.I.T.'s summary with no project open (`ProjectSummaryView`) | "0 projects", **New project**, *No projects yet — click New project above or use the Intake tab.* | the sentence (projects); no count, no New project |
+| R.A.B.B.I.T.'s project menu (`ProjectContextBar`) | *No projects yet.* | the sentence (projects) |
+| The Projects page (`ProjectsPage`, `ProjectListPanel`) | *No projects yet*, *Create your first project to get started.*, **New project** twice | the sentence (projects); neither New project |
+| D.O.G.'s card 1 | an empty project select, **New project** | the sentence (projects) under the select, which keeps "No project selected"; no New project |
+| The Dashboard's tasks | a danger banner carrying *[supabase] no active session…*, then *Nothing assigned to you yet* | the sentence (tasks) in their place |
+| The Dashboard's notes | the same banner, *No notes yet*, **New note** | the sentence (notes); no New note |
+| O.T.T.E.R. on the web | *No courses yet*, **Create your first course**, **New course**, **Import** (`otterFetch` answers *O.T.T.E.R. requires a signed-in workspace on the web.*) | the library's one empty-list view holds the sentence (courses), its title without New course or Import; no Create |
+| O.T.T.E.R. on the desktop | this computer's library (`cloudActive()` reads the SDK's session, empty while held), with no notice in the automatic mode | the same library, **because it works offline**, with its source notice saying why: *This is the library on this computer: your company library could not be reached, and appears when the connection returns.* |
+
+Unchanged: the save refusal's wording (pinned), the sign-in screen, and every page outside this list (§11.9).
+
+### 11.9 The reads that run once per sign-in run again on the confirmation
+
+Every page is mounted at boot (App's `renderAllPages`), so an offline launch makes each page's first cloud read offline, and most are keyed on the identity, which the confirmation does not change. These read again when `usePermissions().offline` turns false: R.A.B.B.I.T.'s list (its auth listener, as today); the Dashboard's tasks and notes (`useMyTasks`, `useNotes`: their load effects keyed on it); O.T.T.E.R. (App mounts it afresh on the confirmation: on the desktop the library it shows changes from this computer's to the company's, and the two do not share a slug space, so it starts clean exactly as A4's library switch does; on the web it lists for the first time); and App's own once-per-sign-in reads: **the MFA enrolment gate** (security: an admin who quit at the gate and relaunched offline must meet it when the connection returns, or the gate is skipped for the session), the new-user welcome, the model tiers, the desktop's workspace storage root (a NAS company's root must reach the main process) with the storage-choice cache cleared before it, and the pet's course index. Pages outside the brief's list that read the cloud once at mount (the rate card, team members, the Admin Terminal) show their own error offline and read again on their own refresh or at the next launch: a stated limit (handbook §17).
+
+### 11.10 The pet
+
+- **At an offline launch:** the cached pet, read by the mount effect under the stored token's `sub` (unchanged; it never needed the network). The identity effect runs on the held claims' `userId`; `resolveUserPet` is refused at once (status 0), and the catch keeps this account's cache on screen, **without the error toast** while the session is held: the strip already says the cloud is out of reach, and the toast, which has no timer, would say it again.
+- **The retry** (OUTSTANDING's fix shape; the bound is mine to pick): a failed resolve runs the identity effect again through a retry counter in its dependencies (state: the ref the fix shape names cannot re-run an effect), after **5 s, 15 s, 45 s, 2 min 15 s and 5 min**: five timed retries, then it stops. The count starts again on a trigger: **the confirmation** (the session held at launch confirmed, which follows the first answered ping), **the window's `online` event**, and **a lost family recovering** (`connectionWatchdog.onRecovered`). While a session is held the timer is not armed (the guard refuses every attempt without the network), so the confirmation is the retry. A retry never blanks the pet or re-reads the cache (the pet on screen is already this account's). On success the owner is installed, `petSaveError` cleared, and the error toast and its Settings copy are cleared. A failure with the session confirmed raises the toast once, not again on each failed retry. Against a service refusing on purpose (a 401 or 403 under RLS), five tries over eight minutes is the whole cost.
+- **The save refusal's wording is unchanged** (*"Your pet could not be reached in your account, so this change was not saved. Reopen WILSON to try again."*, pinned by `userStateWiring.test.js`): a save made while the routing is not installed is still refused, and the relaunch it names still works; the retry usually makes it unnecessary.
+
+### 11.11 What is out
+
+The 4-hour cap and every rule in `sessionTimeouts.js` (one read-only export); a signed-out entry, and any sign-in offline (`LoginScreen` untouched; the 2026-09-10 pins); a launch past the cap (as today); S1's budgets; the sign-in screen's step-2 fetch without a ceiling (recorded in OUTSTANDING if met); the pet syncing live (1.1); the pages outside §11.8's list (§11.9).
+
+### 11.12 Numbers (mine to pick, picked)
+
+| Number | Value | Why |
+|---|---|---|
+| Launch budget | 5 s per auth request in the launch window | the ping's own budget; a healthy `GET /user` or `/health` takes hundreds of milliseconds; a slow but live network that misses it opens offline and is confirmed by the next answered ping, about 11 s later at most |
+| Launch ceiling | 10 s for the decision inside the cap | two launch budgets: `/health` and one refresh attempt; `checkSessionValid`'s 15 s bound is left to the path outside the cap |
+| Pet retry | 5, 15, 45, 135, 300 s, then stop until a trigger | ×3, capped at five minutes: 8 min 20 s of trying |
+
+### 11.13 The tests, and the measurement after the build
+
+Each with its failing control: `hydrateSupabase` offline (reached nothing inside the cap returns the saved session; outside the cap, null; a 401, null; the store cleared on a refusal only while it holds the refused token, kept otherwise); `capStartOf` agreeing with the cap's own `start()` on every record shape; the guard latched from the hold (a request after launch never carries the anon key; red without the latch); `usePermissions` from claims with no network, `offline` true then false on the confirmation, `INITIAL_SESSION` unable to empty it; the watchdog's launch path (the launch budget only inside the window; `launchedOffline` raising the strip with the browser offline; `reconnecting` never `reload` until the first answer) and its start-up check with a stalled `GET /user` (S1's stand-in always answers it: the case added); the re-hydration on the first answered ping firing the auth event and ending the hold, a refusal ending the session; each screen's sentence and absent controls; the pet retry under fake timers (bounded, stops, restarts on a trigger, the toast cleared); `localDemoWiring.test.js`'s source pins brought to the new text; the probe's phase G on the build (`restoreSavedSession` itself) with its RESULT line; one Playwright scenario in `tests/e2e/sessions.spec.ts` (sign in, then relaunch with `/auth/v1/user`, `/auth/v1/health` and `/rest/v1/` held: the shell and the strip within the budget), which page routes can hold as scenario 11 holds `/rest/v1/`, run by CI (no session here signs in).
+
+### 11.14 Her questions
+
+**None.** Her two rulings are the policy; the words, the budgets and the pet's bound are mine (the brief); the one behaviour that reaches a person beyond her rulings, a refused saved sign-in now cleared from the store, is the reading of her policy that keeps it true (a refused sign-in is not a saved one), and §11.2 states it.
