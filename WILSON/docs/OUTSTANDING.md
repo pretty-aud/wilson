@@ -1299,6 +1299,11 @@ range's bytes are counted as its body finishes streaming, which under load
 landed after the test's `tick()`; settle it by consuming the second
 response's body before the clock moves, or by counting before the request
 resolves. Not re-run: a re-run needs a GitHub sign-in the session has not.)*
+*(B2, 2026-10-27, MEASURED on GitHub's runner: the same test, the same
+figures — `bytes` 524,288 where 1,048,593 is expected, `fraction` 0.5 — in RLS
+tests run 40617232593's Vitest job on `ae80e2c4`, a branch that touches
+nothing under `gateway/`; it was the job's one failing test (the run's
+annotations). Twice now on CI, never on a Windows run of the suite.)*
 
 ---
 
