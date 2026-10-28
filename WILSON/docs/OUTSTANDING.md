@@ -2818,7 +2818,12 @@ bound). What S2 met and did not fix:
   start and the idle clock in localStorage, so `start()` finds no record at a
   desktop launch and hands the session a fresh four hours: the absolute cap
   (TPN AS-3.8) holds within one desktop launch and is reset by a relaunch.
-  The web keeps one origin and is not affected. Security-adjacent, for the
+  The web keeps one origin and is not affected. Every other localStorage key
+  on the desktop starts empty at each launch the same way — R.A.B.B.I.T.'s
+  settings among them (`loadRabbitSettings`: the storage backend chosen in
+  App settings and the last open project, so a desktop on the Supabase
+  adapter is back on the Local Server after a relaunch; INFERRED from the
+  same measurement, not walked through). Security-adjacent, for the
   controller to place (the cap is not S2's brief to change). The offline
   launch does not lean on the record there: it takes the earlier of the
   record and the token's own sign-in time (`amr`), `RECONNECT_DESIGN.md`
