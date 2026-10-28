@@ -54,7 +54,9 @@ describe('the restore: the app surface holds, the operator console never does (r
 describe('a refusal on the way back ends the session with its one line, and no auth_events row', () => {
   it('App listens and signs out with event null and the notice', () => {
     const effect = between(app, 'useEffect(() => onHeldSessionRefused(', '}), [signOutLocal]);')
-    expect(effect).toContain('signOutLocal({ event: null, notice: HELD_REFUSED_NOTICE });')
+    // build review round 1, F6: the store is the client module's to clear (compare-and-clear), never the sign-out's
+    expect(effect).toContain('signOutLocal({ event: null, notice: HELD_REFUSED_NOTICE, keepStore: true });')
+    expect(app).toContain('if (!keepStore) await clearSession();')
     expect(app).toContain("setSignedOutNotice(notice ?? (expiry ? describeSessionExpiry(expiry) : ''));")
   })
 })
@@ -63,11 +65,6 @@ describe('the reads that run once per sign-in run again on the confirmation (§1
   it('🚨 the MFA enrolment gate (security): keyed on perms.offline as well', () => {
     const effect = between(app, 'const { data, error } = await supabase.auth.mfa.listFactors();', ']);')
     expect(effect).toContain('}, [authed, perms.ready, perms.role, perms.isPlatformOperator, perms.offline]);')
-  })
-  it('CONTROL: without perms.offline the gate\'s keys do not change at the confirmation (the identity and role are the held token\'s)', () => {
-    const effect = between(app, 'const { data, error } = await supabase.auth.mfa.listFactors();', ']);')
-    const keys = effect.slice(effect.lastIndexOf('[') + 1, effect.lastIndexOf(']')).split(',').map((s) => s.trim())
-    expect(keys.filter((k) => k !== 'perms.offline')).toEqual(['authed', 'perms.ready', 'perms.role', 'perms.isPlatformOperator'])
   })
   it('the new-user welcome and the model tiers', () => {
     expect(between(app, '/* non-fatal; user can still use the app without onboarding */', ']);')).toContain('}, [authed, perms.offline]);')
@@ -104,7 +101,9 @@ describe('the pet at an offline launch, and its retry (§11.10)', () => {
 
 describe('O.T.T.E.R. (§11.8, §11.9)', () => {
   it('on the desktop, this computer\'s library with its source notice saying why', () => {
-    expect(otter).toContain('if (perms.offline && !cloudMode && !!perms.workspaceId) {')
+    // build review round 1, F7: a "This computer" pin keeps its own notice and is never reset by the confirmation
+    expect(otter).toContain("if (perms.offline && libraryMode !== 'local' && !cloudMode && !!perms.workspaceId) {")
+    expect(otter).toContain("const libraryKey = perms.offline && libraryMode !== 'local' ? `${libraryMode}:held` : libraryMode;")
     expect(otter).toContain('This is the library on this computer: your company library could not be reached, and appears when the connection returns.')
   })
   it('the empty list holds the one sentence, with nothing to create from; the sidebar too', () => {

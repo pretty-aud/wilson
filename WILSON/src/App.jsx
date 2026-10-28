@@ -592,8 +592,11 @@ export default function App() {
   const signingOutRef = useRef(null);
   // S2: `notice` is the sign-in screen's one line when the reason is not an
   // expiry — the held sign-in refused on the way back (below), which writes no
-  // auth_events row (event: null).
-  const signOutLocal = useCallback(async ({ event = 'sign_out', notice = null } = {}) => {
+  // auth_events row (event: null). `keepStore`: the client module has already
+  // cleared the stored session if it still held the refused token, and a
+  // newer one another tab saved is not this sign-out's to remove (build
+  // review round 1, F6).
+  const signOutLocal = useCallback(async ({ event = 'sign_out', notice = null, keepStore = false } = {}) => {
     if (signingOutRef.current) return signingOutRef.current;
     const run = (async () => {
       // 🚨 A3: THE CACHED PET LEAVES WITH THE PERSON.
@@ -613,7 +616,7 @@ export default function App() {
       bootOwnerRef.current = null;
       const expiry = EXPIRE_REASONS.includes(event) ? event : null;
       setSignedOutNotice(notice ?? (expiry ? describeSessionExpiry(expiry) : ''));
-      await clearSession();
+      if (!keepStore) await clearSession();
       // S1: and the client module's latch, so a refresh that lands later (the
       // SDK's signOut below can queue behind a hung session check and run on
       // a dead network) cannot write the ended session back.
@@ -678,8 +681,10 @@ export default function App() {
   // the cloud refused once the connection returned is over — the client module
   // has already cleared the stored session if it still held the refused token.
   // The sign-in screen, with the one line that says why; no auth_events row.
+  // It is told while the hold still names the person, so the sign-out reads
+  // whose pet cache to clear (build review round 1, F3).
   useEffect(() => onHeldSessionRefused(() => {
-    signOutLocal({ event: null, notice: HELD_REFUSED_NOTICE });
+    signOutLocal({ event: null, notice: HELD_REFUSED_NOTICE, keepStore: true });
   }), [signOutLocal]);
 
   // B2 part 2: the idle warning at 25 minutes, sign-out at 30, and the

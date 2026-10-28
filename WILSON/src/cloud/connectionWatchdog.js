@@ -408,12 +408,14 @@ export function createConnectionWatchdog(opts = {}) {
   function evaluate() {
     const t = now()
     const online = isOnline()
-    if (online) {
-      for (const p of pending.values()) {
-        if (p.abortedAt == null && t - p.startedAt >= p.budgetMs) {
-          abort(p, t, cancelledAfter(t - p.startedAt))
-          if (!p.isPing) raise(p.family, t)
-        }
+    for (const p of pending.values()) {
+      // S1: a real request is aborted at its budget only while the browser
+      // says online. S2 (build review round 1): a PING is ours, and is cut at
+      // its budget whatever the browser says — a launch-raised loss is pinged
+      // while it says offline, and one hung ping would block the next.
+      if (p.abortedAt == null && t - p.startedAt >= p.budgetMs && (online || p.isPing)) {
+        abort(p, t, cancelledAfter(t - p.startedAt))
+        if (!p.isPing) raise(p.family, t)
       }
     }
     for (const [family, info] of lostFamilies) {
@@ -465,7 +467,12 @@ export function createConnectionWatchdog(opts = {}) {
         }
         if (entry.family === 'storage') clearFamily(entry.family, t)
         else for (const l of pingListeners) { try { l(entry.family) } catch { /* same rule */ } }
-      } else {
+      } else if (!quiet.get(entry.family)) {
+        // S2 (build review round 1, F2): while quietWhile() is out the answer
+        // does not clear the family: the work it waits on decides (an answer
+        // can hold no session — a 429, a portal's page — and the strip must
+        // not go while the session is still held; launchEnded() clears on a
+        // confirmation).
         clearFamily(entry.family, t)
       }
     }
@@ -597,7 +604,13 @@ export function createConnectionWatchdog(opts = {}) {
     evaluate()
   }
 
-  /** S2 (§11.5, round 1 F8): no ping of `family` until `promise` settles (the re-hydration's request is the question). */
+  /**
+   * S2 (§11.5; design review F8, build review F2): until `promise` settles, no
+   * ping of `family` is sent, and no answer of the family clears it — the
+   * work being waited on (the launch's late restore, the re-hydration) is the
+   * question, and its caller decides: launchEnded() on a confirmation; on
+   * anything else the family stays lost and the pings resume.
+   */
   function quietWhile(family, promise) {
     quiet.set(family, (quiet.get(family) || 0) + 1)
     const done = () => {

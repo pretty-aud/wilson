@@ -864,6 +864,19 @@ describe('S2 — the watchdog\'s launch path (§11.6)', () => {
     expect(m.wd.pendingCount()).toBe(0)
   })
 
+  it('build review round 1, note: a ping hung while the browser says offline is cut at its budget, so the next one can go', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    h.advance(1_000)
+    expect(m.wd.pingsInFlight()).toBe(1)
+    h.advance(PING_BUDGET_MS)
+    await settle()
+    expect(m.wd.pingsInFlight()).toBe(0)
+    h.advance(PING_EVERY_MS)
+    expect(m.calls.filter((c) => c.input === `${BASE}/auth/v1/health`)).toHaveLength(2)
+  })
+
   it('launchedOffline: the strip at once, with the browser OFFLINE, and the ping sent anyway', async () => {
     const h = harness({ online: false })
     const m = make(h)
@@ -879,7 +892,7 @@ describe('S2 — the watchdog\'s launch path (§11.6)', () => {
   it('CONTROL: S1\'s own loss is never pinged while the browser says offline', async () => {
     const h = harness()
     const m = make(h)
-    m.fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' })
+    m.fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' }).catch(() => {})
     h.advance(WATCHDOG_BUDGET_MS)   // aborted, lost
     expect(m.wd.lostFamilies()).toEqual(['auth'])
     const before = m.calls.length            // the request and its first ping, sent at the raise
@@ -902,12 +915,12 @@ describe('S2 — the watchdog\'s launch path (§11.6)', () => {
     const h = harness()
     const m = make(h)
     m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
-    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY })
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).catch(() => {})
     m.calls.at(-1).resolve({ status: 200 })
     await settle()
     expect(m.wd.getPhase()).toBe('ok')
     expect(m.recovered).toEqual(['auth'])
-    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY })
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).catch(() => {})
     h.advance(WATCHDOG_BUDGET_MS + RELOAD_AFTER_MS)
     expect(m.wd.getPhase()).toBe('reload')
   })
@@ -926,7 +939,7 @@ describe('S2 — the watchdog\'s launch path (§11.6)', () => {
     const h = harness()
     const m = make(h)
     m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
-    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY })
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).catch(() => {})
     m.wd.launchEnded()
     expect(m.wd.getSnapshot()).toBe(true)
   })
@@ -934,7 +947,7 @@ describe('S2 — the watchdog\'s launch path (§11.6)', () => {
   it('CONTROL: launchEnded with no launch-raised loss leaves S1\'s loss alone', () => {
     const h = harness()
     const m = make(h)
-    m.fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' })
+    m.fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' }).catch(() => {})
     h.advance(WATCHDOG_BUDGET_MS)
     m.wd.launchEnded()
     expect(m.wd.lostFamilies()).toEqual(['auth'])
@@ -1047,7 +1060,11 @@ describe('S2 — the offline launch through auth-js as installed: a GET /user th
     auth.onAuthStateChange((e) => events.push(e))
     const held = { access_token: token(3000), refresh_token: 'r1' }
     wd.launchedOffline({ origin: BASE, apikey: 'k' })
-    wd.onPingAnswered((family) => { if (family === 'auth') wd.quietWhile('auth', rehydrateSession({ auth, held })) })
+    // as supabaseClient.js does: the re-hydration is the question (quiet), and its caller decides
+    wd.onPingAnswered((family) => {
+      if (family !== 'auth') return
+      wd.quietWhile('auth', rehydrateSession({ auth, held }).then((r) => { if (r.outcome === 'online') wd.launchEnded() }))
+    })
     expect(wd.getPhase()).toBe('reconnecting')
     await vi.advanceTimersByTimeAsync(PING_EVERY_MS * 2)
     expect(wd.getPhase()).toBe('reconnecting')
@@ -1057,6 +1074,51 @@ describe('S2 — the offline launch through auth-js as installed: a GET /user th
     expect(events).toContain('SIGNED_IN')
     expect(wd.getPhase()).toBe('ok')
     expect((await auth.getSession()).data.session?.access_token).toBe(held.access_token)
+  })
+
+  it('build review round 1, F2: an answer that holds no session (a 429) keeps the session held and the strip up, and the next answered ping asks again', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    const rateLimited = (input, init) => {
+      const path = new URL(String(input)).pathname
+      if (state.limit && path.endsWith('/user')) { state.requests.push({ path, method: 'GET' }); return Promise.resolve(json({ code: 429, error_code: 'over_request_rate_limit', msg: 'slow down' }, 429)) }
+      return fetch(input, init)
+    }
+    state.limit = true
+    const auth = client(wd.wrapFetch(rateLimited))
+    const held = { access_token: token(3000), refresh_token: 'r1' }
+    let confirmed = false
+    wd.launchedOffline({ origin: BASE, apikey: 'k' })
+    wd.onPingAnswered((family) => {
+      if (family !== 'auth') return
+      wd.quietWhile('auth', rehydrateSession({ auth, held }).then((r) => { if (r.outcome === 'online') { confirmed = true; wd.launchEnded() } }))
+    })
+    await vi.advanceTimersByTimeAsync(1_000)                 // the first ping answers; GET /user: 429
+    expect(state.count('/user')).toBe(1)
+    expect(wd.getPhase()).toBe('reconnecting')                // the 429 is an answer, and it cleared nothing
+    expect(confirmed).toBe(false)
+    state.limit = false
+    state.user = true
+    await vi.advanceTimersByTimeAsync(PING_EVERY_MS + 500)   // the next answered ping asks again
+    expect(state.count('/user')).toBe(2)
+    expect(confirmed).toBe(true)
+    expect(wd.getPhase()).toBe('ok')
+  })
+
+  it('CONTROL for F2: without quietWhile the same 429 clears the strip while the session is still held', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    const rateLimited = (input, init) => (new URL(String(input)).pathname.endsWith('/user')
+      ? Promise.resolve(json({ code: 429, msg: 'slow down' }, 429))
+      : fetch(input, init))
+    const auth = client(wd.wrapFetch(rateLimited))
+    wd.launchedOffline({ origin: BASE, apikey: 'k' })
+    wd.onPingAnswered((family) => { if (family === 'auth') rehydrateSession({ auth, held: { access_token: token(3000), refresh_token: 'r1' } }) })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(state.count('/health')).toBeGreaterThanOrEqual(1)
+    expect(wd.getPhase()).toBe('ok')                          // the strip gone, nothing confirmed: the stuck hold F2 found
   })
 
   it('CONTROL: the same stalled GET /user through a wrapper that cannot abort (no watchdog) leaves the late restore pending after minutes', async () => {

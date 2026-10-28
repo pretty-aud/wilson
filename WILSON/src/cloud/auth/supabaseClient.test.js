@@ -18,7 +18,7 @@
 // app-wide instance replaced by a hand-driven one (its wrapper passes through).
 // =============================================================================
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const captured = vi.hoisted(() => ({ fetch: null, listeners: [], getSession: null, signOut: null, setSession: null, from: null, head: null }))
 vi.mock('@supabase/supabase-js', () => ({
@@ -313,5 +313,105 @@ describe('S2 — the session held at an offline launch', () => {
     expect(captured.signOut).toHaveBeenCalledTimes(2)      // and the session it gave the SDK is dropped
     fire('SIGNED_IN', savedSession({ sid: 'a-new-sign-in' }))   // CONTROL: a real new sign-in is a sign-in
     await expect(anonRead()).rejects.toThrow(/session check failed/)
+  })
+})
+
+// ── S2, build review round 1 (F2–F5, F8): the corrections, each pinned ──────
+describe('S2 — build review round 1', () => {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const savedSession = ({ sid = 'held-sid' } = {}) => {
+    const now = Math.floor(Date.now() / 1000)
+    const claims = { sub: 'u-held', session_id: sid, exp: now + 3000, amr: [{ method: 'password', timestamp: now - 3600 }], app_metadata: { workspace_id: 'w1', app_role: 'user' } }
+    return { access_token: `${b64({ alg: 'ES256' })}.${b64(claims)}.sig`, refresh_token: 'held-refresh', expires_at: now + 3000, user: { id: 'u-held' } }
+  }
+  const held = async () => (await import('./heldSession')).heldSession()
+  const apiError = (status) => Object.assign(new Error(`status ${status}`), { name: 'AuthApiError', status })
+  afterEach(() => { vi.useRealTimers() })
+
+  /** A launch whose SDK restore outlives the 10 s ceiling; returns the hand that settles it. */
+  async function launchPastTheCeiling(saved) {
+    vi.useFakeTimers()
+    wd.launchProbe = vi.fn(async () => true)
+    let settleRestore
+    captured.setSession = vi.fn(() => new Promise((res) => { settleRestore = res }))
+    const p = mod.hydrateSupabase(saved, { holdOffline: true })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await p).toBe(saved)
+    vi.useRealTimers()
+    return (r) => settleRestore(r)
+  }
+
+  it('F8: the late restore is covered — quiet while it is out; a late session confirms and lowers the launch\'s loss', async () => {
+    const saved = savedSession()
+    const settle = await launchPastTheCeiling(saved)
+    expect(wd.quietWhile).toHaveBeenCalledWith('auth', expect.any(Promise))
+    expect(await held()).toBe(saved)
+    settle({ data: { session: { ...saved } }, error: null })
+    await tick(); await tick()
+    expect(await held()).toBeNull()
+    expect(wd.launchEnded).toHaveBeenCalled()
+  })
+
+  it('F8: a late refusal ends the hold through App, the store cleared while it still holds the refused token', async () => {
+    const saved = savedSession()
+    stored.loadSession = vi.fn(async () => ({ refresh_token: 'held-refresh' }))
+    const refused = vi.fn()
+    mod.onHeldSessionRefused(refused)
+    const settle = await launchPastTheCeiling(saved)
+    settle({ data: { session: null }, error: apiError(401) })
+    await tick(); await tick(); await tick()
+    expect(refused).toHaveBeenCalledTimes(1)
+    expect(stored.clearSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('F2/F8: a late answer that is neither (a 429) keeps the session held, and the launch\'s loss up', async () => {
+    const saved = savedSession()
+    const settle = await launchPastTheCeiling(saved)
+    settle({ data: { session: null }, error: apiError(429) })
+    await tick(); await tick()
+    expect(await held()).toBe(saved)
+    expect(wd.launchEnded).not.toHaveBeenCalled()
+  })
+
+  it('F3: App is told while the hold still names the person (its sign-out reads whose pet cache to clear)', async () => {
+    const saved = savedSession()
+    await mod.hydrateSupabase(saved, { holdOffline: true })
+    stored.loadSession = vi.fn(async () => ({ refresh_token: 'held-refresh' }))
+    captured.setSession = vi.fn(async () => ({ data: { session: null }, error: apiError(403) }))
+    const { heldSession } = await import('./heldSession')
+    const seen = []
+    mod.onHeldSessionRefused((s) => { seen.push({ arg: s, heldThen: heldSession() }) })
+    wd.ping[0]('auth')
+    await tick(); await tick(); await tick()
+    expect(seen).toHaveLength(1)
+    expect(seen[0].heldThen).toBe(saved)                   // the hold still named the person when App was told
+    expect(seen[0].arg).toBe(saved)
+    expect(await held()).toBeNull()                         // and it ended right after, nobody else ending it
+  })
+
+  it('F4: a sign-out aborts the held work\'s own GET /user, and the sign-in\'s own requests are never joined', async () => {
+    const saved = savedSession()
+    await mod.hydrateSupabase(saved, { holdOffline: true })
+    let finish
+    captured.setSession = vi.fn(() => new Promise((res) => { finish = res }))
+    wd.ping[0]('auth')                                      // the re-hydration is out
+    await captured.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: { apikey: ANON } })
+    const userInit = base.mock.calls.at(-1)[1]
+    expect(userInit.signal).toBeDefined()
+    expect(userInit.signal.aborted).toBe(false)
+    await captured.fetch(`${BASE}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: ANON }, body: '{}' })
+    expect(base.mock.calls.at(-1)[1].signal).toBeUndefined()   // a sign-in's request: never the held work's
+    mod.endSessionLocally()
+    expect(userInit.signal.aborted).toBe(true)
+    finish({ data: { session: null }, error: Object.assign(new Error('aborted'), { name: 'AuthRetryableFetchError', status: 0 }) })
+    await tick(); await tick()
+    expect(wd.launchEnded).toHaveBeenCalled()               // F5: lowered once the aborted request has settled
+    await captured.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: { apikey: ANON } })
+    expect(base.mock.calls.at(-1)[1].signal).toBeUndefined()   // the work over: nothing joined any more
+  })
+
+  it('CONTROL for F4: with no held work out, GET /user goes as it always did (no signal added)', async () => {
+    await captured.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: { apikey: ANON } })
+    expect(base.mock.calls.at(-1)[1].signal).toBeUndefined()
   })
 })

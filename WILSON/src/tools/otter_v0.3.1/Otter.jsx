@@ -672,8 +672,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // launch also decides: while it is held the routes reach this computer's
   // library (the desktop) or nothing (the web), and its confirmation turns
   // them to the company's — the same slug-space change as a switch, so the
-  // same reset and re-list, without unmounting anything.
-  const libraryKey = perms.offline ? `${libraryMode}:held` : libraryMode;
+  // same reset and re-list, without unmounting anything. Not under a "This
+  // computer" pin (build review round 1, F7): the routes stay on this
+  // computer's library either side of the confirmation.
+  const libraryKey = perms.offline && libraryMode !== 'local' ? `${libraryMode}:held` : libraryMode;
   const lastLibraryModeRef = useRef(libraryKey);
   useEffect(() => {
     if (lastLibraryModeRef.current === libraryKey) return;
@@ -4028,7 +4030,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch.
     // This computer's library works offline, so it shows — and says why, with
     // no way to the company library to offer until the connection returns.
-    if (perms.offline && !cloudMode && !!perms.workspaceId) {
+    // A "This computer" pin keeps its own notice (build review round 1, F7).
+    if (perms.offline && libraryMode !== 'local' && !cloudMode && !!perms.workspaceId) {
       return (
         <Banner tone="info" Icon={CloudOff} className="otter-banner">
           This is the library on this computer: your company library could not be reached, and appears when the connection returns.

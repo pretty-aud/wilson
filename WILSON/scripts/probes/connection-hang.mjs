@@ -602,9 +602,13 @@ async function rehydrationCase() {
   const phases = []
   wd.subscribe((lost, phase) => phases.push({ at: Date.now(), lost, phase }))
   let rehydrated = null
+  // As supabaseClient.js does: the re-hydration is the question (no ping, no
+  // clear while it is out), and its caller decides — launchEnded() on a
+  // confirmation (build review round 1, F2).
   wd.onPingAnswered((family) => {
     if (family !== 'auth' || rehydrated) return
     rehydrated = rehydrateSession({ auth: sb.auth, held: saved })
+      .then((r) => { if (r.outcome === 'online') wd.launchEnded(); else rehydrated = null; return r })
     wd.quietWhile('auth', rehydrated)
   })
   log(`G+: the way back — held (${r.outcome}, ${r.reason}) at ${heldMs} ms; phase ${wd.getPhase()}`)

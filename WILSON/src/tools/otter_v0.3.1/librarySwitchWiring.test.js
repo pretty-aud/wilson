@@ -133,7 +133,8 @@ describe('switching libraries throws away the other library state', () => {
   it('S2: the confirmation of a sign-in held offline is a switch too — the key carries the held state', () => {
     // On the desktop the held session shows this computer's library and its
     // confirmation the company's: a slug-space change, so the same reset.
-    expect(effect).toContain('const libraryKey = perms.offline ? `${libraryMode}:held` : libraryMode;')
+    // (not under a "This computer" pin: the routes stay local either side — build review round 1, F7)
+    expect(effect).toContain("const libraryKey = perms.offline && libraryMode !== 'local' ? `${libraryMode}:held` : libraryMode;")
     expect(effect).toContain('const lastLibraryModeRef = useRef(libraryKey);')
   })
 
@@ -189,7 +190,7 @@ describe('switching libraries throws away the other library state', () => {
     // S2: seeded from the current key, which is the current mode (with `:held`
     // while a sign-in is held offline): still never a constant.
     expect(effect).toContain('useRef(libraryKey)')
-    expect(effect).toContain('const libraryKey = perms.offline ? `${libraryMode}:held` : libraryMode;')
+    expect(effect).toContain("const libraryKey = perms.offline && libraryMode !== 'local' ? `${libraryMode}:held` : libraryMode;")
   })
 })
 
