@@ -150,6 +150,9 @@ export type PlatformAuditFields = {
     | 'blob.purged'
     | 'ai_key.set'
     | 'ai_key.cleared'
+    // P8 (TPN-ENC-015; migration 0106 widens the CHECK): the master secrets'
+    // re-seal, carrying counts and the version, never a value.
+    | 'secret.resealed'
     | 'operator.granted'
     | 'operator.revoked'
     // Session 20 — the model control plane

@@ -284,6 +284,23 @@ before the release (walkthrough 85 Q1, (a), 2026-10-28), and production is the c
 secrets and 0 AI keys, a fresh value there orphans nothing. The value is made and set as the gateway's is below. Phase 8's session
 plans the other two environments with the controller (`TPN_AUDIT/REMEDIATION_PLAN.md`: a re-seal where ciphertexts exist).
 
+**The re-seal on dev and staging** (P8, night 5, 2026-10-28; the code reads a secret by version: the unsuffixed name is version 1,
+`_V2` to `_V9` the rest, the highest present seals new rows, and a row is opened under the version its envelope names). Each
+secret separately, dev first, then staging, and nothing on production (it gets a fresh version-1 value above, with no rows to
+move): (1) `supabase secrets list --project-ref <ref>` and note the digest beside the name; (2) make and set the NEXT version
+without showing it — the two lines of *Setting what production lacks* with the name `WILSON_AI_KEY_SECRET_V2` (then
+`WILSON_STORAGE_KEY_SECRET_V2`); (3) redeploy every reader of that secret on that environment and wait for each deploy
+CONFIRMED before going on — the AI key's: `ai-proxy`, `ai-files`, `operator-ai-keys`; the bucket secret's: `storage-presign`,
+`storage-gc`, `storage-read-urls`, `storage-secret`, `operator-ai-keys`. A reader built before P8 fails at `atob` on a `v2.`
+envelope, and `ai-proxy`'s own catch would then route every company to the platform key; (4) `/wilsonadmin` → **Secrets**: the
+card shows the versions set and the rows under each; press **Re-seal** and confirm: every row is opened under the version its
+envelope names and sealed again under `_V2`, and one `platform_audit` row, `secret.resealed` (WIL-7013), carries the counts;
+(5) verify: the card reads every row under version 2, and one working proof as in the digest procedure above (a company key used
+by a generation; a bucket secret's **Test**); (6) `supabase secrets unset WILSON_AI_KEY_SECRET --project-ref <ref>` (then the
+storage name): the readers take the store's names at call time, so nothing is redeployed; (7) `supabase secrets list` on each
+environment: the digest beside `_V2` differs between dev and staging, production holds its own version-1 value, and the old name
+is gone from dev and staging. A later rotation is the same with `_V3`.
+
 **The digest procedure** ([OWED] §5, §9 C2). `supabase secrets list --project-ref <ref>` prints each name with a digest of its
 value, never the value. Run it for production and for staging and compare the digest beside each name. **A matching digest proves
 the value is the same, not that it works** ([OWED] §9 C2), so each secret gets its working proof once a signed-in person exists

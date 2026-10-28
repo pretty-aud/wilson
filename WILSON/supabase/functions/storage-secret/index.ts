@@ -36,7 +36,7 @@ import { corsHeaders, reply, requireWorkspaceAdmin, logAdminEvent } from '../_sh
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import {
   encryptStorageSecret, decryptStorageSecret, storageKeyHint,
-  storageSecretCryptoConfigured,
+  storageSecretCryptoConfigured, storageSecretCurrentVersion,
 } from '../_shared/storageSecretCrypto.ts'
 import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
 // P8 (TPN-NET-016): every request to the bucket goes to a VETTED public
@@ -127,7 +127,7 @@ Deno.serve(async (req: Request) => {
       workspace_id: ctx.workspaceId,
       secret_ciphertext: ciphertext,
       key_hint: hint,
-      key_version: 1,
+      key_version: storageSecretCurrentVersion() ?? 1, // P8 (TPN-ENC-015): the version the envelope names
       updated_at: new Date().toISOString(),
       updated_by: ctx.callerId,
     }, { onConflict: 'workspace_id' })

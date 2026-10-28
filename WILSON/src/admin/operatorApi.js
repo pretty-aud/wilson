@@ -321,6 +321,19 @@ export function sweepAiFiles() {
   return callOperatorFn('operator-ai-files', { action: 'sweep' })
 }
 
+// P8 (TPN-ENC-015): the two master secrets' versions and the re-seal, through
+// operator-ai-keys. Names and counts come back; never a value.
+
+/** Which versions this environment holds and how many rows each table has under each. */
+export function secretsStatus() {
+  return callOperatorFn('operator-ai-keys', { action: 'secrets_status' })
+}
+
+/** Re-seal every row of one domain ('ai' | 'storage') under the current version. */
+export function resealSecret(secret) {
+  return callOperatorFn('operator-ai-keys', { action: 'reseal', secret })
+}
+
 /** True when the function isn't deployed in this environment yet. */
 export function isMissingFunction(result) {
   return result?.status === 404 && !result?.data?.error
