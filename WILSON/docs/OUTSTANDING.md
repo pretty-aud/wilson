@@ -76,32 +76,31 @@ lookup's throw, so a database hiccup read as "Network error") and fixed it.
 Walkthrough `docs/walkthroughs/02_setup_link.md` is hers; the bundle merges
 after her report.
 
+### The TPN re-audit of 2026-10-28 reports eleven High in the file gateway, bins, own storage and the AI file store
+**MEASURED (from the code; R2, 2026-10-28; report only, nothing changed).** `docs/sessions/PLAN_TO_1_0.md` §0 item 4 holds the
+controller's production steps until "the TPN re-audit reports nothing High". It reports eleven (`TPN_AUDIT/SUMMARY.md`, *Release
+gate*), each with its file and line and a fix shape in `TPN_AUDIT/FINDINGS.md`. Eight are the areas' own defects: TPN-AUTH-012 (a
+member's catalogue row makes the file gateway serve any file on the share), TPN-NET-016 (the bucket test and the storage-gc drain
+fetch an admin's S3 endpoint with no private-address refusal, following redirects), TPN-ENC-015 (the bucket-secret and AI-key
+master secrets are the same on all three environments), TPN-ENC-014 (the gateway's keys and credential in plaintext in its
+container, and on Windows after a DPAPI failure), TPN-CONT-018 (a teardown leaves bin posters behind its certificate), TPN-ENC-013
+(the office door's certificates name private addresses), TPN-ENC-016 (the gateway's root key lives ten years, and its release key
+has no successor), TPN-AI-009 (staging's and production's pre-FX12 AI uploads, closed only by the release's own steps). Three are
+the areas' own instances of open classes: TPN-AUTH-013 (the outside switch, the gateway's admin calls and the bucket settings skip
+the two-factor step-up), TPN-CONT-019, TPN-AI-011 (ai-files falls back to the platform key when a company's own key fails). Her G6
+and D14 make TPN-LOG-012 and TPN-SDLC-014 INFO, outside the gate. Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md` is the work. →
+**Audrey's ruling, per finding** (walkthrough 85, Q1 and Q2, which propose that her ruling stand for "nothing High"): fixed before
+1.0, or accepted for 1.0 with the reason written into the finding.
+**→ Q1 ruled on 2026-10-28** (Audrey, in chat, verbatim): *"(a) — one session fixes the other seven before the release (Phase 8),
+and I accept TPN-AI-009 for the start of the production steps, since it closes at the runbook's (c) and (g) 17 before 9 November."*
+TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013 and TPN-ENC-016 are fixed before the release by one
+session on Phase 8, which the controller names (`docs/sessions/PLAN_TO_1_0.md` §5 rule 8); TPN-AI-009 is accepted for the start
+of the production steps, her words in its block. **Q2 waits** (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011), and the runbook's (g) 8
+with it.
+
 ---
 
 ## Broken features
-
-### On the desktop, the browser's own storage most likely starts empty at every launch
-**INFERRED (VW1's research, 2026-10-13; from the code and the handbook's
-§14, not measured by relaunching the packaged app).** The desktop's local
-server listens on port 0 (`electron/main.cjs`, `expressApp.listen(0, …)`)
-and the window loads `http://127.0.0.1:<that port>`; a browser keeps
-`localStorage` per origin, port included, so each launch should start with an
-empty store. What lives there today and would reset: the Scenes tab's
-remembered shot list (`rabbit_scene_viewed_lists`), the unsaved edit copies
-(`rabbit_edit_drafts`), Budget's and Team's saved views, the Timeline's
-settings and collapsed phases, the holidays, and (since VW1m, 2026-10-16) the
-task window's Sort for its items. (The five tables' saved views
-move into the project with VW1.) *(2026-10-25, VW1d: the Tasks table's
-views and the last view each person used are no longer there: the views
-are the project's (in the cloud, or signed out in the project's own data on
-the desktop) and the last used view the person's (signed out, the machine's
-settings file), and the old key is removed (Q17). A change for now is held in memory,
-for as long as WILSON is open, on purpose (Q3b).)* *(2026-10-25, VW1e: the
-same for the Assets, Levels, Experiences, Scenes and Shots tables; their old
-keys are removed when each table first loads.)* Would settle it: change one of them in the
-packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
-protocol or a remembered port), or these stores moved into the machine's
-settings file.
 
 ### Budget's Expenses: the *Linked task* filter calls every task "Untitled", and the saved views go stale after a project switch
 **INFERRED (VW1's research, 2026-10-13; from the code).** The filter's task
@@ -291,7 +290,18 @@ walked in 33–44 ms over the stood-up share. Settle it by timing a folder of a
 few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
 worker thread, as the root question now is.
 
-### The desktop→cloud migration does not carry budgets, expenses, levels, experiences, the team or links on tasks yet (part 2)
+### ~~The desktop→cloud migration does not carry budgets, expenses, levels, experiences, the team or links on tasks yet (part 2)~~ — CLOSED for part 2 (M2, 2026-10-28); the team is night 5's (M2-L1)
+**Closed by M2 (night 4, `po/m2-migration-part-2`), MEASURED:** every part-2
+row shape was rehearsed on wilson-dev first, rolled back, and the runner
+carries each through the cloud's columns — the bid versions after the shot
+lists, the lines, the actuals on them, the expenses and the role rates behind
+the money gate, then the project's locked and open bid versions by UPDATE
+(each only to a version this run carried for this project); the levels and
+experiences before the assets, folders, files, a task's items and the
+groupings that name them; the links on tasks through the project's tasks.
+Pinned by the round trip in `runMigrationBins.test.js` (M2), the handbook's
+§3.1 table says what each key becomes. Night 5 (M3) carries what is left:
+M2-L1 below. The entry as it stood:
 **INFERRED (BC3, 2026-10-09); narrowed by M1 (2026-10-27, night 3 of
 `docs/sessions/PLAN_TO_1_0.md`), which carries the key dates, comments, shot
 lists with their items and edits, and folders.** The runner copies projects
@@ -336,7 +346,23 @@ same refusal to the CHECK through a small SQL function (PostgreSQL's regex
 has no Unicode-property classes; the function tests the code points), and
 the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
 
-### A second desktop→cloud migration brings back rows a teammate removed from the cloud
+### ~~A second desktop→cloud migration brings back rows a teammate removed from the cloud~~ — CLOSED by M2's record (2026-10-28), narrowed to rows a build before M2 carried
+**Closed by M2, the fix shape below, MEASURED by the round trip:** each run
+adds the ids it carried to a record kept in the project's bundle on this
+computer (`cloudMigration`, per workspace, through the desktop's route
+`POST /api/rabbit/projects/:id/cloud-migration-record`, written as rows land,
+never before), and a later run — and the dry run — never inserts an id the
+record holds: one the cloud no longer shows is counted, named and said
+(`REMOVED_SINCE_LAST_RUN`), whether a teammate removed it for good or into
+the trash. `runMigrationBins.test.js` "M2: a second run brings back nothing
+a teammate removed": run, remove a budget line, a level, a task, a clip, a
+key date and a link on a task in the fake cloud, run again — none comes back;
+red without the record (its CONTROL). **What remains (narrowed):** a row a
+build before M2 carried has no record, so the first M2 run brings it back if
+a teammate removed it; and the last rows of a run that stopped part way are
+recorded by the next run, which finds them there (a removal in between brings
+one back). Settle the first by migrating with M2 from the start. The entry as
+it stood:
 **INFERRED (BC3 review round 1, 2026-10-09; read from `src/cloud/migrate/runMigration.js`
 `insertOrSkip`).** The runner is idempotent by KEY: a row already in the
 cloud is skipped (23505), a row not there is inserted — for every table it
@@ -952,6 +978,18 @@ fails. Not scheduled.
 
 ### A BYO workspace's thumbnails have no browser preview — deliberate, deferred to its own session
 
+✅ **CLOSED FOR s3 BY P1 (2026-10-28, `po/p1-own-storage-previews`), narrowed to
+the live proof and the NAS half.** The three deferred pieces below are built as
+one, as this entry said they would be: a GET-only batch signer,
+`storage-read-urls` (100 keys and 2 projects a call; the row checked as the
+caller; money refused), a longer media expiry (a stream 3600 s, a thumbnail
+3600 s, a body read once 300 s), and `getUrl` in `REQUIRED` with all three
+providers meeting it. FileManager signs an s3 row's preview in the company's
+bucket and renews it while it is shown; the Files tab previews and plays an
+s3 file. What remains: the live check on Audrey's test bucket (OSP-06), and
+the NAS half, which is the `network` entry below. `NETWORK_STORAGE_DESIGN.md`
+§9.
+
 **The compliance half is FIXED (S44, migration 0054).** A thumbnail is now
 written to, and disposed of at, the provider its body went to; the entry that
 stood here — *"a BYO workspace's thumbnails are written to Petal storage"* — is
@@ -1039,7 +1077,9 @@ can tell an old key from a new one. For an s3 `files` row created *before* 0054,
 all three layers are wrong at once:
 
 1. **Display** — excluded by the provider filter, so a preview that *is*
-   signable stops being shown.
+   signable stops being shown. (P1, 2026-10-28: display now asks the
+   customer's bucket for that key, finds nothing there, and shows the same
+   icon — the outcome is unchanged and the rule below stands.)
 2. **Teardown** — excluded from the Petal sweep (left behind) **and** counted in
    `byo_thumbnails_left` as if it were in the customer's bucket.
 3. **`storage-gc`** — the worst: 0054 enqueues it as `byo-s3`/`s3`, the drain
@@ -1065,6 +1105,17 @@ filesystem has no cloud thumbnail path in either direction. **"A thumbnail lives
 where its source lives" is therefore a uniform RULE whose OUTCOME is not
 uniform**, and the desktop's own `sharp` cache is what serves people sitting
 next to the media.
+
+**Measured one level up by P1 (2026-10-28):** a `network` workspace has no
+cloud row for its media at all — it is recorded in the desktop's Local Server
+mode, and `uploadFile` refuses it on the cloud — so the browser has nothing to
+list, let alone preview. Its file panels now say so in one sentence (on the
+cloud backend, while the workspace's active provider is `network`). Whether
+those files are ever listed in the cloud (the file staying on the server, as
+a Bins clip is) is Audrey's Q1 in walkthrough 85, P1, asked for night 5's M3,
+which carries a desktop's managed files and on such a workspace would be
+refused; pictures would follow her B4 rule (Q2). `NETWORK_STORAGE_DESIGN.md`
+§9.4.
 
 ---
 
@@ -1266,6 +1317,9 @@ figures — `bytes` 524,288 where 1,048,593 is expected, `fraction` 0.5 — in R
 tests run 40617232593's Vitest job on `ae80e2c4`, a branch that touches
 nothing under `gateway/`; it was the job's one failing test (the run's
 annotations). Twice now on CI, never on a Windows run of the suite.)*
+*(D1, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5) in RLS tests run 40661289297's Vitest job on `8221b1a8`, a docs-only commit (D1's hand-off) whose code is `f6ca0cf1`'s, which passed in run 40660619075; the job's one failing test by its annotations. D1 touches nothing under `gateway/`. Three times now on CI.)*
+*(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40666541669's Vitest job on `fcb28123`, R2's merge-in of P1 and D1, whose tree passed the full suite locally (418 files, 10,542 passed, 9 skipped); the job's one failing test by its annotations, the run's other three jobs green. Nothing under `gateway/` changed since `51e5a0d7`. Four times now on CI.)*
+*(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40735566652's Vitest job on `db120984`, the integration branch's merge of R2's record of her Q1 ruling. Its tree is byte for byte `6281d995`'s, which passed all four jobs in run 40734158776 just before, so the same tree has passed and failed on the runner; its other three jobs green, and nothing under `gateway/` changed since `51e5a0d7`. Five times now on CI.)*
 
 ---
 
@@ -1275,6 +1329,10 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul R2 (2026-10-28; `po/r2-release-readiness` into `feat/post-overhaul-edit-versioning`) — release readiness (`docs/sessions/PLAN_TO_1_0.md` night 4), documents and an audit only, two review rounds: `docs/PRODUCTION_RUNBOOK.md` (new: the controller's ordered production steps, each with its proof), `docs/RELEASE_TESTING.md` rewritten against the code, `CHANGELOG.md`'s 1.0.0 entry rewritten and dated Unreleased, and the read-only TPN re-audit of the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/`: twenty findings opened, eleven of them High in the release gate, the 2026-08-05 design review's eleven merged, two of them renumbered) | **Two entries:** *The TPN re-audit of 2026-10-28 reports eleven High …* (under Security) and R2-01, the workspace takeout's missing tables (its own section at the end). Three entries carry a dated note of what the controller's kit records on staging and where production's step is: S4b-02, S4c-10, FX12-01. | **Nothing.** |
+| Post-overhaul M2 (2026-10-28; `po/m2-migration-part-2` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 2 (`docs/sessions/PLAN_TO_1_0.md` night 4): every part-2 row shape rehearsed on wilson-dev first (rolled back); the budgets behind the money gate (versions, lines, actuals, expenses, role rates, the two pointers, receipts kept money), the levels and experiences with what names them, the links on tasks; the phases', assets' and tasks' own checks; the second run's record; migration **0103** (the desktop's three statuses, her ruling of 2026-10-28) and suite **106**, on wilson-dev only; a cleared Director or Producer sent as NULL; two review rounds | M2-L1 (night 5's kinds, for M3), M2-L2 (`upsertTaskLink` sends `project_id`; measured, unreachable today), M2-L3 (a dry run on a cloud without 0103), and from review round 1 M2-L4 (receipts an earlier build left open, said every run), M2-L5 (crew lines out of the Crew tab until night 5), M2-L6 (what the dry run does not foresee), M2-L7 (a removed picture, unreachable), M2-L8 (the id trusted where no read can tell), and from review round 2 M2-L9 (three record rules that are choices) | the part-2 entry and the resurrection entry (closed, the second narrowed); M1-L3, M1-L4 and M1-L5 closed; M1-L1 and M1-L2 to night 5 (M2-L1). |
+| Post-overhaul D1 (2026-10-28; `po/d1-desktop-storage-across-relaunch` into `feat/post-overhaul-edit-versioning`) — the desktop keeps its stored state across a relaunch (`docs/design/RECONNECT_DESIGN.md` §12; her ruling of 2026-10-28, *"Fix it in 1.0, a session tonight (Recommended)"*, a fourth session on night 4): measured first (two launches of a development build, a new origin each), designed, the design reviewed on Opus (the Fable call refused, out of usage credits), built: the 4-hour cap from the token's own sign-in time at every restore (`start()` takes the earlier of its record and the `amr`; a fresh sign-in passes none), the renderer's `localStorage` kept in userData (`electron/rendererStorage.cjs`: the launch's first load made exactly the kept keys before the page's first script, written back once a second, when hidden and at `pagehide`; never the session, the idle clocks or tus fingerprints; a file Windows holds at launch never written over); the origin, the token, the cookie and the lock untouched; two build review rounds; walkthrough 85's D1 section | **D1-01** (security, there before D1: a page the main window is sent to, a dropped file's, is handed the preload's bridges; measured), **D1-02** (after a sleep the first key counts before the idle clock judges the absence; measured) | **S2-01** (closed by measurement: on the build a relaunch keeps the sign-in's start, 119.9 minutes left where the tip gave a fresh 240, and a relaunch 3 h 56 min after the sign-in shows *Session ending* 0.7 s after it opens, where the tip gave 239.8 minutes and no notice) and ***On the desktop, the browser's own storage most likely starts empty at every launch*** (closed by measurement: five keys written at one launch came back at the next with their values, where the tip kept none; a key written just before a reload or the window's close kept too; R.A.B.B.I.T.'s storage choice and last project were never in it, measured). Comment markers: 4 → 4. |
+| Post-overhaul P1 (2026-10-28; `po/p1-own-storage-previews` into `feat/post-overhaul-edit-versioning`) — browser previews on a workspace's own storage (`docs/sessions/PLAN_TO_1_0.md` night 4; `NETWORK_STORAGE_DESIGN.md` §9): measured first (an s3 row showed icons and an "own bucket" sentence; a NAS workspace's media has no cloud row at all); `storage-read-urls`, a GET-only batch signer (money refused, `can_presign_project_read` once per project, a key signed only when a live s3 row of the caller's, in the key's own project, owns it, read one folder at a time so no filename travels; a thumbnail or one streaming video or audio 3600 s, a body read once 300 s), on wilson-dev only; `getUrl` in `REQUIRED`; FileManager's s3 arm, the Files preview and player for s3 rows; the NAS half's one sentence, Q1–Q2 to Audrey; one design round and two build rounds (Opus, Opus, Fable), 40 failing controls | **OSP-01 to OSP-11** (OSP-08 closed by build round 2): the older signer signs by path; an s3 download is still a Blob; an hour-long clip restarts on its re-mint; rows from before a switch to `network` answer "configure S3"; pre-0076 receipts on s3 are unflagged (a release check); the live check is her test bucket; a writer can make a row vouch for a key in their own project (a migration night); a stale URL after failed renewals; a clip played by MIME alone gets five minutes; the fixtures pass the cloud gate | **The BYO thumbnails entry, closed for s3** (narrowed to the live check and the NAS half); **S4b-02, closed by measurement for dev and staging** (the deployed `storage-presign` downloaded from both is the repository's copy, LEGAL included; production's predates LEGAL). *S44's reversal…* kept true; the `network` entry measured one level up. |
 | Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
@@ -1951,6 +2009,12 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   and `files_money_provider_chk` refuses an s3 row under `LEGAL` once 0088
   is applied. Owner: Audrey (`supabase functions deploy storage-presign`
   on dev, then staging).
+  **Closed by measurement for dev and staging (P1, 2026-10-28):** the
+  deployed `storage-presign` was downloaded from both (dev v5 of 2026-10-02,
+  staging v5 of 2026-10-06) and is the repository's copy byte for byte,
+  LEGAL included. Production's is v3 of 2026-08-08, before LEGAL; production
+  is at 0063, where no LEGAL key exists, and the release runbook redeploys
+  every function there.
 - **S4b-03 · A manager's second window does not see a new invoice or Legal
   file until it reloads.** 0088 stops the realtime broadcast of money
   `files` rows, because the project topic is joined by every project reader
@@ -2553,6 +2617,8 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   Edge Functions from a session: `supabase functions deploy storage-gc`
   on staging, then prod, by Audrey. Until then the walkthrough says to run
   the move with the app open and the network up. Owner: Audrey.
+  *(2026-10-28, R2: the controller's kit records staging at version 12 on 2026-10-12; production holds v8, and
+  `docs/PRODUCTION_RUNBOOK.md` (c) redeploys it.)*
 - **S4c-11 · On the Local Server a rename moves the folder ROWS, never the
   directory.** As before S4c for every entity (the PATCH route's note: the
   old directory is left with whatever is in it, and a managed record stays
@@ -2679,6 +2745,8 @@ S4b-11 are untouched and still hers.
   its sweep. Fix: the deploy, then the operator's sweep (and each company
   admin's card, which also reaches a company's own key) on both, before
   2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
+  *(2026-10-28, R2: the controller's kit records `ai-files` v3 and `operator-ai-files` v1 on staging on 2026-10-26, so staging
+  owes the sweep alone; production's deploy is `docs/PRODUCTION_RUNBOOK.md` (c) and its sweep (g) step 17. TPN-AI-009 tracks it.)*
 
 ## Post-overhaul FX15 (`po/fx15-fx14-leftovers`) — left open (2026-10-26)
 
@@ -2855,31 +2923,47 @@ rules" for the Storage card became the person's own role, read from the saved
 token) and *A failed pet sync is never retried until WILSON is relaunched*
 (`src/lib/petLifecycle.js` `createPetSyncRetry`: 5 s, 15 s, 45 s, 2 min 15 s
 and 5 min, then only on a trigger — the decision its entry asked for is that
-bound). What S2 met and did not fix:
+bound). What S2 met and did not fix, S2-01 (*on the desktop the 4-hour cap
+restarts at every launch*), D1 closed on 2026-10-28 (the session log's D1 row).
 
-- **S2-01 · On the desktop the 4-hour cap restarts at every launch.**
-  MEASURED 2026-10-27 in the desktop app (a development-mode build of
-  `cc6b0e3b`, Electron 33, a scratch userData, every cloud request aborted):
-  the window loads `http://127.0.0.1:<port>` and the port is the local
-  server's `listen(0)` (`electron/main.cjs`, `startLocalServer`), new at every
-  launch, so each launch is a new origin with an empty localStorage; a key and
-  a cap record (`wilson.dev.session.start`) written at one launch were absent
-  at the next (ports 53343, then 53359). `sessionTimeouts.js` keeps the cap's
-  start and the idle clock in localStorage, so `start()` finds no record at a
-  desktop launch and hands the session a fresh four hours: the absolute cap
-  (TPN AS-3.8) holds within one desktop launch and is reset by a relaunch.
-  The web keeps one origin and is not affected. Every other localStorage key
-  on the desktop starts empty at each launch the same way — R.A.B.B.I.T.'s
-  settings among them (`loadRabbitSettings`: the storage backend chosen in
-  App settings and the last open project, so a desktop on the Supabase
-  adapter is back on the Local Server after a relaunch; INFERRED from the
-  same measurement, not walked through). Security-adjacent, for the
-  controller to place (the cap is not S2's brief to change). The offline
-  launch does not lean on the record there: it takes the earlier of the
-  record and the token's own sign-in time (`amr`), `RECONNECT_DESIGN.md`
-  §11.3. Fix shape: keep the cap's start where a relaunch finds it (the main
-  process, beside the encrypted session), or take it from `amr` as the launch
-  does; the idle clock likewise.
+## D1 (2026-10-28, night 4 of `docs/sessions/PLAN_TO_1_0.md`)
+
+The desktop keeps its stored state across a relaunch
+(`docs/design/RECONNECT_DESIGN.md` §12; her ruling of 2026-10-28, *"Fix it in
+1.0, a session tonight"*): the 4-hour cap runs from the token's own sign-in
+time at every restore, and the renderer's `localStorage` is kept in a userData
+file (`electron/rendererStorage.cjs`). Two entries are deleted as fixed, each
+closed by measurement: S2-01 and *On the desktop, the browser's own storage
+most likely starts empty at every launch* (the session log's D1 row). What D1
+met and did not fix:
+
+- **D1-01 · A page the main window is sent to is handed the preload's
+  bridges, the saved session and the local server's token among them.**
+  MEASURED 2026-10-28 in the desktop app (a development build of `16210d45`, a
+  scratch userData, no session saved, the build's cloud a made-up `.invalid`
+  host): the main window sent to a `file://` page, which is what a file
+  dropped outside Bins does (nothing in `electron/` refuses a navigation, and
+  only `BinsView.jsx` handles a drop on the page), ran the preload, and the
+  page could call `window.wilsonSession.load` (it returns the decrypted
+  session) and read `window.electronAPI.localServerToken` (a non-empty string,
+  not printed). D1's own channels refused that page: the key it wrote never
+  reached the kept file. Security, there before D1, not its brief: for the
+  controller to place (her Q1 in walkthrough 85's D1 section). Fix shape: the main window
+  never leaves the launch's origin (`will-navigate` and `will-frame-navigate`
+  refused outside it; a drop outside Bins does nothing), and the bridges'
+  channels answer only that origin, as `acceptsSender` does for D1's.
+- **D1-02 · After a sleep, the first key or pointer counts before the idle
+  clock judges the absence.** MEASURED 2026-10-28 (the core under a fake
+  clock, `sessionTimeouts.js` as it is, in a probe test not kept): two hours
+  with no tick, then `activity()` before any tick — no expiry, the phase
+  `active`; the same two hours with a tick first, or with `visible()` first,
+  end in `idle_timeout`. `activity()` sets the clock before it evaluates and
+  evaluates only while a warning is up, so a computer that slept with WILSON
+  open and visible (no tick and no visibility change in between) carries on
+  after hours idle. TPN AS-3.8's idle timeout; not D1's to change (the brief
+  keeps every rule of `sessionTimeouts.js`): her Q2 in walkthrough 85's D1 section. Fix
+  shape: `activity()` judges the absence first when the last evaluation is
+  older than a tick, as `visible()` does.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
@@ -2925,7 +3009,8 @@ What M1 (night 3: the desktop → cloud migration, part 1) found outside its
 list while taking the inventory of the bundle (the handbook's §3.1 table).
 
 - **M1-L1 · No night of the plan carries asset versions or the desktop's own
-  file store.** The plan's §2 list for *the migration carries everything*
+  file store.** **→ Night 5's (M3): Audrey's ruling of 2026-10-28, "A night
+  after part 2 (Recommended)"; M2-L1 holds the list.** The plan's §2 list for *the migration carries everything*
   names shot lists, edits, folders, comments, milestones, budgets, expenses,
   levels and experiences; a bundle's `assetVersions` (an asset's version
   history) and `managedFiles` (the files FileManager keeps with an asset,
@@ -2939,7 +3024,7 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   live managed file as a `files` row with its body (its folder by its
   `folder_path`, its entity link), after the folders; asset versions after the
   assets and files. Owner: the controller (a line for the plan).
-- **M1-L2 · No migration carries the workspace's rate cards, team members or
+- **M1-L2 · (→ night 5's, M3: Audrey's ruling of 2026-10-28; M2-L1) No migration carries the workspace's rate cards, team members or
   task templates.** `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/`
   are workspace stores; the runner reads projects only
   (`/api/rabbit/projects`), and neither night's brief names them. A desktop's
@@ -2948,7 +3033,10 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   projects (rate cards and their entries, task templates; team members want a
   decision — the cloud's directory seats people with accounts). Owner: the
   controller.
-- **M1-L3 · A desktop file linked to a level or an experience fails until
+- **M1-L3 · ~~CLOSED by M2 (2026-10-28): the levels and experiences land
+  before the files, and a file's level or experience link is kept only to
+  this project's row, let go otherwise (`FILE_LINKS`, measured: the key takes
+  any project's level).~~ A desktop file linked to a level or an experience fails until
   part 2 carries its row.** The runner sends a file's `level_id` /
   `experience_id` as the desktop holds them, and 0043's foreign keys refuse an
   id the cloud does not hold (`files_level_id_fkey`); levels and experiences
@@ -2957,7 +3045,12 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   with one meets it. Fix shape: part 2 carries levels and experiences before
   the files, or lets the link go and says so, as M1 does for a file's link to
   a row removed on this computer. Owner: M2.
-- **M1-L4 · In the browser, a project's status can be set to one the cloud
+- **M1-L4 · ~~CLOSED by M2 (2026-10-28), Audrey's ruling "Add the three to
+  the cloud (Recommended)": migration 0103 adds `draft`, `wrapped` and
+  `inactive` to `project_status` (suite 106: a member saves each of the
+  eight, a reader cannot); the cloud adapter sends a cleared Director or
+  Producer as NULL (`supabaseLoadProject.test.js`, "on the wire"); the
+  migration carries a project's status as it is.~~ In the browser, a project's status can be set to one the cloud
   refuses.** R.A.B.B.I.T.'s project settings offer Draft and Wrapped
   (`ProjectSummaryView.jsx`'s `STATUS_OPTIONS`) and the Projects page offers
   Inactive (`ProjectDetailPanel.jsx`); the cloud's `project_status` has
@@ -2976,7 +3069,11 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   cloud's UUID columns refuse (22P02, measured on wilson-dev), so a cleared
   picker's save is refused in the browser too (INFERRED from the code, not
   clicked); the migration sends such a value empty.
-- **M1-L5 · Phases, assets and tasks go up without an "is it this project's"
+- **M1-L5 · ~~CLOSED by M2 (2026-10-28): this project's phases, assets and
+  tasks are read before they go up (an id another project holds is said, and
+  what names it lets the link go), and each phase link is kept only to this
+  project's phase (measured: the three keys take any project's phase).~~
+  Phases, assets and tasks go up without an "is it this project's"
   check, and their own phase links raw.** Review round 2, outside M1's list.
   The runner inserts phases, assets and tasks with `insertOrSkip` and no
   `ours` test, so an id another project holds reads as "already there"; and
@@ -2989,6 +3086,103 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   read this project's rows first, as BC3 does for scenes, shots and bins, and
   give the three tables the `ours` test and their phase links the key dates'
   check. Owner: M2 (it reworks those inserts for the budgets).
+
+## Post-overhaul M2 (`po/m2-migration-part-2`) — left open (2026-10-28)
+
+What M2 (night 4: the desktop → cloud migration, part 2) leaves, and found
+outside its list.
+
+- **M2-L1 · Night 5 (M3) carries what no night has carried yet** (Audrey's
+  ruling of 2026-10-28, "A night after part 2 (Recommended)"). MEASURED from
+  the runner and the report (`NOT_CARRIED`'s later group): `teamAssignments`
+  and `projectTeam` (they land in `project_members` by cloud user id, after
+  her ruling on people without accounts — the cloud seats only people with
+  accounts); what a budget line says of a team member (`team_member_id`,
+  carried empty: 0037 reads it as a workspace member's user id on the cloud)
+  and a team member's project rate (not carried: 0037's target CHECK needs one
+  of role or person); an asset's version history (`assetVersions`); the
+  files the desktop keeps with an asset, scene, shot, level or experience
+  (`managedFiles`, their contents uploaded — designed first); the company's
+  rate cards and task templates (`{userData}/rabbit-data/`), and the template
+  an asset was made from (`task_template_id`, carried empty: the key refused
+  the whole asset, 23503, measured). Fix shape: the plan's night 5 row; M3's
+  brief follows M2's merge. Owner: M3.
+- **M2-L2 · The cloud adapter's `upsertTaskLink` sends the provider's
+  `project_id`, which `task_links` has no column for.** `RabbitProvider.addTaskLink`
+  builds `{ id, project_id, ...link }` and `supabaseAdapter.upsertTaskLink` strips
+  only `created_at`. MEASURED on wilson-dev (rolled back): *42703: column
+  "project_id" of relation "task_links" does not exist* (through PostgREST,
+  PGRST204: the whole write refused). Unreachable today: no screen calls
+  `addTaskLink` (MEASURED: no caller outside the provider). Fix shape: strip
+  `project_id` in `upsertTaskLink`, with a wire test. Owner: the controller.
+- **M2-L3 · A dry run against a cloud without 0103 does not foresee the
+  desktop's Draft, Wrapped and Inactive arriving as active.** Only the real
+  run's insert meets the type's refusal (22P02), and then sends the row again
+  without its status and says so. INFERRED from the runner (no probe of the
+  type is made). Moot once 0103 is on every cloud the desktop reaches.
+  Owner: none (said in the handbook's §17).
+- **M2-L4 · Receipts an earlier build carried as ordinary files stay open to
+  every member of the project.** The night-3 build routed a file by its own
+  flag, so a receipt kept before C4 (`is_financial` false, named by an
+  expense or an actual) went up under `files/`, flagged false. Since review
+  round 1 the runner says so on every run while it stays open
+  (`RECEIPTS_LEFT_OPEN`, `report.files.receiptsOpen`, a line under the
+  report), never as a carried file; since round 2 it keeps the receipt apart
+  in the record (`receipts_open`), so an admin's removal there stands
+  (counted, named, never uploaded again). It cannot move it. Putting it behind the
+  gate is an object move from `files/` to `INVOICES/` and the row's
+  `is_financial` and `storage_path` together, and the storage API's move
+  under 0042's policies was not measured (no sign-in on M2's run). Fix shape:
+  measure the move as a project manager on wilson-dev, then a runner step that
+  moves and flags each, said. MEASURED (the runner); INFERRED that one exists
+  (only a project migrated by the night-3 build with a pre-C4 receipt).
+  Owner: M3 or the controller.
+- **M2-L5 · A crew line priced for one of the desktop's team members cannot be
+  reached in the Crew tab until night 5** (review round 1, M4). It goes up
+  without its person (M2-L1), and the Crew tab lists people, so the line and
+  its actuals show only in the Summary's totals. Audrey's Q1 in walkthrough
+  85. Fix shape: night 5 moves the team and sets the person on the line.
+  Owner: M3.
+- **M2-L6 · The dry run foresees less than the real run in three places**
+  (review round 1, L1: the part not fixed). A status a cloud without 0103
+  refuses (M2-L3); the phase and level links the real run lets go, and the
+  assets that wait on a level whose owner could not be read; a receipt an
+  earlier build left open (M2-L4), which only the real run's per-file read
+  finds. Fixed in round 1: the money files a shut gate keeps here are no
+  longer in the dry run's files total. Review round 2 adds three: an actual or
+  a role rate whose place the cloud holds under another id (`taken`) is
+  found only by the real run's insert, so the dry run counts it as going (F3,
+  MEASURED by the reviewer's probe: dry `{total 4, taken 0}`, real `{total 3,
+  taken 1}`; fix shape: read this project's actuals' line and period and its
+  rates' roles in the dry run, one paged read each); a project whose id is
+  held out of the person's sight reads as arriving in the dry run, and only
+  the real run meets its key (F7: no read can see it); the dry run counts no
+  set-aside rows. INFERRED from the runner unless said. Owner: none.
+- **M2-L7 · A clip's picture removed in the cloud would come back on the next
+  run** (review round 1, L4). The runner uploads a picture for a clip whose
+  cloud row has none; the record holds the clip, not its picture. Unreachable
+  today: MEASURED, no screen or adapter call clears a clip's `poster_path`.
+  Fix shape: record the clips whose picture this computer uploaded (beside
+  `pointers` and `set_aside`) and never upload one again. Owner: none until
+  a screen removes pictures.
+- **M2-L8 · Where the runner cannot read whose a row is, it trusts the id.**
+  Comments, dependencies and a task's items have no read of "this project's
+  rows" before they go up (a comment has no project; M1-L5 settled phases,
+  assets and tasks): a duplicate by id is taken as this project's and joins
+  the record. Only a desktop project copied with its ids and migrated into a
+  private project the runner's person cannot see makes one, and a later run
+  would then call it removed. Round 1 settled the pair keys (L2: never
+  recorded) and every table with a read (recorded only once known). INFERRED.
+  Owner: none.
+- **M2-L9 · Three record rules that are choices, said** (review round 2, F4,
+  F5 and a nit). A Legal file is never asked about by the record (0092's gate
+  is not asked per project), so a teammate's removal of one is never named,
+  though it is never brought back either (MEASURED by the reviewer: re-uploaded
+  0). The rows set aside again are recorded by row, not by bid version, so a
+  row set aside once under one version is not set aside again under a later
+  one (fix shape, if wanted: `<version>:<row>`). `SET_ASIDE_AGAIN` counts the
+  rows asked, not those the function changed (it keeps an earlier stamp).
+  INFERRED from the runner. Owner: none.
 
 ## Post-overhaul DG4 (`po/dg4-dog-project-references-card`) — left open (2026-10-28)
 
@@ -3004,3 +3198,96 @@ notes) met outside those notes and did not fix.
   `button.dog-check`, with no `<label>` (the kit has no Checkbox, A1-KR-4).
   Fix: the words inside the button's target, or the kit Checkbox when
   A1-KR-4 lands. Owner: a D.O.G. session, or the kit request.
+
+## P1 (`po/p1-own-storage-previews`) — left open (2026-10-28)
+
+What P1 (night 4: browser previews on a workspace's own storage) measured
+outside its scope, or built to a limit, and did not fix. The design is
+`NETWORK_STORAGE_DESIGN.md` §9.
+
+- **OSP-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
+  any row-shaped key under a project the caller can read
+  (`can_presign_project_read` is project-level), so a key kept from before a
+  file was trashed, or of a row purged while its body waits for collection,
+  is still signed — 300 s, one key a call (design round, finding 1). The new
+  `storage-read-urls` checks the row as the caller, so it is closed to a
+  READER (a writer can still forge a row in their own project: OSP-07).
+  Fix shape: the same caller-scoped row read in `storage-presign`'s GET and
+  HEAD. Owner: the next storage session; it needs a redeploy on every
+  environment.
+- **OSP-02 · A download from a company's own bucket reads the whole body into
+  memory.** `s3Provider.getUrl` answers null for `{ download }` (the read
+  signer signs no attachment disposition, and a cross-origin `a.download` is
+  ignored), so `downloadUrl` falls back to the Blob path through
+  `storage-presign` — the S42 limit, still true for s3. Fix shape: a signed
+  `response-content-disposition` in `_shared/s3Presign.ts` (shared with three
+  functions). Owner: the next storage session.
+- **OSP-03 · A clip longer than an hour restarts at 0:00 on its re-mint** — on
+  Petal and on a bucket alike: the player re-mints once on its first failed
+  range and keys the `<video>` on the new URL. Fix shape: `VideoStage`
+  keeps `currentTime` across the re-mint. Owner: none yet.
+- **OSP-04 · Rows written on s3 before a switch to `network` answer "configure
+  S3".** 0050's switch rule nulls the s3 config, so both signers answer their
+  409 (*"…an admin sets it in Admin Terminal → Storage"*) for those rows: a
+  misleading sentence for a NAS admin. None exist (no s3 workspace exists
+  anywhere). Owner: the next storage session.
+- **OSP-05 · A receipt uploaded to an s3 workspace before 0076 is
+  indistinguishable from any other file** (it sits under its container
+  segment, unflagged; 0076 counts and reports those rows and cannot flip
+  them), so either signer signs it for a reader of its project. None exists
+  on any environment. **A release check:** before any s3 workspace with
+  receipts from before 0076 exists, count `files` rows in
+  `expenses.file_ids` with `storage_provider = 's3'`; any above zero needs
+  its body moved into Supabase first. Owner: the release runbook.
+- **OSP-06 · The live proof waits on Audrey's test bucket.** No S3 workspace
+  exists on any environment and no session holds a bucket's keys: the signer
+  is proven by its tests (21 failing controls) and by its refusals on
+  wilson-dev to a caller with no sign-in. Walkthrough 85, P1, is the live
+  check once the controller has deployed `storage-read-urls` to staging.
+- **OSP-07 · A writer of a project can make a `files` row vouch for any key
+  under it.** `files_insert`/`_update` (0092) let anyone `can_write_project`
+  admits set `storage_path` (and `thumbnail_url`), and no CHECK ties a path to
+  its own project or stops it changing, so a writer can name a trashed file's
+  key, or a stray object's, and have `storage-read-urls` sign it (an hour if
+  it streams) — the reach `storage-presign`'s GET already gives a writer
+  (build review round 1, finding 1). Fix shape, a migration night: a CHECK
+  that `storage_path` sits under `projects/<project_id>/`, and a trigger that
+  refuses a change of it outside the re-filing. Owner: the next migration
+  session.
+- ~~**OSP-08 · `storage-read-urls` bounds its body by the declared length.**~~
+  **CLOSED by build review round 2 (2026-10-28):** the body is read by
+  `readJsonLimited`, streamed under the 128 KB cap; no declared length is
+  required. The entry as it stood:
+  It refuses a body without a `content-length` (411) or over 128 KB (413)
+  before reading it; HTTP/1.1 framing makes the declared length binding, but
+  the house readers (`gatewayWire.ts` `readJsonLimited`, `aiFileStore.ts`
+  `readSmallJson`) stream under a cap instead (round 1, finding 5). Owner:
+  none; a consistency change.
+- **OSP-09 · A failed renewal keeps an s3 preview URL past its life.**
+  FileManager keeps a key's last URL until a fresh one arrives, so after
+  failed renewals (offline, a 5xx) a tile below the fold that loads late gets
+  a dead URL, fails once and shows the icon until the next ask (five
+  minutes, or the tab's return); a key the signer has since refused keeps its
+  last URL until it expires (round 1, finding 7). Fix shape: `getUrls`
+  returns each URL's end and the merge drops the dead. Owner: none.
+- **OSP-10 · A clip the preview plays by its MIME type alone streams for
+  five minutes.** `previewKindFor` picks the player on `video/` or `audio/`,
+  while `storage-read-urls` gives the streaming hour only to the extensions
+  it knows (`STREAMABLE_EXTENSIONS`, the client's own lists), so an s3
+  `.ogv`, `.3gp`, `.aif` or `.wma` gets 300 s, stalls, re-mints once
+  (OSP-03) and stalls again (build review round 2, finding 4). Fix shape: the
+  s3 arm decides the stage by extension, or the lists grow. Owner: none.
+- **OSP-11 · The dev fixtures pass the server-media read's cloud gate.**
+  The fixtures adapter reports `adapterMode` 'supabase', so FileManager and
+  the Files tab ask the shared client for the storage choice; the read fails
+  (the fixtures' address is a closed port) and the ordinary words stay, so
+  nothing shows (round 2, finding 6). Fix shape: gate on the adapter's own
+  `mode !== 'fixtures'`. Owner: none.
+
+## R2 (2026-10-28, night 4 of `docs/sessions/PLAN_TO_1_0.md`) — left open
+
+- **R2-01 · The workspace takeout holds 23 tables, and none of the scenes, shots, levels, experiences, key dates, budgets or bins.** MEASURED (from the code, 2026-10-28):
+  `TAKEOUT_TABLES` in `src/components/AdminTerminal/WorkspaceTakeout.jsx` lists 23 tables, and scenes, shots, levels,
+  experiences, key dates (`milestones`), the budget tables, expenses, folders, task templates, shot lists, edits, bins and their
+  clips are not among them, while the Company card's *Workspace takeout* reads as the whole company's. Would settle it: a takeout
+  of a project that holds a scene and a budget. Owner: none named; 1.1 unless she says otherwise.

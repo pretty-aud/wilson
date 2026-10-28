@@ -2299,3 +2299,37 @@ describe('remoteViewsOfClip (GW1): the inspector line\'s read', () => {
       .rejects.toThrow('[supabase] remoteViewsOfClip failed: canceling statement due to statement timeout')
   })
 })
+
+// M2 (night 4; OUTSTANDING M1-L4, Audrey's ruling of 2026-10-28): every
+// status the project settings and the Projects page offer goes on the wire
+// as chosen — migration 0103 gave the cloud's type the desktop's Draft,
+// Wrapped and Inactive, and suite 106 pins the database's side — and a
+// cleared Director or Producer goes as NULL: the UUID columns refuse '' (22P02,
+// measured on wilson-dev), which refused the whole save.
+describe("a project's status and people on the wire (M2)", () => {
+  const offered = (file, re) => [...readFileSync(file, 'utf8').match(re)[1].matchAll(/'([a-z_]+)'/g)].map(m => m[1])
+
+  it('sends each status the two pickers offer as it was chosen', async () => {
+    const settings = offered('src/tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx', /const STATUS_OPTIONS\s*=\s*\[([^\]]*)\]/)
+    const page = offered('src/components/Projects/ProjectDetailPanel.jsx', /const STATUS_OPTIONS = \[([\s\S]*?)\]/)
+    expect(settings).toEqual(['draft', 'active', 'on_hold', 'wrapped', 'archived'])
+    expect(page).toEqual(['active', 'inactive'])
+    const rec = recordingClient()
+    const adapter = install(rec)
+    for (const status of [...settings, ...page]) await adapter.updateProject('p1', { status })
+    expect(rec.writes.filter(w => w.table === 'projects').map(w => w.row)).toEqual([...settings, ...page].map(status => ({ status })))
+  })
+
+  it('sends a cleared Director or Producer as null, never an empty string, and a chosen one as it is', async () => {
+    const rec = recordingClient()
+    const adapter = install(rec)
+    await adapter.updateProject('p1', { director_id: '' })
+    await adapter.updateProject('p1', { producer_id: '' })
+    await adapter.updateProject('p1', { producer_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', title: 'Kept' })
+    await adapter.createProject({ title: 'New', director_id: '' })
+    const rows = rec.writes.filter(w => w.table === 'projects').map(w => w.row)
+    expect(rows.slice(0, 3)).toEqual([{ director_id: null }, { producer_id: null }, { producer_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', title: 'Kept' }])
+    expect(rows[3]).toMatchObject({ title: 'New', director_id: null })
+    for (const row of rows) for (const k of ['director_id', 'producer_id']) expect(row[k], k).not.toBe('')
+  })
+})

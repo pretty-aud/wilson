@@ -232,11 +232,15 @@ function SourcedStage({ node, pk, projectId, adapterMode, onRead, actions }) {
   const remints = useRef(0)
   const [state, setState] = useState({ status: 'loading', url: null, detail: null })
 
+  // P1: an image, a PDF or a text is read ONCE from its URL, so it asks for
+  // one that only has to start (`stream: false`: five minutes on a company's
+  // own bucket); audio plays by range requests and keeps the hour.
+  const stream = pk.kind === 'audio'
   const resolve = useCallback(async () => {
     if (managed) return managedStreamUrl(projectId, rowRef.current.id)
     if (!signFileUrl) return null
-    return await signFileUrl(rowRef.current)
-  }, [managed, projectId, row.id, row.storage_path, signFileUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+    return await signFileUrl(rowRef.current, { stream })
+  }, [managed, projectId, row.id, row.storage_path, signFileUrl, stream]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
     setState({ status: 'loading', url: null, detail: null })

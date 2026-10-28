@@ -85,7 +85,7 @@ import { createLocalServerStorageProvider } from '../storage/localServerProvider
 import { describeSourceFile } from '../storage/mediaMetadata';
 import {
   generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
-  signedThumbnailUrls,
+  thumbnailUrlsAt,
 } from '../storage/thumbnails';
 // Session 40: the video decoder is a SEPARATE entry point, not an option on
 // generateThumbnail — canThumbnail() refuses video deliberately and two guard
@@ -94,7 +94,7 @@ import {
   looksLikeVideoFile, generateVideoThumbnailFromFile,
 } from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
-import { presignStorage } from '../../../cloud/storageApi';
+import { presignStorage, presignReadUrls } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
   LEGAL_SEGMENT, LEGAL_UNAVAILABLE, LEGAL_GATE_REFUSAL,
@@ -212,10 +212,11 @@ registerStorageProvider(
 // Session 37: the S3-compatible provider — presign-then-fetch, with the
 // authorisation boundary and the secret both server-side (storage-presign).
 // Registered here, beside supabase, so resolveFileProvider can serve an
-// 's3' row the moment one exists.
+// 's3' row the moment one exists. P1: and its DISPLAY reads (thumbnails, the
+// preview, the player) through storage-read-urls, the batch GET signer.
 registerStorageProvider(
   FILE_PROVIDERS.S3,
-  createS3StorageProvider(presignStorage),
+  createS3StorageProvider(presignStorage, presignReadUrls),
 );
 // Demo 2026-09-11: the desktop's own disk, for PRIVATE projects (see
 // uploadFile). Registered on EVERY surface so a row that names it resolves
@@ -941,6 +942,20 @@ function blankDatesToNull(row) {
   for (const k of Object.keys(out)) {
     if (DATE_FIELDS.has(k) && out[k] === '') out[k] = null;
   }
+  return out;
+}
+
+// M2 (night 4; OUTSTANDING M1-L4): the project settings' Director and
+// Producer pickers store '' when cleared (SettingsSelect's empty option),
+// which the UUID columns refuse — 22P02, invalid input syntax for type uuid,
+// measured on wilson-dev — and with it the whole save. A person cleared is
+// none: NULL on the wire.
+const PERSON_FIELDS = new Set(['producer_id', 'director_id']);
+
+function blankPeopleToNull(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = { ...row };
+  for (const k of PERSON_FIELDS) if (out[k] === '') out[k] = null;
   return out;
 }
 
@@ -2848,7 +2863,7 @@ export function supabaseAdapter() {
       // 0084: the one project write that never runs toColumns, so the
       // older-database strip is applied here by hand (see stripUnmigrated).
       const data = unwrap(await client.from('projects')
-        .insert(stripUnmigrated('projects', row)).select().single());
+        .insert(stripUnmigrated('projects', blankPeopleToNull(row))).select().single());
       return data;
     },
 
@@ -2861,7 +2876,7 @@ export function supabaseAdapter() {
       // Before this, one unknown key (project.name, project.code, the nine
       // budget_* fields) rejected the entire patch with PGRST204 and the save
       // silently did nothing.
-      const row = toColumns('projects', blankDatesToNull(mapped.row));
+      const row = toColumns('projects', blankPeopleToNull(blankDatesToNull(mapped.row)));
       // Session 15: this check used to sit INSIDE the `row is empty` branch,
       // so it only fired for attachments-ONLY patches. A mixed patch — say
       // { title, documents } from a rename that happened to carry the file
@@ -3665,13 +3680,14 @@ export function supabaseAdapter() {
     // made, not while the response streams, so a 40 GiB transfer that begins
     // inside the window completes however long it takes.
     //
-    // Returns null when the row's provider cannot mint a URL (s3 today — see
-    // fileUrl's note), and the caller falls back to the Blob path. That is the
-    // stated capability gap, not a fault.
+    // Returns null when the row's provider answers null for a download — s3,
+    // whose read signer signs no attachment disposition (s3Provider.getUrl) —
+    // and the caller falls back to the Blob path. That is the stated
+    // capability gap, not a fault. (P1: getUrl is REQUIRED now, so every
+    // registered provider has one; null is how a provider says "not this".)
     async downloadUrl(file, filename, expiresIn = 300) {
       const client = await requireClient();
       const provider = resolveFileProvider(file);
-      if (typeof provider.getUrl !== 'function') return null;
       const url = await provider.getUrl(file.storage_path, expiresIn, {
         // Cross-origin `a.download` is ignored, so the attachment disposition
         // and the real filename both have to come from the signature.
@@ -3699,22 +3715,22 @@ export function supabaseAdapter() {
     // workspace's current setting. A workspace that switched provider must
     // still be able to play what it wrote before the switch.
     //
-    // Returns null when that provider has no `getUrl`. That is a STATED
-    // capability gap, not a fault: `getUrl` is deliberately absent from the
-    // registry's REQUIRED list (storage/index.js) because s3 cannot implement
-    // it usefully yet — a presigned GET expires in 300s (storage-presign
-    // EXPIRES), so a clip longer than five minutes would die mid-playback, and
-    // there is no S3 workspace on any environment to verify a longer-lived
-    // signer against. Same reasoning, and the same deferral, as S44's
-    // thumbnail display.
+    // P1: every registered provider has `getUrl` now (it joined REQUIRED), s3
+    // included — through storage-read-urls, the batch GET signer
+    // (NETWORK_STORAGE_DESIGN.md §9.2). Until P1 an s3 row answered null here,
+    // because storage-presign's 300 s GET would kill a clip at five minutes.
+    //
+    // `stream` (default true): a <video> or <audio> reads by range requests
+    // for as long as it plays, so s3 signs it for the hour; the preview's
+    // image, PDF and text stages pass false and get a URL that only has to
+    // START (300 s on s3). The Petal arm signs its hour either way.
     //
     // A signing ERROR still throws — an RLS refusal must not read as "this
     // format has no preview".
-    async fileUrl(file, expiresIn = 3600) {
+    async fileUrl(file, { stream = true } = {}) {
       await requireClient();
       const provider = resolveFileProvider(file);
-      if (typeof provider.getUrl !== 'function') return null;
-      return await provider.getUrl(file.storage_path, expiresIn);
+      return await provider.getUrl(file.storage_path, 3600, { stream });
     },
 
     // Session 39: display URLs for a batch of thumbnails.
@@ -3729,18 +3745,15 @@ export function supabaseAdapter() {
     // to an icon. The caller never has to know which keys were money-gated,
     // which is what keeps the gate in one place.
     //
-    // ⚠️ S44 — PETAL-HOSTED PREVIEWS ONLY, and FileManager filters to match.
-    // Since S44 a thumbnail lives at its body's provider, so an s3 workspace's
-    // previews are in the customer's bucket and cannot be signed from here.
-    // Displaying those needs a batch presign that does not exist yet, and no
-    // S3 workspace exists on any environment to verify one against — so it is
-    // its own session (Audrey, 2026-08-08). Those rows are excluded upstream
-    // rather than looked up and silently missed; their tiles show file-type
-    // icons. See storage/thumbnails.js `signedThumbnailUrls` for why the WRITE
-    // half shipped without the read half.
-    async thumbnailUrls(paths, expiresIn = 3600) {
+    // ⚠️ ONE PROVIDER PER CALL, Petal unless one is named. Since S44 a
+    // thumbnail lives at its body's provider; since P1 an s3 workspace's
+    // previews are signed in ITS bucket by storage-read-urls (the caller —
+    // FileManager — asks for its s3 rows with `{ provider: 's3' }` and for
+    // the rest without). storage/thumbnails.js `thumbnailUrlsAt` is the
+    // dispatcher, beside putThumbnailTo and removeThumbnailFrom.
+    async thumbnailUrls(paths, { provider = FILE_PROVIDERS.SUPABASE } = {}) {
       const client = await requireClient();
-      return signedThumbnailUrls(client, paths, expiresIn);
+      return thumbnailUrlsAt(provider, paths, { client });
     },
 
     async updateFile(id, patch) {

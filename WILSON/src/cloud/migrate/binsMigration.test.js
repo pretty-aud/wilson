@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   pathKey, isUnder, relativeUnder, isCloudRelativePath, shareRootOf, rootKind, rootOfClip, binRootsOf, mergeRoots,
   suggestedAnswer, confirmedAnswers, holdingLocation, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, takePairKey,
-  notCarriedOf, notCarriedLabel, notCarriedPart2, NOT_CARRIED, POSTER_MEDIA, ADDRESS_NEEDED,
+  notCarriedOf, notCarriedLabel, notCarriedLater, NOT_CARRIED, POSTER_MEDIA, ADDRESS_NEEDED,
 } from './binsMigration'
 
 // The refusal sentence is the cloud adapter's, word for word. The adapter's
@@ -252,27 +252,32 @@ describe('the takes that can land', () => {
 })
 
 describe('what the migration does not carry', () => {
-  it('names each non-empty collection the runner leaves on this computer, and the scenes\' and shots\' pictures, in the right number; nothing the runner carries is in the list', () => {
+  it('names each non-empty collection the runner leaves on this computer, and the pictures of scenes, shots, levels and experiences, in the right number; nothing the runner carries is in the list', () => {
     // M1 (night 3): comments, key dates, shot lists, their items, edits and
-    // folders are carried now, so a bundle's are never named here.
-    expect(notCarriedOf({ comments: [{}], milestones: [{}], budgetLines: [{}, {}], shotLists: [{}], shotListItems: [{}], edits: [{}], folders: [{}], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
-      { key: 'budgetLines', label: 'budget lines', count: 2 },
-      { key: 'thumbnails', label: 'scene and shot pictures', count: 2 },
+    // folders are carried, so a bundle's are never named here; M2 (night 4):
+    // the budget, its versions, lines, actuals, expenses and role rates, the
+    // levels and experiences, the links on tasks.
+    const levels = [{ thumbnail_image: 'C:\\l.png' }, {}]
+    expect(notCarriedOf({ comments: [{}], milestones: [{}], budgetLines: [{}, {}], budgetVersions: [{}], budgetActuals: [{}], expenses: [{}], projectRateOverrides: [{}], taskLinks: [{}], levels, experiences: [{ thumbnail_image: 'C:\\x.png' }], teamAssignments: [{}], shotLists: [{}], shotListItems: [{}], edits: [{}], folders: [{}], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
+      { key: 'teamAssignments', label: 'team assignment', count: 1 },
+      { key: 'thumbnails', label: 'scene, shot, level and experience pictures', count: 4 },
     ])
     expect(notCarriedOf({})).toEqual([])
     expect(notCarriedOf(null)).toEqual([])
-    expect(notCarriedLabel('taskLinks', 1)).toBe('link on tasks')
-    expect(notCarriedLabel('taskLinks', 2)).toBe('links on tasks')
-    expect(notCarriedLabel('thumbnails', 1)).toBe('scene and shot picture')
-    expect(notCarriedLabel('expenses', 1)).toBe('expense')
+    expect(notCarriedLabel('thumbnails', 1)).toBe('scene, shot, level or experience picture')
+    expect(notCarriedLabel('lineTeamMembers', 1)).toBe('team member named on a budget line')
+    expect(notCarriedLabel('memberRates', 2)).toBe("team members' project rates")
+    expect(notCarriedLabel('assetTemplates', 1)).toBe("asset's task template")
+    expect(notCarriedLabel('invoicePaths', 2)).toBe('invoices attached by a path on this computer')
     for (const k of ['scenes', 'shots', 'bins', 'binFiles', 'binRoots', 'shotTakes', 'phases', 'assets', 'tasks', 'dependencies', 'files', 'project']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
     for (const k of ['comments', 'milestones', 'shotLists', 'shotListItems', 'edits', 'folders']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
-    for (const k of ['budgetLines', 'expenses', 'levels', 'experiences', 'thumbnails', 'assetVersions', 'managedFiles']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
+    for (const k of ['budgetVersions', 'budgetLines', 'budgetActuals', 'expenses', 'projectRateOverrides', 'levels', 'experiences', 'taskLinks', 'taskLevelItems', 'levelFolders', 'levelGroupings', 'assetLevelLinks']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
+    for (const k of ['teamAssignments', 'projectTeam', 'thumbnails', 'assetVersions', 'managedFiles']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
   })
 
-  it('says which part 2 of the migration carries (the budgets, expenses, levels, experiences, the team, links on tasks) and which none does', () => {
-    for (const k of ['budgetVersions', 'budgetLines', 'budgetActuals', 'expenses', 'projectRateOverrides', 'levels', 'experiences', 'teamAssignments', 'projectTeam', 'taskLinks', 'taskLevelItems', 'levelFolders']) expect(notCarriedPart2(k), k).toBe(true)
-    for (const k of ['assetVersions', 'managedFiles', 'thumbnails', 'deckAttachments', 'commentsElsewhere', 'not-a-key']) expect(notCarriedPart2(k), k).toBe(false)
+  it('says which a later run of the migration carries (night 5: the team, what names it, an asset\'s versions, the files kept here, the task templates) and which none does', () => {
+    for (const k of ['teamAssignments', 'projectTeam', 'lineTeamMembers', 'memberRates', 'assetTemplates', 'assetVersions', 'managedFiles']) expect(notCarriedLater(k), k).toBe(true)
+    for (const k of ['thumbnails', 'deckAttachments', 'commentsElsewhere', 'invoicePaths', 'budgetLines', 'levels', 'not-a-key']) expect(notCarriedLater(k), k).toBe(false)
   })
 
   it('counts the live files of the desktop\'s own store, never a removed one, and the deck attachments still on the project row', () => {
@@ -289,16 +294,14 @@ describe('what the migration does not carry', () => {
   })
 })
 
-describe('the items on tasks the runner leaves behind (FX2, 0096)', () => {
-  it('names the level and experience items, never the asset, scene and shot items it carries', () => {
+describe('the items on tasks (FX2, 0096)', () => {
+  it('names none: since M2 a task\'s levels and experiences go up with its assets, scenes and shots', () => {
     const taskItems = [
       { entity_type: 'asset' }, { entity_type: 'scene' }, { entity_type: 'shot' },
       { entity_type: 'level' }, { entity_type: 'experience' }, { entity_type: 'level' },
     ]
-    expect(notCarriedOf({ taskItems })).toEqual([{ key: 'taskLevelItems', label: 'levels and experiences named on tasks', count: 3 }])
-    expect(notCarriedOf({ taskItems: taskItems.slice(0, 3) })).toEqual([])
-    expect(notCarriedLabel('taskLevelItems', 1)).toBe('level or experience named on a task')
-    expect(NOT_CARRIED.some(([key]) => key === 'taskItems')).toBe(false)
+    expect(notCarriedOf({ taskItems })).toEqual([])
+    expect(NOT_CARRIED.some(([key]) => key === 'taskItems' || key === 'taskLevelItems')).toBe(false)
   })
 })
 

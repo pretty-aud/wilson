@@ -216,6 +216,7 @@ let localObjects
 function fakeLocalProvider() {
   return {
     put: async () => {}, get: async () => new Blob(['x']), del: async () => {}, describe: async () => ({}),
+    getUrl: async () => null, // P1: REQUIRED (storage/index.js); never read here
     exists: async (key) => localObjects.has(key),
     move: async (from, to) => { if (!localObjects.has(from)) throw new Error('not here'); localObjects.delete(from); localObjects.add(to) },
   }
@@ -224,8 +225,8 @@ function fakeLocalProvider() {
 beforeEach(() => {
   resetSupabaseAdapter()
   localObjects = new Set()
-  registerStorageProvider(FILE_PROVIDERS.SUPABASE, { put: async () => {}, get: async () => new Blob(['x']), del: async () => {}, exists: async () => true, describe: async () => ({}) })
-  registerStorageProvider(FILE_PROVIDERS.S3, { put: async () => {}, get: async () => new Blob(['x']), del: async () => {}, exists: async () => true, describe: async () => ({}) })
+  registerStorageProvider(FILE_PROVIDERS.SUPABASE, { put: async () => {}, get: async () => new Blob(['x']), del: async () => {}, exists: async () => true, describe: async () => ({}), getUrl: async () => null })
+  registerStorageProvider(FILE_PROVIDERS.S3, { put: async () => {}, get: async () => new Blob(['x']), del: async () => {}, exists: async () => true, describe: async () => ({}), getUrl: async () => null })
   registerStorageProvider(FILE_PROVIDERS.LOCAL_SERVER, fakeLocalProvider())
   globalThis.__testLocalServer = false
 })

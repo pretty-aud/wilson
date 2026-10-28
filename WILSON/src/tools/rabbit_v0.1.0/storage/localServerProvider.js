@@ -12,7 +12,7 @@
 // page is served by the app's own Express server on 127.0.0.1, and
 // electron/localMedia.cjs gives that server five routes, one per registry
 // function. This module is those five functions over `fetch`, plus the
-// optional `getUrl` a <video> and a download link need.
+// `getUrl` a <video> and a download link need (REQUIRED since P1).
 //
 // 🚨 REGISTERED ON EVERY SURFACE, USABLE ON ONE. In the browser build (and
 // on a desktop that is not the one that holds the files) every function
@@ -177,9 +177,9 @@ export function createLocalServerStorageProvider({ available = hasLocalServer, f
     },
 
     // Post-overhaul S4c: a body moves to a new key — the one-time re-filing
-    // of a private project's shot folders into their scenes. OPTIONAL, like
-    // getUrl: the registry's REQUIRED five are untouched, and a caller
-    // asks `typeof provider.move === 'function'` first. The route renames
+    // of a private project's shot folders into their scenes. OPTIONAL: the
+    // registry's REQUIRED list (six since P1 added getUrl) does not name it,
+    // and a caller asks `typeof provider.move === 'function'` first. The route renames
     // on disk, never overwrites (409) and answers only once the file is at
     // its new key.
     async move(from, to) {
