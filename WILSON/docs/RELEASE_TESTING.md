@@ -585,4 +585,5 @@ Plan §0, the four conditions, as boxes:
 - [ ] **The release**: `package.json` at `1.0.0` (it is); `CHANGELOG.md`'s 1.0.0 entry dated in the release commit; PR #4
       (`feat/multi-user-v1` into `main`) merged with a merge commit, never a squash; the tag `v1.0.0` on that merge commit, pushed.
       Vercel's production branch is `feat/multi-user-v1` (`docs/WEB_DEPLOY.md`), so merging into `main` deploys nothing on the
-      beta; where 1.0.0's web app lives is her question in walkthrough 85.
+      beta. By her ruling of 2026-10-28 (walkthrough 85 Q3, (a)), 1.0.0's web app is a second Vercel project, on production at
+      its own address, and the beta stays on staging (`docs/PRODUCTION_RUNBOOK.md` (f)).
