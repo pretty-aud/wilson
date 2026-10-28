@@ -575,17 +575,25 @@ const fnSrc = readFileSync(join(REPO, 'supabase', 'functions', 'ai-files', 'inde
 const stripTs = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
 
 describe('ai-files: the upload branch is byte-identical, and nothing materialises a body', () => {
-  it('the upload branch hashes as it did before FX12 (634693d5…)', () => {
+  // P8 (2026-10-28, TPN-AI-011): both hashes moved BY DESIGN. The upload
+  // branch (634693d5… since FX12) now refuses with a code, a sentence and a
+  // status when the company's own key will not open, instead of falling
+  // through to the platform key; the resolver (68da6f50…) became a thin call
+  // into _shared/aiFilesKey.ts, where src/cloud/aiFilesKey.test.js drives
+  // every outcome. Nothing else in either segment changed (the diff of
+  // a95c2a68's successor commit shows the two hunks); the pins are re-set to
+  // the new bytes so the NEXT change is still caught.
+  it('the upload branch hashes as P8 left it (232331a2…): FX12\'s branch plus the fail-closed refusal', () => {
     const mark = "  if (req.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405)"
     expect(fnSrc.split(mark)).toHaveLength(2)
     const tail = fnSrc.slice(fnSrc.indexOf(mark))
-    expect(createHash('sha256').update(tail).digest('hex')).toBe('634693d5bc1f73caa40dd892d4688038bfb3696e4315f84cefe24926f22042ef')
+    expect(createHash('sha256').update(tail).digest('hex')).toBe('232331a20215b63a8cd9285a408a45da9ba6aeea1e186e11f6925c0186215b35')
   })
-  it('the key resolver and the upload\'s logger hash as they did before FX12 (68da6f50…)', () => {
+  it('the key resolver and the upload\'s logger hash as P8 left them (d416f5d4…): the resolver a call into aiFilesKey.ts', () => {
     const a = fnSrc.indexOf('// ── Key resolution')
     const end = '  } catch { /* telemetry never breaks the request */ }\n}\n'
     const seg = fnSrc.slice(a, fnSrc.indexOf(end) + end.length)
-    expect(createHash('sha256').update(seg).digest('hex')).toBe('68da6f5079d90a65d172acfbb0a861251bcb87fd8eedb80baf6df6ebfcbbdb0b')
+    expect(createHash('sha256').update(seg).digest('hex')).toBe('d416f5d40d9eca308e02bc80e5c08dc3e3dfedef657c7597b85d8257ed3e1070')
   })
   it('the new routes are dispatched before the upload, and the preflight names their methods', () => {
     const code = stripTs(fnSrc)
