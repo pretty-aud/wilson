@@ -119,3 +119,59 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPathForFile: (file) => { try { return webUtils.getPathForFile(file) || ''; } catch { return ''; } },
   },
 });
+
+// ── D1 (night 4, 2026-10-28): the renderer's storage, kept across a relaunch ──
+// docs/design/RECONNECT_DESIGN.md §12 and electron/rendererStorage.cjs. Every
+// launch is a new origin (listen(0)'s port), so Chromium's localStorage starts
+// empty; the main process keeps the keys in a userData file instead. Inline,
+// because a sandboxed preload loads only Electron's own modules, and AFTER both
+// bridges, wrapped whole, so nothing here can keep `wilsonSession` or
+// `electronAPI` from existing (design review, F1).
+//
+// At every load the kept pairs are the baseline the page's storage is compared
+// with, so a reload after a renderer crash sends what never reached the main
+// process (F6); at the launch's first load the origin is made exactly those
+// pairs before the page's first script. What changed goes back once a second,
+// when the window is hidden (its timers are throttled: F7) and at pagehide,
+// synchronously there. A refused sender gets no seed and sends nothing.
+try {
+  const store = window.localStorage;
+  const seed = ipcRenderer.sendSync('wilson:renderer-storage-seed');
+  if (store && seed && Array.isArray(seed.pairs)) {
+    if (seed.first) {
+      store.clear();
+      for (const [key, value] of seed.pairs) {
+        try { store.setItem(key, value); } catch { /* quota: the page starts with what fitted */ }
+      }
+    }
+    const read = () => {
+      const now = new Map();
+      for (let i = 0; i < store.length; i += 1) {
+        const key = store.key(i);
+        if (key !== null) now.set(key, store.getItem(key));
+      }
+      return now;
+    };
+    let last = new Map(seed.pairs);
+    const changes = () => {
+      const now = read();
+      const set = [];
+      const removed = [];
+      for (const [key, value] of now) if (last.get(key) !== value) set.push([key, value]);
+      for (const key of last.keys()) if (!now.has(key)) removed.push(key);
+      last = now;
+      return set.length || removed.length ? { set, removed } : null;
+    };
+    const flush = (sync) => {
+      try {
+        const c = changes();
+        if (!c) return;
+        if (sync) ipcRenderer.sendSync('wilson:renderer-storage-changes-sync', c);
+        else ipcRenderer.send('wilson:renderer-storage-changes', c);
+      } catch { /* the next flush carries it */ }
+    };
+    setInterval(() => flush(false), 1000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(false); });
+    window.addEventListener('pagehide', () => flush(true));
+  }
+} catch { /* the page keeps Chromium's own storage for this launch */ }
