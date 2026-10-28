@@ -3695,6 +3695,40 @@ the row's `id`; a linked subject's progress is the receiver's own row on
 their host course under `link:<subject_id>` (design §1.3). The screens are
 B2's (night 3). The limits are in §17.
 
+**Subject shares, the client (B2, 2026-10-27; the design's §5.2 to §5.9).**
+The share index is one state in `Otter.jsx`, `subjectShares`, read with the
+course list, when a course is selected, when the Requests view mounts and
+after every share action; every surface reads it: the Requests tab's count;
+`RequestsView.jsx`'s two sections (*Shared with you*: offers, a whole course
+as one card whose Accept all skips `gone` rows and Decline all takes them,
+Dismiss on a `gone` row, links whose host course was deleted with Remove;
+*Shared by you*: every row of the owner's subject, the chain line *Ben via
+Mara* resolved from the same list, a batch as one line with Withdraw all,
+decided rows folded); the linked rows after a host course's own subjects
+(a chain glyph in the sidebar, the **Linked** badge on the card, the study
+view's line with **Pass on…** and **Remove from my course**); the owner's
+line under their own subject and the subject delete confirm's sentence; the
+quiz picker; the reminder. A linked subject's body is read by id
+(`/api/otter/subjects/:id`) on every use and handed to one reader, the study
+view or the quiz's content string, never to `subjectCacheRef`,
+`softwareCacheRef` or `quizSelectionData` — the Validator (rendered hidden,
+never unmounted) enumerates those two caches, so it never lists a linked
+subject; a 404 re-reads the index first and words the closure by its
+`state`. Its progress is the receiver's own row for the host course under
+`linkKey(subject_id)` (`otterSharing.js`, the one definition), and
+`activeSubjectKey` drives the ticks and the highlight, so a linked `modifiers`
+never ticks or lights up the host's own. `ShareSubjectDialog.jsx` shares a
+subject, a whole course, or passes one on: one call per person, each
+reported; a refusal is the function's own sentence, a 500 never reads as one.
+`NewSubjectShareReminder.jsx` asks, after any of the six subject-saving paths
+saved a subject the course did not hold before, whether to share it with the
+people the course was shared whole with (`share.create`: ordinary single
+rows). The pet (`petKnowledge.js`) reads the index once per build and
+indexes each live link's titles under its host course from one read by id;
+the body is read by id per message. Nothing of this renders outside cloud
+mode. `linkedProgress.test.js` mounts `Otter.jsx` whole for the key, the
+caches, the 404 and the reminder.
+
 ### 13.3 R.A.B.B.I.T.
 
 `src/tools/rabbit_v0.1.0/`. Mounted once near the top of the app by
@@ -5858,6 +5892,26 @@ documentation and starts being wrong answers.
   among its columns) and the receiver their own; the index's nulls are what
   the client shows, not a boundary. The policy's three arms on a whole-row
   SELECT grant (0100 §1); the design's §3.6 states the owner's read.
+
+**Subject shares, the client (B2, 2026-10-27) — the limits that are the client's**
+
+- **A linked subject is not validated and not searched** (design §7): the
+  Validator and the full-text search enumerate `softwareCacheRef`, which
+  never holds a linked row; the owner validates, the receiver reads the
+  result live.
+- **Its titles can stay in the pet's warm index for up to five minutes**
+  (`INDEX_TTL_MS`) after a link ends; its words never reach the AI after
+  the end (the body is read live by id, every message), and the client
+  clears the index when the readable set changes on a share-list read or a
+  404 on open.
+- **The receiver learns of an end at their next list, open or sync** (no
+  realtime); the Requests count is the notice.
+- **Accept all, Decline all, Withdraw all and the reminder's Share stop at
+  the first refusal** and leave the rest as they were; a batch card's one
+  per-row control is Dismiss on a `gone` row.
+- **The reminder fires once per run, in cloud mode only**, and never from a
+  lesson import or a local-mode export in cloud mode (those save nothing:
+  `docs/OUTSTANDING.md`).
 
 ---
 
