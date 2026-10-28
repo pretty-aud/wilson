@@ -34,8 +34,10 @@ one you accepted (TPN-AI-009).
    new row takes a checked twin's mark, or none (so an undo of your own
    checked clip comes back unchecked when no other row at that file is
    checked; one click re-checks it). Every clip and location that existed
-   before tonight starts unchecked (dev: 2 clips and 2 locations), so on an
-   environment with footage in bins an admin or manager checks them once.
+   before tonight starts unchecked, so on an environment with footage in
+   bins an admin or manager checks them once (dev's two fixture clips and
+   two locations were stamped the migration's way after the apply, so CI's
+   probe keeps its clip).
 
 2. **The bucket endpoint is vetted and reached at one address**
    (TPN-NET-016). The Storage section's **Test** and the storage sweep used to
