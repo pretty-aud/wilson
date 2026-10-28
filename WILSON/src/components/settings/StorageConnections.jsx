@@ -356,10 +356,12 @@ export default function StorageConnections() {
           outcome, restored by the caller, not the kit. The dialogs are
           siblings of this wrapper, so they stay live. */}
       <div className="flex flex-col gap-3" inert={pending !== null}>
-        <Card icon={Cloud} title="Supabase (company cloud)" connected={!!perms.workspaceId}>
+        {/* S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch
+            is a sign-in, but the cloud is not reached: no green dot. */}
+        <Card icon={Cloud} title="Supabase (company cloud)" connected={!!perms.workspaceId && !perms.offline}>
           <div className="s-row-desc">
             {perms.workspaceId
-              ? <>Signed in · <span className="s-data">{SUPABASE_HOST ?? 'host unknown'}</span></>
+              ? <>Signed in · <span className="s-data">{SUPABASE_HOST ?? 'host unknown'}</span>{perms.offline ? ' · not reachable right now' : null}</>
               : 'Not signed in on this machine.'}
           </div>
         </Card>

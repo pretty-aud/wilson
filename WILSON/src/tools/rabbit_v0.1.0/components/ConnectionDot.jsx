@@ -74,6 +74,7 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 import { useRabbit } from '../state/RabbitProvider'
 import { StatusDot } from '../../../ui/StatusDot'
 import { supabase } from '../../../cloud/auth/supabaseClient'
+import { heldSession } from '../../../cloud/auth/heldSession'
 import { connectionWatchdog } from '../../../cloud/connectionWatchdog'
 import { presignStorage } from '../../../cloud/storageApi'
 import { peekWorkspaceStorageCached } from '../../../cloud/workspaceStorage'
@@ -197,7 +198,10 @@ function useConnection({ active = true } = {}) {
         adapter: s.adapter,
         fetch: (input, init) => fetch(input, init),
         localFetch,
-        token: () => tokenRef.current.token,
+        // S2: at an offline launch no auth event carries a session, so the
+        // held one's token is asked with: the dot then says the database is
+        // reconnecting, never "not signed in" (RECONNECT_DESIGN.md §11.7).
+        token: () => tokenRef.current.token ?? heldSession()?.access_token ?? null,
         supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
         anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         // The upload path's own cached choice first, so the dot asks the

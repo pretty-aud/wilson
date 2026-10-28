@@ -31,7 +31,12 @@ vi.mock('./runMigration', async (orig) => {
 vi.mock('../auth/supabaseClient', () => ({ supabase: {} }))
 
 const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED } = await import('./MigrationPanel')
-const { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE } = await import('./runMigration')
+const {
+  runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE,
+  FILES_PLACED, ARCHIVED_IN_CLOUD, LIVE_IN_CLOUD, BID_VERSIONS_PART_2, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED,
+  COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
+  STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
+} = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
 
 const bucket = (total = 0) => ({ total, inserted: 0, skipped: 0, failed: 0 })
@@ -289,13 +294,91 @@ describe('the question, once per root', () => {
     expect(migrate().title).toBe(MIGRATE_DONE)
   })
 
-  it('what the migration does not carry is listed under the report before the archive is offered, and the archive button says so; an orphan take is one line, no error', async () => {
-    await dryRun(report({ dryRun: false, footageRoots: [], notCarried: [{ key: 'budgetLines', label: 'budget lines', count: 12 }, { key: 'thumbnails', label: 'scene and shot pictures', count: 3 }], shotTakes: { ...bucket(2), inserted: 2, leftBehind: 0, orphans: 1 } }))
-    expect(screen.getByTestId('not-carried').textContent).toBe(NOT_CARRIED_SENTENCE([{ count: 12, label: 'budget lines' }, { count: 3, label: 'scene and shot pictures' }]))
-    expect(screen.getByTestId('not-carried').textContent).toContain('12 budget lines, 3 scene and shot pictures')
+  it('what the migration does not carry is listed under the report before the archive is offered — part 2\'s apart from what no migration carries — and the archive button says so; an orphan take is one line, no error', async () => {
+    await dryRun(report({ dryRun: false, footageRoots: [], notCarried: [{ key: 'budgetLines', label: 'budget lines', count: 12, part2: true }, { key: 'levels', label: 'levels', count: 2, part2: true }, { key: 'thumbnails', label: 'scene and shot pictures', count: 3, part2: false }], shotTakes: { ...bucket(2), inserted: 2, leftBehind: 0, orphans: 1 } }))
+    expect(screen.getByTestId('not-carried').textContent).toBe('Stays on this computer for now (part 2 of the migration carries it): 12 budget lines, 2 levels. Stays on this computer (the migration does not carry it): 3 scene and shot pictures. Archive and clear local keeps a copy in the archive file only.')
+    // CONTROL: one group only says one sentence.
+    expect(NOT_CARRIED_SENTENCE([{ count: 1, label: 'asset version' }])).toBe('Stays on this computer (the migration does not carry it): 1 asset version. Archive and clear local keeps a copy in the archive file only.')
     expect(screen.getByTestId('orphan-takes').textContent).toBe(`${ORPHAN_TAKES(1)}.`)
     expect(screen.getByRole('button', { name: /Archive and clear local/ }).title).toBe(ARCHIVE_KEEPS_NOT_CARRIED)
     expect(migrate().title).toBe(MIGRATE_DONE)
+  })
+
+  it('M1: the five kinds\' rows sit in the runner\'s order — key dates after phases, comments after the links, lists, their items and edits after the shots, folders, then files', async () => {
+    await dryRun(report({
+      footageRoots: [],
+      milestones: { ...bucket(3), trashed: 0 }, comments: { ...bucket(6), trashed: 0, orphans: 0, leftBehind: 0 },
+      shotLists: { ...bucket(2), archived: 1 }, shotListItems: { ...bucket(29), orphans: 0 }, edits: { ...bucket(3), archived: 1 },
+      folders: { ...bucket(40), leftBehind: 0, orphans: 0, taken: 0 },
+    }))
+    const labels = [...document.querySelectorAll('table.s-table tbody tr td:first-child')].map(td => td.textContent)
+    expect(labels.slice(0, 15)).toEqual(['projects', 'phases', 'key dates', 'assets', 'tasks', 'task links', 'phase links', 'comments', 'scenes', 'shots', 'shot lists', 'items on shot lists', 'edits', 'folders', 'files'])
+    const row = (label) => [...document.querySelectorAll('table.s-table tbody tr')].find(tr => tr.firstChild.textContent === label)
+    expect([...row('items on shot lists').children].map(td => td.textContent)).toEqual(['items on shot lists', '29', '0', '0', '0'])
+    // CONTROL: a report from before M1 (no such buckets) shows none of the rows.
+    cleanup()
+    await dryRun(report({ footageRoots: [] }))
+    const before = [...document.querySelectorAll('table.s-table tbody tr td:first-child')].map(td => td.textContent)
+    for (const l of ['key dates', 'comments', 'shot lists', 'items on shot lists', 'edits', 'folders']) expect(before, l).not.toContain(l)
+  })
+
+  it('M1: one line each under the report for what the five kinds and the project rows did beside the counts, only when it happened', async () => {
+    await dryRun(report({
+      dryRun: false, footageRoots: [],
+      files: { ...bucket(35), bytes: 0, placed: 31, linksLetGo: 2 },
+      milestones: { ...bucket(3), trashed: 1, phaseLetGo: 1 }, comments: { ...bucket(6), trashed: 2, orphans: 3, leftBehind: 0 },
+      shotLists: { ...bucket(2), archived: 1 }, shotListItems: { ...bucket(29), orphans: 4 }, edits: { ...bucket(3), archived: 1, taken: 2 },
+      folders: { ...bucket(40), leftBehind: 0, orphans: 5, taken: 1 },
+      projectsLeftAtHome: { bidVersions: 1, folders: 2, statuses: { wrapped: 2, draft: 1 }, withValues: 2, values: { 'targeted budget total': 1, director: 2 } }, liveInCloud: 1,
+    }))
+    const said = (id) => screen.getByTestId(id).textContent
+    expect(said('files-placed')).toBe(`${FILES_PLACED(31)}.`)
+    expect(said('archived-in-cloud')).toBe(`${ARCHIVED_IN_CLOUD(1, 1, false)}.`)
+    expect(said('archived-in-cloud')).toBe('1 shot list and 1 edit archived in the cloud too, as on this computer.')
+    expect(said('live-in-cloud')).toBe(`${LIVE_IN_CLOUD(1)}.`)
+    expect(said('bid-versions-part-2')).toBe(`${BID_VERSIONS_PART_2(1)}.`)
+    expect(said('project-folders')).toBe(`${PROJECT_FOLDER_STAYS(2)}.`)
+    expect(said('key-dates-trashed')).toBe(`${KEY_DATES_TRASHED(1)}.`)
+    expect(said('comments-removed')).toBe(`${COMMENTS_REMOVED(2)}.`)
+    expect(said('comments-on-gone-rows')).toBe(`${COMMENTS_ON_GONE_ROWS(3)}.`)
+    expect(said('items-on-gone-rows')).toBe(`${ITEMS_ON_GONE_ROWS(4)}.`)
+    expect(said('folders-of-gone-rows')).toBe(`${FOLDERS_OF_GONE_ROWS(5)}.`)
+    expect(said('folders-taken')).toBe(`${FOLDERS_TAKEN(1)}.`)
+    // Review round 1: the statuses summed over the projects, each named once;
+    // the key dates without their phase; the edits whose place is taken; the
+    // files' links let go.
+    expect(said('project-statuses')).toBe(`${STATUS_NOT_IN_CLOUD(3, ['wrapped', 'draft'])}.`)
+    expect(said('project-statuses')).toBe('3 projects have a status the cloud does not have (wrapped, draft): they arrive as active.')
+    expect(said('key-dates-phase-let-go')).toBe(`${KEY_DATES_PHASE_LET_GO(1)}.`)
+    expect(said('edits-chain-taken')).toBe(`${EDITS_CHAIN_TAKEN(2)}.`)
+    expect(said('file-links-let-go')).toBe(`${FILE_LINKS_LET_GO(2)}.`)
+    // Review round 2: the values the cloud cannot hold, each named once.
+    expect(said('project-values')).toBe(`${VALUES_NOT_IN_CLOUD(2, ['targeted budget total', 'director'])}.`)
+    expect(said('project-values')).toBe('2 projects have values the cloud cannot hold (targeted budget total, director): left out, so the field is empty or at the cloud\'s default.')
+    // CONTROL: a run where none of it happened says none of it.
+    cleanup()
+    await dryRun(report({ dryRun: false, footageRoots: [], milestones: { ...bucket(3), trashed: 0, phaseLetGo: 0 }, edits: { ...bucket(3), archived: 0, taken: 0 }, files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0 }, folders: { ...bucket(4), leftBehind: 0, orphans: 0, taken: 0 }, projectsLeftAtHome: { bidVersions: 0, folders: 0, statuses: {}, withValues: 0, values: {} } }))
+    for (const id of ['files-placed', 'archived-in-cloud', 'live-in-cloud', 'bid-versions-part-2', 'project-folders', 'project-statuses', 'project-values', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
+    // A report from before round 1 (no statuses) says no status either.
+    cleanup()
+    await dryRun(report({ dryRun: false, footageRoots: [], projectsLeftAtHome: { bidVersions: 0, folders: 0 } }))
+    expect(screen.queryByTestId('project-statuses')).toBeNull()
+    expect(screen.queryByTestId('project-values')).toBeNull()
+  })
+
+  it('M1: the dry run says the archives are still to come; Done names part 2 and what a second run brings back', async () => {
+    await dryRun(report({ footageRoots: [], shotLists: { ...bucket(2), archived: 1 }, edits: { ...bucket(3), archived: 1 } }))
+    expect(screen.getByTestId('archived-in-cloud').textContent).toBe('1 shot list and 1 edit archived on this computer: archived in the cloud too, once carried.')
+    // Only what there is: no "0 edits".
+    expect(ARCHIVED_IN_CLOUD(2, 0, false)).toBe('2 shot lists archived in the cloud too, as on this computer')
+    expect(MIGRATE_DONE).toMatch(/part 2 of the migration/)
+    expect(MIGRATE_DONE).toMatch(/trash included/)
+    // Review round 1: every kind a second run brings back once it is removed
+    // for good (none of their tables has a trash), and a trashed row once the
+    // trash is emptied.
+    expect(MIGRATE_DONE).toBe('Done. Running it again skips every row already in the cloud, one in its trash included; a row removed from the cloud for good comes back (a scene, shot, bin, clip, take, folder, saved view, grouping, task or phase link, or an item of a list or a task), as does one in the trash once it is emptied after 30 days. Budgets, expenses, levels, experiences, the team and links on tasks move in part 2 of the migration.')
+    expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/part 2 of the migration/)
+    expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/records of its files and intake runs/)
   })
 
   it('a clip with no path recorded gets its own sentence on Migrate: there is no question to send the person to (review round 2)', async () => {

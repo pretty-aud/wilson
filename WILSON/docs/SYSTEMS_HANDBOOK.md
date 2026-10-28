@@ -292,7 +292,7 @@ exists anywhere); product name `WILSON`.
 | `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_references.json`, `_corrections.json`. **Legacy per-course `_quiz-history.json` files remain on existing installs and are no longer read or created (S30) — all six were empty, because nothing ever wrote one.** |
 | `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json`, **`_quiz-history.json`** | Single-object stores. Quiz history lives at the ROOT, beside `software/`, because a quiz spans courses and deleting a course must not take somebody's marks with it. |
 | `{userData}/rabbit-data/` | R.A.B.B.I.T. root (`getRabbitDataDir()`, `main.cjs:51-55`) |
-| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents`; since S3a (0084) also `shotLists, shotListItems, edits` |
+| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project.** Born with (`emptyBundle`, `electron/main.cjs`): `project, phases, assets, tasks, dependencies, taskLinks, taskItems, tableViews, itemGroupings, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, projectRateOverrides, scenes, shots, levels, experiences, folders, fileEvents, shotLists, shotListItems, edits`. Made on first write: `milestones`, `bins`, `binFiles`, `binRoots`, `shotTakes` (`electron/rabbitBins.cjs`), `ingestionChunks`, `tableViewRevision`, and the S4b Legal clean-up's `legalLabelsStripped` / `legalLabelsSettled`. What the desktop → cloud migration carries of each: the table below (M1, 2026-10-27). |
 | `{userData}/rabbit-data/projects/{id}/files/` | Fallback blob storage when no user-visible project folder is configured |
 | `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/{id}.json` | Workspace-scoped flat stores |
 | `{userData}/rabbit-data/thumbnails/` | Thumbnail cache |
@@ -308,6 +308,35 @@ team / tasks / timeline / budget JSON, and since S3a `scenes.json` — shot
 lists, their items, scenes, shots and edits; Audrey D21), `{slug}_FILES/`,
 `{slug}_RECEIPTS&INVOICES/`, `{slug}_CREWINVOICES/`, `{slug}_TALENTINVOICES/`,
 and `.trash/`.
+
+#### What the desktop → cloud migration carries (the M1 inventory, 2026-10-27)
+
+Measured from the code (`src/cloud/migrate/runMigration.js`, its pure halves
+`binsMigration.js` and `migrationRows.js`, and the desktop's writers in
+`electron/`), not from a plan. "The runner" is Settings → R.A.B.B.I.T. →
+Migrate to cloud. "Part 2" is M2, night 4 of `docs/sessions/PLAN_TO_1_0.md`.
+The report names, before Archive and clear local is offered, everything a
+bundle holds that stays (`NOT_CARRIED`, part 2's apart from the rest).
+
+| Kept on the desktop | Carried by | Where in the cloud, and what stays |
+|---|---|---|
+| `project` | the runner; M1 through the cloud's columns | `projects`, each value as its column takes it (review round 1, read on wilson-dev): a status the cloud does not have (`draft` and `wrapped` from the project's settings, `inactive` from the Projects page; `project_status` has `active`, `on_hold`, `completed`, `archived` and `cancelled`) is left out, so the project arrives as active, named in the report for a project that arrives; the dates are the column's own (R.A.B.B.I.T.'s settings write `start_date` alone, later), else D.O.G.'s `startDate` / `endDate` (its new-project window writes those alone), each as the day a DATE column stores: the literal day of a string that starts with one (review round 2, measured: `'2026-12-01T00:00:00.000Z'::date` is 2026-12-01; the settings store a picked day as its midnight in UTC, which a local reading moved back a day west of Greenwich); a cleared date (`''`, which a DATE refuses) goes up empty; a null where the column is NOT NULL with a default (a cleared frame rate) is left out, so the default applies; a number past its column's room (NUMERIC(12,2), (7,3), (6,2), INTEGER), a fraction in a whole-number column, an unreadable date are left out and named in the settings' words (`VALUES_NOT_IN_CLOUD`); no title, "Untitled Project". `producer_id` and `director_id` go up as the desktop holds them when each is an id (UUID, no foreign key): a desktop team member's id names no one in the cloud until part 2 carries the team (`fn_projects_auto_staff` staffs only a workspace member); a cleared picker's `''` (22P02, measured) goes up empty, and any other non-id empty and named. `budget_active` and `budget_finalized` go up; with no version locked until part 2, the Budget page shows the lock either way. Stays: `documents` and `visualAssets` (no columns: Settings' "Move deck attachments into project files" moves them; the report counts any left), `files_dir` and `folder_root` (this computer's folders; the cloud takes a project folder only from an admin or a manager inside the company's drive), `budget_active_version_id` and `open_budget_version_id` (part 2 sets them with the budgets), who the file says made it (the cloud stamps the person; `fn_projects_auto_staff` makes them the project's manager). `active_shot_list_id` is set by M1 through `set_active_shot_list()` once the lists are in. Before M1 every desktop project was refused whole (measured: 42703 on `documents`). |
+| `phases`, `assets`, `tasks`, `dependencies` | the runner | `phases`, `assets`, `tasks`, `task_dependencies` and `phase_dependencies`. An asset's links to levels and experiences wait for part 2. |
+| `milestones` | M1 | `milestones` (the Timeline's key dates), after the phases. One in this computer's Recently deleted is not carried; one in the cloud's trash keeps its id there and is skipped (read through `milestones_trash_index`). A phase link only to this project's phase: one whose phase did not land in this run fails with it (a second run brings both), as does one whose phase could not be checked (the read failed: said so); one to a phase removed on this computer (its delete leaves the link), in the cloud's trash, or not this project's, is let go, counted and named; a cleared picker's `''` is no phase. |
+| `comments` | M1 | `comments`, after the rows they hang on, through the cloud's columns (no `project_id`, which the desktop stamps; no `author_user_id`, a claim the file cannot prove). One on a row removed on this computer, or not this project's in the cloud, is not carried; one on a kind the cloud's comments cannot name stays, named. |
+| `shotLists`, `shotListItems`, `edits` | M1 | `shot_lists`, `shot_list_items`, `edits`, after the scenes and shots. A list or edit arrives live (0084 refuses one inserted archived) and is archived after through `archive_shot_list()` / `archive_edit()`; edits each after the edit they continue. An edit whose place in the list's one chain (0084: one root per list, one child per edit) another edit holds — one made in the cloud since, or a second chain an older version kept on this computer — is not carried, with every edit continuing it, counted and named: an edit cannot be moved. Each edit holds its place as it lands, so the dry run says what the real run will do. |
+| `folders` | M1 | `folders`, parents first, matched where the cloud holds the folder (by id, by its row, or at its path). A level's or an experience's waits for part 2. |
+| `files` | the runner; M1 files each one | `files` and its body in `rabbit-files`; since M1 each row filed in the folder the desktop shows it in (its entity's: the desktop writes no `folder_id`), a Legal file in none. A file's phase, asset, task, scene and shot links are plain foreign keys, kept only to this project's rows: a file whose row did not land in this run, or could not be checked, fails with it before its body moves (a second run brings both); a link to a row removed on this computer, in the cloud's trash, or not this project's, is let go, counted and named (the dry run counts those the bundle shows); a cleared picker's `''` is no link. A file whose folder did not land in this run waits with it (review round 2: filed at the top meanwhile, it stayed there, a second run skipping it). A scene or shot skipped while the read of the cloud's rows failed is not known to be this project's, so no folder, file or shot links to it in that run: a shot on such a scene waits (0040's `ON DELETE CASCADE` would take it with another project's scene). |
+| `scenes`, `shots`, `bins`, `binFiles`, `binRoots`, `shotTakes` | the runner (BC3) | `scenes`, `shots`, `bins`, `bin_files` under the footage location each root was named as (the roots are the question), `shot_takes`. A scene's or shot's picture stays (a file on this computer). |
+| `taskItems` | the runner (FX2) | `task_items`; a task's items about levels and experiences wait for part 2. |
+| `tableViews`, `itemGroupings` | the runner (VW1c) | `table_views`, `item_groupings`; a grouping of levels or experiences waits for part 2. |
+| `budgetVersions`, `budgetLines`, `budgetActuals`, `expenses`, `projectRateOverrides`, `levels`, `experiences`, `teamAssignments`, `projectTeam`, `taskLinks` | part 2 | Named in the report as part 2's until then. |
+| `assetVersions`, `managedFiles` | no night of the plan | Named in the report (managed files: the files kept with an asset, scene, shot, level or experience in its folder on this computer). `docs/OUTSTANDING.md` M1-L1. |
+| `fileEvents`, `ingestionRuns`, `ingestionChunks`, `tableViewRevision`, `legalLabelsStripped`, `legalLabelsSettled` | not a migration's | This computer's own records: what happened to its files (the cloud's `file_events` is written by the database from the move on), past intake runs, its view-revision counter (the cloud numbers its own), the S4b label clean-up. Kept in the archive file. |
+| `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/` | no night of the plan | Workspace-level stores, not a project's: the runner reads projects only. `docs/OUTSTANDING.md` M1-L2. |
+| O.T.T.E.R.'s courses (`otter-data/`) | its own migration | `runOtterMigration.js` (the O.T.T.E.R. panel beside this one). |
+| The pet, O.T.T.E.R.'s settings, the agent's skills | adoption on sign-in | `src/lib/userState.js`, per person (0046), not the runner. |
+| `session.enc`, `env.json`, the Drive files, the thumbnail cache, `archives/` | not a migration's | This computer's. Notes are cloud-only; D.O.G. has no local deck store. |
 
 #### The IPC surface
 
@@ -440,6 +469,32 @@ with `admin.auth.getUser(token)`, which routes through GoTrue and handles ES256
 correctly. This is stated in `issue-session/index.ts:44-48`, in each guard, and
 in `supabase/config.toml:85-91`. **Do not "fix" a function by turning
 `verify_jwt` back on** — it will break, not harden.
+
+**A launch with the cloud out of reach (S2, 2026-10-27;
+`docs/design/RECONNECT_DESIGN.md` §11).** Step 9's saved session is restored
+at the next launch through `hydrateSupabase`, and on the app surface
+(`/wilson`, the desktop) a saved sign-in less than four hours old opens the
+shell even when the auth server cannot be reached (her ruling of 2026-10-27,
+*"A sign-in less than 4 hours old"*). The four hours start at the earlier of
+the cap's own record and the token's own sign-in time, its `amr` claim
+(`sessionTimeouts.js` `insideSessionCap`; on the desktop the record never
+survives a relaunch, OUTSTANDING S2-01). Inside them the launch asks GoTrue's
+`GET /auth/v1/health` first, within 5 s, and only a JSON answer lets the SDK
+restore, with S1's budgets, the whole decided within 10 s
+(`connectionWatchdog.js` `restoreSavedSession`). Reached nothing: the saved
+session is HELD (`heldSession.js`): every PostgREST and storage request is
+refused before the network, `usePermissions` reads the held token's claims
+with no network read (`offline` true), the strip is up from the first paint,
+and the first answered ping gives the session back to the SDK (`SIGNED_IN`
+or `TOKEN_REFRESHED`). A refusal (400, 401, 403, `session_not_found`) clears
+the stored session if it still holds the refused refresh token: at launch the
+sign-in screen follows; on the way back the session ends with one line on the
+sign-in screen. A sign-out while held ends it on this computer alone: no row
+is written and no SDK sign-out is sent (the SDK holds no session, so there is
+no token to send either with), and the held session's own auth work still out
+is cut (the design's §11.18). Outside the cap, and on the operator console
+always, the restore is what it was. A sign-in itself still cannot succeed
+offline.
 
 ### 4.3 The frozen JWT claim shape
 
@@ -2661,12 +2716,15 @@ moves the DATA local; it stays for the Friday demo, which runs in two parts
 provider's second half (`NETWORK_STORAGE_DESIGN.md` §4a2b): a post-Friday
 session.
 
-**Limits, stated.** Sign-in is required, and a LAUNCH needs the auth
-server however fresh the saved sign-in: restoring it goes through
-`supabase.auth.setSession()`, and `@supabase/auth-js` 2.101.1
+**Limits, stated.** Sign-in is required. A LAUNCH needs the auth server
+only outside the 4-hour cap: `@supabase/auth-js` 2.101.1
 (`GoTrueClient._setSession`) confirms an unexpired token with a `_getUser`
-request, so an offline launch lands on the sign-in screen (corrected
-2026-09-10; `OUTSTANDING.md` carries the fix shape). An OPEN window keeps
+request and saves nothing when it fails, so before S2 every offline launch
+landed on the sign-in screen (measured 2026-09-10, and again on 2026-10-27
+by `scripts/probes/connection-hang.mjs` phase G); since S2 (2026-10-27,
+`docs/design/RECONNECT_DESIGN.md` §11) a saved sign-in inside the cap whose
+launch reaches nothing opens the shell offline, every cloud call refused
+honestly, and the first answered ping restores it (§4.2). An OPEN window keeps
 its session in memory: a refresh that fails with a network error keeps the
 session (`_callRefreshToken` removes it only on a non-retryable error), so
 after about an hour only the cloud features report unavailable. Open/close
@@ -2939,7 +2997,9 @@ labels are stripped on read, and that relink never takes an invoice or a
 Legal file. The desktop→cloud migration (`src/cloud/migrate/runMigration.js`)
 puts a Legal body under `LEGAL` and an invoice's under `INVOICES` — and only
 where the cloud locks `LEGAL`; before round 1 it put every body under a
-`files` segment every member could read.
+`files` segment every member could read. Since M1 (2026-10-27) it files each
+row in the folder the desktop shows it in, and a Legal file in none (its
+LEGAL node has no row, as the cloud's own upload files it).
 
 **What review round 2 added (0088 §5c, §9b).** `trg_file_events_money` flags
 every `file_events` row at INSERT by 0074's `file_event_is_financial`,
@@ -4243,7 +4303,18 @@ Electron 33's Chromium).
 resumable, idempotent single-user → cloud migrations. RABBIT's reads local
 projects from the Express server and writes rows plus Storage blobs; after a
 clean run it offers **Archive + Clear Local**, user-initiated and never
-automatic. O.T.T.E.R.'s reads local courses with **raw `fetch`, never
+automatic. Since M1 (night 3, 2026-10-27) it carries a project's key dates,
+comments, shot lists with their items and edits, and its folders, each file
+filed in its folder, and the project row through the cloud's columns (every
+desktop project row had been refused whole); budgets, expenses, levels,
+experiences, the team and links on tasks are part 2's (night 4), and the
+report names them apart from what no migration carries. What each bundle key
+becomes is §3.1's inventory. A second run skips every row already in the
+cloud, a row in the cloud's trash included (it keeps its id) until the trash
+is emptied after 30 days; a row removed from the cloud for good since comes
+back — a scene, shot, bin, clip, take, folder, saved view, grouping, task or
+phase link, or an item of a list or a task, the tables with no trash
+(`docs/OUTSTANDING.md`, the resurrection entry). O.T.T.E.R.'s reads local courses with **raw `fetch`, never
 `otterFetch`** — because `otterFetch` routes to the cloud once a session
 exists, which is exactly when a migration runs, and it would copy the cloud
 onto itself and report success. Everything lands as `personal` visibility: a
@@ -4300,14 +4371,24 @@ optional avatar, then stamps `onboarded_at`.
 
 **The pet** is a persistent companion with a breed (otter, bird, octopus, blob,
 rabbit, pig, monkey, and a rare demon), a life stage (`egg` → `baby`/`adult` →
-`corpse` → `ghost`) and hunger/happiness stats. Two 30-second intervals run:
-one applies decay, sleep, evolution and death; the other auto-saves. State
-lives at `/api/pet` in Electron and in `localStorage['wilson.pet']` on the web.
+`corpse` → `ghost`) and hunger/happiness stats. One 30-second interval
+applies decay, sleep, evolution and death; there is no auto-save timer (S31
+removed it): a save follows a change, through one coalescing queue
+(`lib/coalescingSave.js`). The pet lives in the account (`user_pets`, one
+row per person, migration 0046); this computer keeps a cache per account
+(`/api/pet` in Electron, `localStorage['wilson.pet.<userId>']` on the web),
+read at launch before the account answers. A failed read of the account
+keeps the cache on screen and refuses saves until a read lands; since S2
+(2026-10-27) it is retried without a relaunch, 5 s, 15 s, 45 s, 2 min 15 s
+and 5 min, then on the window coming online, a lost connection recovering
+or an offline launch's confirmation (`petLifecycle.js`
+`createPetSyncRetry`; §17).
 
-> **Known and accepted:** the web stores are full-object overwrites with no
-> cross-tab sync, so two open tabs both run the 30 s timers and clobber each
-> other. Accepted for v1 as a one-window product — the same class as two
-> Electron windows. A `storage`-event merge is the fix if it ever matters.
+> **Two windows** (two tabs, or the web and the desktop) each hold a copy:
+> migration 0068 refuses a write whose decay anchor is older than the
+> account's, and that window says *Your pet changed on another device —
+> refreshed.* and reloads the account's copy. The pet does not sync live
+> between machines (1.1).
 
 **The agent** is a chat companion that can propose and apply changes. Its
 system prompt is per-tool and user-overridable; the registry holds both tools'
@@ -5544,6 +5625,50 @@ of a session — this section is limits by design, that file is faults.
   holds each share to what its column cannot cut (P1-29, Audrey's to
   overrule).
 
+**The desktop → cloud migration, part 1 (M1 — 2026-10-27; part 2 is night 4)**
+
+- **Part 2 carries the rest** (M2, `docs/sessions/PLAN_TO_1_0.md` night 4):
+  budgets with their versions, lines and actuals, expenses, a project's rate
+  overrides, levels and experiences (and their task items, folders and
+  groupings, and an asset's links to them), the team, the links on tasks, and
+  a project's locked and open bid version pointers. Until then the report
+  names each as part 2's. Asset versions and the desktop's own file store
+  (`managedFiles`) are no night's yet (`docs/OUTSTANDING.md` M1-L1).
+- **An archived list or edit arrives live and is archived after**, through
+  the cloud's functions: its archive's moment and person become the run's.
+  A seat that may not archive it (not a workspace admin or the project's
+  manager, and the row touched: Saved, or a live edit on it — 0086) leaves it
+  live, said; a second run archives nothing and says it is live there
+  (`LIVE_IN_CLOUD`). The active list is set only where the run carried it and
+  no list is active in the cloud yet.
+- **A comment's id that another project's comment holds reads as already
+  there**: a comment has no project, and the cloud's trash hides a removed one
+  from a read, so the runner cannot tell the two apart (key dates can: their
+  trash has an index, `milestones_trash_index`). Nothing is written into the
+  other project.
+- **A file is filed by the desktop's own rule**: the folder its `folder_id`
+  names, else its entity's, else none. An invoice, a project-level file and a
+  Legal file sit at the project's top, as on the desktop.
+- **A folder whose place in the cloud a namesake holds** (another row's
+  folder at its path) is not carried; its files sit at the project's top there.
+  A second run never moves a row already in the cloud.
+- **An edit whose place in its list's one chain is taken** by another edit
+  (0084's one root per list, one child per edit) — one made in the cloud
+  since, or a second chain an older version kept on this computer — is not
+  carried, and neither is any edit continuing it: counted and named, never an
+  error, because no run could move it (review rounds 1 and 2). Its work stays
+  in the archive file.
+- **A project's status the cloud does not have** (`draft`, `wrapped`,
+  `inactive`) arrives as active, named in the report for a project that
+  arrives; the desktop's word is not mapped to one of the cloud's
+  (`docs/walkthroughs/84_night_3.md` asks Audrey whether it should be). A
+  value the cloud's column cannot hold (a budget past NUMERIC(12,2)'s room, a
+  person that is no id) is left out the same way, named in the settings'
+  words.
+- **A file whose folder did not land waits with it**, its body unmoved: a
+  second run never moves a row already in the cloud, so a file filed at the
+  top meanwhile would have stayed there (review round 2).
+
 **Security-adjacent**
 
 - ~~Eight SECURITY DEFINER functions are executable by `anon`.~~ ✅ **CLOSED by
@@ -5697,7 +5822,8 @@ of a session — this section is limits by design, that file is faults.
   asks again on the clear. Uploads, the resumable path and every Edge Function
   call (all raw fetch) are outside it by construction; the start-up session
   check keeps its own 15 s ceiling (`checkSessionValid`, the stored tokens
-  kept). Reproduction and the recovery, with times, in
+  kept) outside the 4-hour cap — inside it, S2's offline launch (the last
+  group of this section). Reproduction and the recovery, with times, in
   `scripts/probes/connection-hang.mjs` (phases A–F).
 
 **Correctness**
@@ -5967,6 +6093,47 @@ documentation and starts being wrong answers.
   `docs/OUTSTANDING.md`).
 
 ---
+
+**The offline launch and the pet's retry (S2, 2026-10-27; `docs/design/RECONNECT_DESIGN.md` §11)**
+
+- **The offline launch, and its limits.** A saved sign-in opens the shell
+  offline only inside the 4-hour cap and only on the app surface (the
+  operator console restores as before). The cap's start is the earlier of its
+  own record and the token's `amr`; on the desktop the record never survives
+  a relaunch (a new origin every launch, OUTSTANDING S2-01), so the token's
+  time decides there. While the session is held, every PostgREST and storage
+  request is refused before the network (*"Could not reach the database, so
+  the request was not sent."*), each tool screen says one sentence and offers
+  no New or Create (R.A.B.B.I.T.'s and D.O.G.'s on the cloud adapter only: the
+  desktop's Local Server works offline), the strip says "reconnecting" until
+  the first answer and never "reload", and the MFA enrolment gate, the
+  new-user welcome, the model tiers, the desktop's NAS root and the pet's
+  course index read again on the confirmation. Pages outside that list (the
+  rate card, team members, the Admin Terminal) show their own error offline
+  and read again on their own refresh or at the next launch; R.A.B.B.I.T.
+  does not reopen the last open project after the confirmation. On the
+  desktop O.T.T.E.R. shows this computer's library while held and switches to
+  the company's at the confirmation, as Settings → Library does (an open
+  local course is left: her question in walkthrough 84). The access token's
+  lifetime on wilson-dev was not measured (the read was refused; the repo
+  says 3,600 s), and nothing depends on it. The offline test rests on data on
+  this computer (the record, the token's claims) that no server checks while
+  offline; what it opens reaches nothing in the cloud beyond what the same
+  token reaches online (the connection dot's probes carry it, and PostgREST
+  checks it). A sign-out while held writes no row and sends no SDK sign-out:
+  there is no token. A new sign-in made within one retry backoff of that
+  sign-out, while the held session's refresh is failing fast (a 503 from the
+  gateway), waits up to 30 s for its first locked step, the MFA-level check;
+  nothing is removed or revoked (the design's §11.18).
+- **The pet's retry, and its bound.** A failed read of the account's pet is
+  retried after 5 s, 15 s, 45 s, 2 min 15 s and 5 min (five tries, 8 min 20 s),
+  then only on a trigger — the window coming online, a lost connection
+  family recovering, an offline launch's confirmation — each starting the
+  count again; never while a session is held (the confirmation is the
+  retry). A save before the retry lands is still refused with *"…Reopen
+  WILSON to try again."* (pinned); the error toast goes when a read lands, its
+  Settings copy at the next successful save (`petLifecycle.js`
+  `createPetSyncRetry`).
 
 ## Appendix A — Glossary
 

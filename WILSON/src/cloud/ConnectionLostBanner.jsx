@@ -50,6 +50,15 @@ import { connectionWatchdog } from './connectionWatchdog'
 export const CONNECTION_LOST_COPY = 'Connection lost — reload to continue.'
 export const RECONNECTING_COPY = 'Connection lost — reconnecting…'
 
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.8): the one
+// sentence each tool screen shows while the shell runs on a sign-in held at an
+// offline launch, in place of its empty state. Her ruling: "One offline
+// sentence on each screen, no empty-state words" — no "No projects yet", and no
+// New or Create control beside it. The noun is the screen's.
+export function offlineSentence(noun = 'projects') {
+  return `Could not reach the database — your ${noun} appear when the connection returns.`
+}
+
 const subscribe = (listener) => connectionWatchdog.subscribe(listener)
 const getPhase = () => connectionWatchdog.getPhase()
 

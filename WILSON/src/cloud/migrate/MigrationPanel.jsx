@@ -36,7 +36,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePermissions } from '../../permissions'
-import { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE, VIEW_FILTERS_LEFT_BEHIND } from './runMigration'
+import {
+  runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE, VIEW_FILTERS_LEFT_BEHIND,
+  BID_VERSIONS_PART_2, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED, COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS,
+  FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
+  STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
+} from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import '../../components/settings/settings.css'
@@ -49,8 +54,15 @@ export const MIGRATE_AGAIN_LEFT = (n) => `${n} clip${n === 1 ? ' is' : 's are'} 
 // A clip with no path recorded has no root to name (review round 2: the
 // sentence above sent the person to a question that was not there).
 export const NO_PATH_LEFT = (n) => `${n} clip${n === 1 ? ' has' : 's have'} no path recorded, so ${n === 1 ? 'it' : 'they'} cannot move: remove ${n === 1 ? 'it' : 'them'} from ${n === 1 ? 'its' : 'their'} bin on this computer, or keep this computer's copy.`
-export const MIGRATE_DONE = 'Done. Re-running skips every row already in the cloud (and brings back a row removed from the cloud since).'
-export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer, including what the migration does not carry (listed under the report), then clears the live copy.'
+// M1 (night 3): what is true after it. A row removed in the cloud and kept in
+// its trash (a task, a file, a comment, a key date…) keeps its id there, so a
+// second run skips it — until the trash is emptied, after 30 days; one
+// removed for good (none of those tables has a trash: a scene, a shot, a bin,
+// a clip, a take, a folder, a saved view, a grouping, an item of a list or a
+// task, a task or phase link) comes back (review rounds 1 and 2 measured the
+// list). Part 2 (night 4) carries the rest.
+export const MIGRATE_DONE = 'Done. Running it again skips every row already in the cloud, one in its trash included; a row removed from the cloud for good comes back (a scene, shot, bin, clip, take, folder, saved view, grouping, task or phase link, or an item of a list or a task), as does one in the trash once it is emptied after 30 days. Budgets, expenses, levels, experiences, the team and links on tasks move in part 2 of the migration.'
+export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer whole — what part 2 of the migration carries later and what no migration carries (both named under the report), and this computer\'s own records of its files and intake runs — then clears the live copy.'
 
 export default function MigrationPanel() {
   // The active workspace, as every gate reads it (the session's claims; the
@@ -176,10 +188,11 @@ export default function MigrationPanel() {
       title={MIGRATE_TITLE}
       description={<>
         Copy every project under <span className="s-data">rabbit-data</span> into the active
-        workspace: its schedule, assets, tasks, files, scenes and shots, its bins with
-        their logging, marks and takes, and its saved views and groupings. Dry-run first to
-        preview the diff. Re-running the full
-        migration is safe — rows already present in the cloud are skipped.
+        workspace: its schedule and key dates, assets, tasks and comments, files and folders,
+        scenes and shots, shot lists and their edits, its bins with their logging, marks and
+        takes, and its saved views and groupings. Budgets, expenses, levels, experiences and
+        the team move in part 2 of the migration. Dry-run first to preview the diff. Re-running
+        the full migration is safe — rows already present in the cloud are skipped.
       </>}
     >
       <Group>
@@ -292,6 +305,34 @@ function resolutionWords(root, r) {
   }
 }
 
+/** M1's lines under the report: each kind's rows not carried and why, the files filed, the archives, the project rows' part 2 and folders. */
+function CarriedLines({ r }) {
+  const statuses = r.projectsLeftAtHome?.statuses || {}
+  const statusCount = Object.values(statuses).reduce((s, n) => s + n, 0)
+  const values = r.projectsLeftAtHome?.values || {}
+  const lines = [
+    ['files-placed', r.files?.placed, FILES_PLACED],
+    ['archived-in-cloud', (r.shotLists?.archived || 0) + (r.edits?.archived || 0), () => ARCHIVED_IN_CLOUD(r.shotLists?.archived || 0, r.edits?.archived || 0, r.dryRun)],
+    ['live-in-cloud', r.liveInCloud, LIVE_IN_CLOUD],
+    ['bid-versions-part-2', r.projectsLeftAtHome?.bidVersions, BID_VERSIONS_PART_2],
+    ['project-folders', r.projectsLeftAtHome?.folders, PROJECT_FOLDER_STAYS],
+    ['project-statuses', statusCount, (n) => STATUS_NOT_IN_CLOUD(n, Object.keys(statuses))],
+    ['project-values', r.projectsLeftAtHome?.withValues, (n) => VALUES_NOT_IN_CLOUD(n, Object.keys(values))],
+    ['key-dates-trashed', r.milestones?.trashed, KEY_DATES_TRASHED],
+    ['key-dates-phase-let-go', r.milestones?.phaseLetGo, KEY_DATES_PHASE_LET_GO],
+    ['edits-chain-taken', r.edits?.taken, EDITS_CHAIN_TAKEN],
+    ['file-links-let-go', r.files?.linksLetGo, FILE_LINKS_LET_GO],
+    ['comments-removed', r.comments?.trashed, COMMENTS_REMOVED],
+    ['comments-on-gone-rows', r.comments?.orphans, COMMENTS_ON_GONE_ROWS],
+    ['items-on-gone-rows', r.shotListItems?.orphans, ITEMS_ON_GONE_ROWS],
+    ['folders-of-gone-rows', r.folders?.orphans, FOLDERS_OF_GONE_ROWS],
+    ['folders-taken', r.folders?.taken, FOLDERS_TAKEN],
+  ].filter(([, n]) => n > 0)
+  return lines.map(([id, n, words]) => (
+    <p key={id} className="s-row-desc mt-2" data-testid={id}>{words(n)}.</p>
+  ))
+}
+
 // The private button is gone: this is the kit Button, so the migration panels
 // stop being a ninth and tenth button treatment in the app (C8). `primary`
 // maps to the one filled primary token; everything else is secondary, which
@@ -343,16 +384,23 @@ function ReportTable({ r }) {
           </tr>
         </thead>
         <tbody>
+          {/* In the runner's order (M1 put the files after the folders). */}
           <Row label="projects" bucket={r.projects} />
           <Row label="phases"   bucket={r.phases} />
+          {r.milestones && <Row label="key dates" bucket={r.milestones} />}
           <Row label="assets"   bucket={r.assets} />
           <Row label="tasks"    bucket={r.tasks} />
           <Row label="task links"  bucket={r.taskLinks} />
           <Row label="phase links" bucket={r.phaseLinks} />
-          <Row label="files"    bucket={r.files} />
-          {/* BC3 (B9): the bins' part. */}
+          {r.comments && <Row label="comments" bucket={r.comments} />}
+          {/* BC3 (B9): the bins' part, and M1's lists and folders beside it. */}
           {r.scenes && <Row label="scenes" bucket={r.scenes} />}
           {r.shots && <Row label="shots" bucket={r.shots} />}
+          {r.shotLists && <Row label="shot lists" bucket={r.shotLists} />}
+          {r.shotListItems && <Row label="items on shot lists" bucket={r.shotListItems} />}
+          {r.edits && <Row label="edits" bucket={r.edits} />}
+          {r.folders && <Row label="folders" bucket={r.folders} />}
+          <Row label="files"    bucket={r.files} />
           {r.bins && <Row label="bins" bucket={r.bins} />}
           {r.binLocations && <Row label="footage locations" bucket={r.binLocations} />}
           {r.binFiles && <Row label="clips" bucket={r.binFiles} />}
@@ -370,6 +418,9 @@ function ReportTable({ r }) {
           Uploaded {(r.files.bytes / 1_000_000).toFixed(1)} MB to rabbit-files bucket.
         </p>
       )}
+      {/* M1 (night 3): what the five kinds and the project rows did beside
+          the counts — one line each, only when it happened. */}
+      <CarriedLines r={r} />
       {r.binFiles?.leftBehind > 0 && (
         <div className="mt-2" data-testid="clips-left-behind">
           <p className="s-row-desc">{BINS_LEFT_BEHIND(r.binFiles.leftBehind)}{r.shotTakes?.leftBehind > 0 ? `, with ${r.shotTakes.leftBehind} take${r.shotTakes.leftBehind === 1 ? '' : 's'} of theirs` : ''}.</p>

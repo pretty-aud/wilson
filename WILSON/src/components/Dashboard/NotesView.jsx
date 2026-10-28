@@ -45,6 +45,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { useNotes } from './useNotes'
+import { offlineSentence } from '../../cloud/ConnectionLostBanner'
 import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
 // DG1: the extension list lives in noteText.js, so D.O.G.'s note reader and
 // this editor are one definition (a note read for a deck is read exactly as
@@ -189,6 +190,16 @@ export default function NotesView() {
           title="Notes need the cloud"
           body="Notes are private to your account and sync across your devices. Sign in and switch R.A.B.B.I.T. to the Supabase adapter to use them."
         />
+      </div>
+    )
+  }
+
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch — one
+  // sentence, no New note, no refusal banner, no "No notes yet".
+  if (nb.offline) {
+    return (
+      <div className="dash-body">
+        <EmptyState Icon={CloudOff} title={offlineSentence('notes')} />
       </div>
     )
   }

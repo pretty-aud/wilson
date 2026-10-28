@@ -26,16 +26,31 @@
 //     workspaceIds: string[],
 //     isPlatformOperator: boolean,
 //     userId: string|null,
+//     offline: boolean,                 // S2: the claims come from a session held at an offline launch
 //     can: (action: string) => boolean, // curried can() from roleMatrix
 //   }
+//
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.5): at an
+// offline launch inside the 4-hour cap the SDK holds no session (auth-js's
+// _setSession saved nothing) and the client module holds the saved one. The
+// claims are then the HELD token's, read with no network read, so a company
+// member stays one offline (and the pet keeps its owner, and a member does not
+// get a solo user's control of this computer's storage folder). The rule is
+// "the SDK's session if it has one, else the held one", recomputed on every
+// auth event and every change of the hold — an INITIAL_SESSION with no session
+// arriving after the hold cannot empty it. `offline` is true while the claims
+// come from the held session; it turns false at the confirmation, and the
+// screens and the once-per-sign-in reads key on that. `ready` is also true as
+// soon as a session is held.
 //
 // Components that just need a boolean for one action should reach for
 // <PermissionGate requires="..."> instead — this hook is for when you need
 // multiple checks or the numerical role to drive other logic.
 // =============================================================================
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useSyncExternalStore } from 'react'
 import { supabase } from '../cloud/auth/supabaseClient'
+import { heldSession, subscribeHeldSession } from '../cloud/auth/heldSession'
 import { can as canDo } from './roleMatrix'
 import { devFixtures } from '../dev/devFixtures'
 
@@ -79,8 +94,12 @@ const EMPTY = {
 }
 
 export function usePermissions() {
-  const [state, setState] = useState(EMPTY)
+  // The SDK's own session as the last read or event left it (null: none).
+  const [sdkSession, setSdkSession] = useState(null)
+  const [fixtureState, setFixtureState] = useState(null)
   const [ready, setReady] = useState(false)
+  // S2: the session the client module holds at an offline launch, or null.
+  const held = useSyncExternalStore(subscribeHeldSession, heldSession, heldSession)
 
   useEffect(() => {
     let cancelled = false
@@ -89,7 +108,7 @@ export function usePermissions() {
     // admin. No session is read and no auth listener is attached.
     const fx = import.meta.env.DEV ? devFixtures() : null
     if (fx?.permissions) {
-      setState({ ...EMPTY, ...fx.permissions })
+      setFixtureState({ ...EMPTY, ...fx.permissions })
       setReady(true)
       return undefined
     }
@@ -97,7 +116,7 @@ export function usePermissions() {
     // Prime from the current session synchronously if possible.
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return
-      setState(snapshot(data?.session ?? null))
+      setSdkSession(data?.session ?? null)
       setReady(true)
     }).catch(() => {
       if (cancelled) return
@@ -106,17 +125,17 @@ export function usePermissions() {
 
     // Subscribe to all auth events — SIGNED_IN / TOKEN_REFRESHED carry a
     // new session (and possibly new claims after a workspace switch);
-    // SIGNED_OUT resets to empty.
+    // SIGNED_OUT resets to empty (or to the held session, while one is held).
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
       if (event === 'SIGNED_OUT') {
-        setState(EMPTY)
+        setSdkSession(null)
         return
       }
       // INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED all fire
       // with a session we want to observe. PASSWORD_RECOVERY is ignored
       // here — ResetPasswordWizard drives that UI.
-      setState(snapshot(session))
+      setSdkSession(session ?? null)
     })
 
     return () => {
@@ -125,13 +144,22 @@ export function usePermissions() {
     }
   }, [])
 
+  // The SDK's session if it has one, else the held one (S2).
+  const state = useMemo(
+    () => fixtureState ?? snapshot(sdkSession ?? held ?? null),
+    [fixtureState, sdkSession, held],
+  )
+  const offline = !fixtureState && !sdkSession && !!held
+  const isReady = ready || offline
+
   const can = useCallback((action) => canDo(state.role, action), [state.role])
 
   // Memoize the returned object so consumers using it as a useEffect dep
   // don't re-run needlessly.
   return useMemo(() => ({
-    ready,
+    ready: isReady,
     ...state,
+    offline,
     can,
-  }), [ready, state, can])
+  }), [isReady, state, offline, can])
 }

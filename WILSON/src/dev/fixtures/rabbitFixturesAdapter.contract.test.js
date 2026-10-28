@@ -437,6 +437,8 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
   const SCENE = (n) => fid('scene', n)
   const SHOT = (n) => fid('shot', n)
   const fresh = () => buildDevFixtures().rabbitAdapter()
+  // M1 (night 3) seeds one chain of three edits on list 2 (data/scenes.js).
+  const SEEDED_EDITS = [fid('edit', 1), fid('edit', 2), fid('edit', 3)]
   const no = (status, code, message) => ({ status, code, message })
   const cmpText = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
   const inCreatedOrder = (rows) => rows.every((r, i) => i === 0 || (cmpText(rows[i - 1].created_at, r.created_at) || cmpText(rows[i - 1].id, r.id)) <= 0)
@@ -525,7 +527,7 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect(p.open_budget_version_id).toBeNull()
   })
 
-  it('loadProject returns the seeded lists and items in the contract order, and no edits', async () => {
+  it('loadProject returns the seeded lists, items and edits in the contract order', async () => {
     const fx = fresh()
     const b = await fx.loadProject(PROJECT_ID)
     expect(b.project.active_shot_list_id).toBe(LIST_1)
@@ -534,10 +536,11 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect(inCreatedOrder(b.shotLists)).toBe(true)
     expect(inPositionOrder(b.shotListItems)).toBe(true)
     expect(inPositionOrder([...b.shotListItems].reverse())).toBe(false) // the control
-    expect(b.edits).toEqual([])
+    expect(b.edits.map((e) => e.id)).toEqual(SEEDED_EDITS)
+    expect(inCreatedOrder(b.edits)).toBe(true)
     expect(await fx.listShotLists(PROJECT_ID)).toEqual(b.shotLists)
     expect(await fx.listShotListItems(PROJECT_ID)).toEqual(b.shotListItems)
-    expect(await fx.listEdits(PROJECT_ID)).toEqual([])
+    expect(await fx.listEdits(PROJECT_ID)).toEqual(b.edits)
   })
 
   it('the game variant keeps every list whole: each item names a scene or shot in its bundle', async () => {
@@ -795,7 +798,8 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect(first).toMatchObject({ ...base, workspace_id: WORKSPACE_ID, parent_edit_id: null, snapshot: null, archived_at: null, created_by: PERMISSIONS.userId })
     await expect(fx.upsertEdit({ ...base, title: ' Assembly ' })).rejects.toMatchObject(
       no(409, 'conflict', 'This shot list already has an edit called "Assembly · v1".'))
-    const onTwo = await fx.upsertEdit({ ...base, shot_list_id: LIST_2 }) // the same pair on ANOTHER list is no clash
+    // The same pair on ANOTHER list is no clash (it continues that list's seeded chain: one root per list).
+    const onTwo = await fx.upsertEdit({ ...base, shot_list_id: LIST_2, parent_edit_id: SEEDED_EDITS[2] })
 
     const badParent = no(400, 'invalid', "an edit's parent must be another edit of the same shot list")
     const second = await fx.upsertEdit({ ...base, version: 2, parent_edit_id: first.id, snapshot: { kind: 'edit' } })
@@ -829,7 +833,7 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect((await fx.upsertEdit({ ...savedOnce, summary: 'Into it' }, { expectSavedAt: '2026-10-12T09:00:00.000Z' })).summary).toBe('Into it')
 
     const edits = await fx.listEdits(PROJECT_ID)
-    expect(edits.map((e) => e.id).sort()).toEqual([first.id, second.id, onTwo.id].sort())
+    expect(edits.map((e) => e.id).sort()).toEqual([...SEEDED_EDITS, first.id, second.id, onTwo.id].sort())
     expect(inCreatedOrder(edits)).toBe(true)
     expect((await fx.loadProject(PROJECT_ID)).edits).toEqual(edits)
   })
@@ -1091,7 +1095,7 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     // One root per LIST: another list starts its own chain.
     const other = await fx.upsertShotList({ project_id: PROJECT_ID, title: 'Second unit', version: 1 })
     expect((await fx.upsertEdit({ ...base, shot_list_id: other.id, version: 1 })).parent_edit_id).toBeNull()
-    expect((await fx.listEdits(PROJECT_ID)).length).toBe(4) // nothing refused was written
+    expect((await fx.listEdits(PROJECT_ID)).length).toBe(4 + SEEDED_EDITS.length) // nothing refused was written
   })
 })
 

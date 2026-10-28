@@ -369,3 +369,63 @@ export function applyOfflineDecay(input) {
   pet.state = derivePetState(pet)
   return pet
 }
+
+// =============================================================================
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.10): a FAILED
+// PET SYNC IS RETRIED WITHOUT A RELAUNCH. Before this, a resolveUserPet() that
+// threw left the pet's routing uninstalled for the life of the process (the
+// identity effect is keyed on the identity, which a blip does not change), and
+// every save said "Reopen WILSON to try again." The bound, the module's one
+// rule about time: five timed retries, 5 s, 15 s, 45 s, 2 min 15 s and 5 min
+// after each failure (×3, capped at five minutes: 8 min 20 s of trying), then
+// it stops until a trigger — the session held at an offline launch confirmed,
+// the window's `online` event, a lost connection family recovering — which
+// asks at once and starts the count again. While a session is held no timer
+// is armed (every attempt would be refused without the network): the
+// confirmation is the retry. Against a service refusing on purpose (RLS),
+// five tries over eight minutes is the whole cost.
+//
+// No I/O of its own: `retry` is the caller's re-read, and the timer functions
+// are passed in (the defaults are the platform's), so a test drives it under
+// fake timers.
+// =============================================================================
+
+export const PET_SYNC_RETRY_MS = Object.freeze([5_000, 15_000, 45_000, 135_000, 300_000])
+
+/**
+ * @param {object} opts
+ * @param {() => void} opts.retry           re-read the account's pet (App bumps the identity effect)
+ * @param {number[]} [opts.delays]
+ * @param {(fn: () => void, ms: number) => any} [opts.setTimer]
+ * @param {(handle: any) => void} [opts.clearTimer]
+ */
+export function createPetSyncRetry({ retry, delays = PET_SYNC_RETRY_MS, setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (h) => clearTimeout(h) }) {
+  let attempt = 0
+  let handle = null
+  let failing = false
+  const disarm = () => { if (handle != null) { clearTimer(handle); handle = null } }
+  return {
+    /** A read failed. `held`: a session is held at an offline launch, so arm nothing. */
+    failed({ held = false } = {}) {
+      failing = true
+      disarm()
+      if (held || attempt >= delays.length) return
+      const ms = delays[attempt]
+      attempt += 1
+      handle = setTimer(() => { handle = null; retry() }, ms)
+    },
+    /** The read landed: stop, and count from zero at the next failure. */
+    succeeded() { failing = false; attempt = 0; disarm() },
+    /** A reason to ask now: retry at once and start the count again — only after a failure. */
+    trigger() {
+      if (!failing) return
+      disarm()
+      attempt = 0
+      retry()
+    },
+    /** A sign-out or an identity change: forget everything. */
+    cancel() { failing = false; attempt = 0; disarm() },
+    pending: () => handle != null,
+    attempts: () => attempt,
+  }
+}

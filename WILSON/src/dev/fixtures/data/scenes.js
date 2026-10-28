@@ -1,7 +1,8 @@
 // =============================================================================
 // scenes.js — six scenes, sixteen shots, one footage location, seven bins,
 // sixteen bin files (one a frame sequence), nine takes, two shot lists (one
-// active, one archived) and no edits. The bin rows follow docs/BINS_DESIGN.md
+// active, one archived) and three edits on the archived one (M1, night 3:
+// one chain, the first Saved, the last archived). The bin rows follow docs/BINS_DESIGN.md
 // §4.4 in the CLOUD shape of migration 0091 (a location plus a relative path,
 // never an absolute path); `online` is the list route's computed flag and is
 // true for every fixture file (there is no disk behind them — the posters are
@@ -13,6 +14,7 @@ import { fid, day, stamp } from '../ids'
 import { placeholder } from '../svg'
 import { WORKSPACE_ID, MEMBER_ID } from './workspace'
 import { PROJECT_ID, TASKS } from './project'
+import { buildEditSnapshot } from '../../../tools/rabbit_v0.1.0/state/shotListModel'
 
 const SCENE_ROWS = [
   // [n, name, number, status, type, time_of_day, startDay, endDay, tint, description]
@@ -363,7 +365,67 @@ export const SHOT_LIST_ITEMS = [
   }),
 ]
 
-export const EDITS = []
+// ── Edits (S3c, D6) — seeded by M1 (night 3) ───────────────────────────────
+// Three edits on "Pickups", the archived list: ONE linear chain (D6 — a root,
+// one child each), made before the list was archived. The first was Saved
+// (its snapshot, buildEditSnapshot's shape); the last was archived by Mara.
+// The desktop → cloud migration's round trip (runMigrationBins.test.js)
+// reads them to prove an edit lands after the one it continues and an
+// archived edit is archived again in the cloud. On the archived list on
+// purpose: every test that starts a chain of its own does it on "Shot list
+// 1", and meets none of these. Item ids are fixture ids in the edit kind's
+// range from 101 (an item is a value in the edit's JSON, not a row).
+const sceneNumberOf = new Map(SCENES.map(s => [s.id, s.scene_number]))
+const PICKUP_SHOTS = SHOTS.filter(sh => PICKUP_SCENE_IDS.has(sh.scene_id))
+  .sort((a, b) => cmpNullsLast(sceneNumberOf.get(a.scene_id), sceneNumberOf.get(b.scene_id)) || listOrder('shot_number')(a, b))
+const editItemsOf = (shots, firstN) => shots.map((sh, i) => ({ id: fid('edit', firstN + i), scene_id: sh.scene_id, shot_id: sh.id, label: sh.name, notes: '' }))
+const BOAT_SCENE_ID = SCENES.find(s => s.scene_number === 5).id
+const EDIT_1_AT = stamp(34, 15)
+const EDIT_2_AT = stamp(35, 15)
+const EDIT_3_AT = stamp(36, 15)
+const EDIT_3_ARCHIVED_AT = stamp(36, 17, 10)
+const EDIT_1_ITEMS = editItemsOf(PICKUP_SHOTS, 101)
+const EDIT_2_ITEMS = editItemsOf([...PICKUP_SHOTS.filter(sh => sh.scene_id === BOAT_SCENE_ID), ...PICKUP_SHOTS.filter(sh => sh.scene_id !== BOAT_SCENE_ID)], 111)
+const EDIT_3_ITEMS = editItemsOf(PICKUP_SHOTS.filter(sh => sh.scene_id === BOAT_SCENE_ID), 121)
+const editRow = (n, over) => ({
+  id: fid('edit', n),
+  project_id: PROJECT_ID,
+  workspace_id: WORKSPACE_ID,
+  shot_list_id: fid('shotList', 2),
+  title: 'Pickups assembly',
+  version: n,
+  summary: null,
+  parent_edit_id: n === 1 ? null : fid('edit', n - 1),
+  items: [],
+  snapshot: null,
+  archived_at: null,
+  archived_by: null,
+  created_by: MEMBER_ID.theo,
+  updated_by: MEMBER_ID.theo,
+  ...over,
+})
+
+export const EDITS = [
+  editRow(1, {
+    summary: 'Every pickup shot, in scene order',
+    items: EDIT_1_ITEMS,
+    snapshot: buildEditSnapshot({ items: EDIT_1_ITEMS, shots: SHOTS, scenes: SCENES, savedAt: EDIT_1_AT, savedBy: MEMBER_ID.theo }),
+    created_at: EDIT_1_AT,
+    updated_at: EDIT_1_AT,
+  }),
+  editRow(2, { summary: 'The boat first', items: EDIT_2_ITEMS, created_at: EDIT_2_AT, updated_at: EDIT_2_AT }),
+  // Archived by Mara (a workspace admin — D8): archive_edit() is an UPDATE,
+  // so the audit trigger stamps updated_at / updated_by with the same moment.
+  editRow(3, {
+    summary: 'Boat only',
+    items: EDIT_3_ITEMS,
+    archived_at: EDIT_3_ARCHIVED_AT,
+    archived_by: MEMBER_ID.mara,
+    created_at: EDIT_3_AT,
+    updated_at: EDIT_3_ARCHIVED_AT,
+    updated_by: MEMBER_ID.mara,
+  }),
+]
 
 export const LEVELS = []
 export const EXPERIENCES = []

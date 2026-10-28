@@ -16,6 +16,9 @@
 //      the assertions below read either. The route that holds every
 //      /rest/v1/ request open holds the watchdog's HEAD /rest/v1/ ping too,
 //      so the strip stays up for the whole scenario.
+//  12. An offline launch (S2, night 3): a saved sign-in inside the 4-hour cap
+//      relaunched with GoTrue and PostgREST held opens the shell, not the
+//      sign-in screen, and the strip says "reconnecting" from its first paint.
 //
 // 8–10 run the real timers with the DEV-ONLY override in sessionTimeouts.js
 // (`localStorage['wilson.session.timeouts.debug']`), which the Vite dev
@@ -33,8 +36,9 @@
 // Assumes the probe account is a workspace ADMIN (scenario 7 opens the Admin
 // Terminal), as scenario 1 in auth.spec.ts already assumes for the roster.
 // Each scenario spends one company check and one credential check on
-// resolve-login's per-address limiter (20 / 30 a minute) — five here, six in
-// auth.spec.ts; a loop of sign-ins would trip it, this does not.
+// resolve-login's per-address limiter (20 / 30 a minute) — six here (12 is
+// S2's; its relaunch signs in with no request), six in auth.spec.ts; a loop of
+// sign-ins would trip it, this does not.
 // =============================================================================
 
 import { test, expect, type Page } from '@playwright/test'
@@ -172,4 +176,30 @@ test('a PostgREST call that never answers while online raises the connection-los
   await expect(banner).toBeVisible({ timeout: 35_000 })
   await expect(banner).toContainText(/connection lost/i)
   await expect(banner.getByRole('button', { name: /^reload$/i })).toBeVisible()
+})
+
+// ── 12. the offline launch (S2, night 3, 2026-10-27) ───────────────────────
+// Her ruling: "A sign-in less than 4 hours old (Recommended)" opens the shell
+// offline (docs/design/RECONNECT_DESIGN.md §11). Signed in a moment ago, so the
+// saved sign-in is inside the cap; then the next launch meets a dead network:
+// GoTrue's health and user endpoints and every PostgREST request are accepted
+// and never answered (navigator.onLine stays true — the stall, the harder
+// case). The launch's health probe is cut at 5 s, the saved session is held,
+// and the shell opens with the strip saying "reconnecting" (never "reload":
+// the launch was never online). The held routes keep the pings unanswered, so
+// the strip stays for the whole scenario.
+test('a saved sign-in less than four hours old opens the shell offline, with the strip, when the auth server cannot be reached', async ({ page }) => {
+  await signIn(page)
+  await expectHome(page)
+  await page.route('**/auth/v1/health**', () => { /* never continue, never fulfil */ })
+  await page.route('**/auth/v1/user**', () => { /* never continue, never fulfil */ })
+  await page.route('**/rest/v1/**', () => { /* never continue, never fulfil */ })
+  const launched = Date.now()
+  await page.reload()
+  await expectHome(page)
+  const banner = page.getByTestId('connection-lost-banner')
+  await expect(banner).toBeVisible({ timeout: 15_000 })
+  await expect(banner).toContainText(/reconnecting/i)
+  expect(Date.now() - launched).toBeLessThan(25_000)
+  await expect(page.getByText(/^login$/i)).toHaveCount(0)
 })

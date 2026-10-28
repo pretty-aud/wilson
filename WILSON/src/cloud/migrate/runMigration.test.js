@@ -271,7 +271,7 @@ describe('an asset goes up without its level and experience links (VW1e, 0099)',
     expect(report.assets).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0, linksLeftBehind: 1 })
     expect(fake.state.inserts.assets).toStrictEqual([{ id: 'a1', project_id: 'p1', name: 'Lantern', scene_ids: ['sc1'], shot_ids: [] }])
     // Said: the asset's links to levels stay on this computer.
-    expect(report.notCarried).toContainEqual({ key: 'assetLevelLinks', count: 1, label: "asset's links to levels or experiences" })
+    expect(report.notCarried).toContainEqual({ key: 'assetLevelLinks', count: 1, label: "asset's links to levels or experiences", part2: true })
   })
 
   it('the dry run counts the same, and writes nothing', async () => {
@@ -721,7 +721,7 @@ describe('saved views and groupings move with the project (VW1c, 0098)', () => {
     expect(report.tableViews).toEqual({ total: 2, inserted: 2, skipped: 0, failed: 0, filtersLeftBehind: 1 })
     expect(report.itemGroupings).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1 })
     // The grouping of levels stays, and is named before the archive is offered.
-    expect(report.notCarried).toContainEqual({ key: 'levelGroupings', label: 'grouping of levels or experiences', count: 1 })
+    expect(report.notCarried).toContainEqual({ key: 'levelGroupings', label: 'grouping of levels or experiences', count: 1, part2: true })
   })
 
   it('a second run finds them already there and counts them skipped, writing nothing', async () => {
@@ -793,7 +793,7 @@ describe('saved views and groupings move with the project (VW1c, 0098)', () => {
     const report = await runMigration({ workspaceId: 'ws1', dryRun: true, onProgress: (m) => notes.push(m) })
     expect(report.tableViews).toEqual({ total: 2, inserted: 1, skipped: 1, failed: 0, filtersLeftBehind: 1 })
     expect(report.itemGroupings).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1 })
-    expect(report.notCarried).toContainEqual({ key: 'levelGroupings', label: 'grouping of levels or experiences', count: 1 })
+    expect(report.notCarried).toContainEqual({ key: 'levelGroupings', label: 'grouping of levels or experiences', count: 1, part2: true })
     expect(fake.state.log).toEqual([])
     expect(notes).toContain('  2 saved views and 3 groupings; 1 grouping of levels or experiences stays on this computer')
   })
