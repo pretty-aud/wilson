@@ -436,3 +436,20 @@ describe('VW1m: the Asset column and the cards name every asset of the task', ()
     expect(container.querySelector('.dash-card-meta').textContent).toBe('Alpha · Lighthouse Interior, Storm Lantern')
   })
 })
+
+// ── S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.8) ─────────
+// Her ruling: "One offline sentence on each screen, no empty-state words".
+describe('S2 — a sign-in held at an offline launch', () => {
+  const SENTENCE = 'Could not reach the database — your tasks appear when the connection returns.'
+  it('one sentence in place of the refusal banner and "Nothing assigned to you yet"', () => {
+    mount({ offline: true, tasks: [], error: '[supabase] no active session. Sign in via the login screen.' })
+    expect(screen.getByText(SENTENCE)).toBeTruthy()
+    expect(screen.queryByText('Nothing assigned to you yet')).toBeNull()
+    expect(screen.queryByText(/no active session/)).toBeNull()
+  })
+  it('CONTROL: the same empty list online keeps its empty state', () => {
+    mount({ offline: false, tasks: [] })
+    expect(screen.queryByText(SENTENCE)).toBeNull()
+    expect(screen.getByText('Nothing assigned to you yet')).toBeTruthy()
+  })
+})

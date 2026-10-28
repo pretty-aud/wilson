@@ -45,6 +45,7 @@ import { useMyTasks } from './useMyTasks'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { removalQuestion } from '../../tools/rabbit_v0.1.0/state/versionWords'
 import { usePermissions } from '../../permissions/usePermissions'
+import { offlineSentence } from '../../cloud/ConnectionLostBanner'
 import { canOnProject } from '../../permissions/projectRoleMatrix'
 import {
   TASK_STATUSES, PRIORITIES, GROUP_OPTIONS, SORT_OPTIONS, FILTER_FIELDS,
@@ -255,6 +256,16 @@ export default function DashboardTasksView() {
           title="Dashboard needs the cloud"
           body="Your cross-project tasks live on the central workspace. Sign in and switch R.A.B.B.I.T. to the Supabase adapter (App settings → Storage) to see them here."
         />
+      </div>
+    )
+  }
+
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch — one
+  // sentence in place of the refusal's banner and the empty state.
+  if (mt.offline) {
+    return (
+      <div className="dash-body">
+        <EmptyState Icon={CloudOff} title={offlineSentence('tasks')} />
       </div>
     )
   }

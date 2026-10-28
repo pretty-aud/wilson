@@ -81,7 +81,10 @@ export function useMyTasks() {
     }
   }, [adapterMode, getAdapter])
 
-  useEffect(() => { load() }, [load, userId])
+  // S2 (RECONNECT_DESIGN.md §11.9): and again when a sign-in held at an
+  // offline launch is confirmed — the identity does not change then.
+  const heldOffline = !!perms?.offline
+  useEffect(() => { load() }, [load, userId, heldOffline])
 
   // Live refresh: workspace-channel events → debounced reload. Kept behind
   // refs so the subscription survives re-renders without re-subscribing.
@@ -232,6 +235,8 @@ export function useMyTasks() {
 
   return {
     cloudReady,
+    // S2: the shell runs on a sign-in held at an offline launch (the view says so in one sentence).
+    offline: heldOffline,
     userId,
     tasks,
     phases,

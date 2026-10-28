@@ -95,6 +95,19 @@
 // (today the same refusal follows the reload, which holds the same token).
 // Both in docs/design/RECONNECT_DESIGN.md §5.
 //
+// S2 (night 3, 2026-10-27; RECONNECT_DESIGN.md §11): THE OFFLINE LAUNCH. A
+// saved sign-in inside the 4-hour cap that cannot reach the cloud opens the
+// shell offline, and this module holds the network half of it: `launchProbe`,
+// the launch's one health question to GoTrue (the only new budget, 5 s, on a
+// request the launch adds, never on one the SDK sends); `restoreSavedSession`,
+// the decision itself (exported so the probe runs the code the app runs);
+// `launchedOffline`, the auth family marked lost from the first paint, with
+// "reconnecting" kept until it answers and its pings sent whether or not the
+// browser says online; `launchEnded`, the loss lowered when a hold ends with
+// nothing left to ask; `quietWhile`, no auth ping while the re-hydration's own
+// request is out; and `rehydrateSession`, the saved session given to the SDK
+// again on the first answered ping. None of S1's numbers moves.
+//
 // No React here; ConnectionLostBanner and ConnectionDot subscribe through
 // useSyncExternalStore. supabaseClient.js composes the guard below with the
 // wrapper (the guard outside, so a refused request is never tracked).
@@ -107,6 +120,10 @@ export const PING_BUDGET_MS = 5_000
 export const RELOAD_AFTER_MS = 60_000
 /** One second of budget per this many body bytes (a 400 kbit/s uplink). */
 export const BODY_BYTES_PER_SECOND = 51_200
+/** S2: the launch's health question to GoTrue (§11.4 step 3): the ping's own budget. */
+export const LAUNCH_BUDGET_MS = 5_000
+/** S2: the whole decision inside the cap, from the probe: two launch budgets. */
+export const LAUNCH_CEILING_MS = 10_000
 
 function urlOf(input) {
   if (typeof input === 'string') return input
@@ -208,19 +225,100 @@ const CANCELLED_DEAD = 'The request was cancelled: the service answered a newer 
  * (the Edge Functions) and `/auth/v1/` itself are untouched.
  */
 export const ANON_GUARD_MESSAGE = 'Signed in, but the session check failed; the request was not sent.'
+/** S2: the guard's reason while a session is held at an offline launch (§11.5). */
+export const HELD_GUARD_MESSAGE = 'Could not reach the database, so the request was not sent.'
 
-export function createAnonGuard({ anonKey, isSignedIn, onRefused = null }) {
+export function createAnonGuard({ anonKey, isSignedIn, onRefused = null, message = null }) {
   const bearer = `Bearer ${anonKey}`
   return (baseFetch) => (input, init) => {
     if (anonKey && isSignedIn()) {
       const path = pathOf(input)
       if ((path.includes('/rest/v1/') || path.includes('/storage/v1/')) && headerOf(init, 'authorization') === bearer) {
         try { onRefused?.(path) } catch { /* a listener must not break the guard */ }
-        return Promise.reject(new TypeError(ANON_GUARD_MESSAGE))
+        let reason = ANON_GUARD_MESSAGE
+        try { reason = (typeof message === 'function' ? message() : null) || ANON_GUARD_MESSAGE } catch { /* the default reason */ }
+        return Promise.reject(new TypeError(reason))
       }
     }
     return baseFetch(input, init)
   }
+}
+
+// ── S2: the offline launch's decision (RECONNECT_DESIGN.md §11.2, §11.4) ────
+
+/**
+ * What a failed restore says about the auth server, by auth-js's own error
+ * classes as installed (lib/fetch.js handleError, lib/errors.js):
+ *   'unreached'     it could not be reached: a rejected or aborted fetch, an
+ *                   answer that is not GoTrue's JSON (AuthRetryableFetchError,
+ *                   AuthUnknownError), or any 5xx
+ *   'refused-ends'  GoTrue refused the saved session for good: 400 (a spent or
+ *                   invalid refresh token), 401, 403, session_not_found, a token
+ *                   that cannot be decoded — the store may be cleared
+ *   'refused-keeps' any other answer (404, 429, an unexpected error): the
+ *                   sign-in screen as today, the store kept
+ */
+export function classifyAuthFailure(error) {
+  if (!error) return 'refused-keeps'
+  const name = error.name
+  const status = typeof error.status === 'number' ? error.status : null
+  if (name === 'AuthRetryableFetchError' || name === 'AuthUnknownError') return 'unreached'
+  if (status != null && status >= 500) return 'unreached'
+  if (name === 'AuthSessionMissingError' || name === 'AuthInvalidJwtError') return 'refused-ends'
+  if (status === 400 || status === 401 || status === 403) return 'refused-ends'
+  return 'refused-keeps'
+}
+
+/**
+ * The launch's decision for a saved session INSIDE the cap (§11.4 steps 3–5).
+ * `probe()` resolves whether GoTrue answered its health question (the
+ * watchdog's launchProbe); only then is the SDK asked (`auth.setSession`, with
+ * S1's budgets), and the whole is raced against `ceilingMs`. Resolves:
+ *   { outcome: 'online', session }      the SDK holds the session: the shell, as today
+ *   { outcome: 'held', reason, late? }  nothing answered: the caller holds `saved`;
+ *                                       `late` is the SDK's restore still running
+ *                                       when the ceiling decided (its answer is handled)
+ *   { outcome: 'refused', error }       the store may be cleared (compare-and-clear)
+ *   { outcome: 'none', error }          the sign-in screen as today
+ * Never a real request when the probe is not answered.
+ */
+export async function restoreSavedSession({ auth, saved, probe, ceilingMs = LAUNCH_CEILING_MS, timers = globalThis }) {
+  let timer = null
+  const ceiling = new Promise((resolve) => { timer = timers.setTimeout(() => resolve({ timedOut: true }), ceilingMs) })
+  try {
+    const asked = await Promise.race([
+      Promise.resolve().then(() => probe()).then((ok) => ({ ok: ok === true }), () => ({ ok: false })),
+      ceiling,
+    ])
+    if (asked.timedOut) return { outcome: 'held', reason: 'ceiling' }
+    if (!asked.ok) return { outcome: 'held', reason: 'probe' }
+    const restore = Promise.resolve().then(() => auth.setSession({ access_token: saved.access_token, refresh_token: saved.refresh_token }))
+    const r = await Promise.race([restore.then((value) => ({ value }), (thrown) => ({ thrown })), ceiling])
+    if (r.timedOut) return { outcome: 'held', reason: 'ceiling', late: restore }
+    if (r.thrown) return { outcome: 'none', error: r.thrown }
+    const { data, error } = r.value || {}
+    if (!error && data?.session) return { outcome: 'online', session: data.session }
+    const kind = classifyAuthFailure(error)
+    if (kind === 'unreached') return { outcome: 'held', reason: 'unreached', error }
+    if (kind === 'refused-ends') return { outcome: 'refused', error }
+    return { outcome: 'none', error }
+  } finally {
+    if (timer != null) timers.clearTimeout(timer)
+  }
+}
+
+/**
+ * The re-hydration (§11.5): the held session given to the SDK again, on the
+ * first answered auth ping. 'online' (the SDK emitted SIGNED_IN or
+ * TOKEN_REFRESHED), 'refused' (for good: the session is over), or 'unreached'
+ * (keep holding; the next answered ping asks again — a 404 or 429 included).
+ */
+export async function rehydrateSession({ auth, held }) {
+  let r
+  try { r = await auth.setSession({ access_token: held.access_token, refresh_token: held.refresh_token }) }
+  catch (error) { return { outcome: 'unreached', error } }
+  if (!r?.error && r?.data?.session) return { outcome: 'online', session: r.data.session }
+  return { outcome: classifyAuthFailure(r?.error) === 'refused-ends' ? 'refused' : 'unreached', error: r?.error ?? null }
 }
 
 /**
@@ -241,6 +339,9 @@ export function createConnectionWatchdog(opts = {}) {
     unschedule = (h) => clearInterval(h),
     makeAbortController = () => new AbortController(),
     windowRef = typeof window !== 'undefined' ? window : null,
+    launchBudgetMs = LAUNCH_BUDGET_MS,
+    setTimer = (fn, ms) => setTimeout(fn, ms),
+    clearTimer = (h) => clearTimeout(h),
   } = opts
 
   const pending = new Map()      // id -> { startedAt, path, method, family, budgetMs, ctl, isPing, abortedAt }
@@ -249,11 +350,14 @@ export function createConnectionWatchdog(opts = {}) {
   const listeners = new Set()
   const recoveredListeners = new Set()
   const pingListeners = new Set()
+  const quiet = new Map()        // S2: family -> how many quietWhile() are out (no ping meanwhile)
   let lostSince = null           // the first raise of the current loss; later aborts do not restart it
   let phase = 'ok'               // ok | reconnecting | reload
   let timer = null
   let seq = 0
   let pinger = null              // the base fetch, for pings
+  let launchRaised = false       // S2: the auth loss was raised by an offline launch (launchedOffline)
+  let neverAnswered = false      // S2: ...and it has not answered since: the words stay "reconnecting"
 
   const lostNow = () => lostFamilies.size > 0
 
@@ -261,6 +365,9 @@ export function createConnectionWatchdog(opts = {}) {
 
   function phaseAt(t) {
     if (!lostNow()) return 'ok'
+    // S2: a launch that was never online says "reconnecting" throughout: a
+    // reload would only launch offline again (her ruling of 2026-10-27).
+    if (neverAnswered) return 'reconnecting'
     return t - lostSince >= reloadAfterMs ? 'reload' : 'reconnecting'
   }
 
@@ -282,11 +389,13 @@ export function createConnectionWatchdog(opts = {}) {
     return false
   }
 
-  function clearFamily(family, t) {
+  function clearFamily(family, t, { announce = true } = {}) {
     if (!lostFamilies.delete(family)) return
     if (lostFamilies.size === 0) lostSince = null
+    if (family === 'auth') { launchRaised = false; neverAnswered = false }
     // A ping still out for a family that has just answered is moot.
     for (const p of pending.values()) if (p.isPing && p.family === family) abort(p, t, 'the family answered')
+    if (!announce) return
     for (const l of recoveredListeners) { try { l(family) } catch { /* same rule */ } }
   }
 
@@ -299,16 +408,29 @@ export function createConnectionWatchdog(opts = {}) {
   function evaluate() {
     const t = now()
     const online = isOnline()
-    if (online) {
-      for (const p of pending.values()) {
-        if (p.abortedAt == null && t - p.startedAt >= p.budgetMs) {
-          abort(p, t, cancelledAfter(t - p.startedAt))
-          if (!p.isPing) raise(p.family, t)
-        }
+    for (const p of pending.values()) {
+      // S1: a real request is aborted at its budget only while the browser
+      // says online. S2 (build review round 1): a PING is ours, and is cut at
+      // its budget whatever the browser says — a launch-raised loss is pinged
+      // while it says offline, and one hung ping would block the next. And
+      // (build review round 2, F3) while a launch-raised auth loss is up, the
+      // held work's own auth request is cut at S1's budget whatever the
+      // browser says: quietWhile keeps the pings away meanwhile, so nothing
+      // else would ever end a stall on a working network the browser calls
+      // offline.
+      const cut = online || p.isPing || (p.family === 'auth' && launchRaised)
+      if (p.abortedAt == null && t - p.startedAt >= p.budgetMs && cut) {
+        abort(p, t, cancelledAfter(t - p.startedAt))
+        if (!p.isPing) raise(p.family, t)
       }
-      for (const [family, info] of lostFamilies) {
-        if (!pingInFlight(family) && t - info.lastPingAt >= pingEveryMs) ping(family, info, t)
-      }
+    }
+    for (const [family, info] of lostFamilies) {
+      // S2: a loss an offline launch raised is pinged whether or not the
+      // browser says online (a virtual adapter can say offline on a working
+      // network; on a dead one the ping fails at once); every other loss only
+      // while it says online, as S1 built it. No ping while quietWhile() is out.
+      const mayPing = online || (family === 'auth' && launchRaised)
+      if (mayPing && !quiet.get(family) && !pingInFlight(family) && t - info.lastPingAt >= pingEveryMs) ping(family, info, t)
     }
     settlePhase(t)
     if (pending.size === 0 && !lostNow() && timer != null) { unschedule(timer); timer = null }
@@ -351,7 +473,12 @@ export function createConnectionWatchdog(opts = {}) {
         }
         if (entry.family === 'storage') clearFamily(entry.family, t)
         else for (const l of pingListeners) { try { l(entry.family) } catch { /* same rule */ } }
-      } else {
+      } else if (!quiet.get(entry.family)) {
+        // S2 (build review round 1, F2): while quietWhile() is out the answer
+        // does not clear the family: the work it waits on decides (an answer
+        // can hold no session — a 429, a portal's page — and the strip must
+        // not go while the session is still held; launchEnded() clears on a
+        // confirmation).
         clearFamily(entry.family, t)
       }
     }
@@ -425,6 +552,80 @@ export function createConnectionWatchdog(opts = {}) {
     return () => { pingListeners.delete(listener) }
   }
 
+  /**
+   * S2 (§11.4 step 3): the launch's one question to GoTrue, `GET /auth/v1/health`
+   * with the anon key, sent with the base fetch and aborted at the launch
+   * budget. Resolves true only for a 200 whose body is a JSON object (GoTrue's
+   * own answer: a captive portal's page or a proxy's is not). Outside the
+   * table: it raises nothing, clears nothing and tells no listener.
+   */
+  async function launchProbe({ origin, apikey } = {}) {
+    if (!pinger || !origin) return false
+    const ctl = makeAbortController()
+    let handle = null
+    try {
+      handle = setTimer(() => { try { ctl.abort(abortError(cancelledAfter(launchBudgetMs))) } catch { /* an unusual controller */ } }, launchBudgetMs)
+      const res = await pinger(`${origin}/auth/v1/health`, { method: 'GET', headers: apikey ? { apikey } : {}, signal: ctl.signal })
+      if (!res || res.status !== 200 || typeof res.json !== 'function') return false
+      const body = await res.json()
+      return !!body && typeof body === 'object' && !Array.isArray(body)
+    } catch {
+      return false
+    } finally {
+      if (handle != null) clearTimer(handle)
+    }
+  }
+
+  /**
+   * S2 (§11.6): the shell is opening on a session the cloud could not
+   * confirm. The auth family is lost from now (the strip from the first
+   * paint, whether or not the browser says online), its ping is addressed to
+   * `origin` with `apikey` (nothing has been sent at such a launch to remember
+   * them from), and the words stay "reconnecting" until it answers.
+   */
+  function launchedOffline({ origin, apikey } = {}) {
+    const t = now()
+    if (origin) {
+      const prev = seen.get('auth')
+      seen.set('auth', { origin, apikey: apikey ?? prev?.apikey ?? null, url: `${origin}/auth/v1/health` })
+    }
+    launchRaised = true
+    neverAnswered = true
+    raise('auth', t)
+    settlePhase(t)
+  }
+
+  /**
+   * S2 (§11.6, round 1 F3): the hold ended with nothing left to ask (a
+   * sign-out while held), or by a confirmation whose answer came before the
+   * loss was raised. The loss the launch raised is lowered — unless a real
+   * auth request is out, which decides as S1 built it. Not a recovery: no
+   * listener is told.
+   */
+  function launchEnded() {
+    if (!launchRaised || !lostFamilies.has('auth')) { launchRaised = false; neverAnswered = false; return }
+    for (const p of pending.values()) if (p.family === 'auth' && !p.isPing && p.abortedAt == null) return
+    const t = now()
+    clearFamily('auth', t, { announce: false })
+    evaluate()
+  }
+
+  /**
+   * S2 (§11.5; design review F8, build review F2): until `promise` settles, no
+   * ping of `family` is sent, and no answer of the family clears it — the
+   * work being waited on (the launch's late restore, the re-hydration) is the
+   * question, and its caller decides: launchEnded() on a confirmation; on
+   * anything else the family stays lost and the pings resume.
+   */
+  function quietWhile(family, promise) {
+    quiet.set(family, (quiet.get(family) || 0) + 1)
+    const done = () => {
+      const n = (quiet.get(family) || 1) - 1
+      if (n <= 0) quiet.delete(family); else quiet.set(family, n)
+    }
+    Promise.resolve(promise).then(done, done)
+  }
+
   if (windowRef?.addEventListener) {
     // Going offline turns a silent hang into a loud error within seconds and
     // the strip is not for that case; coming back online with a request
@@ -438,6 +639,11 @@ export function createConnectionWatchdog(opts = {}) {
     subscribe,
     onRecovered,
     onPingAnswered,
+    launchProbe,
+    launchedOffline,
+    launchEnded,
+    quietWhile,
+    launchRaised: () => launchRaised,
     getSnapshot: () => lostNow(),
     getPhase: () => phase,
     evaluate,
@@ -449,6 +655,9 @@ export function createConnectionWatchdog(opts = {}) {
     reset() {
       pending.clear()
       lostFamilies.clear()
+      quiet.clear()
+      launchRaised = false
+      neverAnswered = false
       lostSince = null
       if (timer != null) { unschedule(timer); timer = null }
       if (phase !== 'ok') { phase = 'ok'; emit() }

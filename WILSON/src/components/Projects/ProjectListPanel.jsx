@@ -35,7 +35,8 @@
 // branch and the word stay.
 // ============================================================
 
-import { Plus, Trash2, FolderKanban } from 'lucide-react'
+import { Plus, Trash2, FolderKanban, CloudOff } from 'lucide-react'
+import { offlineSentence } from '../../cloud/ConnectionLostBanner'
 import {
   Badge, Banner, Button, Card, EmptyState, HoverActions, IconButton, Row,
   Select, Table, Td, Th, Toolbar,
@@ -76,6 +77,7 @@ const STATUS_OPTIONS = [
 
 export default function ProjectListPanel({
   projects,
+  offline = false,
   onCreate,
   onOpen,
   onUpdateStatus,
@@ -101,9 +103,12 @@ export default function ProjectListPanel({
           </Button>
         ) : null}
       >
-        <span className="rs-count">
-          {projects.length} project{projects.length === 1 ? '' : 's'}
-        </span>
+        {/* S2: no count while the list could not be read (it would say "0"). */}
+        {!(offline && projects.length === 0) && (
+          <span className="rs-count">
+            {projects.length} project{projects.length === 1 ? '' : 's'}
+          </span>
+        )}
       </Toolbar>
 
       <div className="rs-body">
@@ -141,7 +146,11 @@ export default function ProjectListPanel({
           </Banner>
         )}
 
-        {projects.length === 0 ? (
+        {projects.length === 0 && offline ? (
+          // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline
+          // launch — her ruling: one sentence, no empty-state words, no New.
+          <EmptyState Icon={CloudOff} title={offlineSentence('projects')} />
+        ) : projects.length === 0 ? (
           // The canonical empty state of the surface, minus the 56px circle
           // the review named (F-R13). It is the only one with an action, and
           // the action is the same one the toolbar offers.

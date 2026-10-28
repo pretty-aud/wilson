@@ -713,3 +713,457 @@ describe('through auth-js as installed: the hang, the recovery, the start-up che
     expect(state.tokens()).toBe(1)
   })
 })
+
+// =============================================================================
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11): the offline
+// launch's network half — the launch probe, the decision, the launch-raised
+// loss (the strip from the first paint, "reconnecting" until it answers, pinged
+// whether or not the browser says online), its lowering, the quiet pings
+// during a re-hydration, and the re-hydration itself; then the whole through
+// auth-js as installed with a GET /user that stalls (S1's stand-in above
+// always answers it).
+// =============================================================================
+import {
+  classifyAuthFailure, restoreSavedSession, rehydrateSession,
+  LAUNCH_BUDGET_MS, LAUNCH_CEILING_MS, HELD_GUARD_MESSAGE,
+} from './connectionWatchdog'
+
+/** A one-shot timer set the test fires by hand (restoreSavedSession's `timers`, launchProbe's setTimer). */
+function manualTimers() {
+  const pending = new Map()
+  let id = 0
+  return {
+    setTimeout: (fn, ms) => { const h = ++id; pending.set(h, { fn, ms }); return h },
+    clearTimeout: (h) => { pending.delete(h) },
+    fireAll() { const all = [...pending.values()]; pending.clear(); for (const p of all) p.fn() },
+    count: () => pending.size,
+  }
+}
+
+const authError = (name, status, code) => Object.assign(new Error(name), { name, status, code })
+
+describe('S2 — which failures open the shell offline (classifyAuthFailure, §11.2)', () => {
+  it('reached nothing: a rejected or aborted fetch, an answer that is not GoTrue\'s, any 5xx', () => {
+    expect(classifyAuthFailure(authError('AuthRetryableFetchError', 0))).toBe('unreached')
+    expect(classifyAuthFailure(authError('AuthRetryableFetchError', 503))).toBe('unreached')
+    expect(classifyAuthFailure(authError('AuthUnknownError', undefined))).toBe('unreached')
+    expect(classifyAuthFailure(authError('AuthApiError', 500))).toBe('unreached')
+  })
+  it('a refusal that ends the session: 400, 401, 403, session_not_found, a token that cannot be decoded', () => {
+    expect(classifyAuthFailure(authError('AuthApiError', 400, 'refresh_token_not_found'))).toBe('refused-ends')
+    expect(classifyAuthFailure(authError('AuthApiError', 401))).toBe('refused-ends')
+    expect(classifyAuthFailure(authError('AuthApiError', 403, 'bad_jwt'))).toBe('refused-ends')
+    expect(classifyAuthFailure(authError('AuthSessionMissingError', 400))).toBe('refused-ends')
+    expect(classifyAuthFailure(authError('AuthInvalidJwtError', 400))).toBe('refused-ends')
+  })
+  it('any other answer keeps the store: a 404, a 429, an unexpected error', () => {
+    expect(classifyAuthFailure(authError('AuthApiError', 404))).toBe('refused-keeps')
+    expect(classifyAuthFailure(authError('AuthApiError', 429, 'over_request_rate_limit'))).toBe('refused-keeps')
+    expect(classifyAuthFailure(new TypeError('boom'))).toBe('refused-keeps')
+  })
+})
+
+describe('S2 — restoreSavedSession, the launch\'s decision inside the cap (§11.4)', () => {
+  const saved = { access_token: 'a', refresh_token: 'r' }
+  const authWith = (setSession) => ({ setSession: vi.fn(setSession) })
+
+  it('the probe not answered: held, and the SDK is never asked (no real request, no queue)', async () => {
+    const auth = authWith(async () => ({ data: { session: { access_token: 'x' } }, error: null }))
+    const r = await restoreSavedSession({ auth, saved, probe: async () => false, timers: manualTimers() })
+    expect(r).toMatchObject({ outcome: 'held', reason: 'probe' })
+    expect(auth.setSession).not.toHaveBeenCalled()
+  })
+  it('a probe that throws is not answered either', async () => {
+    const auth = authWith(async () => ({ data: { session: {} }, error: null }))
+    const r = await restoreSavedSession({ auth, saved, probe: async () => { throw new Error('x') }, timers: manualTimers() })
+    expect(r.outcome).toBe('held')
+    expect(auth.setSession).not.toHaveBeenCalled()
+  })
+  it('answered, and the SDK restores: online, with the SDK\'s session', async () => {
+    const session = { access_token: 'x', refresh_token: 'y' }
+    const auth = authWith(async () => ({ data: { session }, error: null }))
+    const r = await restoreSavedSession({ auth, saved, probe: async () => true, timers: manualTimers() })
+    expect(r).toEqual({ outcome: 'online', session })
+    expect(auth.setSession).toHaveBeenCalledWith({ access_token: 'a', refresh_token: 'r' })
+  })
+  it('answered, then the SDK reaches nothing: held', async () => {
+    const auth = authWith(async () => ({ data: { session: null }, error: authError('AuthRetryableFetchError', 0) }))
+    expect((await restoreSavedSession({ auth, saved, probe: async () => true, timers: manualTimers() })).outcome).toBe('held')
+  })
+  it('answered, then refused for good: refused (the caller clears the store)', async () => {
+    const auth = authWith(async () => ({ data: { session: null }, error: authError('AuthApiError', 403, 'bad_jwt') }))
+    expect((await restoreSavedSession({ auth, saved, probe: async () => true, timers: manualTimers() })).outcome).toBe('refused')
+  })
+  it('answered, then a 429: none — the sign-in screen as today, the store kept', async () => {
+    const auth = authWith(async () => ({ data: { session: null }, error: authError('AuthApiError', 429) }))
+    expect((await restoreSavedSession({ auth, saved, probe: async () => true, timers: manualTimers() })).outcome).toBe('none')
+  })
+  it('the ceiling while the SDK is still out: held, with the SDK\'s restore handed back as `late`', async () => {
+    const timers = manualTimers()
+    let finish
+    const auth = authWith(() => new Promise((res) => { finish = res }))
+    const p = restoreSavedSession({ auth, saved, probe: async () => true, timers })
+    await settle()
+    expect(timers.count()).toBe(1)
+    timers.fireAll()
+    const r = await p
+    expect(r).toMatchObject({ outcome: 'held', reason: 'ceiling' })
+    finish({ data: { session: { access_token: 'late' } }, error: null })
+    expect((await r.late).data.session.access_token).toBe('late')
+  })
+  it('the ceiling while the probe is still out: held, the SDK never asked', async () => {
+    const timers = manualTimers()
+    const auth = authWith(async () => ({ data: { session: {} }, error: null }))
+    const p = restoreSavedSession({ auth, saved, probe: () => new Promise(() => {}), timers })
+    await settle()
+    timers.fireAll()
+    expect((await p).outcome).toBe('held')
+    expect(auth.setSession).not.toHaveBeenCalled()
+  })
+  it('the numbers: a 5 s probe inside a 10 s decision', () => {
+    expect(LAUNCH_BUDGET_MS).toBe(5_000)
+    expect(LAUNCH_CEILING_MS).toBe(10_000)
+    expect(PING_BUDGET_MS).toBe(LAUNCH_BUDGET_MS)
+  })
+})
+
+describe('S2 — rehydrateSession, the held session given back to the SDK (§11.5)', () => {
+  const held = { access_token: 'a', refresh_token: 'r' }
+  it('online, refused, or unreached (a 404 and a 429 keep holding)', async () => {
+    const run = (r) => rehydrateSession({ auth: { setSession: async () => r }, held })
+    expect((await run({ data: { session: { access_token: 'x' } }, error: null })).outcome).toBe('online')
+    expect((await run({ data: { session: null }, error: authError('AuthApiError', 401) })).outcome).toBe('refused')
+    expect((await run({ data: { session: null }, error: authError('AuthRetryableFetchError', 0) })).outcome).toBe('unreached')
+    expect((await run({ data: { session: null }, error: authError('AuthApiError', 429) })).outcome).toBe('unreached')
+    const thrown = await rehydrateSession({ auth: { setSession: async () => { throw new Error('x') } }, held })
+    expect(thrown.outcome).toBe('unreached')
+  })
+})
+
+describe('S2 — the watchdog\'s launch path (§11.6)', () => {
+  const health = `${BASE}/auth/v1/health`
+
+  it('launchProbe: GoTrue\'s JSON 200 is an answer; a page, a 503 or a stall at the launch budget is not — and it raises nothing', async () => {
+    const h = harness()
+    const timers = manualTimers()
+    const m = make(h, { setTimer: timers.setTimeout, clearTimer: timers.clearTimeout })
+    const ask = () => m.wd.launchProbe({ origin: BASE, apikey: KEY.apikey })
+    let p = ask()
+    expect(m.calls.at(-1).input).toBe(health)
+    expect(m.calls.at(-1).init.headers).toEqual({ apikey: KEY.apikey })
+    m.calls.at(-1).resolve({ status: 200, json: async () => ({ name: 'GoTrue' }) })
+    expect(await p).toBe(true)
+    p = ask(); m.calls.at(-1).resolve({ status: 200, json: async () => { throw new SyntaxError('<html>') } })
+    expect(await p).toBe(false)
+    p = ask(); m.calls.at(-1).resolve({ status: 503, json: async () => ({}) })
+    expect(await p).toBe(false)
+    p = ask(); await settle(); timers.fireAll()   // the launch budget
+    expect(await p).toBe(false)
+    expect(m.wd.getSnapshot()).toBe(false)
+    expect(m.notified).toEqual([])
+    expect(m.wd.pendingCount()).toBe(0)
+  })
+
+  it('build review round 1, note: a ping hung while the browser says offline is cut at its budget, so the next one can go', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    h.advance(1_000)
+    expect(m.wd.pingsInFlight()).toBe(1)
+    h.advance(PING_BUDGET_MS)
+    await settle()
+    expect(m.wd.pingsInFlight()).toBe(0)
+    h.advance(PING_EVERY_MS)
+    expect(m.calls.filter((c) => c.input === `${BASE}/auth/v1/health`)).toHaveLength(2)
+  })
+
+  it('launchedOffline: the strip at once, with the browser OFFLINE, and the ping sent anyway', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    expect(m.wd.getPhase()).toBe('reconnecting')
+    expect(m.notified.at(-1)).toEqual({ lost: true, phase: 'reconnecting' })
+    h.advance(1_000)
+    const pings = m.calls.filter((c) => c.input === health)
+    expect(pings).toHaveLength(1)
+    expect(pings[0].init.headers).toEqual({ apikey: KEY.apikey })
+  })
+
+  it('CONTROL: S1\'s own loss is never pinged while the browser says offline', async () => {
+    const h = harness()
+    const m = make(h)
+    m.fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' }).catch(() => {})
+    h.advance(WATCHDOG_BUDGET_MS)   // aborted, lost
+    expect(m.wd.lostFamilies()).toEqual(['auth'])
+    const before = m.calls.length            // the request and its first ping, sent at the raise
+    expect(m.calls.filter((c) => c.input === `${BASE}/auth/v1/health`)).toHaveLength(1)
+    h.online = false
+    h.advance(PING_EVERY_MS * 3)
+    expect(m.calls.length).toBe(before)      // offline: no ping for a loss the launch did not raise
+  })
+
+  it('"reconnecting" throughout on a launch that was never online — never "reload", however long', () => {
+    const h = harness()
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    h.advance(RELOAD_AFTER_MS * 3)
+    expect(m.wd.getPhase()).toBe('reconnecting')
+    expect(m.notified.some((n) => n.phase === 'reload')).toBe(false)
+  })
+
+  it('a real auth answer clears it, and afterwards S1\'s words apply again (reload after a minute lost)', async () => {
+    const h = harness()
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).catch(() => {})
+    m.calls.at(-1).resolve({ status: 200 })
+    await settle()
+    expect(m.wd.getPhase()).toBe('ok')
+    expect(m.recovered).toEqual(['auth'])
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).catch(() => {})
+    h.advance(WATCHDOG_BUDGET_MS + RELOAD_AFTER_MS)
+    expect(m.wd.getPhase()).toBe('reload')
+  })
+
+  it('launchEnded lowers the launch\'s loss (nothing left to ask) and tells no listener', () => {
+    const h = harness()
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    m.wd.launchEnded()
+    expect(m.wd.getPhase()).toBe('ok')
+    expect(m.recovered).toEqual([])
+    expect(m.wd.launchRaised()).toBe(false)
+  })
+
+  it('…unless a real auth request is out, which decides as S1 built it', () => {
+    const h = harness()
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).catch(() => {})
+    m.wd.launchEnded()
+    expect(m.wd.getSnapshot()).toBe(true)
+  })
+
+  it('CONTROL: launchEnded with no launch-raised loss leaves S1\'s loss alone', () => {
+    const h = harness()
+    const m = make(h)
+    m.fetch(`${BASE}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: KEY, body: '{}' }).catch(() => {})
+    h.advance(WATCHDOG_BUDGET_MS)
+    m.wd.launchEnded()
+    expect(m.wd.lostFamilies()).toEqual(['auth'])
+  })
+
+  it('quietWhile: no auth ping while the re-hydration is out; pinging resumes when it settles', async () => {
+    const h = harness()
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    let done
+    m.wd.quietWhile('auth', new Promise((r) => { done = r }))
+    h.advance(PING_EVERY_MS * 3)
+    expect(m.calls.filter((c) => c.input === health)).toHaveLength(0)
+    done()
+    await settle()
+    h.advance(1_000)
+    expect(m.calls.filter((c) => c.input === health)).toHaveLength(1)
+  })
+
+  it('build review round 2, F3: while the launch\'s loss is up, the held work\'s own stalled request is cut at S1\'s budget with the browser OFFLINE — and the pings resume', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    const started = h.now()
+    let settledAt = null
+    const out = m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).then(() => {}, () => { settledAt = h.now() })
+    m.wd.quietWhile('auth', out)                             // the late restore (or a re-hydration) is out: no ping meanwhile
+    h.advance(WATCHDOG_BUDGET_MS - 1_000)
+    await settle()
+    expect(settledAt).toBeNull()
+    h.advance(1_000)
+    await settle()
+    expect(settledAt).toBe(started + WATCHDOG_BUDGET_MS)     // cut at the budget, whatever the browser says
+    expect(m.wd.getPhase()).toBe('reconnecting')             // a cut is not an answer: still lost, still "reconnecting"
+    expect(m.calls.filter((c) => c.input === health)).toHaveLength(0)
+    await settle()                                           // the quiet window ends with the request
+    h.advance(PING_EVERY_MS)
+    expect(m.calls.filter((c) => c.input === health).length).toBeGreaterThan(0)
+  })
+
+  it('CONTROL for F3: with no launch-raised loss, a real request is still never cut while the browser says offline (S1\'s rule)', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    let settled = false
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).then(() => { settled = true }, () => { settled = true })
+    h.advance(WATCHDOG_BUDGET_MS * 3)
+    await settle()
+    expect(settled).toBe(false)
+    expect(m.wd.pendingCount()).toBe(1)
+  })
+
+  it('the guard says why while a session is held: its message seam', async () => {
+    const base = vi.fn(async () => ({ ok: true, status: 200 }))
+    let held = true
+    const guarded = createAnonGuard({ anonKey: 'anon', isSignedIn: () => true, message: () => (held ? HELD_GUARD_MESSAGE : null) })(base)
+    const anon = { headers: { Authorization: 'Bearer anon' } }
+    await expect(guarded(`${BASE}/rest/v1/projects`, anon)).rejects.toThrow(HELD_GUARD_MESSAGE)
+    held = false
+    await expect(guarded(`${BASE}/rest/v1/projects`, anon)).rejects.toThrow(ANON_GUARD_MESSAGE)
+    expect(base).not.toHaveBeenCalled()
+  })
+})
+
+describe('S2 — the offline launch through auth-js as installed: a GET /user that stalls', () => {
+  const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const token = (expIn) => {
+    const now = Math.floor(Date.now() / 1000)
+    return `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url({ sub: 'u', aud: 'authenticated', role: 'authenticated', exp: now + expIn, iat: now - 60, session_id: 's', app_metadata: {}, user_metadata: {} })}.sig`
+  }
+  const USER = { id: 'u', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {} }
+  const json = (body, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body) })
+  const neverUnlessAborted = (init) => new Promise((_, reject) => {
+    const s = init?.signal
+    if (!s) return
+    if (s.aborted) reject(s.reason)
+    else s.addEventListener('abort', () => reject(s.reason), { once: true })
+  })
+  /** GoTrue whose health answers when `health`, and whose GET /user answers only when `user`. */
+  function gotrue() {
+    const state = { health: true, user: false, requests: [] }
+    const fetch = (input, init) => {
+      const path = new URL(String(input)).pathname
+      state.requests.push({ path, method: init?.method ?? 'GET' })
+      if (path.endsWith('/health')) return state.health ? Promise.resolve(json({ name: 'GoTrue' })) : neverUnlessAborted(init)
+      if (path.endsWith('/user')) return state.user ? Promise.resolve(json(USER)) : neverUnlessAborted(init)
+      return neverUnlessAborted(init)
+    }
+    state.count = (suffix) => state.requests.filter((r) => r.path.endsWith(suffix)).length
+    return { state, fetch }
+  }
+  let n = 0
+  const client = (wrapped) => new GoTrueClient({
+    url: `${BASE}/auth/v1`, fetch: wrapped, persistSession: false, autoRefreshToken: false,
+    detectSessionInUrl: false, storageKey: `sb-s2-test-${++n}`,
+  })
+
+  it('the probe answers, GET /user stalls: held at the 10 s ceiling; the watchdog aborts GET /user at 20 s and the late restore ends retryable, nothing saved', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    const auth = client(wd.wrapFetch(fetch))
+    const saved = { access_token: token(3000), refresh_token: 'r1' }
+    let decided = null
+    restoreSavedSession({ auth, saved, probe: () => wd.launchProbe({ origin: BASE, apikey: 'k' }) }).then((r) => { decided = r })
+    await vi.advanceTimersByTimeAsync(9_900)
+    expect(decided).toBeNull()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(decided).toMatchObject({ outcome: 'held', reason: 'ceiling' })
+    let late = null
+    decided.late.then((r) => { late = r })
+    await vi.advanceTimersByTimeAsync(WATCHDOG_BUDGET_MS - LAUNCH_CEILING_MS + 1_000)
+    expect(late?.error?.name).toBe('AuthRetryableFetchError')
+    expect(late.data.session).toBeNull()
+    expect(wd.lostFamilies()).toEqual(['auth'])
+    expect((await auth.getSession()).data.session).toBeNull()
+    expect(state.count('/user')).toBe(1)
+  })
+
+  it('the probe not answered (a stall): held at the 5 s launch budget, and GET /user is never sent', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    state.health = false
+    const auth = client(wd.wrapFetch(fetch))
+    let decided = null
+    restoreSavedSession({ auth, saved: { access_token: token(3000), refresh_token: 'r1' }, probe: () => wd.launchProbe({ origin: BASE, apikey: 'k' }) }).then((r) => { decided = r })
+    await vi.advanceTimersByTimeAsync(LAUNCH_BUDGET_MS - 100)
+    expect(decided).toBeNull()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(decided).toMatchObject({ outcome: 'held', reason: 'probe' })
+    expect(state.count('/user')).toBe(0)
+    expect(wd.getSnapshot()).toBe(false)   // the probe raises nothing; the hold's launchedOffline does
+  })
+
+  it('the re-hydration: the hold raises the loss, the network returns, the ping answers, setSession(held) signs in and its answer clears the strip', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    state.health = false
+    const auth = client(wd.wrapFetch(fetch))
+    const events = []
+    auth.onAuthStateChange((e) => events.push(e))
+    const held = { access_token: token(3000), refresh_token: 'r1' }
+    wd.launchedOffline({ origin: BASE, apikey: 'k' })
+    // as supabaseClient.js does: the re-hydration is the question (quiet), and its caller decides
+    wd.onPingAnswered((family) => {
+      if (family !== 'auth') return
+      wd.quietWhile('auth', rehydrateSession({ auth, held }).then((r) => { if (r.outcome === 'online') wd.launchEnded() }))
+    })
+    expect(wd.getPhase()).toBe('reconnecting')
+    await vi.advanceTimersByTimeAsync(PING_EVERY_MS * 2)
+    expect(wd.getPhase()).toBe('reconnecting')
+    state.health = true
+    state.user = true
+    await vi.advanceTimersByTimeAsync(PING_EVERY_MS + 500)
+    expect(events).toContain('SIGNED_IN')
+    expect(wd.getPhase()).toBe('ok')
+    expect((await auth.getSession()).data.session?.access_token).toBe(held.access_token)
+  })
+
+  it('build review round 1, F2: an answer that holds no session (a 429) keeps the session held and the strip up, and the next answered ping asks again', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    const rateLimited = (input, init) => {
+      const path = new URL(String(input)).pathname
+      if (state.limit && path.endsWith('/user')) { state.requests.push({ path, method: 'GET' }); return Promise.resolve(json({ code: 429, error_code: 'over_request_rate_limit', msg: 'slow down' }, 429)) }
+      return fetch(input, init)
+    }
+    state.limit = true
+    const auth = client(wd.wrapFetch(rateLimited))
+    const held = { access_token: token(3000), refresh_token: 'r1' }
+    let confirmed = false
+    wd.launchedOffline({ origin: BASE, apikey: 'k' })
+    wd.onPingAnswered((family) => {
+      if (family !== 'auth') return
+      wd.quietWhile('auth', rehydrateSession({ auth, held }).then((r) => { if (r.outcome === 'online') { confirmed = true; wd.launchEnded() } }))
+    })
+    await vi.advanceTimersByTimeAsync(1_000)                 // the first ping answers; GET /user: 429
+    expect(state.count('/user')).toBe(1)
+    expect(wd.getPhase()).toBe('reconnecting')                // the 429 is an answer, and it cleared nothing
+    expect(confirmed).toBe(false)
+    state.limit = false
+    state.user = true
+    await vi.advanceTimersByTimeAsync(PING_EVERY_MS + 500)   // the next answered ping asks again
+    expect(state.count('/user')).toBe(2)
+    expect(confirmed).toBe(true)
+    expect(wd.getPhase()).toBe('ok')
+  })
+
+  it('CONTROL for F2: without quietWhile the same 429 clears the strip while the session is still held', async () => {
+    vi.useFakeTimers()
+    const wd = createConnectionWatchdog({ windowRef: null, isOnline: () => true, tickMs: 250 })
+    const { state, fetch } = gotrue()
+    const rateLimited = (input, init) => (new URL(String(input)).pathname.endsWith('/user')
+      ? Promise.resolve(json({ code: 429, msg: 'slow down' }, 429))
+      : fetch(input, init))
+    const auth = client(wd.wrapFetch(rateLimited))
+    wd.launchedOffline({ origin: BASE, apikey: 'k' })
+    wd.onPingAnswered((family) => { if (family === 'auth') rehydrateSession({ auth, held: { access_token: token(3000), refresh_token: 'r1' } }) })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(state.count('/health')).toBeGreaterThanOrEqual(1)
+    expect(wd.getPhase()).toBe('ok')                          // the strip gone, nothing confirmed: the stuck hold F2 found
+  })
+
+  it('CONTROL: the same stalled GET /user through a wrapper that cannot abort (no watchdog) leaves the late restore pending after minutes', async () => {
+    vi.useFakeTimers()
+    const { fetch } = gotrue()
+    const auth = client((input, init) => fetch(input, { ...init, signal: undefined }))
+    let decided = null
+    restoreSavedSession({ auth, saved: { access_token: token(3000), refresh_token: 'r1' }, probe: async () => true }).then((r) => { decided = r })
+    await vi.advanceTimersByTimeAsync(LAUNCH_CEILING_MS + 100)
+    expect(decided.outcome).toBe('held')
+    let late = null
+    decided.late.then((r) => { late = r })
+    await vi.advanceTimersByTimeAsync(5 * MIN)
+    expect(late).toBeNull()
+  })
+})

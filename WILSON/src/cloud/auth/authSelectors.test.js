@@ -1439,8 +1439,11 @@ describe('nothing in the suite is skipped silently', () => {
     // true while quietly halving the coverage. Pin the totals.
     const sites = Object.fromEntries(specs.map((s) => [s.name, [...s.text.matchAll(/getBy[A-Z]\w*\(/g)].length]))
     // Track B: auth.spec.ts grew scenarios 4–6 (38 → 63) and sessions.spec.ts
-    // arrived with five scenarios of its own.
-    expect(sites).toEqual({ 'auth.spec.ts': 63, 'authFlow.ts': 9, 'sessions.spec.ts': 22, 'web-path.spec.ts': 7 })
+    // arrived with five scenarios of its own. S2 (night 3, 2026-10-27): its
+    // scenario 12, the offline launch, adds two (the strip by test id, as
+    // scenario 11 reaches it; the sign-in heading's absence, as 8 and 10 read
+    // it): 22 → 24.
+    expect(sites).toEqual({ 'auth.spec.ts': 63, 'authFlow.ts': 9, 'sessions.spec.ts': 24, 'web-path.spec.ts': 7 })
   })
 })
 

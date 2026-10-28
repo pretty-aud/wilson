@@ -327,3 +327,88 @@ describe('the numbers', () => {
     expect(CAP_WARN_MS).toBe(5 * MIN)
   })
 })
+
+// =============================================================================
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.3): the
+// four-hour test an offline launch makes — the EARLIER of the cap's own record
+// (read as start() reads it) and the token's own sign-in time (`amr`). Pinned
+// as the design states it: never more lenient than the cap, and stricter where
+// the cap cannot prove an age (no record on the desktop: a new origin at every
+// launch).
+// =============================================================================
+import { sessionStartOf, insideSessionCap } from './sessionTimeouts'
+
+describe('S2 — sessionStartOf / insideSessionCap', () => {
+  const NOW = 1_800_000_000_000
+  const SID = 'sid-1'
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const session = ({ sid = SID, amrAgoMs = null, amrAt = null } = {}) => {
+    const claims = { sub: 'u', session_id: sid, exp: Math.floor(NOW / 1000) + 3000 }
+    const at = amrAt ?? (amrAgoMs == null ? null : NOW - amrAgoMs)
+    if (at != null) claims.amr = [{ method: 'totp', timestamp: Math.floor(at / 1000) + 60 }, { method: 'password', timestamp: Math.floor(at / 1000) }]
+    return { access_token: `${b64({ alg: 'ES256' })}.${b64(claims)}.sig`, refresh_token: 'r' }
+  }
+  const storageWith = (record) => {
+    const s = memoryStorage()
+    if (record) s.setItem('wilson.dev.session.start', JSON.stringify(record))
+    return s
+  }
+
+  it('the web: the cap\'s record alone decides', () => {
+    const s = storageWith({ sid: SID, at: NOW - 1 * HOUR })
+    expect(sessionStartOf(session(), { storage: s, now: NOW })).toBe(NOW - 1 * HOUR)
+    expect(insideSessionCap(session(), { storage: s, now: NOW })).toBe(true)
+    expect(insideSessionCap(session(), { storage: storageWith({ sid: SID, at: NOW - 4 * HOUR }), now: NOW })).toBe(false)
+  })
+
+  it('the desktop (no record): the token\'s own sign-in time decides — its earliest amr', () => {
+    const s = storageWith(null)
+    expect(sessionStartOf(session({ amrAgoMs: 2 * HOUR }), { storage: s, now: NOW })).toBe(NOW - 2 * HOUR)
+    expect(insideSessionCap(session({ amrAgoMs: 2 * HOUR }), { storage: s, now: NOW })).toBe(true)
+    expect(insideSessionCap(session({ amrAgoMs: 4 * HOUR + 1000 }), { storage: s, now: NOW })).toBe(false)
+  })
+
+  it('both known: the EARLIER wins, either way round', () => {
+    expect(sessionStartOf(session({ amrAgoMs: 3 * HOUR }), { storage: storageWith({ sid: SID, at: NOW - 1 * HOUR }), now: NOW })).toBe(NOW - 3 * HOUR)
+    expect(sessionStartOf(session({ amrAgoMs: 1 * HOUR }), { storage: storageWith({ sid: SID, at: NOW - 3 * HOUR }), now: NOW })).toBe(NOW - 3 * HOUR)
+    // a young record does not rescue an old sign-in
+    expect(insideSessionCap(session({ amrAgoMs: 5 * HOUR }), { storage: storageWith({ sid: SID, at: NOW - 10 * MIN }), now: NOW })).toBe(false)
+  })
+
+  it('what proves nothing: another session\'s record, a record or an amr in the future, neither at all', () => {
+    expect(sessionStartOf(session(), { storage: storageWith({ sid: 'other', at: NOW - HOUR }), now: NOW })).toBeNull()
+    expect(sessionStartOf(session(), { storage: storageWith({ sid: SID, at: NOW + HOUR }), now: NOW })).toBeNull()
+    expect(sessionStartOf(session({ amrAt: NOW + HOUR }), { storage: storageWith(null), now: NOW })).toBeNull()
+    expect(insideSessionCap(session(), { storage: storageWith(null), now: NOW })).toBe(false)
+    expect(insideSessionCap({ access_token: 'not-a-jwt', refresh_token: 'r' }, { storage: storageWith(null), now: NOW })).toBe(false)
+  })
+
+  it('the cap\'s own number, the dev-only override included (a dev server\'s shrunk cap shrinks this too)', () => {
+    const s = storageWith({ sid: SID, at: NOW - 2 * MIN })
+    expect(insideSessionCap(session(), { storage: s, now: NOW })).toBe(true)
+    s.setItem('wilson.session.timeouts.debug', JSON.stringify({ capMs: MIN }))
+    expect(insideSessionCap(session(), { storage: s, now: NOW })).toBe(false)
+    expect(SESSION_CAP_MS).toBe(4 * HOUR)
+  })
+
+  it('offline is never more lenient than the cap: a record past the cap is outside, and start() expires it at once', () => {
+    const h = harness()
+    const s = storageWith({ sid: SID, at: h.now() - 4 * HOUR - 1 })
+    const sess = session()
+    expect(insideSessionCap(sess, { storage: s, now: h.now() })).toBe(false)
+    const { ctl, events } = make(h, s, { sessionId: sessionIdOf(sess) })
+    ctl.start()
+    expect(events.filter((e) => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
+  })
+
+  it('CONTROL — and stricter where the cap proves nothing: with no record start() hands out a fresh four hours, while the launch refuses an old amr', () => {
+    const h = harness()
+    const s = storageWith(null)
+    const sess = session({ amrAgoMs: 5 * HOUR, amrAt: h.now() - 5 * HOUR })
+    expect(insideSessionCap(sess, { storage: s, now: h.now() })).toBe(false)
+    const { ctl, events } = make(h, s, { sessionId: sessionIdOf(sess) })
+    ctl.start()
+    expect(events.some((e) => e[0] === 'expire')).toBe(false)
+    expect(ctl.getState().phase).toBe('active')
+  })
+})

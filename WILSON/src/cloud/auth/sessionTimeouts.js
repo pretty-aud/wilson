@@ -107,6 +107,65 @@ function remove(storage, key) {
   try { storage?.removeItem(key) } catch { /* ignore */ }
 }
 
+// ── S2 (night 3, 2026-10-27): the four-hour test an offline launch makes ─────
+//
+// docs/design/RECONNECT_DESIGN.md §11.3. A launch that cannot reach the cloud
+// opens the shell on its saved sign-in only while the sign-in is inside the
+// cap. The start it tests is the EARLIER of the two starts this computer can
+// prove: the cap's own record (`<surfaceKey>.start`, read as start() reads it:
+// this session's id, a finite `at` not in the future), and the token's own
+// sign-in time, the earliest timestamp in its `amr` claim (GoTrue stamps every
+// access token of a session with the methods used to sign in and when, and
+// keeps them across refreshes; the access-token hook adds only app_metadata).
+// The token's time is needed because the DESKTOP never finds the record at
+// launch: its window loads http://127.0.0.1:<port> and the port is listen(0)'s,
+// new at every launch, so every launch is a new origin with an empty
+// localStorage (measured 2026-10-27; OUTSTANDING S2-01). The earlier start is
+// never later than the record start() resumes, so the offline test is stricter
+// than the cap, never more lenient. Read-only: no rule above or below changes.
+
+/** The earliest `amr` timestamp in ms, or null; a time in the future proves nothing. */
+function signedInAtOf(claims, t) {
+  const amr = Array.isArray(claims?.amr) ? claims.amr : []
+  let earliest = null
+  for (const entry of amr) {
+    const s = Number(entry?.timestamp)
+    if (!Number.isFinite(s)) continue
+    const at = s * 1000
+    if (at > t) continue
+    if (earliest == null || at < earliest) earliest = at
+  }
+  return earliest
+}
+
+/**
+ * When this session's four hours started, as far as this computer can prove:
+ * the earlier of the cap's record and the token's own sign-in time; null when
+ * neither is known.
+ */
+export function sessionStartOf(session, { surfaceKey = SESSION_STORAGE_KEY, storage = safeLocalStorage(), now = Date.now() } = {}) {
+  const t = typeof now === 'function' ? now() : now
+  const sid = sessionIdOf(session)
+  const stored = sid ? readJson(storage, `${surfaceKey}.start`) : null
+  const recorded = stored && stored.sid === sid && Number.isFinite(stored.at) && stored.at <= t ? stored.at : null
+  const signedIn = signedInAtOf(readJwtClaims(session?.access_token), t)
+  if (recorded == null) return signedIn
+  if (signedIn == null) return recorded
+  return Math.min(recorded, signedIn)
+}
+
+/**
+ * Is this saved sign-in inside the cap, on the cap's own numbers (the dev-only
+ * override included, so a dev server's shrunk cap shrinks this too)? False
+ * when its start cannot be proved.
+ */
+export function insideSessionCap(session, { surfaceKey = SESSION_STORAGE_KEY, storage = safeLocalStorage(), now = Date.now(), capMs } = {}) {
+  const t = typeof now === 'function' ? now() : now
+  const cap = capMs ?? readDevOverrides(storage).capMs ?? SESSION_CAP_MS
+  const start = sessionStartOf(session, { surfaceKey, storage, now: t })
+  return start != null && t - start < cap
+}
+
 // ── The core ─────────────────────────────────────────────────────────────────
 
 /**

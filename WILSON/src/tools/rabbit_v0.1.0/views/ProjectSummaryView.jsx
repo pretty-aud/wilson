@@ -29,6 +29,7 @@ import { Stat } from '../../../ui/Stat'
 import { StatusBadge } from '../../../ui/StatusBadge'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
+import { offlineSentence } from '../../../cloud/ConnectionLostBanner'
 import { canSeeMoneyHere, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import { formatShotCode } from '../entityNaming'
@@ -230,6 +231,21 @@ export default function ProjectSummaryView() {
         <span className="text-label uppercase" style={{ color: 'var(--color-ink-2)' }}>
           Loading project…
         </span>
+      </div>
+    )
+  }
+
+  // S2 (night 3, 2026-10-27; RECONNECT_DESIGN.md §11.8): a sign-in held at an
+  // offline launch, on the cloud adapter — one sentence, no count, no New
+  // project (her ruling: no empty-state words, no New or Create).
+  if (!project && perms.offline && ctx?.adapterMode === 'supabase') {
+    return (
+      <div className="h-full overflow-auto" style={{ backgroundColor: 'var(--color-paper)' }}>
+        <div className="p-6 flex flex-col gap-4">
+          <Card title="All projects" icon={LayoutGrid}>
+            <Empty>{offlineSentence('projects')}</Empty>
+          </Card>
+        </div>
       </div>
     )
   }

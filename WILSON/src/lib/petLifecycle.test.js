@@ -519,3 +519,98 @@ describe('🚨 A3 — the anchor moves with the values, and only with them', () 
     expect(before).toEqual(copy)
   })
 })
+
+// =============================================================================
+// S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.10): a failed
+// pet sync is retried without a relaunch — bounded, under fake timers.
+// =============================================================================
+import { createPetSyncRetry, PET_SYNC_RETRY_MS } from './petLifecycle'
+
+describe('S2 — createPetSyncRetry: the failed pet sync, retried without a relaunch', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  it('the bound: 5 s, 15 s, 45 s, 2 min 15 s and 5 min after each failure, then it stops', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const r = createPetSyncRetry({ retry })
+    expect(PET_SYNC_RETRY_MS).toEqual([5_000, 15_000, 45_000, 135_000, 300_000])
+    for (const [i, ms] of PET_SYNC_RETRY_MS.entries()) {
+      r.failed()
+      vi.advanceTimersByTime(ms - 1)
+      expect(retry).toHaveBeenCalledTimes(i)
+      vi.advanceTimersByTime(1)
+      expect(retry).toHaveBeenCalledTimes(i + 1)
+    }
+    r.failed()                                      // the sixth failure arms nothing
+    expect(r.pending()).toBe(false)
+    vi.advanceTimersByTime(60 * 60_000)
+    expect(retry).toHaveBeenCalledTimes(5)
+  })
+
+  it('while a session is held offline no timer is armed: the confirmation (a trigger) is the retry', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const r = createPetSyncRetry({ retry })
+    r.failed({ held: true })
+    expect(r.pending()).toBe(false)
+    vi.advanceTimersByTime(10 * 60_000)
+    expect(retry).not.toHaveBeenCalled()
+    r.trigger()
+    expect(retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('a trigger asks at once and starts the count again; with no failure it does nothing', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const r = createPetSyncRetry({ retry })
+    r.trigger()
+    expect(retry).not.toHaveBeenCalled()             // nothing has failed
+    r.failed(); vi.advanceTimersByTime(5_000)          // 1
+    r.failed(); vi.advanceTimersByTime(15_000)         // 2
+    r.failed()                                         // the 45 s one is armed…
+    r.trigger()                                        // …a trigger asks now instead
+    expect(retry).toHaveBeenCalledTimes(3)
+    expect(r.pending()).toBe(false)
+    r.failed()                                         // and the count started again: 5 s
+    vi.advanceTimersByTime(5_000)
+    expect(retry).toHaveBeenCalledTimes(4)
+  })
+
+  it('a success stops it, and the next failure counts from the first delay', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const r = createPetSyncRetry({ retry })
+    r.failed(); vi.advanceTimersByTime(5_000)
+    r.failed()
+    r.succeeded()
+    expect(r.pending()).toBe(false)
+    vi.advanceTimersByTime(60_000)
+    expect(retry).toHaveBeenCalledTimes(1)
+    r.trigger()                                        // a success leaves nothing to trigger
+    expect(retry).toHaveBeenCalledTimes(1)
+    r.failed(); vi.advanceTimersByTime(5_000)
+    expect(retry).toHaveBeenCalledTimes(2)
+  })
+
+  it('a sign-out or an identity change (cancel) forgets everything', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const r = createPetSyncRetry({ retry })
+    r.failed()
+    r.cancel()
+    vi.advanceTimersByTime(60_000)
+    r.trigger()
+    expect(retry).not.toHaveBeenCalled()
+  })
+
+  it('CONTROL: the same five failures with the schedule given twice over retry a sixth time — the bound is the list, nothing else', () => {
+    vi.useFakeTimers()
+    const retry = vi.fn()
+    const r = createPetSyncRetry({ retry, delays: [...PET_SYNC_RETRY_MS, ...PET_SYNC_RETRY_MS] })
+    for (const ms of PET_SYNC_RETRY_MS) { r.failed(); vi.advanceTimersByTime(ms) }
+    r.failed()
+    expect(r.pending()).toBe(true)
+    vi.advanceTimersByTime(PET_SYNC_RETRY_MS[0])
+    expect(retry).toHaveBeenCalledTimes(6)
+  })
+})
