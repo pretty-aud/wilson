@@ -114,6 +114,11 @@ describe('every name it gives is the code\'s', () => {
     expect(dockerfile).toMatch(/^USER 65532:65532$/m);
     expect(guide).toContain('uid 65532');
     expect(nas).toContain('uid 65532');
+    // P8 (TPN-ENC-014): the container seals its secrets under the operator's key, which the NAS story sets before the token.
+    expect(guide).toContain('sealed (AES-256-GCM) under a key the operator provides, `WILSON_GATEWAY_SECRETS_KEY`');
+    expect(guide).toContain('**Never a plain file**');
+    expect(nas).toContain('WILSON_GATEWAY_SECRETS_KEY = 32 random bytes in base64');
+    expect(nas.indexOf('WILSON_GATEWAY_SECRETS_KEY')).toBeLessThan(nas.indexOf('WILSON_ENROL_TOKEN'));
     expect(guide).toContain(`${CONTAINER_IMAGE}@sha256:`);
     expect(containerRootFor('\\\\nas\\footage')).toBe('/locations/nas/footage');
     expect(nas).toContain('/volume1/footage → /locations/nas/footage');

@@ -16,6 +16,7 @@ import tls from 'node:tls';
 import { execFileSync } from 'node:child_process';
 import { makeRoot, makeLeaf, certInfo, fingerprintOf, displayFingerprint, hostNames, permittedFor } from '../src/certs/x509.mjs';
 import { CertStore, loadOwnCertificate } from '../src/certs/store.mjs';
+import { makeSecrets, SecretsWriteRefused } from '../src/platform/secrets.mjs';
 
 // OpenSSL reads the constraints back. Here it may be missing (the tests say
 // so by skipping); in CI it must be there, so a missing one FAILS them
@@ -230,5 +231,81 @@ describe('the store: the certificates\' life (§3 "The day it expires")', () => 
     fs.writeFileSync(cf, l.certPem); fs.writeFileSync(kf, l.keyPem); fs.writeFileSync(wrong, r.keyPem);
     expect((await loadOwnCertificate({ certFile: cf, keyFile: kf })).notAfter).toBe(l.notAfter - (l.notAfter % 1000));
     await expect(loadOwnCertificate({ certFile: cf, keyFile: wrong })).rejects.toThrow(/does not belong/);
+  });
+});
+
+// P8 (TPN-ENC-014): the store when secrets cannot be written (DPAPI down, no
+// sealing key) or a key file does not open. Nothing plain is ever written; a
+// refusal makes nothing and keeps what there is; an unreadable root is never
+// replaced by a fresh one (every office computer trusts the old one).
+describe('P8 (TPN-ENC-014): the store under a refusing secrets layer, and over a key file that does not open', () => {
+  const plain = { protect: async (b) => Buffer.concat([Buffer.from('WGPLAIN1'), Buffer.from(b)]), unprotect: async (b) => Buffer.from(b).subarray(8) };
+  const REASON = 'set WILSON_GATEWAY_SECRETS_KEY (test)';
+  const refusing = { protect: async () => { throw new SecretsWriteRefused(REASON); }, unprotect: plain.unprotect };
+  const mk = (dir, secrets, now) => new CertStore({ dir, secrets, hostname: 'studio-nas', now: () => now.t });
+
+  it('a first run under a refusal makes no root and no leaf (nothing to open a door with), writes nothing, and says why', async () => {
+    const dir = path.join(tmp, 'p1'); const now = { t: NOW };
+    const s = mk(dir, refusing, now);
+    expect(await s.load()).toBe(false);
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ rootMade: false, leafMade: false, nextRootMade: false, refused: REASON, unreadable: null });
+    expect(fs.readdirSync(dir)).toEqual([]);
+    expect(s.state()).toMatchObject({ rootPem: null, leafPem: null, writeRefused: REASON, unreadable: null });
+  });
+  it('an address change outside the /24 under a refusal keeps the old root, on disk and in memory; the next ensure() with writes working replaces it', async () => {
+    const dir = path.join(tmp, 'p2'); const now = { t: NOW };
+    const s = mk(dir, plain, now);
+    await s.load(); await s.ensure({ insideAddresses: ['192.168.1.10'] });
+    const fp = s.state().rootFingerprint;
+    const rootPem = fs.readFileSync(path.join(dir, 'root.pem'), 'utf8');
+    const leafPem = fs.readFileSync(path.join(dir, 'leaf.pem'), 'utf8');
+    s.secrets = refusing;
+    expect(await s.ensure({ insideAddresses: ['10.0.5.20'] })).toMatchObject({ rootMade: false, rootReplacedFor: null, leafMade: false, refused: REASON });
+    expect(s.state().rootFingerprint).toBe(fp);
+    expect(s.state().writeRefused).toBe(REASON);
+    expect(fs.readFileSync(path.join(dir, 'root.pem'), 'utf8')).toBe(rootPem);
+    expect(fs.readFileSync(path.join(dir, 'leaf.pem'), 'utf8')).toBe(leafPem);
+    expect(fs.existsSync(path.join(dir, 'root-previous.pem'))).toBe(false);
+    // The leaf's renewal under a refusal: the loaded leaf serves on.
+    s.secrets = refusing; now.t = NOW + 380 * 86_400_000;
+    expect(await s.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ leafMade: false, refused: REASON });
+    expect(fs.readFileSync(path.join(dir, 'leaf.pem'), 'utf8')).toBe(leafPem);
+    s.secrets = plain;
+    expect(await s.ensure({ insideAddresses: ['10.0.5.20'] })).toMatchObject({ rootMade: true, rootReplacedFor: '10.0.5.20', leafMade: true, refused: null });
+    expect(s.state().writeRefused).toBeNull();
+    expect(fs.existsSync(path.join(dir, 'root-previous.pem'))).toBe(true);
+  });
+  it('a root whose key file does not open is UNREADABLE, never "no root": nothing is made over it, the files stay, the line says so', async () => {
+    const dir = path.join(tmp, 'p3'); const now = { t: NOW };
+    const s = mk(dir, plain, now);
+    await s.load(); await s.ensure({ insideAddresses: ['192.168.1.10'] });
+    const before = Object.fromEntries(fs.readdirSync(dir).map((f) => [f, fs.readFileSync(path.join(dir, f))]));
+    const wrongKey = { protect: plain.protect, unprotect: async () => { throw new Error('a secret file does not open with WILSON_GATEWAY_SECRETS_KEY: is it the key this install was made with, or was the file changed?'); } };
+    const back = mk(dir, wrongKey, now);
+    expect(await back.load()).toBe(false);
+    expect(await back.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ rootMade: false, leafMade: false, refused: null, unreadable: expect.stringMatching(/does not open with WILSON_GATEWAY_SECRETS_KEY/) });
+    expect(back.state()).toMatchObject({ rootPem: null, leafPem: null, unreadable: expect.stringMatching(/does not open/) });
+    expect(Object.fromEntries(fs.readdirSync(dir).map((f) => [f, fs.readFileSync(path.join(dir, f))]))).toEqual(before);
+    // CONTROL: the same files under the right layer load as before.
+    const again = mk(dir, plain, now);
+    expect(await again.load()).toBe(true);
+    expect(again.state()).toMatchObject({ rootFingerprint: s.state().rootFingerprint, unreadable: null });
+  });
+  it('an earlier version\'s plain key files are sealed again on load under the real layer, once', async () => {
+    const dir = path.join(tmp, 'p4'); const now = { t: NOW };
+    const s = mk(dir, plain, now);
+    await s.load(); await s.ensure({ insideAddresses: ['192.168.1.10'] });
+    expect(fs.readFileSync(path.join(dir, 'root-key.bin')).subarray(0, 8).toString()).toBe('WGPLAIN1');
+    // A throwaway key, made here and nowhere else.
+    const real = makeSecrets({ platform: 'linux', env: { WILSON_GATEWAY_SECRETS_KEY: crypto.randomBytes(32).toString('base64') }, readFileSync: () => { throw new Error('ENOENT'); } });
+    const back = mk(dir, real, now);
+    expect(await back.load()).toBe(true);
+    for (const f of ['root-key.bin', 'leaf-key.bin']) expect(fs.readFileSync(path.join(dir, f)).subarray(0, 8).toString()).toBe('WGSEALD1');
+    expect(real.status().unsealed).toBe(0);
+    expect(back.state().rootFingerprint).toBe(s.state().rootFingerprint);
+    expect(back.state().leafKeyPem).toMatch(/BEGIN PRIVATE KEY/);
+    const third = mk(dir, real, now);
+    expect(await third.load()).toBe(true);
+    expect(real.status().unsealed).toBe(0);
   });
 });

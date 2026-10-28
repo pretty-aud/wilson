@@ -183,7 +183,8 @@ jobs:
           set -euo pipefail
           . WILSON/gateway/test/e2e/containerChecks.sh bridge gw-bridge
           mkdir -p /tmp/data-bridge && sudo chown 65532:65532 /tmp/data-bridge
-          docker run -d --name gw-bridge -v /tmp/data-bridge:/data wilson-gateway:ci
+          # P8 (TPN-ENC-014): the container seals its secrets under a key the operator provides; a throwaway here.
+          docker run -d --name gw-bridge -e WILSON_GATEWAY_SECRETS_KEY="$(openssl rand -base64 32)" -v /tmp/data-bridge:/data wilson-gateway:ci
           for i in $(seq 1 30); do has 'Certificate fingerprint' && break; sleep 1; done
           has 'Certificate fingerprint' || fail 'the gateway did not start: no fingerprint in its log after 30 s'
           head -20 /tmp/gw-bridge.log
@@ -213,6 +214,7 @@ jobs:
           TOKEN=$(post token '{}' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).token))')
           sudo chown -R 65532:65532 /tmp/data-host
           docker run -d --name gw-host --network host \
+            -e WILSON_GATEWAY_SECRETS_KEY="$(openssl rand -base64 32)" \
             -e WILSON_ENROL_TOKEN="$TOKEN" -e WILSON_CLOUD_URL=https://127.0.0.1:9443/functions/v1 \
             -e NODE_EXTRA_CA_CERTS=/ca/fake-cloud-root.pem \
             -v /tmp/fc:/ca:ro -v /tmp/data-host:/data -v /tmp/share:/locations/nas/footage:ro \

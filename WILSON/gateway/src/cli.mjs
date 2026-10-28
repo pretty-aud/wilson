@@ -258,7 +258,8 @@ async function doctor() {
   out(`Certificate fingerprint (SHA-256): ${s.fingerprint ? displayFingerprint(s.fingerprint) : 'not made'}`);
   out(`Cloud: ${s.cloud} · ${s.enrolled ? `enrolled as ${s.gateway_id} in ${s.workspace || st?.workspace_name || '?'}` : 'not enrolled'}`);
   out(`Refused peers on the office door: ${Object.entries(s.refused_peers || {}).filter(([k, v]) => typeof v === 'number' && v > 0).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
-  out(`Secrets: ${s.secrets?.dpapi === true ? 'Windows data protection' : s.secrets?.dpapi === false ? `folder permissions only (${s.secrets.reason})` : 'mode 600 files'}`);
+  // P8 (TPN-ENC-014): sealed, or refused; never "folder permissions only".
+  out(`Secrets: ${s.secrets?.sealed === 'dpapi' ? 'Windows data protection' : s.secrets?.sealed === 'key' ? 'sealed under WILSON_GATEWAY_SECRETS_KEY' : `cannot be written (${s.secrets?.reason || 'unknown'})`}${s.secrets?.unsealed ? `; ${s.secrets.unsealed} file(s) from an earlier version still unsealed` : ''}`);
   if (s.config_problems?.length) for (const p of s.config_problems) out(`  ! config.json: ${p}`);
   out(`State: ${s.state_dir} · status written ${age} s ago by pid ${s.pid}`);
   return undefined;

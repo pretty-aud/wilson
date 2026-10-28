@@ -55,6 +55,9 @@ const ENROL_SENTENCES = {
   answer: 'WILSON’s answer could not be understood; nothing was kept. Make a new token and try again.',
   keep: 'Enrolled, but the credential could not be kept on this computer; the token is spent. Make a new token and try again.',
   already: 'This gateway is already enrolled. To enrol it in another workspace, Forget it in Settings first.',
+  // P8 (TPN-ENC-014): both checked BEFORE the token is spent.
+  secrets: (why) => `Not enrolled: this computer cannot keep the gateway’s sign-in (${why}). The token was not spent: put that right and start the gateway again.`,
+  certificate: (why) => `Not enrolled: this gateway has no certificate to enrol with (${why}). The token was not spent.`,
 };
 
 export class Gateway {
@@ -169,6 +172,9 @@ export class Gateway {
       try {
         const blob = await fs.promises.readFile(this.#file('credential'));
         this.credential = (await this.secrets.unprotect(blob)).toString('utf8');
+        // P8 (TPN-ENC-014): an earlier version's plain credential file, sealed again once secrets can be written.
+        const sealed = typeof this.secrets.reseal === 'function' ? await this.secrets.reseal(blob).catch(() => null) : null;
+        if (sealed) await fs.promises.writeFile(this.#file('credential'), sealed, { mode: 0o600 }).catch(() => {});
         // The reach key lives beside the credential it is derived from (GW3):
         // a blob that is no credential is unreadable, and nothing is proved.
         this.reachKey = reachKeyOf(this.credential);
@@ -254,7 +260,21 @@ export class Gateway {
     if (this.enrolment && !this.revoked) return { ok: false, error: ENROL_SENTENCES.already };
     const url = normalizeCloudUrl(cloudUrl || this.config?.cloud_url || this.env.WILSON_CLOUD_URL || '') || (cloudUrl ? null : DEFAULT_CLOUD_URL);
     if (!url) return { ok: false, error: ENROL_SENTENCES.cloud };
+    // P8 (TPN-ENC-014): a sign-in that could not be kept sealed would be a
+    // token spent for nothing (or, before P8, a plain file): refused first,
+    // the token untouched. So is enrolling with no root certificate (its key
+    // refused or unreadable): the cloud would pin nothing.
+    if (this.secrets.kind === 'none') {
+      const why = this.secrets.status?.()?.reason || 'secrets cannot be written';
+      this.log('enrol_refused', { reason: 'secrets cannot be written', detail: String(why).slice(0, 160) });
+      return { ok: false, error: ENROL_SENTENCES.secrets(why) };
+    }
     const st = this.certs.state();
+    if (!st.rootPem) {
+      const why = st.unreadable || st.writeRefused || 'it was not made';
+      this.log('enrol_refused', { reason: 'no root certificate', detail: String(why).slice(0, 160) });
+      return { ok: false, error: ENROL_SENTENCES.certificate(why) };
+    }
     const client = new CloudClient({ baseUrl: url, fetchImpl: this.fetchImpl });
     const res = await client.enrol(token, {
       name: this.config?.name || this.hostname,
@@ -743,7 +763,10 @@ export class Gateway {
       },
       outside: { state: this.outside.state, port: this.config?.outside.port, noCloudForMs: this.lastSeenAt ? this.now() - this.lastSeenAt : null, minimumVersion: this.versionFloors().minimum, reachOk: this.remote.reach?.ok, reachCheckedAt: this.remote.reach?.checkedAt },
       locations: [...this.locations.values()].map((l) => ({ name: l.name, unc: l.unc, state: l.state === 'unknown' ? null : l.state, since: l.since, mountAt: containerRootFor(l.unc) })),
-      certificate: this.ownInside ? { kind: 'own', ownUntil: this.ownInside.notAfter } : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null } : null,
+      // P8 (TPN-ENC-014): a refused write or an unreadable key file reaches the line even with no leaf to show.
+      certificate: this.ownInside ? { kind: 'own', ownUntil: this.ownInside.notAfter, refused: st.writeRefused, unreadable: st.unreadable }
+        : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null, refused: st.writeRefused, unreadable: st.unreadable }
+        : (st.writeRefused || st.unreadable) ? { kind: 'none', refused: st.writeRefused, unreadable: st.unreadable } : null,
       outsideCertificate: this.#outsideCertificateState(),
       update: (() => { const u = this.updates.state(); return { ...u, running: VERSION, channel: this.updates.channel?.() ?? null }; })(),
       hardMinimum: (() => { const { hard } = this.versionFloors(); return !!(hard && compareVersions(VERSION, hard) < 0); })(),

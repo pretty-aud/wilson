@@ -227,6 +227,23 @@ describe('the health line (§8)', () => {
     expect(u({ state: 'available', version: '1.3.0' }, 'container')).toBe('1.3.0 is available: pull the image');
     expect(u({ state: 'failed', version: '1.3.0', reason: 'the inside door could not bind', running: '1.2.4' })).toBe('update to 1.3.0 failed (the inside door could not bind); running 1.2.4');
   });
+  it('P8 (TPN-ENC-014): secrets that cannot be written are red; an earlier version\'s unsealed files amber; a refused or an unreadable certificate red', () => {
+    const w = (secrets, certificate) => composeHealthLine({ ...example, secrets, certificate: { ...example.certificate, ...certificate } }).warnings.map((x) => [x.tone, x.text]);
+    const NO_KEY = 'set WILSON_GATEWAY_SECRETS_KEY (32 random bytes, base64: openssl rand -base64 32) or WILSON_GATEWAY_SECRETS_KEY_FILE (a Docker secret\'s path) for this container';
+    expect(w({ dpapi: true, reason: null, sealed: 'dpapi', unsealed: 0 }, {})).toEqual([]);
+    expect(w({ dpapi: null, reason: NO_KEY, sealed: 'none', unsealed: 0 }, {})).toEqual([['red', `secrets cannot be written: ${NO_KEY}`]]);
+    expect(w({ dpapi: false, reason: 'Windows data protection is unavailable (language mode)', sealed: 'none', unsealed: 0 }, {})).toEqual([['red', 'secrets cannot be written: Windows data protection is unavailable (language mode)']]);
+    expect(w({ dpapi: null, reason: null, sealed: 'key', unsealed: 1 }, {})).toEqual([['amber', '1 secret file from an earlier version is unsealed on disk: sealed again at the next start once secrets can be written']]);
+    expect(w({ dpapi: null, reason: null, sealed: 'key', unsealed: 3 }, {})).toEqual([['amber', '3 secret files from an earlier version are unsealed on disk: sealed again at the next start once secrets can be written']]);
+    expect(w(undefined, { refused: 'Windows data protection is unavailable (language mode)' })).toEqual([['red', 'the gateway could not write its certificates (Windows data protection is unavailable (language mode)): nothing is made or renewed until secrets can be written']]);
+    expect(w(undefined, { unreadable: 'a secret file does not open with WILSON_GATEWAY_SECRETS_KEY: is it the key this install was made with, or was the file changed?' })).toEqual([['red', 'the gateway\u2019s existing certificate files do not open (a secret file does not open with WILSON_GATEWAY_SECRETS_KEY: is it the key this install was made with, or was the file changed?); no new certificate is made over them']]);
+    // Before P8 a DPAPI failure drew an amber "folder's permissions only" line: gone with the plain file it described.
+    expect(composeHealthLine({ ...example, secrets: { dpapi: false, reason: 'language mode' } }).warnings).toEqual([]);
+    // No certificate at all (refused on a first run): the segment reads as before, the reason is in the lines under it.
+    const none = composeHealthLine({ ...example, certificate: { kind: 'none', refused: NO_KEY } });
+    expect(none.segments.find((s) => /^certificate:/.test(s.text))).toEqual({ text: 'certificate: not made yet', tone: 'amber' });
+    expect(none.warnings).toEqual([['red', `the gateway could not write its certificates (${NO_KEY}): nothing is made or renewed until secrets can be written`]].map(([tone, text]) => ({ text, tone })));
+  });
   it('the lines under it: the red public-address line, the amber relay line, the root\'s notice', () => {
     const w = composeHealthLine({ ...example, inside: { ...example.inside, refusedPublic: 12, port: 8443, relay: { viewers: 14, address: '192.168.1.77' } }, certificate: { ...example.certificate, rootExpiryNotice: true }, revoked: true, smb: [{ unc: '\\\\nas\\footage', dialect: '2.1' }, { unc: '\\\\nas\\grade', dialect: '3.1.1' }] }).warnings;
     expect(w).toEqual([

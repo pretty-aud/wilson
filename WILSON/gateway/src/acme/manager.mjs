@@ -143,14 +143,18 @@ export class AcmeManager {
     await this.fsp.mkdir(this.dir, { recursive: true });
     try {
       const a = JSON.parse(await this.fsp.readFile(this.#f('account.json'), 'utf8'));
-      const keyPem = (await this.secrets.unprotect(await this.fsp.readFile(this.#f('account-key.bin')))).toString('utf8');
+      const accountBlob = await this.fsp.readFile(this.#f('account-key.bin'));
+      const keyPem = (await this.secrets.unprotect(accountBlob)).toString('utf8');
       if (a.directory === this.directoryUrl && typeof a.kid === 'string') this.account = { kid: a.kid, key: crypto.createPrivateKey(keyPem) };
+      await this.#resealOnLoad('account-key.bin', accountBlob);
     } catch { this.account = null; }
     try {
       const m = JSON.parse(await this.fsp.readFile(this.#f('outside.json'), 'utf8'));
       const certPem = await this.fsp.readFile(this.#f('outside.pem'), 'utf8');
-      const keyPem = (await this.secrets.unprotect(await this.fsp.readFile(this.#f('outside-key.bin')))).toString('utf8');
+      const outsideBlob = await this.fsp.readFile(this.#f('outside-key.bin'));
+      const keyPem = (await this.secrets.unprotect(outsideBlob)).toString('utf8');
       const checked = checkIssued(certPem, keyPem, m.name, Math.min(this.now(), m.notAfter - 1));
+      await this.#resealOnLoad('outside-key.bin', outsideBlob);
       this.cert = { name: m.name, certPem, keyPem, notBefore: checked.notBefore, notAfter: checked.notAfter, serial: checked.serial };
     } catch { this.cert = null; }
     try {
@@ -158,6 +162,14 @@ export class AcmeManager {
       if (s && typeof s === 'object') this.state = { ...this.state, ...s };
     } catch { /* first run */ }
     return this;
+  }
+
+  /** P8 (TPN-ENC-014): an earlier version's plain key file, sealed again once secrets can be written. */
+  async #resealOnLoad(name, blob) {
+    try {
+      const sealed = typeof this.secrets.reseal === 'function' ? await this.secrets.reseal(blob) : null;
+      if (sealed) await this.fsp.writeFile(this.#f(name), sealed, { mode: 0o600 });
+    } catch { /* counted on the line; tried again at the next start */ }
   }
 
   async #saveState() {
