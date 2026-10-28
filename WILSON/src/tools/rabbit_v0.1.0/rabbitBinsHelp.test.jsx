@@ -117,7 +117,7 @@ describe('the "Bins" help page (BC2)', () => {
     // since; M1 (night 3) measured which: a row in the cloud's trash keeps
     // its id and is skipped (until the trash is emptied), one removed for
     // good comes back — every table with no trash. Help says so.
-    expect(text).toContain('Running it again skips every row already in the cloud, one in its trash included; a row a teammate removed from the cloud for good comes back with it (a scene, shot, bin, clip, take, folder, saved view, grouping, or an item of a list or a task), as does one in the trash once it is emptied after 30 days')
+    expect(text).toContain('Running it again skips every row already in the cloud, one in its trash included; a row a teammate removed from the cloud for good comes back with it (a scene, shot, bin, clip, take, folder, saved view, grouping, task or phase link, or an item of a list or a task), as does one in the trash once it is emptied after 30 days')
     // M1: what moves since, what part 2 carries, and what no migration does
     // (the report's two groups, binsMigration's NOT_CARRIED).
     expect(text).toContain('A desktop project moves with its key dates, comments, shot lists and edits, its folders, and its bins, logging, marks and takes')

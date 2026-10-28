@@ -26,13 +26,18 @@ the company the projects go to. Part 1 of two (part 2 is night 4).
    have (Draft or Wrapped from the project's settings, Inactive from the
    Projects page) arrives as Active, and the report says *1 project has a
    status the cloud does not have (wrapped): it arrives as active* (see Q3); a
-   project started in D.O.G. keeps its dates; a cleared date or frame rate
-   arrives empty or at the cloud's default instead of refusing the project.
+   project started in D.O.G. keeps its dates, and a date you changed later in
+   R.A.B.B.I.T.'s settings wins, on the day you picked; a cleared date, frame
+   rate, director or producer arrives empty or at the cloud's default instead
+   of refusing the project. A value the cloud cannot hold — a budget in yen
+   past ten billion, say — is left out and named in the settings' words: *1
+   project has a value the cloud cannot hold (targeted budget total)…*. These
+   two lines appear only for a project that arrives in that run.
 2. **Its key dates go up** (the Timeline's diamonds), after its phases. One in
    this computer's **Recently deleted key dates** is not carried, and the
    report says so; one removed in the cloud since an earlier run stays removed.
    One whose phase you deleted here arrives without a phase, counted: *1 key
-   date on a phase removed on this computer… arrives without it*.
+   date arrives without its phase: removed on this computer…*.
 3. **Its comments go up**, on the same tasks, assets, phases and project. No
    screen shows comments today; the report's **comments** row counts them.
 4. **Its shot lists go up, with their items and edits.** Each list holds the
@@ -43,16 +48,19 @@ the company the projects go to. Part 1 of two (part 2 is night 4).
    migrate. The dry run names those: *1 shot list and 1 edit archived on this
    computer: archived in the cloud too, once carried.* A list in the cloud has
    one chain of edits; if a teammate started or continued it there since an
-   earlier run, this computer's edit cannot take that place, so it stays (with
-   the edits after it), counted: *N edits not carried: their place in the shot
-   list's one chain of edits is an edit made in the cloud since…*.
+   earlier run, or an older version left two chains in one list here, an edit
+   cannot take a place another holds, so it stays (with the edits after it),
+   counted, and the dry run says the same: *N edits not carried: the shot
+   list's one chain of edits already has an edit in their place…*.
 5. **Its folders go up, and each file lands in its folder.** The Files tab's
    tree in the browser is the desktop's: ASSETS with a folder per asset,
    SCENES, SHOTS, INVOICES, and each file in the folder you saw it in on this
    computer (an asset's file in the asset's folder). A file at the project's
    top stays at the top, as do invoices (see Q1). A file linked to a task,
    asset or phase you deleted here arrives without that link, counted: *N
-   links of a file to a row removed on this computer… let go*.
+   links of a file to a row removed on this computer… let go*. A file whose
+   folder could not go up in a run waits with it, and the next run brings
+   both, the file in its folder.
 6. **What stays is named before you can clear anything, part 2's apart.**
    Under the report: *Stays on this computer for now (part 2 of the migration
    carries it): …budget lines, …levels…* and *Stays on this computer (the
@@ -62,8 +70,9 @@ the company the projects go to. Part 1 of two (part 2 is night 4).
 7. **Running it again changes nothing that is there.** Every row already in
    the cloud is skipped, one in its trash included until the trash is emptied
    after 30 days; a row a teammate removed from the cloud for good comes back
-   — a scene, shot, bin, clip, take, folder, saved view, grouping, or an item
-   of a list or a task, the kinds with no trash (stopping that is part 2's).
+   — a scene, shot, bin, clip, take, folder, saved view, grouping, task or
+   phase link, or an item of a list or a task, the kinds with no trash
+   (stopping that is part 2's).
    Migrate's hover when it is done says it, and Help's paragraph too.
 
 ### Step by step
@@ -74,7 +83,7 @@ the company the projects go to. Part 1 of two (part 2 is night 4).
 | 2 | The report | Six new rows in the order things move: **key dates** after phases, **comments** after the links, **shot lists**, **items on shot lists** and **edits** after shots, **folders**, then **files** (`po-m1-after-migrate-report-rows-1280x800`; the panel's new description is `po-m1-after-migrate-panel-1280x800`, both in `docs/sessions/handoffs/img/`, taken in the browser tester, where there is no desktop to read, so the counts are 0 there). Under the table, one line each for what did not move and why, and the not-carried sentence in its two parts. |
 | 3 | Answer the footage question as before, then **Migrate** | The same lines, now in the past tense: *"Shot list 1 · v1" is the active shot list in the cloud*, *N files filed in their folders*. When nothing failed: Migrate's hover reads *Done. Running it again skips every row already in the cloud…*, and **Archive and clear local** appears; its hover names part 2. |
 | 4 | Open the project in the browser (the beta) | **Timeline**: the key dates. **Scenes**: the lists in the list picker, the active one selected, the archived one among the archived lists; its edits in the edit picker. **Files**: the folder tree, each file in its folder. **Bins** as before. |
-| 5 | **Dry-run** again | Key dates, shot lists, items on shot lists, edits and folders count as *Skipped*, nothing under *Would insert*; no *files filed* line. Comments, like phases, assets and tasks, count in **Total** only: a comment has no project to read the cloud by, so the real run skips each one by its id instead. |
+| 5 | **Dry-run** again | The project, key dates, shot lists, items on shot lists, edits and folders count as *Skipped*, nothing under *Would insert*; no *files filed* line. Comments, like phases, assets and tasks, count in **Total** only: a comment has no project to read the cloud by, so the real run skips each one by its id instead. |
 
 **What only your desktop can show:** the dry run and the real run read the
 projects through the desktop's own server, which a browser does not have, so

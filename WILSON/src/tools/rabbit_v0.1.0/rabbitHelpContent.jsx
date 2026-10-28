@@ -691,9 +691,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Running it again skips every row already in the cloud, one in
               its trash included; a row a teammate removed from the cloud for
               good comes back with it (a scene, shot, bin, clip, take, folder,
-              saved view, grouping, or an item of a list or a task), as does
-              one in the trash once it is emptied after 30 days, so archive
-              and clear the desktop&apos;s copy once everything is there.
+              saved view, grouping, task or phase link, or an item of a list
+              or a task), as does one in the trash once it is emptied after 30
+              days, so archive and clear the desktop&apos;s copy once
+              everything is there.
               What part 2 carries, and what no migration carries — an
               asset&apos;s versions, the files kept with an asset, scene,
               shot, level or experience on this computer, deck attachments not

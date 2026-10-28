@@ -33,7 +33,7 @@
 // goes through, and every row of the five kinds must come out with the
 // cloud's shape, its id and its parents, in the runner's order. The fake
 // cloud refuses what wilson-dev refused when M1 measured it (rolled back,
-// 2026-10-28): a key that is no column (PGRST204), a shot list or an edit
+// 2026-10-27): a key that is no column (PGRST204), a shot list or an edit
 // inserted archived (42501), a row its foreign keys cannot find (23503), a
 // unique key taken (23505, naming the key).
 // =============================================================================
@@ -43,7 +43,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const fake = vi.hoisted(() => {
   const state = { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {} }
   // M1: the cloud's columns for the tables the project row and the five
-  // kinds reach — wilson-dev's, read from information_schema (2026-10-28).
+  // kinds reach — wilson-dev's, read from information_schema (2026-10-27).
   const COLUMNS = {
     projects: 'id,workspace_id,title,description,status,status_tag,start_date,end_date,budget_total,budget_currency,client_name,cover_image_url,created_by,created_at,updated_at,last_updated_by,last_updated_at,deleted_at,deleted_by,updated_by,producer_id,director_id,budget_margin_pct,budget_contingency_pct,budget_agency_pct,budget_agency_enabled,budget_actual_column_mode,budget_actual_column_count,budget_active,budget_active_version_id,budget_finalized,project_code,scene_separator,scene_digits,shot_digits,scene_start_number,fps,scenes_enabled,levels_enabled,experiences_enabled,uses_realtime_engine,engine_type,engine_proprietary_name,engine_version,engine_project_name,engine_repo_url,project_type,project_tier,folder_slug,folder_root,is_private,active_shot_list_id,open_budget_version_id',
     files: 'id,project_id,phase_id,asset_id,task_id,name,mime_type,size_bytes,storage_provider,storage_path,thumbnail_url,kind,is_core_definer,uploaded_at,last_updated_by,last_updated_at,deleted_at,deleted_by,workspace_id,created_by,updated_by,created_at,updated_at,is_financial,scene_id,shot_id,level_id,experience_id,folder_id,document_kind,description,duration_sec,source_modified_at,tags',
@@ -62,16 +62,24 @@ const fake = vi.hoisted(() => {
   // The database's own refusals, in its order: PostgREST's column check, the
   // BEFORE triggers (0084's guard), the primary key and the unique keys, the
   // foreign keys at the statement's end.
+  // M1 review round 2: the UUID columns the runner's rows reach refuse ''
+  // (measured on wilson-dev: 22P02, invalid input syntax for type uuid).
+  const UUID_COLUMNS = { projects: ['producer_id', 'director_id'], milestones: ['phase_id'], files: ['phase_id', 'asset_id', 'task_id', 'scene_id', 'shot_id', 'folder_id'] }
   function cloudRefusal(table, row) {
     const cols = COLUMNS[table]?.split(',')
     const stray = cols && Object.keys(row).find(k => !cols.includes(k))
     if (stray) return no('PGRST204', `Could not find the '${stray}' column of '${table}' in the schema cache`)
+    for (const k of UUID_COLUMNS[table] || []) if (row[k] === '') return no('22P02', 'invalid input syntax for type uuid: ""')
     if (table === 'projects') {
       // M1 review round 1: the column types and NOT NULL defaults, read on
       // wilson-dev (project_status's five values; DATE; the defaulted columns).
       if (row.status != null && !['active', 'on_hold', 'completed', 'archived', 'cancelled'].includes(row.status)) return no('22P02', `invalid input value for enum project_status: "${row.status}"`)
-      for (const k of ['start_date', 'end_date']) if (row[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(row[k]))) return no('22007', `invalid input syntax for type date: "${row[k]}"`)
+      // A DATE takes a string that starts with a day (its time and offset ignored — measured), never '' or a word.
+      for (const k of ['start_date', 'end_date']) if (row[k] != null && !/^\d{4}-\d{2}-\d{2}(?:$|[T ])/.test(String(row[k]))) return no('22007', `invalid input syntax for type date: "${row[k]}"`)
       for (const k of ['budget_actual_column_count', 'scene_digits', 'shot_digits', 'scene_start_number']) if (row[k] != null && !Number.isInteger(Number(row[k]))) return no('22P02', `invalid input syntax for type integer: "${row[k]}"`)
+      for (const k of ['budget_actual_column_count', 'scene_digits', 'shot_digits', 'scene_start_number']) if (row[k] != null && Math.abs(Number(row[k])) > 2147483647) return no('22003', 'integer out of range')
+      // NUMERIC's room: 0000's budget_total (12,2), 0036's percentages (7,3), 0040's fps (6,2).
+      for (const [k, room] of [['budget_total', 1e10], ['budget_margin_pct', 1e4], ['budget_contingency_pct', 1e4], ['budget_agency_pct', 1e4], ['fps', 1e4]]) if (row[k] != null && Math.abs(Number(row[k])) >= room) return no('22003', 'numeric field overflow')
       for (const k of 'status,created_at,updated_at,budget_margin_pct,budget_contingency_pct,budget_agency_pct,budget_agency_enabled,budget_actual_column_mode,budget_actual_column_count,budget_active,budget_finalized,scene_separator,scene_digits,shot_digits,scene_start_number,fps,scenes_enabled,levels_enabled,experiences_enabled,uses_realtime_engine,is_private,title'.split(',')) {
         if (k in row && row[k] === null) return no('23502', `null value in column "${k}" of relation "projects" violates not-null constraint`)
       }
@@ -230,10 +238,10 @@ vi.mock('../auth/supabaseClient', () => ({ supabase: fake.client }))
 const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, BID_VERSIONS_PART_2, PROJECT_FOLDER_STAYS, ARCHIVED_AGAIN,
   KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
-  KEY_DATES_PHASE_LET_GO, FILE_LINKS_LET_GO, EDITS_CHAIN_TAKEN, STATUS_NOT_IN_CLOUD,
+  KEY_DATES_PHASE_LET_GO, FILE_LINKS_LET_GO, EDITS_CHAIN_TAKEN, STATUS_NOT_IN_CLOUD, VALUES_NOT_IN_CLOUD,
 } = await import('./runMigration')
 const { pathKey } = await import('./binsMigration')
-const { projectRowForCloud } = await import('./migrationRows')
+const { projectRowForCloud, cloudDay } = await import('./migrationRows')
 const { BINS, BIN_FILES, SHOT_TAKES, SCENES, SHOTS, BIN_LOCATIONS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS, TASK_ITEMS } = await import('../../dev/fixtures/data/scenes')
 const { PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, COMMENTS } = await import('../../dev/fixtures/data/project')
 const { FOLDERS, FILES } = await import('../../dev/fixtures/data/files')
@@ -1047,7 +1055,7 @@ describe('M1: the cloud\'s refusals the runner meets no more (measured on wilson
     expect(p).toMatchObject({ id: PROJECT.id, workspace_id: WS, title: PROJECT.title, folder_slug: 'Salt-Hours', fps: 24, producer_id: PROJECT.producer_id, budget_contingency_pct: 10 })
     // Its children followed it (a refused project skips every child).
     expect(ins('phases')).toHaveLength(PHASES.length)
-    expect(report.projectsLeftAtHome).toEqual({ bidVersions: 1, folders: 1, statuses: {} })
+    expect(report.projectsLeftAtHome).toEqual({ bidVersions: 1, folders: 1, statuses: {}, withValues: 0, values: {} })
   })
 
   it('CONTROL: a desktop project\'s own values the cloud\'s columns refuse — a status it does not have, a cleared date, a cleared frame rate, no title — and the runner\'s row, which lands with the defaults and says the status (review round 1)', async () => {
@@ -1096,6 +1104,78 @@ describe('M1: the cloud\'s refusals the runner meets no more (measured on wilson
     expect(report.projects).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0 })
   })
 
+  it('a day picked in the project\'s settings (stored as that day\'s midnight in UTC) goes up as that day, whatever the clock\'s zone; R.A.B.B.I.T.\'s later date wins over D.O.G.\'s first one (review round 2)', async () => {
+    // Postgres keeps the literal day of such a string (measured on wilson-dev):
+    // both of these, read as an instant, fall on another day in New York or in UTC.
+    expect(cloudDay('2026-12-01T00:00:00.000Z')).toBe('2026-12-01')
+    expect(cloudDay('2026-12-20T23:30:00-05:00')).toBe('2026-12-20')
+    expect(cloudDay('2026-02-30')).toBeNull()
+    expect(cloudDay('')).toBeNull()
+    const b = desktopFixtures()
+    // Born in D.O.G. (startDate alone), then dated in R.A.B.B.I.T.'s settings (start_date alone, later).
+    b.project = { ...b.project, startDate: '2026-08-01', start_date: '2026-12-01T00:00:00.000Z', endDate: '2027-01-15', end_date: '2026-12-20T23:30:00-05:00' }
+    serve([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(ins('projects')[0]).toMatchObject({ start_date: '2026-12-01', end_date: '2026-12-20' })
+    // D.O.G.'s day where the column has none.
+    expect(projectRowForCloud({ title: 'x', startDate: '2026-08-01', start_date: null, end_date: '' }, WS)).toMatchObject({ start_date: '2026-08-01', end_date: null })
+  })
+
+  it('a cleared director or producer (the settings store \'\') goes up empty, and one that is no id too, named; the project lands (review round 2)', async () => {
+    // CONTROL: the column refuses '' (measured: 22P02, invalid input syntax for type uuid).
+    expect((await fake.client.from('projects').insert({ id: 'p-x', title: 'x', workspace_id: WS, director_id: '' })).error).toMatchObject({ code: '22P02' })
+    const b = desktopFixtures()
+    b.project = { ...b.project, director_id: '', producer_id: 'tm-12' }
+    serve([b])
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.projects).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0 })
+    expect(ins('projects')[0]).toMatchObject({ director_id: null, producer_id: null })
+    // The cleared picker is no value; the stray producer is one, said.
+    expect(report.projectsLeftAtHome.values).toEqual({ producer: 1 })
+    expect(lines).toContain(`  ${VALUES_NOT_IN_CLOUD(1, ['producer'])}`)
+  })
+
+  it('a number past its column\'s room (a budget in yen past ten billion), a whole number past INTEGER\'s and a word for a number are left out and named in the settings\' words; the project lands (review round 2)', async () => {
+    expect((await fake.client.from('projects').insert({ id: 'p-x', title: 'x', workspace_id: WS, budget_total: 1e10 })).error).toMatchObject({ code: '22003' })
+    const b = desktopFixtures()
+    b.project = { ...b.project, budget_currency: 'JPY', budget_total: 12000000000, scene_digits: 3e9, fps: 'fast' }
+    serve([b])
+    const words = ['targeted budget total', 'scene digits', 'frames per second']
+    const dryLines = []
+    await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS, onProgress: (m) => dryLines.push(m) })
+    expect(dryLines).toContain(`  ${VALUES_NOT_IN_CLOUD(1, words)}`)
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.projects.inserted).toBe(1)
+    for (const k of ['budget_total', 'scene_digits', 'fps']) expect(ins('projects')[0], k).not.toHaveProperty(k)
+    expect(report.projectsLeftAtHome).toMatchObject({ withValues: 1, values: { 'targeted budget total': 1, 'scene digits': 1, 'frames per second': 1 } })
+    expect(VALUES_NOT_IN_CLOUD(1, ['frames per second'])).toBe('1 project has a value the cloud cannot hold (frames per second): left out, so the field is empty or at the cloud\'s default')
+  })
+
+  it('the status line is said only for a project that arrives: not on a second run, not in a dry run once it is there, not for a refused project (review round 2)', async () => {
+    const b = desktopFixtures()
+    b.project = { ...b.project, status: 'wrapped' }
+    serve([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const said = (lines) => lines.some(l => l.includes('a status the cloud does not have'))
+    const again = []
+    const r2 = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => again.push(m) })
+    expect(r2.projects).toMatchObject({ inserted: 0, skipped: 1 })
+    expect(r2.projectsLeftAtHome.statuses).toEqual({})
+    expect(said(again)).toBe(false)
+    const dryLines = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS, onProgress: (m) => dryLines.push(m) })
+    expect(dry.projects).toMatchObject({ inserted: 0, skipped: 1 })
+    expect(said(dryLines)).toBe(false)
+    Object.assign(fake.state, { inserts: {}, lists: {}, log: [] })
+    serve([b])
+    fake.state.failWith = (table) => (table === 'projects' ? { code: '42501', message: 'refused' } : null)
+    const refused = []
+    const r3 = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => refused.push(m) })
+    expect(r3.projects.failed).toBe(1)
+    expect(said(refused)).toBe(false)
+  })
+
   it('a project whose status the cloud has keeps it, and says nothing of it', async () => {
     const b = desktopFixtures()
     b.project = { ...b.project, status: 'on_hold' }
@@ -1119,7 +1199,7 @@ describe('M1: the cloud\'s refusals the runner meets no more (measured on wilson
     const quiet = []
     const r = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS, onProgress: (m) => quiet.push(m) })
     expect(quiet.some(l => l.includes('bid version') || l.includes('project folder'))).toBe(false)
-    expect(r.projectsLeftAtHome).toEqual({ bidVersions: 0, folders: 0, statuses: {} })
+    expect(r.projectsLeftAtHome).toEqual({ bidVersions: 0, folders: 0, statuses: {}, withValues: 0, values: {} })
   })
 
   it('CONTROL: an archived list or edit sent as the desktop keeps it is refused (0084\'s guard), and the runner never sends one', async () => {
@@ -1190,6 +1270,13 @@ describe('M1: what the dry run promises', () => {
     expect(dry.shotLists.archived + dry.edits.archived).toBe(0)
     // Review round 1: the files are in the cloud already, so none is filed again.
     expect(dry.files.placed).toBe(0)
+    expect(dry.files.linksLetGo).toBe(0)
+    expect(dry.projects).toMatchObject({ inserted: 0, skipped: 1 })
+    // Review round 2: a failed read of the cloud's files is said, as every dry run read's is.
+    fake.state.listErrorFor = { files: { message: 'read refused' } }
+    const blind = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(blind.errors).toEqual(expect.arrayContaining([expect.objectContaining({ scope: 'files', message: 'could not read the files already in the cloud: read refused' })]))
+    fake.state.listErrorFor = {}
     // A comment has no project to read by: the real run skips one already there by its key.
     expect(dry.comments).toMatchObject({ total: COMMENTS.length, inserted: 0, skipped: 0 })
     expect(dry.phases).toMatchObject({ total: PHASES.length, inserted: 0, skipped: 0 })
@@ -1310,7 +1397,7 @@ describe('M1: shot lists, their items and edits', () => {
     expect(fake.state.log.filter(t => t === 'edits')).toEqual([])
     expect(again.errors).toEqual([])
     expect(lines).toContain(`  ${EDITS_CHAIN_TAKEN(3)}`)
-    expect(EDITS_CHAIN_TAKEN(3)).toBe('3 edits not carried: their place in the shot list\'s one chain of edits is an edit made in the cloud since (an edit on this computer cannot be moved)')
+    expect(EDITS_CHAIN_TAKEN(3)).toBe('3 edits not carried: the shot list\'s one chain of edits already has an edit in their place (made in the cloud since, or a second chain an older version kept on this computer), and an edit cannot be moved')
   })
 
   it('an edit whose parent the cloud holds, continued there since by another edit, is counted with its own continuation; the parent is skipped', async () => {
@@ -1348,6 +1435,19 @@ describe('M1: shot lists, their items and edits', () => {
     }
     const named = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(named.edits).toMatchObject({ failed: 3, taken: 0 })
+  })
+
+  it('a second chain an older version kept in one list on this computer: one root lands, the other is counted with what continues it, never an error — and the dry run says the same (review round 2)', async () => {
+    const b = desktopFixtures()
+    b.edits = [...b.edits, { ...b.edits[0], id: 'f1c70000-0028-4000-8000-000000000999', title: 'Second chain', version: 1, parent_edit_id: null, archived_at: null }]
+    serve([b])
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.edits.taken).toBeGreaterThan(0)
+    expect(report.edits.inserted + report.edits.taken).toBe(4)
+    expect({ inserted: report.edits.inserted, taken: report.edits.taken }).toEqual({ inserted: dry.edits.inserted, taken: dry.edits.taken })
+    expect(report.errors).toEqual([])
+    expect(ins('edits').filter(e => e.shot_list_id === LIST_2 && e.parent_edit_id == null)).toHaveLength(1)
   })
 
   it('an edit listed before the edit it continues still lands after it', async () => {
@@ -1500,6 +1600,11 @@ describe('M1: what moving the files after the folders asks', () => {
     // …and the schedule's task is another project's row in the cloud (skipped by its key, never this project's).
     const schedule = FILES.find(f => f.id === fileId(32))
     fake.state.lists.tasks = [{ id: schedule.task_id, project_id: 'p-other' }]
+    // Review round 2: the dry run counts them too, judged against the bundle —
+    // the treatment's asset is gone from it; that the schedule's task is
+    // another project's only the real run's read can know.
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(dry.files.linksLetGo).toBe(1)
     const lines = []
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
     expect(ins('files').find(f => f.id === fileId(4))).toMatchObject({ asset_id: null, folder_id: null })
@@ -1519,6 +1624,14 @@ describe('M1: what moving the files after the folders asks', () => {
     const sc4Folder = FOLDERS.find(f => f.scene_id === sc4)
     expect(ins('folders').map(f => f.id)).not.toContain(sc4Folder.id)
     expect(ins('files').find(f => f.id === fileId(28))).toBeUndefined()
+    // Review round 2: scene 4's shots wait as well — a shot hanging off
+    // another project's scene would go with it (0040's ON DELETE CASCADE).
+    const sc4Shots = SHOTS.filter(s => s.scene_id === sc4).map(s => s.id)
+    expect(sc4Shots.length).toBeGreaterThan(0)
+    expect(ins('shots').filter(s => sc4Shots.includes(s.id))).toEqual([])
+    const shotErrors = report.errors.filter(e => e.scope === 'shot' && sc4Shots.includes(e.id))
+    expect(shotErrors).toHaveLength(sc4Shots.length)
+    for (const e of shotErrors) expect(e.message).toMatch(/whether its scene is this project's could not be checked \(the read of the cloud's scenes failed\), so the shot was not carried/)
     expect(report.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ scope: 'folder', id: sc4Folder.id }),
       expect.objectContaining({ scope: 'file', id: fileId(28) }),
@@ -1532,6 +1645,52 @@ describe('M1: what moving the files after the folders asks', () => {
     await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(ins('folders').map(f => f.id)).toContain(sc4Folder.id)
     expect(ins('files').find(f => f.id === fileId(28))).toMatchObject({ scene_id: sc4, folder_id: sc4Folder.id })
+    expect(ins('shots').filter(s => sc4Shots.includes(s.id)).map(s => s.scene_id)).toEqual(sc4Shots.map(() => sc4))
+  })
+
+  it('a file filed in a folder that did not land waits with it, its body unmoved; a second run brings both, each file in its folder (review round 2)', async () => {
+    serve([desktopFixtures()])
+    fake.state.listErrorFor = { folders: { message: 'read refused' } }
+    const r1 = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const filed = FILES.filter(f => !AT_THE_TOP.has(f.id))
+    expect(ins('files').map(f => f.id).sort()).toEqual([...AT_THE_TOP].sort())
+    expect(fake.state.uploads.some(u => filed.some(f => u.path.includes(f.id)))).toBe(false)
+    expect(r1.errors.filter(e => e.scope === 'file').map(e => e.id).sort()).toEqual(filed.map(f => f.id).sort())
+    expect(r1.errors.find(e => e.scope === 'folders').message).toMatch(/nor any file filed in one \(run again\)/)
+    // The second run, the read answering: every folder, and every file in its own.
+    fake.state.listErrorFor = {}
+    const r2 = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(r2.errors).toEqual([])
+    for (const f of filed) expect(ins('files').find(r => r.id === f.id)?.folder_id, f.name).toBe(f.folder_id)
+  })
+
+  it('when the read of the project\'s phases fails, a key date or a file on one waits, and the report says the check could not be made, not that the phase is missing (review round 2)', async () => {
+    serve([desktopFixtures()])
+    fake.state.listErrorFor = { phases: { message: 'read refused' } }
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const kd = report.errors.filter(e => e.scope === 'milestone')
+    expect(kd).toHaveLength(MILESTONES.filter(m => m.phase_id).length)
+    for (const e of kd) expect(e.message).toMatch(/whether its phase is in the cloud could not be checked \(the read failed\), so the key date was not carried \(run again\)$/)
+    const files = report.errors.filter(e => e.scope === 'file')
+    expect(files.length).toBeGreaterThan(0)
+    for (const e of files) expect(e.message).toMatch(/whether its phase is in the cloud could not be checked \(the read failed\), so the file was not carried \(run again\)$/)
+    expect(report.errors.some(e => ['milestone', 'file', 'comment'].includes(e.scope) && / is not in the cloud, so /.test(e.message))).toBe(false)
+  })
+
+  it('a cleared picker\'s \'\' is no link: a key date\'s phase and a file\'s task go up empty, not refused, and nothing is counted as let go (review round 2)', async () => {
+    // CONTROL: the column refuses '' (22P02).
+    expect((await fake.client.from('milestones').insert({ ...omit(MILESTONES[0], ['name']), id: 'm-x', phase_id: '' })).error).toMatchObject({ code: '22P02' })
+    const b = desktopFixtures()
+    b.milestones[0] = { ...b.milestones[0], phase_id: '' }
+    const sched = b.files.findIndex(f => f.id === fileId(32))
+    b.files[sched] = { ...b.files[sched], task_id: '' }
+    serve([b])
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(ins('milestones').find(m => m.id === MILESTONES[0].id).phase_id).toBeNull()
+    expect(ins('files').find(f => f.id === fileId(32)).task_id).toBeNull()
+    expect(report.milestones.phaseLetGo).toBe(0)
+    expect(report.files.linksLetGo).toBe(0)
+    expect(report.errors).toEqual([])
   })
 
   it('a folder whose place a namesake took between the read and the write is counted as taken, not as an error', async () => {

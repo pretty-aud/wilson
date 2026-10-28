@@ -11,7 +11,7 @@
 // parent, a folder after its parent), and the folder the desktop shows a
 // file in, which is where the cloud files it.
 //
-// Measured on wilson-dev (2026-10-28, each a rolled-back INSERT; the M1
+// Measured on wilson-dev (2026-10-27, each a rolled-back INSERT; the M1
 // hand-off quotes every response): a desktop project row is refused whole
 // for `documents` (42703: none of documents, visualAssets, files_dir is a
 // column), for a locked or an open bid version the cloud does not have
@@ -44,6 +44,21 @@ function onlyColumns(row, allow) {
 function dropNulls(row, keys) {
   for (const k of keys) if (k in row && row[k] == null) delete row[k]
   return row
+}
+
+// A day as a DATE column stores it. A string that starts with a day keeps
+// that day, whatever time or offset follows, as Postgres's own DATE input
+// does (measured on wilson-dev, review round 2: '2026-12-01T00:00:00.000Z'
+// and '2026-12-01T23:30:00-05:00' are both 2026-12-01) — R.A.B.B.I.T.'s
+// settings store a picked day as that day's midnight in UTC, and the desktop
+// shows its first ten characters, while a local reading puts it on the day
+// before west of Greenwich. Any other spelling is read by dates.js's
+// toIsoDate. null: no day (30 February is none).
+const DAY_PREFIX = /^(\d{4}-\d{2}-\d{2})(?:$|[T ])/
+export function cloudDay(v) {
+  if (!named(v)) return null
+  const m = typeof v === 'string' ? DAY_PREFIX.exec(v.trim()) : null
+  return toIsoDate(m ? m[1] : v)
 }
 
 // ── The project row ─────────────────────────────────────────────────────────
@@ -94,36 +109,61 @@ const PROJECT_DEFAULTED = [
 ]
 const PROJECT_NUMBERS = ['budget_total', 'budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct', 'budget_actual_column_count', 'scene_digits', 'shot_digits', 'scene_start_number', 'fps']
 const PROJECT_INTEGERS = ['budget_actual_column_count', 'scene_digits', 'shot_digits', 'scene_start_number']
+// The NUMERIC columns' room (0000's budget_total NUMERIC(12,2), 0036's
+// percentages NUMERIC(7,3), 0040's fps NUMERIC(6,2)) and INTEGER's: a value
+// past it overflows (22003) and refused the whole project (review round 2).
+const PROJECT_BOUNDS = { budget_total: 9999999999.995, budget_margin_pct: 9999.9995, budget_contingency_pct: 9999.9995, budget_agency_pct: 9999.9995, fps: 9999.995 }
+const INT_MAX = 2147483647
+const PROJECT_DATES = [['start_date', 'startDate'], ['end_date', 'endDate']]
+// A person's id (0020: UUID, no foreign key, nullable).
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// The words the project's settings give each value (ProjectSummaryView.jsx),
+// for the report's line on the ones the cloud cannot hold.
+const PROJECT_VALUE_WORDS = {
+  start_date: 'start date', end_date: 'end date', budget_total: 'targeted budget total',
+  budget_margin_pct: 'margin %', budget_contingency_pct: 'contingency %', budget_agency_pct: 'agency %',
+  budget_actual_column_mode: 'actuals column mode', budget_actual_column_count: 'number of columns',
+  scene_digits: 'scene digits', shot_digits: 'shot digits', scene_start_number: 'numbering start',
+  fps: 'frames per second', producer_id: 'producer', director_id: 'director',
+}
 
 /**
  * A desktop project row as the cloud's `projects` takes it, in the target
  * workspace — its columns (above), and values each column's type and checks
  * take, as the cloud adapter's own writes shape them (mapDogProjectFields):
  *   - the dates: D.O.G.'s new-project window writes `startDate` / `endDate`
- *     alone and the Projects page writes both; a cleared field is '' (a DATE
- *     column refuses it, 22007). Each goes up as an ISO day or nothing
- *     (dates.js's toIsoDate takes a stray spelling as the column stores it);
- *   - a status the cloud does not have is left out, so the cloud's default
- *     (active) applies; projectLeftAtHome names it for the report;
+ *     alone (the desktop's POST leaves `start_date` empty), R.A.B.B.I.T.'s
+ *     settings later write `start_date` alone, the Projects page both — so
+ *     the column's own value wins, then D.O.G.'s (review round 2). A cleared
+ *     field is '' (a DATE refuses it, 22007). Each goes up as the day a DATE
+ *     column stores (cloudDay) or nothing;
+ *   - a status the cloud does not have, '' included, is left out, so the
+ *     cloud's default (active) applies; projectLeftAtHome names it;
  *   - a null where the column has a default, an empty or non-numeric number,
- *     a negative percentage, an actuals mode or column count outside the
+ *     a number past its column's room, a fraction in a whole-number column, a
+ *     negative percentage, an actuals mode or column count outside the
  *     budget settings' checks (0036): left out, so the default applies;
+ *   - a producer or director that is no id (a cleared picker stores '', which
+ *     the UUID column refuses, 22P02 — measured): empty;
  *   - no title (the column has no default): the desktop's own word for one.
+ * projectValuesLeftOut names the values a person set that do not go up.
  */
 export function projectRowForCloud(project, workspaceId) {
   const p = isRow(project) ? project : {}
   const row = onlyColumns(p, PROJECT_ROW_COLUMNS)
-  for (const [col, dog] of [['start_date', 'startDate'], ['end_date', 'endDate']]) {
-    const v = named(p[dog]) ? p[dog] : p[col]
-    if (named(v)) row[col] = toIsoDate(v) || null
+  for (const [col, dog] of PROJECT_DATES) {
+    const day = cloudDay(p[col]) ?? cloudDay(p[dog])
+    if (day) row[col] = day
     else if (col in row || dog in p) row[col] = null
   }
   // '' too: the type refuses it as it does a word it lacks (22P02).
   if ('status' in row && !CLOUD_PROJECT_STATUSES.includes(row.status)) delete row.status
   for (const k of PROJECT_NUMBERS) if (k in row && row[k] != null && (row[k] === '' || !Number.isFinite(Number(row[k])))) delete row[k]
-  // INTEGER columns (0040, 0036) refuse a fraction (22P02).
-  for (const k of PROJECT_INTEGERS) if (row[k] != null && !Number.isInteger(Number(row[k]))) delete row[k]
+  for (const [k, room] of Object.entries(PROJECT_BOUNDS)) if (row[k] != null && !(Math.abs(Number(row[k])) < room)) delete row[k]
+  // INTEGER columns (0040, 0036) refuse a fraction (22P02) and a number past INTEGER's room (22003).
+  for (const k of PROJECT_INTEGERS) if (row[k] != null && !(Number.isInteger(Number(row[k])) && Math.abs(Number(row[k])) <= INT_MAX)) delete row[k]
   for (const k of ['budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct']) if (row[k] != null && Number(row[k]) < 0) delete row[k]
+  for (const k of ['producer_id', 'director_id']) if (k in row && row[k] != null && !UUID.test(String(row[k]))) row[k] = null
   if (row.budget_actual_column_mode != null && !['fortnightly', 'weekly', 'count'].includes(row.budget_actual_column_mode)) delete row.budget_actual_column_mode
   if (row.budget_actual_column_count != null) {
     const n = Number(row.budget_actual_column_count)
@@ -135,7 +175,24 @@ export function projectRowForCloud(project, workspaceId) {
   return row
 }
 
-/** What the project row leaves on this computer that the report names: its bid version pointers (part 2), its folder, a status the cloud does not have, its deck attachments not yet moved. */
+/**
+ * The values a person set on the project that its cloud row leaves out
+ * (projectRowForCloud), in the settings' own words, the status apart (it has
+ * its own line). A field left empty is no value: a cleared picker's '' and a
+ * null are not named.
+ */
+export function projectValuesLeftOut(project) {
+  const p = isRow(project) ? project : {}
+  const row = projectRowForCloud(p, null)
+  const out = []
+  for (const [col, dog] of PROJECT_DATES) if ((named(p[col]) || named(p[dog])) && row[col] == null) out.push(PROJECT_VALUE_WORDS[col])
+  for (const col of [...PROJECT_NUMBERS, 'budget_actual_column_mode', 'producer_id', 'director_id']) {
+    if (named(p[col]) && row[col] == null) out.push(PROJECT_VALUE_WORDS[col])
+  }
+  return out
+}
+
+/** What the project row leaves on this computer that the report names: its bid version pointers (part 2), its folder, a status the cloud does not have, the values it cannot hold, its deck attachments not yet moved. */
 export function projectLeftAtHome(project) {
   const p = isRow(project) ? project : {}
   const count = (k) => (Array.isArray(p[k]) ? p[k].length : 0)
@@ -143,6 +200,7 @@ export function projectLeftAtHome(project) {
     bidVersions: named(p.budget_active_version_id) || named(p.open_budget_version_id),
     folder: named(p.folder_root),
     status: named(p.status) && !CLOUD_PROJECT_STATUSES.includes(p.status) ? String(p.status) : null,
+    values: projectValuesLeftOut(p),
     deckAttachments: count('documents') + count('visualAssets'),
   }
 }
@@ -161,8 +219,10 @@ export function milestoneRowForCloud(m, projectId) {
   const row = onlyColumns(m, MILESTONE_ROW_COLUMNS)
   row.project_id = projectId
   // A DATE column refuses '' (22007): an editor that cleared the field sends
-  // it. A day goes up as the column stores one (dates.js's toIsoDate).
-  if ('date' in row) row.date = named(row.date) ? (toIsoDate(row.date) || null) : null
+  // it. A day goes up as the column stores one (cloudDay).
+  if ('date' in row) row.date = cloudDay(row.date)
+  // A cleared phase picker's '' is no phase (the UUID column refuses it).
+  if (row.phase_id === '') row.phase_id = null
   return dropNulls(row, ['sort_order', 'created_at', 'updated_at'])
 }
 
@@ -308,6 +368,7 @@ export function folderDecision(folder, { parent, cloud, state }) {
   if (ent) {
     const s = state(ent.fk, ent.id)
     if (s === 'left' || s === 'gone') return { action: s === 'left' ? 'left' : 'orphan' }
+    if (s === 'unread') return { action: 'failed', why: `whether its ${ent.fk.replace(/_id$/, '')} is in the cloud could not be checked (the read failed)` }
     if (s !== 'landed') return { action: 'failed', why: `its ${ent.fk.replace(/_id$/, '')} is not in the cloud` }
   }
   const mine = cloud.byId.get(folder.id)

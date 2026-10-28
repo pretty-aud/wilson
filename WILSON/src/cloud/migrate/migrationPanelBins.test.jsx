@@ -35,7 +35,7 @@ const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE,
   FILES_PLACED, ARCHIVED_IN_CLOUD, LIVE_IN_CLOUD, BID_VERSIONS_PART_2, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED,
   COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
-  STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO,
+  STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
 } = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
 
@@ -329,7 +329,7 @@ describe('the question, once per root', () => {
       milestones: { ...bucket(3), trashed: 1, phaseLetGo: 1 }, comments: { ...bucket(6), trashed: 2, orphans: 3, leftBehind: 0 },
       shotLists: { ...bucket(2), archived: 1 }, shotListItems: { ...bucket(29), orphans: 4 }, edits: { ...bucket(3), archived: 1, taken: 2 },
       folders: { ...bucket(40), leftBehind: 0, orphans: 5, taken: 1 },
-      projectsLeftAtHome: { bidVersions: 1, folders: 2, statuses: { wrapped: 2, draft: 1 } }, liveInCloud: 1,
+      projectsLeftAtHome: { bidVersions: 1, folders: 2, statuses: { wrapped: 2, draft: 1 }, withValues: 2, values: { 'targeted budget total': 1, director: 2 } }, liveInCloud: 1,
     }))
     const said = (id) => screen.getByTestId(id).textContent
     expect(said('files-placed')).toBe(`${FILES_PLACED(31)}.`)
@@ -352,14 +352,18 @@ describe('the question, once per root', () => {
     expect(said('key-dates-phase-let-go')).toBe(`${KEY_DATES_PHASE_LET_GO(1)}.`)
     expect(said('edits-chain-taken')).toBe(`${EDITS_CHAIN_TAKEN(2)}.`)
     expect(said('file-links-let-go')).toBe(`${FILE_LINKS_LET_GO(2)}.`)
+    // Review round 2: the values the cloud cannot hold, each named once.
+    expect(said('project-values')).toBe(`${VALUES_NOT_IN_CLOUD(2, ['targeted budget total', 'director'])}.`)
+    expect(said('project-values')).toBe('2 projects have values the cloud cannot hold (targeted budget total, director): left out, so the field is empty or at the cloud\'s default.')
     // CONTROL: a run where none of it happened says none of it.
     cleanup()
-    await dryRun(report({ dryRun: false, footageRoots: [], milestones: { ...bucket(3), trashed: 0, phaseLetGo: 0 }, edits: { ...bucket(3), archived: 0, taken: 0 }, files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0 }, folders: { ...bucket(4), leftBehind: 0, orphans: 0, taken: 0 }, projectsLeftAtHome: { bidVersions: 0, folders: 0, statuses: {} } }))
-    for (const id of ['files-placed', 'archived-in-cloud', 'live-in-cloud', 'bid-versions-part-2', 'project-folders', 'project-statuses', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
+    await dryRun(report({ dryRun: false, footageRoots: [], milestones: { ...bucket(3), trashed: 0, phaseLetGo: 0 }, edits: { ...bucket(3), archived: 0, taken: 0 }, files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0 }, folders: { ...bucket(4), leftBehind: 0, orphans: 0, taken: 0 }, projectsLeftAtHome: { bidVersions: 0, folders: 0, statuses: {}, withValues: 0, values: {} } }))
+    for (const id of ['files-placed', 'archived-in-cloud', 'live-in-cloud', 'bid-versions-part-2', 'project-folders', 'project-statuses', 'project-values', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
     // A report from before round 1 (no statuses) says no status either.
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], projectsLeftAtHome: { bidVersions: 0, folders: 0 } }))
     expect(screen.queryByTestId('project-statuses')).toBeNull()
+    expect(screen.queryByTestId('project-values')).toBeNull()
   })
 
   it('M1: the dry run says the archives are still to come; Done names part 2 and what a second run brings back', async () => {
@@ -372,7 +376,7 @@ describe('the question, once per root', () => {
     // Review round 1: every kind a second run brings back once it is removed
     // for good (none of their tables has a trash), and a trashed row once the
     // trash is emptied.
-    expect(MIGRATE_DONE).toBe('Done. Running it again skips every row already in the cloud, one in its trash included; a row removed from the cloud for good comes back (a scene, shot, bin, clip, take, folder, saved view, grouping, or an item of a list or a task), as does one in the trash once it is emptied after 30 days. Budgets, expenses, levels, experiences, the team and links on tasks move in part 2 of the migration.')
+    expect(MIGRATE_DONE).toBe('Done. Running it again skips every row already in the cloud, one in its trash included; a row removed from the cloud for good comes back (a scene, shot, bin, clip, take, folder, saved view, grouping, task or phase link, or an item of a list or a task), as does one in the trash once it is emptied after 30 days. Budgets, expenses, levels, experiences, the team and links on tasks move in part 2 of the migration.')
     expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/part 2 of the migration/)
     expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/records of its files and intake runs/)
   })

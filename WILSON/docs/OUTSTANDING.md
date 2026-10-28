@@ -292,7 +292,7 @@ few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
 worker thread, as the root question now is.
 
 ### The desktop→cloud migration does not carry budgets, expenses, levels, experiences, the team or links on tasks yet (part 2)
-**INFERRED (BC3, 2026-10-09); narrowed by M1 (2026-10-28, night 3 of
+**INFERRED (BC3, 2026-10-09); narrowed by M1 (2026-10-27, night 3 of
 `docs/sessions/PLAN_TO_1_0.md`), which carries the key dates, comments, shot
 lists with their items and edits, and folders.** The runner copies projects
 (through the cloud's columns since M1 — until then every desktop project row
@@ -349,7 +349,7 @@ migrating, removing a clip in the browser, and running again. Fix shape: a
 per-computer record of the ids each run carried (the desktop's own settings
 file, as the per-computer folder of a footage location is kept), so a later
 run inserts only ids never carried; until then, archive and clear the
-desktop's copy once everything is in the cloud. **M1's kinds (2026-10-28,
+desktop's copy once everything is in the cloud. **M1's kinds (2026-10-27,
 read from 0014, 0067, 0084 and 0041, pinned by the round trip in
 `runMigrationBins.test.js`):** a key date or a comment removed in the cloud
 is soft-deleted and keeps its id, so a second run skips it (a key date is
@@ -358,11 +358,12 @@ meets its key, 23505) and does not bring it back — nor does it for a project,
 phase, asset, task or file, soft-deleted the same way (0014), while the row
 is in the trash; a shot list or an edit is never deleted (archived), and a
 second run neither adds it again nor changes its archive (one a teammate
-restored stays restored); a list item, a task's item, a folder, a saved view
-or a grouping removed in the cloud is gone for good (none of their tables has
-a trash), so a second run puts it back, as it does BC3's scenes, shots, bins,
-clips and takes; and a row in the trash comes back once the trash is emptied
-(0014's `purge_soft_deleted`, nightly, after 30 days). Review round 1 listed
+restored stays restored); a list item, a task's item, a folder, a saved view,
+a grouping or a task or phase link removed in the cloud is gone for good (none
+of their tables has a trash; 0014 and 0061 keep the link tables hard-delete),
+so a second run puts it back, as it does BC3's scenes, shots, bins, clips and
+takes; and a row in the trash comes back once the trash is emptied (0014's
+`purge_soft_deleted`, nightly, after 30 days). Review rounds 1 and 2 listed
 them; Migrate's Done hover and Help name each.
 
 ### The cloud keeps no sample rate or channel count on a clip
@@ -2884,7 +2885,7 @@ two review rounds found outside its scope.
   values outside the lists where they are written. Owner: the Tasks table's
   next session.
 
-## Post-overhaul M1 (`po/m1-migration-part-1`) — left open (2026-10-28)
+## Post-overhaul M1 (`po/m1-migration-part-1`) — left open (2026-10-27)
 
 What M1 (night 3: the desktop → cloud migration, part 1) found outside its
 list while taking the inventory of the bundle (the handbook's §3.1 table).
@@ -2936,4 +2937,21 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   as active, named in the report. Fix shape: one list of statuses for both
   builds, the desktop's three mapped to the cloud's five or added to the type
   (a migration), which is a decision for Audrey (the walkthrough 84's Q3 asks
-  it for the migration). Owner: the controller.
+  it for the migration). Owner: the controller. Its sibling, from review round
+  2: the Director and Producer pickers store `''` when cleared, which the
+  cloud's UUID columns refuse (22P02, measured on wilson-dev), so a cleared
+  picker's save is refused in the browser too (INFERRED from the code, not
+  clicked); the migration sends such a value empty.
+- **M1-L5 · Phases, assets and tasks go up without an "is it this project's"
+  check, and their own phase links raw.** Review round 2, outside M1's list.
+  The runner inserts phases, assets and tasks with `insertOrSkip` and no
+  `ours` test, so an id another project holds reads as "already there"; and
+  `assets.phase_id`, `tasks.phase_id` and `phases.parent_phase_id` go up as the
+  desktop holds them, plain foreign keys with no project in them. M1's own
+  kinds check each link against this project's rows (`stateOf`, `verified`),
+  so nothing of M1 hangs off such a row; a task of this project could, through
+  its phase. INFERRED from the runner and 0000; reachable only where two
+  projects share an id (a desktop project copied whole, ids kept). Fix shape:
+  read this project's rows first, as BC3 does for scenes, shots and bins, and
+  give the three tables the `ours` test and their phase links the key dates'
+  check. Owner: M2 (it reworks those inserts for the budgets).
