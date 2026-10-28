@@ -37,10 +37,26 @@
 // with the older add's `files` key (42703) or a null status (23502); a link
 // on a task carrying `project_id` (42703); an asset naming a task template
 // the cloud does not hold (23503 assets_task_template_id_fkey).
+//
+// M3 (night 5) adds the people map (desktop team-member ids → cloud user ids
+// by email through workspace_directory()), the roster (project_members), the
+// company's rate cards and task templates, and the files the desktop keeps
+// with its rows (managedFiles → files). Measured on wilson-dev (2026-10-28,
+// rolled back; the M3 hand-off quotes every response): a seat by a plain
+// member (42501), the mover's own seat again (23505), a seat for no member
+// (23503), a role outside the three (23514); a card without the cloud's
+// workspace (42501, before NOT NULL), a trashed or foreign card's id (23505
+// both), a type outside the two (23514); an entry by a manager without the
+// edit grant (42501), the desktop's computed total (42703), a blank wage
+// (22P02); a template without the cloud's workspace or with the desktop's
+// seed id (42501), pinned to another workspace's project (23503), tasks not
+// an array (23514); a files row with a managed row's keys (42703) or its
+// provider (22P02); an asset's template set to another workspace's by UPDATE
+// (landed: a plain key).
 // =============================================================================
 
 import { COLUMN_ALLOWLIST } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
-import { isLegalFile } from '../../tools/rabbit_v0.1.0/fileTags'
+import { isLegalFile, writableTags } from '../../tools/rabbit_v0.1.0/fileTags'
 import { toIsoDate } from '../../tools/rabbit_v0.1.0/dates'
 
 const isRow = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
@@ -166,7 +182,7 @@ const PROJECT_VALUE_WORDS = {
  *   - no title (the column has no default): the desktop's own word for one.
  * projectValuesLeftOut names the values a person set that do not go up.
  */
-export function projectRowForCloud(project, workspaceId) {
+export function projectRowForCloud(project, workspaceId, people = null) {
   const p = isRow(project) ? project : {}
   const row = onlyColumns(p, PROJECT_ROW_COLUMNS)
   for (const [col, dog] of PROJECT_DATES) {
@@ -181,7 +197,16 @@ export function projectRowForCloud(project, workspaceId) {
   // INTEGER columns (0040, 0036) refuse a fraction (22P02) and a number past INTEGER's room (22003).
   for (const k of PROJECT_INTEGERS) if (row[k] != null && !(Number.isInteger(Number(row[k])) && Math.abs(Number(row[k])) <= INT_MAX)) delete row[k]
   for (const k of ['budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct']) if (row[k] != null && Number(row[k]) < 0) delete row[k]
-  for (const k of ['producer_id', 'director_id']) if (k in row && row[k] != null && !UUID.test(String(row[k]))) row[k] = null
+  // M3: a producer or director is one of the desktop's team members — the
+  // account the people map gives, or nobody (before M3 a desktop id went up
+  // raw and named no one: no key, and fn_projects_auto_staff seats only a
+  // workspace member — measured). Without a map (projectValuesLeftOut's
+  // call) an id is kept and anything else is empty, as before.
+  for (const k of ['producer_id', 'director_id']) {
+    if (!(k in row) || row[k] == null) continue
+    if (people) { row[k] = people.userOf(row[k]); continue }
+    if (!UUID.test(String(row[k]))) row[k] = null
+  }
   if (row.budget_actual_column_mode != null && !['fortnightly', 'weekly', 'count'].includes(row.budget_actual_column_mode)) delete row.budget_actual_column_mode
   if (row.budget_actual_column_count != null) {
     const n = Number(row.budget_actual_column_count)
@@ -513,10 +538,10 @@ const pctHeld = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 
  * 1): it goes up empty, so the line takes the project's, and the runner says
  * so.
  */
-export function budgetLineRowForCloud(line, projectId) {
+export function budgetLineRowForCloud(line, projectId, people = null) {
   const row = onlyColumns(line, LINE_ROW_COLUMNS)
   row.project_id = projectId
-  if ('team_member_id' in row) row.team_member_id = null
+  if ('team_member_id' in row) row.team_member_id = people ? people.userOf(row.team_member_id) : null // M3: by the people map
   if ('sheet' in row && !LINE_SHEETS.includes(row.sheet)) delete row.sheet
   blankToNull(row, LINE_PCTS)
   for (const k of LINE_PCTS) if (row[k] != null && !pctHeld(row[k])) row[k] = null
@@ -573,10 +598,12 @@ export const isMemberRate = (o) => named(o?.member_id)
 const OVERRIDE_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.project_rate_overrides), STAMPED)
 
 /** A desktop role rate as the cloud's `project_rate_overrides` takes it. */
-export function rateOverrideRowForCloud(o, projectId) {
+export function rateOverrideRowForCloud(o, projectId, people = null) {
   const row = onlyColumns(o, OVERRIDE_ROW_COLUMNS)
   row.project_id = projectId
-  row.member_id = null
+  // M3: a team member's rate is carried when its person has an account (the
+  // people map); the runner leaves one whose person has none.
+  row.member_id = people ? people.userOf(o?.member_id) : null
   blankToNull(row, ['day_rate', 'week_rate', 'month_rate', 'wage', 'notes'])
   return dropBlank(row, ['currency', 'created_at', 'updated_at'])
 }
@@ -658,4 +685,301 @@ export function carriedRecordOf(bundle, workspaceId) {
     if (Array.isArray(ids)) out.set(table, new Set(ids.filter(named).map(String)))
   }
   return out
+}
+
+// ── M3 (night 5): the people map ────────────────────────────────────────────
+//
+// The desktop knows people by its own team-member ids; the cloud by their
+// accounts (workspace_members.user_id). Audrey's ruling of 2026-10-28: a
+// desktop member whose email matches a company account is linked to it; the
+// others stay on this computer, named, and their rows arrive without a person
+// until they join (no email is sent). The directory (workspace_directory(),
+// 0060) gives emails to a caller whose live role is admin or manager —
+// measured: a plain member sees only their own — so a run below that matches
+// nobody, says so once, and fails nothing. Active rows only (0060 returns
+// every row, and nothing would refuse an inactive account's seat — measured);
+// two desktop entries with one email (the seed store's and the company's,
+// say) both name the one account (auth.users' email is unique).
+
+export const PEOPLE_MATCH_ROLES = Object.freeze(['admin', 'manager'])
+
+/** An email as the match reads it: trimmed, lower-cased; none when empty. */
+export function normalizeEmail(v) {
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : ''
+  return s || null
+}
+
+/**
+ * The map: `{ canMatch, callerRole, callerEditsRateCards, desktop, matched,
+ * unmatched: [{ id, name, why }], shared, userOf(id), nameOf(id) }`. `why`
+ * is `no_email`, `no_account` or `inactive`. Below admin or manager nothing
+ * is matched and `unmatched` is empty: one sentence covers them all. A
+ * person's email is read here and goes nowhere else (never a report, a
+ * record or a log: the unmatched are named by their desktop name).
+ */
+export function peopleMapOf({ members, directory, callerUserId } = {}) {
+  const desktop = (Array.isArray(members) ? members : []).filter(m => isRow(m) && named(m.id))
+  const rows = (Array.isArray(directory) ? directory : []).filter(r => isRow(r) && named(r.user_id))
+  const caller = named(callerUserId) ? rows.find(r => String(r.user_id) === String(callerUserId)) : null
+  const canMatch = !!caller && PEOPLE_MATCH_ROLES.includes(caller.app_role)
+  const byEmail = new Map()
+  for (const r of rows) {
+    const email = normalizeEmail(r.email)
+    if (!email) continue
+    const slot = byEmail.get(email) || { active: null, inactive: null }
+    if (r.is_active !== false) slot.active = slot.active ?? String(r.user_id)
+    else slot.inactive = slot.inactive ?? String(r.user_id)
+    byEmail.set(email, slot)
+  }
+  const userOf = new Map()
+  const names = new Map(desktop.map(m => [String(m.id), String(m.name ?? '').trim() || String(m.id)]))
+  const unmatched = []
+  const perUser = new Map()
+  if (canMatch) {
+    for (const m of desktop) {
+      const id = String(m.id)
+      const email = normalizeEmail(m.email)
+      if (!email) { unmatched.push({ id, name: names.get(id), why: 'no_email' }); continue }
+      const slot = byEmail.get(email)
+      if (slot?.active) {
+        userOf.set(id, slot.active)
+        perUser.set(slot.active, (perUser.get(slot.active) || 0) + 1)
+        continue
+      }
+      unmatched.push({ id, name: names.get(id), why: slot?.inactive ? 'inactive' : 'no_account' })
+    }
+  }
+  const shared = [...perUser.values()].filter(n => n > 1).reduce((s, n) => s + n, 0)
+  return {
+    canMatch,
+    callerRole: caller?.app_role ?? null,
+    // The rate cards' gate (0020): entries are written by a workspace admin
+    // or someone with the edit grant; the directory carries the grants.
+    callerEditsRateCards: !!caller && (caller.app_role === 'admin' || caller.grant_rate_card_edit === true),
+    desktop: desktop.length,
+    matched: userOf.size,
+    unmatched,
+    shared,
+    userOf: (id) => (named(id) ? userOf.get(String(id)) ?? null : null),
+    nameOf: (id) => (named(id) ? names.get(String(id)) ?? null : null),
+  }
+}
+
+/** A person column's answer: the mapped account, or null (counted by the caller when the desktop named someone). */
+export const isUuid = (v) => UUID.test(String(v ?? ''))
+
+// ── M3: the roster (project_members, 0013) ──────────────────────────────────
+
+/** The roles 0013's CHECK takes (project_members_project_role_check — measured). */
+export const MEMBER_ROLES = Object.freeze(['manager', 'reviewer', 'member'])
+/** An assignment's dates: no columns in project_members (counted, left). */
+export const ASSIGNMENT_DATES = Object.freeze(['start_date', 'end_date'])
+
+/**
+ * A desktop team assignment as project_members takes it — `{ row, roleLeft,
+ * datesLeft }` — or null when its person has no account (the caller counts
+ * it). Never `workspace_id` (overwritten from the project — measured), never
+ * an `id` (the table has none), never the dates. `project_title` is the
+ * desktop member's job title when it has one (0036: the title on this
+ * project, not the permission).
+ */
+export function projectMemberRowForCloud(assignment, projectId, people, member) {
+  if (!isRow(assignment)) return null
+  const userId = people?.userOf(assignment.member_id)
+  if (!userId) return null
+  const roleKnown = MEMBER_ROLES.includes(assignment.role)
+  const row = { project_id: projectId, user_id: userId, project_role: roleKnown ? assignment.role : 'member' }
+  const title = typeof member?.title === 'string' ? member.title.trim() : ''
+  if (title) row.project_title = title
+  return { row, roleLeft: !roleKnown && named(assignment.role), datesLeft: ASSIGNMENT_DATES.filter(k => named(assignment[k])).length }
+}
+
+// ── M3: the rate cards (0000, 0015, 0020, 0032) ─────────────────────────────
+
+/** The kinds 0032's CHECK takes (rc_type_chk — measured). */
+export const RATE_CARD_TYPES = Object.freeze(['general', 'internal'])
+// The card's own columns: the workspace is the cloud's (sent explicitly: none,
+// and the desktop's seed id, are refused by the policy before anything else —
+// 42501, measured), the maker the cloud's, source_file_id a desktop file's id
+// (a key to files: left, counted).
+const RATE_CARD_COLUMNS = new Set(['id', 'name', 'type', 'is_default', 'created_at', 'updated_at'])
+
+/**
+ * A desktop rate card as rate_cards takes it: `{ row, typeLeft, defaultLeft,
+ * sourceFileLeft }`. `is_default` only where the cloud has no default of
+ * that type (`hasDefaultOfType(type)`), else false and counted — the cloud's
+ * own General and Internal pair is left alone.
+ */
+export function rateCardRowForCloud(card, workspaceId, { hasDefaultOfType } = {}) {
+  const row = onlyColumns(card, RATE_CARD_COLUMNS)
+  row.workspace_id = workspaceId
+  const typeKnown = RATE_CARD_TYPES.includes(row.type)
+  if (!typeKnown) row.type = 'general'
+  if (!named(String(row.name ?? '').trim())) row.name = 'Untitled rate card'
+  const wanted = card?.is_default === true
+  const defaultLeft = wanted && typeof hasDefaultOfType === 'function' && !!hasDefaultOfType(row.type)
+  row.is_default = wanted && !defaultLeft
+  dropBlank(row, ['created_at', 'updated_at'])
+  return { row, typeLeft: !typeKnown && named(card?.type), defaultLeft, sourceFileLeft: named(card?.source_file_id) }
+}
+
+/** useRateCard's makeSlug, kept apart from the hook (which imports React): a role label as a slug. */
+export function roleSlugOf(label) {
+  return String(label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+}
+/** The types 0015's CHECKs take (rce_burden_type_chk, rce_overhead_type_chk — measured). */
+export const RATE_ENTRY_TYPES = Object.freeze(['percent', 'fixed'])
+// wilson-dev's columns (2026-10-28) less the audit stamps; not the desktop's
+// computed `total` (42703, measured) nor anything else the hook derives.
+const RATE_ENTRY_COLUMNS = new Set([
+  'id', 'role_label', 'role_slug', 'region', 'project_size', 'day_rate', 'week_rate', 'month_rate', 'currency', 'source_row',
+  'department', 'member_id', 'wage', 'burden', 'burden_type', 'overhead', 'overhead_type', 'created_at', 'updated_at',
+])
+const RATE_ENTRY_NUMBERS = ['day_rate', 'week_rate', 'month_rate', 'wage', 'burden', 'overhead']
+
+/**
+ * A desktop rate-card entry as rate_card_entries takes it: `{ row, userLeft }`.
+ * `wage` falls back to `day_rate` as the hook reads it; a blank number is
+ * none (22P02, measured); a type outside percent|fixed is percent; the role's
+ * label and slug are NOT NULL (the slug from the label when missing). An
+ * internal entry's `member_id` is its person by the map; one whose person
+ * has no account is left (`userLeft`), counted by the caller.
+ */
+export function rateCardEntryRowForCloud(entry, cardId, people) {
+  const row = onlyColumns(entry, RATE_ENTRY_COLUMNS)
+  row.rate_card_id = cardId
+  row.role_label = String(row.role_label ?? entry?.role ?? '').trim()
+  row.role_slug = String(row.role_slug ?? '').trim() || roleSlugOf(row.role_label)
+  if (row.wage == null || row.wage === '') row.wage = entry?.day_rate ?? null
+  for (const k of RATE_ENTRY_NUMBERS) if (row[k] != null && (row[k] === '' || !Number.isFinite(Number(row[k])))) row[k] = null
+  if (row.source_row != null && !Number.isInteger(Number(row.source_row))) row.source_row = null
+  for (const k of ['burden_type', 'overhead_type']) if (k in row && !RATE_ENTRY_TYPES.includes(row[k])) row[k] = 'percent'
+  blankToNull(row, ['region', 'project_size', 'department', 'currency'])
+  const wanted = named(entry?.member_id)
+  const user = wanted ? people?.userOf(entry.member_id) ?? null : null
+  row.member_id = user
+  dropBlank(row, ['currency', 'created_at', 'updated_at'])
+  return { row, userLeft: wanted && !user }
+}
+
+// ── M3: the task templates (0044) ───────────────────────────────────────────
+
+const TEMPLATE_COLUMNS = new Set(['id', 'name', 'description', 'tasks', 'created_at', 'updated_at'])
+
+/**
+ * A template's tasks in the desktop's shape (TaskTemplateManager:
+ * `{ id, name, role_slug, bid_days, sort_order, depends_on }`), each key as
+ * the New Asset dialog reads it: `name` (the fixtures' older rows said
+ * `title`), `bid_days` a finite number, `sort_order` an integer (its place
+ * when none), `depends_on` an array of sibling ids as strings.
+ */
+export function templateTasksForCloud(tasks) {
+  return (Array.isArray(tasks) ? tasks : []).filter(isRow).map((t, i) => {
+    const out = {}
+    if (named(t.id)) out.id = String(t.id)
+    out.name = String(t.name ?? t.title ?? '')
+    out.role_slug = typeof t.role_slug === 'string' ? t.role_slug : ''
+    out.bid_days = Number.isFinite(Number(t.bid_days)) && t.bid_days !== '' && t.bid_days != null ? Number(t.bid_days) : 0
+    out.sort_order = Number.isInteger(Number(t.sort_order)) && t.sort_order != null && t.sort_order !== '' ? Number(t.sort_order) : i
+    out.depends_on = (Array.isArray(t.depends_on) ? t.depends_on : []).filter(named).map(String)
+    return out
+  })
+}
+
+/**
+ * A desktop task template as task_templates takes it: the cloud's workspace,
+ * sent explicitly (42501 without it, or with the desktop's seed id —
+ * measured); `project_id` only the one the caller hands over (a project in
+ * the cloud as this workspace's: the composite key refuses any other,
+ * 23503 — measured); `tasks` an array (the CHECK).
+ */
+export function taskTemplateRowForCloud(t, workspaceId, projectId = null) {
+  const row = onlyColumns(t, TEMPLATE_COLUMNS)
+  row.workspace_id = workspaceId
+  row.project_id = named(projectId) ? projectId : null
+  if (!named(String(row.name ?? '').trim())) row.name = 'Untitled Template'
+  row.description = typeof row.description === 'string' ? row.description : ''
+  row.tasks = templateTasksForCloud(t?.tasks)
+  return dropBlank(row, ['created_at', 'updated_at'])
+}
+
+// ── M3: the files the desktop keeps with its rows (managedFiles → files) ────
+
+/** A managed file's links, in the files columns' names (both sides spell them alike). */
+export const MANAGED_LINKS = Object.freeze(['asset_id', 'task_id', 'scene_id', 'shot_id', 'level_id', 'experience_id'])
+
+/** The name a managed file keeps in the cloud: its own, with its extension (the desktop's `original_name`; else `file_name` plus `extension`). */
+export function managedFileName(mf) {
+  const original = typeof mf?.original_name === 'string' ? mf.original_name.trim() : ''
+  if (original) return original
+  const base = typeof mf?.file_name === 'string' && mf.file_name.trim() ? mf.file_name.trim() : 'file'
+  const ext = typeof mf?.extension === 'string' ? mf.extension.trim() : ''
+  return ext && !base.toLowerCase().endsWith(ext.toLowerCase()) ? `${base}${ext}` : base
+}
+
+/**
+ * The desktop folder a managed file sits in: the folder row at its
+ * `folder_path` (the POST route writes the entity folder's path with a
+ * trailing slash), else the folder of the row it is about (as a files row's),
+ * else none — the project's top.
+ */
+export function desktopFolderOfManagedFile(mf, folders) {
+  const rows = (folders || []).filter(isRow)
+  const path = typeof mf?.folder_path === 'string' ? mf.folder_path.replace(/\/+$/, '') : ''
+  if (path) {
+    const hit = rows.find(f => typeof f.path === 'string' && f.path.replace(/\/+$/, '') === path)
+    if (hit) return hit
+  }
+  for (const fk of FOLDER_ENTITY_FKS) {
+    if (!named(mf?.[fk])) continue
+    const hit = rows.find(f => named(f[fk]) && String(f[fk]) === String(mf[fk]))
+    if (hit) return hit
+  }
+  return null
+}
+
+/** "v002" for a managed file's second version on this computer, else '' (its label, or made from its number). */
+export function managedVersionLabel(mf) {
+  const n = Number(mf?.version)
+  if (!(Number.isFinite(n) && n > 1)) return ''
+  return typeof mf?.version_label === 'string' && mf.version_label.trim() ? mf.version_label.trim() : `v${String(n).padStart(3, '0')}`
+}
+
+/**
+ * A managed row as files takes it (FILE_COLUMNS, 0043, 0075, 0085): its id
+ * kept, its own name, mime type and size, its six links as the caller
+ * checked them (`links`: null where let go), its folder in the cloud, its
+ * notes as the description — behind the version label when the file has
+ * more than one version on this computer, so two copies of one name are
+ * told apart (the one liberty taken) — its tags (the nine, never Finance or
+ * Legal: a managed file is neither), the day it was added, and where its
+ * body went. Left: `version`, `version_label`, `stored_name` (no columns —
+ * 42703, measured; `versionLeft` counts the row), `thumbnail_path` (this
+ * computer's cache), `uploaded_by` (the cloud stamps the mover),
+ * `storage_provider: 'local_managed'` (no such value — 22P02, measured).
+ */
+export function managedFileRowForCloud(mf, projectId, { folderId = null, links = {}, storageProvider, storagePath, thumbnailUrl = null } = {}) {
+  const label = managedVersionLabel(mf)
+  const notes = typeof mf?.notes === 'string' ? mf.notes.trim() : ''
+  const row = {
+    id: mf.id,
+    project_id: projectId,
+    name: managedFileName(mf),
+    mime_type: typeof mf?.mime_type === 'string' && mf.mime_type.trim() ? mf.mime_type.trim() : null,
+    size_bytes: mf?.size_bytes != null && Number.isFinite(Number(mf.size_bytes)) ? Number(mf.size_bytes) : null,
+    storage_provider: storageProvider,
+    storage_path: storagePath,
+    thumbnail_url: thumbnailUrl ?? null,
+    kind: 'source',
+    is_core_definer: false,
+    is_financial: false,
+    folder_id: folderId ?? null,
+    description: [label, notes].filter(Boolean).join(' · ') || null,
+  }
+  for (const k of MANAGED_LINKS) row[k] = k in links ? links[k] : (named(mf?.[k]) ? mf[k] : null)
+  const tags = writableTags(mf?.tags).filter(t => t !== 'legal')
+  if (tags.length) row.tags = tags
+  if (named(mf?.uploaded_at)) { row.uploaded_at = mf.uploaded_at; row.created_at = mf.uploaded_at }
+  if (named(mf?.updated_at)) row.updated_at = mf.updated_at
+  return { row, versionLeft: !!label }
 }

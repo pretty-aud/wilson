@@ -43,6 +43,9 @@ import {
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, removedWords, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS,
   RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
+  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, PEOPLE_SET,
+  RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
+  MANAGED_FILES_WILL_UPLOAD, MANAGED_FILES_UPLOADED, SERVER_MEDIA_STAY, PRIVATE_MEDIA_STAY, BODIES_GONE, MANAGED_OVER_CAP, MANAGED_OVER_BOUND, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
 } from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
@@ -63,13 +66,23 @@ export const NO_PATH_LEFT = (n) => `${n} clip${n === 1 ? ' has' : 's have'} no p
 // project copied to another computer takes its record along). The team, an
 // asset's versions and the files kept with its rows here move in a later run
 // (night 5).
-export const MIGRATE_DONE = 'Done. Running it again writes nothing already in the cloud and brings back nothing a teammate removed there since: this computer keeps a record of every row the migration carried. The team, asset versions and the files kept with assets, scenes, shots, levels and experiences on this computer move in a later run of the migration.'
+// M3 (night 5): the team, the files kept with rows, the rate cards and the
+// templates move too; what stays is named under the report.
+export const MIGRATE_DONE = 'Done. Running it again writes nothing already in the cloud and brings back nothing a teammate removed there since: this computer keeps a record of every row the migration carried.'
+// M3 (design review, finding 2): a body the desktop cannot reach right now is
+// not a run that is done — Archive would clear the only metadata of files
+// whose bodies are intact on an unmounted drive.
+export const MIGRATE_AGAIN_BODIES = (n) => `${n === 1 ? '1 file kept with an asset, scene, shot, level or experience has' : `${n} files kept with assets, scenes, shots, levels and experiences have`} no body on this computer right now, so it keeps its copy: make the folder reachable and Migrate again.`
+// M3 (design review, finding 5): what this person could not do — match the
+// team, write the rate cards or the templates, give a project's seats — is
+// still on this computer, so no archive: a workspace admin runs it again.
+export const MIGRATE_AGAIN_RIGHTS = 'The team, the rate cards or the task templates are still on this computer: this run could not write them (the lines under the report say which, and who can), so it keeps its copy. A workspace admin can Migrate again.'
 // Review round 1 (M2): a run that left a budget here, or whose record this
 // computer could not keep, is not done — no Archive, which would clear the
 // only copy of that budget and its receipts, or the record a later run needs.
 export const MIGRATE_AGAIN_MONEY = (n) => `${n === 1 ? "1 project's budget is" : `${n} projects' budgets are`} still on this computer, so it keeps its copy: once a workspace admin makes you ${n === 1 ? "the project's" : "each project's"} manager, Migrate again.`
 export const MIGRATE_AGAIN_RECORD = 'This computer could not keep its record of what the run carried: Migrate again, so that no later run brings back a row a teammate removes in the cloud.'
-export const ARCHIVE_KEEPS_NOT_CARRIED ='Archives every project on this computer whole — what a later run of the migration carries and what no migration carries (both named under the report), this computer\'s own records of its files and intake runs, and its record of what each run carried — then clears the live copy.'
+export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer whole, and the company\'s team members, rate cards and task templates — what no migration carries (named under the report), this computer\'s own records of its files and intake runs, and its record of what each run carried — then clears the live copy.'
 
 export default function MigrationPanel() {
   // The active workspace, as every gate reads it (the session's claims; the
@@ -184,7 +197,12 @@ export default function MigrationPanel() {
   // this computer could not keep, is not done either.
   const moneyLeft = report && !report.dryRun ? (report.moneyLeft?.projects || 0) : 0
   const recordLost = !!report && !report.dryRun && report.recordKept === false
-  const completed = report && !report.dryRun && report.errors.length === 0 && leftBehind === 0 && moneyLeft === 0 && !recordLost
+  // M3: a body the desktop could not reach, or a kind this person could not
+  // write (the team below admin or manager, the cards without the grant, the
+  // templates or a roster without the right), is not done either.
+  const bodiesGone = report && !report.dryRun ? (report.managedFiles?.bodiesGone || 0) : 0
+  const rightsMissing = !!report && !report.dryRun && (!!report.people?.needAdmin || Object.values(report.needsRights || {}).some(Boolean))
+  const completed = report && !report.dryRun && report.errors.length === 0 && leftBehind === 0 && moneyLeft === 0 && !recordLost && bodiesGone === 0 && !rightsMissing
   const notCarried = report?.notCarried || []
   // The real run waits for a dry run that found the roots, and for their
   // answers (never a disabled control without its reason: the title says).
@@ -194,7 +212,9 @@ export default function MigrationPanel() {
         : leftRooted ? MIGRATE_AGAIN_LEFT(leftRooted)
           : leftNoPath ? NO_PATH_LEFT(leftNoPath)
             : moneyLeft ? MIGRATE_AGAIN_MONEY(moneyLeft)
-              : recordLost ? MIGRATE_AGAIN_RECORD : null
+              : recordLost ? MIGRATE_AGAIN_RECORD
+                : bodiesGone ? MIGRATE_AGAIN_BODIES(bodiesGone)
+                  : rightsMissing ? MIGRATE_AGAIN_RIGHTS : null
 
   return (
     <Section
@@ -203,9 +223,12 @@ export default function MigrationPanel() {
         Copy every project under <span className="s-data">rabbit-data</span> into the active
         workspace: its schedule and key dates, levels and experiences, assets, tasks with their
         links and comments, files and folders, scenes and shots, shot lists and their edits,
-        its budget (bid versions, lines, actuals, expenses and role rates, for whoever may see
-        it), its bins with their logging, marks and takes, and its saved views and groupings.
-        The team moves in a later run of the migration. Dry-run first to preview the diff.
+        its budget (bid versions, lines, actuals, expenses and rates, for whoever may see
+        it), its roster, the files kept with its assets, scenes, shots, levels and experiences,
+        its bins with their logging, marks and takes, and its saved views and groupings; the
+        company&apos;s rate cards and task templates go once. Your desktop team is matched to
+        company accounts by email; anyone without one is named, and their rows arrive without
+        the person until they join. Dry-run first to preview the diff.
         Re-running the full migration is safe — rows already present in the cloud are
         skipped, and none a teammate removed there comes back.
       </>}
@@ -325,7 +348,32 @@ function CarriedLines({ r }) {
   const statuses = r.projectsLeftAtHome?.statuses || {}
   const statusCount = Object.values(statuses).reduce((s, n) => s + n, 0)
   const values = r.projectsLeftAtHome?.values || {}
+  const people = r.people || {}
+  const unmatched = Array.isArray(people.unmatched) ? people.unmatched : []
+  const seated = Array.isArray(people.managersSeated) ? people.managersSeated : []
   const lines = [
+    // M3: the people first — who was matched, who was not and why, what this
+    // person could not do — then M2's.
+    ['people-need-admin', people.needAdmin ? 1 : 0, () => PEOPLE_NEED_ADMIN],
+    ['people-matched', people.canMatch && people.desktop ? 1 : 0, () => PEOPLE_MATCHED(people.matched || 0, people.desktop)],
+    ['people-not-matched', unmatched.length, () => PEOPLE_NOT_MATCHED(unmatched)],
+    ['people-shared', people.shared, PEOPLE_SHARED],
+    ['managers-seated', seated.length, () => MANAGERS_SEATED(seated)],
+    ['roster-left', r.projectMembers?.left, ROSTER_LEFT],
+    ['people-set', people.set, PEOPLE_SET],
+    ['rate-cards-need-right', r.rateCards?.left, RATE_CARDS_NEED_RIGHT],
+    ['empty-cards', r.rateCards?.empty, EMPTY_CARDS],
+    ['entries-need-grant', r.rateCardEntries?.left, ENTRIES_NEED_GRANT],
+    ['templates-left', r.taskTemplates?.left, TEMPLATES_LEFT],
+    ['templates-orphan', r.taskTemplates?.orphans, TEMPLATES_ORPHAN],
+    ['asset-templates-linked', r.assetTemplatesLinked, ASSET_TEMPLATES_LINKED],
+    ['managed-files-uploaded', r.managedFiles?.inserted, (n) => (r.dryRun ? MANAGED_FILES_WILL_UPLOAD(n, r.managedFiles.bytes || 0) : MANAGED_FILES_UPLOADED(n, r.managedFiles.bytes || 0))],
+    ['bodies-gone', r.managedFiles?.bodiesGone, BODIES_GONE],
+    ['managed-server', r.managedFiles?.server, SERVER_MEDIA_STAY],
+    ['managed-private', r.managedFiles?.privateHome, PRIVATE_MEDIA_STAY],
+    ['managed-over-cap', r.managedFiles?.overCap, MANAGED_OVER_CAP],
+    ['managed-over-bound', r.managedFiles?.overBound, MANAGED_OVER_BOUND],
+    ['receipts-moved', r.receiptsMoved, (n) => (r.dryRun ? RECEIPTS_WILL_MOVE(n) : RECEIPTS_MOVED(n))],
     // M2: said first (after what an earlier run carried, RemovedLines) —
     // why a budget stays here.
     ['money-gate-left', r.moneyLeft?.projects, (n) => MONEY_GATE_LEFT(n, r.moneyLeft.rows)],
@@ -432,6 +480,8 @@ function ReportTable({ r }) {
               the levels and experiences before the assets, the budget after
               the files). */}
           <Row label="projects" bucket={r.projects} />
+          {/* M3 (night 5): the roster's seats, right after the project. */}
+          {r.projectMembers && <Row label="roster seats" bucket={r.projectMembers} />}
           <Row label="phases"   bucket={r.phases} />
           {r.milestones && <Row label="key dates" bucket={r.milestones} />}
           {r.levels && <Row label="levels" bucket={r.levels} />}
@@ -450,11 +500,13 @@ function ReportTable({ r }) {
           {r.edits && <Row label="edits" bucket={r.edits} />}
           {r.folders && <Row label="folders" bucket={r.folders} />}
           <Row label="files"    bucket={r.files} />
+          {/* M3: the files the desktop keeps with its rows, after the files. */}
+          {r.managedFiles && <Row label="files kept with rows" bucket={r.managedFiles} />}
           {r.budgetVersions && <Row label="bid versions" bucket={r.budgetVersions} />}
           {r.budgetLines && <Row label="budget lines" bucket={r.budgetLines} />}
           {r.budgetActuals && <Row label="actuals" bucket={r.budgetActuals} />}
           {r.expenses && <Row label="expenses" bucket={r.expenses} />}
-          {r.rateOverrides && <Row label="role rates" bucket={r.rateOverrides} />}
+          {r.rateOverrides && <Row label="rates" bucket={r.rateOverrides} />}
           {r.bins && <Row label="bins" bucket={r.bins} />}
           {r.binLocations && <Row label="footage locations" bucket={r.binLocations} />}
           {r.binFiles && <Row label="clips" bucket={r.binFiles} />}
@@ -465,11 +517,15 @@ function ReportTable({ r }) {
           {r.tableViews && <Row label="saved views" bucket={r.tableViews} />}
           {r.itemGroupings && <Row label="groupings" bucket={r.itemGroupings} />}
           {posters && <Row label="pictures" bucket={posters} />}
+          {/* M3: the company's kinds, once per run, last. */}
+          {r.rateCards && <Row label="rate cards" bucket={r.rateCards} />}
+          {r.rateCardEntries && <Row label="rate card entries" bucket={r.rateCardEntries} />}
+          {r.taskTemplates && <Row label="task templates" bucket={r.taskTemplates} />}
         </tbody>
       </table>
-      {r.files.bytes > 0 && (
+      {(r.files.bytes + (r.managedFiles?.bytes || 0)) > 0 && !r.dryRun && (
         <p className="s-row-desc mt-2">
-          Uploaded {(r.files.bytes / 1_000_000).toFixed(1)} MB to rabbit-files bucket.
+          Uploaded {((r.files.bytes + (r.managedFiles?.bytes || 0)) / 1_000_000).toFixed(1)} MB to the company&apos;s storage.
         </p>
       )}
       {/* M1 (night 3): what the five kinds and the project rows did beside

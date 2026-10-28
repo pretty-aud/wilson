@@ -36,13 +36,24 @@
 // 2026-10-27): a key that is no column (PGRST204), a shot list or an edit
 // inserted archived (42501), a row its foreign keys cannot find (23503), a
 // unique key taken (23505, naming the key).
+//
+// M3 (night 5): the people map, the roster, the files kept with rows, the
+// rate cards and the templates, the receipts moved, the archive (the M3
+// describe blocks at the end). The fake cloud gains the five tables and
+// their gates as wilson-dev answered (2026-10-28, rolled back), the
+// directory, the reservation, a storage bucket that lists and moves, and a
+// tus double that reads the Range-fed source the runner hands it; the fake
+// desktop serves the workspace stores, the workspace record and a managed
+// file's stream (Range, 206; 410 for a body gone; `?probe=1`).
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [] }
+  const state = { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [], callerId: 'u-mover', directory: [], directoryError: null, reservations: [], released: [], objects: [], moves: [], tus: [], rosterGate: true, entryGate: true, templateGate: true, failMove: null }
+  // M3: the fake's own workspace (WS below is defined after this hoisted block).
+  const FAKE_WS = 'ws1'
   // M1: the cloud's columns for the tables the project row and the five
   // kinds reach — wilson-dev's, read from information_schema (2026-10-27).
   const COLUMNS = {
@@ -63,6 +74,12 @@ const fake = vi.hoisted(() => {
     levels: 'id,project_id,workspace_id,name,description,notes,status,thumbnail_image,start_date,end_date,sort_order,created_at,created_by,updated_at,updated_by',
     experiences: 'id,project_id,workspace_id,name,description,notes,status,thumbnail_image,start_date,end_date,sort_order,created_at,created_by,updated_at,updated_by',
     task_links: 'id,task_id,label,url,created_at,last_updated_by,last_updated_at,deleted_at,deleted_by,created_by,updated_by,updated_at',
+    // M3 (night 5): the roster, the rate cards and entries, the templates, the versions — wilson-dev's (2026-10-28).
+    project_members: 'project_id,user_id,workspace_id,project_role,created_at,created_by,updated_at,updated_by,project_title',
+    rate_cards: 'id,workspace_id,name,source_file_id,is_default,created_at,last_updated_by,last_updated_at,deleted_at,deleted_by,created_by,updated_by,updated_at,type',
+    rate_card_entries: 'id,rate_card_id,role_label,role_slug,region,project_size,day_rate,week_rate,month_rate,currency,source_row,last_updated_by,last_updated_at,deleted_at,deleted_by,created_by,updated_by,created_at,updated_at,member_id,wage,burden,burden_type,overhead,overhead_type,department',
+    task_templates: 'id,workspace_id,project_id,name,description,tasks,created_at,created_by,updated_at,updated_by',
+    asset_versions: 'id,asset_id,version_no,notes,thumbnail_url,file_id,created_at,last_updated_by,last_updated_at,deleted_at,deleted_by,created_by,updated_by,updated_at',
   }
   // M2: the five tables behind the money gate (0037), and the CHECKs and
   // defaulted NOT NULL columns wilson-dev answered with (rolled back).
@@ -78,7 +95,7 @@ const fake = vi.hoisted(() => {
     levels: ['status', 'sort_order'], experiences: ['status', 'sort_order'],
     task_links: ['task_id', 'url'],
   }
-  const NUMBERS = { budget_lines: ['rate', 'days', 'qty', 'cost', 'margin_pct', 'contingency_pct', 'talent_agency_fee_pct'], budget_actuals: ['value'], expenses: ['estimated_cost', 'actual_cost'], project_rate_overrides: ['day_rate', 'week_rate', 'month_rate', 'wage'] }
+  const NUMBERS = { budget_lines: ['rate', 'days', 'qty', 'cost', 'margin_pct', 'contingency_pct', 'talent_agency_fee_pct'], budget_actuals: ['value'], expenses: ['estimated_cost', 'actual_cost'], project_rate_overrides: ['day_rate', 'week_rate', 'month_rate', 'wage'], rate_card_entries: ['day_rate', 'week_rate', 'month_rate', 'wage', 'burden', 'overhead'] }
   const chk = (table, name) => no('23514', `new row for relation "${table}" violates check constraint "${name}"`)
   const has = (table, pred) => (state.lists[table] || []).some(pred)
   const no = (code, message) => ({ code, message })
@@ -115,6 +132,36 @@ const fake = vi.hoisted(() => {
     if (table === 'project_rate_overrides' && !((row.role_slug != null) !== (row.member_id != null))) return chk(table, 'project_rate_overrides_target_chk')
     if ((table === 'levels' || table === 'experiences') && row.status != null && !ENTITY_STATUSES.includes(row.status)) return chk(table, `${table}_status_chk`)
     if (table === 'files' && row.is_financial && row.storage_provider !== 'supabase') return chk(table, 'files_money_provider_chk')
+    // M3: the five tables as wilson-dev answered (rolled back, 2026-10-28). The
+    // roster: the gate (42501), the role CHECK, the pair, a user who is no
+    // member of the project's workspace (23503). A card: the policy's
+    // workspace test before anything else (42501: none, or the desktop's seed
+    // id), the type CHECK. An entry: the gate (admin or the edit grant), the
+    // two type CHECKs, its card. A template: the workspace test and the write
+    // gate (42501), tasks an array, a pinned project of this workspace (the
+    // composite key). A files row: the provider enum.
+    if (table === 'project_members') {
+      if (state.rosterGate === false) return no('42501', 'new row violates row-level security policy for table "project_members"')
+      if (row.project_role != null && !['manager', 'reviewer', 'member'].includes(row.project_role)) return chk(table, 'project_members_project_role_check')
+      if (has(table, r => r.project_id === row.project_id && r.user_id === row.user_id)) return dup('project_members_pkey')
+      const project = (state.lists.projects || []).find(p => p.id === row.project_id)
+      if (!has('workspace_members', m => m.user_id === row.user_id && m.workspace_id === (project?.workspace_id ?? FAKE_WS) && m.is_active !== false)) return fk(table, 'project_members_member_fkey')
+    }
+    if (table === 'rate_cards') {
+      if (row.workspace_id !== FAKE_WS) return no('42501', 'new row violates row-level security policy for table "rate_cards"')
+      if (row.type != null && !['general', 'internal'].includes(row.type)) return chk(table, 'rc_type_chk')
+    }
+    if (table === 'rate_card_entries') {
+      if (state.entryGate === false) return no('42501', 'new row violates row-level security policy for table "rate_card_entries"')
+      for (const k of ['burden_type', 'overhead_type']) if (row[k] != null && !['percent', 'fixed'].includes(row[k])) return chk(table, k === 'burden_type' ? 'rce_burden_type_chk' : 'rce_overhead_type_chk')
+      if (!has('rate_cards', c => c.id === row.rate_card_id)) return fk(table, 'rate_card_entries_rate_card_id_fkey')
+    }
+    if (table === 'task_templates') {
+      if (row.workspace_id !== FAKE_WS || state.templateGate === false || (state.templateGate === 'pinned' && row.project_id == null)) return no('42501', 'new row violates row-level security policy for table "task_templates"')
+      if (row.tasks != null && !Array.isArray(row.tasks)) return chk(table, 'task_templates_tasks_is_array_chk')
+      if (row.project_id != null && !has('projects', p => p.id === row.project_id && p.workspace_id === row.workspace_id)) return fk(table, 'task_templates_project_workspace_fk')
+    }
+    if (table === 'files' && row.storage_provider != null && !['supabase', 'google_drive', 'local_server', 's3'].includes(row.storage_provider)) return no('22P02', `invalid input value for enum storage_provider: "${row.storage_provider}"`)
     if (table === 'projects') {
       // M1 review round 1: the column types and NOT NULL defaults, read on
       // wilson-dev (project_status's values — M2: 0103's eight, or the five
@@ -218,14 +265,25 @@ const fake = vi.hoisted(() => {
   // anyone they shut out (review round 1).
   const hiddenByGate = (table, r) => (state.moneyGate === false && (MONEY.includes(table) || (table === 'files' && r?.is_financial === true)))
     || (state.legalGate === false && table === 'files' && Array.isArray(r?.tags) && r.tags.includes('legal'))
+    // M3: a trashed card is hidden (0014's select policy) and so is another
+    // workspace's row of the workspace kinds (their policies' workspace test);
+    // both still hold their keys.
+    || (table === 'rate_cards' && r?.deleted_at != null)
+    || (['rate_cards', 'task_templates', 'project_members'].includes(table) && r?.workspace_id != null && r.workspace_id !== FAKE_WS)
   const builder = (table) => {
-    const q = { table, cols: null, filters: [], range: null, ins: [] }
+    const q = { table, cols: null, filters: [], range: null, ins: [], badOrder: null }
+    // A filter as PostgREST applies it: `eq`, or `is` (null).
+    const matches = (r) => q.filters.every(([c, v, op]) => (op === 'is' && v === null ? r[c] == null : r[c] === v))
     const api = {
       select(cols) { q.cols = cols; return api },
       eq(col, value) { q.filters.push([col, value]); return api },
+      // M3: `is.null` (a column still empty).
+      is(col, value) { q.filters.push([col, value, 'is']); return api },
       // M2: `in.(…)` (the record's ids, a project's links through its tasks).
       in(col, values) { q.ins.push([col, values.map(String)]); state.inReads.push([table, col, values.length]); return api },
-      order() { return api },
+      // M3 (design review, finding 8): an order by a column the table lacks is
+      // refused, as Postgres refuses it (project_members has no id).
+      order(col) { if (col && COLUMNS[table] && !COLUMNS[table].split(',').includes(col)) q.badOrder = col; return api },
       range(from, to) { q.range = [from, to]; state.ranges.push([table, from, to]); return api },
       maybeSingle: async () => {
         if (state.singleError) return { data: null, error: state.singleError }
@@ -233,15 +291,20 @@ const fake = vi.hoisted(() => {
         // A row set for the test, else the row in the cloud by its id (M1:
         // a project's active list, a file already there on a second run) —
         // review round 1: not a money file past a shut gate (0038's RLS).
-        const one = state.single[table]?.[by?.[1]] ?? (state.lists[table] || []).find(r => r.id === by?.[1] && !hiddenByGate(table, r)) ?? null
-        return { data: one && state.single[table]?.[by?.[1]] ? one : one ? { ...one } : null, error: null }
+        // M3: with no id asked, the first row the filters match (the
+        // workspace's storage row).
+        const one = by
+          ? (state.single[table]?.[by?.[1]] ?? (state.lists[table] || []).find(r => r.id === by?.[1] && !hiddenByGate(table, r)) ?? null)
+          : ((state.lists[table] || []).find(r => matches(r) && !hiddenByGate(table, r)) ?? null)
+        return { data: one && by && state.single[table]?.[by?.[1]] ? one : one ? { ...one } : null, error: null }
       },
       // A list read: `await client.from(t).select(c).eq(k, v).order().range()`.
       // PostgREST's own cap: at most 1,000 rows an answer (config.toml max_rows).
       then(resolve) {
         if (state.listError) return resolve({ data: null, error: state.listError })
         if (state.listErrorFor?.[table]) return resolve({ data: null, error: state.listErrorFor[table] })
-        const all = (state.lists[table] || []).filter(r => q.filters.every(([c, v]) => r[c] === v) && q.ins.every(([c, vs]) => vs.includes(String(r[c]))))
+        if (q.badOrder) return resolve({ data: null, error: no('42703', `column ${table}.${q.badOrder} does not exist`) })
+        const all = (state.lists[table] || []).filter(r => matches(r) && q.ins.every(([c, vs]) => vs.includes(String(r[c]))))
           // The money gate hides a money table's rows from anyone else
           // (0037), and a money file (0038 — review round 1).
           .filter(r => !hiddenByGate(table, r))
@@ -259,20 +322,23 @@ const fake = vi.hoisted(() => {
         const refused = cloudRefusal(table, row)
         if (refused) return { error: refused }
         ;(state.inserts[table] ||= []).push(row)
-        // The row is now "in the cloud" for later reads of this run.
-        ;(state.lists[table] ||= []).push({ ...row })
+        // The row is now "in the cloud" for later reads of this run. M3: a
+        // seat takes its project's workspace (0013's trigger overwrites it).
+        const stored = table === 'project_members' ? { ...row, workspace_id: (state.lists.projects || []).find(p => p.id === row.project_id)?.workspace_id ?? FAKE_WS } : { ...row }
+        ;(state.lists[table] ||= []).push(stored)
         return { error: null }
       },
       update(patch) {
         const u = { table, patch, filters: [], selected: false }
         const chain = {
           eq(col, value) { u.filters.push([col, value]); return chain },
+          is(col, value) { u.filters.push([col, value, 'is']); return chain },
           select() { u.selected = true; return chain },
           then(resolve) {
             state.updates.push(u)
             // A teammate's removal between the insert and this PATCH.
             if (state.dropOnUpdate) state.lists[table] = (state.lists[table] || []).filter(r => !state.dropOnUpdate(table, r, u))
-            const hit = (state.lists[table] || []).filter(r => u.filters.every(([c, v]) => r[c] === v))
+            const hit = (state.lists[table] || []).filter(r => u.filters.every(([c, v, op]) => (op === 'is' && v === null ? r[c] == null : r[c] === v)) && !hiddenByGate(table, r))
             // Review round 1: a write the network or the database refused.
             const forced = state.failUpdate?.(table, patch)
             if (forced) return resolve({ data: null, error: forced })
@@ -289,17 +355,45 @@ const fake = vi.hoisted(() => {
   }
   const client = {
     from: (table) => builder(table),
+    // M3: the signed-in person (the people map asks who is running; the
+    // resumable path reads the token per request).
+    auth: { getSession: async () => ({ data: { session: state.callerId ? { user: { id: state.callerId }, access_token: 'tok' } : null }, error: null }) },
+    // M3: a bucket's objects (`state.objects`: bucket, name, size) — listed as
+    // storage-api lists a directory's own children (`search` on the leaf, as
+    // supabaseProvider.exists asks), uploaded with upsert off (a taken key is
+    // refused), removed, and moved (a missing source or a taken destination
+    // refused, as the API refuses them).
     storage: {
-      from() {
+      from(bucket = 'rabbit-files') {
+        const inBucket = () => state.objects.filter(o => o.bucket === bucket)
         return {
-          list: async () => ({ data: [] }),
-          upload: async (path, bytes) => {
-            const override = state.failWith?.('storage', { path })
+          list: async (dir = '', opts = {}) => {
+            const prefix = dir ? `${dir}/` : ''
+            const data = inBucket().filter(o => o.name.startsWith(prefix) && !o.name.slice(prefix.length).includes('/'))
+              .map(o => ({ name: o.name.slice(prefix.length), metadata: { size: o.size } }))
+              .filter(o => !opts.search || o.name.includes(opts.search))
+            return { data, error: null }
+          },
+          upload: async (path, bytes, opts) => {
+            const override = state.failWith?.('storage', { path, bucket })
             if (override) return { error: override }
-            state.uploads.push({ path, size: bytes?.length ?? 0 })
+            if (inBucket().some(o => o.name === path)) return { error: { message: 'The resource already exists', statusCode: '409' } }
+            const size = bytes?.size ?? bytes?.length ?? 0
+            state.uploads.push({ path, size, bucket, contentType: opts?.contentType })
+            state.objects.push({ bucket, name: path, size })
             return { error: null }
           },
-          remove: async (keys) => { state.removed.push(...keys); return { error: null } },
+          remove: async (keys) => { state.removed.push(...keys); state.objects = state.objects.filter(o => !(o.bucket === bucket && keys.includes(o.name))); return { error: null } },
+          move: async (from, to) => {
+            const refused = state.failMove?.(bucket, from, to)
+            if (refused) return { error: refused }
+            const src = inBucket().find(o => o.name === from)
+            if (!src) return { error: { message: 'Object not found', statusCode: '404' } }
+            if (inBucket().some(o => o.name === to)) return { error: { message: 'The resource already exists', statusCode: '409' } }
+            src.name = to
+            state.moves.push({ bucket, from, to })
+            return { data: { message: 'Successfully moved' }, error: null }
+          },
         }
       },
     },
@@ -310,6 +404,12 @@ const fake = vi.hoisted(() => {
       state.rpcs.push([fn, args])
       if (fn === 'rabbit_money_segment') return { data: args?.seg === 'LEGAL', error: null }
       if (state.rpcRefuse[fn]) return { data: null, error: state.rpcRefuse[fn] }
+      // M3: the company's directory (0060: emails for an admin or manager —
+      // the test sets the rows as the caller would see them), the quota's
+      // reservation (0073: an id for an ordinary key, null for a money one).
+      if (fn === 'workspace_directory') return state.directoryError ? { data: null, error: state.directoryError } : { data: state.directory.map(r => ({ ...r })), error: null }
+      if (fn === 'reserve_upload_bytes') { state.reservations.push(args); return { data: /\/(INVOICES|FINANCE|LEGAL)\//.test(String(args?.p_path || '')) ? null : state.reservations.length, error: null } }
+      if (fn === 'release_upload_reservation' || fn === 'abandon_upload_reservation') { state.released.push([fn, args]); return { data: true, error: null } }
       if (fn === 'set_active_shot_list') {
         const project = (state.lists.projects || []).find(p => p.id === args.p_project)
         if (!project) return { data: null, error: { code: 'P0002', message: 'project not found' } }
@@ -346,6 +446,43 @@ const fake = vi.hoisted(() => {
 
 vi.mock('../auth/supabaseClient', () => ({ supabase: fake.client }))
 
+// M3: the tus double reads the source the runner hands it (the library's
+// fileReader option) chunk by chunk, as tus does — each slice one Range
+// request of the fake desktop — and records the chunks, the key and the
+// headers; the object then exists in the fake bucket, as a completed upload's
+// does. The source must say `done` exactly at its end, or the double throws
+// (tus errors by design).
+vi.mock('tus-js-client', () => ({
+  Upload: class {
+    constructor(body, opts) { this.body = body; this.opts = opts }
+    start() {
+      const { body, opts } = this
+      ;(async () => {
+        try {
+          if (!opts.fileReader?.openFile) throw new Error('the double takes a source through fileReader only')
+          const source = await opts.fileReader.openFile(body, opts.chunkSize)
+          const chunks = []
+          let start = 0
+          for (;;) {
+            const end = Math.min(start + opts.chunkSize, source.size)
+            const { value, done } = await source.slice(start, end)
+            chunks.push(value?.size ?? 0)
+            if ((end >= source.size) !== !!done) throw new Error(`done was ${done} at ${end} of ${source.size}`)
+            start = end
+            if (done) break
+          }
+          source.close?.()
+          fake.state.tus.push({ key: opts.metadata.objectName, bucket: opts.metadata.bucketName, chunks, headers: opts.headers })
+          fake.state.objects.push({ bucket: opts.metadata.bucketName, name: opts.metadata.objectName, size: chunks.reduce((a, c) => a + c, 0) })
+          opts.onSuccess()
+        } catch (err) {
+          opts.onError(err)
+        }
+      })()
+    }
+  },
+}))
+
 const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, PROJECT_FOLDER_STAYS, ARCHIVED_AGAIN,
   KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
@@ -355,10 +492,13 @@ const {
 } = await import('./runMigration')
 const { pathKey } = await import('./binsMigration')
 const { projectRowForCloud, cloudDay, RECORD_KEY, budgetLineRowForCloud } = await import('./migrationRows')
+const { clearWorkspaceStorageCache } = await import('../workspaceStorage')
 const { BINS, BIN_FILES, SHOT_TAKES, SCENES, SHOTS, BIN_LOCATIONS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS, TASK_ITEMS, GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, GAME_TASK_ITEMS } = await import('../../dev/fixtures/data/scenes')
 const { PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, COMMENTS, TASK_LINKS, ASSET_ID } = await import('../../dev/fixtures/data/project')
 const { FOLDERS, FILES, GAME_FOLDERS, GAME_FILES } = await import('../../dev/fixtures/data/files')
-const { BUDGET_VERSIONS, BUDGET_LINES, BUDGET_ACTUALS, EXPENSES, PROJECT_RATE_OVERRIDES } = await import('../../dev/fixtures/data/money')
+const { BUDGET_VERSIONS, BUDGET_LINES, BUDGET_ACTUALS, EXPENSES, PROJECT_RATE_OVERRIDES, RATE_CARDS, RATE_CARD_ENTRIES, GENERAL_CARD_ID } = await import('../../dev/fixtures/data/money')
+const { MEMBERS, MEMBER_ID } = await import('../../dev/fixtures/data/workspace')
+const { TASK_TEMPLATES } = await import('../../dev/fixtures/data/project')
 
 // M2: the desktop's record route (electron/main.cjs), its merge lifted by
 // brace matching as desktopDeleteSweep.test.js lifts the sweep, so the fake
@@ -457,12 +597,27 @@ const REAL_ANSWERS = {
 const seedNas = () => { fake.state.lists.bin_locations = [{ id: 'L1', workspace_id: WS, name: 'Footage NAS', unc_path: '\\\\nas\\footage' }] }
 
 let served
+let servedStores
+let servedRecord
+let servedGone
+let streamCalls
+let streamEvents
 let posterStatus
 let bundleWrites
 let recordWrites
 let recordStatus
-function serve(bundles) {
+// M3: `extra.stores` — the desktop's workspace stores (`members`, `rateCards`
+// as `[{ card, entries, deptDefaults }]`, `templates`), each row carrying the
+// workspace id it was written under; `extra.workspaceRecord` — the holder the
+// workspace route keeps; `extra.gone` — the managed files whose body is not on
+// the disk (410); `extra.noWorkspaceRoute` — an older desktop (404).
+function serve(bundles, extra = {}) {
   served = bundles
+  servedStores = extra.stores || { members: [], rateCards: [], templates: [] }
+  servedRecord = extra.workspaceRecord || { cloudMigration: {} }
+  servedGone = extra.gone || new Set()
+  streamCalls = []
+  streamEvents = 0
   globalThis.fetch = vi.fn(async (url, init) => {
     // M2: the one write the migration makes on this computer — its record,
     // into the bundle beside the rows it is about (never the rows).
@@ -475,7 +630,61 @@ function serve(bundles) {
       const added = b ? mergeCloudMigrationRecord(b, body) : null
       return added === null ? { ok: false, status: b ? 400 : 404 } : { ok: true, status: 200, json: async () => ({ ok: true, added }) }
     }
+    // M3: the workspace record's route (electron/main.cjs: the same merge,
+    // a body naming another workspace refused).
+    const wrec = /^\/api\/rabbit\/workspaces\/([^/]+)\/cloud-migration-record$/.exec(url)
+    if (wrec) {
+      if (extra.noWorkspaceRoute) return { ok: false, status: 404 }
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body)
+        if (body.workspace_id !== decodeURIComponent(wrec[1])) return { ok: false, status: 400 }
+        recordWrites.push({ workspaceId: decodeURIComponent(wrec[1]), ...body })
+        if (recordStatus !== 200) return { ok: false, status: recordStatus }
+        const added = mergeCloudMigrationRecord(servedRecord, body)
+        return added === null ? { ok: false, status: 400 } : { ok: true, status: 200, json: async () => ({ ok: true, added }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ cloudMigration: JSON.parse(JSON.stringify(servedRecord.cloudMigration || {})) }) }
+    }
     if (init?.method && init.method !== 'GET') { bundleWrites.push(url); return { ok: false, status: 405 } }
+    // M3: the desktop's workspace stores, each by the workspace id its rows carry.
+    const store = /^\/api\/rabbit\/workspaces\/([^/]+)\/(team-members|rate-cards|task-templates)$/.exec(url)
+    if (store) {
+      const ws = decodeURIComponent(store[1])
+      const rows = store[2] === 'team-members' ? servedStores.members : store[2] === 'rate-cards' ? servedStores.rateCards.map(c => c.card) : servedStores.templates
+      return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(rows.filter(r => r.workspace_id === ws))) }
+    }
+    const cardPart = /^\/api\/rabbit\/rate-cards\/([^/]+)\/(entries|dept-defaults)$/.exec(url)
+    if (cardPart) {
+      const c = servedStores.rateCards.find(x => String(x.card.id) === decodeURIComponent(cardPart[1]))
+      if (!c) return { ok: false, status: 404 }
+      return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(cardPart[2] === 'entries' ? c.entries : c.deptDefaults)) }
+    }
+    // M3: a managed file's stream as the desktop serves it: Range (206, the
+    // true size in Content-Range; 416 past the end), the whole body without
+    // one, 410 for a body gone from the disk, 404 for a row gone. A read
+    // without `?probe=1` would write a 'downloaded' event: counted.
+    const stream = /^\/api\/rabbit\/projects\/([^/]+)\/managed-files\/([^/]+)\/stream(\?.*)?$/.exec(url)
+    if (stream) {
+      const probe = (stream[3] || '').includes('probe=1')
+      const b = served.find(x => x.project.id === stream[1])
+      const mf = (b?.managedFiles || []).find(f => f.id === stream[2] && !f.deleted_at)
+      const range = init?.headers?.Range || init?.headers?.range || null
+      streamCalls.push({ id: stream[2], range, probe })
+      if (!probe) streamEvents++
+      const h = (map) => ({ get: (n) => map[String(n).toLowerCase()] ?? null })
+      if (!mf) return { ok: false, status: 404, headers: h({}) }
+      if (servedGone.has(mf.id)) return { ok: false, status: 410, headers: h({}) }
+      const size = Number(mf.size_bytes) || 0
+      if (range) {
+        const m = /^bytes=(\d+)-(\d*)$/.exec(range)
+        const a = Number(m?.[1] ?? 0)
+        let z = m?.[2] === '' || m?.[2] == null ? size - 1 : Number(m[2])
+        if (a >= size) return { ok: false, status: 416, headers: h({ 'content-range': `bytes */${size}` }) }
+        if (z >= size) z = size - 1
+        return { ok: true, status: 206, headers: h({ 'content-range': `bytes ${a}-${z}/${size}`, 'content-length': String(z - a + 1) }), blob: async () => ({ size: z - a + 1, type: mf.mime_type || '' }) }
+      }
+      return { ok: true, status: 200, headers: h({ 'content-length': String(size) }), blob: async () => ({ size, type: mf.mime_type || '' }) }
+    }
     if (url === '/api/rabbit/projects') return { ok: true, json: async () => served.map(b => ({ id: b.project.id, title: b.project.title })) }
     const m = /^\/api\/rabbit\/projects\/([^/]+)$/.exec(url)
     if (m) { const b = served.find(x => x.project.id === m[1]); return b ? { ok: true, json: async () => JSON.parse(JSON.stringify(b)) } : { ok: false, status: 404 } }
@@ -491,15 +700,20 @@ function serve(bundles) {
 }
 
 beforeEach(() => {
-  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, listErrorFor: {}, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [] })
+  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, listErrorFor: {}, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [], callerId: 'u-mover', directory: [], directoryError: null, reservations: [], released: [], objects: [], moves: [], tus: [], rosterGate: true, entryGate: true, templateGate: true, failMove: null })
   fake.state.single.workspaces = { [WS]: { remote_viewing_enabled: false } }
   posterStatus = {}
   bundleWrites = []
   recordWrites = []
   recordStatus = 200
+  // M3: the resumable path reads these at call time (never from a developer's
+  // .env.local: CI has none); the storage rule's cache is per session.
+  vi.stubEnv('VITE_SUPABASE_URL', 'https://proj.supabase.co')
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key-for-tests')
+  clearWorkspaceStorageCache()
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
 const ins = (t) => fake.state.inserts[t] || []
 const byId = (t, id) => ins(t).find(r => r.id === id)
@@ -828,8 +1042,9 @@ describe('the real run on a bundle shaped like her projects', () => {
     serve([a, b])
     seedNas()
     // Summed over the two projects, the word in the right number for the sum.
+    // M3: an asset version is a kind no desktop writes (said as that).
     const expected = [
-      { key: 'assetVersions', label: 'asset version', count: 1, later: true },
+      { key: 'assetVersions', label: 'asset version (no desktop writes one)', count: 1, later: false },
       { key: 'thumbnails', label: 'scene, shot, level and experience pictures', count: 2, later: false },
     ]
     const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: REAL_ANSWERS })
@@ -1031,6 +1246,73 @@ const desktopFile = (f) => ({
   ...omit(f, ['workspace_id', 'folder_id', 'thumbnail_url', 'created_by', 'updated_by', 'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by']),
   storage_provider: 'local_server', storage_path: `${f.id}-${f.name}`,
 })
+// M3 (night 5): the desktop knows people by its own team-member ids. The
+// fixtures' eight as the desktop's team store keeps them (useTeamMembers'
+// shape: a desktop id each, the fixtures' email — Lena's missing, as a member
+// added without one), plus Nadia, whom no company account matches, and Dev
+// added a second time (two desktop entries, one email). Every person column
+// of a desktop bundle names these ids; the cloud's rows name the accounts.
+const DESKTOP_MEMBERS = MEMBERS.map((m, i) => ({
+  id: `0e1a0000-0000-4000-8000-00000000d${String(i + 1).padStart(3, '0')}`, workspace_id: DESKTOP_WS,
+  name: m.display_name, title: m.title, department: m.department, location: '', email: m.username === 'lena.fischer' ? '' : m.email,
+  employment_type: 'fulltime', pronouns: [], profile_picture_url: null, created_at: '2026-08-01T10:00:00.000Z', updated_at: '2026-08-01T10:00:00.000Z',
+}))
+const NADIA_ID = '0e1a0000-0000-4000-8000-00000000d009'
+DESKTOP_MEMBERS.push({ id: NADIA_ID, workspace_id: DESKTOP_WS, name: 'Nadia Quill', title: 'Colourist', department: 'Post', location: '', email: 'nadia.quill@lanternash.example', employment_type: 'freelancer', pronouns: [], profile_picture_url: null, created_at: '2026-08-02T10:00:00.000Z', updated_at: '2026-08-02T10:00:00.000Z' })
+const DEV_AGAIN_ID = '0e1a0000-0000-4000-8000-00000000d010'
+DESKTOP_MEMBERS.push({ ...DESKTOP_MEMBERS[7], id: DEV_AGAIN_ID, workspace_id: WS, email: MEMBERS[7].email.toUpperCase() })
+const DESKTOP_ID_OF = new Map(MEMBERS.map((m, i) => [String(m.user_id), DESKTOP_MEMBERS[i].id]))
+const desktopIdOf = (userId) => (userId == null || userId === '' ? userId : DESKTOP_ID_OF.get(String(userId)) ?? userId)
+// The desktop's workspace stores: the fixtures' two rate cards (their entries
+// naming desktop ids, with the desktop's computed total; one department
+// default on the General card; an internal entry for Nadia) and the
+// desktop's own auto-made empty General shell; the two task templates.
+function desktopStores() {
+  const stamp = { created_at: '2026-08-01T10:00:00.000Z', updated_at: '2026-10-01T10:00:00.000Z' }
+  const cardOf = (c) => ({ ...omit(c, ['deleted_at', 'source_file_id']), workspace_id: DESKTOP_WS, ...stamp })
+  const entryOf = (e) => ({ ...e, member_id: desktopIdOf(e.member_id), total: 999, ...stamp })
+  return {
+    members: DESKTOP_MEMBERS,
+    rateCards: [
+      { card: cardOf(RATE_CARDS[0]), entries: RATE_CARD_ENTRIES.filter(e => e.rate_card_id === RATE_CARDS[0].id).map(entryOf), deptDefaults: [{ department: 'Post', burden_pct: 12, overhead_pct: 8 }] },
+      { card: cardOf(RATE_CARDS[1]), entries: [...RATE_CARD_ENTRIES.filter(e => e.rate_card_id === RATE_CARDS[1].id).map(entryOf), { id: '0e1a0000-0000-4000-8000-00000000e100', rate_card_id: RATE_CARDS[1].id, role_label: 'Colourist', role_slug: 'colourist', member_id: NADIA_ID, wage: 50000, burden: 18, burden_type: 'percent', overhead: 10, overhead_type: 'percent', currency: 'USD', ...stamp }], deptDefaults: [] },
+      { card: { id: '0e1a0000-0000-4000-8000-00000000c003', workspace_id: WS, name: 'General Rate Card', type: 'general', is_default: true, ...stamp }, entries: [], deptDefaults: [] },
+    ],
+    templates: TASK_TEMPLATES.map(t => ({ ...omit(t, ['created_by', 'updated_by']), workspace_id: DESKTOP_WS })),
+  }
+}
+// The files the desktop keeps with its rows (FileManager's store), in the
+// POST route's shape: a small image of an asset, a large video of a scene
+// (above the resumable threshold, a second version), and one removed.
+const MANAGED = {
+  small: {
+    id: '0e1a0000-0000-4000-8000-0000000f0001', project_id: PROJECT.id, asset_id: ASSET_ID(1), shot_id: null, scene_id: null, level_id: null, experience_id: null, task_id: null,
+    file_name: 'plate', stored_name: 'Salt-Hours_plate_v001.png', original_name: 'plate.png', extension: '.png', mime_type: 'image/png', size_bytes: 3,
+    version: 1, version_label: 'v001', folder_path: `${FOLDERS.find(f => f.asset_id === ASSET_ID(1)).path}/`, thumbnail_path: null, uploaded_by: null,
+    uploaded_at: '2026-10-01T10:00:00.000Z', updated_at: '2026-10-01T10:00:00.000Z', deleted_at: null, notes: 'first plate', storage_provider: 'local_managed', tags: ['reference'],
+  },
+  large: {
+    id: '0e1a0000-0000-4000-8000-0000000f0002', project_id: PROJECT.id, asset_id: null, shot_id: null, scene_id: SCENES[0].id, level_id: null, experience_id: null, task_id: null,
+    file_name: 'plate_scan', stored_name: 'Salt-Hours_plate_scan_v002.mov', original_name: 'plate_scan.mov', extension: '.mov', mime_type: 'video/quicktime', size_bytes: 60 * 1024 * 1024 + 7,
+    version: 2, version_label: 'v002', folder_path: `${FOLDERS.find(f => f.scene_id === SCENES[0].id).path}/`, thumbnail_path: null, uploaded_by: null,
+    uploaded_at: '2026-10-03T10:00:00.000Z', updated_at: '2026-10-03T10:00:00.000Z', deleted_at: null, notes: 'second pass', storage_provider: 'local_managed',
+  },
+  deleted: {
+    id: '0e1a0000-0000-4000-8000-0000000f0003', project_id: PROJECT.id, asset_id: ASSET_ID(1), file_name: 'old', stored_name: 'Salt-Hours_old_v001.png', original_name: 'old.png', extension: '.png', mime_type: 'image/png', size_bytes: 5,
+    version: 1, version_label: 'v001', folder_path: `${FOLDERS.find(f => f.asset_id === ASSET_ID(1)).path}/`, uploaded_at: '2026-09-01T10:00:00.000Z', updated_at: '2026-10-02T10:00:00.000Z', deleted_at: '2026-10-02T10:00:00.000Z', notes: '', storage_provider: 'local_managed',
+  },
+}
+// …and the first asset made from the pinned template (the fixtures' assets
+// name none; the desktop's New Asset dialog writes task_template_id).
+const withManaged = (b) => ({
+  ...b,
+  managedFiles: [MANAGED.small, MANAGED.large, MANAGED.deleted].map(m => ({ ...m })),
+  assets: b.assets.map((a, i) => (i === 0 ? { ...a, task_template_id: TASK_TEMPLATES[1].id } : a)),
+})
+// Lena has no email on the desktop: her account is never matched, so a row
+// naming her arrives without the person (counted), as the ruling says.
+const lenaIs = (uid) => String(uid) === String(MEMBER_ID.lena)
+const expectUser = (uid) => (uid == null || lenaIs(uid) ? null : uid)
 function desktopFixtures() {
   const pid = PROJECT.id
   return {
@@ -1040,13 +1322,25 @@ function desktopFixtures() {
       workspace_id: DESKTOP_WS, created_by: null,
       documents: [], visualAssets: [], files_dir: null,
       folder_slug: 'Salt-Hours', folder_root: 'C:\\Projects\\Salt-Hours',
+      // M3: the people by the desktop's ids.
+      producer_id: desktopIdOf(PROJECT.producer_id), director_id: desktopIdOf(PROJECT.director_id),
     },
+    // M3: the team assignments (the Team tab's rows: a role, the dates it
+    // keeps for two of them); Lena has no email here, Nadia no account.
+    teamAssignments: [
+      { id: '0e1a0000-0000-4000-8000-00000000a001', project_id: pid, member_id: desktopIdOf(MEMBER_ID.mara), role: 'manager', start_date: '2026-09-01', end_date: null },
+      { id: '0e1a0000-0000-4000-8000-00000000a002', project_id: pid, member_id: desktopIdOf(MEMBER_ID.theo), role: 'member' },
+      { id: '0e1a0000-0000-4000-8000-00000000a003', project_id: pid, member_id: desktopIdOf(MEMBER_ID.lena), role: 'member' },
+      { id: '0e1a0000-0000-4000-8000-00000000a004', project_id: pid, member_id: NADIA_ID, role: 'reviewer' },
+      { id: '0e1a0000-0000-4000-8000-00000000a005', project_id: pid, member_id: desktopIdOf(MEMBER_ID.dev), role: 'producer' },
+      { id: '0e1a0000-0000-4000-8000-00000000a006', project_id: pid, member_id: DEV_AGAIN_ID, role: 'member' },
+    ],
     phases: local(PHASES),
     milestones: MILESTONES.map(m => ({ ...m })),
     levels: GAME_LEVELS.map((l, i) => ({ ...omit(l, ['workspace_id']), thumbnail_image: desktopPath(l.name), ...(i === 0 ? { files: [] } : {}) })),
     experiences: GAME_EXPERIENCES.map(x => ({ ...omit(x, ['workspace_id']), thumbnail_image: desktopPath(x.name) })),
     assets: local(ASSETS).map(a => ({ ...a, ...(LEVEL_OF.get(a.id) || {}) })),
-    tasks: local(TASKS),
+    tasks: local(TASKS).map(t => ({ ...t, assignee_id: desktopIdOf(t.assignee_id), reviewer_id: desktopIdOf(t.reviewer_id) })),
     dependencies: DEPENDENCIES.map(d => ({ ...d, project_id: pid })),
     taskItems: [...local(TASK_ITEMS), ...local(GAME_TASK_ITEMS)],
     taskLinks: TASK_LINKS.map(l => ({ ...l, project_id: pid, updated_at: l.created_at })),
@@ -1057,10 +1351,10 @@ function desktopFixtures() {
     folders: [...FOLDERS, ...GAME_FOLDERS].map(f => omit(f, ['workspace_id', 'created_by', 'updated_by'])),
     files: [...FILES, ...GAME_FILES].map(desktopFile),
     budgetVersions: local(BUDGET_VERSIONS).map((v, i) => (i === 0 ? { ...v, shot_list_id: LIST_1 } : v)),
-    budgetLines: local(BUDGET_LINES),
+    budgetLines: local(BUDGET_LINES).map(l => ({ ...l, team_member_id: desktopIdOf(l.team_member_id) })),
     budgetActuals: local(BUDGET_ACTUALS).map((a, i) => (i === 0 ? { ...a, attachment_path: `file:${RECEIPT}` } : i === 1 ? { ...a, attachment_path: 'C:\\Invoices\\INV-0042_set_timber.pdf' } : a)),
     expenses: local(EXPENSES).map((e, i) => (i === 2 ? { ...e, purchase_date: '' } : e)),
-    projectRateOverrides: [...local(PROJECT_RATE_OVERRIDES), ROLE_RATE],
+    projectRateOverrides: [...local(PROJECT_RATE_OVERRIDES).map(o => ({ ...o, member_id: desktopIdOf(o.member_id) })), ROLE_RATE],
   }
 }
 
@@ -1242,7 +1536,9 @@ describe('M1: the cloud\'s refusals the runner meets no more (measured on wilson
     expect(report.projects).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0 })
     const p = ins('projects')[0]
     for (const k of ['documents', 'visualAssets', 'files_dir', 'folder_root', 'budget_active_version_id', 'open_budget_version_id', 'active_shot_list_id', 'created_by', 'updated_by']) expect(p, k).not.toHaveProperty(k)
-    expect(p).toMatchObject({ id: PROJECT.id, workspace_id: WS, title: PROJECT.title, folder_slug: 'Salt-Hours', fps: 24, producer_id: PROJECT.producer_id, budget_contingency_pct: 10 })
+    // M3: a producer is the account the people map gives, or nobody (no
+    // directory here: a desktop id is never sent raw).
+    expect(p).toMatchObject({ id: PROJECT.id, workspace_id: WS, title: PROJECT.title, folder_slug: 'Salt-Hours', fps: 24, producer_id: null, budget_contingency_pct: 10 })
     // Its children followed it (a refused project skips every child).
     expect(ins('phases')).toHaveLength(PHASES.length)
     expect(report.projectsLeftAtHome).toEqual({ folders: 1, statuses: {}, withValues: 0, values: {} })
@@ -1468,7 +1764,9 @@ describe('M1: what the dry run promises', () => {
     expect(lines).toContain('  2 shot lists with 29 items and 3 edits')
     // A later run's kinds (night 5) are named apart from what no migration
     // carries; part 2's are carried (M2).
-    expect(dry.notCarried.filter(n => n.later).map(n => n.key)).toEqual(['lineTeamMembers', 'memberRates'])
+    // M3: with no directory nobody is matched, so every person column and
+    // seat is a later run's (once they have accounts); the rest stays.
+    expect(dry.notCarried.filter(n => n.later).map(n => n.key)).toEqual(['teamAssignments', 'taskPeople', 'projectPeople', 'lineTeamMembers', 'memberRates'])
     expect(dry.notCarried.filter(n => !n.later).map(n => n.key)).toEqual(['thumbnails', 'invoicePaths'])
     // The real run then does what was promised.
     const real = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
@@ -1998,7 +2296,7 @@ describe('M2: the round trip on the fixtures — part 2 in the desktop\'s shape'
     const header = byId('budget_lines', BUDGET_LINES[0].id)
     for (const k of ['rate', 'days', 'qty', 'cost']) expect(header, k).not.toHaveProperty(k)
     expect(ins('budget_lines').every(l => l.team_member_id == null)).toBe(true)
-    expect(report.notCarried).toContainEqual({ key: 'lineTeamMembers', label: 'team members named on budget lines', count: BUDGET_LINES.filter(l => l.team_member_id).length, later: true })
+    expect(report.notCarried).toContainEqual({ key: 'lineTeamMembers', label: 'budget lines priced for a team member without a WILSON account', count: BUDGET_LINES.filter(l => l.team_member_id).length, later: true })
     // The actuals: on their lines; the receipt kept (a files row of this
     // project); the invoice attached by a path on this computer left out
     // with its name, counted.
@@ -2010,7 +2308,7 @@ describe('M2: the round trip on the fixtures — part 2 in the desktop\'s shape'
     expect(byId('expenses', EXPENSES[1].id)).toMatchObject({ asset_ids: EXPENSES[1].asset_ids, task_ids: EXPENSES[1].task_ids, file_ids: EXPENSES[1].file_ids })
     // The rates: a role's goes up; a team member's stays for a later run.
     expect(ins('project_rate_overrides')).toEqual([{ id: ROLE_RATE.id, project_id: PROJECT.id, role_slug: 'editor', member_id: null, day_rate: 550, currency: 'USD', created_at: ROLE_RATE.created_at, updated_at: ROLE_RATE.updated_at }])
-    expect(report.notCarried).toContainEqual({ key: 'memberRates', label: "team member's project rate", count: 1, later: true })
+    expect(report.notCarried).toContainEqual({ key: 'memberRates', label: 'project rate of a team member without a WILSON account', count: 1, later: true })
     // The project's locked bid version, set by UPDATE once its version is in.
     expect(fake.state.lists.projects[0].budget_active_version_id).toBe(versionV2)
     expect(fake.state.updates.filter(u => u.table === 'projects').map(u => u.patch)).toEqual([{ budget_active_version_id: versionV2 }])
@@ -2348,7 +2646,7 @@ describe('M2: phases, assets and tasks get the "is it this project\'s" check (OU
     serve([b])
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(byId('assets', ASSETS[0].id)).not.toHaveProperty('task_template_id')
-    expect(report.notCarried).toContainEqual({ key: 'assetTemplates', label: "asset's task template", count: 1, later: true })
+    expect(report.notCarried).toContainEqual({ key: 'assetTemplates', label: "asset's task template not in the cloud", count: 1, later: true })
     // CONTROL: the asset as the desktop keeps it is refused whole.
     expect((await fake.client.from('assets').insert({ ...b.assets[0], id: 'a-x' })).error).toMatchObject({ code: '23503', message: expect.stringMatching(/assets_task_template_id_fkey/) })
   })
@@ -2500,21 +2798,60 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(rpcsCalled('set_aside_schedule_rows')).toEqual([{ p_project: PROJECT.id, p_on: true, p_tasks: [aside], p_phases: [], p_milestones: [] }])
   })
 
-  it('M1: a receipt an earlier build carried as an ordinary file is said on every run, and never recorded', async () => {
+  it('M3 (M2-L4): a receipt an earlier build carried as an ordinary file is put behind the money gate — its picture, its body, then its row in one UPDATE — recorded as carried; a second run touches nothing; the dry run counts it', async () => {
     const b = desktopFixtures()
     const preC4 = FILES.filter(f => f.is_financial)[1].id
+    const receipt = FILES.find(f => f.id === preC4)
     b.files = b.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
     serve([b])
-    // An earlier build carried it by its own flag, as an ordinary file.
-    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: `projects/${PROJECT.id}/files/${preC4}/receipt.pdf`, is_financial: false }]
+    // An earlier build carried it by its own flag, as an ordinary file, with its picture.
+    const from = `projects/${PROJECT.id}/files/${preC4}/receipt.pdf`
+    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: from, is_financial: false, thumbnail_url: `${from}.jpg` }]
+    fake.state.objects.push({ bucket: 'rabbit-files', name: from, size: 3 }, { bucket: 'rabbit-thumbnails', name: `${from}.jpg`, size: 2 })
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(dry.receiptsMoved).toBe(1)
+    expect(fake.state.moves).toEqual([])
     const lines = []
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
-    expect(report.files.receiptsOpen).toBe(1)
-    expect(lines).toContain(`  ${RECEIPTS_LEFT_OPEN(1)}`)
     expect(report.errors).toEqual([])
-    expect(recordOf(b).files).not.toContain(preC4)
+    const to = `projects/${PROJECT.id}/INVOICES/${preC4}/${receipt.name.replace(/[^a-zA-Z0-9._-]+/g, '_')}`
+    expect(fake.state.moves).toEqual([{ bucket: 'rabbit-thumbnails', from: `${from}.jpg`, to: `${to}.jpg` }, { bucket: 'rabbit-files', from, to }])
+    expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: `${to}.jpg` })
+    expect(fake.state.updates.filter(u => u.table === 'files').map(u => u.patch)).toEqual([{ is_financial: true, storage_path: to, thumbnail_url: `${to}.jpg` }])
+    expect(report.receiptsMoved).toBe(1)
+    expect(report.files.receiptsOpen).toBe(0)
+    expect(lines).toContain(`  ${RECEIPTS_MOVED(1)}`)
+    expect(recordOf(b).files).toContain(preC4)
+    expect(fake.state.uploads.some(u => u.path.includes(preC4))).toBe(false)
+    fake.state.moves = []; fake.state.updates = []
     const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
-    expect(again.files.receiptsOpen).toBe(1)
+    expect(again.receiptsMoved).toBe(0)
+    expect(fake.state.moves).toEqual([])
+    expect(fake.state.updates.filter(u => u.table === 'files')).toEqual([])
+    expect(again.removed.rows).toEqual([])
+    // CONTROL: a move the cloud refuses leaves the receipt open — said with its reason, the row untouched, never recorded as carried, said again next run; a body moved before the row changed (a run that stopped) is not moved again, only the row.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [], moves: [], updates: [] })
+    const c = desktopFixtures()
+    c.files = c.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
+    serve([c])
+    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: from, is_financial: false, thumbnail_url: null }]
+    fake.state.objects.push({ bucket: 'rabbit-files', name: from, size: 3 })
+    fake.state.failMove = () => ({ message: 'new row violates row-level security policy', statusCode: '403' })
+    const refused = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(refused.files.receiptsOpen).toBe(1)
+    expect(refused.receiptsMoved).toBe(0)
+    expect(lines).toContain(`  ${RECEIPTS_LEFT_OPEN(1)}`)
+    expect(refused.errors).toEqual([expect.objectContaining({ scope: 'file', id: preC4, message: expect.stringMatching(/still open to every member of the project in the cloud — its body could not be moved behind the gate/) })])
+    expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: false, storage_path: from })
+    expect(recordOf(c).files ?? []).not.toContain(preC4)
+    expect(recordOf(c).receipts_open).toEqual([preC4])
+    fake.state.failMove = null
+    fake.state.objects = [{ bucket: 'rabbit-files', name: to, size: 3 }]
+    fake.state.moves = []
+    const repaired = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(repaired.receiptsMoved).toBe(1)
+    expect(fake.state.moves).toEqual([])
+    expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: null })
   })
 
   it('M2: someone the money gate shuts out leaves the money files an earlier run carried before the record is asked: none called removed, none written', async () => {
@@ -2677,3 +3014,667 @@ describe('M2 review round 2: what round 1 promised, held', () => {
     expect(PROJECT_NOT_OURS).toBe("a project with this id is in the cloud, but not one you can see in this workspace (another company's, a private one, or one in the cloud's trash — restored, it carries on the next run), so none of it was written")
   })
 })
+
+// =============================================================================
+// M3 (night 5): the people, the roster, the files kept with rows, the rate
+// cards, the templates, the receipts moved, the archive — each rule with its
+// failing control. The desktop's team is DESKTOP_MEMBERS (desktop ids, the
+// fixtures' emails: one without, one twice, one nobody has); the company's
+// directory is the fixtures' eight; the mover is Mara, an admin.
+// =============================================================================
+
+const { peopleMapOf, projectMemberRowForCloud, rateCardEntryRowForCloud, taskTemplateRowForCloud, managedFileRowForCloud, managedFileName, desktopFolderOfManagedFile, roleSlugOf } = await import('./migrationRows')
+const { makeSlug } = await import('../../components/RateCard/useRateCard')
+const { TUS_CHUNK_SIZE } = await import('../../tools/rabbit_v0.1.0/storage/resumableUpload.js')
+const { registerStorageProvider, getStorageProvider, fileProviderFor, FILE_PROVIDERS } = await import('../../tools/rabbit_v0.1.0/storage/index.js')
+const {
+  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, PEOPLE_UNREAD, MANAGERS_SEATED, PEOPLE_SET,
+  RATE_CARDS_NEED_RIGHT, CARD_NOT_OURS, ENTRIES_NEED_GRANT, EMPTY_CARDS, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
+  MANAGED_FILES_WILL_UPLOAD, SERVER_MEDIA_STAY, BODIES_GONE, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
+} = await import('./runMigration')
+
+const DIRECTORY = MEMBERS.map(m => ({ workspace_id: WS, user_id: m.user_id, app_role: m.app_role, username: m.username, display_name: m.display_name, is_active: true, email: m.email, grant_rate_card_view: false, grant_rate_card_edit: false }))
+const serveM3 = (bundles, extra = {}) => {
+  fake.state.callerId = MEMBER_ID.mara
+  fake.state.directory = DIRECTORY.map(r => ({ ...r }))
+  fake.state.lists.workspace_members = MEMBERS.map(m => ({ workspace_id: WS, user_id: m.user_id, is_active: true }))
+  serve(bundles, { stores: desktopStores(), ...extra })
+}
+const workspaceRecordOf = () => servedRecord?.cloudMigration?.[WS]?.carried || {}
+const DM = (key) => DESKTOP_ID_OF.get(MEMBER_ID[key])
+const nameOf = (key) => MEMBERS.find(m => m.user_id === MEMBER_ID[key]).display_name
+const personColumns = () => [
+  ...ins('project_members').map(r => r.user_id), ...ins('tasks').flatMap(t => [t.assignee_id, t.reviewer_id]),
+  ...ins('budget_lines').map(l => l.team_member_id), ...ins('project_rate_overrides').map(o => o.member_id),
+  ...ins('rate_card_entries').map(e => e.member_id), ...ins('projects').flatMap(p => [p.producer_id, p.director_id]),
+].filter(v => v != null)
+
+describe('M3: the people map (migrationRows.peopleMapOf)', () => {
+  it('an admin or a manager matches by email, trimmed and lower-cased, active accounts only; the unmatched are named with why; two desktop entries with one email both name the account', () => {
+    const members = [
+      { id: 'd1', name: 'Mara', email: ' MARA.OKONKWO@lanternash.example ' },
+      { id: 'd2', name: 'Theo', email: 'theo.lindqvist@lanternash.example' },
+      { id: 'd3', name: 'Lena', email: '' },
+      { id: 'd4', name: 'Nadia', email: 'nadia@lanternash.example' },
+      { id: 'd5', name: 'Theo again', email: 'Theo.Lindqvist@lanternash.example' },
+      { id: 'd6', name: 'Old Jonah', email: 'jonah.beck@lanternash.example' },
+    ]
+    const directory = DIRECTORY.map(r => (r.user_id === MEMBER_ID.jonah ? { ...r, is_active: false } : r))
+    const map = peopleMapOf({ members, directory, callerUserId: MEMBER_ID.mara })
+    expect(map.canMatch).toBe(true)
+    expect(map.userOf('d1')).toBe(MEMBER_ID.mara)
+    expect(map.userOf('d2')).toBe(MEMBER_ID.theo)
+    expect(map.userOf('d5')).toBe(MEMBER_ID.theo)
+    expect(map.shared).toBe(2)
+    expect(map.userOf('d3')).toBeNull()
+    expect(map.userOf('d4')).toBeNull()
+    expect(map.userOf('d6')).toBeNull()
+    expect(map.unmatched).toEqual([{ id: 'd3', name: 'Lena', why: 'no_email' }, { id: 'd4', name: 'Nadia', why: 'no_account' }, { id: 'd6', name: 'Old Jonah', why: 'inactive' }])
+    expect(map.matched).toBe(3)
+    expect(map.desktop).toBe(6)
+    expect(map.callerEditsRateCards).toBe(true)
+    // A manager matches too; a manager without the grant does not edit the rate cards.
+    const asKenji = peopleMapOf({ members, directory, callerUserId: MEMBER_ID.kenji })
+    expect(asKenji.canMatch).toBe(true)
+    expect(asKenji.callerEditsRateCards).toBe(false)
+    expect(peopleMapOf({ members, directory: directory.map(r => (r.user_id === MEMBER_ID.kenji ? { ...r, grant_rate_card_edit: true } : r)), callerUserId: MEMBER_ID.kenji }).callerEditsRateCards).toBe(true)
+    // The sentence names people, never an email.
+    const words = PEOPLE_NOT_MATCHED(map.unmatched)
+    expect(words).toBe('3 desktop team members not matched to a company account (no WILSON account yet: Nadia; no email on this computer: Lena; account deactivated: Old Jonah): their seats, crew lines, rates and tasks arrive without the person until they join (no email is sent)')
+    expect(words).not.toMatch(/@/)
+  })
+
+  it('CONTROL: below admin or manager, or with no session, nobody is matched (a plain member reads only their own email — measured) and nothing is named', () => {
+    const members = [{ id: 'd1', name: 'Mara', email: MEMBERS[0].email }, { id: 'd3', name: 'Priya', email: MEMBERS[2].email }]
+    const asPriya = peopleMapOf({ members, directory: DIRECTORY.map(r => ({ ...r, email: r.user_id === MEMBER_ID.priya ? r.email : null })), callerUserId: MEMBER_ID.priya })
+    expect(asPriya.canMatch).toBe(false)
+    expect(asPriya.userOf('d3')).toBeNull()
+    expect(asPriya.unmatched).toEqual([])
+    expect(peopleMapOf({ members, directory: DIRECTORY, callerUserId: null }).canMatch).toBe(false)
+    // CONTROL of the control: the same directory with Mara calling matches both.
+    expect(peopleMapOf({ members, directory: DIRECTORY, callerUserId: MEMBER_ID.mara }).matched).toBe(2)
+  })
+
+  it('a seat row: the person by the map, the role as the desktop says (outside the three: member), the member\'s title, no dates, no workspace, no id; a slug as useRateCard makes one', () => {
+    const map = peopleMapOf({ members: DESKTOP_MEMBERS, directory: DIRECTORY, callerUserId: MEMBER_ID.mara })
+    const a = { id: 'ta-1', project_id: 'p', member_id: DM('theo'), role: 'manager', start_date: '2026-09-01', end_date: '2026-12-01' }
+    expect(projectMemberRowForCloud(a, 'p', map, { title: 'Director' })).toEqual({ row: { project_id: 'p', user_id: MEMBER_ID.theo, project_role: 'manager', project_title: 'Director' }, roleLeft: false, datesLeft: 2 })
+    expect(projectMemberRowForCloud({ ...a, role: 'producer', start_date: null }, 'p', map, { title: '' })).toEqual({ row: { project_id: 'p', user_id: MEMBER_ID.theo, project_role: 'member' }, roleLeft: true, datesLeft: 1 })
+    expect(projectMemberRowForCloud({ ...a, member_id: NADIA_ID }, 'p', map, {})).toBeNull()
+    for (const label of ['Director of Photography', '1st AC', ' Sound  Recordist ']) expect(roleSlugOf(label)).toBe(makeSlug(label))
+    // An entry: the desktop's computed total dropped, a blank wage none, the person by the map (or left).
+    const e = { id: 'e1', rate_card_id: 'c', role_label: 'Editor', role_slug: '', wage: '', day_rate: 550, burden: 12, burden_type: 'flat', overhead: '', overhead_type: 'percent', total: 616, member_id: DM('sofia'), currency: '' }
+    const shaped = rateCardEntryRowForCloud(e, 'c2', map)
+    expect(shaped).toEqual({ row: { id: 'e1', rate_card_id: 'c2', role_label: 'Editor', role_slug: 'editor', wage: 550, day_rate: 550, burden: 12, burden_type: 'percent', overhead: null, overhead_type: 'percent', member_id: MEMBER_ID.sofia }, userLeft: false })
+    expect(shaped.row).not.toHaveProperty('total')
+    expect(rateCardEntryRowForCloud({ ...e, member_id: NADIA_ID }, 'c2', map).userLeft).toBe(true)
+    // A template: the cloud's workspace, the tasks in the desktop's shape (an older row's title read as its name).
+    const t = taskTemplateRowForCloud({ id: 't1', workspace_id: DESKTOP_WS, name: '', tasks: [{ title: 'Plates', bid_days: '1', role_slug: 'dop' }, { id: 'x', name: 'Comp', bid_days: 6, sort_order: 1, depends_on: [null, 'y'] }], created_by: 'someone' }, WS, 'p')
+    expect(t).toEqual({ id: 't1', workspace_id: WS, project_id: 'p', name: 'Untitled Template', description: '', tasks: [{ name: 'Plates', role_slug: 'dop', bid_days: 1, sort_order: 0, depends_on: [] }, { id: 'x', name: 'Comp', role_slug: '', bid_days: 6, sort_order: 1, depends_on: ['y'] }] })
+  })
+})
+
+describe('M3: the round trip on the fixtures — the team, the files kept with rows, the rate cards and the templates', () => {
+  it('every person column names an account, never a desktop id; the seats, the cards with their entries, the templates and the files kept with rows land with the cloud\'s shape; the run is clean', async () => {
+    const b = withManaged(desktopFixtures())
+    serveM3([b])
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(part2Missing()).toEqual({})
+    // The people: the fixtures' eight less Lena (no email on the desktop) plus Nadia (no account) and Dev twice.
+    expect(report.people).toMatchObject({ canMatch: true, desktop: DESKTOP_MEMBERS.length, matched: 8, shared: 2, needAdmin: false, unread: null })
+    expect(report.people.unmatched).toEqual([{ id: DM('lena'), name: nameOf('lena'), why: 'no_email' }, { id: NADIA_ID, name: 'Nadia Quill', why: 'no_account' }])
+    expect(lines).toContain(`  ${PEOPLE_MATCHED(8, DESKTOP_MEMBERS.length)}`)
+    expect(lines).toContain(`  ${PEOPLE_NOT_MATCHED(report.people.unmatched)}`)
+    expect(lines).toContain(`  ${PEOPLE_SHARED(2)}`)
+    // No desktop id in any person column; no email anywhere in the report or the log.
+    const desktopIds = new Set([...DESKTOP_MEMBERS.map(m => m.id), NADIA_ID])
+    for (const v of personColumns()) expect(desktopIds.has(String(v)), v).toBe(false)
+    expect(JSON.stringify(report) + lines.join('\n')).not.toMatch(/@lanternash\.example/)
+    // The roster: Mara (manager, title Producer), Theo (member), Dev twice → one seat (the pair skipped); Lena and Nadia unmatched; a role outside the three is member.
+    expect(ins('project_members').map(r => [r.user_id, r.project_role, r.project_title ?? null])).toEqual([[MEMBER_ID.mara, 'manager', 'Producer'], [MEMBER_ID.theo, 'member', 'Director'], [MEMBER_ID.dev, 'member', 'Production Coordinator']])
+    for (const r of ins('project_members')) for (const k of ['id', 'workspace_id', 'start_date', 'end_date', 'member_id', 'role']) expect(r, k).not.toHaveProperty(k)
+    expect(report.projectMembers).toEqual({ total: 4, inserted: 3, skipped: 1, failed: 0, unmatched: 2, datesLeft: 1, rolesLeft: 1, left: 0 })
+    expect(report.notCarried).toContainEqual({ key: 'teamAssignments', label: 'team assignments of people without a WILSON account', count: 2, later: true })
+    expect(report.notCarried).toContainEqual({ key: 'assignmentDates', label: "team assignment's start and end dates (no cloud columns)", count: 1, later: false })
+    expect(report.people.managersSeated).toEqual([nameOf('mara')])
+    expect(lines).toContain(`  ${MANAGERS_SEATED([nameOf('mara')])}`)
+    // The project's people, the tasks', the lines', the rates': the accounts.
+    expect(ins('projects')[0]).toMatchObject({ producer_id: MEMBER_ID.mara, director_id: MEMBER_ID.theo })
+    for (const t of TASKS) expect(byId('tasks', t.id), t.title).toMatchObject({ assignee_id: expectUser(t.assignee_id), reviewer_id: expectUser(t.reviewer_id) })
+    for (const l of BUDGET_LINES.filter(l => l.team_member_id)) expect(byId('budget_lines', l.id).team_member_id, l.label).toBe(expectUser(l.team_member_id))
+    const memberRate = PROJECT_RATE_OVERRIDES.find(o => o.member_id)
+    expect(byId('project_rate_overrides', memberRate.id)).toMatchObject({ member_id: memberRate.member_id, role_slug: null })
+    // What Lena's rows leave: counted by kind; nothing else of the people is left.
+    const lenaTasks = TASKS.filter(t => lenaIs(t.assignee_id) || lenaIs(t.reviewer_id)).length
+    const lenaLines = BUDGET_LINES.filter(l => lenaIs(l.team_member_id)).length
+    expect(report.notCarried.find(n => n.key === 'taskPeople')?.count ?? 0).toBe(lenaTasks)
+    expect(report.notCarried.find(n => n.key === 'lineTeamMembers')?.count ?? 0).toBe(lenaLines)
+    for (const k of ['memberRates', 'projectPeople']) expect(report.notCarried.find(n => n.key === k), k).toBeUndefined()
+    // The rate cards: the two with entries, by their own ids, the cloud's workspace; the General one default (the cloud had none); the desktop's empty shell not carried; the entries with their people (Nadia's left).
+    expect(ins('rate_cards').map(c => [c.id, c.workspace_id, c.type, c.is_default])).toEqual([[GENERAL_CARD_ID, WS, 'general', true], [RATE_CARDS[1].id, WS, 'internal', false]])
+    for (const c of ins('rate_cards')) for (const k of ['source_file_id', 'created_by', 'deleted_at']) expect(c, k).not.toHaveProperty(k)
+    expect(report.rateCards).toEqual({ total: 2, inserted: 2, skipped: 0, failed: 0, empty: 1, defaultsLeft: 0, left: 0 })
+    expect(lines).toContain(`  ${EMPTY_CARDS(1)}`)
+    const internal = ins('rate_card_entries').filter(e => e.rate_card_id === RATE_CARDS[1].id)
+    expect(internal.map(e => e.member_id).sort()).toEqual(RATE_CARD_ENTRIES.filter(e => e.member_id).map(e => e.member_id).sort())
+    for (const e of ins('rate_card_entries')) { expect(e, 'total').not.toHaveProperty('total'); expect(e.role_slug).toBeTruthy() }
+    expect(report.rateCardEntries).toEqual({ total: RATE_CARD_ENTRIES.length, inserted: RATE_CARD_ENTRIES.length, skipped: 0, failed: 0, unmatched: 1, left: 0 })
+    expect(report.notCarried).toContainEqual({ key: 'entryPeople', label: 'rate card entry of a team member without a WILSON account', count: 1, later: true })
+    expect(report.notCarried).toContainEqual({ key: 'deptDefaults', label: "rate card's department default (no cloud home)", count: 1, later: false })
+    // The templates: the global one and the one pinned to Salt Hours, the cloud's workspace, the tasks' names; the assets' links restored by UPDATE, only where empty.
+    expect(ins('task_templates').map(t => [t.id, t.workspace_id, t.project_id])).toEqual([[TASK_TEMPLATES[0].id, WS, null], [TASK_TEMPLATES[1].id, WS, PROJECT.id]])
+    expect(ins('task_templates')[1].tasks.map(t => t.name)).toEqual(['Plates', 'Comp', 'Director review', 'Final'])
+    expect(report.taskTemplates).toEqual({ total: 2, inserted: 2, skipped: 0, failed: 0, orphans: 0, left: 0 })
+    const linked = fake.state.updates.filter(u => u.table === 'assets')
+    expect(linked.map(u => u.patch)).toEqual([{ task_template_id: TASK_TEMPLATES[1].id }])
+    expect(fake.state.lists.assets.find(a => a.id === ASSETS[0].id).task_template_id).toBe(TASK_TEMPLATES[1].id)
+    expect(report.assetTemplatesLinked).toBe(1)
+    expect(lines).toContain(`  ${ASSET_TEMPLATES_LINKED(1)}`)
+    expect(report.notCarried.map(n => n.key)).not.toContain('assetTemplates')
+    // The files kept with rows: two rows through the files columns, bodies where the company keeps its media (Petal), the small one whole, the large one by Range.
+    const small = byId('files', MANAGED.small.id)
+    const large = byId('files', MANAGED.large.id)
+    expect(small).toMatchObject({ project_id: PROJECT.id, name: 'plate.png', mime_type: 'image/png', size_bytes: 3, storage_provider: 'supabase', kind: 'source', is_core_definer: false, is_financial: false, asset_id: ASSET_ID(1), folder_id: FOLDERS.find(f => f.asset_id === ASSET_ID(1)).id, description: 'first plate', tags: ['reference'], uploaded_at: MANAGED.small.uploaded_at, created_at: MANAGED.small.uploaded_at })
+    expect(small.storage_path).toMatch(new RegExp(`^projects/${PROJECT.id}/files/${MANAGED.small.id}/\\d+-plate\\.png$`))
+    expect(large).toMatchObject({ name: 'plate_scan.mov', scene_id: SCENES[0].id, folder_id: FOLDERS.find(f => f.scene_id === SCENES[0].id).id, description: 'v002 · second pass', size_bytes: MANAGED.large.size_bytes })
+    for (const row of [small, large]) for (const k of ['stored_name', 'version', 'version_label', 'folder_path', 'extension', 'original_name', 'file_name', 'thumbnail_path', 'uploaded_by', 'notes', 'deleted_at']) expect(row, k).not.toHaveProperty(k)
+    expect(byId('files', MANAGED.deleted.id)).toBeUndefined()
+    expect(report.managedFiles).toMatchObject({ total: 2, inserted: 2, skipped: 0, failed: 0, bytes: 3 + MANAGED.large.size_bytes, placed: 2, bodiesGone: 0, server: 0, overCap: 0, overBound: 0, versions: 1 })
+    expect(report.notCarried).toContainEqual({ key: 'managedVersions', label: 'version label of a file kept with an asset, scene, shot, level or experience (the cloud keeps the file, not its number)', count: 1, later: false })
+    // The small body: one GET, the standard put (the Blob); the large: Range requests only, six MiB at a time, the resumable path reserved first and released.
+    const smallCalls = streamCalls.filter(c => c.id === MANAGED.small.id)
+    expect(smallCalls.map(c => c.range)).toEqual(['bytes=0-0', null])
+    expect(fake.state.uploads.find(u => u.path === small.storage_path)).toMatchObject({ size: 3, bucket: 'rabbit-files' })
+    const largeCalls = streamCalls.filter(c => c.id === MANAGED.large.id)
+    expect(largeCalls.every(c => c.range)).toBe(true)
+    expect(largeCalls.length).toBe(1 + Math.ceil(MANAGED.large.size_bytes / TUS_CHUNK_SIZE))
+    expect(fake.state.uploads.some(u => u.path === large.storage_path)).toBe(false)
+    expect(fake.state.tus).toEqual([{ key: large.storage_path, bucket: 'rabbit-files', chunks: expect.any(Array), headers: expect.objectContaining({ authorization: 'Bearer tok', 'x-upsert': 'false' }) }])
+    const chunks = fake.state.tus[0].chunks
+    expect(chunks.length).toBe(Math.ceil(MANAGED.large.size_bytes / TUS_CHUNK_SIZE))
+    expect(Math.max(...chunks)).toBeLessThanOrEqual(TUS_CHUNK_SIZE)
+    expect(chunks.reduce((a, c) => a + c, 0)).toBe(MANAGED.large.size_bytes)
+    expect(fake.state.reservations).toEqual([{ p_path: large.storage_path, p_bytes: MANAGED.large.size_bytes }])
+    expect(fake.state.released).toEqual([['release_upload_reservation', { p_path: large.storage_path }]])
+    // Every read of the stream was a probe: the desktop wrote no 'downloaded' event.
+    expect(streamCalls.every(c => c.probe)).toBe(true)
+    expect(streamEvents).toBe(0)
+    // The records: the project's seats by user id, its files with the managed ones; the workspace's cards, entries and templates.
+    const rec = recordOf(b)
+    expect(new Set(rec.project_members)).toEqual(new Set([MEMBER_ID.mara, MEMBER_ID.theo, MEMBER_ID.dev]))
+    expect(rec.files).toEqual(expect.arrayContaining([MANAGED.small.id, MANAGED.large.id]))
+    const wrec = workspaceRecordOf()
+    expect(new Set(wrec.rate_cards)).toEqual(new Set([GENERAL_CARD_ID, RATE_CARDS[1].id]))
+    expect(new Set(wrec.rate_card_entries)).toEqual(new Set(RATE_CARD_ENTRIES.map(e => e.id)))
+    expect(new Set(wrec.task_templates)).toEqual(new Set(TASK_TEMPLATES.map(t => t.id)))
+    expect(recordWrites.every(w => w.workspace_id === WS)).toBe(true)
+  })
+
+  it('writes in an order every key allows: the seats right after the project and before the phases; the cards before the projects; the files kept with rows after the folders and files; the templates after the last project; the assets\' links after the templates', async () => {
+    serveM3([withManaged(desktopFixtures())])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const log = fake.state.log
+    const first = (t) => log.indexOf(t); const last = (t) => log.lastIndexOf(t)
+    expect(first('project_members')).toBeGreaterThan(first('projects'))
+    expect(last('project_members')).toBeLessThan(first('phases'))
+    expect(last('rate_cards')).toBeLessThan(first('projects'))
+    expect(last('rate_card_entries')).toBeLessThan(first('projects'))
+    expect(first('task_templates')).toBeGreaterThan(last('projects'))
+    expect(first('task_templates')).toBeGreaterThan(last('assets'))
+    const managedInsert = fake.state.inserts.files.findIndex(f => f.id === MANAGED.small.id)
+    expect(managedInsert).toBeGreaterThanOrEqual(0)
+    // The files' inserts come after every folder's (the managed rows among them).
+    expect(first('files')).toBeGreaterThan(last('folders'))
+    const assetLink = fake.state.updates.findIndex(u => u.table === 'assets')
+    expect(assetLink).toBeGreaterThanOrEqual(0)
+  })
+
+  it('run twice: the second writes nothing — no seat, no card, no entry, no template, no body, no update — and the records name every row the first carried', async () => {
+    const b = withManaged(desktopFixtures())
+    serveM3([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const listsBefore = JSON.stringify(fake.state.lists)
+    const objectsBefore = JSON.stringify(fake.state.objects)
+    fake.state.log = []; fake.state.updates = []; fake.state.uploads = []; fake.state.tus = []; fake.state.reservations = []; streamCalls = []
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(JSON.stringify(fake.state.lists)).toBe(listsBefore)
+    expect(JSON.stringify(fake.state.objects)).toBe(objectsBefore)
+    expect(fake.state.log.filter(t => t !== 'bin_locations')).toEqual(['projects'])
+    expect(fake.state.updates).toEqual([])
+    expect(fake.state.uploads).toEqual([])
+    expect(fake.state.tus).toEqual([])
+    expect(streamCalls).toEqual([])
+    for (const k of ['projectMembers', 'rateCards', 'rateCardEntries', 'taskTemplates', 'managedFiles']) { expect(again[k].inserted, k).toBe(0); expect(again[k].failed, k).toBe(0) }
+    expect(again.projectMembers.skipped).toBe(4)
+    expect(again.managedFiles.skipped).toBe(2)
+    expect(again.assetTemplatesLinked).toBe(0)
+    expect(again.removed.rows).toEqual([])
+    expect(again.errors).toEqual([])
+  })
+
+  it('the dry run promises what the real run does: the people lines, the seats, the cards, the templates, the files kept with rows and their bytes — and writes nothing', async () => {
+    serveM3([withManaged(desktopFixtures())])
+    const lines = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(fake.state.log).toEqual([])
+    expect(fake.state.updates).toEqual([])
+    expect(fake.state.uploads).toEqual([])
+    expect(streamCalls).toEqual([])
+    expect(recordWrites).toEqual([])
+    expect(dry.people).toMatchObject({ matched: 8, desktop: DESKTOP_MEMBERS.length, managersSeated: [nameOf('mara')] })
+    expect(dry.projectMembers).toMatchObject({ total: 4, inserted: 3, skipped: 1, unmatched: 2 })
+    expect(dry.rateCards).toMatchObject({ total: 2, inserted: 2, empty: 1 })
+    expect(dry.rateCardEntries).toMatchObject({ inserted: RATE_CARD_ENTRIES.length, unmatched: 1 })
+    expect(dry.taskTemplates).toMatchObject({ total: 2, inserted: 2 })
+    expect(dry.assetTemplatesLinked).toBe(1)
+    expect(dry.managedFiles).toMatchObject({ total: 2, inserted: 2, bytes: 3 + MANAGED.large.size_bytes, versions: 1 })
+    expect(lines).toContain(`  ${MANAGED_FILES_WILL_UPLOAD(2, 3 + MANAGED.large.size_bytes)}`)
+    const real = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const k of ['rateCards', 'rateCardEntries', 'taskTemplates', 'managedFiles']) expect(real[k].inserted, k).toBe(dry[k].inserted)
+    expect(real.projectMembers.inserted).toBe(dry.projectMembers.inserted)
+    expect(real.assetTemplatesLinked).toBe(dry.assetTemplatesLinked)
+  })
+
+  it('CONTROL: the desktop\'s rows as it keeps them are refused as wilson-dev refused them, and the runner never sends one so', async () => {
+    fake.state.lists.projects = [{ id: PROJECT.id, workspace_id: WS }]
+    fake.state.lists.workspace_members = MEMBERS.map(m => ({ workspace_id: WS, user_id: m.user_id, is_active: true }))
+    const insert = (table, row) => fake.client.from(table).insert(row)
+    const b = withManaged(desktopFixtures())
+    const stores = desktopStores()
+    // A seat for a desktop id (no member), a role outside the three, the pair twice.
+    expect((await insert('project_members', { project_id: PROJECT.id, user_id: DM('mara'), project_role: 'manager' })).error).toMatchObject({ code: '23503', message: expect.stringMatching(/project_members_member_fkey/) })
+    expect((await insert('project_members', { project_id: PROJECT.id, user_id: MEMBER_ID.mara, project_role: 'producer' })).error).toMatchObject({ code: '23514' })
+    expect((await insert('project_members', { project_id: PROJECT.id, user_id: MEMBER_ID.mara, project_role: 'manager' })).error).toBeNull()
+    expect((await insert('project_members', { project_id: PROJECT.id, user_id: MEMBER_ID.mara, project_role: 'member' })).error).toMatchObject({ code: '23505', message: expect.stringMatching(/project_members_pkey/) })
+    // A card with the desktop's workspace, a type outside the two; an entry with the desktop's total, a blank wage, a type outside percent|fixed.
+    expect((await insert('rate_cards', { ...stores.rateCards[0].card })).error).toMatchObject({ code: '42501' })
+    expect((await insert('rate_cards', { id: 'rc-x', workspace_id: WS, name: 'x', type: 'vendor' })).error).toMatchObject({ code: '23514', message: expect.stringMatching(/rc_type_chk/) })
+    expect((await insert('rate_cards', { id: GENERAL_CARD_ID, workspace_id: WS, name: 'x', type: 'general', is_default: true })).error).toBeNull()
+    expect((await insert('rate_card_entries', { ...stores.rateCards[1].entries[0], rate_card_id: GENERAL_CARD_ID })).error).toMatchObject({ code: 'PGRST204', message: expect.stringMatching(/'total'/) })
+    expect((await insert('rate_card_entries', { id: 'e-x', rate_card_id: GENERAL_CARD_ID, role_label: 'x', role_slug: 'x', wage: '' })).error).toMatchObject({ code: '22P02' })
+    expect((await insert('rate_card_entries', { id: 'e-y', rate_card_id: GENERAL_CARD_ID, role_label: 'x', role_slug: 'x', burden_type: 'flat' })).error).toMatchObject({ code: '23514', message: expect.stringMatching(/rce_burden_type_chk/) })
+    // A template with the desktop's workspace; pinned to another workspace's project; tasks not an array.
+    expect((await insert('task_templates', { ...omit(stores.templates[0], ['created_by', 'updated_by']) })).error).toMatchObject({ code: '42501' })
+    expect((await insert('task_templates', { id: 't-x', workspace_id: WS, name: 'x', description: '', tasks: [], project_id: 'p-other' })).error).toMatchObject({ code: '23503', message: expect.stringMatching(/task_templates_project_workspace_fk/) })
+    expect((await insert('task_templates', { id: 't-y', workspace_id: WS, name: 'x', description: '', tasks: { a: 1 } })).error).toMatchObject({ code: '23514' })
+    // A files row with a managed row's keys, or its provider; an asset version in the desktop's shape.
+    expect((await insert('files', { ...b.managedFiles[0] })).error).toMatchObject({ code: 'PGRST204', message: expect.stringMatching(/'file_name'|'stored_name'|'version'/) })
+    expect((await insert('files', { id: 'f-x', project_id: PROJECT.id, name: 'x', storage_provider: 'local_managed', storage_path: 'projects/x/files/y/z' })).error).toMatchObject({ code: '22P02', message: expect.stringMatching(/local_managed/) })
+    expect((await insert('asset_versions', { id: 'v-x', asset_id: 'a', project_id: PROJECT.id, version_no: 1 })).error).toMatchObject({ code: 'PGRST204', message: expect.stringMatching(/'project_id'/) })
+    // The runner's rows land.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([b])
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([])
+    expect(ins('project_members')).toHaveLength(3)
+    expect(ins('rate_cards')).toHaveLength(2)
+    expect(ins('task_templates')).toHaveLength(2)
+  })
+
+  it('CONTROL: a person column sent raw (the rule before M3) names nobody; the map is what removes the desktop id — and a project row shaped without the map keeps it', () => {
+    const map = peopleMapOf({ members: DESKTOP_MEMBERS, directory: DIRECTORY, callerUserId: MEMBER_ID.mara })
+    const desktop = desktopFixtures().project
+    expect(projectRowForCloud(desktop, WS).producer_id).toBe(DM('mara'))
+    expect(projectRowForCloud(desktop, WS, map).producer_id).toBe(MEMBER_ID.mara)
+    expect(budgetLineRowForCloud({ id: 'l', team_member_id: DM('sofia') }, PROJECT.id).team_member_id).toBeNull()
+    expect(budgetLineRowForCloud({ id: 'l', team_member_id: DM('sofia') }, PROJECT.id, map).team_member_id).toBe(MEMBER_ID.sofia)
+    expect(budgetLineRowForCloud({ id: 'l', team_member_id: NADIA_ID }, PROJECT.id, map).team_member_id).toBeNull()
+  })
+
+  it('CONTROL: the mover\'s own seat, made by the project\'s insert, is met on its pair and skipped — never upserted, its role as the cloud gave it, recorded', async () => {
+    const b = desktopFixtures()
+    // The desktop says Mara is a member; the cloud seated her manager when the project went in (fn_projects_auto_staff — measured).
+    b.teamAssignments = b.teamAssignments.map(a => (a.member_id === DM('mara') ? { ...a, role: 'member' } : a))
+    serveM3([b])
+    fake.state.lists.project_members = [{ project_id: PROJECT.id, user_id: MEMBER_ID.mara, workspace_id: WS, project_role: 'manager' }]
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([])
+    expect(ins('project_members').map(r => r.user_id)).not.toContain(MEMBER_ID.mara)
+    expect(fake.state.lists.project_members.find(r => r.user_id === MEMBER_ID.mara).project_role).toBe('manager')
+    expect(fake.state.updates.filter(u => u.table === 'project_members')).toEqual([])
+    expect(fake.client.from('project_members').upsert).toBeUndefined()
+    expect(recordOf(b).project_members).toContain(MEMBER_ID.mara)
+    expect(report.projectMembers).toMatchObject({ skipped: 2, inserted: 2 })
+    // A seat a teammate removes stays removed.
+    fake.state.lists.project_members = fake.state.lists.project_members.filter(r => r.user_id !== MEMBER_ID.theo)
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(fake.state.lists.project_members.some(r => r.user_id === MEMBER_ID.theo)).toBe(false)
+    expect(again.removed.byTable).toEqual({ project_members: 1 })
+    expect(again.removed.rows[0].name).toBe(nameOf('theo'))
+  })
+
+  it('below admin or manager nobody is matched: said once, no seat, every person column empty and counted, the run not done (the panel\'s gate) — and a directory the cloud did not answer is an error, never "ask an admin"', async () => {
+    const b = desktopFixtures()
+    serveM3([b])
+    fake.state.callerId = MEMBER_ID.priya
+    fake.state.directory = DIRECTORY.map(r => ({ ...r, email: r.user_id === MEMBER_ID.priya ? r.email : null }))
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(lines).toContain(`  ${PEOPLE_NEED_ADMIN}`)
+    expect(report.people).toMatchObject({ canMatch: false, needAdmin: true, matched: 0 })
+    expect(ins('project_members')).toEqual([])
+    expect(personColumns()).toEqual([])
+    expect(report.notCarried.map(n => n.key)).toEqual(expect.arrayContaining(['teamAssignments', 'taskPeople', 'projectPeople', 'lineTeamMembers']))
+    expect(report.errors).toEqual([])
+    // The directory unreadable: an error, said as one.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([desktopFixtures()])
+    fake.state.directoryError = { code: '08006', message: 'connection failure' }
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.errors).toContainEqual({ scope: 'people', message: PEOPLE_UNREAD('connection failure') })
+    expect(again.people.needAdmin).toBe(false)
+  })
+
+  it('the people on rows an earlier run carried without them are set once — a line\'s person where null, a task\'s or the project\'s where the raw desktop id still stands — recorded, and a teammate who clears one is not overruled; the producer set is seated as manager', async () => {
+    const b = desktopFixtures()
+    // An earlier build's run: the project with raw desktop ids, the lines without their person, the tasks with raw ids, and its record.
+    const raw = ins
+    serve([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(fake.state.lists.projects[0].producer_id).toBeNull()
+    // Make the cloud look like a pre-M3 build's: the raw ids on the project and the tasks (the build before M3 sent them so).
+    fake.state.lists.projects[0].producer_id = DM('mara')
+    fake.state.lists.projects[0].director_id = DM('theo')
+    for (const t of fake.state.lists.tasks) { const src = TASKS.find(x => x.id === t.id); t.assignee_id = DESKTOP_ID_OF.get(src.assignee_id); t.reviewer_id = DESKTOP_ID_OF.get(src.reviewer_id) }
+    void raw
+    fake.state.log = []; fake.state.updates = []
+    serveM3([b])
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    // Every column naming a matched person is set; Lena's (no account yet) keep the raw id until she joins.
+    const linesWithPeople = BUDGET_LINES.filter(l => l.team_member_id && !lenaIs(l.team_member_id)).length
+    const taskColumns = TASKS.flatMap(t => [t.assignee_id, t.reviewer_id]).filter(u => u && !lenaIs(u)).length
+    expect(report.people.set).toBe(linesWithPeople + taskColumns + 2)
+    expect(lines).toContain(`  ${PEOPLE_SET(report.people.set)}`)
+    const rawOr = (uid) => (lenaIs(uid) ? DESKTOP_ID_OF.get(String(uid)) : uid)
+    for (const l of BUDGET_LINES.filter(l => l.team_member_id)) expect(fake.state.lists.budget_lines.find(x => x.id === l.id).team_member_id, l.label).toBe(lenaIs(l.team_member_id) ? null : l.team_member_id)
+    for (const t of TASKS) expect(fake.state.lists.tasks.find(x => x.id === t.id), t.title).toMatchObject({ assignee_id: rawOr(t.assignee_id), reviewer_id: rawOr(t.reviewer_id) })
+    expect(fake.state.lists.projects[0]).toMatchObject({ producer_id: MEMBER_ID.mara, director_id: MEMBER_ID.theo })
+    expect(report.people.managersSeated).toEqual([nameOf('mara')])
+    const set = recordOf(b).people_set
+    expect(set).toContain(`project:${PROJECT.id}:producer_id`)
+    expect(set).toContain(`task:${TASKS[0].id}:assignee_id`)
+    expect(set.filter(k => k.startsWith('line:'))).toHaveLength(linesWithPeople)
+    // Every update was guarded on the column's current value (null, or the raw id): the fake's filters say so.
+    for (const u of fake.state.updates.filter(u => ['tasks', 'budget_lines', 'projects'].includes(u.table))) expect(u.filters.some(([c, , op]) => op === 'is' || c === Object.keys(u.patch)[0]), JSON.stringify(u)).toBe(true)
+    // A teammate clears a line's person and a task's assignee: no later run sets them again.
+    const line = BUDGET_LINES.find(l => l.team_member_id && !lenaIs(l.team_member_id))
+    fake.state.lists.budget_lines.find(x => x.id === line.id).team_member_id = null
+    fake.state.lists.tasks.find(x => x.id === TASKS[0].id).assignee_id = null
+    fake.state.updates = []
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.people.set).toBe(0)
+    expect(fake.state.updates.filter(u => ['tasks', 'budget_lines', 'projects'].includes(u.table))).toEqual([])
+    expect(fake.state.lists.budget_lines.find(x => x.id === line.id).team_member_id).toBeNull()
+    // CONTROL: without the record (an earlier build's), the cleared line would be filled again.
+    delete b[RECORD_KEY]
+    const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(third.people.set).toBeGreaterThan(0)
+    expect(fake.state.lists.budget_lines.find(x => x.id === line.id).team_member_id).toBe(line.team_member_id)
+  })
+})
+
+describe('M3: the files kept with rows — the storage rule, the body, the key', () => {
+  it('a body gone from the disk (410) is counted and said, not failed, not uploaded, and the run is not done; a link to a row removed on this computer is let go; a link to a row that failed holds the file', async () => {
+    const b = withManaged(desktopFixtures())
+    b.managedFiles.push({ ...MANAGED.small, id: '0e1a0000-0000-4000-8000-0000000f0009', asset_id: 'asset-removed-here', original_name: 'orphan.png' })
+    serveM3([b], { gone: new Set([MANAGED.large.id]) })
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(report.managedFiles).toMatchObject({ total: 2, inserted: 2, failed: 0, bodiesGone: 1, linksLetGo: 1 })
+    expect(byId('files', MANAGED.large.id)).toBeUndefined()
+    expect(byId('files', '0e1a0000-0000-4000-8000-0000000f0009').asset_id).toBeNull()
+    expect(lines).toContain(`  ${BODIES_GONE(1)}`)
+    expect(recordOf(b).files).not.toContain(MANAGED.large.id)
+    expect(fake.state.tus).toEqual([])
+    // A second run with the body back carries it (never called removed).
+    serveM3([b])
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('files', MANAGED.large.id)).toBeTruthy()
+    expect(again.removed.rows).toEqual([])
+    // A file whose asset failed this run waits with it.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    const c = withManaged(desktopFixtures())
+    serveM3([c])
+    fake.state.failWith = (table, row) => (table === 'assets' && row.id === ASSET_ID(1) ? { code: '08006', message: 'connection failure' } : null)
+    const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('files', MANAGED.small.id)).toBeUndefined()
+    expect(third.errors.find(e => e.scope === 'managed_file' && e.id === MANAGED.small.id)?.message).toMatch(/its asset is not in the cloud, so the file was not carried \(a second run brings both\)/)
+  })
+
+  it('a company on its own server (her ruling of 2026-10-28): nothing uploaded, no files row, one sentence; a private project the same; the ordinary files go as before', async () => {
+    const b = withManaged(desktopFixtures())
+    serveM3([b])
+    fake.state.lists.workspace_storage = [{ workspace_id: WS, mode: 'byos', provider: 'network', provider_config: null, root_path: '\\\\nas\\media', root_kind: 'unc', updated_at: null, updated_by: null }]
+    clearWorkspaceStorageCache()
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(byId('files', MANAGED.small.id)).toBeUndefined()
+    expect(byId('files', MANAGED.large.id)).toBeUndefined()
+    expect(fake.state.uploads.some(u => u.path.includes(MANAGED.small.id))).toBe(false)
+    expect(fake.state.tus).toEqual([])
+    expect(streamCalls).toEqual([])
+    expect(report.managedFiles).toMatchObject({ total: 0, inserted: 0, server: 2 })
+    expect(lines).toContain(`  ${SERVER_MEDIA_STAY(2)}`)
+    expect(report.notCarried).toContainEqual({ key: 'managedFilesServer', label: "files kept with assets, scenes, shots, levels and experiences on the company's own server (the browser says where they are)", count: 2, later: false })
+    expect(ins('files').length).toBe(ALL_FILES.length)
+    // A private project: its media lives on the computer that added it.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    fake.state.lists.workspace_storage = []
+    clearWorkspaceStorageCache()
+    const c = withManaged(desktopFixtures())
+    c.project.is_private = true
+    serveM3([c])
+    const second = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(second.managedFiles).toMatchObject({ total: 0, privateHome: 2 })
+    expect(byId('files', MANAGED.small.id)).toBeUndefined()
+    // CONTROL: on Petal the same two go up.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    clearWorkspaceStorageCache()
+    serveM3([withManaged(desktopFixtures())])
+    const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(third.managedFiles.inserted).toBe(2)
+  })
+
+  it('a company in its own bucket (s3): one PUT through the s3 provider, up to its bound; a body past 5 GiB is left and counted; money never goes there (the invoices stay on Supabase)', async () => {
+    const realS3 = getStorageProvider(FILE_PROVIDERS.S3)
+    const puts = []
+    registerStorageProvider(FILE_PROVIDERS.S3, { ...realS3, put: async (key, body, opts) => { puts.push({ key, size: body?.size, contentType: opts?.contentType }); return { key } } })
+    try {
+      const b = withManaged(desktopFixtures())
+      b.managedFiles.push({ ...MANAGED.large, id: '0e1a0000-0000-4000-8000-0000000f0010', original_name: 'master.mov', size_bytes: 5 * 1024 * 1024 * 1024 + 1 })
+      serveM3([b])
+      fake.state.lists.workspace_storage = [{ workspace_id: WS, mode: 'byos', provider: 's3', provider_config: { bucket: 'b' }, root_path: null, root_kind: null, updated_at: null, updated_by: null }]
+      clearWorkspaceStorageCache()
+      const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+      expect(report.errors).toEqual([])
+      expect(puts.map(p => p.size).sort((x, y) => x - y)).toEqual([3, MANAGED.large.size_bytes])
+      expect(byId('files', MANAGED.small.id).storage_provider).toBe('s3')
+      expect(byId('files', MANAGED.large.id).storage_provider).toBe('s3')
+      expect(byId('files', '0e1a0000-0000-4000-8000-0000000f0010')).toBeUndefined()
+      expect(report.managedFiles).toMatchObject({ inserted: 2, overBound: 1 })
+      expect(fake.state.tus).toEqual([])
+      expect(fake.state.reservations).toEqual([])
+      // Money stays on Supabase whatever the company chose: the pin, and the invoices' rows.
+      expect(fileProviderFor('s3', { financial: true })).toBe('supabase')
+      for (const f of FILES.filter(f => f.is_financial)) expect(byId('files', f.id).storage_provider, f.id).toBe('supabase')
+    } finally {
+      registerStorageProvider(FILE_PROVIDERS.S3, realS3)
+      clearWorkspaceStorageCache()
+    }
+  })
+
+  it('the key is never reused: an object already under the file\'s directory of the body\'s size is taken as the body (a run that stopped before the row) and nothing is uploaded again; one of another size is not', async () => {
+    const b = withManaged(desktopFixtures())
+    serveM3([b])
+    const dir = `projects/${PROJECT.id}/files/${MANAGED.large.id}`
+    fake.state.objects.push({ bucket: 'rabbit-files', name: `${dir}/.emptyFolderPlaceholder`, size: 0 }, { bucket: 'rabbit-files', name: `${dir}/1700000000000-plate_scan.mov`, size: MANAGED.large.size_bytes })
+    fake.state.objects.push({ bucket: 'rabbit-files', name: `projects/${PROJECT.id}/files/${MANAGED.small.id}/1700000000000-plate.png`, size: 99 })
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([])
+    expect(byId('files', MANAGED.large.id).storage_path).toBe(`${dir}/1700000000000-plate_scan.mov`)
+    expect(fake.state.tus).toEqual([])
+    expect(report.managedFiles.bytes).toBe(3)
+    // The small one's stray object is another size: a new key, uploaded.
+    expect(byId('files', MANAGED.small.id).storage_path).not.toBe(`projects/${PROJECT.id}/files/${MANAGED.small.id}/1700000000000-plate.png`)
+    expect(fake.state.uploads.filter(u => u.path.includes(MANAGED.small.id))).toHaveLength(1)
+  })
+
+  it('CONTROL: a managed row\'s shape and folder, pure — the name with its extension, the folder at its path else its entity\'s, the version label ahead of the notes only past the first version, no Legal tag', () => {
+    expect(managedFileName({ original_name: 'Plate.PNG' })).toBe('Plate.PNG')
+    expect(managedFileName({ file_name: 'plate', extension: '.png' })).toBe('plate.png')
+    expect(managedFileName({ file_name: 'plate.png', extension: '.png' })).toBe('plate.png')
+    expect(managedFileName({})).toBe('file')
+    const folders = [...FOLDERS]
+    const assetFolder = folders.find(f => f.asset_id === ASSET_ID(1))
+    expect(desktopFolderOfManagedFile({ folder_path: `${assetFolder.path}/`, asset_id: ASSET_ID(2) }, folders).id).toBe(assetFolder.id)
+    expect(desktopFolderOfManagedFile({ folder_path: 'ASSETS/nowhere/', asset_id: ASSET_ID(1) }, folders).id).toBe(assetFolder.id)
+    expect(desktopFolderOfManagedFile({ folder_path: 'ASSETS/nowhere/' }, folders)).toBeNull()
+    const base = { id: 'f', notes: 'n', version: 1, tags: ['legal', 'reference', 'finance', 'nope'] }
+    const one = managedFileRowForCloud(base, 'p', { storageProvider: 'supabase', storagePath: 'k' })
+    expect(one.row.description).toBe('n')
+    expect(one.row.tags).toEqual(['reference'])
+    expect(one.versionLeft).toBe(false)
+    const two = managedFileRowForCloud({ ...base, version: 2, version_label: 'v002', notes: '' }, 'p', { storageProvider: 'supabase', storagePath: 'k' })
+    expect(two.row.description).toBe('v002')
+    expect(two.versionLeft).toBe(true)
+    expect(managedFileRowForCloud({ ...base, version: 3, version_label: '' }, 'p', { storageProvider: 'supabase', storagePath: 'k' }).row.description).toBe('v003 · n')
+  })
+})
+
+describe('M3: the rate cards and the templates — who may, whose a card is', () => {
+  it('a card whose id the cloud holds out of sight (trashed, or another company\'s) is refused in words and never recorded; one the cloud shows is skipped and recorded; the cloud\'s own default of a type keeps the desktop\'s default off', async () => {
+    const b = desktopFixtures()
+    serveM3([b])
+    fake.state.lists.rate_cards = [
+      { id: GENERAL_CARD_ID, workspace_id: 'ws-other', type: 'general', is_default: true, name: 'Theirs' },
+      { id: 'rc-cloud-general', workspace_id: WS, type: 'general', is_default: true, name: 'General Rate Card' },
+      { id: RATE_CARDS[1].id, workspace_id: WS, type: 'internal', is_default: false, name: 'Internal Rate Card', deleted_at: null },
+    ]
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([{ scope: 'rate_card', id: GENERAL_CARD_ID, message: CARD_NOT_OURS('General Rate Card') }])
+    expect(report.rateCards).toMatchObject({ inserted: 0, skipped: 1, failed: 1 })
+    expect(workspaceRecordOf().rate_cards).toEqual([RATE_CARDS[1].id])
+    // The internal card's entries went up under it; the general card's did not (their card was refused).
+    expect(ins('rate_card_entries').every(e => e.rate_card_id === RATE_CARDS[1].id)).toBe(true)
+    // A trashed card of this workspace: the same answer.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([desktopFixtures()])
+    fake.state.lists.rate_cards = [{ id: GENERAL_CARD_ID, workspace_id: WS, type: 'general', is_default: false, name: 'Old', deleted_at: '2026-10-01T00:00:00Z' }]
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.errors).toEqual([{ scope: 'rate_card', id: GENERAL_CARD_ID, message: CARD_NOT_OURS('General Rate Card') }])
+    expect(workspaceRecordOf().rate_cards ?? []).not.toContain(GENERAL_CARD_ID)
+    // The cloud's default of the type: the desktop's General lands with is_default false, counted.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([desktopFixtures()])
+    fake.state.lists.rate_cards = [{ id: 'rc-cloud-general', workspace_id: WS, type: 'general', is_default: true, name: 'General Rate Card' }]
+    const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('rate_cards', GENERAL_CARD_ID).is_default).toBe(false)
+    expect(third.rateCards.defaultsLeft).toBe(1)
+    expect(fake.state.lists.rate_cards.find(c => c.id === 'rc-cloud-general').is_default).toBe(true)
+  })
+
+  it('a manager without the edit grant leaves the cards here, said once, nothing tried, the run not done; a plain user the templates; a refused entry stops the card\'s entries, counted', async () => {
+    serveM3([desktopFixtures()])
+    fake.state.callerId = MEMBER_ID.kenji
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(fake.state.log).not.toContain('rate_cards')
+    expect(report.rateCards).toMatchObject({ total: 0, left: 3 })
+    expect(report.needsRights.rateCards).toBe(true)
+    expect(lines).toContain(`  ${RATE_CARDS_NEED_RIGHT(3)}`)
+    // A manager matches people and writes the templates.
+    expect(report.people.matched).toBe(8)
+    expect(ins('task_templates')).toHaveLength(2)
+    // The entries' gate met mid-way (the grant withdrawn): the card lands, its entries are counted, no error.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([desktopFixtures()])
+    fake.state.entryGate = false
+    const second = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(second.errors).toEqual([])
+    expect(second.rateCards.inserted).toBe(2)
+    expect(second.rateCardEntries).toMatchObject({ inserted: 0, left: RATE_CARD_ENTRIES.length, unmatched: 1 })
+    // One insert met the gate; the rest were not tried (the gate is the person's, not a card's).
+    expect(fake.state.log.filter(t => t === 'rate_card_entries')).toHaveLength(1)
+    // The templates by a plain user who is a project manager: the pinned one lands, the global one is left, said, the run not done.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([desktopFixtures()])
+    fake.state.callerId = MEMBER_ID.priya
+    fake.state.directory = DIRECTORY.map(r => ({ ...r, email: r.user_id === MEMBER_ID.priya ? r.email : null }))
+    fake.state.templateGate = 'pinned'
+    const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(ins('task_templates').map(t => t.id)).toEqual([TASK_TEMPLATES[1].id])
+    expect(third.taskTemplates).toMatchObject({ inserted: 1, left: 1 })
+    expect(third.needsRights.templates).toBe(true)
+    expect(lines).toContain(`  ${TEMPLATES_LEFT(1)}`)
+  })
+
+  it('a template pinned to a project not on this computer is left, counted; one whose project failed this run waits; an asset\'s link goes only to a template the cloud holds under this workspace (another workspace\'s id is never written), and only where empty', async () => {
+    const b = desktopFixtures()
+    const stores = desktopStores()
+    stores.templates.push({ ...stores.templates[1], id: '0e1a0000-0000-4000-8000-00000000e001', name: 'Orphan', project_id: 'p-deleted-on-desktop' })
+    b.assets = b.assets.map((a, i) => (i === 1 ? { ...a, task_template_id: '0e1a0000-0000-4000-8000-00000000e002' } : i === 2 ? { ...a, task_template_id: TASK_TEMPLATES[0].id } : a))
+    serveM3([b], { stores })
+    // Another workspace's template, hidden from this one's reads; an asset already linked by a teammate.
+    fake.state.lists.task_templates = [{ id: '0e1a0000-0000-4000-8000-00000000e002', workspace_id: 'ws-other', project_id: null, name: 'Theirs' }]
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.errors).toEqual([])
+    expect(report.taskTemplates).toMatchObject({ inserted: 2, orphans: 1 })
+    expect(lines).toContain(`  ${TEMPLATES_ORPHAN(1)}`)
+    expect(fake.state.updates.filter(u => u.table === 'assets').map(u => u.patch.task_template_id)).toEqual([TASK_TEMPLATES[0].id])
+    expect(fake.state.lists.assets.find(a => a.id === ASSETS[1].id).task_template_id ?? null).toBeNull()
+    expect(report.notCarried).toContainEqual({ key: 'assetTemplates', label: "asset's task template not in the cloud", count: 1, later: true })
+    // CONTROL: the key takes another workspace's template (measured), so only the runner's set stands in the way.
+    const update = await fake.client.from('assets').update({ task_template_id: '0e1a0000-0000-4000-8000-00000000e002' }).eq('id', ASSETS[1].id).eq('project_id', PROJECT.id).select('id')
+    expect(update.error).toBeNull()
+    expect(update.data).toHaveLength(1)
+    // A pinned template whose project failed waits.
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
+    serveM3([desktopFixtures()])
+    fake.state.failWith = (table) => (table === 'projects' ? { code: '08006', message: 'connection failure' } : null)
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(byId('task_templates', TASK_TEMPLATES[0].id)).toBeTruthy()
+    expect(byId('task_templates', TASK_TEMPLATES[1].id)).toBeUndefined()
+    expect(again.errors.find(e => e.scope === 'task_template')?.message).toMatch(/its project is not in the cloud, so the template was not carried \(a second run brings both\)/)
+  })
+})
+
+describe('M3: the archive keeps its promise (electron/main.cjs, archiveLocalRabbitData)', () => {
+  it('archives the projects, the thumbnails, the three workspace stores and the workspace records into one file, then clears them all', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const os = await import('node:os')
+    // eslint-disable-next-line no-new-func
+    const archive = new Function(`${liftFunction(MAIN_CJS, 'archiveLocalRabbitData')}\nreturn archiveLocalRabbitData`)()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rabbit-archive-'))
+    const write = (rel, data) => { const p = path.join(dir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(data)) }
+    write('projects/p1/project.json', { project: { id: 'p1', title: 'One' } })
+    write('thumbnails/asset-x.jpg', 'not json')
+    write('rate-cards/rc1.json', { card: { id: 'rc1', name: 'General' }, entries: [{ id: 'e1' }], dept_defaults: [{ department: 'Post' }] })
+    write('team-members/m1.json', { id: 'm1', name: 'Mara' })
+    write('task-templates/t1.json', { id: 't1', name: 'Build' })
+    write('cloud-migration/ws1.json', { cloudMigration: { ws1: { carried: { rate_cards: ['rc1'] } } } })
+    const out = archive(dir, fs, path)
+    expect(out.ok).toBe(true)
+    expect(out.projectCount).toBe(1)
+    expect(out.storeCounts).toEqual({ 'rate-cards': 1, 'team-members': 1, 'task-templates': 1, 'cloud-migration': 1 })
+    const snapshot = JSON.parse(fs.readFileSync(out.archivePath, 'utf-8'))
+    expect(snapshot.projects).toEqual([{ project: { id: 'p1', title: 'One' } }])
+    expect(snapshot.workspace['rate-cards']).toEqual([{ card: { id: 'rc1', name: 'General' }, entries: [{ id: 'e1' }], dept_defaults: [{ department: 'Post' }] }])
+    expect(snapshot.workspace['team-members']).toEqual([{ id: 'm1', name: 'Mara' }])
+    expect(snapshot.workspace['task-templates']).toEqual([{ id: 't1', name: 'Build' }])
+    expect(snapshot.workspace['cloud-migration']).toEqual([{ cloudMigration: { ws1: { carried: { rate_cards: ['rc1'] } } } }])
+    // CONTROL: every store is cleared with the projects (the function before M3 left the three stores and would have left the records).
+    for (const rel of ['projects', 'thumbnails', 'rate-cards', 'team-members', 'task-templates', 'cloud-migration']) expect(fs.existsSync(path.join(dir, rel)), rel).toBe(false)
+    expect(fs.existsSync(path.join(dir, 'archives'))).toBe(true)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+

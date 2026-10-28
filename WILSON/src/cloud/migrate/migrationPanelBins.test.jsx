@@ -30,7 +30,7 @@ vi.mock('./runMigration', async (orig) => {
 })
 vi.mock('../auth/supabaseClient', () => ({ supabase: {} }))
 
-const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED, MIGRATE_AGAIN_MONEY, MIGRATE_AGAIN_RECORD } = await import('./MigrationPanel')
+const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED, MIGRATE_AGAIN_MONEY, MIGRATE_AGAIN_RECORD, MIGRATE_AGAIN_BODIES, MIGRATE_AGAIN_RIGHTS } = await import('./MigrationPanel')
 const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE,
   FILES_PLACED, ARCHIVED_IN_CLOUD, LIVE_IN_CLOUD, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED,
@@ -38,6 +38,9 @@ const {
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT,
   RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
+  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, PEOPLE_SET,
+  RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
+  MANAGED_FILES_WILL_UPLOAD, MANAGED_FILES_UPLOADED, SERVER_MEDIA_STAY, BODIES_GONE, MANAGED_OVER_CAP, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
 } = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
 
@@ -316,7 +319,7 @@ describe('the question, once per root', () => {
       budgetVersions: bucket(2), budgetLines: bucket(35), budgetActuals: { ...bucket(4), orphans: 0 }, expenses: bucket(3), rateOverrides: bucket(1),
     }))
     const labels = [...document.querySelectorAll('table.s-table tbody tr td:first-child')].map(td => td.textContent)
-    expect(labels.slice(0, 23)).toEqual(['projects', 'phases', 'key dates', 'levels', 'experiences', 'assets', 'tasks', 'task dependencies', 'phase links', 'links on tasks', 'comments', 'scenes', 'shots', 'shot lists', 'items on shot lists', 'edits', 'folders', 'files', 'bid versions', 'budget lines', 'actuals', 'expenses', 'role rates'])
+    expect(labels.slice(0, 23)).toEqual(['projects', 'phases', 'key dates', 'levels', 'experiences', 'assets', 'tasks', 'task dependencies', 'phase links', 'links on tasks', 'comments', 'scenes', 'shots', 'shot lists', 'items on shot lists', 'edits', 'folders', 'files', 'bid versions', 'budget lines', 'actuals', 'expenses', 'rates'])
     const row = (label) => [...document.querySelectorAll('table.s-table tbody tr')].find(tr => tr.firstChild.textContent === label)
     expect([...row('items on shot lists').children].map(td => td.textContent)).toEqual(['items on shot lists', '29', '0', '0', '0'])
     expect([...row('budget lines').children].map(td => td.textContent)).toEqual(['budget lines', '35', '0', '0', '0'])
@@ -381,7 +384,8 @@ describe('the question, once per root', () => {
     }))
     const said = (id) => screen.getByTestId(id).textContent
     expect(said('receipts-left-open')).toBe(`${RECEIPTS_LEFT_OPEN(1)}.`)
-    expect(RECEIPTS_LEFT_OPEN(1)).toBe('1 receipt an earlier run carried as an ordinary file is open to every member of the project in the cloud: the migration cannot put it behind the money gate yet (a workspace admin can remove it there, and no later run brings it back)')
+    // M3: the move is made now (RECEIPTS_MOVED); this line is for one that did not take.
+    expect(RECEIPTS_LEFT_OPEN(1)).toBe('1 receipt an earlier run carried as an ordinary file is still open to every member of the project in the cloud: the move behind the money gate did not take this run (the errors say why) — run again, or a workspace admin can remove it there, and no later run brings it back')
     expect(said('line-pcts-left-out')).toBe(`${LINE_PCTS_LEFT_OUT(2)}.`)
     expect(said('actuals-taken')).toBe(`${ACTUALS_TAKEN(1)}.`)
     expect(said('rates-taken')).toBe(`${RATES_TAKEN(1)}.`)
@@ -439,11 +443,97 @@ describe('the question, once per root', () => {
     // Only what there is: no "0 edits".
     expect(ARCHIVED_IN_CLOUD(2, 0, false)).toBe('2 shot lists archived in the cloud too, as on this computer')
     // M2: the record of what each run carried — nothing a teammate removed comes back.
-    expect(MIGRATE_DONE).toBe('Done. Running it again writes nothing already in the cloud and brings back nothing a teammate removed there since: this computer keeps a record of every row the migration carried. The team, asset versions and the files kept with assets, scenes, shots, levels and experiences on this computer move in a later run of the migration.')
-    expect(MIGRATE_DONE).not.toMatch(/comes back|part 2/)
-    expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/a later run of the migration carries/)
+    // M3: the team, the files kept with rows, the cards and the templates move too, so Done names no later run.
+    expect(MIGRATE_DONE).toBe('Done. Running it again writes nothing already in the cloud and brings back nothing a teammate removed there since: this computer keeps a record of every row the migration carried.')
+    expect(MIGRATE_DONE).not.toMatch(/comes back|part 2|later run/)
+    expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/team members, rate cards and task templates/)
+    expect(ARCHIVE_KEEPS_NOT_CARRIED).not.toMatch(/a later run of the migration carries/)
     expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/records of its files and intake runs/)
     expect(ARCHIVE_KEEPS_NOT_CARRIED).toMatch(/its record of what each run carried/)
+  })
+
+  it('M3: the roster sits after the project, the files kept with rows after the files, the company\'s kinds last; a report from before M3 shows none of them', async () => {
+    await dryRun(report({
+      footageRoots: [],
+      projectMembers: { ...bucket(3), unmatched: 0, datesLeft: 0, rolesLeft: 0, left: 0 },
+      managedFiles: { ...bucket(2), bytes: 0, placed: 0, linksLetGo: 0, bodiesGone: 0, server: 0, privateHome: 0, overCap: 0, overBound: 0, versions: 0 },
+      rateCards: { ...bucket(2), empty: 0, defaultsLeft: 0, left: 0 }, rateCardEntries: { ...bucket(20), unmatched: 0, left: 0 }, taskTemplates: { ...bucket(2), orphans: 0, left: 0 },
+    }))
+    const labels = [...document.querySelectorAll('table.s-table tbody tr td:first-child')].map(td => td.textContent)
+    expect(labels.slice(0, 3)).toEqual(['projects', 'roster seats', 'phases'])
+    expect(labels[labels.indexOf('files') + 1]).toBe('files kept with rows')
+    expect(labels.slice(-3)).toEqual(['rate cards', 'rate card entries', 'task templates'])
+    cleanup()
+    await dryRun(report({ footageRoots: [] }))
+    const before = [...document.querySelectorAll('table.s-table tbody tr td:first-child')].map(td => td.textContent)
+    for (const l of ['roster seats', 'files kept with rows', 'rate cards', 'rate card entries', 'task templates']) expect(before, l).not.toContain(l)
+  })
+
+  it('M3: the lines night 5 adds — the people matched and not (named, never an email), the managers seated, the people set, the cards and templates this person could not write, the files kept with rows and their bytes, bodies gone, a server company\'s files, receipts moved — only when it happened', async () => {
+    const unmatched = [{ id: 'd3', name: 'Lena Fischer', why: 'no_email' }, { id: 'd9', name: 'Nadia Quill', why: 'no_account' }]
+    await dryRun(report({
+      dryRun: false, footageRoots: [],
+      people: { canMatch: true, desktop: 10, matched: 8, unmatched, shared: 2, managersSeated: ['Mara Okonkwo'], set: 4, needAdmin: false, unread: null },
+      projectMembers: { ...bucket(3), unmatched: 2, datesLeft: 1, rolesLeft: 0, left: 1 },
+      rateCards: { ...bucket(2), empty: 1, defaultsLeft: 0, left: 0 }, rateCardEntries: { ...bucket(20), unmatched: 1, left: 3 }, taskTemplates: { ...bucket(2), orphans: 1, left: 1 },
+      assetTemplatesLinked: 2, receiptsMoved: 1,
+      managedFiles: { ...bucket(4), inserted: 2, bytes: 62_914_563, placed: 2, linksLetGo: 0, bodiesGone: 1, server: 0, privateHome: 0, overCap: 1, overBound: 0, versions: 1 },
+    }))
+    const said = (id) => screen.getByTestId(id).textContent
+    expect(said('people-matched')).toBe(`${PEOPLE_MATCHED(8, 10)}.`)
+    expect(said('people-not-matched')).toBe(`${PEOPLE_NOT_MATCHED(unmatched)}.`)
+    expect(said('people-not-matched')).not.toMatch(/@/)
+    expect(said('people-shared')).toBe(`${PEOPLE_SHARED(2)}.`)
+    expect(said('managers-seated')).toBe(`${MANAGERS_SEATED(['Mara Okonkwo'])}.`)
+    expect(said('roster-left')).toBe(`${ROSTER_LEFT(1)}.`)
+    expect(said('people-set')).toBe(`${PEOPLE_SET(4)}.`)
+    expect(said('empty-cards')).toBe(`${EMPTY_CARDS(1)}.`)
+    expect(said('entries-need-grant')).toBe(`${ENTRIES_NEED_GRANT(3)}.`)
+    expect(said('templates-left')).toBe(`${TEMPLATES_LEFT(1)}.`)
+    expect(said('templates-orphan')).toBe(`${TEMPLATES_ORPHAN(1)}.`)
+    expect(said('asset-templates-linked')).toBe(`${ASSET_TEMPLATES_LINKED(2)}.`)
+    expect(said('managed-files-uploaded')).toBe(`${MANAGED_FILES_UPLOADED(2, 62_914_563)}.`)
+    expect(said('bodies-gone')).toBe(`${BODIES_GONE(1)}.`)
+    expect(said('managed-over-cap')).toBe(`${MANAGED_OVER_CAP(1)}.`)
+    expect(said('receipts-moved')).toBe(`${RECEIPTS_MOVED(1)}.`)
+    expect(screen.queryByTestId('people-need-admin')).toBeNull()
+    expect(screen.queryByTestId('managed-server')).toBeNull()
+    expect(screen.queryByTestId('rate-cards-need-right')).toBeNull()
+    // The bytes line counts the files kept with rows too.
+    expect(screen.getByText(/Uploaded 62\.9 MB to the company/)).toBeTruthy()
+    // The dry run says what will happen.
+    cleanup()
+    await dryRun(report({ footageRoots: [], receiptsMoved: 2, managedFiles: { ...bucket(2), inserted: 2, bytes: 3, placed: 0, linksLetGo: 0, bodiesGone: 0, server: 3, privateHome: 0, overCap: 0, overBound: 0, versions: 0 }, people: { canMatch: false, desktop: 5, matched: 0, unmatched: [], shared: 0, managersSeated: [], set: 0, needAdmin: true, unread: null }, rateCards: { ...bucket(0), empty: 0, defaultsLeft: 0, left: 3 } }))
+    expect(said('people-need-admin')).toBe(`${PEOPLE_NEED_ADMIN}.`)
+    expect(said('managed-files-uploaded')).toBe(`${MANAGED_FILES_WILL_UPLOAD(2, 3)}.`)
+    expect(said('managed-server')).toBe(`${SERVER_MEDIA_STAY(3)}.`)
+    expect(said('receipts-moved')).toBe(`${RECEIPTS_WILL_MOVE(2)}.`)
+    expect(said('rate-cards-need-right')).toBe(`${RATE_CARDS_NEED_RIGHT(3)}.`)
+    expect(screen.queryByTestId('people-matched')).toBeNull()
+    // CONTROL: a run where none of it happened says none of it.
+    cleanup()
+    await dryRun(report({ dryRun: false, footageRoots: [], people: { canMatch: true, desktop: 0, matched: 0, unmatched: [], shared: 0, managersSeated: [], set: 0, needAdmin: false, unread: null } }))
+    for (const id of ['people-need-admin', 'people-matched', 'people-not-matched', 'people-shared', 'managers-seated', 'roster-left', 'people-set', 'rate-cards-need-right', 'empty-cards', 'entries-need-grant', 'templates-left', 'templates-orphan', 'asset-templates-linked', 'managed-files-uploaded', 'bodies-gone', 'managed-server', 'managed-over-cap', 'receipts-moved']) expect(screen.queryByTestId(id), id).toBeNull()
+  })
+
+  it('M3 (design review, findings 2 and 5): a body the desktop could not reach, or a kind this person could not write, is not Done — no archive, and Migrate says why', async () => {
+    const clean = { dryRun: false, footageRoots: [], files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0 }, removed: { byTable: {}, rows: [] }, setAside: 0, rowLinksLetGo: 0, moneyLeft: { projects: 0, rows: 0, receipts: 0 }, recordKept: true }
+    const archive = () => screen.queryByRole('button', { name: /Archive and clear local/ })
+    await dryRun(report({ ...clean, managedFiles: { ...bucket(2), inserted: 1, bytes: 3, placed: 0, linksLetGo: 0, bodiesGone: 1, server: 0, privateHome: 0, overCap: 0, overBound: 0, versions: 0 } }))
+    expect(archive()).toBeNull()
+    expect(migrate().title).toBe(MIGRATE_AGAIN_BODIES(1))
+    expect(MIGRATE_AGAIN_BODIES(1)).toBe('1 file kept with an asset, scene, shot, level or experience has no body on this computer right now, so it keeps its copy: make the folder reachable and Migrate again.')
+    for (const over of [{ needsRights: { rateCards: true, templates: false, roster: false } }, { needsRights: { rateCards: false, templates: true, roster: false } }, { needsRights: { rateCards: false, templates: false, roster: true } }, { people: { canMatch: false, desktop: 3, matched: 0, unmatched: [], shared: 0, managersSeated: [], set: 0, needAdmin: true, unread: null } }]) {
+      cleanup()
+      await dryRun(report({ ...clean, ...over }))
+      expect(archive(), JSON.stringify(over)).toBeNull()
+      expect(migrate().title, JSON.stringify(over)).toBe(MIGRATE_AGAIN_RIGHTS)
+    }
+    // A server company's files are her ruling, not a thing left undone: Done.
+    cleanup()
+    await dryRun(report({ ...clean, managedFiles: { ...bucket(0), bytes: 0, placed: 0, linksLetGo: 0, bodiesGone: 0, server: 4, privateHome: 0, overCap: 0, overBound: 0, versions: 0 }, needsRights: { rateCards: false, templates: false, roster: false }, people: { canMatch: true, desktop: 2, matched: 2, unmatched: [], shared: 0, managersSeated: [], set: 0, needAdmin: false, unread: null } }))
+    expect(archive()).not.toBeNull()
+    expect(migrate().title).toBe(MIGRATE_DONE)
   })
 
   it('a clip with no path recorded gets its own sentence on Migrate: there is no question to send the person to (review round 2)', async () => {

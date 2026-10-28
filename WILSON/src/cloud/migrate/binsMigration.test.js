@@ -257,36 +257,53 @@ describe('what the migration does not carry', () => {
     // folders are carried, so a bundle's are never named here; M2 (night 4):
     // the budget, its versions, lines, actuals, expenses and role rates, the
     // levels and experiences, the links on tasks.
+    // M3 (night 5): the team assignments are counted by the runner (the
+    // people map says whose stay), never from the bundle's array; the
+    // project team mirror and an asset version are kinds no run carries.
     const levels = [{ thumbnail_image: 'C:\\l.png' }, {}]
-    expect(notCarriedOf({ comments: [{}], milestones: [{}], budgetLines: [{}, {}], budgetVersions: [{}], budgetActuals: [{}], expenses: [{}], projectRateOverrides: [{}], taskLinks: [{}], levels, experiences: [{ thumbnail_image: 'C:\\x.png' }], teamAssignments: [{}], shotLists: [{}], shotListItems: [{}], edits: [{}], folders: [{}], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
-      { key: 'teamAssignments', label: 'team assignment', count: 1 },
+    expect(notCarriedOf({ comments: [{}], milestones: [{}], budgetLines: [{}, {}], budgetVersions: [{}], budgetActuals: [{}], expenses: [{}], projectRateOverrides: [{}], taskLinks: [{}], levels, experiences: [{ thumbnail_image: 'C:\\x.png' }], teamAssignments: [{}], projectTeam: [{}, {}], assetVersions: [{}], managedFiles: [{ id: 'm1' }], shotLists: [{}], shotListItems: [{}], edits: [{}], folders: [{}], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
+      { key: 'projectTeam', label: 'project team mirrors (derived in the cloud from the roster)', count: 2 },
+      { key: 'assetVersions', label: 'asset version (no desktop writes one)', count: 1 },
       { key: 'thumbnails', label: 'scene, shot, level and experience pictures', count: 4 },
     ])
     expect(notCarriedOf({})).toEqual([])
     expect(notCarriedOf(null)).toEqual([])
     expect(notCarriedLabel('thumbnails', 1)).toBe('scene, shot, level or experience picture')
-    expect(notCarriedLabel('lineTeamMembers', 1)).toBe('team member named on a budget line')
-    expect(notCarriedLabel('memberRates', 2)).toBe("team members' project rates")
-    expect(notCarriedLabel('assetTemplates', 1)).toBe("asset's task template")
+    expect(notCarriedLabel('teamAssignments', 1)).toBe('team assignment of a person without a WILSON account')
+    expect(notCarriedLabel('lineTeamMembers', 1)).toBe('budget line priced for a team member without a WILSON account')
+    expect(notCarriedLabel('memberRates', 2)).toBe('project rates of team members without a WILSON account')
+    expect(notCarriedLabel('entryPeople', 1)).toBe('rate card entry of a team member without a WILSON account')
+    expect(notCarriedLabel('taskPeople', 2)).toBe('tasks assigned to or reviewed by a team member without a WILSON account')
+    expect(notCarriedLabel('projectPeople', 1)).toBe('producer or director without a WILSON account')
+    expect(notCarriedLabel('assetTemplates', 1)).toBe("asset's task template not in the cloud")
+    expect(notCarriedLabel('deptDefaults', 2)).toBe("rate cards' department defaults (no cloud home)")
+    expect(notCarriedLabel('assignmentDates', 1)).toBe("team assignment's start and end dates (no cloud columns)")
+    expect(notCarriedLabel('managedVersions', 1)).toBe('version label of a file kept with an asset, scene, shot, level or experience (the cloud keeps the file, not its number)')
+    expect(notCarriedLabel('managedFilesServer', 2)).toBe("files kept with assets, scenes, shots, levels and experiences on the company's own server (the browser says where they are)")
     expect(notCarriedLabel('invoicePaths', 2)).toBe('invoices attached by a path on this computer')
     for (const k of ['scenes', 'shots', 'bins', 'binFiles', 'binRoots', 'shotTakes', 'phases', 'assets', 'tasks', 'dependencies', 'files', 'project']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
     for (const k of ['comments', 'milestones', 'shotLists', 'shotListItems', 'edits', 'folders']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
     for (const k of ['budgetVersions', 'budgetLines', 'budgetActuals', 'expenses', 'projectRateOverrides', 'levels', 'experiences', 'taskLinks', 'taskLevelItems', 'levelFolders', 'levelGroupings', 'assetLevelLinks']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
-    for (const k of ['teamAssignments', 'projectTeam', 'thumbnails', 'assetVersions', 'managedFiles']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
+    // M3: the files kept with rows are carried, so the key is gone; the rest stays named.
+    expect(NOT_CARRIED.some(([key]) => key === 'managedFiles')).toBe(false)
+    for (const k of ['teamAssignments', 'projectTeam', 'thumbnails', 'assetVersions', 'deptDefaults', 'assignmentDates', 'managedVersions', 'managedFilesServer', 'managedFilesPrivate', 'entryPeople', 'taskPeople', 'projectPeople']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
   })
 
-  it('says which a later run of the migration carries (night 5: the team, what names it, an asset\'s versions, the files kept here, the task templates) and which none does', () => {
-    for (const k of ['teamAssignments', 'projectTeam', 'lineTeamMembers', 'memberRates', 'assetTemplates', 'assetVersions', 'managedFiles']) expect(notCarriedLater(k), k).toBe(true)
-    for (const k of ['thumbnails', 'deckAttachments', 'commentsElsewhere', 'invoicePaths', 'budgetLines', 'levels', 'not-a-key']) expect(notCarriedLater(k), k).toBe(false)
+  it('says which a later run carries (the rows of a person without a WILSON account, once they join; an asset\'s template once it is in the cloud) and which no run does — worded as that', () => {
+    for (const k of ['teamAssignments', 'lineTeamMembers', 'memberRates', 'entryPeople', 'taskPeople', 'projectPeople', 'assetTemplates']) expect(notCarriedLater(k), k).toBe(true)
+    for (const k of ['projectTeam', 'assetVersions', 'deptDefaults', 'assignmentDates', 'managedVersions', 'managedFilesServer', 'managedFilesPrivate', 'thumbnails', 'deckAttachments', 'commentsElsewhere', 'invoicePaths', 'budgetLines', 'levels', 'managedFiles', 'not-a-key']) expect(notCarriedLater(k), k).toBe(false)
+    for (const [key, many, one, later] of NOT_CARRIED) {
+      if (later) expect(`${many} ${one}`, key).toMatch(/without a WILSON account|not in the cloud/)
+      else expect(`${many} ${one}`, key).not.toMatch(/later run|part 2/)
+    }
   })
 
-  it('counts the live files of the desktop\'s own store, never a removed one, and the deck attachments still on the project row', () => {
+  it('counts the deck attachments still on the project row, and never the files kept with rows (carried since M3) nor a removed one', () => {
     const bundle = {
       managedFiles: [{ id: 'm1' }, { id: 'm2', deleted_at: '2026-10-01T00:00:00Z' }, { id: 'm3' }],
       project: { id: 'p', documents: [{ name: 'brief.pdf' }], visualAssets: [{ name: 'a.png' }, { name: 'b.png' }] },
     }
     expect(notCarriedOf(bundle)).toEqual([
-      { key: 'managedFiles', label: 'files kept with assets, scenes, shots, levels and experiences on this computer', count: 2 },
       { key: 'deckAttachments', label: 'deck attachments not yet moved into project files', count: 3 },
     ])
     // CONTROL: moved (the arrays empty) and nothing kept: nothing named.
