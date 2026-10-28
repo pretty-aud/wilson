@@ -101,8 +101,9 @@ function makeAdapter() {
       { id: 'b2', project_id: 'p1', workspace_id: 'w1', name: 'Day 1', kind: 'footage', parent_bin_id: 'b1', sort_order: 0 },
     ],
     files: [
-      { id: 'f1', project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', location_id: 'L1', relative_path: 'A001/T1.mov', display_name: 'T1', original_name: 'T1.mov', sort_order: 0, review_flag: 'unflagged' },
-      { id: 'f2', project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', location_id: 'L1', relative_path: 'A001/T2.mov', display_name: 'T2', original_name: 'T2.mov', sort_order: 1, review_flag: 'unflagged' },
+      // P8 (0104, TPN-AUTH-012): the gateway serves a clip only once an admin or manager has checked it (vetted_at), as these are.
+      { id: 'f1', project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', location_id: 'L1', relative_path: 'A001/T1.mov', display_name: 'T1', original_name: 'T1.mov', sort_order: 0, review_flag: 'unflagged', vetted_at: '2026-10-07T00:00:00Z' },
+      { id: 'f2', project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', location_id: 'L1', relative_path: 'A001/T2.mov', display_name: 'T2', original_name: 'T2.mov', sort_order: 1, review_flag: 'unflagged', vetted_at: '2026-10-07T00:00:00Z' },
     ],
     takes: [{ id: 't1', project_id: 'p1', workspace_id: 'w1', shot_id: 'sh1', bin_file_id: 'f1', role: 'primary', position: 0, notes: '' }],
     remoteViewing: false,
@@ -441,7 +442,7 @@ describe('GW3 — a browser through the file gateway, through the real provider'
     holder.adapter.db.locations.push({ id: 'L2', workspace_id: 'w1', name: 'Archive', unc_path: '\\\\nas\\archive' })
     holder.gateways = [{ ...gatewayRow(), reach: { L1: 'reachable', L2: 'not_mounted' } }]
     await reached()
-    const base = { project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', sort_order: 9, review_flag: 'unflagged' }
+    const base = { project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', sort_order: 9, review_flag: 'unflagged', vetted_at: '2026-10-07T00:00:00Z' } // P8: checked rows
     holder.adapter.db.files.push({ ...base, id: 'f3', location_id: 'L1', relative_path: 'A001/T3.mov', display_name: 'T3', original_name: 'T3.mov' })
     holder.adapter.db.files.push({ ...base, id: 'f4', location_id: 'L2', relative_path: 'ARCH/T4.mov', display_name: 'T4', original_name: 'T4.mov' })
     await act(async () => { await ctxRef.reloadActiveProject() })

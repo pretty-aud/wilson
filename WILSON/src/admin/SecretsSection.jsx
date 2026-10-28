@@ -57,16 +57,16 @@ function Card({ which, status, onReseal, busy }) {
   const names = status?.names_present ?? []
   const behind = rowsBehind(status)
   return (
-    <div className="rounded-lg border p-4 mb-4" style={{ borderColor: '#e7e5e4', background: '#fff' }}>
+    <div className="rounded-float border p-4 mb-4" style={{ borderColor: '#e7e5e4', background: '#fff' }}>
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-base font-semibold" style={td}>{TITLES[which]}</h3>
-        <span className="text-xs" style={th}>{BASES[which]}</span>
+        <h3 className="text-h3 font-semibold" style={td}>{TITLES[which]}</h3>
+        <span className="text-caption" style={th}>{BASES[which]}</span>
       </div>
       {status?.error ? (
-        <p className="text-sm" style={{ color: '#b91c1c' }} data-testid={`${which}-error`}>{status.error}</p>
+        <p className="text-dense" style={{ color: '#b91c1c' }} data-testid={`${which}-error`}>{status.error}</p>
       ) : (
         <>
-          <table className="w-full text-sm mb-3">
+          <table className="w-full text-dense mb-3">
             <tbody>
               <tr>
                 <td style={th} className="py-1 pr-4">Versions set here</td>
@@ -89,14 +89,14 @@ function Card({ which, status, onReseal, busy }) {
               type="button"
               disabled={busy || current === null || behind === 0}
               onClick={() => setStage('confirm')}
-              className="rounded px-3 py-1.5 text-sm text-white disabled:opacity-40"
+              className="rounded-control px-3 py-1.5 text-dense text-white disabled:opacity-40"
               style={{ background: '#1c1917' }}
               data-testid={`${which}-reseal`}
             >
               {current === null ? 'Not configured' : behind === 0 ? 'Nothing to re-seal' : `Re-seal ${behind} row${behind === 1 ? '' : 's'} under version ${current}`}
             </button>
           ) : (
-            <div className="rounded border p-3 text-sm" style={{ borderColor: '#fcd34d', background: '#fffbeb', ...td }} data-testid={`${which}-confirm`}>
+            <div className="rounded-control border p-3 text-dense" style={{ borderColor: '#fcd34d', background: '#fffbeb', ...td }} data-testid={`${which}-confirm`}>
               <p className="mb-2">
                 Before this, every reader of {BASES[which]} must have been redeployed on this environment: {READERS[which].join(', ')}.
                 A reader built before the versions cannot open a row sealed under version {current}, and the rows are re-sealed at once.
@@ -106,13 +106,13 @@ function Card({ which, status, onReseal, busy }) {
                   type="button"
                   disabled={busy}
                   onClick={() => { setStage('idle'); onReseal(which) }}
-                  className="rounded px-3 py-1.5 text-sm text-white"
+                  className="rounded-control px-3 py-1.5 text-dense text-white"
                   style={{ background: '#1c1917' }}
                   data-testid={`${which}-reseal-confirm`}
                 >
                   They are redeployed — re-seal now
                 </button>
-                <button type="button" disabled={busy} onClick={() => setStage('idle')} className="rounded px-3 py-1.5 text-sm" style={{ border: '1px solid #d6d3d1', ...td }}>
+                <button type="button" disabled={busy} onClick={() => setStage('idle')} className="rounded-control px-3 py-1.5 text-dense" style={{ border: '1px solid #d6d3d1', ...td }}>
                   Not yet
                 </button>
               </div>
@@ -178,18 +178,18 @@ export default function SecretsSection({ isActive }) {
   return (
     <section className="p-6" style={{ maxWidth: 900 }}>
       <div className="flex items-center justify-between mb-1">
-        <h2 className="text-lg font-semibold flex items-center gap-2" style={td}><Lock size={18} /> Secrets</h2>
-        <button type="button" onClick={() => reload()} disabled={loading} className="text-sm flex items-center gap-1" style={th}>
+        <h2 className="text-h2 font-semibold flex items-center gap-2" style={td}><Lock size={18} /> Secrets</h2>
+        <button type="button" onClick={() => reload()} disabled={loading} className="text-dense flex items-center gap-1" style={th}>
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
-      <p className="text-sm mb-4" style={th}>
+      <p className="text-body mb-4" style={th}>
         The two master secrets that seal every company’s AI key and bucket secret on this environment, by version.
         Names and counts only; no value is ever shown or sent.
       </p>
-      {missing && <p className="text-sm mb-3" style={th} data-testid="secrets-missing">operator-ai-keys is not deployed on this environment yet.</p>}
-      {error && <p className="text-sm mb-3" style={{ color: '#b91c1c' }} data-testid="secrets-error">{error}</p>}
-      {notice && <p className="text-sm mb-3" style={{ color: '#166534' }} data-testid="secrets-notice">{notice}</p>}
+      {missing && <p className="text-dense mb-3" style={th} data-testid="secrets-missing">operator-ai-keys is not deployed on this environment yet.</p>}
+      {error && <p className="text-dense mb-3" style={{ color: '#b91c1c' }} data-testid="secrets-error">{error}</p>}
+      {notice && <p className="text-dense mb-3" style={{ color: '#166534' }} data-testid="secrets-notice">{notice}</p>}
       {status && <Card which="ai" status={status.ai} onReseal={onReseal} busy={busy} />}
       {status && <Card which="storage" status={status.storage} onReseal={onReseal} busy={busy} />}
     </section>

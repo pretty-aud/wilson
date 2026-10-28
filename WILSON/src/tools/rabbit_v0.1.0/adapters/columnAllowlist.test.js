@@ -762,6 +762,7 @@ describe('the four lists 0084 widens', () => {
 const BIN_LOCATION_ROW = {
   id: 'L1', workspace_id: 'w1', name: 'Footage NAS', unc_path: '\\\\nas\\footage',
   added_by: 'u1', created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z',
+  vetted_at: null, vetted_by: null, // P8 (0104, TPN-AUTH-012): the checked mark, set by the trigger alone
 }
 const BIN_ROW = {
   id: 'b1', project_id: 'p1', workspace_id: 'w1',
@@ -778,6 +779,7 @@ const BIN_FILE_ROW = {
   duration_sec: 14.5, width: 3840, height: 2160, fps: 24, codec: 'ProRes 422 HQ', timecode_start: '09:10:00:00',
   probe_status: 'done', sort_order: 0, poster_path: 'projects/p1/bin_files/f1/1-poster.jpg',
   added_by: 'u1', added_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z',
+  vetted_at: null, vetted_by: null, // P8 (0104, TPN-AUTH-012): the checked mark, set by the trigger alone
 }
 const SHOT_TAKE_ROW = {
   id: 't1', project_id: 'p1', workspace_id: 'w1', shot_id: 'sh1', bin_file_id: 'f1',
