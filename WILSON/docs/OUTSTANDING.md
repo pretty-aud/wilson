@@ -1319,6 +1319,7 @@ nothing under `gateway/`; it was the job's one failing test (the run's
 annotations). Twice now on CI, never on a Windows run of the suite.)*
 *(D1, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5) in RLS tests run 40661289297's Vitest job on `8221b1a8`, a docs-only commit (D1's hand-off) whose code is `f6ca0cf1`'s, which passed in run 40660619075; the job's one failing test by its annotations. D1 touches nothing under `gateway/`. Three times now on CI.)*
 *(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40666541669's Vitest job on `fcb28123`, R2's merge-in of P1 and D1, whose tree passed the full suite locally (418 files, 10,542 passed, 9 skipped); the job's one failing test by its annotations, the run's other three jobs green. Nothing under `gateway/` changed since `51e5a0d7`. Four times now on CI.)*
+*(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40735566652's Vitest job on `db120984`, the integration branch's merge of R2's record of her Q1 ruling. Its tree is byte for byte `6281d995`'s, which passed all four jobs in run 40734158776 just before, so the same tree has passed and failed on the runner; its other three jobs green, and nothing under `gateway/` changed since `51e5a0d7`. Five times now on CI.)*
 
 ---
 
