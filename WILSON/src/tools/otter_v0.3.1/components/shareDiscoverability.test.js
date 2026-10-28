@@ -578,7 +578,9 @@ describe('the defects the nomination review found stay fixed', () => {
   it('Refresh refreshes BOTH lists', () => {
     // It was wired to `load` alone, which fetches only change requests — while
     // new copy told the user to press it to re-check a nomination.
-    expect(VIEW).toMatch(/const refreshAll = useCallback\(\(\) => \{ load\(\); loadNoms\(\) \}/)
+    // B2 (2026-10-27): and the subject-share index, the view's third list
+    // (design §5.3) — so the body has a third call, and the first two stay.
+    expect(VIEW).toMatch(/const refreshAll = useCallback\(\(\) => \{ load\(\); loadNoms\(\); onSharesChanged\?\.\(\) \}/)
     expect(VIEW).toContain('onClick={refreshAll}')
   })
 
@@ -681,5 +683,54 @@ describe('a refused or failed submission surfaces a real error', () => {
 
   it('still re-reads the returned row rather than trusting what it sent', () => {
     expect(DIALOG).toMatch(/if \(row\.visibility !== next\)/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('B2: subject shares sit in the one menu a person opens on a course row (design §5.2)', () => {
+  // Phase 5's lesson, applied to the next sharing feature: it is findable
+  // only if it is in the menu a person already opens, and the trigger's
+  // label must name what the menu now holds.
+  const SHARE_SUBJECT_DIALOG = stripComments(read('./ShareSubjectDialog.jsx'))
+
+  it('the trigger\'s label names BOTH new verbs, derived from the same flags as the items', () => {
+    expect(MENU).toMatch(/mayShareSubject && 'share a subject'/)
+    expect(MENU).toMatch(/mayShareCourse {2}&& 'share this course with someone'/)
+    expect(MENU).toMatch(/mayShareSubject && \{ key: 'share-subject', label: 'Share a subject…'/)
+    expect(MENU).toMatch(/mayShareCourse {2}&& \{ key: 'share-course', {2}label: 'Share this course with…'/)
+    // The verbs list and the items read the same two flags, so the label
+    // cannot promise an item the menu does not draw.
+    const verbs = MENU.slice(MENU.indexOf('const verbs = ['), MENU.indexOf('].filter(Boolean)', MENU.indexOf('const verbs = [')))
+    expect(verbs).toContain('mayShareSubject')
+    expect(verbs).toContain('mayShareCourse')
+  })
+
+  it('owner only (S1), and only where a cloud render site hands the handlers in', () => {
+    expect(MENU).toMatch(/const mayShareSubject = isOwn && typeof onShareSubject === 'function'/)
+    expect(MENU).toMatch(/const mayShareCourse {2}= isOwn && typeof onShareCourse === 'function'/)
+  })
+
+  it('all three CourseRowMenu sites open the dialog in its two menu modes', () => {
+    const mounts = (OTTER.match(/<CourseRowMenu/g) ?? []).length
+    expect(mounts).toBe(3)
+    expect((OTTER.match(/onShareSubject=\{\(c\) => setShareSubjectDialog\(\{ mode: 'subject', course: c \}\)\}/g) ?? []).length).toBe(mounts)
+    expect((OTTER.match(/onShareCourse=\{\(c\) => setShareSubjectDialog\(\{ mode: 'course', course: c \}\)\}/g) ?? []).length).toBe(mounts)
+  })
+
+  it('ShareSubjectDialog mounts lazily, as ShareCourseDialog does: it fires the directory read', () => {
+    expect(OTTER).toMatch(/\{shareSubjectDialog && \(\s*<ShareSubjectDialog/)
+    expect(SHARE_SUBJECT_DIALOG).toContain('useWorkspaceMembers()')
+  })
+
+  it('the share routes still sit ABOVE the nominations block (the LF-only slice above; B1 hand-off §5)', () => {
+    const ROUTES = stripComments(read('../adapters/otterRoutes.js'))
+    const shares = ROUTES.indexOf("seg[0] === 'subject-shares'")
+    expect(shares).toBeGreaterThan(-1)
+    expect(shares).toBeLessThan(ROUTES.indexOf("seg[0] === 'nominations'"))
+  })
+
+  it('CONTROL: a site that drops a handler is counted short', () => {
+    const one = OTTER.replace(/onShareCourse=\{\(c\) => setShareSubjectDialog\(\{ mode: 'course', course: c \}\)\}/, '')
+    expect((one.match(/onShareCourse=\{\(c\) => setShareSubjectDialog\(\{ mode: 'course', course: c \}\)\}/g) ?? []).length).toBe(2)
   })
 })

@@ -226,6 +226,15 @@
   .otter-subject-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
   .otter-subject-row[data-stub='true'] { color: var(--color-ink-3); }
   .otter-subject-row[data-stub='true']:hover { color: var(--color-ink-2); }
+  /* B2 (design §5.4): a link that no longer reads (its source trashed, or a
+     read by id answered 404) stays, greyed as an outline is, with its Remove
+     showing; it does not open. A row an accept just placed carries the
+     selected row's signal edge, without the tint, until the next open. */
+  .otter-subject-row[data-closed='true'] { color: var(--color-ink-3); }
+  .otter-subject-row[data-closed='true']:hover { color: var(--color-ink-2); }
+  .otter-subject-row[data-closed='true'] .otter-subject-open { cursor: default; }
+  .otter-subject-row[data-closed='true'] .otter-subject-delete { opacity: 1; }
+  .otter-subject-row[data-arrived='true'] { box-shadow: inset 2px 0 0 0 var(--color-signal); }
   .otter-subject-row[data-active='true'][data-active='true'] {
     color: var(--color-ink);
     background-color: var(--color-signal-tint);
@@ -260,6 +269,16 @@
     color: var(--color-ink-3);
   }
   .otter-subject-outline { margin-left: 4px; color: var(--color-ink-3); }
+  /* B2 (design §5.4): a LINKED subject's chain glyph, where an own subject's
+     order number sits. No ink of its own: it takes the row's, so the hover
+     wash and the selected tint lift it with the words. */
+  .otter-subject-link {
+    display: inline-block;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    margin-right: 4px;
+    vertical-align: -2px;
+  }
   /* On the selected row the third ink sits on the signal tint, not on
      paper: measured 4.17:1 at 12px (ui-walk, A3), and the same on the hover
      wash. The second ink clears both (7.02:1 on the tint). The outline tag
@@ -647,6 +666,10 @@
     color: var(--color-ink);
   }
   .otter-subject-card[data-stub='true'] .otter-subject-card-title { color: var(--color-ink-2); }
+  /* B2: a linked card closed, or just placed, as its sidebar row is. */
+  .otter-subject-card[data-closed='true'] { cursor: auto; }
+  .otter-subject-card[data-closed='true'] .otter-subject-card-title { color: var(--color-ink-3); }
+  .otter-subject-card[data-arrived='true'] { border-color: var(--color-signal); }
   .otter-subject-card-desc {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -1297,6 +1320,40 @@
   /* What a screen reader and a copy read between the subject and the
      section (the chevron is hidden from both): " › ". */
   .otter-crumb-said { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  /* B2 (design §5.2, §5.4): the subject's share line, under the breadcrumb
+     and on its measure. A linked subject: its badge, where it comes from,
+     Pass on… and Remove from my course. One of the owner's own: who has it
+     (it opens Requests) and Share…. One Dense line in the second ink, the
+     actions at its end; weights 400 and 600 only, no colour of its own. */
+  .otter-subject-bar {
+    max-width: var(--measure-body-len);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .otter-subject-bar-line {
+    flex: 1 1 16em;
+    min-width: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .otter-subject-bar-link {
+    flex: 1 1 16em;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    text-decoration-line: underline;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .otter-subject-bar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .otter-lesson-title {
     max-width: var(--measure-body-len);
     overflow-wrap: anywhere;
@@ -2763,6 +2820,9 @@
   }
   .otter-quiz-sub[data-selected='true'] { background-color: var(--color-signal-tint); }
   .otter-quiz-sub-title { min-width: 0; color: var(--color-ink-2); }
+  /* B2: a linked subject in the picker, under its host course: the glyph in
+     the title's own ink. */
+  .otter-quiz-sub-link { display: inline-block; width: var(--icon-sm); height: var(--icon-sm); margin-right: 4px; vertical-align: -2px; }
   /* A chosen subject is the ink (orange-300 before). */
   .otter-quiz-sub[data-selected='true'] .otter-quiz-sub-title { color: var(--color-ink); }
   .otter-quiz-sub-level {

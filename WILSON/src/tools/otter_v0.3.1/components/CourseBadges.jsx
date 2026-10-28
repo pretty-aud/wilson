@@ -15,7 +15,7 @@
 //                       full width; the course NAME stays the thing you scan.
 // =============================================================================
 
-import { Users, ShieldCheck, Lock, EyeOff, PenLine, Share2, User } from 'lucide-react'
+import { Users, ShieldCheck, Lock, EyeOff, PenLine, Share2, User, Link2 } from 'lucide-react'
 import { visibilityMeta } from './otterSharing.js'
 import { Badge } from '../../../ui'
 
@@ -159,6 +159,20 @@ export function ReadOnlyBadge({ course }) {
       title="You can study this course. Only its owner, an admin, or someone they have given edit access can change it."
     >
       Read only
+    </Badge>
+  )
+}
+
+/**
+ * B2 (design §5.4): a subject LINKED into one of your courses from a
+ * colleague's — live, read-only, still theirs. The same badge shape as every
+ * other signal here, told apart by its chain glyph and its word; the hint says
+ * whose it is ("Linked from Audrey's Blender 5.0 · read only").
+ */
+export function LinkedBadge({ hint }) {
+  return (
+    <Badge Icon={Link2} title={hint}>
+      Linked
     </Badge>
   )
 }

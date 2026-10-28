@@ -53,9 +53,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   RefreshCw, GitPullRequestArrow, Check, X, AlertCircle, Lock, ChevronRight,
-  Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning, ShieldCheck,
+  Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning, ShieldCheck, Link2,
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
+import {
+  shareCall, runShareLoop, inboxRows, inboxEntries, sentRows, sentEntries, isLiveShare, shareStateWords,
+  offerLine, batchCardTitle, batchGoneLine, batchLine, viaLabel, withdrawConfirmText, removeConfirmText,
+  timeAgo,
+} from './otterSharing.js'
 import { Button, IconButton, SectionTitle, Banner, Loading, Spinner, StatusBadge, statusMeta } from '../../../ui'
 import { DOC_LABELS } from '../adapters/otterRoutes.js'
 
@@ -72,6 +77,11 @@ function fmt(iso) {
 
 export default function RequestsView({
   role, userId, softwareList, refreshTick, onOpenCourse, onOpenDialog, onCoursesChanged,
+  // B2 (design §5.3): the share index is Otter.jsx's (the tab's count and the
+  // linked rows read it too); this view re-reads it through onSharesChanged,
+  // which resolves the fresh rows, and hands an accept back to Otter.jsx to
+  // re-read the course list and open the host course.
+  shares = [], onSharesChanged, onSharesAccepted,
 }) {
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
@@ -95,6 +105,14 @@ export default function RequestsView({
   const [nomNote, setNomNote]   = useState('')
   const [promoted, setPromoted] = useState(null)
   const [nomError, setNomError] = useState(null)
+  // ── subject shares (0100; design §5.3) ──
+  // Their own error, as nominations have theirs: a refused accept must not
+  // read as a failed change-request load, and must not hide a promotion.
+  const [shareBusy, setShareBusy] = useState(null)      // the entry whose call is in flight
+  const [shareError, setShareError] = useState(null)
+  const [shareConfirm, setShareConfirm] = useState(null) // { key, rows, text }: Withdraw, Withdraw all, Remove
+  const [openBatch, setOpenBatch] = useState(null)       // the owner's batch line, folded open
+  const [showDecidedShares, setShowDecidedShares] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -137,13 +155,19 @@ export default function RequestsView({
     }
   }, [])
 
-  const refreshAll = useCallback(() => { load(); loadNoms() }, [load, loadNoms])
+  const refreshAll = useCallback(() => { load(); loadNoms(); onSharesChanged?.() }, [load, loadNoms, onSharesChanged])
 
   // The view is conditionally mounted (fresh on every visit), so a load on
   // mount is exactly the lazy-fetch the all-pages shell demands. refreshTick
   // bumps when the ChangeRequestDialog closes: the dialog is the proposer's
   // actuator, and the list behind it must reflect what they just did.
   useEffect(() => { load(); loadNoms() }, [load, loadNoms, refreshTick])
+  // The share index is re-read on every mount (design §5.4: "when the
+  // Requests view mounts") and when the share dialog closes (refreshTick).
+  // A ref, so a new callback identity from the parent is not a reload.
+  const sharesChangedRef = useRef(onSharesChanged)
+  sharesChangedRef.current = onSharesChanged
+  useEffect(() => { sharesChangedRef.current?.() }, [refreshTick])
 
   // Capability split (see header): admins decide everything; anyone decides
   // requests against a standard course they OWN; managers see the rest
@@ -391,6 +415,138 @@ export default function RequestsView({
     return { nomToDecide: d, nomMine: m, nomDecided: h }
   }, [noms, userId, isApprover])
 
+  // ── subject shares (0100; design §5.3) ────────────────────────────────────
+  // "Shared with you": what waits on me; "Shared by you": every row of my
+  // subjects (is_owner) and every row I passed on (is_mine). Both read the
+  // index's own `state`; nothing here derives one.
+  const inbox = useMemo(() => inboxEntries(inboxRows(shares, userId)), [shares, userId])
+  const inboxCount = useMemo(() => inbox.reduce((n, e) => n + (e.kind === 'batch' ? e.rows.length : 1), 0), [inbox])
+  const sent = useMemo(() => sentEntries(sentRows(shares)), [shares])
+  const sharesById = useMemo(() => new Map((shares ?? []).map(r => [r.id, r])), [shares])
+
+  const shareAct = useCallback((verb) => (row) =>
+    shareCall(otterFetch, `/api/otter/subject-shares/${row.id}/${verb}`, { method: 'POST' }), [])
+
+  // Accept (one row, or Accept all on a card): the function per row, in
+  // title order, SKIPPING `gone` rows (a trashed subject refuses every
+  // accept and must not hold the rest of the batch hostage) and stopping at
+  // the first other refusal with its sentence; the rows it did not reach stay
+  // pending and the card stays. Every row of one person lands in the one host
+  // course (the owner's slug), so the last host returned is the batch's.
+  const acceptRows = useCallback(async (key, list) => {
+    if (shareBusy) return
+    setShareBusy(key); setShareError(null); setShareConfirm(null)
+    let host = null
+    const result = await runShareLoop(list, async (row) => {
+      const out = await shareAct('accept')(row)
+      if (out.ok) host = out.data?.host_course_id ?? host
+      return out
+    }, { skip: (r) => r.state === 'gone' })
+    setShareBusy(null)
+    if (result.stoppedAt || !result.done.length) {
+      await onSharesChanged?.()
+      if (result.text) setShareError(result.text)
+      return
+    }
+    // Otter.jsx re-reads the course list (the host may be new), opens the
+    // host with the linked rows marked, and says so (this view unmounts).
+    onSharesAccepted?.({ hostCourseId: host, rows: result.done })
+  }, [shareBusy, shareAct, onSharesChanged, onSharesAccepted])
+
+  // Decline (one row, Decline all, or Dismiss on a `gone` row): every row,
+  // `gone` ones INCLUDED (a decline reads nothing of the subject), stopping
+  // at the first refusal. Withdraw, Withdraw all and Remove: the revoke, on
+  // the live rows only, stopping the same way.
+  const settleRows = useCallback(async (key, list, verb) => {
+    if (shareBusy) return
+    setShareBusy(key); setShareError(null); setShareConfirm(null)
+    const result = await runShareLoop(list, shareAct(verb))
+    await onSharesChanged?.()
+    setShareBusy(null)
+    if (result.stoppedAt) setShareError(result.text)
+  }, [shareBusy, shareAct, onSharesChanged])
+
+  const personOf = useCallback((r) => {
+    const via = viaLabel(r, sharesById)
+    return `${r.receiver_label ?? 'someone'}${via ? ` via ${via}` : ''}`
+  }, [sharesById])
+
+  // The inline confirm under an entry (Withdraw, Withdraw all, Remove).
+  const confirmUnder = (key, verbLabel) => (shareConfirm?.key === key ? (
+    <div className="otter-req-body">
+      <div className="otter-req-confirm">
+        <p className="otter-req-confirm-text">{shareConfirm.text}</p>
+        <div className="otter-req-actions">
+          <Button size="sm" onClick={() => setShareConfirm(null)} disabled={!!shareBusy}>Cancel</Button>
+          <Button variant="danger" size="sm" loading={shareBusy === key}
+            onClick={() => settleRows(key, shareConfirm.rows, 'revoke')}>
+            {verbLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null)
+
+  // One line of "Shared by you": the subject, the person (an onward row as
+  // "Ben via Mara", the parent resolved from this same list), the state in
+  // words, and Withdraw while it is live.
+  const sentRowItem = (r, { settled = false } = {}) => (
+    <li key={r.id} className="otter-req" data-settled={settled ? 'true' : undefined}>
+      <div className="otter-req-line">
+        <span className="otter-req-text">
+          <span className="otter-req-title">{r.subject_title ?? 'A subject'}</span>
+          <span className="otter-req-meta">{personOf(r)} · {shareStateWords(r)}</span>
+        </span>
+        {isLiveShare(r) && (
+          <span className="otter-req-actions">
+            <Button size="sm" icon={X} disabled={!!shareBusy}
+              onClick={() => setShareConfirm({ key: r.id, rows: [r], text: withdrawConfirmText(r, shares) })}>
+              Withdraw
+            </Button>
+          </span>
+        )}
+      </div>
+      {confirmUnder(r.id, 'Withdraw')}
+    </li>
+  )
+
+  const sentBatchItem = (e, { settled = false } = {}) => {
+    const live = e.rows.filter(isLiveShare)
+    const open = openBatch === e.batchId
+    const lead = e.rows[0] ?? {}
+    return (
+      <li key={e.batchId} className="otter-req" data-settled={settled ? 'true' : undefined}>
+        <div className="otter-req-line">
+          <span className="otter-req-text">
+            <span className="otter-req-title">{lead.course_name ?? 'A course'}</span>
+            <span className="otter-req-meta">{batchLine(e.rows)}</span>
+          </span>
+          <span className="otter-req-actions">
+            <Button variant="ghost" size="sm" aria-expanded={open} className="otter-req-decided"
+              onClick={() => setOpenBatch(o => (o === e.batchId ? null : e.batchId))}>
+              Subjects
+              <ChevronRight className="otter-req-chevron" data-open={open} aria-hidden="true" />
+            </Button>
+            {live.length > 0 && (
+              <Button size="sm" icon={X} disabled={!!shareBusy}
+                onClick={() => setShareConfirm({ key: e.batchId, rows: live, text: withdrawConfirmText(live, shares) })}>
+                Withdraw all
+              </Button>
+            )}
+          </span>
+        </div>
+        {confirmUnder(e.batchId, 'Withdraw all')}
+        {open && (
+          <div className="otter-req-body" data-flush="true">
+            <ul className="otter-req-list otter-req-settled">
+              {e.rows.map(r => sentRowItem(r, { settled: !isLiveShare(r) }))}
+            </ul>
+          </div>
+        )}
+      </li>
+    )
+  }
+
   const sectionHeader = (icon, text, count) => (
     <h3 className="otter-req-section-title">
       {icon}{text}{count != null ? <span className="otter-req-count">· {count}</span> : null}
@@ -426,7 +582,7 @@ export default function RequestsView({
               // widened one flow and deliberately not the other), so the
               // copy has to say which is which rather than "you can decide".
               ? 'Courses put forward to become the company standard — you decide those. Suggested changes to an existing standard are decided by an admin or the course’s owner.'
-              : 'Courses you have put forward, changes you have suggested, and the feedback that came back.'}
+              : 'Courses you have put forward, changes you have suggested, the feedback that came back, and subjects shared with you.'}
           actions={<Button icon={RefreshCw} onClick={refreshAll} loading={loading}>Refresh</Button>}
         >
           {isAdmin || isManager ? 'Company library — requests' : 'My change requests'}
@@ -482,6 +638,159 @@ export default function RequestsView({
               ? ` “${promoted.superseded}” stood down and is now shared with the company — nothing was deleted.`
               : ''}
           </Banner>
+        )}
+
+        {shareError && (
+          <Banner tone="danger" icon={AlertCircle} className="otter-req-notice"
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setShareError(null)} className="otter-notice-action" />}>
+            {shareError}
+          </Banner>
+        )}
+
+        {/* ── Shared with you (design §5.3): offers waiting on me, a batch as
+            one card, and links whose host course I deleted. ── */}
+        {inbox.length > 0 && (
+          <section className="otter-req-section">
+            {sectionHeader(<Link2 className="otter-req-section-icon" aria-hidden="true" />, 'Shared with you', inboxCount)}
+            <ul className="otter-req-list">
+              {inbox.map(e => {
+                if (e.kind === 'batch') {
+                  const goneLine = batchGoneLine(e.rows)
+                  const takeable = e.rows.filter(r => r.state !== 'gone')
+                  const note = e.rows.find(r => r.message)?.message
+                  return (
+                    <li key={e.batchId} className="otter-req">
+                      <div className="otter-req-line">
+                        <span className="otter-req-text">
+                          <span className="otter-req-title">{batchCardTitle(e.rows)}</span>
+                          <span className="otter-req-meta">
+                            {timeAgo(e.rows[0]?.created_at)}{goneLine ? ` · ${goneLine}` : ''}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="otter-req-body" data-flush="true">
+                        {note && <p className="otter-req-summary">“{note}”</p>}
+                        <ul className="otter-req-list otter-req-settled">
+                          {e.rows.map(r => (
+                            <li key={r.id} className="otter-req otter-req-line" data-settled={r.state === 'gone' ? 'true' : undefined}>
+                              <span className="otter-req-text">
+                                <span className="otter-req-title">
+                                  {r.subject_title ?? 'A subject'}
+                                  {r.subject_is_stub && <span className="otter-req-round"> · outline only</span>}
+                                </span>
+                                {r.state === 'gone' && <span className="otter-req-meta">No longer available</span>}
+                              </span>
+                              {r.state === 'gone' && (
+                                <span className="otter-req-actions">
+                                  <Button size="sm" disabled={!!shareBusy} loading={shareBusy === r.id}
+                                    onClick={() => settleRows(r.id, [r], 'decline')}>
+                                    Dismiss
+                                  </Button>
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="otter-req-actions">
+                          <Button variant="primary" size="sm" icon={Check}
+                            disabled={!!shareBusy || takeable.length === 0} loading={shareBusy === `${e.batchId}:accept`}
+                            onClick={() => acceptRows(`${e.batchId}:accept`, e.rows)}>
+                            Accept all
+                          </Button>
+                          <Button size="sm" icon={X} disabled={!!shareBusy} loading={shareBusy === `${e.batchId}:decline`}
+                            onClick={() => settleRows(`${e.batchId}:decline`, e.rows, 'decline')}>
+                            Decline all
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  )
+                }
+                const r = e.row
+                const deadHost = r.status === 'accepted' && r.host_live === false
+                const gone = !deadHost && r.state === 'gone'
+                return (
+                  <li key={r.id} className="otter-req" data-settled={gone ? 'true' : undefined}>
+                    <div className="otter-req-line">
+                      <span className="otter-req-text">
+                        <span className="otter-req-title">
+                          {r.subject_title ?? 'A subject'}
+                          {r.subject_is_stub && <span className="otter-req-round"> · outline only</span>}
+                        </span>
+                        <span className="otter-req-meta">{gone ? 'No longer available' : offerLine(r)}</span>
+                      </span>
+                      <span className="otter-req-actions">
+                        {deadHost ? (
+                          <Button size="sm" icon={X} disabled={!!shareBusy}
+                            onClick={() => setShareConfirm({ key: r.id, rows: [r], text: removeConfirmText(r, shares) })}>
+                            Remove
+                          </Button>
+                        ) : gone ? (
+                          <Button size="sm" disabled={!!shareBusy} loading={shareBusy === r.id}
+                            onClick={() => settleRows(r.id, [r], 'decline')}>
+                            Dismiss
+                          </Button>
+                        ) : (
+                          <>
+                            <Button variant="primary" size="sm" icon={Check} disabled={!!shareBusy}
+                              loading={shareBusy === `${r.id}:accept`} onClick={() => acceptRows(`${r.id}:accept`, [r])}>
+                              Accept
+                            </Button>
+                            <Button size="sm" icon={X} disabled={!!shareBusy}
+                              loading={shareBusy === `${r.id}:decline`} onClick={() => settleRows(`${r.id}:decline`, [r], 'decline')}>
+                              Decline
+                            </Button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    {deadHost && (
+                      <div className="otter-req-body" data-flush="true">
+                        <p className="otter-req-note">
+                          Its course in your library was deleted: restore it from Recently deleted, or remove this link.
+                        </p>
+                      </div>
+                    )}
+                    {!deadHost && !gone && r.message && (
+                      <div className="otter-req-body" data-flush="true">
+                        <p className="otter-req-summary">“{r.message}”</p>
+                      </div>
+                    )}
+                    {confirmUnder(r.id, 'Remove')}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
+
+        {/* ── Shared by you (design §5.3): every row of my subjects, whoever
+            made it, and every row I passed on; a batch as one line; decided
+            rows folded. ── */}
+        {(sent.live.length > 0 || sent.decided.length > 0) && (
+          <section className="otter-req-section">
+            {sectionHeader(<Link2 className="otter-req-section-icon" aria-hidden="true" />, 'Shared by you', sent.live.length)}
+            {sent.live.length > 0 && (
+              <ul className="otter-req-list">
+                {sent.live.map(e => (e.kind === 'batch' ? sentBatchItem(e) : sentRowItem(e.row)))}
+              </ul>
+            )}
+            {sent.decided.length > 0 && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setShowDecidedShares(v => !v)} aria-expanded={showDecidedShares} className="otter-req-decided">
+                  Show decided · {sent.decided.length}
+                  <ChevronRight className="otter-req-chevron" data-open={showDecidedShares} aria-hidden="true" />
+                </Button>
+                {showDecidedShares && (
+                  <ul className="otter-req-list otter-req-settled">
+                    {sent.decided.map(e => (e.kind === 'batch'
+                      ? sentBatchItem(e, { settled: true })
+                      : sentRowItem(e.row, { settled: true })))}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
         )}
 
         {loading && rows.length === 0 ? (
