@@ -18,13 +18,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // The module under test imports the shared client; fake the two query shapes
 // it uses (select().maybeSingle() chains for fetch, insert/update for save).
-const state = { fetchResult: null, fetchError: null }
+const state = { fetchResult: null, fetchError: null, reads: 0, gate: null }
 
 vi.mock('./auth/supabaseClient', () => ({
   supabase: {
     from: () => ({
       select: () => ({
-        maybeSingle: async () => ({ data: state.fetchResult, error: state.fetchError }),
+        // The answer is the one AT THE TIME OF ASKING; `gate` holds it in flight.
+        maybeSingle: async () => {
+          state.reads += 1
+          const answer = { data: state.fetchResult, error: state.fetchError }
+          if (state.gate) await state.gate
+          return answer
+        },
       }),
       insert: (row) => ({
         select: () => ({
@@ -47,15 +53,54 @@ import {
   saveWorkspaceStorage,
   getWorkspaceStorageCached,
   clearWorkspaceStorageCache,
+  peekWorkspaceStorageCached,
 } from './workspaceStorage'
 
 beforeEach(() => {
   clearWorkspaceStorageCache()
   state.fetchResult = null
   state.fetchError = null
+  state.gate = null
 })
 
 describe('getWorkspaceStorageCached', () => {
+  it('🚨 a read answered after a sign-out never fills the slot, and its waiter asks again for the new identity (P1, review round 2)', async () => {
+    const rowA = { workspace_id: 'wA', mode: 'byos', provider: 's3' }
+    const rowB = { workspace_id: 'wB', mode: 'central', provider: 'petal' }
+    let release
+    state.fetchResult = rowA
+    state.gate = new Promise((r) => { release = r })
+    const waiter = getWorkspaceStorageCached()          // asked under A
+    const direct = fetchWorkspaceStorage()              // App.jsx's own read, under A
+    clearWorkspaceStorageCache()                        // A signs out; B signs in
+    state.fetchResult = rowB
+    state.gate = null
+    release()
+    await direct
+    await expect(waiter).resolves.toEqual(rowB)         // re-asked, for B
+    expect(peekWorkspaceStorageCached()).toEqual(rowB)  // never A's
+  })
+
+  it('CONTROL: a read with no sign-out between fills the slot as before', async () => {
+    const rowA = { workspace_id: 'wA', mode: 'byos', provider: 's3' }
+    state.fetchResult = rowA
+    await fetchWorkspaceStorage()
+    expect(peekWorkspaceStorageCached()).toEqual(rowA)
+  })
+
+  it('panels that ask at once share ONE read (P1, review round 1, finding 6); a failed one is retried by the next call', async () => {
+    state.fetchResult = { workspace_id: 'w1', mode: 'byos', provider: 'network' }
+    state.reads = 0
+    await Promise.all([getWorkspaceStorageCached(), getWorkspaceStorageCached(), getWorkspaceStorageCached()])
+    expect(state.reads).toBe(1)
+    clearWorkspaceStorageCache()
+    state.fetchError = { message: 'offline' }
+    await expect(getWorkspaceStorageCached()).rejects.toThrow(/offline/)
+    state.fetchError = null
+    await expect(getWorkspaceStorageCached()).resolves.toMatchObject({ provider: 'network' })
+    expect(state.reads).toBe(3)
+  })
+
   it('fetches once, then serves from the cache', async () => {
     state.fetchResult = { workspace_id: 'w1', mode: 'byos', provider: 's3' }
     const first = await getWorkspaceStorageCached()

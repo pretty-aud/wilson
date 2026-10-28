@@ -25,30 +25,35 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // and nothing outside it was ever written by the product.
 const SEGMENT_RE = /^[A-Za-z0-9._-]+$/
 
-export type PathCheck = { ok: true; projectId: string } | { ok: false; detail: string }
+// `code` names the refusal for a caller that answers per key (P1's
+// storage-read-urls): 'money' for a locked folder, 'shape' for everything
+// else. storage-presign reads only `detail`; its behaviour is unchanged.
+export type PathCheck =
+  | { ok: true; projectId: string }
+  | { ok: false; code: 'shape' | 'money'; detail: string }
 
 /** Row-shaped and canonical, or a sentence. Returns the project id. */
 export function checkRowShapedPath(path: unknown): PathCheck {
   if (typeof path !== 'string' || path.length === 0) {
-    return { ok: false, detail: 'no object path was given' }
+    return { ok: false, code: 'shape', detail: 'no object path was given' }
   }
   if (path.length > 1024) {
-    return { ok: false, detail: 'the object path is too long' }
+    return { ok: false, code: 'shape', detail: 'the object path is too long' }
   }
   const segs = path.split('/')
   if (segs[0] !== 'projects' || segs.length < 3) {
-    return { ok: false, detail: 'the path must be row-shaped: projects/<project-id>/…' }
+    return { ok: false, code: 'shape', detail: 'the path must be row-shaped: projects/<project-id>/…' }
   }
   if (!UUID_RE.test(segs[1] ?? '')) {
-    return { ok: false, detail: 'the second path segment must be the project id' }
+    return { ok: false, code: 'shape', detail: 'the second path segment must be the project id' }
   }
   for (const s of segs) {
-    if (s === '') return { ok: false, detail: 'the path carries an empty segment (leading, trailing or doubled slash)' }
-    if (s === '.' || s === '..') return { ok: false, detail: 'the path carries a dot segment' }
-    if (!SEGMENT_RE.test(s)) return { ok: false, detail: 'the path carries characters the uploader never writes' }
+    if (s === '') return { ok: false, code: 'shape', detail: 'the path carries an empty segment (leading, trailing or doubled slash)' }
+    if (s === '.' || s === '..') return { ok: false, code: 'shape', detail: 'the path carries a dot segment' }
+    if (!SEGMENT_RE.test(s)) return { ok: false, code: 'shape', detail: 'the path carries characters the uploader never writes' }
   }
   if (isMoneySegment(segs[2])) {
-    return { ok: false, detail: 'money-gated files never leave Supabase — this path cannot be presigned' }
+    return { ok: false, code: 'money', detail: 'money-gated files never leave Supabase — this path cannot be presigned' }
   }
   return { ok: true, projectId: segs[1] }
 }

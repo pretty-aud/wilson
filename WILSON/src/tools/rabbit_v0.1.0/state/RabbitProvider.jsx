@@ -5424,15 +5424,19 @@ export function RabbitProvider({ children }) {
   // useless for playback: a <video> needs a URL to issue Range requests
   // against, and a multi-GB master cannot be held in memory as a Blob at all.
   //
-  // Returns null when this backend or this provider cannot mint one — an s3 row
-  // today (deferred: its presigned GET expires in 300s and no S3 workspace
-  // exists anywhere to verify a longer-lived signer against), or Local Server,
-  // whose managed files are streamed by the Express route instead. The caller
-  // shows "preview unavailable" rather than an error, because that is a stated
-  // capability gap and not a fault. A signing FAILURE still throws.
-  const fileUrl = useCallback(async (file) => {
+  // Returns null when this backend cannot mint one — the dev fixtures, or
+  // Local Server, whose managed files are streamed by the Express route
+  // instead. (An s3 row answered null too until P1, which gave s3 its own read
+  // signer.) The caller shows "preview unavailable" rather than an error,
+  // because that is a stated capability gap and not a fault. A signing FAILURE
+  // still throws.
+  //
+  // `opts.stream` (P1): false from a preview stage that reads its URL once (an
+  // image, a PDF, a text), so an s3 body is signed for five minutes, not the
+  // hour a player needs. The cloud adapter's default is true.
+  const fileUrl = useCallback(async (file, opts) => {
     if (!adapterRef.current?.fileUrl) return null;
-    return adapterRef.current.fileUrl(file);
+    return adapterRef.current.fileUrl(file, opts);
   }, []);
 
   // Session 42: a URL that DOWNLOADS rather than plays. Distinct from fileUrl
@@ -5454,10 +5458,12 @@ export function RabbitProvider({ children }) {
   // concept — Local Server serves its previews from the Express route and has
   // no bucket to sign against. A missing preview must never take a file list
   // down with it, so this is the one file method that cannot fail loudly.
-  const thumbnailUrls = useCallback(async (paths) => {
+  // `opts.provider` (P1): 's3' asks the customer's bucket (storage-read-urls);
+  // nothing named is Petal's rabbit-thumbnails, as before.
+  const thumbnailUrls = useCallback(async (paths, opts) => {
     if (!adapterRef.current?.thumbnailUrls) return new Map();
     try {
-      return await adapterRef.current.thumbnailUrls(paths);
+      return await adapterRef.current.thumbnailUrls(paths, opts);
     } catch (err) {
       console.warn('[rabbit] thumbnail URLs unavailable:', err?.message || err);
       return new Map();

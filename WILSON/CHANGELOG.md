@@ -186,7 +186,7 @@ The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; f
 
 ### Deployment notes
 
-Production is brought up by `docs/PRODUCTION_RUNBOOK.md`, in its order: the reads first, the migrations from 0064 by file by the house method, the 22 functions, the secrets by name and digest, the two Auth hooks and the session time-box, the builds, then PR #4 merged into `main` with a merge commit and the tag.
+Production is brought up by `docs/PRODUCTION_RUNBOOK.md`, in its order: the reads first, the migrations from 0064 by file by the house method, every Edge Function, the secrets by name and digest, the two Auth hooks and the session time-box, the builds, then PR #4 merged into `main` with a merge commit and the tag.
 
 - **Before the tag,** `docs/sessions/PLAN_TO_1_0.md` §0's four conditions: the features merged and on the beta, the nine defects closed, her testing (`docs/RELEASE_TESTING.md` and the walkthroughs), and the release steps, hers in the browser and the controller's on production after the TPN re-audit reports nothing High.
 - **Hers, in the browser** (plan §6): rotate `smoke_admin`; roll staging's legacy `service_role` key; the two Auth hooks on staging; PR #4's title and body; the gateway's GitHub setup and the installer rehearsal; the AI-files sweep before 2026-11-09.

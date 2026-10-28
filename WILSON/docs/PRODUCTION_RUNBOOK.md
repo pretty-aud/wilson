@@ -81,7 +81,7 @@ The link asks for production's database password; she types it. Proof: `supabase
 | a5 | `supabase db query --linked "select inet_server_addr() as host, string_agg(id || ' public=' || public || ' limit=' || coalesce(file_size_limit::text, 'none'), ', ' order by id) as buckets, (select count(*) from public.workspaces) as workspaces from storage.buckets"` | `rabbit-files public=false limit=53687091200, rabbit-thumbnails public=false limit=262144, user-avatars public=true limit=2097152` (0027 and 0057, 0053, 0009). **`rabbit-thumbnails` must be `false`**; if not, stop (TPN-CLOUD-008). `user-avatars` public is the known TPN-CLOUD-004 |
 | a6 | `supabase db query --linked "select inet_server_addr() as host, (select count(*) from public.workspaces) as workspaces, (select count(*) from public.projects) as projects, (select count(*) from auth.users) as users, (select count(*) from public.platform_operators) as operators"` | `0 / 0 / 0` and no operator ([C2] §2, measured 2026-09-07). Nothing in (b) to (d) needs a company. With no company she belongs to, the first operator is (g) 13 (walkthrough 85, Q4) |
 | a7 | `supabase db query --linked "select inet_server_addr() as host, (select count(*) from public.workspace_storage_secrets) as bucket_secrets, (select count(*) from public.workspace_ai_keys) as ai_keys, (select count(*) from public.app_events where code = 'WIL-6001' and context->>'tool' = 'ai-files' and message = 'AI file upload completed') as ai_uploads, (select count(*) from public.workspaces) as workspaces"` | all 0 on an empty production: an `app_events` row needs a company (`workspace_id NOT NULL`, 0021), so with a6 at 0 there is nothing to sweep, and (g) 17 says so. If a6 reads a company and `ai_uploads` is above 0, (c)'s two FX12 functions and (g) 17's sweep come before 2026-11-09, when the 90-day purge takes the attribution ([OUT] FX12-01) |
-| a8 | `supabase functions list --project-ref rqyriuyldhovirbuievt` | the deployed set; (c) compares it with the 22 in the tree |
+| a8 | `supabase functions list --project-ref rqyriuyldhovirbuievt` | the deployed set; (c) compares it with the 23 in the tree |
 | a9 | `supabase secrets list --project-ref rqyriuyldhovirbuievt`, then the same with `rzkirvkotslbovzbsdfh` (staging) | names and digests only; (d) says which match |
 | a10 | Dashboard → wilson-prod → Authentication: **Hooks**, **Sessions**, **Email Templates**, **SMTP Settings**, **URL Configuration** | Hooks: **exactly one, Custom Access Token → `public.custom_access_token_hook`, enabled** (`docs/sessions/SESSION_04_prompt.md`: "enabled on both", staging and prod), and neither of 0070's two; the token hook absent: stop, every tenant policy reads the claims it mints ([HB] §4.3). Templates: **not uploaded** (`docs/RELEASE_TESTING.md` as of 2026-09-30: "Staging templates are uploaded; dev and prod are not"; [HB] §9 says all three: the read settles it). SMTP: Resend. Sessions: note the time-box and inactivity timeout. URLs: none yet for the host of (f) |
 | a11 | GitHub → Actions → **db-backups**: last night's run green, or **Run workflow** and wait for green; and Dashboard → wilson-prod → Database → **Backups**: today's daily backup listed | a fresh `db/prod/…` dump in B2 ([HB] §8) **and** the platform's own. The B2 dumps have never been restored (the drill is deferred, [OWED] §1), so the platform's backup is the one to trust. Neither present: stop and ask her |
@@ -91,7 +91,7 @@ The link asks for production's database password; she types it. Proof: `supabase
 ## (b) The migrations, by file, in order
 
 **What production lacks** ([P] §1, [K]): every file from 0064 to the last merged. On 2026-10-28 that is the 33 files below,
-through **0101**; **0103** follows if M2 has merged (night 4), and **0104** if P1's design needed one. Dev and staging are at 0101
+through **0101**; **0103** follows if M2 has merged (night 4), while P1 merged with none (`po-p1-2026-10-28.md` §2). Dev and staging are at 0101
 ([P] night 3, 2026-10-28 05:05 UTC).
 
 **The house method, per file** ([B1] §4; [K]). For file `NNNN_name.sql`:
@@ -183,8 +183,8 @@ walkthrough 85, Q5.
 
 ## (c) The Edge Functions
 
-**Deploy all 22 from the release worktree, whatever (a8) shows.** Production's copies, where it has any, predate shared modules
-that every function bundles (`_shared/adminGuard.ts` reaches 20 of the 22; a change to a shared module is a redeploy of every
+**Deploy all 23 from the release worktree, whatever (a8) shows.** Production's copies, where it has any, predate shared modules
+that every function bundles (`_shared/adminGuard.ts` reaches 21 of the 23; a change to a shared module is a redeploy of every
 function that bundles it), and the documents disagree about what is there (below). A version number counts per project and proves
 nothing across them: *"Diff the source, never the version"* (`docs/MASTER_PLAN.md`).
 
@@ -196,7 +196,7 @@ rqyriuyldhovirbuievt --workdir <W>\before\<name>`. Proof: each `<W>\before\<name
 `git status --short` in the release worktree is empty.
 
 **Then the deploys**, one command per name in the table, from the release worktree's `WILSON\` (the CLI reads
-`supabase\config.toml`, which gives all 22 `verify_jwt = false`: the platform's own check accepts only HS256 and this project signs
+`supabase\config.toml`, which gives all 23 `verify_jwt = false`: the platform's own check accepts only HS256 and this project signs
 ES256, the file's own comment; `--no-verify-jwt`, as the gateway hand-offs write it, is the same):
 
 ```
@@ -227,6 +227,7 @@ reads its secrets on its next call, so (d)'s settings may follow ([OWED] §5).
 | `resolve-login` | `RESOLVE_LOGIN_COMPANY_RPM`†, `RESOLVE_LOGIN_USER_RPM`† | — | **v8**, before B1's durable limiter of 2026-09-06 ([C2]) |
 | `storage-gc` | `WILSON_STORAGE_KEY_SECRET` | 0073 | **v8** (`track-c-C1-2026-09-06-part2.md`) |
 | `storage-presign` | `WILSON_STORAGE_KEY_SECRET`; `STORAGE_PRESIGN_RPM`† | 0088 | **v3**, without 0088's `LEGAL` ([C2]; [OUT] S4b-02) |
+| `storage-read-urls` | `WILSON_STORAGE_KEY_SECRET` (required: without it a read answers 503 `crypto_unavailable`); `STORAGE_READ_URLS_RPM`† | — (P1: no migration) | **absent**: new in P1 (night 4), on dev only (`po-p1-2026-10-28.md` §2) |
 | `storage-secret` | `WILSON_STORAGE_KEY_SECRET`; `STORAGE_SECRET_RPM`† | — | deployed to all three in S37 (commit `bf908586`) |
 
 *Platform keys* are `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`, which the platform provides to every
@@ -240,14 +241,14 @@ function and nobody sets.
 2. **The AI file store on staging.** [OUT] FX12-01 and walkthrough 76 (2026-10-25) say `ai-files` and `operator-ai-files` are on
    dev only; [K] and the merge `402b6ed5` (2026-10-26 15:00 UTC) record `ai-files` v3 and `operator-ai-files` v1 on staging.
    Production lacks both FX12 copies by every account.
-3. **`storage-presign`.** [OUT] S4b-02 says it is not redeployed; [K] records dev v4 on 2026-10-02 and staging on 2026-10-05.
+3. **`storage-presign`.** [K] records dev v4 on 2026-10-02 and staging on 2026-10-05; P1 downloaded both on 2026-10-28 and found dev v5 and staging v5, the repository's copy byte for byte ([OUT] S4b-02, closed for both). Production holds v3.
 4. **`storage-gc`.** [OUT] S4c-10 is open; [K] records staging v12 on 2026-10-12. Production is owed either way.
 5. **`operator-workspaces`.** [OUT]'s setup-link note (2026-09-06) says production has *"neither 0064, 0066 nor the function"*;
    [C2] the next day records production at v9.
 
 **Proof, per function.** The source: `supabase functions download <name> --project-ref rqyriuyldhovirbuievt --workdir
 <W>\after\<name>`, and the files under its `supabase\functions\` (the function and the `_shared` files it bundles) identical to the
-release commit's. `supabase functions list --project-ref rqyriuyldhovirbuievt` shows all 22. Two answers tell FX12's copies from
+release commit's. `supabase functions list --project-ref rqyriuyldhovirbuievt` shows all 23. Two answers tell FX12's copies from
 the old ones, in Git Bash (in Windows PowerShell 5.1 `curl` is `Invoke-WebRequest`, and the quoting below is bash's): an
 unauthenticated `curl -s -o /dev/null -w '%{http_code}\n' -X DELETE https://rqyriuyldhovirbuievt.supabase.co/functions/v1/ai-files`
 prints 401 (the old copy 405, `po-fx12-2026-10-25.md` §6), and `curl -s -o /dev/null -w '%{http_code}\n' -X POST -d
@@ -266,7 +267,7 @@ that do not talk to each other ([OWED] §5's table).
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | `ai-proxy`, `ai-files`, `operator-ai-files`, `operator-models` | all three, digests matching, 2026-07-30 ([OWED] §5) | one platform key behind all three ([HB] §13.1), so one AI file store (TPN-AI-010) |
 | `WILSON_AI_KEY_SECRET` | `ai-proxy`, `ai-files`, `operator-ai-keys` | all three, digests matching, 2026-07-30 ([OWED] §5) | **identical today, so that a company key stored on one opens on the others.** A new value orphans every stored company key, and `ai-proxy` falls back to the platform key quietly ([OWED] §9C; TPN-ENC-011). The sameness itself is TPN-ENC-015 |
-| `WILSON_STORAGE_KEY_SECRET` | `storage-gc`, `storage-presign`, `storage-secret` | all three, identical, set in the dashboard, 2026-08-08 ([OWED] §9 C2) | **identical today**, for the same reason; a new value orphans every bucket secret and `storage-presign` then fails closed. The sameness is TPN-ENC-015 |
+| `WILSON_STORAGE_KEY_SECRET` | `storage-gc`, `storage-presign`, `storage-read-urls`, `storage-secret` | all three, identical, set in the dashboard, 2026-08-08 ([OWED] §9 C2) | **identical today**, for the same reason; a new value orphans every bucket secret and `storage-presign` then fails closed. The sameness is TPN-ENC-015 |
 | `WILSON_GATEWAY_KEY_SECRET` | `gateway-ticket` (required), `gateway-enrol`, `gateway-sync` | dev, 2026-10-10 (`po-gw1-2026-10-10.md` §2); staging, 2026-10-12 ([K]; merge `708e93be`). **Not production** (`po-gw1` §6) | **a fresh value per environment**, as dev and staging have; no document asks them to match |
 | `WILSON_SITE_URL` | `invite-member`, `operator-workspaces`, `gateway-enrol`, `gateway-sync` | *"already set on all three"* ([OWED] §6); production's value is not recorded | per environment: production's must be the web host of (f), or invite and setup-link emails link elsewhere |
 | `WILSON_REQUIRE_ADMIN_MFA` | every function bundling `adminGuard` | unset anywhere, by the documents; off by default ([HB] §4.6; TPN-AUTH-003) | her call, not this runbook's |
@@ -430,8 +431,8 @@ user v1*, no body. A draft for her to paste or change:
 - **An Edge Function**: `supabase functions deploy <name> --project-ref rqyriuyldhovirbuievt --workdir <W>\before\<name>
   --no-verify-jwt` (outside the repository there is no `config.toml`, so the flag is what keeps `verify_jwt` off; this is the
   first release, so there is no earlier release commit to deploy from), then compare sources as (c) does. A function production did
-  not have before the release (a8: the five `gateway-*` and `operator-ai-files`, by the documents) rolls back by `supabase functions
-  delete <name> --project-ref rqyriuyldhovirbuievt`.
+  not have before the release (a8: the five `gateway-*`, `operator-ai-files` and `storage-read-urls`, by the documents) rolls
+  back by `supabase functions delete <name> --project-ref rqyriuyldhovirbuievt`.
 - **The Auth hooks and session settings**: switch them off or back in the dashboard. The hooks answer *continue* on every path,
   so turning one off loses only its rows.
 - **A web deployment**: Vercel → the project → Deployments → promote the previous one.

@@ -36,12 +36,15 @@ import { supabase } from './auth/supabaseClient'
 // provider while a SAVED row carried one, so the same component's `row` object
 // changed shape halfway through a session depending on which path produced it.
 export async function fetchWorkspaceStorage() {
+  const gen = generation
   const { data, error } = await supabase
     .from('workspace_storage')
     .select('workspace_id, mode, provider, provider_config, root_path, root_kind, updated_at, updated_by')
     .maybeSingle()
   if (error) throw new Error(`workspace storage read failed: ${error.message}`)
-  cachedRow = data
+  // Only the identity that asked may fill the slot (review round 2): a read
+  // answered after a sign-out or a workspace switch is the LAST person's.
+  if (gen === generation) cachedRow = data
   return data
 }
 
@@ -62,10 +65,33 @@ export async function fetchWorkspaceStorage() {
 // Staleness matches the drive's own stated limit (S34): another admin's
 // change reaches this session at its next launch or sign-in, not live.
 let cachedRow
+// P1 (review round 1, finding 6): file panels that mount at the same moment
+// (FileManager, the Files tab) each asked for the choice; they share ONE read
+// now. Forgotten when it settles, so a failed read is retried by the next call.
+let inflight = null
+// 🚨 P1 (review round 2, finding 2): the clear bumps this, and a read that
+// began before it neither fills the slot nor answers a caller who asked
+// after it. Without it, a read sent under the last session and answered
+// under the next one put the LAST workspace's choice in the slot — and
+// uploadFile routes the next body by that choice (an s3 workspace's media
+// into Petal's bucket, the S44 boundary), and the shared read handed it to
+// every waiter.
+let generation = 0
 
 export async function getWorkspaceStorageCached() {
-  if (cachedRow !== undefined) return cachedRow
-  return await fetchWorkspaceStorage()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (cachedRow !== undefined) return cachedRow
+    const gen = generation
+    if (!inflight) {
+      const read = fetchWorkspaceStorage()
+      inflight = read
+      read.finally(() => { if (inflight === read) inflight = null }).catch(() => {})
+    }
+    const row = await inflight
+    if (gen === generation) return row
+    // The session changed while this was read: ask again, for the new one.
+  }
+  throw new Error('workspace storage read failed: the session changed while it was being read')
 }
 
 // The cached choice as it stands — undefined when never loaded (or forgotten
@@ -82,6 +108,8 @@ export function peekWorkspaceStorageCached() {
 // branch) — the next account in this window may be a different workspace.
 export function clearWorkspaceStorageCache() {
   cachedRow = undefined
+  inflight = null
+  generation += 1
 }
 
 // How many file bodies still live at a given provider (S37). Used by the

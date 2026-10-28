@@ -220,9 +220,10 @@ const REGISTRY = [
   // B4b: "Link Scenes" is the PICKER's title, not a control, so the step
   // matched nothing and the screen measured the detail popup under it (both
   // of B4's rows read the same). The control is the sidebar's "Link scene".
-  // And the fixture's video is in the workspace's own bucket, where the
-  // preview says playback is not available and draws no <video>: its words
-  // are the proof it opened.
+  // And the fixtures hold no file bytes, so the player says playback is not
+  // available and draws no <video>: its words are the proof it opened. (P1,
+  // night 4: the sentence named the workspace's own bucket until an s3 row
+  // had a signer; rabbitVideoRender.test.jsx holds the same words.)
   // The file manager's gallery is proven by its own grid, which FileManager
   // renders only in gallery mode and only with files to show. (B4c review
   // round one: the old alternative, an inline `minmax(140px` grid, left with
@@ -231,7 +232,7 @@ const REGISTRY = [
   P('rabbit-asset-warning', '/rabbit', { steps: ['@proj', 'Assets', 'Tasks not yet done'], expect: { text: 'still in flight' } }),
   P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'Open Shooting Script v4', 'Link scene'], expect: { text: ' linked)' } }),
   P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::Open Storyboards', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"]' } }),
-  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::Open Storyboards', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available yet' } }),
+  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::Open Storyboards', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available for this file' } }),
   // B4c surface 7: the drawer is the kit Drawer, `role="complementary"` and
   // not a dialog, so `dialog: true` no longer proves it. Its own <aside>,
   // named "File activity", exists only while it is open: the Control Panel

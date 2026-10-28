@@ -17,7 +17,7 @@ vi.mock('./auth/supabaseClient', () => ({
 vi.mock('../tools/rabbit_v0.1.0/storage/uploadReservation.js', () => ({ releaseStaleUploads: vi.fn() }))
 
 // eslint-disable-next-line import/first
-import { presignStorage } from './storageApi'
+import { presignStorage, presignReadUrls } from './storageApi'
 
 afterEach(() => { vi.unstubAllGlobals(); auth.getSession.mockClear() })
 
@@ -47,5 +47,42 @@ describe('presignStorage(op, path, { token, signal })', () => {
     const ctl = new AbortController()
     vi.stubGlobal('fetch', vi.fn(async (_u, init) => { ctl.abort(); throw Object.assign(new Error('aborted'), { name: 'AbortError', signal: init.signal }) }))
     await expect(presignStorage('head', 'projects/p/x/y', { token: 't', signal: ctl.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
+// P1 (night 4): presignReadUrls, the binding for storage-read-urls — the only
+// caller of the read signer, and so the one place a money key is stopped
+// before it is ever sent (NETWORK_STORAGE_DESIGN.md §9.3).
+describe('presignReadUrls(keys, { stream })', () => {
+  const P = 'aaaa1111-0000-0000-0000-000000000001'
+  const ok = (urls = {}, refused = {}) => vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, urls, expires: {}, refused }) }))
+
+  it('🚨 never sends a money key: it is answered here as refused money', async () => {
+    const fetchFn = ok({ [`projects/${P}/assets/a/1-x.png.jpg`]: 'https://b/x' })
+    vi.stubGlobal('fetch', fetchFn)
+    const money = [`projects/${P}/INVOICES/i/1-a.pdf.jpg`, `projects/${P}/legal/l/1-b.pdf`, `projects/${P}/Finance/RATES.json`]
+    const res = await presignReadUrls([...money, `projects/${P}/assets/a/1-x.png.jpg`], { token: 't' })
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ keys: [`projects/${P}/assets/a/1-x.png.jpg`] })
+    expect(res.refused).toEqual(Object.fromEntries(money.map((k) => [k, 'money'])))
+  })
+
+  it('only money keys: nothing is sent at all', async () => {
+    const fetchFn = ok()
+    vi.stubGlobal('fetch', fetchFn)
+    const res = await presignReadUrls([`projects/${P}/INVOICES/i/1-a.pdf`], { token: 't' })
+    expect(fetchFn).not.toHaveBeenCalled()
+    expect(res).toEqual({ urls: {}, expires: {}, refused: { [`projects/${P}/INVOICES/i/1-a.pdf`]: 'money' } })
+  })
+
+  it('sends stream only when asked, and throws a whole-call refusal with its sentence and status', async () => {
+    const fetchFn = ok({ k: 'u' })
+    vi.stubGlobal('fetch', fetchFn)
+    await presignReadUrls([`projects/${P}/assets/a/1-cut.mov`], { stream: true, token: 't' })
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ keys: [`projects/${P}/assets/a/1-cut.mov`], stream: true })
+    expect(fetchFn.mock.calls[0][0]).toMatch(/\/functions\/v1\/storage-read-urls$/)
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ error: 'refused', detail: 'this workspace has no S3-compatible storage configured' }) })))
+    const err = await presignReadUrls([`projects/${P}/assets/a/1-x.png`], { token: 't' }).catch((e) => e)
+    expect(err.message).toBe('[s3] this workspace has no S3-compatible storage configured')
+    expect(err.status).toBe(409)
   })
 })

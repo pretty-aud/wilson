@@ -55,6 +55,10 @@ door, and rated as its class is:
   `adapters/gatewayBins.js`, `electron/rabbitBins.cjs`, the posters); own storage (`storage/`, `storage-presign`,
   `storage-secret`, `storage-gc`, 0048 to 0054, `StorageConnections.jsx`, `StorageSection.jsx`); the AI file store (`ai-files`,
   `operator-ai-files`). The twelve passes ran on them; Physical is N/A, and AI/ML is N/A for the gateway and bins.
+- **Not in the snapshot.** P1's `storage-read-urls` and `_shared/readUrls.ts`, own storage's GET-only batch signer for an s3
+  workspace's previews, merged at `d9f1981e`, after `51e5a0d7`, and were not audited. A read of their imports finds no
+  server-side fetch to a company's host (they sign GET URLs for the browser), so TPN-NET-016's class does not reach them; the rest
+  is the next audit's, and this gate's count does not cover them.
 - **The rule for what the gate counts.** A gap is the areas' own when it is a choice in their own code: the eight above, and the three
   instances, where the areas did less than the same areas do next door (the step-up storage-secret takes, the no-store the gateway
   sends, storage-presign's refusal to re-route). Product-wide controls the areas only inherit keep this pack's single findings and

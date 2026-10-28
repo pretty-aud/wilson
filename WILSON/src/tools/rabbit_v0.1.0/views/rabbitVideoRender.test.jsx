@@ -41,8 +41,11 @@ beforeAll(() => {
 afterAll(() => { globalThis.fetch = realFetch })
 afterEach(() => { cleanup(); _resetOverlaysForTests(); localStorage.clear() })
 
-// The walk proves the preview open by these words: they must not move.
-const OWN_BUCKET = 'Playback isn\'t available yet for media stored in your own bucket.'
+// The walk proves the preview open by these words (scripts/ui-walk.mjs,
+// rabbit-asset-video): they move only together. P1 (night 4) moved them: they
+// named the company's own bucket, and an s3 row has a signer now, so the
+// sentence is for a backend that mints no URL at all (the dev fixtures).
+const NO_SOURCE = 'Playback isn\'t available for this file here.'
 const CUT = { id: 'f2', name: 'cut.mp4', asset_id: 'a1', size_bytes: 5_000_000, uploaded_at: '2026-09-18T10:00:00Z', storage_provider: 'supabase' }
 const CLOUD = [
   { id: 'f1', name: 'brief.pdf', asset_id: 'a1', size_bytes: 2048, uploaded_at: '2026-09-19T10:00:00Z', storage_provider: 'supabase' },
@@ -62,7 +65,7 @@ function preview({ file = CUT, managed = false, fileUrl = async () => null, onOp
 }
 
 describe('VideoPreview — the player on the kit Dialog', () => {
-  it('is the kit Dialog in <body>, named by the file as stored (never re-cased), at the form width; the own-bucket sentence keeps its words', async () => {
+  it('is the kit Dialog in <body>, named by the file as stored (never re-cased), at the form width; the no-source sentence keeps its words', async () => {
     const { container } = preview({ file: { id: 'm9', name: 'take.mov', stored_name: 'Take_03_v002.MOV' } })
     const dialog = screen.getByRole('dialog', { name: 'Take_03_v002.MOV' })
     expect(dialog.className).toBe('ui-dialog rb-vid-dialog')
@@ -71,7 +74,7 @@ describe('VideoPreview — the player on the kit Dialog', () => {
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     expect(container.contains(dialog)).toBe(false)
     expect(dialog.querySelector('.ui-dialog-title').textContent).toBe('Take_03_v002.MOV')
-    const words = await within(dialog).findByText(OWN_BUCKET)
+    const words = await within(dialog).findByText(NO_SOURCE)
     expect(words.className).toBe('rb-vid-detail')
     // A cloud row has nothing on this machine to reveal: no control is offered.
     expect(within(dialog).queryByRole('button', { name: 'Show in folder' })).toBeNull()
@@ -157,7 +160,7 @@ describe('VideoPreview in its hosts — ONE Escape closes the player and never t
     )
     fireEvent.click(screen.getByRole('button', { name: 'Play cut.mp4' }))
     const player = screen.getByRole('dialog', { name: 'cut.mp4' })
-    expect(await within(player).findByText(OWN_BUCKET)).toBeTruthy()
+    expect(await within(player).findByText(NO_SOURCE)).toBeTruthy()
     escape()
     expect(screen.queryByRole('dialog', { name: 'cut.mp4' })).toBeNull()
     expect(hostClose).not.toHaveBeenCalled()
@@ -191,7 +194,7 @@ describe('VideoPreview in its hosts — ONE Escape closes the player and never t
     fireEvent.click(within(popup).getByRole('button', { name: 'Play cut.mp4' }))
     const player = screen.getByRole('dialog', { name: 'cut.mp4' })
     expect(popup.contains(player)).toBe(false)
-    expect(await within(player).findByText(OWN_BUCKET)).toBeTruthy()
+    expect(await within(player).findByText(NO_SOURCE)).toBeTruthy()
     escape()
     expect(screen.queryByRole('dialog', { name: 'cut.mp4' })).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Storyboards' })).toBeTruthy()

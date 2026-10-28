@@ -106,7 +106,9 @@ describe('the renderer — previews, the checkbox, the badge, the copy', () => {
     expect(fileManager).toContain("f.storage_provider === 'local_server' && f.thumbnail_url")
     expect(fileManager).toContain("localMediaUrl(f.thumbnail_url)")
     expect(fileManager).toContain(".filter(f => f.storage_provider !== 'local_server')")
-    expect(fileManager).toContain('setThumbUrls(new Map([...local, ...map]))')
+    // P1 split the map: the local previews ride the Petal batch's own state,
+    // merged with the s3 arm's by one memo (FileManager's `thumbUrls`).
+    expect(fileManager).toContain('setPetalThumbs(new Map([...local, ...map]))')
     // off the desktop: icons, not broken images
     expect(fileManager).toMatch(/hasLocalServer\(\)\s*\n?\s*\? assetFiles/)
   })
