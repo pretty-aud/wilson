@@ -112,7 +112,7 @@ function locationSegments(loc, now) {
 }
 
 function certificatePhrase(c, now) {
-  if (!c) return { text: 'certificate: not made yet', tone: 'amber' };
+  if (!c || c.kind === 'none') return { text: 'certificate: not made yet', tone: 'amber' };
   if (c.kind === 'own') {
     if (!c.ownUntil) return { text: 'certificate: your company’s own', tone: 'plain' };
     const left = c.ownUntil - now;
@@ -241,7 +241,18 @@ export function composeHealthLine(state) {
   if (outsideWarning) warnings.push(outsideWarning);
   if (state.certificate?.rootExpiryNotice) warnings.push({ text: `the gateway’s root certificate expires on ${day(state.certificate.rootUntil)}; a new one will need installing on each office computer`, tone: 'amber' });
   if (state.certificate?.rootReplaced) warnings.push({ text: `the office network address changed to ${state.certificate.rootReplaced}, outside what the installed certificate covers: install the new certificate on each office computer (Settings, Storage)`, tone: 'red' });
-  if (state.secrets && state.secrets.dpapi === false) warnings.push({ text: `secrets are protected by the folder’s permissions only (Windows data protection is unavailable: ${state.secrets.reason || 'unknown'})`, tone: 'amber' });
+  // P8 (TPN-ENC-014): no plaintext is ever written. Secrets that cannot be
+  // sealed are refused (red, not amber); an earlier version's unsealed files
+  // are counted until they are sealed again; a refused certificate write or
+  // an unreadable key file is red too.
+  if (state.secrets && state.secrets.sealed === 'none') warnings.push({ text: `secrets cannot be written: ${state.secrets.reason || 'nothing on this computer can seal them'}`, tone: 'red' });
+  if (state.secrets && state.secrets.unsealed > 0) warnings.push({ text: `${plural(state.secrets.unsealed, 'secret file')} from an earlier version ${state.secrets.unsealed === 1 ? 'is' : 'are'} unsealed on disk: sealed again at the next start once secrets can be written`, tone: 'amber' });
+  if (state.certificate?.refused) warnings.push({ text: `the gateway could not write its certificates (${state.certificate.refused}): nothing is made or renewed until secrets can be written`, tone: 'red' });
+  if (state.certificate?.unreadable) warnings.push({ text: `the gateway’s existing certificate files do not open (${state.certificate.unreadable}); no new certificate is made over them`, tone: 'red' });
+  // P8 (TPN-ENC-013): the office certificate should name the host, not its addresses.
+  if (state.certificate?.ipSans === 'legacy') warnings.push({ text: 'the office certificate still names this computer’s addresses (an earlier install): set inside.ip_sans false in config.json to name the host alone at the next start, or true to keep them', tone: 'amber' });
+  else if (state.certificate?.ipSans === 'config') warnings.push({ text: 'the office certificate names this computer’s addresses (inside.ip_sans is true): browsers may reach the gateway by address, which the TPN asks to retire', tone: 'amber' });
+  else if (state.certificate?.ipSans === 'no_name') warnings.push({ text: 'this computer’s name is no DNS label, so the office certificate names its addresses only: give it a name browsers can resolve', tone: 'amber' });
   for (const s of state.smb || []) if (s.dialect && !/^3/.test(s.dialect)) warnings.push({ text: `${s.unc} uses SMB ${s.dialect}: set SMB 3 with signing and encryption on the server`, tone: 'amber' });
 
   const text = segs.map((s) => (s.tone === 'bold' ? `**${s.text}**` : s.text)).join('');

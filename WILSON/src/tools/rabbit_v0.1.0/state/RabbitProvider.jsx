@@ -377,6 +377,8 @@ export function RabbitProvider({ children }) {
       fetchTickets: fetchGatewayTickets,
       doors,
       rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
+      // P8 round 2 (TPN-AUTH-012): the locations' own checked marks (bin_locations.vetted_at).
+      locations: () => bundleRef.current.binLocations || [],
       onChange: () => gatewayChangedRef.current?.(),
       userId: () => authUserIdRef.current,
     });

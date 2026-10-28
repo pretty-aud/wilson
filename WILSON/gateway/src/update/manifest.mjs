@@ -52,8 +52,9 @@ export const RELEASE_KEYS_WIRE = Object.freeze([
   // Slot 2: empty until a rotation.
 ]);
 
-export function compiledReleaseKeys() {
-  return RELEASE_KEYS_WIRE.slice(0, RELEASE_KEY_SLOTS).map(signingKeyFromWire).filter(Boolean).map((k) => k.key);
+/** The keys a gateway trusts: the slots as compiled (P8, TPN-ENC-016: the list is a parameter so the pipeline's tests can prove a successor in slot 2 before one exists). */
+export function compiledReleaseKeys(keysWire = RELEASE_KEYS_WIRE) {
+  return keysWire.slice(0, RELEASE_KEY_SLOTS).map(signingKeyFromWire).filter(Boolean).map((k) => k.key);
 }
 
 const VERSION_RE = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/;

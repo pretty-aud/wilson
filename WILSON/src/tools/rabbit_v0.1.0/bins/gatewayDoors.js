@@ -97,21 +97,25 @@ async function fetchPath(base, { fetchImpl, timeoutMs }) {
 }
 
 /**
- * §2: `GET /v1/path` on each inside address in parallel, 1.5 s, the first
- * answer kept; then the outside address, where the route is 404 and any
- * answer at all means the outside door was reached. Resolves
+ * §2: `GET /v1/path` on the gateway's inside NAMES in parallel, 1.5 s, the
+ * first answer kept; when no name answered, its inside addresses the same
+ * way (P8, TPN-ENC-013: a new install's office certificate names the host
+ * alone, so a name must be tried first; the addresses are for an earlier
+ * install or inside.ip_sans); then the outside address, where the route is
+ * 404 and any answer at all means the outside door was reached. Resolves
  * `{ door: 'inside'|'outside', base, gatewayId }` or null when nothing
- * answered. A gateway row is the view's: { id, inside_addresses: [{ host,
- * port }], outside_address: { host, port }|null }.
+ * answered. A gateway row is the view's: { id, inside_names: [{ host, port }],
+ * inside_addresses: [{ host, port }], outside_address: { host, port }|null }.
  */
 export async function probeGateway(gateway, { fetchImpl = globalThis.fetch, timeoutMs = PROBE_TIMEOUT_MS } = {}) {
   if (!gateway || typeof fetchImpl !== 'function') return null
-  const inside = Array.isArray(gateway.inside_addresses) ? gateway.inside_addresses.filter((a) => a && a.host) : []
-  if (inside.length) {
+  const doors = (list) => (Array.isArray(list) ? list.filter((a) => a && a.host) : [])
+  for (const round of [doors(gateway.inside_names), doors(gateway.inside_addresses)]) {
+    if (!round.length) continue
     const found = await new Promise((resolve) => {
-      let left = inside.length
+      let left = round.length
       let done = false
-      for (const a of inside) {
+      for (const a of round) {
         const base = doorBase(a.host, a.port)
         fetchPath(base, { fetchImpl, timeoutMs }).then((r) => {
           if (done) return

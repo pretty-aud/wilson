@@ -62,6 +62,11 @@ describe('the CI job (gateway.yml)', () => {
     expect(workflow).toMatch(/the office door closed this host's own address before TLS/);
     expect(workflow).toMatch(/switch off: the outside port refuses/);
   });
+  it('P8 (TPN-ENC-014): both container runs hand the gateway a sealing key, a throwaway made in the run, so no plain secret is written there either', () => {
+    expect(workflow).toContain('docker run -d --name gw-bridge -e WILSON_GATEWAY_SECRETS_KEY="$(openssl rand -base64 32)" -v /tmp/data-bridge:/data wilson-gateway:ci');
+    expect(workflow).toContain('docker run -d --name gw-host --network host \\\n            -e WILSON_GATEWAY_SECRETS_KEY="$(openssl rand -base64 32)" \\\n            -e WILSON_ENROL_TOKEN=');
+    expect(workflow).not.toMatch(/WILSON_GATEWAY_SECRETS_KEY="?[A-Za-z0-9+/]{40,}/); // never a literal key in the workflow
+  });
   it('builds the MSI and asserts the virtual service account, the order of the custom actions and the office door\'s rule', () => {
     expect(workflow).toMatch(/WilsonGateway\|NT SERVICE\\WilsonGateway\|WilsonGateway/);
     expect(workflow).toMatch(/custom actions out of order/);

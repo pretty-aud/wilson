@@ -72,6 +72,10 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
 
 const GC_SRC       = read('../../../supabase/functions/storage-gc/index.ts')
 const TEARDOWN_SRC = read('../../../supabase/functions/operator-workspaces/index.ts')
+// P8 (TPN-CONT-018): the collectors moved, verbatim, into _shared/teardownCollect.ts
+// (where vitest drives them); the pins on the collectors read that file, the
+// pins on the handler (Deno.serve, the known limit) still read index.ts.
+const COLLECT_SRC  = read('../../../supabase/functions/_shared/teardownCollect.ts')
 
 /**
  * Remove block and line comments so a scan sees CODE.
@@ -90,6 +94,7 @@ function stripComments(source) {
 
 const GC       = stripComments(GC_SRC)
 const TEARDOWN = stripComments(TEARDOWN_SRC)
+const COLLECT  = stripComments(COLLECT_SRC)
 
 const PROJECT_ID = '9926a8f7-7c8d-43ef-b327-8a766d8c1b0d' // the staging row
 
@@ -253,10 +258,14 @@ describe('the guard is actually WIRED — all three call sites', () => {
     // and `storage_gc_queue`, so before this the money-gated rates mirror
     // survived its own tenant's certified destruction — permanently, because
     // after the CASCADE nothing can attribute a project folder to a workspace.
-    expect(TEARDOWN).toMatch(/import\s*\{[^}]*reservedProjectObjectPaths[^}]*\}\s*from\s*'\.\.\/_shared\/reservedObjects\.ts'/)
-    expect(TEARDOWN).toContain('reservedProjectObjectPaths(projectId)')
+    expect(COLLECT).toMatch(/import\s*\{[^}]*reservedProjectObjectPaths[^}]*\}\s*from\s*'\.\/reservedObjects\.ts'/)
+    expect(COLLECT).toContain('reservedProjectObjectPaths(projectId)')
+    expect(COLLECT).not.toContain('PROJECT.json')
+    expect(COLLECT).not.toContain('RATES.json')
     expect(TEARDOWN).not.toContain('PROJECT.json')
     expect(TEARDOWN).not.toContain('RATES.json')
+    // index.ts removes what the collectors return: the call site is its own.
+    expect(TEARDOWN).toContain('const scan = await collectBlobPaths(ctx, workspaceId)')
   })
 
   it('teardown builds them ONLY from project ids it proved it owns', () => {
@@ -264,8 +273,8 @@ describe('the guard is actually WIRED — all three call sites', () => {
     // inherit whatever set they are built from — `projectIds` is the set
     // collectBlobPaths already proved belongs to this workspace, and the S15
     // cross-tenant finding is why that set exists.
-    const build = TEARDOWN.indexOf('reservedProjectObjectPaths(projectId)')
-    const loop  = TEARDOWN.lastIndexOf('for (const projectId of projectIds)', build)
+    const build = COLLECT.indexOf('reservedProjectObjectPaths(projectId)')
+    const loop  = COLLECT.lastIndexOf('for (const projectId of projectIds)', build)
     expect(loop, 'reserved paths are no longer built from the owned project ids')
       .toBeGreaterThan(-1)
   })

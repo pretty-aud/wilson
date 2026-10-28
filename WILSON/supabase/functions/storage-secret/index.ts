@@ -36,9 +36,12 @@ import { corsHeaders, reply, requireWorkspaceAdmin, logAdminEvent } from '../_sh
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import {
   encryptStorageSecret, decryptStorageSecret, storageKeyHint,
-  storageSecretCryptoConfigured,
+  storageSecretCryptoConfigured, storageSecretCurrentVersion,
 } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
+import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
+// P8 (TPN-NET-016): every request to the bucket goes to a VETTED public
+// address, over one TLS connection to that literal, no redirect followed.
+import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
 
 type S3Config = {
   endpoint?: string
@@ -93,11 +96,38 @@ Deno.serve(async (req: Request) => {
       return reply({ error: 'encrypt_failed', detail: message }, 500)
     }
     const hint = storageKeyHint(secret)
+    // P8 (TPN-NET-016): a secret is stored only for an endpoint WILSON would
+    // send it to. The row's endpoint (saved by the browser under 0106's CHECK,
+    // which refuses a private literal and a local name) is resolved here and
+    // refused if any answer is inside a private network — a name the CHECK
+    // cannot resolve is caught at this save and at every use.
+    {
+      const { data: wsRow, error: wsRowErr } = await ctx.admin
+        .from('workspace_storage')
+        .select('provider, provider_config')
+        .eq('workspace_id', ctx.workspaceId)
+        .maybeSingle()
+      if (wsRowErr) return reply({ error: 'storage_read_failed', detail: wsRowErr.message }, 500)
+      if (wsRow?.provider === 's3' && wsRow.provider_config) {
+        const c = wsRow.provider_config as S3Config
+        let host: string
+        try {
+          host = s3HostAndPath({ endpoint: c.endpoint, region: c.region, bucket: c.bucket, forcePathStyle: c.forcePathStyle }, 'probe').host
+        } catch (err) {
+          return reply({ error: 'refused', detail: err instanceof Error ? err.message : String(err) }, 409)
+        }
+        const vet = await vetS3Host(host, s3ReachDeps(), { supabaseHost: new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname })
+        if (!vet.ok) {
+          await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket secret refused', context: { stage: 'endpoint', reason: vet.reason } })
+          return reply({ error: 'refused', detail: `${vet.detail} — the secret was not saved` }, 409)
+        }
+      }
+    }
     const { error } = await ctx.admin.from('workspace_storage_secrets').upsert({
       workspace_id: ctx.workspaceId,
       secret_ciphertext: ciphertext,
       key_hint: hint,
-      key_version: 1,
+      key_version: storageSecretCurrentVersion() ?? 1, // P8 (TPN-ENC-015): the version the envelope names
       updated_at: new Date().toISOString(),
       updated_by: ctx.callerId,
     }, { onConflict: 'workspace_id' })
@@ -174,18 +204,45 @@ Deno.serve(async (req: Request) => {
         method, key, expiresSeconds: 120, now: new Date(),
       })
 
-    // Server-side round trip: PUT → GET → DELETE. Any thrown fetch is an
+    // P8 (TPN-NET-016): the host the signer puts in every URL (the bucket's
+    // own, when virtual-hosted) is vetted ONCE — a public literal, or a
+    // public name whose every answer is public — and the three requests
+    // below go to that one address, the name used for SNI only; a 3xx is
+    // refused, never followed. s3Reach.ts; the reach check's own rules.
+    const serverKey = probeKey(cfg.prefix, 'server')
+    let endpointHost: string
+    try {
+      endpointHost = s3HostAndPath(target, serverKey).host
+    } catch (err) {
+      return reply({ error: 'refused', detail: err instanceof Error ? err.message : String(err) }, 409)
+    }
+    const deps = s3ReachDeps()
+    const vetted = await vetS3Host(endpointHost, deps, { supabaseHost: new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname })
+    if (!vetted.ok) {
+      await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'endpoint', reason: vetted.reason } })
+      return reply({ error: 'refused', stage: 'endpoint', detail: vetted.detail }, 409)
+    }
+    const redirected = (stage: string, status: number) => reply({
+      error: 'probe_failed', stage, status,
+      detail: `the bucket endpoint answered a redirect (HTTP ${status}), which WILSON does not follow — give the endpoint the bucket answers at directly`,
+    }, 502)
+
+    // Server-side round trip: PUT → GET → DELETE. Any thrown request is an
     // unreachable endpoint (DNS/TLS/addressing), which gets the
     // forcePathStyle sentence — measured shape: a wrong style resolves a
     // bucket subdomain that does not exist.
-    const serverKey = probeKey(cfg.prefix, 'server')
-    const stages: Record<string, number> = {}
+    const stages: Record<string, number | string> = { method: 'none' }
     const payload = 'wilson-probe'
     try {
       let t0 = Date.now()
-      const putRes = await fetch(await sign('PUT', serverKey), { method: 'PUT', body: payload })
+      const putRes = await s3Request({ url: await sign('PUT', serverKey), method: 'PUT', body: payload, vetted, deps })
       stages.put_ms = Date.now() - t0
-      if (!putRes.ok) {
+      stages.method = putRes.method
+      if (putRes.redirect) {
+        await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'redirect', status: putRes.status } })
+        return redirected('put', putRes.status)
+      }
+      if (putRes.status < 200 || putRes.status >= 300) {
         const status = putRes.status
         const detail =
           status === 403 ? 'the bucket refused the credentials (403) — check the access key id and the secret' :
@@ -195,22 +252,31 @@ Deno.serve(async (req: Request) => {
         return reply({ error: 'probe_failed', stage: 'put', status, detail }, 502)
       }
       t0 = Date.now()
-      const getRes = await fetch(await sign('GET', serverKey), { method: 'GET' })
+      const getRes = await s3Request({ url: await sign('GET', serverKey), method: 'GET', vetted, deps })
       stages.get_ms = Date.now() - t0
-      const text = getRes.ok ? await getRes.text() : ''
-      if (!getRes.ok || text !== payload) {
+      if (getRes.redirect) {
+        await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'redirect', status: getRes.status } })
+        return redirected('get', getRes.status)
+      }
+      const getOk = getRes.status >= 200 && getRes.status < 300
+      const text = getOk ? getRes.text : ''
+      if (!getOk || text !== payload) {
         await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'get', status: getRes.status } })
         return reply({
           error: 'probe_failed', stage: 'get', status: getRes.status,
-          detail: getRes.ok
+          detail: getOk
             ? 'the probe object read back with different content — something between WILSON and the bucket is rewriting bodies'
             : `the probe object could not be read back (HTTP ${getRes.status})`,
         }, 502)
       }
       t0 = Date.now()
-      const delRes = await fetch(await sign('DELETE', serverKey), { method: 'DELETE' })
+      const delRes = await s3Request({ url: await sign('DELETE', serverKey), method: 'DELETE', vetted, deps })
       stages.del_ms = Date.now() - t0
-      if (!delRes.ok && delRes.status !== 404) {
+      if (delRes.redirect) {
+        await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'redirect', status: delRes.status } })
+        return redirected('del', delRes.status)
+      }
+      if ((delRes.status < 200 || delRes.status >= 300) && delRes.status !== 404) {
         await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'del', status: delRes.status } })
         return reply({
           error: 'probe_failed', stage: 'del', status: delRes.status,

@@ -414,7 +414,10 @@ describe('source pins — the call sites exist and sit in the right order', () =
     expect(certAt).toBeLessThan(firstRm)
     expect(removeAt).toBeGreaterThan(avatarsAt)
     expect(cascadeAt).toBeGreaterThan(Math.max(sweepAt, removeAt))
-    expect(teardown).toContain("const AVATAR_BUCKET = 'user-avatars'")
+    // P8 (TPN-CONT-018): the constant lives in _shared/teardownCollect.ts
+    // now, with the collectors; index.ts imports it for the removal.
+    expect(read('..', '..', '..', '..', 'supabase', 'functions', '_shared', 'teardownCollect.ts')).toContain("export const AVATAR_BUCKET = 'user-avatars'")
+    expect(teardown).toMatch(/import \{[\s\S]*AVATAR_BUCKET[\s\S]*\} from '\.\.\/_shared\/teardownCollect\.ts'/)
     // The flag starts true and only an answer clears it (storage-gc's lesson).
     expect(teardown).toContain('let reservationSweepFailed = true')
     for (const field of [

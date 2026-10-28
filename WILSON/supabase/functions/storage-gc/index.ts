@@ -47,7 +47,10 @@ import {
 import { isReservedProjectObject } from '../_shared/reservedObjects.ts'
 import { shotKeyTwinPattern } from '../_shared/shotKeys.ts'
 import { decryptStorageSecret } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
+import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
+// P8 (TPN-NET-016): the drain's DELETEs go to a VETTED public address, over
+// one TLS connection to that literal, no redirect followed (s3Reach.ts).
+import { vetS3Host, s3Request, s3ReachDeps, type VettedS3Host } from '../_shared/s3Reach.ts'
 
 const RABBIT_BUCKET = 'rabbit-files'
 const AVATAR_BUCKET = 'user-avatars'
@@ -232,9 +235,10 @@ Deno.serve(async (req) => {
   // the trigger cannot see the config, and a bucket renamed between purge
   // and drain should be hit at its new name. One resolution per run.
   type S3Drain =
-    | { ok: true; target: S3Target; accessKeyId: string; secret: string; prefix?: string }
+    | { ok: true; target: S3Target; accessKeyId: string; secret: string; prefix?: string; vetted: VettedS3Host & { ok: true } }
     | { ok: false; detail: string }
   let s3DrainMemo: S3Drain | null = null
+  const s3Deps = s3ReachDeps()
   async function s3Drain(): Promise<S3Drain> {
     if (s3DrainMemo) return s3DrainMemo
     const fail = (detail: string): S3Drain => (s3DrainMemo = { ok: false, detail })
@@ -267,15 +271,28 @@ Deno.serve(async (req) => {
       const message = err instanceof Error ? err.message : String(err)
       return fail(`the stored bucket secret cannot be decrypted (${message}) — re-enter it, then run cleanup again`)
     }
+    const target: S3Target = {
+      endpoint: cfg.endpoint, region: cfg.region, bucket: cfg.bucket,
+      forcePathStyle: cfg.forcePathStyle,
+    }
+    // P8 (TPN-NET-016): the host every signed DELETE will name, vetted once
+    // per run — a public literal, or a public name whose every answer is
+    // public — and every delete below goes to that one address.
+    let host: string
+    try {
+      host = s3HostAndPath(target, 'probe').host
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err))
+    }
+    const vetted = await vetS3Host(host, s3Deps, { supabaseHost: new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname })
+    if (!vetted.ok) return fail(`${vetted.detail} — nothing was deleted`)
     return (s3DrainMemo = {
       ok: true,
-      target: {
-        endpoint: cfg.endpoint, region: cfg.region, bucket: cfg.bucket,
-        forcePathStyle: cfg.forcePathStyle,
-      },
+      target,
       accessKeyId: cfg.accessKeyId,
       secret,
       prefix: cfg.prefix,
+      vetted,
     })
   }
 
@@ -392,7 +409,7 @@ Deno.serve(async (req) => {
             target: s3.target, accessKeyId: s3.accessKeyId, secretAccessKey: s3.secret,
             method: 'DELETE', key, expiresSeconds: 60, now: new Date(),
           })
-          const res = await fetch(url, { method: 'DELETE' })
+          const res = await s3Request({ url, method: 'DELETE', vetted: s3.vetted, deps: s3Deps })
           // S3 DELETE is idempotent-success: 204 whether or not the KEY
           // existed, so a 2xx means "certifiably absent now" — weaker than
           // the Supabase branch's deleted/missing split, and the detail says
@@ -404,7 +421,15 @@ Deno.serve(async (req) => {
           // 'deleted' would stamp a TPN-CONT-002 disposal certificate on a
           // body still sitting in the customer's bucket, and do it for the
           // whole batch at once. Found by S37's adversarial review.
-          if (res.ok) {
+          //
+          // P8 (TPN-NET-016): a 3xx is refused, never followed — the row
+          // fails with its sentence and nothing was sent anywhere else.
+          if (res.redirect) {
+            counts.queue_failed++
+            await ctx.admin.from('storage_gc_queue')
+              .update({ status: 'failed', processed_at: new Date().toISOString(), detail: `the bucket endpoint answered a redirect (HTTP ${res.status}), which WILSON does not follow — give the endpoint the bucket answers at directly. Nothing was deleted.` })
+              .eq('id', row.id)
+          } else if (res.status >= 200 && res.status < 300) {
             counts.queue_deleted++
             counts.queue_s3_drained++
             await ctx.admin.from('storage_gc_queue')

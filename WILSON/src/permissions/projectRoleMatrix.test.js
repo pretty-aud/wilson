@@ -58,36 +58,39 @@ import { useProjectAccess } from '../tools/rabbit_v0.1.0/state/useProjectAccess'
 //                plus the REVIEWER seat — the only thing a reviewer writes.
 //                Unstaffed opens it, like `entity`.
 const EXPECTED = [
-  //  appRole    projectRole  staffed  bins comment entity roster settings activate write
+  //  appRole    projectRole  staffed  vet bins comment entity roster settings activate write
   //  (`bins` — project.bins.write, 0091/B6 — is `write`'s twin on every row: the
-  //   same database gate, can_edit_shot_lists; alphabetised first.)
+  //   same database gate, can_edit_shot_lists. `vet` — project.bins.vet, P8 /
+  //   0104, TPN-AUTH-012 — is the workspace ADMIN's or MANAGER's alone: the
+  //   checked mark the file gateway requires, never a seat's and never the
+  //   unstaffed opening's. Alphabetised: vet, then bins.)
   // ── app admin: bypasses everything ──
-  ['admin', 'manager', true, true, true, true, true, true, true, true],
-  ['admin', 'reviewer', true, true, true, true, true, true, true, true],
-  ['admin', 'member', true, true, true, true, true, true, true, true],
-  ['admin', null, true, true, true, true, true, true, true, true],
-  ['admin', 'manager', false, true, true, true, true, true, true, true],
-  ['admin', 'reviewer', false, true, true, true, true, true, true, true],
-  ['admin', 'member', false, true, true, true, true, true, true, true],
-  ['admin', null, false, true, true, true, true, true, true, true],
+  ['admin', 'manager', true, true, true, true, true, true, true, true, true],
+  ['admin', 'reviewer', true, true, true, true, true, true, true, true, true],
+  ['admin', 'member', true, true, true, true, true, true, true, true, true],
+  ['admin', null, true, true, true, true, true, true, true, true, true],
+  ['admin', 'manager', false, true, true, true, true, true, true, true, true],
+  ['admin', 'reviewer', false, true, true, true, true, true, true, true, true],
+  ['admin', 'member', false, true, true, true, true, true, true, true, true],
+  ['admin', null, false, true, true, true, true, true, true, true, true],
   // ── app manager: bypasses everything EXCEPT activate, which needs the
   //    project manager seat (D8; 0084's RPCs have no app-manager leg) ──
-  ['manager', 'manager', true, true, true, true, true, true, true, true],
-  ['manager', 'reviewer', true, true, true, true, true, true, false, true],
-  ['manager', 'member', true, true, true, true, true, true, false, true],
-  ['manager', null, true, true, true, true, true, true, false, true],
-  ['manager', 'manager', false, true, true, true, true, true, true, true],
-  ['manager', 'reviewer', false, true, true, true, true, true, false, true],
-  ['manager', 'member', false, true, true, true, true, true, false, true],
-  ['manager', null, false, true, true, true, true, true, false, true],
+  ['manager', 'manager', true, true, true, true, true, true, true, true, true],
+  ['manager', 'reviewer', true, true, true, true, true, true, true, false, true],
+  ['manager', 'member', true, true, true, true, true, true, true, false, true],
+  ['manager', null, true, true, true, true, true, true, true, false, true],
+  ['manager', 'manager', false, true, true, true, true, true, true, true, true],
+  ['manager', 'reviewer', false, true, true, true, true, true, true, false, true],
+  ['manager', 'member', false, true, true, true, true, true, true, false, true],
+  ['manager', null, false, true, true, true, true, true, true, false, true],
   // ── app user, staffed: the seat decides ──
   // Note reviewer/member on `settings` vs `entity`: they are opposites, and
   // that is deliberate, not a transcription slip. And reviewer on `write` vs
   // `entity`: a reviewer builds lists but cannot change a scene (D3/D8).
-  ['user', 'manager', true, true, true, true, true, true, true, true],
-  ['user', 'reviewer', true, true, true, false, false, true, false, true],
-  ['user', 'member', true, true, true, true, false, false, false, true],
-  ['user', null, true, false, false, false, false, false, false, false],
+  ['user', 'manager', true, false, true, true, true, true, true, true, true],
+  ['user', 'reviewer', true, false, true, true, false, false, true, false, true],
+  ['user', 'member', true, false, true, true, true, false, false, false, true],
+  ['user', null, true, false, false, false, false, false, false, false, false],
   // ── app user, unstaffed: entity + comment + settings + write open, roster
   //    and activate closed ──
   // settings opens here because a project is unstaffed the instant it is
@@ -95,13 +98,14 @@ const EXPECTED = [
   // createProject. Closing it would lock the creator out of the project they
   // just made. activate does NOT open: the 0084 RPCs check the seat with no
   // project_is_staffed() leg, so the control would promise a 42501.
-  ['user', 'manager', false, true, true, true, true, true, true, true],
-  ['user', 'reviewer', false, true, true, true, false, true, false, true],
-  ['user', 'member', false, true, true, true, false, true, false, true],
-  ['user', null, false, true, true, true, false, true, false, true],
+  ['user', 'manager', false, false, true, true, true, true, true, true, true],
+  ['user', 'reviewer', false, false, true, true, true, false, true, false, true],
+  ['user', 'member', false, false, true, true, true, false, true, false, true],
+  ['user', null, false, false, true, true, true, false, true, false, true],
 ]
 
 const ACTION_COLUMNS = [
+  'project.bins.vet',
   'project.bins.write',
   'project.comment.write', 'project.entity.write',
   'project.roster.manage', 'project.settings.open',

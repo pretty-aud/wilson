@@ -26,14 +26,24 @@
 // is exactly what WebCrypto's AES-GCM encrypt returns with the iv prefixed.
 // The random 12-byte IV is per-record, so re-saving the same key twice
 // produces different ciphertext.
+//
+// P8 (TPN-ENC-015): the secret is VERSIONED and per environment
+// (_shared/keyVersions.ts). Version 1 is WILSON_AI_KEY_SECRET; version n
+// (2 to 9) is WILSON_AI_KEY_SECRET_V<n>; the highest present seals a new
+// row, whose envelope then begins `v<n>.`; a row is opened under the version
+// its envelope names (a bare envelope is version 1). operator-ai-keys's
+// `reseal` moves every row to the current version. The environment is read
+// through readEnv (Deno's, or Node's for the vitest proof).
 // =============================================================================
+
+import { secretNameFor, readEnv, currentKeyVersion, envelopeVersion, wrapEnvelope } from './keyVersions.ts'
 
 const SECRET_ENV = 'WILSON_AI_KEY_SECRET'
 const IV_BYTES = 12
 
 export class AiKeyCryptoUnavailable extends Error {
-  constructor() {
-    super(`${SECRET_ENV} is not configured`)
+  constructor(name: string = SECRET_ENV) {
+    super(`${name} is not configured`)
     this.name = 'AiKeyCryptoUnavailable'
   }
 }
@@ -52,24 +62,26 @@ function b64decode(s: string): Uint8Array {
 }
 
 /**
- * Import the data-encryption key from the environment.
+ * Import the data-encryption key of one version from the environment.
  *
- * WILSON_AI_KEY_SECRET must be 32 random bytes, base64-encoded — generate
- * with `openssl rand -base64 32`. A short or malformed value is refused
- * rather than stretched or padded: silently accepting a weak key would make
- * the ciphertext look encrypted while being trivially breakable.
+ * WILSON_AI_KEY_SECRET (version 1) or WILSON_AI_KEY_SECRET_V<n> must be 32
+ * random bytes, base64-encoded — generate with `openssl rand -base64 32`. A
+ * short or malformed value is refused rather than stretched or padded:
+ * silently accepting a weak key would make the ciphertext look encrypted
+ * while being trivially breakable.
  */
-async function importKey(): Promise<CryptoKey> {
-  const raw = Deno.env.get(SECRET_ENV) ?? ''
-  if (!raw) throw new AiKeyCryptoUnavailable()
+async function importKey(version: number): Promise<CryptoKey> {
+  const name = secretNameFor(SECRET_ENV, version)
+  const raw = readEnv(name)
+  if (!raw) throw new AiKeyCryptoUnavailable(name)
   let bytes: Uint8Array
   try {
     bytes = b64decode(raw.trim())
   } catch {
-    throw new Error(`${SECRET_ENV} is not valid base64`)
+    throw new Error(`${name} is not valid base64`)
   }
   if (bytes.length !== 32) {
-    throw new Error(`${SECRET_ENV} must decode to exactly 32 bytes (got ${bytes.length})`)
+    throw new Error(`${name} must decode to exactly 32 bytes (got ${bytes.length})`)
   }
   return await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, [
     'encrypt',
@@ -77,13 +89,20 @@ async function importKey(): Promise<CryptoKey> {
   ])
 }
 
-/** True when the secret is present and usable — used to fail with a clear message. */
+/** True when a secret of some version is present — used to fail with a clear message. */
 export function aiKeyCryptoConfigured(): boolean {
-  return !!(Deno.env.get(SECRET_ENV) ?? '')
+  return currentKeyVersion(SECRET_ENV) !== null
+}
+
+/** P8 (TPN-ENC-015): the version a new row is sealed under (the highest present), or null. */
+export function aiKeyCurrentVersion(): number | null {
+  return currentKeyVersion(SECRET_ENV)
 }
 
 export async function encryptAiKey(plaintext: string): Promise<string> {
-  const key = await importKey()
+  const version = currentKeyVersion(SECRET_ENV)
+  if (version === null) throw new AiKeyCryptoUnavailable()
+  const key = await importKey(version)
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
   const ct = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -95,12 +114,14 @@ export async function encryptAiKey(plaintext: string): Promise<string> {
   const envelope = new Uint8Array(iv.length + ct.length)
   envelope.set(iv, 0)
   envelope.set(ct, iv.length)
-  return b64encode(envelope)
+  return wrapEnvelope(b64encode(envelope), version)
 }
 
-export async function decryptAiKey(envelopeB64: string): Promise<string> {
-  const key = await importKey()
-  const envelope = b64decode(envelopeB64)
+export async function decryptAiKey(envelopeText: string): Promise<string> {
+  // P8 (TPN-ENC-015): the envelope names its version; a bare one is version 1.
+  const { version, body } = envelopeVersion(envelopeText)
+  const key = await importKey(version)
+  const envelope = b64decode(body)
   if (envelope.length <= IV_BYTES) throw new Error('ai key envelope is truncated')
   const iv = envelope.slice(0, IV_BYTES)
   const ct = envelope.slice(IV_BYTES)

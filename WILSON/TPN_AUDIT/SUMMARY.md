@@ -11,7 +11,10 @@
 
 ## Release gate — the scoped re-audit of 2026-10-28
 
-**0 Critical and 11 High open in the four areas** (the file gateway, bins, own storage, the AI file store). This is the line
+**0 Critical and 1 High open in the four areas** (the file gateway, bins, own storage, the AI file store): TPN-AI-009, accepted for
+the start of the production steps. **The other ten were fixed by P8 on 2026-10-28 (night 5) and are RESOLVED in `FINDINGS.md`**,
+each block carrying its evidence; TPN-ENC-015's rotation (the controller's) and TPN-ENC-016's successor key (hers) are named in
+their blocks as the steps that remain. Before P8 this line read *0 Critical and 11 High*. This is the line
 `docs/sessions/PLAN_TO_1_0.md` §0 item 4 reads; the item, verbatim: "4. The release steps in §6 are done: hers in the browser, then
 the controller's on production, after the TPN re-audit reports nothing High." Walkthrough 85 Q1 and Q2 propose to Audrey that her
 ruling on each finding below (fixed before 1.0, or accepted for 1.0 with the reason written into the finding) stand for "nothing
@@ -25,23 +28,26 @@ No severity changes: the seven stay open until that session's fixes are verified
 **Q2 ruled the same day** (in chat, multiple choice, verbatim: *"(a) Count and fix them"*): items 9 to 11 stay counted and are fixed
 by the same session, so it fixes ten and item 8 is the one accepted. When its ten fixes are verified, the only High left open in
 the four areas is TPN-AI-009. She named neither near case below, so both stay uncounted unless she says otherwise.
+**P8 fixed the ten on 2026-10-28** (night 5; `docs/sessions/handoffs/po-p8-2026-10-28.md`): migrations 0104, 0105 and 0106 with
+suites 107, 108 and 109 on wilson-dev; ten Edge Functions redeployed there; the gateway's changes as code, tests and `HARDENING.md`
+for its next release. Each block below is RESOLVED with its evidence, and the gate reads **0 Critical, 1 High (TPN-AI-009)**.
 
 *The areas' own defects (8):*
 
-1. **[TPN-AUTH-012]** The file gateway serves any path a member catalogues, so a catalogue write reads the share —
+1. **[TPN-AUTH-012]** *(RESOLVED 2026-10-28, P8)* The file gateway serves any path a member catalogues, so a catalogue write reads the share —
    `supabase/migrations/0091_bins_on_the_cloud.sql:750-757` (with `:667-690`, `:758-771`; the check at
    `0095_gateway_next_root_viewing_fraction.sql:347-351`)
-2. **[TPN-NET-016]** Edge Functions fetch an admin's S3 endpoint with no private-address refusal, following redirects —
+2. **[TPN-NET-016]** *(RESOLVED 2026-10-28, P8)* Edge Functions fetch an admin's S3 endpoint with no private-address refusal, following redirects —
    `supabase/functions/_shared/s3Presign.ts:103-118`; `supabase/functions/storage-secret/index.ts:186`
-3. **[TPN-ENC-015]** The bucket-secret and AI-key master secrets are identical on dev, staging and production —
+3. **[TPN-ENC-015]** *(RESOLVED 2026-10-28, P8: the code and the procedure; the rotation is the controller's)* The bucket-secret and AI-key master secrets are identical on dev, staging and production —
    `supabase/functions/_shared/storageSecretCrypto.ts:27`; `docs/OWED_AUDREY.md` §9 C2
-4. **[TPN-ENC-014]** The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure —
+4. **[TPN-ENC-014]** *(RESOLVED 2026-10-28, P8)* The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure —
    `gateway/src/platform/secrets.mjs:72,82,86`
-5. **[TPN-CONT-018]** Workspace teardown never collects bin posters: frames of the tenant's footage stay, unrecorded —
+5. **[TPN-CONT-018]** *(RESOLVED 2026-10-28, P8)* Workspace teardown never collects bin posters: frames of the tenant's footage stay, unrecorded —
    `supabase/functions/operator-workspaces/index.ts:364-428, 1254-1263`; `supabase/migrations/0091_bins_on_the_cloud.sql:582-622`
-6. **[TPN-ENC-013]** The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses —
+6. **[TPN-ENC-013]** *(RESOLVED 2026-10-28, P8)* The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses —
    `gateway/src/certs/x509.mjs:170-171`
-7. **[TPN-ENC-016]** The gateway's root key lives ten years on its host, and its release key has no successor —
+7. **[TPN-ENC-016]** *(RESOLVED 2026-10-28, P8; the successor key is hers to make at (g) 4)* The gateway's root key lives ten years on its host, and its release key has no successor —
    `gateway/src/certs/x509.mjs:47`; `gateway/src/update/manifest.mjs:52`
 8. **[TPN-AI-009]** Pre-FX12 AI-file uploads on staging and production never expire and soon cannot be attributed —
    `docs/OUTSTANDING.md` FX12-01; production lacks `ai-files`' and `operator-ai-files`' FX12 copies. It closes by the release's
@@ -51,12 +57,12 @@ the four areas is TPN-AI-009. She named neither near case below, so both stay un
 *The areas' own instances of this pack's open classes (3),* each a choice in the areas' own code, where the same areas do more next
 door, and rated as its class is:
 
-9. **[TPN-AUTH-013]** The outside switch, the gateway's admin calls and the bucket settings skip the two-factor step-up
+9. **[TPN-AUTH-013]** *(RESOLVED 2026-10-28, P8)* The outside switch, the gateway's admin calls and the bucket settings skip the two-factor step-up
    (TPN-AUTH-003's class; `storage-secret` and `storage-gc` in the same areas take it) —
    `supabase/migrations/0093_file_gateway.sql:591-603`; `0048_workspace_storage.sql:137-163`
-10. **[TPN-CONT-019]** The desktop's bin clip streams are served with no Cache-Control: no-store (TPN-CONT-003; the gateway's own
+10. **[TPN-CONT-019]** *(RESOLVED 2026-10-28, P8)* The desktop's bin clip streams are served with no Cache-Control: no-store (TPN-CONT-003; the gateway's own
     responses carry it) — `electron/rabbitBins.cjs:1057, 2327`
-11. **[TPN-AI-011]** ai-files falls back to the platform key, silently, whenever a company's own key fails to open (TPN-AI-005's
+11. **[TPN-AI-011]** *(RESOLVED 2026-10-28, P8)* ai-files falls back to the platform key, silently, whenever a company's own key fails to open (TPN-AI-005's
     class; `storage-presign` in the same areas fails closed) — `supabase/functions/ai-files/index.ts:102-121`
 
 - **Scope.** The four areas' own code, read at `51e5a0d7` on 2026-10-28 (R2, night 4, report only, her answer of 2026-10-27): the

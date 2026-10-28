@@ -82,8 +82,12 @@ describe('every setting it gives parses to what it says (config.mjs)', () => {
   });
   it('the company\'s own certificate for either door, and a domain\'s servers', () => {
     expect(parse(lines.find((l) => l.startsWith('"outside": { "certificate"'))).config.outside.certificate).toEqual({ cert: 'outside.pem', key: 'outside-key.pem' });
-    const inside = parse(lines.find((l) => l.startsWith('"inside"')).replace(/…/g, 'x.pem'));
+    // P8 (TPN-ENC-013): the guide's first `"inside"` snippet is now ip_sans (§4 point 8); the certificate's is found by name.
+    const inside = parse(lines.find((l) => l.startsWith('"inside": { "certificate"')).replace(/…/g, 'x.pem'));
     expect(inside.config.inside.certificate).toEqual({ cert: 'x.pem', key: 'x.pem' });
+    const ipSans = parse(lines.find((l) => l.startsWith('"inside": { "ip_sans"')));
+    expect(ipSans.problems).toEqual([]);
+    expect(ipSans.config.inside.ip_sans).toBe(true);
     const domain = parse(lines.find((l) => l.startsWith('"connect_without_login"')));
     expect(domain.problems).toEqual([]);
     expect(domain.config.connect_without_login).toEqual(['nas']);
@@ -114,6 +118,11 @@ describe('every name it gives is the code\'s', () => {
     expect(dockerfile).toMatch(/^USER 65532:65532$/m);
     expect(guide).toContain('uid 65532');
     expect(nas).toContain('uid 65532');
+    // P8 (TPN-ENC-014): the container seals its secrets under the operator's key, which the NAS story sets before the token.
+    expect(guide).toContain('sealed (AES-256-GCM) under a key the operator provides, `WILSON_GATEWAY_SECRETS_KEY`');
+    expect(guide).toContain('**Never a plain file**');
+    expect(nas).toContain('WILSON_GATEWAY_SECRETS_KEY = 32 random bytes in base64');
+    expect(nas.indexOf('WILSON_GATEWAY_SECRETS_KEY')).toBeLessThan(nas.indexOf('WILSON_ENROL_TOKEN'));
     expect(guide).toContain(`${CONTAINER_IMAGE}@sha256:`);
     expect(containerRootFor('\\\\nas\\footage')).toBe('/locations/nas/footage');
     expect(nas).toContain('/volume1/footage → /locations/nas/footage');
@@ -191,19 +200,39 @@ describe('what the guide tells an admin to check or do is the code\'s', () => {
     expect(guide).not.toMatch(/signs with the second release key/);
     expect(s9).toContain('for a stolen key, ships a new release key inside a release signed by the old one and asks each company to reinstall the MSI, which carries the updater (the second slot is empty today, §10)');
     expect(guide).toContain('- **One release key is built in today.** The second slot is empty');
+    // P8 (TPN-ENC-016): the successor's steps, in §10, §9 and §11, and the three-year root in §4.
+    expect(guide).toContain('**Rotating the release key** (P8, TPN-ENC-016), planned or after a theft, in this order: (1) `node gateway/pipeline/cli.mjs make-key --out <a folder outside the repository>`');
+    expect(guide).toContain('replace the `GATEWAY_RELEASE_SIGNING_KEY` repository secret with the new file\'s line and publish the next release signed by the NEW key');
+    expect(s9).toContain('by the steps under *Rotating the release key* in §10');
+    expect(guide).toContain('| AS-2.5 (keys) | DPAPI, or in the container a seal under the operator\'s key (§3), for every private key, never a plain file; the office root lasts three years with its successor made a year ahead (P8, TPN-ENC-016)');
+    expect(guide).toContain('the root lasts three years, P8 TPN-ENC-016');
+    // P8 round 1 (finding 5): the checked mark and its two bounds, in §5 and §11.
+    expect(guide).toContain('- **Never assume a withdrawn check stops the gateway at once** (P8, TPN-AUTH-012)');
+    expect(guide).toContain('within ten minutes while the gateway reaches the cloud, within 24 hours on the office door while it does not');
+    expect(guide).toContain('| TS-1.7 (content access by approval) |');
   });
   it('the TPN controls it touches, in the framework\'s numbering, each once and in order', () => {
     const s11 = guide.slice(guide.indexOf('## 11. '));
     const ids = [...s11.matchAll(/^\| ([A-Z]{2}-\d+(?:\.\d+)?(?:, [A-Z]{2}-\d+(?:\.\d+)?)*) \(/gm)].map((m) => m[1]);
-    expect(ids).toEqual(['TS-2', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
+    // P8 round 1 (finding 5): TS-1.7, the checked mark, joins the table.
+    expect(ids).toEqual(['TS-2', 'TS-1.7', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
     expect(s11).toContain('| TS-2 (segmentation, default deny) |');
   });
-  it('names the one signal TPN\'s list would flag, and the office door\'s certificate does carry the office address', () => {
+  // P8 (TPN-ENC-013): the signal is retired by default — the office certificate
+  // names the host alone; the addresses only on request, said in amber.
+  it('P8 (TPN-ENC-013): §10 says the office certificate names the host, not its addresses, and §4 says what must resolve the name', () => {
     const s10 = guide.slice(guide.indexOf('## 10. '), guide.indexOf('## 11. '));
-    expect(s10).toContain("- **The office door's certificate names private addresses.** TPN's list of prohibited signals includes private (RFC 1918) addresses in certificates");
+    expect(s10).toContain("- **The office door's certificate names the host, not its addresses — unless told to.** TPN's list of prohibited signals includes private (RFC 1918) addresses in certificates. Since P8 (TPN-ENC-013)");
+    expect(s10).not.toContain("- **The office door's certificate names private addresses.**");
+    const s4 = guide.slice(guide.indexOf('## 4. '), guide.indexOf('## 5. '));
+    expect(s4).toContain('**And the office computers must resolve the gateway\'s name** (P8, TPN-ENC-013)');
+    expect(s4).toContain('`"inside": { "ip_sans": true }`');
+    // The primitive still takes addresses (the store passes none by default: certs.test.mjs).
     const root = makeRoot({ hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
-    const leaf = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
-    expect(new crypto.X509Certificate(leaf.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
+    const named = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: [] });
+    expect(new crypto.X509Certificate(named.certPem).subjectAltName).toBe('DNS:studio-pc, DNS:studio-pc.local');
+    const withAddress = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
+    expect(new crypto.X509Certificate(withAddress.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
   });
 });
 

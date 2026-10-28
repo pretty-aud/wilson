@@ -124,7 +124,7 @@ const RENEW_SHARED_MS = 30_000
  *   userId()                       the signed-in person: a ticket minted for anyone else is never used (review round 1, finding 1)
  */
 export function composeGatewayBins(cloud, {
-  listGateways, fetchTickets, doors, rowOf = () => null, onChange = () => {}, now = Date.now, log = () => {}, userId = null,
+  listGateways, fetchTickets, doors, rowOf = () => null, locations = () => [], onChange = () => {}, now = Date.now, log = () => {}, userId = null,
 } = {}) {
   if (!cloud) throw new Error('composeGatewayBins needs the cloud adapter')
   if (typeof listGateways !== 'function' || typeof fetchTickets !== 'function' || !doors) throw new Error('composeGatewayBins needs listGateways, fetchTickets and the doors')
@@ -181,7 +181,20 @@ export function composeGatewayBins(cloud, {
     const t = Date.parse(g?.last_seen_at)
     return !Number.isFinite(t) || now() - t > UNSEEN_AFTER_MS
   }
-  const online = (row) => !!(row && row.location_id && gatewayFor(row.location_id))
+  // P8 (0104, TPN-AUTH-012): a clip plays through the gateway only once an
+  // admin or manager has checked its path (vetted_at): the cloud confirms
+  // and mints for checked rows alone, so an unchecked row is offline here
+  // with its own reason, and no ticket is ever asked for it.
+  // P8 round 2: the location's own mark too (bin_locations.vetted_at) — the
+  // cloud tells the gateway checked locations only, so a checked clip at an
+  // unchecked location is offline with that reason, not a stale address's.
+  // A row the browser holds no location row for (not loaded yet) is judged
+  // by the reach alone.
+  const locationChecked = (locationId) => {
+    const l = (locations() || []).find((x) => x && x.id === locationId)
+    return l ? !!l.vetted_at : true
+  }
+  const online = (row) => !!(row && row.location_id && row.vetted_at && locationChecked(row.location_id) && gatewayFor(row.location_id))
 
   c.binsCapabilities = () => caps
 
@@ -203,7 +216,9 @@ export function composeGatewayBins(cloud, {
     }
   }
   function basesOf(g) {
-    const inside = Array.isArray(g.inside_addresses) ? g.inside_addresses.filter((a) => a && a.host).map((a) => doorBase(a.host, a.port)) : []
+    const doors = (list) => (Array.isArray(list) ? list.filter((a) => a && a.host).map((a) => doorBase(a.host, a.port)) : [])
+    // P8 (TPN-ENC-013): the names before the addresses, as the probe tries them.
+    const inside = [...doors(g.inside_names), ...doors(g.inside_addresses)]
     const out = g.outside_address && g.outside_address.host ? [doorBase(g.outside_address.host, g.outside_address.port)] : []
     return [...inside, ...out]
   }
@@ -251,12 +266,14 @@ export function composeGatewayBins(cloud, {
   // A row the gateway answered 404 for stays "not at its path" until the
   // rows are read again from the cloud (which drops the flag): the reach
   // report is per location and cannot vouch for one clip (round 1, finding 5).
-  c.markOnline = (rows) => (rows || []).map((r) => (r && r.location_id ? { ...r, online: r.gateway_missing ? false : online(r) } : r))
+  c.markOnline = (rows) => (rows || []).map((r) => (r && r.location_id
+    ? { ...r, online: r.gateway_missing ? false : online(r), ...(r.vetted_at ? (locationChecked(r.location_id) ? {} : { location_not_checked: true }) : { not_checked: true }) }
+    : r))
   c.resolveBinFiles = async (rows) => {
     const out = new Map()
     for (const r of rows || []) {
       if (!r || !r.id || !r.location_id) continue
-      out.set(r.id, online(r) ? { online: true } : { online: false, reason: reachState(r.location_id) })
+      out.set(r.id, online(r) ? { online: true } : { online: false, reason: !r.vetted_at ? 'not_checked' : !locationChecked(r.location_id) ? 'location_not_checked' : reachState(r.location_id) })
     }
     return out
   }
@@ -278,7 +295,9 @@ export function composeGatewayBins(cloud, {
     else if (reached.length) state = 'reached'
     else if (S.gateways.length) state = S.gateways.every(unseen) ? 'unseen' : 'unreachable'
     const first = S.gateways.find((g) => !unseen(g)) || S.gateways[0] || null
-    const address = first ? (first.inside_addresses?.[0] ? `${first.inside_addresses[0].host}:${first.inside_addresses[0].port}` : (first.outside_address ? `${first.outside_address.host}:${first.outside_address.port}` : null)) : null
+    // P8 (TPN-ENC-013): the first name before the first address, as the probe tries them.
+    const door = first ? (first.inside_names?.[0] || first.inside_addresses?.[0] || first.outside_address || null) : null
+    const address = door && door.host ? `${door.host}:${door.port}` : null
     const seen = first ? Date.parse(first.last_seen_at) : NaN
     return {
       state,

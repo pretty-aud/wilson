@@ -473,6 +473,29 @@ export default function StorageSection({ isActive, workspaceId }) {
   // Client-side sentences for what 0051's workspace_storage_s3_config_chk
   // will refuse anyway — the DB is the authority; these exist so the refusal
   // arrives beside the field instead of as a constraint name.
+  // 0106's s3_endpoint_host_ok, in the browser's words: a literal must be
+  // public (never private, loopback, link-local, CGNAT, multicast or
+  // reserved), a name must carry two labels and be neither localhost, a
+  // local suffix nor a WILSON host.
+  function s3EndpointHostIsPublic(endpoint) {
+    const auth = String(endpoint).replace(/^https:\/\//, '').toLowerCase()
+    if (auth.includes('@')) return false
+    const bracketed = /^\[([^\]]+)\](:\d{1,5})?$/.exec(auth)
+    const host = bracketed ? bracketed[1] : auth.replace(/:\d{1,5}$/, '')
+    if (!host || (!bracketed && host.includes(':'))) return false
+    const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+    if (v4) {
+      const [a, b] = [Number(v4[1]), Number(v4[2])]
+      if (v4.slice(1).some(o => o.length > 1 && o.startsWith('0'))) return false
+      return !(a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
+        || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 168 || b === 0 || b === 88)) || (a === 198 && (b === 18 || b === 19 || b === 51))
+        || (a === 203 && b === 0) || a >= 224)
+    }
+    if (host.includes(':')) return !/^(f[cd]|fe[89ab]|ff|::1$|::$|::ffff|64:ff9b|2001:(db8|0?:)|2002:)/i.test(host)
+    if (host === 'localhost' || !/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/.test(host)) return false
+    if (/\.(local|localhost|internal|intranet|lan|home|corp|localdomain|invalid|test|example|onion)$/.test(host) || /\.home\.arpa$/.test(host)) return false
+    return !/(^|\.)supabase\.(co|in|net|com)$/.test(host)
+  }
   function validateS3Draft(d) {
     if (!d.bucket.trim()) return 'the bucket name is required'
     if (/[\\/\s]/.test(d.bucket.trim())) return 'the bucket name cannot contain slashes or spaces'
@@ -490,6 +513,13 @@ export default function StorageSection({ isActive, workspaceId }) {
     // review).
     if (ep && /^https:\/\/[^/?#]+[/?#]/.test(ep)) {
       return 'the endpoint must be a host only (https://host or https://host:port) — drop everything after it'
+    }
+    // P8 (0106, TPN-NET-016): a PUBLIC host only. The row's CHECK refuses a
+    // private literal and a local name; the functions resolve a name and
+    // refuse a private answer at the secret's save and at every use. The
+    // same sentence here, before the save, so nobody learns it from a 23514.
+    if (ep && !s3EndpointHostIsPublic(ep)) {
+      return 'the endpoint must be a public host — WILSON sends bucket requests to public endpoints only, never to an address or a name inside a private network'
     }
     const p = d.prefix.trim()
     if (p) {

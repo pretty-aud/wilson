@@ -76,6 +76,17 @@ describe('the probe (§2): the inside addresses in parallel, then the outside ad
     expect(asked.sort()).toEqual(['https://192.168.1.10:8443/v1/path', 'https://studio-nas.local:8443/v1/path'])
     expect(asked.some((u) => u.includes('gateway.example.com'))).toBe(false)
   })
+  it('P8 (TPN-ENC-013): the names are asked first; the addresses only when no name answered as this gateway', async () => {
+    const g = gateway({ inside_names: [{ host: 'studio-nas.local', port: 8443 }], inside_addresses: [{ host: '192.168.1.10', port: 8443 }] })
+    const asked = []
+    const both = vi.fn(async (url) => { asked.push(url); return res(200, { gateway_id: 'g1', path: 'inside', version: '0.1.0' }) })
+    expect(await probeGateway(g, { fetchImpl: both, timeoutMs: 100 })).toEqual({ door: 'inside', base: 'https://studio-nas.local:8443', gatewayId: 'g1' })
+    expect(asked).toEqual(['https://studio-nas.local:8443/v1/path'])
+    asked.length = 0
+    const nameDead = vi.fn(async (url) => { asked.push(url); if (url.startsWith('https://192.168.1.10:8443/')) return res(200, { gateway_id: 'g1', path: 'inside', version: '0.1.0' }); throw new TypeError('fetch failed') })
+    expect(await probeGateway(g, { fetchImpl: nameDead, timeoutMs: 100 })).toEqual({ door: 'inside', base: 'https://192.168.1.10:8443', gatewayId: 'g1' })
+    expect(asked).toEqual(['https://studio-nas.local:8443/v1/path', 'https://192.168.1.10:8443/v1/path'])
+  })
   it('no inside answer: the outside address is tried, and its 404 IS the outside door (R17)', async () => {
     const fetchImpl = vi.fn(async (url) => {
       if (url.startsWith('https://gateway.example.com:8444/')) return res(404)

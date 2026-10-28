@@ -7,7 +7,10 @@
 //     tampered box is refused. On Windows over a real named pipe, elsewhere
 //     over a UNIX socket.
 //   * DPAPI through PowerShell (secrets.mjs): a real round trip on Windows,
-//     tamper refused; the fallback when PowerShell refuses; plain elsewhere.
+//     tamper refused; a WRITE REFUSED when PowerShell refuses (never a plain
+//     file); sealed under the operator's key elsewhere, refused without one;
+//     an earlier version's plain file read, counted and sealed again (P8,
+//     TPN-ENC-014).
 //   * the share logins (shares.mjs) with a fake mapper: kept protected, the
 //     password never on a command line.
 //   * Get-NetAdapter's and /sys/class/net's parsers (hostfacts.mjs).
@@ -24,7 +27,7 @@ import net from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { servePipe, callPipe, pipePath, seal, loadOrMakePipeKey } from '../src/platform/pipe.mjs';
-import { makeSecrets, runPowerShell } from '../src/platform/secrets.mjs';
+import { makeSecrets, runPowerShell, loadSealKey, SecretsWriteRefused, SECRETS_KEY_ENV, SECRETS_KEY_FILE_ENV, SECRETS_KEY_DEFAULT_FILE } from '../src/platform/secrets.mjs';
 import { ShareLogins, shareOf, parseSmbConnections } from '../src/platform/shares.mjs';
 import { parseAdapters, linuxNetFacts } from '../src/platform/hostfacts.mjs';
 import { firewallArgs, firewallPortOk, FIREWALL_RULE } from '../updater/updater.mjs';
@@ -106,33 +109,105 @@ describe('secrets at rest (secrets.mjs)', () => {
     expect(ua.equals(a) && ub.equals(b)).toBe(true);
     const bad = Buffer.from(pa); bad[bad.length - 3] ^= 1;
     await expect(s.unprotect(bad)).rejects.toThrow();
-    expect(s.status()).toEqual({ dpapi: true, reason: null });
+    expect(s.status()).toEqual({ dpapi: true, reason: null, sealed: 'dpapi', unsealed: 0 });
   }, 30_000);
-  it('when PowerShell refuses (Constrained Language mode), the folder\'s ACL is the protection, and the status says so', async () => {
+  // P8 (TPN-ENC-014): before P8 a refusal here turned every later write into a
+  // plain file (WGPLAIN1) with an amber line. Now the WRITE is refused.
+  it('P8 (TPN-ENC-014): when PowerShell refuses (Constrained Language mode), the write is refused, never a plain file, and the status carries the reason (red)', async () => {
     const s = makeSecrets({ platform: 'win32', run: async () => { throw new Error('Cannot invoke method. Method invocation is supported only on core types in this language mode.'); } });
-    const p = await s.protect(Buffer.from('x'));
-    expect(p.subarray(0, 8).toString()).toBe('WGPLAIN1');
-    expect(s.status().dpapi).toBe(false);
+    await expect(s.protect(Buffer.from('x'))).rejects.toBeInstanceOf(SecretsWriteRefused);
+    await expect(s.protect(Buffer.from('x'))).rejects.toThrow(/^secrets cannot be written: Windows data protection is unavailable \(.*language mode/);
+    expect(s.kind).toBe('none');
+    expect(s.status()).toMatchObject({ dpapi: false, sealed: 'none', unsealed: 0 });
     expect(s.status().reason).toMatch(/language mode/);
-    expect((await s.unprotect(p)).toString()).toBe('x');
+    // An earlier version's plain file still opens (counted); nothing re-seals it until writes work.
+    const old = Buffer.concat([Buffer.from('WGPLAIN1'), Buffer.from('x')]);
+    expect((await s.unprotect(old)).toString()).toBe('x');
+    expect(s.status().unsealed).toBe(1);
+    expect(await s.reseal(old)).toBeNull();
   });
-  it('off Windows: plain, mode-600 files; a DPAPI blob cannot be read there', async () => {
-    const s = makeSecrets({ platform: 'linux' });
-    expect((await s.unprotect(await s.protect(Buffer.from('k')))).toString()).toBe('k');
-    await expect(s.unprotect(Buffer.concat([Buffer.from('WGDPAPI1'), Buffer.from('x')]))).rejects.toThrow(/off Windows/);
-    await expect(s.unprotect(Buffer.from('garbage-no-marker'))).rejects.toThrow(/no known format/);
+  it('P8 round 1 (finding 4): probe() proves data protection once, before anything is spent on it', async () => {
+    const flaky = makeSecrets({ platform: 'win32', run: async () => { throw new Error('Cannot invoke method. Method invocation is supported only on core types in this language mode.'); } });
+    expect(flaky.kind).toBe('dpapi'); // nothing written yet: the layer cannot know
+    expect(await flaky.probe()).toBe(false);
+    expect(flaky.kind).toBe('none');
+    expect(flaky.status().reason).toMatch(/language mode/);
+    const fine = makeSecrets({ platform: 'win32', run: async (op, blobs) => blobs.map((b) => Buffer.from(b)) });
+    expect(await fine.probe()).toBe(true);
+    expect(fine.kind).toBe('dpapi');
+    const keyed = makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: crypto.randomBytes(32).toString('base64') }, readFileSync: () => { throw new Error('ENOENT'); } });
+    expect(await keyed.probe()).toBe(true);
+    expect(await makeSecrets({ platform: 'linux', env: {}, readFileSync: () => { throw new Error('ENOENT'); } }).probe()).toBe(false);
+  });
+
+  describe('off Windows (the container): sealed under the operator\'s key, P8 (TPN-ENC-014)', () => {
+    // A throwaway key, made here and nowhere else.
+    const key = crypto.randomBytes(32).toString('base64');
+    const noFile = () => { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; };
+    it('AES-256-GCM under WILSON_GATEWAY_SECRETS_KEY: the marker WGSEALD1, the plaintext absent, a fresh nonce each time; a tampered file, a wrong key, a DPAPI blob and an unmarked file are refused', async () => {
+      const s = makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: key }, readFileSync: noFile });
+      expect(s.kind).toBe('key');
+      const secret = Buffer.from('wgc_' + crypto.randomBytes(24).toString('base64url'));
+      const p = await s.protect(secret);
+      expect(p.subarray(0, 8).toString()).toBe('WGSEALD1');
+      expect(p.includes(secret)).toBe(false);
+      expect((await s.unprotect(p)).equals(secret)).toBe(true);
+      const [p2] = await s.protectMany([secret]);
+      expect(p2.equals(p)).toBe(false);
+      const bad = Buffer.from(p); bad[bad.length - 3] ^= 1;
+      await expect(s.unprotect(bad)).rejects.toThrow(/does not open with WILSON_GATEWAY_SECRETS_KEY/);
+      const other = makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: crypto.randomBytes(32).toString('base64') }, readFileSync: noFile });
+      await expect(other.unprotect(p)).rejects.toThrow(/does not open/);
+      await expect(s.unprotect(Buffer.concat([Buffer.from('WGDPAPI1'), Buffer.from('x')]))).rejects.toThrow(/off Windows/);
+      await expect(s.unprotect(Buffer.from('garbage-no-marker'))).rejects.toThrow(/no known format/);
+      expect(s.status()).toEqual({ dpapi: null, reason: null, sealed: 'key', unsealed: 0 });
+    });
+    it('without a key every write is refused (no plain file, ever) and the status says what to set; a sealed file cannot be read either', async () => {
+      const s = makeSecrets({ platform: 'linux', env: {}, readFileSync: noFile });
+      expect(s.kind).toBe('none');
+      await expect(s.protect(Buffer.from('x'))).rejects.toBeInstanceOf(SecretsWriteRefused);
+      await expect(s.protect(Buffer.from('x'))).rejects.toThrow(/^secrets cannot be written: set WILSON_GATEWAY_SECRETS_KEY \(32 random bytes, base64: openssl rand -base64 32\) or WILSON_GATEWAY_SECRETS_KEY_FILE \(a Docker secret's path\) for this container$/);
+      expect(s.status()).toMatchObject({ dpapi: null, sealed: 'none', unsealed: 0 });
+      expect(s.status().reason).toMatch(/^set WILSON_GATEWAY_SECRETS_KEY/);
+      const sealed = await makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: key }, readFileSync: noFile }).protect(Buffer.from('x'));
+      await expect(s.unprotect(sealed)).rejects.toThrow(/^a sealed secret file cannot be read: set WILSON_GATEWAY_SECRETS_KEY/);
+    });
+    it('the key may come from WILSON_GATEWAY_SECRETS_KEY_FILE or from the Docker secret\'s default path; the variable wins; a malformed key is refused by name', () => {
+      const reads = [];
+      const fromFile = (f) => { reads.push(f); if (f === '/run/secrets/custom') return key + '\n'; if (f === SECRETS_KEY_DEFAULT_FILE) return key; return noFile(); };
+      expect(loadSealKey({ env: { [SECRETS_KEY_FILE_ENV]: '/run/secrets/custom' }, readFileSync: fromFile })).toMatchObject({ reason: null });
+      expect(loadSealKey({ env: {}, readFileSync: fromFile })).toMatchObject({ reason: null });
+      expect(reads).toEqual(['/run/secrets/custom', SECRETS_KEY_DEFAULT_FILE]);
+      expect(loadSealKey({ env: { [SECRETS_KEY_ENV]: '  ', [SECRETS_KEY_FILE_ENV]: '/run/secrets/custom' }, readFileSync: fromFile }).key?.length).toBe(32);
+      expect(loadSealKey({ env: { [SECRETS_KEY_ENV]: key, [SECRETS_KEY_FILE_ENV]: '/run/secrets/custom' }, readFileSync: () => { throw new Error('must not be read'); } }).key?.length).toBe(32);
+      expect(loadSealKey({ env: { [SECRETS_KEY_ENV]: crypto.randomBytes(20).toString('base64') }, readFileSync: noFile }).reason).toBe('WILSON_GATEWAY_SECRETS_KEY must be exactly 32 random bytes, base64 (openssl rand -base64 32)');
+      expect(loadSealKey({ env: { [SECRETS_KEY_FILE_ENV]: '/run/secrets/short' }, readFileSync: () => 'not base64 at all!' }).reason).toMatch(/^WILSON_GATEWAY_SECRETS_KEY_FILE must be exactly 32/);
+      expect(loadSealKey({ env: {}, readFileSync: noFile })).toEqual({ key: null, reason: expect.stringMatching(/^set WILSON_GATEWAY_SECRETS_KEY/) });
+    });
+    it('an earlier version\'s plain file (WGPLAIN1) still opens, is counted, and reseal() gives the sealed form to write back', async () => {
+      const s = makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: key }, readFileSync: noFile });
+      const plainBlob = Buffer.concat([Buffer.from('WGPLAIN1'), Buffer.from('old-secret')]);
+      expect((await s.unprotect(plainBlob)).toString()).toBe('old-secret');
+      expect(s.status().unsealed).toBe(1);
+      const sealed = await s.reseal(plainBlob);
+      expect(sealed.subarray(0, 8).toString()).toBe('WGSEALD1');
+      expect((await s.unprotect(sealed)).toString()).toBe('old-secret');
+      expect(s.status().unsealed).toBe(0);
+      expect(await s.reseal(sealed)).toBeNull();
+    });
   });
 });
 
 describe('share logins (shares.mjs)', () => {
-  const plain = makeSecrets({ platform: 'linux' });
+  // P8 (TPN-ENC-014): the real layer, sealed under a throwaway key made here and nowhere else.
+  const plain = makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: crypto.randomBytes(32).toString('base64') }, readFileSync: () => { throw new Error('ENOENT'); } });
   it('kept protected, one per server, the session opened with the password on stdin', async () => {
     const calls = [];
     const logins = new ShareLogins({ file: path.join(tmp, 'shares.bin'), secrets: plain, map: async (x) => { calls.push(x); return { ok: true }; } });
     expect(await logins.set({ unc: '\\\\NAS\\Footage\\Day 1', user: 'wilson-gateway', password: 'p@ss' })).toEqual({ ok: true, root: '\\\\NAS\\Footage' });
     expect(calls).toEqual([{ unc: '\\\\NAS\\Footage', user: 'wilson-gateway', password: 'p@ss' }]);
     expect(logins.has('nas')).toBe(true);
-    expect(fs.readFileSync(path.join(tmp, 'shares.bin')).subarray(0, 8).toString()).toBe('WGPLAIN1');
+    expect(fs.readFileSync(path.join(tmp, 'shares.bin')).subarray(0, 8).toString()).toBe('WGSEALD1'); // P8: sealed, never plain
     const again = new ShareLogins({ file: path.join(tmp, 'shares.bin'), secrets: plain, map: async (x) => { calls.push(x); return { ok: true }; } });
     expect(await again.load()).toEqual([expect.objectContaining({ host: 'nas', root: '\\\\NAS\\Footage', user: 'wilson-gateway' })]);
     await again.connectAll();
@@ -143,6 +218,17 @@ describe('share logins (shares.mjs)', () => {
     expect((await logins.set({ unc: '\\\\nas\\footage', user: 'u', password: 'p' })).error).toMatch(/refused the login for \\\\nas\\footage/);
     expect(fs.existsSync(path.join(tmp, 'shares2.bin'))).toBe(false);
     expect((await logins.set({ unc: 'C:\\footage', user: 'u', password: 'p' })).ok).toBe(false);
+  });
+  it('P8 (TPN-ENC-014): a login is not kept when secrets cannot be written: no plain file, the answer says why', async () => {
+    const refusing = makeSecrets({ platform: 'linux', env: {}, readFileSync: () => { throw new Error('ENOENT'); } });
+    const calls = [];
+    const logins = new ShareLogins({ file: path.join(tmp, 'shares3.bin'), secrets: refusing, map: async (x) => { calls.push(x); return { ok: true }; } });
+    const r = await logins.set({ unc: '\\\\nas\\footage', user: 'u', password: 'p' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/was opened but not kept: secrets cannot be written: set WILSON_GATEWAY_SECRETS_KEY/);
+    expect(calls).toHaveLength(1);
+    expect(logins.has('nas')).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'shares3.bin'))).toBe(false);
   });
   it('the mapping script takes the password on stdin, never in its command line', async () => {
     const { runMapping } = await import('../src/platform/shares.mjs');
