@@ -21,7 +21,7 @@ import https from 'node:https';
 import net from 'node:net';
 import crypto from 'node:crypto';
 import { Gateway } from '../src/runtime.mjs';
-import { makeSecrets } from '../src/platform/secrets.mjs';
+import { makeSecrets, SecretsWriteRefused } from '../src/platform/secrets.mjs';
 import { makeRoot, makeLeaf } from '../src/certs/x509.mjs';
 import { createFakeCloud, FAKE_BASE } from './fakeCloud.mjs';
 import { makeShare, SUB, SUB2, CLIP, CLIP2, LOC } from './harness.mjs';
@@ -160,6 +160,24 @@ describe('enrolment (§2)', () => {
         expect((await keyed.enrol(W.cloud.newToken(), W.cloud.base)).ok).toBe(true);
         expect(fs.readFileSync(path.join(keyedDir, 'credential.bin')).subarray(0, 8).toString('latin1')).toBe('WGSEALD1');
       } finally { await keyed.stop(); fs.rmSync(keyedDir, { recursive: true, force: true }); }
+    } finally { await W.close(); }
+  });
+  it('P8 round 1 (finding 4): the enrolment proves data protection before the token is spent: a refusal found then spends nothing', async () => {
+    const flaky = {
+      kind: 'dpapi', probed: 0,
+      async probe() { this.probed++; this.kind = 'none'; return false; },
+      status() { return { dpapi: this.kind === 'dpapi', reason: 'Windows data protection is unavailable (language mode)', sealed: this.kind, unsealed: 0 }; },
+      protect: async () => { throw new SecretsWriteRefused('Windows data protection is unavailable (language mode)'); },
+      unprotect: async (b) => Buffer.from(b).subarray(8),
+    };
+    const W = await world({ token: false, gw: { secrets: flaky } });
+    try {
+      const r = await W.gw.enrol(W.cloud.newToken(), W.cloud.base);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/cannot keep the gateway\u2019s sign-in/);
+      expect(flaky.probed).toBe(1);
+      expect([...W.cloud.state.tokens.values()].every((t) => t.usedAt === null)).toBe(true);
+      expect(W.cloud.state.gateways.size).toBe(0);
     } finally { await W.close(); }
   });
   it('the command\'s one-shot enrolment (enrolOnly) makes no bind attempt, no sync and no status; a normal start does try to bind', async () => {

@@ -46,6 +46,13 @@
 --   The gateway needs no change: a clip whose mark is withdrawn is refused
 --   when its ten-minute confirmation expires (24 hours on the inside door
 --   while the cloud is unreachable — catalogue.mjs's grace; HARDENING §5).
+--   BUILD ROUND 1 (two findings, both in §3 and §3b): a vetter's COPY of a
+--   reviewer's unchecked clip (copy_bin_files) or UNDO of its removal
+--   (restore_bin_files) stamped the new row, nobody having looked at the
+--   path — both now run with wilson.bins_mark = 'inherit', under which the
+--   trigger treats a vetter's INSERT like anyone's (a checked twin's mark, or
+--   none); and withdrawing a check withdraws it from EVERY row at that file
+--   in the project (the twins that inherited, the copies), not the one row.
 --
 -- TPN-ENC-013 — the office-door certificate names private addresses.
 --   The gateway's fix (names-only leaves) needs the browser to reach the
@@ -172,6 +179,9 @@ DECLARE
   v_moved   BOOLEAN;
   v_twin_at TIMESTAMPTZ;
   v_twin_by UUID;
+  -- Round 1 (finding 1): 'inherit' while copy_bin_files or restore_bin_files
+  -- runs (their SET clause, §3b): a vetter's INSERT there is no check.
+  v_mode    TEXT := COALESCE(current_setting('wilson.bins_mark', true), '');
 BEGIN
   IF NOT v_client THEN
     RETURN NEW;
@@ -182,7 +192,9 @@ BEGIN
              OR NEW.relative_path IS DISTINCT FROM OLD.relative_path;
   IF v_moved THEN
     -- A new address: decided afresh, whatever the client sent for the mark.
-    IF v_may THEN
+    -- A copy or an undo (v_mode 'inherit') takes a checked twin's mark or
+    -- none, whoever makes it: nobody looked at the path.
+    IF v_may AND v_mode <> 'inherit' THEN
       NEW.vetted_at := now();
       NEW.vetted_by := auth.uid();
     ELSE
@@ -208,6 +220,21 @@ BEGIN
     END IF;
     IF NEW.vetted_at IS NULL THEN
       NEW.vetted_by := NULL;
+      -- Round 1 (finding 2): a check is withdrawn from the FILE, not the row:
+      -- every other row at the same address in the same project (a twin that
+      -- inherited, a copy) loses the mark with it, under the caller's own RLS.
+      -- The transaction-local flag keeps the cascade from re-entering itself.
+      IF OLD.vetted_at IS NOT NULL AND COALESCE(current_setting('wilson.bins_withdrawing', true), '') <> '1' THEN
+        PERFORM set_config('wilson.bins_withdrawing', '1', true);
+        UPDATE public.bin_files f
+           SET vetted_at = NULL, vetted_by = NULL
+         WHERE f.project_id = NEW.project_id
+           AND f.location_id = NEW.location_id
+           AND f.relative_path = NEW.relative_path
+           AND f.id <> NEW.id
+           AND f.vetted_at IS NOT NULL;
+        PERFORM set_config('wilson.bins_withdrawing', '', true);
+      END IF;
     ELSE
       NEW.vetted_at := now();
       NEW.vetted_by := auth.uid();
@@ -276,6 +303,186 @@ COMMENT ON FUNCTION public.fn_bin_files_vet() IS
   '0104 (TPN-AUTH-012): BEFORE INSERT OR UPDATE on bin_files — decides vetted_at/vetted_by for a client''s write (a vetter''s insert or re-point is stamped; anyone else''s inherits a checked twin in the same project at the same location and byte-equal path, under the caller''s RLS, or has none; a hand-set mark is a vetter''s alone, 42501 otherwise). A non-client (postgres, the service role) keeps what it supplies.';
 COMMENT ON FUNCTION public.fn_bin_locations_vet() IS
   '0104 (TPN-AUTH-012): BEFORE INSERT OR UPDATE on bin_locations — the same rule for a location (stamped for a vetter''s insert or change of unc_path, cleared for anyone else''s; a hand-set mark is a vetter''s alone).';
+
+
+-- =============================================================================
+-- 3b. copy_bin_files and restore_bin_files — restated whole (0091 §10m, §10n):
+--     a copy is not a check, nor is an undo (build round 1, finding 1)
+-- =============================================================================
+-- A manager's copy of a reviewer's unchecked clip (a plain INSERT as the
+-- caller) and an admin's undo of a removal used to STAMP the new row: the
+-- vetter wrote the address, but nobody looked at the path. Each body below is
+-- 0091's verbatim but for two lines, marked "0104 §3b": wilson.bins_mark set
+-- to 'inherit' for the transaction before its loop and cleared after it,
+-- under which fn_bin_files_vet (§3) treats a vetter's INSERT like anyone's —
+-- a checked twin's mark at the same address in the same project, or none. A
+-- client cannot set it: PostgREST runs one statement per transaction and
+-- exposes no SET. (A SET clause on the function would be cleaner; the hosted
+-- `postgres` role may not ALTER FUNCTION ... SET a custom parameter, as the
+-- rehearsal on dev found.) The post-condition and suite 107 pin the line in
+-- both bodies; a later restatement of either function must carry it.
+
+-- ── 10m. copy_bin_files — an INSTANCE: a new row, same reference, its own
+--         logging; it keeps its sibling's poster key (same project) ──────────
+CREATE OR REPLACE FUNCTION public.copy_bin_files(p_ids UUID[], p_bin UUID)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public
+AS $$
+DECLARE
+  v_order   INT;
+  v_id      UUID;
+  v_new     UUID;
+  v_created UUID[] := '{}';
+  src       public.bin_files%ROWTYPE;
+BEGIN
+  IF p_ids IS NULL OR cardinality(p_ids) = 0 THEN
+    RAISE EXCEPTION 'ids required' USING ERRCODE = '22023';
+  END IF;
+  IF p_bin IS NULL OR NOT EXISTS (SELECT 1 FROM public.bins b WHERE b.id = p_bin) THEN
+    RAISE EXCEPTION 'bin not found' USING ERRCODE = '22023';
+  END IF;
+  SELECT COALESCE(max(f.sort_order), -1) + 1 INTO v_order FROM public.bin_files f WHERE f.bin_id = p_bin;
+  PERFORM set_config('wilson.bins_mark', 'inherit', true);  -- 0104 §3b: not a check
+  FOREACH v_id IN ARRAY p_ids LOOP
+    SELECT * INTO src FROM public.bin_files f WHERE f.id = v_id;
+    IF src.id IS NULL THEN CONTINUE; END IF;
+    INSERT INTO public.bin_files (
+      project_id, bin_id, location_id, relative_path, display_name, original_name, extension, mime_type,
+      is_sequence, sequence_pattern, frame_count, size_bytes, mtime, media_type, tags,
+      scene_id, shot_id, slate, take_number, take_modifier, camera, roll, shoot_day,
+      description, notes, review_flag, circled, color,
+      duration_sec, width, height, fps, codec, timecode_start, probe_status, sort_order, poster_path)
+    VALUES (
+      src.project_id, p_bin, src.location_id, src.relative_path, src.display_name, src.original_name, src.extension, src.mime_type,
+      src.is_sequence, src.sequence_pattern, src.frame_count, src.size_bytes, src.mtime, src.media_type, src.tags,
+      src.scene_id, src.shot_id, src.slate, src.take_number, src.take_modifier, src.camera, src.roll, src.shoot_day,
+      src.description, src.notes, src.review_flag, src.circled, src.color,
+      src.duration_sec, src.width, src.height, src.fps, src.codec, src.timecode_start, src.probe_status, v_order, src.poster_path)
+    RETURNING id INTO v_new;
+    v_created := array_append(v_created, v_new);
+    v_order := v_order + 1;
+    src := NULL;
+  END LOOP;
+  PERFORM set_config('wilson.bins_mark', '', true);  -- 0104 §3b
+  RETURN jsonb_build_object('created', COALESCE((
+    SELECT jsonb_agg(to_jsonb(f) ORDER BY array_position(v_created, f.id)) FROM public.bin_files f WHERE f.id = ANY(v_created)), '[]'::jsonb));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.copy_bin_files(UUID[], UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.copy_bin_files(UUID[], UUID) TO authenticated, service_role;
+
+-- ── 10n. restore_bin_files — the undo of a removal: the rows go back verbatim
+--         (ids kept; who added them kept, B11). A row whose bin is gone is
+--         REPORTED (bin_gone), as is one without an address (invalid) ────────
+CREATE OR REPLACE FUNCTION public.restore_bin_files(p_rows JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public
+AS $$
+DECLARE
+  e          JSONB;
+  v_id       UUID;
+  v_bin      public.bins%ROWTYPE;
+  v_loc      UUID;
+  v_rel      TEXT;
+  v_row      public.bin_files%ROWTYPE;
+  v_restored JSONB := '[]'::jsonb;
+  v_skipped  JSONB := '[]'::jsonb;
+  v_tags     TEXT[];
+BEGIN
+  IF p_rows IS NULL OR jsonb_typeof(p_rows) <> 'array' OR jsonb_array_length(p_rows) = 0 THEN
+    RAISE EXCEPTION 'rows required' USING ERRCODE = '22023';
+  END IF;
+  PERFORM set_config('wilson.bins_mark', 'inherit', true);  -- 0104 §3b: not a check
+  FOR e IN SELECT x FROM jsonb_array_elements(p_rows) WITH ORDINALITY AS y(x, ord) ORDER BY ord LOOP
+    v_id := public.fn_bins_json_uuid(e -> 'id');
+    v_loc := public.fn_bins_json_uuid(e -> 'location_id');
+    v_rel := NULLIF(btrim(COALESCE(e ->> 'relative_path', '')), '');
+    IF jsonb_typeof(e) <> 'object' OR v_id IS NULL OR v_loc IS NULL OR v_rel IS NULL
+       OR NULLIF(btrim(COALESCE(e ->> 'display_name', '')), '') IS NULL THEN
+      v_skipped := v_skipped || jsonb_build_object('id', e ->> 'id', 'reason', 'invalid');
+      CONTINUE;
+    END IF;
+    v_bin := NULL;
+    SELECT * INTO v_bin FROM public.bins b WHERE b.id = public.fn_bins_json_uuid(e -> 'bin_id');
+    IF v_bin.id IS NULL THEN
+      v_skipped := v_skipped || jsonb_build_object('id', v_id, 'reason', 'bin_gone');
+      CONTINUE;
+    END IF;
+    SELECT COALESCE(array_agg(btrim(t)) FILTER (WHERE btrim(t) <> ''), '{}')
+      INTO v_tags
+      FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(e -> 'tags') = 'array' THEN e -> 'tags' ELSE '[]'::jsonb END) AS t;
+    INSERT INTO public.bin_files AS f (
+      id, project_id, bin_id, location_id, relative_path, display_name, original_name, extension, mime_type,
+      is_sequence, sequence_pattern, frame_count, size_bytes, mtime, media_type, tags,
+      scene_id, shot_id, slate, take_number, take_modifier, camera, roll, shoot_day,
+      description, notes, review_flag, circled, color,
+      duration_sec, width, height, fps, codec, timecode_start, probe_status, sort_order, poster_path,
+      added_by, added_at)
+    VALUES (
+      v_id, v_bin.project_id, v_bin.id, v_loc, v_rel,
+      btrim(e ->> 'display_name'),
+      COALESCE(NULLIF(e ->> 'original_name', ''), regexp_replace(v_rel, '^.*/', '')),
+      lower(COALESCE(e ->> 'extension', '')), NULLIF(e ->> 'mime_type', ''),
+      COALESCE((e ->> 'is_sequence')::boolean, false), NULLIF(e ->> 'sequence_pattern', ''),
+      public.fn_bins_json_number(e -> 'frame_count')::int,
+      public.fn_bins_json_number(e -> 'size_bytes')::bigint,
+      public.fn_bins_json_timestamp(e -> 'mtime'),
+      CASE WHEN (e ->> 'media_type') IN ('video', 'still', 'sequence', 'audio', 'graphic', 'vfx', 'document', 'other')
+           THEN e ->> 'media_type' ELSE 'other' END,
+      v_tags[1:50],
+      public.fn_bins_json_uuid(e -> 'scene_id'), public.fn_bins_json_uuid(e -> 'shot_id'),
+      NULLIF(e ->> 'slate', ''),
+      CASE WHEN public.fn_bins_json_number(e -> 'take_number') > 0 THEN floor(public.fn_bins_json_number(e -> 'take_number'))::int ELSE NULL END,
+      NULLIF(e ->> 'take_modifier', ''), NULLIF(e ->> 'camera', ''), NULLIF(e ->> 'roll', ''),
+      CASE WHEN (e ->> 'shoot_day') ~ '^\d{4}-\d{2}-\d{2}$' THEN (e ->> 'shoot_day')::date ELSE NULL END,
+      COALESCE(e ->> 'description', ''), COALESCE(e ->> 'notes', ''),
+      CASE WHEN (e ->> 'review_flag') IN ('unflagged', 'select', 'reject') THEN e ->> 'review_flag' ELSE 'unflagged' END,
+      COALESCE((e ->> 'circled')::boolean, false),
+      CASE WHEN (e ->> 'color') IN ('red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink') THEN e ->> 'color' ELSE NULL END,
+      CASE WHEN public.fn_bins_json_number(e -> 'duration_sec') > 0 THEN public.fn_bins_json_number(e -> 'duration_sec')::double precision ELSE NULL END,
+      CASE WHEN public.fn_bins_json_number(e -> 'width') > 0 THEN floor(public.fn_bins_json_number(e -> 'width'))::int ELSE NULL END,
+      CASE WHEN public.fn_bins_json_number(e -> 'height') > 0 THEN floor(public.fn_bins_json_number(e -> 'height'))::int ELSE NULL END,
+      CASE WHEN public.fn_bins_json_number(e -> 'fps') > 0 THEN public.fn_bins_json_number(e -> 'fps')::double precision ELSE NULL END,
+      NULLIF(e ->> 'codec', ''), NULLIF(e ->> 'timecode_start', ''),
+      CASE WHEN (e ->> 'probe_status') IN ('pending', 'done', 'failed', 'unavailable') THEN e ->> 'probe_status' ELSE 'pending' END,
+      COALESCE(floor(public.fn_bins_json_number(e -> 'sort_order'))::int, 0),
+      NULLIF(e ->> 'poster_path', ''),
+      public.fn_bins_json_uuid(e -> 'added_by'),
+      COALESCE(public.fn_bins_json_timestamp(e -> 'added_at'), now()))
+    ON CONFLICT (id) DO UPDATE
+      SET bin_id = EXCLUDED.bin_id, sort_order = EXCLUDED.sort_order,
+          display_name = EXCLUDED.display_name, tags = EXCLUDED.tags,
+          scene_id = EXCLUDED.scene_id, shot_id = EXCLUDED.shot_id, slate = EXCLUDED.slate,
+          take_number = EXCLUDED.take_number, take_modifier = EXCLUDED.take_modifier,
+          camera = EXCLUDED.camera, roll = EXCLUDED.roll, shoot_day = EXCLUDED.shoot_day,
+          description = EXCLUDED.description, notes = EXCLUDED.notes,
+          review_flag = EXCLUDED.review_flag, circled = EXCLUDED.circled, color = EXCLUDED.color
+      WHERE f.project_id = EXCLUDED.project_id
+    RETURNING * INTO v_row;
+    IF v_row.id IS NULL THEN
+      v_skipped := v_skipped || jsonb_build_object('id', v_id, 'reason', 'invalid');
+      CONTINUE;
+    END IF;
+    v_restored := v_restored || to_jsonb(v_row);
+    v_row := NULL;
+  END LOOP;
+  PERFORM set_config('wilson.bins_mark', '', true);  -- 0104 §3b
+  RETURN jsonb_build_object('restored', v_restored, 'skipped', v_skipped,
+                            'affectedShotIds', '[]'::jsonb, 'shotTakes', '[]'::jsonb, 'orphanTakes', '[]'::jsonb);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.restore_bin_files(JSONB) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.restore_bin_files(JSONB) TO authenticated, service_role;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM pg_proc p
+       WHERE p.pronamespace = 'public'::regnamespace
+         AND p.proname IN ('copy_bin_files', 'restore_bin_files')
+         AND p.prosrc LIKE '%set_config(''wilson.bins_mark'', ''inherit'', true)%') <> 2 THEN
+    RAISE EXCEPTION '0104 post-condition failed: copy_bin_files and restore_bin_files must set wilson.bins_mark = inherit';
+  END IF;
+END $$;
 
 
 -- =============================================================================

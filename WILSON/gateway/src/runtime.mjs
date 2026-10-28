@@ -264,6 +264,9 @@ export class Gateway {
     // token spent for nothing (or, before P8, a plain file): refused first,
     // the token untouched. So is enrolling with no root certificate (its key
     // refused or unreadable): the cloud would pin nothing.
+    // Round 1 (finding 4): on Windows the layer only learns that DPAPI refuses
+    // when it first writes — proved here, before the cloud spends the token.
+    if (typeof this.secrets.probe === 'function') await this.secrets.probe();
     if (this.secrets.kind === 'none') {
       const why = this.secrets.status?.()?.reason || 'secrets cannot be written';
       this.log('enrol_refused', { reason: 'secrets cannot be written', detail: String(why).slice(0, 160) });

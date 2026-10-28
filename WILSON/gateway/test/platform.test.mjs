@@ -126,6 +126,19 @@ describe('secrets at rest (secrets.mjs)', () => {
     expect(s.status().unsealed).toBe(1);
     expect(await s.reseal(old)).toBeNull();
   });
+  it('P8 round 1 (finding 4): probe() proves data protection once, before anything is spent on it', async () => {
+    const flaky = makeSecrets({ platform: 'win32', run: async () => { throw new Error('Cannot invoke method. Method invocation is supported only on core types in this language mode.'); } });
+    expect(flaky.kind).toBe('dpapi'); // nothing written yet: the layer cannot know
+    expect(await flaky.probe()).toBe(false);
+    expect(flaky.kind).toBe('none');
+    expect(flaky.status().reason).toMatch(/language mode/);
+    const fine = makeSecrets({ platform: 'win32', run: async (op, blobs) => blobs.map((b) => Buffer.from(b)) });
+    expect(await fine.probe()).toBe(true);
+    expect(fine.kind).toBe('dpapi');
+    const keyed = makeSecrets({ platform: 'linux', env: { [SECRETS_KEY_ENV]: crypto.randomBytes(32).toString('base64') }, readFileSync: () => { throw new Error('ENOENT'); } });
+    expect(await keyed.probe()).toBe(true);
+    expect(await makeSecrets({ platform: 'linux', env: {}, readFileSync: () => { throw new Error('ENOENT'); } }).probe()).toBe(false);
+  });
 
   describe('off Windows (the container): sealed under the operator\'s key, P8 (TPN-ENC-014)', () => {
     // A throwaway key, made here and nowhere else.

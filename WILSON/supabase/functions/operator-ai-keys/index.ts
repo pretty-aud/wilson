@@ -125,9 +125,24 @@ Deno.serve(async (req: Request) => {
       },
     }
     type Domain = typeof domains.ai
+    // Round 1 (finding 3): paged — an un-ranged read stops at PostgREST's
+    // max_rows (1000) even for the service role (teardownCollect.ts says the
+    // same), and a row past the page would be orphaned when version 1 is unset.
+    const PAGE = 1000
     const rowsOf = async (d: Domain) => {
-      const { data, error } = await ctx.admin.from(d.table).select(`workspace_id, ${d.column}`)
-      return { rows: (data ?? []) as Array<Record<string, unknown>>, error: error?.message ?? null }
+      const rows: Array<Record<string, unknown>> = []
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await ctx.admin
+          .from(d.table)
+          .select(`workspace_id, ${d.column}`)
+          .order('workspace_id')
+          .range(from, from + PAGE - 1)
+        if (error) return { rows, error: error.message as string }
+        const page = (data ?? []) as Array<Record<string, unknown>>
+        rows.push(...page)
+        if (page.length < PAGE) break
+      }
+      return { rows, error: null as string | null }
     }
     const statusOf = async (d: Domain) => {
       const { rows, error } = await rowsOf(d)
@@ -169,11 +184,16 @@ Deno.serve(async (req: Request) => {
       try {
         const plain = await d.decrypt(envelope)
         const sealed = await d.encrypt(plain)
-        const { error: upErr } = await ctx.admin
+        // Round 1 (note 11): only the envelope that was read is replaced — a
+        // fresh key an operator set meanwhile is left alone, counted as skipped.
+        const { data: upd, error: upErr } = await ctx.admin
           .from(d.table)
           .update({ [d.column]: sealed, key_version: current, updated_at: new Date().toISOString(), updated_by: ctx.callerId })
           .eq('workspace_id', r.workspace_id)
+          .eq(d.column, envelope)
+          .select('workspace_id')
         if (upErr) { failed++; continue }
+        if (!upd || upd.length === 0) { skipped++; continue }
         resealed++
         fromVersions[String(version)] = (fromVersions[String(version)] ?? 0) + 1
       } catch {

@@ -47,7 +47,7 @@ describe('resolveUploadKey — fail closed when the company\'s own key will not 
     expect(r).toMatchObject({ ok: false, error: 'crypto_unavailable', status: 503 })
     expect(r.detail).toContain('WILSON_AI_KEY_SECRET')
   })
-  it('CONTROL: a row that opens is the company\'s key, with the row\'s key_version handed to the decrypt', async () => {
+  it('CONTROL: a row that opens is the company\'s key; the resolver hands the row\'s key_version to the decrypt it is given (ai-files\' decrypt reads the envelope\'s own version: P8, TPN-ENC-015)', async () => {
     const seen = []
     const decrypt = async (c, v) => { seen.push([c, v]); return 'sk-ant-company' }
     expect(await resolveUploadKey({ readRow: row({ key_version: 2 }), decrypt, cryptoConfigured: configured, platformKey: 'sk-ant-platform' })).toEqual({ ok: true, key: 'sk-ant-company', source: 'workspace' })

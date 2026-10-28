@@ -206,11 +206,16 @@ describe('what the guide tells an admin to check or do is the code\'s', () => {
     expect(s9).toContain('by the steps under *Rotating the release key* in §10');
     expect(guide).toContain('| AS-2.5 (keys) | DPAPI, or in the container a seal under the operator\'s key (§3), for every private key, never a plain file; the office root lasts three years with its successor made a year ahead (P8, TPN-ENC-016)');
     expect(guide).toContain('the root lasts three years, P8 TPN-ENC-016');
+    // P8 round 1 (finding 5): the checked mark and its two bounds, in §5 and §11.
+    expect(guide).toContain('- **Never assume a withdrawn check stops the gateway at once** (P8, TPN-AUTH-012)');
+    expect(guide).toContain('within ten minutes while the gateway reaches the cloud, within 24 hours on the office door while it does not');
+    expect(guide).toContain('| TS-1.7 (content access by approval) |');
   });
   it('the TPN controls it touches, in the framework\'s numbering, each once and in order', () => {
     const s11 = guide.slice(guide.indexOf('## 11. '));
     const ids = [...s11.matchAll(/^\| ([A-Z]{2}-\d+(?:\.\d+)?(?:, [A-Z]{2}-\d+(?:\.\d+)?)*) \(/gm)].map((m) => m[1]);
-    expect(ids).toEqual(['TS-2', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
+    // P8 round 1 (finding 5): TS-1.7, the checked mark, joins the table.
+    expect(ids).toEqual(['TS-2', 'TS-1.7', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
     expect(s11).toContain('| TS-2 (segmentation, default deny) |');
   });
   // P8 (TPN-ENC-013): the signal is retired by default — the office certificate

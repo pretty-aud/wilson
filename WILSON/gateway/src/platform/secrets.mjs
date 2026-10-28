@@ -146,7 +146,7 @@ function open(key, blob) {
 }
 
 /**
- * @returns {{ kind: 'dpapi'|'key'|'none', protect(b): Promise<Buffer>, unprotect(b): Promise<Buffer>, protectMany, unprotectMany, reseal(b): Promise<Buffer|null>, status(): { dpapi: boolean|null, reason: string|null, sealed: 'dpapi'|'key'|'none', unsealed: number } }}
+ * @returns {{ kind: 'dpapi'|'key'|'none', protect(b): Promise<Buffer>, unprotect(b): Promise<Buffer>, protectMany, unprotectMany, reseal(b): Promise<Buffer|null>, probe(): Promise<boolean>, status(): { dpapi: boolean|null, reason: string|null, sealed: 'dpapi'|'key'|'none', unsealed: number } }}
  */
 export function makeSecrets({ platform = process.platform, run = runPowerShell, env = process.env, readFileSync = fs.readFileSync } = {}) {
   const isWin = platform === 'win32';
@@ -200,6 +200,26 @@ export function makeSecrets({ platform = process.platform, run = runPowerShell, 
     return results;
   }
 
+  /**
+   * P8 round 1 (finding 4): on Windows the layer learns that data protection
+   * refuses only at its first write — this proves it once (one byte protected
+   * and opened), so a caller can refuse BEFORE a token is spent. True when
+   * secrets can be written now.
+   */
+  async function probe() {
+    if (isWin && dpapiOk) {
+      try {
+        const [p] = await run('protect', [Buffer.from('wg')]);
+        const [u] = await run('unprotect', [p]);
+        if (!Buffer.from(u).equals(Buffer.from('wg'))) throw new Error('DPAPI round trip mismatch');
+      } catch (e) {
+        dpapiOk = false;
+        reason = String(e.message || e).slice(0, 160);
+      }
+    }
+    return method() !== 'none';
+  }
+
   /** The sealed form of an earlier version's plain blob, or null (already sealed, or nothing to seal it with). */
   async function reseal(raw) {
     const b = Buffer.from(raw);
@@ -214,6 +234,7 @@ export function makeSecrets({ platform = process.platform, run = runPowerShell, 
     protectMany,
     unprotectMany,
     reseal,
+    probe,
     protect: async (b) => (await protectMany([b]))[0],
     unprotect: async (b) => (await unprotectMany([b]))[0],
     status: () => ({ dpapi: isWin ? dpapiOk : null, reason: method() === 'none' ? (isWin ? `Windows data protection is unavailable (${reason || 'unknown'})` : reason) : null, sealed: method(), unsealed }),

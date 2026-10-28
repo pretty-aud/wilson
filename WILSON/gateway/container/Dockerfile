@@ -15,6 +15,10 @@
 # real addresses, so it keeps its office door closed and says so on the first
 # lines of its log (D24), beside the certificate's fingerprint.
 #
+#   WILSON_GATEWAY_SECRETS_KEY   32 random bytes, base64 (openssl rand -base64 32):
+#                        seals the gateway's secrets under /data; set it before the
+#                        token, or the gateway refuses to enrol (P8, TPN-ENC-014).
+#                        Or WILSON_GATEWAY_SECRETS_KEY_FILE, a Docker secret's path
 #   WILSON_ENROL_TOKEN   the enrolment token (once, 24 h)
 #   WILSON_CLOUD_URL     WILSON's cloud (the functions base), when not prod's
 # =============================================================================

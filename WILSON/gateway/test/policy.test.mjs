@@ -247,7 +247,7 @@ describe('the health line (§8)', () => {
   it('P8 (TPN-ENC-013): an office certificate that names addresses is said in amber, with why', () => {
     const w = (ipSans) => composeHealthLine({ ...example, certificate: { ...example.certificate, ipSans } }).warnings;
     expect(w(null)).toEqual([]);
-    expect(w('legacy')).toEqual([{ text: 'the office certificate still names this computer\u2019s addresses (an earlier install): set inside.ip_sans false in config.json to name the host alone at the next renewal, or true to keep them', tone: 'amber' }]);
+    expect(w('legacy')).toEqual([{ text: 'the office certificate still names this computer\u2019s addresses (an earlier install): set inside.ip_sans false in config.json to name the host alone at the next start, or true to keep them', tone: 'amber' }]);
     expect(w('config')).toEqual([{ text: 'the office certificate names this computer\u2019s addresses (inside.ip_sans is true): browsers may reach the gateway by address, which the TPN asks to retire', tone: 'amber' }]);
     expect(w('no_name')).toEqual([{ text: 'this computer\u2019s name is no DNS label, so the office certificate names its addresses only: give it a name browsers can resolve', tone: 'amber' }]);
   });

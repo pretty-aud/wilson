@@ -27,7 +27,9 @@ one you accepted (TPN-AI-009).
    reviewer or member and not yet checked by an admin or manager*, and an
    admin or manager has **Mark as checked** on the clip (in the inspector)
    and on each location (in the locations list); the check can be withdrawn
-   the same way. Every clip and location that existed before tonight starts
+   the same way, and withdrawing it on one row withdraws it from every row
+   at that file. A copy, or an undo of a removal, is not a check: the new
+   row takes a checked twin's mark, or none. Every clip and location that existed before tonight starts
    unchecked (dev: 2 clips and 2 locations), so on an environment with
    footage in bins an admin or manager checks them once.
 

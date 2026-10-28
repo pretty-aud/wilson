@@ -38,7 +38,7 @@
 
 BEGIN;
 
-SELECT plan(47);
+SELECT plan(57);
 
 SELECT * FROM tests.rls_setup();
 
@@ -424,6 +424,109 @@ SELECT ok((SELECT vetted_at IS NOT NULL FROM public.bin_files WHERE id = '107000
   'postgres (a fixture, a migration) keeps the mark it supplies (§3)');
 SELECT ok((SELECT vetted_at IS NULL FROM public.bin_files WHERE id = '10700000-0000-0000-0000-0000000000f8'),
   'CONTROL: the reviewer''s supplied mark above was not kept (§3)');
+
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+
+
+-- ── 48-57: build round 1's corrections — a copy or an undo is no check; a
+--          withdrawal is of the file (0104 §3, §3b) ────────────────────────
+
+-- Both bodies set the mode (pinned: a restatement without the line would stamp again).
+SELECT ok(COALESCE((SELECT p.prosrc LIKE '%set_config(''wilson.bins_mark'', ''inherit'', true)%' FROM pg_proc p
+                     WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'copy_bin_files'), false),
+  'copy_bin_files sets wilson.bins_mark = inherit for its inserts (§3b)');
+SELECT ok(COALESCE((SELECT p.prosrc LIKE '%set_config(''wilson.bins_mark'', ''inherit'', true)%' FROM pg_proc p
+                     WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'restore_bin_files'), false),
+  'restore_bin_files sets wilson.bins_mark = inherit for its inserts (§3b)');
+
+-- The reviewer adds F12, unchecked.
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+INSERT INTO public.bin_files (id, project_id, bin_id, location_id, relative_path, display_name, original_name, extension, media_type)
+VALUES ('10700000-0000-0000-0000-0000000000fc', 'aaaa1111-0000-0000-0000-000000000001',
+        '10700000-0000-0000-0000-0000000000b1', '10700000-0000-0000-0000-00000000000a',
+        'A001/F12.mov', 'F12', 'F12.mov', '.mov', 'video');
+RESET ROLE;
+
+-- The manager copies it: the copy is no check.
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT jsonb_array_length(public.copy_bin_files(ARRAY['10700000-0000-0000-0000-0000000000fc'::uuid], '10700000-0000-0000-0000-0000000000b1'::uuid) -> 'created')),
+  1, 'a manager copies a reviewer''s unchecked clip (0091 §10m)');
+SELECT is((SELECT count(*)::int FROM public.bin_files
+            WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
+  0, '🚨 the copy is not a check: nobody looked at the path, so neither row is checked (round 1, finding 1)');
+-- CONTROL: the manager's own clip at a new address is checked, as before.
+INSERT INTO public.bin_files (id, project_id, bin_id, location_id, relative_path, display_name, original_name, extension, media_type)
+VALUES ('10700000-0000-0000-0000-0000000000fd', 'aaaa1111-0000-0000-0000-000000000001',
+        '10700000-0000-0000-0000-0000000000b1', '10700000-0000-0000-0000-00000000000a',
+        'A001/F13.mov', 'F13', 'F13.mov', '.mov', 'video');
+SELECT ok((SELECT vetted_by = 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid FROM public.bin_files WHERE id = '10700000-0000-0000-0000-0000000000fd'),
+  'CONTROL: the manager''s own clip is checked, by them (§3)');
+
+-- The reviewer removes their own F12; the manager's undo of that removal is no check either, and the mark the client sends with it is ignored.
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+DELETE FROM public.bin_files WHERE id = '10700000-0000-0000-0000-0000000000fc';
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.restore_bin_files($j$[
+    {"id": "10700000-0000-0000-0000-0000000000fc", "bin_id": "10700000-0000-0000-0000-0000000000b1",
+     "location_id": "10700000-0000-0000-0000-00000000000a", "relative_path": "A001/F12.mov",
+     "display_name": "F12", "original_name": "F12.mov", "extension": ".mov", "media_type": "video",
+     "added_by": "cccccccc-cccc-cccc-cccc-cccccccccccc", "vetted_at": "2026-10-28T00:00:00Z"}
+  ]$j$::jsonb) -> 'restored' -> 0 ->> 'id'),
+  '10700000-0000-0000-0000-0000000000fc', 'a manager undoes the reviewer''s removal (restore_bin_files)');
+SELECT ok((SELECT vetted_at IS NULL FROM public.bin_files WHERE id = '10700000-0000-0000-0000-0000000000fc'),
+  '🚨 the undo is not a check, and the mark sent with it is ignored (round 1, finding 1)');
+
+-- The manager checks F12 by hand: a check given by hand is of that row (the copy keeps its own state).
+UPDATE public.bin_files SET vetted_at = now() WHERE id = '10700000-0000-0000-0000-0000000000fc';
+SELECT is((SELECT count(*)::int FROM public.bin_files
+            WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
+  1, 'a check given by hand is of that row (§3)');
+RESET ROLE;
+
+-- The reviewer's new row at the now-checked address inherits (§3): two rows carry the mark.
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+INSERT INTO public.bin_files (id, project_id, bin_id, location_id, relative_path, display_name, original_name, extension, media_type)
+VALUES ('10700000-0000-0000-0000-0000000000fe', 'aaaa1111-0000-0000-0000-000000000001',
+        '10700000-0000-0000-0000-0000000000b1', '10700000-0000-0000-0000-00000000000a',
+        'A001/F12.mov', 'F12 again', 'F12.mov', '.mov', 'video');
+SELECT is((SELECT count(*)::int FROM public.bin_files
+            WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
+  2, 'a reviewer''s new row at a checked address inherits the mark (§3)');
+RESET ROLE;
+
+-- The manager withdraws the check on F12: every row at that file loses it.
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
+UPDATE public.bin_files SET vetted_at = NULL WHERE id = '10700000-0000-0000-0000-0000000000fc';
+SELECT is((SELECT count(*)::int FROM public.bin_files
+            WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
+  0, '🚨 withdrawing the check on one row withdraws it from every row at that file (round 1, finding 2)');
 
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);

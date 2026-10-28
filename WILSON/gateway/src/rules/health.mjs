@@ -250,7 +250,7 @@ export function composeHealthLine(state) {
   if (state.certificate?.refused) warnings.push({ text: `the gateway could not write its certificates (${state.certificate.refused}): nothing is made or renewed until secrets can be written`, tone: 'red' });
   if (state.certificate?.unreadable) warnings.push({ text: `the gateway’s existing certificate files do not open (${state.certificate.unreadable}); no new certificate is made over them`, tone: 'red' });
   // P8 (TPN-ENC-013): the office certificate should name the host, not its addresses.
-  if (state.certificate?.ipSans === 'legacy') warnings.push({ text: 'the office certificate still names this computer’s addresses (an earlier install): set inside.ip_sans false in config.json to name the host alone at the next renewal, or true to keep them', tone: 'amber' });
+  if (state.certificate?.ipSans === 'legacy') warnings.push({ text: 'the office certificate still names this computer’s addresses (an earlier install): set inside.ip_sans false in config.json to name the host alone at the next start, or true to keep them', tone: 'amber' });
   else if (state.certificate?.ipSans === 'config') warnings.push({ text: 'the office certificate names this computer’s addresses (inside.ip_sans is true): browsers may reach the gateway by address, which the TPN asks to retire', tone: 'amber' });
   else if (state.certificate?.ipSans === 'no_name') warnings.push({ text: 'this computer’s name is no DNS label, so the office certificate names its addresses only: give it a name browsers can resolve', tone: 'amber' });
   for (const s of state.smb || []) if (s.dialect && !/^3/.test(s.dialect)) warnings.push({ text: `${s.unc} uses SMB ${s.dialect}: set SMB 3 with signing and encryption on the server`, tone: 'amber' });
