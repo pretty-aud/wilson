@@ -392,3 +392,19 @@ Verdict: *go with the corrections*; none needs her ruling. All fourteen are appl
 - **F12 Note:** the loopback rule enforced, not only written; a compromised renderer's writes now survive; the clear's gain at rest; one file per build flavour.
 - **F13 Note:** the cap's rule checked against GoTrue's `amr` (the password entry is written once per session; a re-verified method is re-stamped later, so the earliest entry is the sign-in; from GoTrue's source, not measured).
 - **F14 Note:** no ruling needed for (c); (a) would have needed one.
+
+### 12.12 Measured on the build (`16210d45`)
+
+§12.1's driver again (a development build of the commit in a `git archive`, Electron 33.4.11, a scratch userData, the cloud cut, a made-up session whose token says it signed in 120 minutes earlier; launch 1 reloads once, so its timeouts start at a restore):
+
+| | Launch 1 | Launch 2 |
+|---|---|---|
+| The window's address | `http://127.0.0.1:60674` | `http://127.0.0.1:60544`: still a new origin at every launch |
+| The five keys of §12.1 | written | **all five came back, with their values, at the page's first read** (the tip: none) |
+| The cap's record | the token's sign-in time: 120 minutes left | **the token's sign-in time: 119.9 minutes left** (the tip: a fresh 240) |
+| The idle clock | 0 s old | 0 s old: a launch is activity (§12.3) |
+| `otter-settings.json`'s R.A.B.B.I.T. choice and last project | written | the same |
+
+**The paths of §12.7** (three launches on one scratch userData): a key written just before a reload came back, and so did one written just before the window's own force-close (both through `pagehide`); after an `app.exit(0)`, a key written 2.5 s before it came back and one written 0.05 s before it did not (the crash window, as designed). The kept file never held `wilson.dev.session` (the session stayed in `session.enc`) nor the idle clock. **The cap's notice at a relaunch** (the token signed in 236 minutes earlier, no record anywhere): on the tip the relaunch recorded a fresh start, 239.8 minutes left, and no notice within 12 s; on the build the start stayed the sign-in, 3.9 minutes left, and *Session ending … You'll be signed out in 3:57* was on screen 0.7 s after the launch. **A page the window is sent to** (`file://`, what a dropped file does; the cable off, no session saved, the build's cloud a made-up `.invalid` host): the existing bridges handed it `wilsonSession.load` and the local server's token (OUTSTANDING D1-01); D1's channels refused it: the key it wrote never reached the kept file, and WILSON's own kept key was still there. **The idle clock after a sleep** (the core under a fake clock, a probe test not kept): two hours with no tick, then a key: no expiry; a tick or a return to the window first: `idle_timeout` (OUTSTANDING D1-02).
+
+`npx vitest run --maxWorkers=4` with no `.env.local`: 418 files, 10,437 passed, 9 skipped (the tip: 417, 10,404, 9). `local-server-lock-harness.mjs`: 31 checks pass, its control fails as designed (unchanged). The production bundle (a `git archive` of each commit, no `.env.local`): main chunk 4,909,641 → 4,909,894 bytes (+253), the whole build 7,824,111 → 7,824,364 (the main process and the preload are not in it). Twenty-four planted controls bite, every file restored by hash (nine for the cap and its wiring, fifteen for the storage; one, the sender check without the origin, stayed green on its first run because its case used two different windows, and bit once the case was corrected).

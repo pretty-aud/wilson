@@ -80,29 +80,6 @@ after her report.
 
 ## Broken features
 
-### On the desktop, the browser's own storage most likely starts empty at every launch
-**INFERRED (VW1's research, 2026-10-13; from the code and the handbook's
-§14, not measured by relaunching the packaged app).** The desktop's local
-server listens on port 0 (`electron/main.cjs`, `expressApp.listen(0, …)`)
-and the window loads `http://127.0.0.1:<that port>`; a browser keeps
-`localStorage` per origin, port included, so each launch should start with an
-empty store. What lives there today and would reset: the Scenes tab's
-remembered shot list (`rabbit_scene_viewed_lists`), the unsaved edit copies
-(`rabbit_edit_drafts`), Budget's and Team's saved views, the Timeline's
-settings and collapsed phases, the holidays, and (since VW1m, 2026-10-16) the
-task window's Sort for its items. (The five tables' saved views
-move into the project with VW1.) *(2026-10-25, VW1d: the Tasks table's
-views and the last view each person used are no longer there: the views
-are the project's (in the cloud, or signed out in the project's own data on
-the desktop) and the last used view the person's (signed out, the machine's
-settings file), and the old key is removed (Q17). A change for now is held in memory,
-for as long as WILSON is open, on purpose (Q3b).)* *(2026-10-25, VW1e: the
-same for the Assets, Levels, Experiences, Scenes and Shots tables; their old
-keys are removed when each table first loads.)* Would settle it: change one of them in the
-packaged app, quit, relaunch. Fix shape: a fixed per-install origin (a custom
-protocol or a remembered port), or these stores moved into the machine's
-settings file.
-
 ### Budget's Expenses: the *Linked task* filter calls every task "Untitled", and the saved views go stale after a project switch
 **INFERRED (VW1's research, 2026-10-13; from the code).** The filter's task
 values read `t.name`, which tasks do not have (they have `title`). The
@@ -1275,6 +1252,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul D1 (2026-10-28; `po/d1-desktop-storage-across-relaunch` into `feat/post-overhaul-edit-versioning`) — the desktop keeps its stored state across a relaunch (`docs/design/RECONNECT_DESIGN.md` §12; her ruling of 2026-10-28, *"Fix it in 1.0, a session tonight (Recommended)"*, a fourth session on night 4): measured first (two launches of a development build, a new origin each), designed, the design reviewed on Opus (the Fable call refused, out of usage credits), built: the 4-hour cap from the token's own sign-in time at every restore (`start()` takes the earlier of its record and the `amr`; a fresh sign-in passes none), the renderer's `localStorage` kept in userData (`electron/rendererStorage.cjs`: the launch's first load made exactly the kept keys before the page's first script, written back once a second, when hidden and at `pagehide`; never the session, the idle clocks, tus fingerprints or a loopback address); the origin, the token, the cookie and the lock untouched; two build review rounds; walkthrough 85's D1 section | **D1-01** (security, there before D1: a page the main window is sent to, a dropped file's, is handed the preload's bridges; measured), **D1-02** (after a sleep the first key counts before the idle clock judges the absence; measured) | **S2-01** (closed by measurement: on the build a relaunch keeps the sign-in's start, 119.9 minutes left where the tip gave a fresh 240, and a relaunch 3 h 56 min after the sign-in shows *Session ending* 0.7 s after it opens, where the tip gave 239.8 minutes and no notice) and ***On the desktop, the browser's own storage most likely starts empty at every launch*** (closed by measurement: five keys written at one launch came back at the next with their values, where the tip kept none; a key written just before a reload or the window's close kept too; R.A.B.B.I.T.'s storage choice and last project were never in it, measured). Comment markers: 4 → 4. |
 | Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
@@ -2855,31 +2833,47 @@ rules" for the Storage card became the person's own role, read from the saved
 token) and *A failed pet sync is never retried until WILSON is relaunched*
 (`src/lib/petLifecycle.js` `createPetSyncRetry`: 5 s, 15 s, 45 s, 2 min 15 s
 and 5 min, then only on a trigger — the decision its entry asked for is that
-bound). What S2 met and did not fix:
+bound). What S2 met and did not fix, S2-01 (*on the desktop the 4-hour cap
+restarts at every launch*), D1 closed on 2026-10-28 (the session log's D1 row).
 
-- **S2-01 · On the desktop the 4-hour cap restarts at every launch.**
-  MEASURED 2026-10-27 in the desktop app (a development-mode build of
-  `cc6b0e3b`, Electron 33, a scratch userData, every cloud request aborted):
-  the window loads `http://127.0.0.1:<port>` and the port is the local
-  server's `listen(0)` (`electron/main.cjs`, `startLocalServer`), new at every
-  launch, so each launch is a new origin with an empty localStorage; a key and
-  a cap record (`wilson.dev.session.start`) written at one launch were absent
-  at the next (ports 53343, then 53359). `sessionTimeouts.js` keeps the cap's
-  start and the idle clock in localStorage, so `start()` finds no record at a
-  desktop launch and hands the session a fresh four hours: the absolute cap
-  (TPN AS-3.8) holds within one desktop launch and is reset by a relaunch.
-  The web keeps one origin and is not affected. Every other localStorage key
-  on the desktop starts empty at each launch the same way — R.A.B.B.I.T.'s
-  settings among them (`loadRabbitSettings`: the storage backend chosen in
-  App settings and the last open project, so a desktop on the Supabase
-  adapter is back on the Local Server after a relaunch; INFERRED from the
-  same measurement, not walked through). Security-adjacent, for the
-  controller to place (the cap is not S2's brief to change). The offline
-  launch does not lean on the record there: it takes the earlier of the
-  record and the token's own sign-in time (`amr`), `RECONNECT_DESIGN.md`
-  §11.3. Fix shape: keep the cap's start where a relaunch finds it (the main
-  process, beside the encrypted session), or take it from `amr` as the launch
-  does; the idle clock likewise.
+## D1 (2026-10-28, night 4 of `docs/sessions/PLAN_TO_1_0.md`)
+
+The desktop keeps its stored state across a relaunch
+(`docs/design/RECONNECT_DESIGN.md` §12; her ruling of 2026-10-28, *"Fix it in
+1.0, a session tonight"*): the 4-hour cap runs from the token's own sign-in
+time at every restore, and the renderer's `localStorage` is kept in a userData
+file (`electron/rendererStorage.cjs`). Two entries are deleted as fixed, each
+closed by measurement: S2-01 and *On the desktop, the browser's own storage
+most likely starts empty at every launch* (the session log's D1 row). What D1
+met and did not fix:
+
+- **D1-01 · A page the main window is sent to is handed the preload's
+  bridges, the saved session and the local server's token among them.**
+  MEASURED 2026-10-28 in the desktop app (a development build of `16210d45`, a
+  scratch userData, no session saved, the build's cloud a made-up `.invalid`
+  host): the main window sent to a `file://` page, which is what a file
+  dropped outside Bins does (nothing in `electron/` refuses a navigation, and
+  only `BinsView.jsx` handles a drop on the page), ran the preload, and the
+  page could call `window.wilsonSession.load` (it returns the decrypted
+  session) and read `window.electronAPI.localServerToken` (a non-empty string,
+  not printed). D1's own channels refused that page: the key it wrote never
+  reached the kept file. Security, there before D1, not its brief: for the
+  controller to place (her Q1 in walkthrough 85). Fix shape: the main window
+  never leaves the launch's origin (`will-navigate` and `will-frame-navigate`
+  refused outside it; a drop outside Bins does nothing), and the bridges'
+  channels answer only that origin, as `acceptsSender` does for D1's.
+- **D1-02 · After a sleep, the first key or pointer counts before the idle
+  clock judges the absence.** MEASURED 2026-10-28 (the core under a fake
+  clock, `sessionTimeouts.js` as it is, in a probe test not kept): two hours
+  with no tick, then `activity()` before any tick — no expiry, the phase
+  `active`; the same two hours with a tick first, or with `visible()` first,
+  end in `idle_timeout`. `activity()` sets the clock before it evaluates and
+  evaluates only while a warning is up, so a computer that slept with WILSON
+  open and visible (no tick and no visibility change in between) carries on
+  after hours idle. TPN AS-3.8's idle timeout; not D1's to change (the brief
+  keeps every rule of `sessionTimeouts.js`): her Q2 in walkthrough 85. Fix
+  shape: `activity()` judges the absence first when the last evaluation is
+  older than a tick, as `visible()` does.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
