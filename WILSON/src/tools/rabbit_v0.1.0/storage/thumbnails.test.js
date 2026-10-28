@@ -608,8 +608,10 @@ describe('wiring: the display path reaches the screen', () => {
     // sweep was corrected from `eq('supabase')` to `neq('s3')` and the display
     // filter was left behind, with a test pinning the divergent string. Any
     // future session that changes one must change all three.
+    // P8 (TPN-CONT-018): the sweep's scan moved, verbatim, into
+    // _shared/teardownCollect.ts (where vitest can drive it); the pin follows it.
     const ops = executable(readFileSync(
-      join(process.cwd(), 'supabase', 'functions', 'operator-workspaces', 'index.ts'), 'utf-8',
+      join(process.cwd(), 'supabase', 'functions', '_shared', 'teardownCollect.ts'), 'utf-8',
     ))
     const sql = executable(readFileSync(
       join(process.cwd(), 'supabase', 'migrations', '0054_thumbnail_follows_its_source.sql'), 'utf-8',
@@ -708,9 +710,18 @@ describe('review fixes', () => {
     const ops = executable(readFileSync(
       join(process.cwd(), 'supabase', 'functions', 'operator-workspaces', 'index.ts'), 'utf-8',
     ))
-    expect(ops).toMatch(/const THUMBNAIL_BUCKET = 'rabbit-thumbnails'/)
+    // P8 (TPN-CONT-018): the constant and the scan live in
+    // _shared/teardownCollect.ts now, verbatim; the REMOVE and the certificate
+    // line stay in index.ts. Each pin reads the file that holds its text.
+    const collect = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'functions', '_shared', 'teardownCollect.ts'), 'utf-8',
+    ))
+    expect(collect).toMatch(/export const THUMBNAIL_BUCKET = 'rabbit-thumbnails'/)
     expect(ops).toMatch(/storage\.from\(THUMBNAIL_BUCKET\)\.remove\(batch\)/)
     expect(ops).toMatch(/thumbnails_removed: thumbsRemoved/)
+    // And the bin clips' posters, listed by prefix, ride the same removal (P8).
+    expect(collect).toMatch(/walkPosters\(`projects\/\$\{projectId\}\/bin_files`, 1\)/)
+    expect(ops).toMatch(/bin_posters_listed: binPostersListed/)
 
     // 🚨 S44 INVERTED THIS ASSERTION, DELIBERATELY. It used to require that the
     // thumbnail scan NOT inherit the body scan's provider filter, because every
@@ -731,7 +742,7 @@ describe('review fixes', () => {
     // case — so `eq('supabase')` would leave those frames in rabbit-thumbnails
     // while WIL-7005 certifies the tenant destroyed. That is the mistake this
     // session made and caught in its own review.
-    const scan = ops.slice(ops.indexOf("select('thumbnail_url')"))
+    const scan = collect.slice(collect.indexOf("select('thumbnail_url')"))
     expect(scan.slice(0, 220)).toMatch(/\.neq\('storage_provider', 's3'\)/)
     expect(scan.slice(0, 220)).not.toMatch(/\.eq\('storage_provider', 'supabase'\)/)
   })
@@ -745,12 +756,17 @@ describe('review fixes', () => {
       join(process.cwd(), 'supabase', 'functions', 'operator-workspaces', 'index.ts'), 'utf-8',
     ))
     expect(ops).toMatch(/byo_thumbnails_left: byoThumbsLeft/)
+    // P8 (TPN-CONT-018): the counts moved with collectBlobPaths into
+    // _shared/teardownCollect.ts, verbatim; the two pins below read it.
+    const collect = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'functions', '_shared', 'teardownCollect.ts'), 'utf-8',
+    ))
     // Counted from BOTH sources, like byoLeft: a purged-but-undrained preview
     // has no files row and is still in the bucket.
-    expect(ops).toMatch(/\.eq\('kind', 'thumbnail'\)/)
+    expect(collect).toMatch(/\.eq\('kind', 'thumbnail'\)/)
     // NULL on failure rather than 0 — after the CASCADE nothing can re-derive
     // it, so an unknown must read as unknown forever (S37's review).
-    expect(ops).toMatch(/!liveThumbRes\.error/)
+    expect(collect).toMatch(/!liveThumbRes\.error/)
   })
 })
 
