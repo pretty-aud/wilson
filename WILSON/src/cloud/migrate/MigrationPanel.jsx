@@ -40,6 +40,7 @@ import {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE, VIEW_FILTERS_LEFT_BEHIND,
   BID_VERSIONS_PART_2, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED, COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS,
   FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
+  STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO,
 } from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
@@ -55,10 +56,13 @@ export const MIGRATE_AGAIN_LEFT = (n) => `${n} clip${n === 1 ? ' is' : 's are'} 
 export const NO_PATH_LEFT = (n) => `${n} clip${n === 1 ? ' has' : 's have'} no path recorded, so ${n === 1 ? 'it' : 'they'} cannot move: remove ${n === 1 ? 'it' : 'them'} from ${n === 1 ? 'its' : 'their'} bin on this computer, or keep this computer's copy.`
 // M1 (night 3): what is true after it. A row removed in the cloud and kept in
 // its trash (a task, a file, a comment, a key date…) keeps its id there, so a
-// second run skips it; one removed for good (a scene, a shot, a clip, a
-// folder, an item on a list) comes back. Part 2 (night 4) carries the rest.
-export const MIGRATE_DONE = 'Done. Running it again skips every row already in the cloud, one in the cloud\'s trash included; a scene, shot, clip, folder or shot list item removed from the cloud for good since comes back. Budgets, expenses, levels, experiences and the team move in part 2 of the migration.'
-export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer, including what part 2 of the migration carries later and what no migration carries (both listed under the report), then clears the live copy.'
+// second run skips it — until the trash is emptied, after 30 days; one
+// removed for good (none of those tables has a trash: a scene, a shot, a bin,
+// a clip, a take, a folder, a saved view, a grouping, an item of a list or a
+// task) comes back (review round 1 measured the list). Part 2 (night 4)
+// carries the rest.
+export const MIGRATE_DONE = 'Done. Running it again skips every row already in the cloud, one in its trash included; a row removed from the cloud for good comes back (a scene, shot, bin, clip, take, folder, saved view, grouping, or an item of a list or a task), as does one in the trash once it is emptied after 30 days. Budgets, expenses, levels, experiences, the team and links on tasks move in part 2 of the migration.'
+export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer whole — what part 2 of the migration carries later and what no migration carries (both named under the report), and this computer\'s own records of its files and intake runs — then clears the live copy.'
 
 export default function MigrationPanel() {
   // The active workspace, as every gate reads it (the session's claims; the
@@ -303,13 +307,19 @@ function resolutionWords(root, r) {
 
 /** M1's lines under the report: each kind's rows not carried and why, the files filed, the archives, the project rows' part 2 and folders. */
 function CarriedLines({ r }) {
+  const statuses = r.projectsLeftAtHome?.statuses || {}
+  const statusCount = Object.values(statuses).reduce((s, n) => s + n, 0)
   const lines = [
     ['files-placed', r.files?.placed, FILES_PLACED],
     ['archived-in-cloud', (r.shotLists?.archived || 0) + (r.edits?.archived || 0), () => ARCHIVED_IN_CLOUD(r.shotLists?.archived || 0, r.edits?.archived || 0, r.dryRun)],
     ['live-in-cloud', r.liveInCloud, LIVE_IN_CLOUD],
     ['bid-versions-part-2', r.projectsLeftAtHome?.bidVersions, BID_VERSIONS_PART_2],
     ['project-folders', r.projectsLeftAtHome?.folders, PROJECT_FOLDER_STAYS],
+    ['project-statuses', statusCount, (n) => STATUS_NOT_IN_CLOUD(n, Object.keys(statuses))],
     ['key-dates-trashed', r.milestones?.trashed, KEY_DATES_TRASHED],
+    ['key-dates-phase-let-go', r.milestones?.phaseLetGo, KEY_DATES_PHASE_LET_GO],
+    ['edits-chain-taken', r.edits?.taken, EDITS_CHAIN_TAKEN],
+    ['file-links-let-go', r.files?.linksLetGo, FILE_LINKS_LET_GO],
     ['comments-removed', r.comments?.trashed, COMMENTS_REMOVED],
     ['comments-on-gone-rows', r.comments?.orphans, COMMENTS_ON_GONE_ROWS],
     ['items-on-gone-rows', r.shotListItems?.orphans, ITEMS_ON_GONE_ROWS],

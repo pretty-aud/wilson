@@ -26,6 +26,7 @@
 
 import { COLUMN_ALLOWLIST } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
 import { isLegalFile } from '../../tools/rabbit_v0.1.0/fileTags'
+import { toIsoDate } from '../../tools/rabbit_v0.1.0/dates'
 
 const isRow = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
 const named = (v) => v != null && v !== ''
@@ -75,20 +76,73 @@ export const PROJECT_LEFT_AT_HOME = Object.freeze([
 ])
 const PROJECT_ROW_COLUMNS = without(new Set([...COLUMN_ALLOWLIST.projects, 'folder_slug']), PROJECT_LEFT_AT_HOME)
 
-/** A desktop project row as the cloud's `projects` takes it, in the target workspace. */
+/**
+ * The cloud's `project_status` values (0000's enum, read on wilson-dev). The
+ * desktop also offers `draft` and `wrapped` (the project's settings) and
+ * `inactive` (the Projects page), which the type refuses (22P02) — and with
+ * them the whole project.
+ */
+export const CLOUD_PROJECT_STATUSES = Object.freeze(['active', 'on_hold', 'completed', 'archived', 'cancelled'])
+// Columns that are NOT NULL with a default (read on wilson-dev): an explicit
+// null refuses the whole row (23502) — a cleared frame rate is stored null —
+// so it is left out and the default applies.
+const PROJECT_DEFAULTED = [
+  'status', 'created_at', 'updated_at', 'budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct',
+  'budget_agency_enabled', 'budget_actual_column_mode', 'budget_actual_column_count', 'budget_active',
+  'budget_finalized', 'scene_separator', 'scene_digits', 'shot_digits', 'scene_start_number', 'fps',
+  'scenes_enabled', 'levels_enabled', 'experiences_enabled', 'uses_realtime_engine', 'is_private',
+]
+const PROJECT_NUMBERS = ['budget_total', 'budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct', 'budget_actual_column_count', 'scene_digits', 'shot_digits', 'scene_start_number', 'fps']
+const PROJECT_INTEGERS = ['budget_actual_column_count', 'scene_digits', 'shot_digits', 'scene_start_number']
+
+/**
+ * A desktop project row as the cloud's `projects` takes it, in the target
+ * workspace — its columns (above), and values each column's type and checks
+ * take, as the cloud adapter's own writes shape them (mapDogProjectFields):
+ *   - the dates: D.O.G.'s new-project window writes `startDate` / `endDate`
+ *     alone and the Projects page writes both; a cleared field is '' (a DATE
+ *     column refuses it, 22007). Each goes up as an ISO day or nothing
+ *     (dates.js's toIsoDate takes a stray spelling as the column stores it);
+ *   - a status the cloud does not have is left out, so the cloud's default
+ *     (active) applies; projectLeftAtHome names it for the report;
+ *   - a null where the column has a default, an empty or non-numeric number,
+ *     a negative percentage, an actuals mode or column count outside the
+ *     budget settings' checks (0036): left out, so the default applies;
+ *   - no title (the column has no default): the desktop's own word for one.
+ */
 export function projectRowForCloud(project, workspaceId) {
-  const row = onlyColumns(project, PROJECT_ROW_COLUMNS)
+  const p = isRow(project) ? project : {}
+  const row = onlyColumns(p, PROJECT_ROW_COLUMNS)
+  for (const [col, dog] of [['start_date', 'startDate'], ['end_date', 'endDate']]) {
+    const v = named(p[dog]) ? p[dog] : p[col]
+    if (named(v)) row[col] = toIsoDate(v) || null
+    else if (col in row || dog in p) row[col] = null
+  }
+  // '' too: the type refuses it as it does a word it lacks (22P02).
+  if ('status' in row && !CLOUD_PROJECT_STATUSES.includes(row.status)) delete row.status
+  for (const k of PROJECT_NUMBERS) if (k in row && row[k] != null && (row[k] === '' || !Number.isFinite(Number(row[k])))) delete row[k]
+  // INTEGER columns (0040, 0036) refuse a fraction (22P02).
+  for (const k of PROJECT_INTEGERS) if (row[k] != null && !Number.isInteger(Number(row[k]))) delete row[k]
+  for (const k of ['budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct']) if (row[k] != null && Number(row[k]) < 0) delete row[k]
+  if (row.budget_actual_column_mode != null && !['fortnightly', 'weekly', 'count'].includes(row.budget_actual_column_mode)) delete row.budget_actual_column_mode
+  if (row.budget_actual_column_count != null) {
+    const n = Number(row.budget_actual_column_count)
+    if (!(Number.isInteger(n) && n >= 1 && n <= 104)) delete row.budget_actual_column_count
+  }
+  dropNulls(row, PROJECT_DEFAULTED)
+  if (!named(row.title)) row.title = 'Untitled Project'
   row.workspace_id = workspaceId
   return row
 }
 
-/** What the project row leaves on this computer that the report names: its bid version pointers (part 2), its folder, its deck attachments not yet moved. */
+/** What the project row leaves on this computer that the report names: its bid version pointers (part 2), its folder, a status the cloud does not have, its deck attachments not yet moved. */
 export function projectLeftAtHome(project) {
   const p = isRow(project) ? project : {}
   const count = (k) => (Array.isArray(p[k]) ? p[k].length : 0)
   return {
     bidVersions: named(p.budget_active_version_id) || named(p.open_budget_version_id),
     folder: named(p.folder_root),
+    status: named(p.status) && !CLOUD_PROJECT_STATUSES.includes(p.status) ? String(p.status) : null,
     deckAttachments: count('documents') + count('visualAssets'),
   }
 }
@@ -106,8 +160,9 @@ const MILESTONE_ROW_COLUMNS = without(COLUMN_ALLOWLIST.milestones, ['workspace_i
 export function milestoneRowForCloud(m, projectId) {
   const row = onlyColumns(m, MILESTONE_ROW_COLUMNS)
   row.project_id = projectId
-  // A DATE column refuses '' (22007): an editor that cleared the field sends it.
-  if (row.date === '') row.date = null
+  // A DATE column refuses '' (22007): an editor that cleared the field sends
+  // it. A day goes up as the column stores one (dates.js's toIsoDate).
+  if ('date' in row) row.date = named(row.date) ? (toIsoDate(row.date) || null) : null
   return dropNulls(row, ['sort_order', 'created_at', 'updated_at'])
 }
 

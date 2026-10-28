@@ -320,13 +320,13 @@ bundle holds that stays (`NOT_CARRIED`, part 2's apart from the rest).
 
 | Kept on the desktop | Carried by | Where in the cloud, and what stays |
 |---|---|---|
-| `project` | the runner; M1 through the cloud's columns | `projects`. Stays: `documents` and `visualAssets` (no columns: Settings' "Move deck attachments into project files" moves them; the report counts any left), `files_dir` and `folder_root` (this computer's folders; the cloud takes a project folder only from an admin or a manager inside the company's drive), `budget_active_version_id` and `open_budget_version_id` (part 2 sets them with the budgets), who the file says made it (the cloud stamps the person; `fn_projects_auto_staff` makes them the project's manager). `active_shot_list_id` is set by M1 through `set_active_shot_list()` once the lists are in. Before M1 every desktop project was refused whole (measured: 42703 on `documents`). |
+| `project` | the runner; M1 through the cloud's columns | `projects`, each value as its column takes it (review round 1, read on wilson-dev): a status the cloud does not have (`draft` and `wrapped` from the project's settings, `inactive` from the Projects page; `project_status` has `active`, `on_hold`, `completed`, `archived` and `cancelled`) is left out, so the project arrives as active, named in the report; D.O.G.'s `startDate` / `endDate` (its new-project window writes no `start_date`) go up as the dates; a cleared date (`''`, which a DATE refuses) goes up empty; a null where the column is NOT NULL with a default (a cleared frame rate) is left out, so the default applies; no title, "Untitled Project". `producer_id` and `director_id` go up as the desktop holds them (no foreign key): a desktop team member's id names no one in the cloud until part 2 carries the team (`fn_projects_auto_staff` staffs only a workspace member). `budget_active` and `budget_finalized` go up; with no version locked until part 2, the Budget page shows the lock either way. Stays: `documents` and `visualAssets` (no columns: Settings' "Move deck attachments into project files" moves them; the report counts any left), `files_dir` and `folder_root` (this computer's folders; the cloud takes a project folder only from an admin or a manager inside the company's drive), `budget_active_version_id` and `open_budget_version_id` (part 2 sets them with the budgets), who the file says made it (the cloud stamps the person; `fn_projects_auto_staff` makes them the project's manager). `active_shot_list_id` is set by M1 through `set_active_shot_list()` once the lists are in. Before M1 every desktop project was refused whole (measured: 42703 on `documents`). |
 | `phases`, `assets`, `tasks`, `dependencies` | the runner | `phases`, `assets`, `tasks`, `task_dependencies` and `phase_dependencies`. An asset's links to levels and experiences wait for part 2. |
-| `milestones` | M1 | `milestones` (the Timeline's key dates), after the phases. One in this computer's Recently deleted is not carried; one in the cloud's trash keeps its id there and is skipped (read through `milestones_trash_index`). A phase link only to this project's phase. |
+| `milestones` | M1 | `milestones` (the Timeline's key dates), after the phases. One in this computer's Recently deleted is not carried; one in the cloud's trash keeps its id there and is skipped (read through `milestones_trash_index`). A phase link only to this project's phase: one whose phase did not land in this run fails with it (a second run brings both); one to a phase removed on this computer (its delete leaves the link), or not this project's, is let go, counted and named. |
 | `comments` | M1 | `comments`, after the rows they hang on, through the cloud's columns (no `project_id`, which the desktop stamps; no `author_user_id`, a claim the file cannot prove). One on a row removed on this computer, or not this project's in the cloud, is not carried; one on a kind the cloud's comments cannot name stays, named. |
-| `shotLists`, `shotListItems`, `edits` | M1 | `shot_lists`, `shot_list_items`, `edits`, after the scenes and shots. A list or edit arrives live (0084 refuses one inserted archived) and is archived after through `archive_shot_list()` / `archive_edit()`; edits each after the edit they continue. |
+| `shotLists`, `shotListItems`, `edits` | M1 | `shot_lists`, `shot_list_items`, `edits`, after the scenes and shots. A list or edit arrives live (0084 refuses one inserted archived) and is archived after through `archive_shot_list()` / `archive_edit()`; edits each after the edit they continue. An edit whose place in the list's one chain (0084: one root per list, one child per edit) an edit made in the cloud since holds is not carried, with every edit continuing it, counted and named: an edit on this computer cannot be moved. |
 | `folders` | M1 | `folders`, parents first, matched where the cloud holds the folder (by id, by its row, or at its path). A level's or an experience's waits for part 2. |
-| `files` | the runner; M1 files each one | `files` and its body in `rabbit-files`; since M1 each row filed in the folder the desktop shows it in (its entity's: the desktop writes no `folder_id`), a Legal file in none. |
+| `files` | the runner; M1 files each one | `files` and its body in `rabbit-files`; since M1 each row filed in the folder the desktop shows it in (its entity's: the desktop writes no `folder_id`), a Legal file in none. A file's phase, asset, task, scene and shot links are plain foreign keys, kept only to this project's rows: a file whose row did not land in this run fails with it before its body moves (a second run brings both); a link to a row removed on this computer, or not this project's, is let go, counted and named. A scene or shot skipped while the read of the cloud's rows failed is not known to be this project's, so no folder or file links to it in that run. |
 | `scenes`, `shots`, `bins`, `binFiles`, `binRoots`, `shotTakes` | the runner (BC3) | `scenes`, `shots`, `bins`, `bin_files` under the footage location each root was named as (the roots are the question), `shot_takes`. A scene's or shot's picture stays (a file on this computer). |
 | `taskItems` | the runner (FX2) | `task_items`; a task's items about levels and experiences wait for part 2. |
 | `tableViews`, `itemGroupings` | the runner (VW1c) | `table_views`, `item_groupings`; a grouping of levels or experiences waits for part 2. |
@@ -4191,11 +4191,14 @@ automatic. Since M1 (night 3, 2026-10-28) it carries a project's key dates,
 comments, shot lists with their items and edits, and its folders, each file
 filed in its folder, and the project row through the cloud's columns (every
 desktop project row had been refused whole); budgets, expenses, levels,
-experiences and the team are part 2's (night 4), and the report names them
-apart from what no migration carries. What each bundle key becomes is §3.1's
-inventory. A second run skips every row already in the cloud, a row in the
-cloud's trash included (it keeps its id); a row removed from the cloud for
-good since comes back (`docs/OUTSTANDING.md`, the resurrection entry). O.T.T.E.R.'s reads local courses with **raw `fetch`, never
+experiences, the team and links on tasks are part 2's (night 4), and the
+report names them apart from what no migration carries. What each bundle key
+becomes is §3.1's inventory. A second run skips every row already in the
+cloud, a row in the cloud's trash included (it keeps its id) until the trash
+is emptied after 30 days; a row removed from the cloud for good since comes
+back — a scene, shot, bin, clip, take, folder, saved view, grouping, or an
+item of a list or a task, the tables with no trash (`docs/OUTSTANDING.md`, the
+resurrection entry). O.T.T.E.R.'s reads local courses with **raw `fetch`, never
 `otterFetch`** — because `otterFetch` routes to the cloud once a session
 exists, which is exactly when a migration runs, and it would copy the cloud
 onto itself and report success. Everything lands as `personal` visibility: a
@@ -5523,6 +5526,15 @@ of a session — this section is limits by design, that file is faults.
 - **A folder whose place in the cloud a namesake holds** (another row's
   folder at its path) is not carried; its files sit at the project's top there.
   A second run never moves a row already in the cloud.
+- **An edit whose place in its list's one chain is taken** by an edit made in
+  the cloud since (0084's one root per list, one child per edit) is not
+  carried, and neither is any edit continuing it: counted and named, never an
+  error, because no run could move it (review round 1). Its work stays in the
+  archive file.
+- **A project's status the cloud does not have** (`draft`, `wrapped`,
+  `inactive`) arrives as active, named in the report; the desktop's word is
+  not mapped to one of the cloud's (`docs/walkthroughs/84_night_3.md` asks
+  Audrey whether it should be).
 
 **Security-adjacent**
 

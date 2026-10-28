@@ -358,8 +358,12 @@ meets its key, 23505) and does not bring it back — nor does it for a project,
 phase, asset, task or file, soft-deleted the same way (0014), while the row
 is in the trash; a shot list or an edit is never deleted (archived), and a
 second run neither adds it again nor changes its archive (one a teammate
-restored stays restored); a list item or a folder removed in the cloud is
-gone for good, so a second run puts it back, as BC3's rows.
+restored stays restored); a list item, a task's item, a folder, a saved view
+or a grouping removed in the cloud is gone for good (none of their tables has
+a trash), so a second run puts it back, as it does BC3's scenes, shots, bins,
+clips and takes; and a row in the trash comes back once the trash is emptied
+(0014's `purge_soft_deleted`, nightly, after 30 days). Review round 1 listed
+them; Migrate's Done hover and Help name each.
 
 ### The cloud keeps no sample rate or channel count on a clip
 **INFERRED (BC3 review round 1, 2026-10-09).** The desktop's probe writes
@@ -2916,5 +2920,20 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   are part 2's. INFERRED from 0043 and the runner: the desktop's upload routes
   write neither link (`electron/projectFileStream.cjs`), so only a file patched
   with one meets it. Fix shape: part 2 carries levels and experiences before
-  the files, or lets the link go and says so, as M1 does for a scene or shot
-  link that did not land. Owner: M2.
+  the files, or lets the link go and says so, as M1 does for a file's link to
+  a row removed on this computer. Owner: M2.
+- **M1-L4 · In the browser, a project's status can be set to one the cloud
+  refuses.** R.A.B.B.I.T.'s project settings offer Draft and Wrapped
+  (`ProjectSummaryView.jsx`'s `STATUS_OPTIONS`) and the Projects page offers
+  Inactive (`ProjectDetailPanel.jsx`); the cloud's `project_status` has
+  active, on_hold, completed, archived and cancelled (0000). MEASURED on
+  wilson-dev, rolled back: *22P02: invalid input value for enum
+  project_status: "wrapped"*. The cloud adapter's `updateProject` sends the
+  value as chosen, so choosing one of the three in the browser has its save
+  refused (INFERRED from the code; not clicked, since a save would write). A
+  project the intake wizard makes is Draft as well. The migration no longer
+  meets it: review round 1 leaves such a status out, so the project arrives
+  as active, named in the report. Fix shape: one list of statuses for both
+  builds, the desktop's three mapped to the cloud's five or added to the type
+  (a migration), which is a decision for Audrey (the walkthrough 84's Q3 asks
+  it for the migration). Owner: the controller.
