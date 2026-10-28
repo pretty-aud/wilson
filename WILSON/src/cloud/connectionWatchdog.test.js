@@ -967,6 +967,38 @@ describe('S2 — the watchdog\'s launch path (§11.6)', () => {
     expect(m.calls.filter((c) => c.input === health)).toHaveLength(1)
   })
 
+  it('build review round 2, F3: while the launch\'s loss is up, the held work\'s own stalled request is cut at S1\'s budget with the browser OFFLINE — and the pings resume', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    m.wd.launchedOffline({ origin: BASE, apikey: KEY.apikey })
+    const started = h.now()
+    let settledAt = null
+    const out = m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).then(() => {}, () => { settledAt = h.now() })
+    m.wd.quietWhile('auth', out)                             // the late restore (or a re-hydration) is out: no ping meanwhile
+    h.advance(WATCHDOG_BUDGET_MS - 1_000)
+    await settle()
+    expect(settledAt).toBeNull()
+    h.advance(1_000)
+    await settle()
+    expect(settledAt).toBe(started + WATCHDOG_BUDGET_MS)     // cut at the budget, whatever the browser says
+    expect(m.wd.getPhase()).toBe('reconnecting')             // a cut is not an answer: still lost, still "reconnecting"
+    expect(m.calls.filter((c) => c.input === health)).toHaveLength(0)
+    await settle()                                           // the quiet window ends with the request
+    h.advance(PING_EVERY_MS)
+    expect(m.calls.filter((c) => c.input === health).length).toBeGreaterThan(0)
+  })
+
+  it('CONTROL for F3: with no launch-raised loss, a real request is still never cut while the browser says offline (S1\'s rule)', async () => {
+    const h = harness({ online: false })
+    const m = make(h)
+    let settled = false
+    m.fetch(`${BASE}/auth/v1/user`, { method: 'GET', headers: KEY }).then(() => { settled = true }, () => { settled = true })
+    h.advance(WATCHDOG_BUDGET_MS * 3)
+    await settle()
+    expect(settled).toBe(false)
+    expect(m.wd.pendingCount()).toBe(1)
+  })
+
   it('the guard says why while a session is held: its message seam', async () => {
     const base = vi.fn(async () => ({ ok: true, status: 200 }))
     let held = true

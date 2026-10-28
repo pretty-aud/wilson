@@ -61,6 +61,22 @@ describe('a refusal on the way back ends the session with its one line, and no a
   })
 })
 
+describe('a sign-out of a HELD session: no rows, no AI-files release, no SDK sign-out (build review round 2, F1, F4)', () => {
+  const fn = between(app, 'const signOutLocal = useCallback(async', 'setSessionId(null);')
+  it('the client module says whether the session it ended was held', () => {
+    expect(fn).toContain('const endedHeld = endSessionLocally();')
+  })
+  it('no auth_events row and no WIL-1002 report: the SDK holds no session, so there is no token to write with', () => {
+    expect(fn).toContain('if (event && !endedHeld) writes.push(recordAuthEvent(event));')
+    expect(fn).toContain('if (expiry && !endedHeld) {')
+  })
+  it('no AI-files release, and no SDK sign-out queued behind its lock (it would run on whatever session the SDK holds by then)', () => {
+    expect(fn).toContain("if (!endedHeld) writes.push(withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files')")
+    expect(fn).toMatch(/if \(!endedHeld\) \{\s*try \{\s*await withTimeout\(supabase\.auth\.signOut\(\{ scope: 'local' \}\), AUTH_EVENT_TIMEOUT_MS, 'sign-out'\);/)
+    expect(fn.split('supabase.auth.signOut(').length - 1).toBe(1)   // the one SDK sign-out is the gated one
+  })
+})
+
 describe('the reads that run once per sign-in run again on the confirmation (§11.9)', () => {
   it('🚨 the MFA enrolment gate (security): keyed on perms.offline as well', () => {
     const effect = between(app, 'const { data, error } = await supabase.auth.mfa.listFactors();', ']);')
@@ -69,6 +85,10 @@ describe('the reads that run once per sign-in run again on the confirmation (§1
   it('the new-user welcome and the model tiers', () => {
     expect(between(app, '/* non-fatal; user can still use the app without onboarding */', ']);')).toContain('}, [authed, perms.offline]);')
     expect(between(app, '/* cached tiers stand; never block generation on this */', ']);')).toContain('}, [authed, perms.offline]);')
+  })
+  it('build review round 2, note iii: the model tiers are not read while held — the legacy migration would mark itself done with nothing moved', () => {
+    const effect = between(app, '// Session 20: fill the three model override tiers', '/* cached tiers stand; never block generation on this */')
+    expect(effect).toContain('if (!authed || perms.offline) return;')
   })
   it('the desktop\'s workspace storage root, with the storage-choice cache cleared ahead of it, and the pet\'s course index', () => {
     expect(between(app, 'clearWorkspaceStorageCache();', ']);')).toContain('}, [perms.ready, perms.workspaceId, perms.offline]);')

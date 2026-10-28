@@ -412,8 +412,14 @@ export function createConnectionWatchdog(opts = {}) {
       // S1: a real request is aborted at its budget only while the browser
       // says online. S2 (build review round 1): a PING is ours, and is cut at
       // its budget whatever the browser says — a launch-raised loss is pinged
-      // while it says offline, and one hung ping would block the next.
-      if (p.abortedAt == null && t - p.startedAt >= p.budgetMs && (online || p.isPing)) {
+      // while it says offline, and one hung ping would block the next. And
+      // (build review round 2, F3) while a launch-raised auth loss is up, the
+      // held work's own auth request is cut at S1's budget whatever the
+      // browser says: quietWhile keeps the pings away meanwhile, so nothing
+      // else would ever end a stall on a working network the browser calls
+      // offline.
+      const cut = online || p.isPing || (p.family === 'auth' && launchRaised)
+      if (p.abortedAt == null && t - p.startedAt >= p.budgetMs && cut) {
         abort(p, t, cancelledAfter(t - p.startedAt))
         if (!p.isPing) raise(p.family, t)
       }

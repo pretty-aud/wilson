@@ -498,7 +498,11 @@ export default function App() {
   // Deliberately non-fatal: if these reads fail the app keeps the cached tiers
   // and keeps generating. A catalogue outage must not become an AI outage.
   useEffect(() => {
-    if (!authed) return;
+    // S2 (build review round 2, note iii): not while a sign-in held at an
+    // offline launch is unconfirmed — the guard refuses every read, and the
+    // migration would mark itself done with nothing moved. It runs on the
+    // confirmation instead (perms.offline below).
+    if (!authed || perms.offline) return;
     let cancelled = false;
     (async () => {
       try {
@@ -620,14 +624,19 @@ export default function App() {
       // S1: and the client module's latch, so a refresh that lands later (the
       // SDK's signOut below can queue behind a hung session check and run on
       // a dead network) cannot write the ended session back.
-      endSessionLocally();
+      // S2 (build review round 2, F1, F4): true when the session ended was one
+      // HELD at an offline launch — the SDK never held it, and there is no
+      // token to write with: no rows, no AI-files release and no SDK sign-out
+      // below (that one would queue behind the SDK's lock and run on whatever
+      // session it holds by then, a new sign-in's).
+      const endedHeld = endSessionLocally();
       // The cache goes right behind the session: a local write (or a loopback
       // DELETE on the desktop), never a cloud call, so it sits ahead of the
       // bounded log writes rather than behind a revoke that may hang.
       if (leavingUserId) await clearPetCache(leavingUserId);
       const writes = [];
-      if (event) writes.push(recordAuthEvent(event));
-      if (expiry) {
+      if (event && !endedHeld) writes.push(recordAuthEvent(event));
+      if (expiry && !endedHeld) {
         writes.push(withTimeout(reportAppEvent({
           code: 'WIL-1002', eventType: 'auth', severity: 'info',
           context: { reason: expiry, surface: 'app' },
@@ -637,11 +646,13 @@ export default function App() {
       // leaves with the person, while the token can still say whose it is.
       // keepalive, so a window closed mid-sign-out still sends; bounded like
       // the writes beside it, and the store's own expiry takes a miss.
-      writes.push(withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files').catch(() => { /* best-effort */ }));
+      if (!endedHeld) writes.push(withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files').catch(() => { /* best-effort */ }));
       if (writes.length) await Promise.all(writes);
-      try {
-        await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
-      } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      if (!endedHeld) {
+        try {
+          await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
+        } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      }
       setSessionId(null);
       // 🚨 Belt and braces with the perms.userId teardown effect: this runs
       // even if the permissions channel is slow to notice, so the next person

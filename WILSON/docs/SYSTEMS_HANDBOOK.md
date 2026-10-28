@@ -460,8 +460,12 @@ and the first answered ping gives the session back to the SDK (`SIGNED_IN`
 or `TOKEN_REFRESHED`). A refusal (400, 401, 403, `session_not_found`) clears
 the stored session if it still holds the refused refresh token: at launch the
 sign-in screen follows; on the way back the session ends with one line on the
-sign-in screen. Outside the cap, and on the operator console always, the
-restore is what it was. A sign-in itself still cannot succeed offline.
+sign-in screen. A sign-out while held ends it on this computer alone: no row
+is written and no SDK sign-out is sent (the SDK holds no session, so there is
+no token to send either with), and the held session's own auth work still out
+is cut (the design's §11.18). Outside the cap, and on the operator console
+always, the restore is what it was. A sign-in itself still cannot succeed
+offline.
 
 ### 4.3 The frozen JWT claim shape
 
@@ -5921,7 +5925,13 @@ documentation and starts being wrong answers.
   lifetime on wilson-dev was not measured (the read was refused; the repo
   says 3,600 s), and nothing depends on it. The offline test rests on data on
   this computer (the record, the token's claims) that no server checks while
-  offline; what it opens reaches nothing in the cloud.
+  offline; what it opens reaches nothing in the cloud beyond what the same
+  token reaches online (the connection dot's probes carry it, and PostgREST
+  checks it). A sign-out while held writes no row and sends no SDK sign-out:
+  there is no token. A new sign-in made within one retry backoff of that
+  sign-out, while the held session's refresh is failing fast (a 503 from the
+  gateway), waits up to 30 s for its first locked step, the MFA-level check;
+  nothing is removed or revoked (the design's §11.18).
 - **The pet's retry, and its bound.** A failed read of the account's pet is
   retried after 5 s, 15 s, 45 s, 2 min 15 s and 5 min (five tries, 8 min 20 s),
   then only on a trigger — the window coming online, a lost connection
