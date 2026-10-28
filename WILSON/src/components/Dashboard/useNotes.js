@@ -67,7 +67,10 @@ export function useNotes() {
     }
   }, [adapterMode, adapter])
 
-  useEffect(() => { load() }, [load, perms?.userId])
+  // S2 (RECONNECT_DESIGN.md §11.9): and again when a sign-in held at an
+  // offline launch is confirmed — the identity does not change then.
+  const heldOffline = !!perms?.offline
+  useEffect(() => { load() }, [load, perms?.userId, heldOffline])
 
   // ── notes CRUD (metadata; the body goes through NoteEditor) ──
   const createNote = useCallback(async (fields = {}) => {
@@ -197,6 +200,8 @@ export function useNotes() {
 
   return {
     cloudReady,
+    // S2: the shell runs on a sign-in held at an offline launch (the view says so in one sentence).
+    offline: heldOffline,
     notes,
     subjects,
     loading,

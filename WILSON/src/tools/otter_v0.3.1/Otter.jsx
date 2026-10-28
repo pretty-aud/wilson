@@ -18,7 +18,7 @@ import {
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
   Lock, Unlock, Library, Braces, FolderOpen, Share2, Info,
-  Link, ExternalLink, ShieldCheck, GitPullRequestArrow, Minus
+  Link, ExternalLink, ShieldCheck, GitPullRequestArrow, Minus, Link2, CloudOff
 } from 'lucide-react';
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
@@ -52,14 +52,22 @@ import ChangeRequestDialog from './components/ChangeRequestDialog.jsx';
 // the review queue for admins (+ standard-course owners), a read-only queue
 // for managers (0026), and every proposer's own requests + feedback.
 import RequestsView from './components/RequestsView.jsx';
+// B2 (2026-10-27): subject shares — design docs/design/OTTER_SUBJECT_SHARES_DESIGN.md §5.
+import ShareSubjectDialog from './components/ShareSubjectDialog.jsx';
+import NewSubjectShareReminder from './components/NewSubjectShareReminder.jsx';
+import { clearPetKnowledgeCache } from './petKnowledge.js';
 import TrashPanel, { TrashSidebarList } from './components/TrashPanel.jsx';
 import './otter.css';
 import {
-  VisibilityBadge, OwnerBadge, MetadataOnlyBadge, ReadOnlyBadge,
+  VisibilityBadge, OwnerBadge, MetadataOnlyBadge, ReadOnlyBadge, LinkedBadge,
 } from './components/CourseBadges.jsx';
 import {
   courseMatchesFilter, canWriteCourse, canReadCourse, findStandardByName,
   VISIBILITY_META, filtersFor,
+  linkKey, activeSubjectKeyOf, linkedRowsForHost, isClosedLink, linkedFromLine, linkClosedWords,
+  linkUnreadWords, reopenRestoredLinks,
+  acceptedSignature, shareInboxCount, ownerShareLine, deleteShareSentence, removeConfirmText,
+  newSlugsOf, batchReceivers, planNewSubjectReminder, shareCall, acceptedSentence,
 } from './components/otterSharing.js';
 // B3 (Track B): the desktop loopback API refuses /api without the per-launch
 // token; localFetch attaches it (same-origin URLs only).
@@ -74,7 +82,8 @@ import { localFetch } from '../../lib/localServerFetch.js';
 // ═══════════════════════════════════════════════════════════════════
 import { LESSON_CODE_BLOCK, LESSON_CODE_THEME, LESSON_CODE_TEXT, courseLanguage } from './otterLanguage.js';
 import FunctionCard, { cardText } from './FunctionCard.jsx';
-import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js';
+import { functionCategoryName, functionEntries, slugify } from './adapters/otterRoutes.js';
+import { offlineSentence } from '../../cloud/ConnectionLostBanner';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -298,7 +307,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     let alive = true;
     otterCloudActive().then(v => { if (alive) setCloudMode(v); }).catch(() => {});
     return () => { alive = false; };
-  }, [perms.ready, perms.workspaceId, libraryMode]);
+    // S2: and when a sign-in held at an offline launch is confirmed (the SDK
+    // has the session now, so the library the routes reach changes).
+  }, [perms.ready, perms.workspaceId, libraryMode, perms.offline]);
 
   // ── Library filter chips (courses; subjects inherit — see CourseFilterChips) ──
   const [courseFilter, setCourseFilter] = useState('all');
@@ -341,6 +352,111 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // fork/share can both be triggered from the Library and the sidebar.
   const [sharingError, setSharingError] = useState(null);
 
+  // ── B2: SUBJECT SHARES (0100; design §5) ──
+  // The share index (otter_subject_shares_index, via share.list). The linked
+  // rows in the host courses, the Requests sections and the tab's count, the
+  // owner's line, the delete confirm, the quiz picker, the reminder and the
+  // pet's cache all read THIS one state. Cloud only: the routes answer 501
+  // beneath the Local Server, and every control here renders only in
+  // cloudMode (design §5.8).
+  const [subjectShares, setSubjectShares] = useState([]);
+  // The open linked subject: { shareId, subjectId, hostSlug }. Its BODY lives
+  // in activeSubject alone — the study view's one use — and in no cache:
+  // not subjectCacheRef, not softwareCacheRef, not quizSelectionData, not
+  // the Validator's tree, which is session-long (design §5.4).
+  const [activeLinked, setActiveLinked] = useState(null);
+  const activeLinkedRef = useRef(null);
+  activeLinkedRef.current = activeLinked;
+  // Links that answered 404 this session, each with the state the re-read
+  // gave it: closed (greyed, Remove) whatever the index says (design §5.4; N2b
+  // round 2, finding 5) — until the owner RESTORES it, when the index gives
+  // it back as accepted and the next list read reopens it (§1.1: the link
+  // resumes with nothing to redo; B2 review round 1, finding 2).
+  const [closedLinkIds, setClosedLinkIds] = useState(() => new Map());
+  // The rows an accept just placed, marked in the host course until the next open.
+  const [arrivedShareIds, setArrivedShareIds] = useState(() => new Set());
+  const [shareSubjectDialog, setShareSubjectDialog] = useState(null);   // { mode, course, subject, share }
+  const [reminderQueue, setReminderQueue] = useState([]);
+  const [removeLinkConfirm, setRemoveLinkConfirm] = useState(null);     // the linked row being removed
+  const [removeLinkError, setRemoveLinkError] = useState(null);
+  const acceptedSigRef = useRef(null);
+  // The six save paths run long after their render; they read the mode here.
+  const cloudModeRef = useRef(cloudMode);
+  cloudModeRef.current = cloudMode;
+
+  // The key every per-subject reader uses (design §5.5): the slug for one of
+  // the host's own subjects, link:<subject id> while a linked one is open.
+  const activeSubjectKey = activeSubjectKeyOf(activeLinked, activeSubjectSlug);
+
+  // One cheap RPC. Resolves the fresh rows, or null when the read failed
+  // (a failed read is not "nothing is shared": it keeps what was there, so a
+  // blip cannot empty the host courses). 501 and 401 are no workspace.
+  const loadSubjectShares = useCallback(async () => {
+    if (!cloudModeRef.current) { setSubjectShares([]); return []; }
+    const out = await shareCall(otterFetch, '/api/otter/subject-shares');
+    if (!out.ok) {
+      if (out.status === 501 || out.status === 401) setSubjectShares([]);
+      return null;
+    }
+    const rows = Array.isArray(out.data) ? out.data : [];
+    setSubjectShares(rows);
+    setClosedLinkIds(prev => reopenRestoredLinks(prev, rows));
+    // The pet's warm index names linked subjects by title for up to
+    // INDEX_TTL_MS: when the readable set changes, it is cleared (§5.6).
+    const sig = acceptedSignature(rows);
+    if (acceptedSigRef.current !== null && acceptedSigRef.current !== sig) clearPetKnowledgeCache();
+    acceptedSigRef.current = sig;
+    return rows;
+  }, []);
+
+  // Loaded with the course list (every list load re-reads it) and whenever a
+  // course is selected (design §5.4); emptied outside cloud mode.
+  useEffect(() => {
+    if (cloudMode) loadSubjectShares();
+    else { setSubjectShares([]); acceptedSigRef.current = null; }
+  }, [cloudMode, softwareList, loadSubjectShares]);
+  useEffect(() => {
+    if (cloudMode && activeSoftwareSlug) loadSubjectShares();
+  }, [cloudMode, activeSoftwareSlug, loadSubjectShares]);
+
+  // A linked subject's ticks sit on its HOST course's progress row: leaving
+  // the host closes it, so a tick can never land on another course's row.
+  useEffect(() => {
+    if (activeLinked && activeSoftwareSlug !== activeLinked.hostSlug) {
+      setActiveLinked(null);
+      setActiveSubject(null);
+    }
+  }, [activeSoftwareSlug, activeLinked]);
+
+  // ── the reminder (design §5.9) ──
+  // One subject.list before a run's first save: what the course held, so a
+  // re-import or a regenerated subject is not offered as new. Cloud only (on
+  // the Local Server a list is a write: it renumbers on read); null when it
+  // cannot be read, which offers nothing.
+  const slugsHeldBy = useCallback(async (courseSlug) => {
+    if (!cloudModeRef.current || !courseSlug) return null;
+    const out = await shareCall(otterFetch, `/api/software/${courseSlug}/subjects`);
+    return out.ok && Array.isArray(out.data) ? out.data.map(s => s.slug) : null;
+  }, []);
+
+  // Called ONCE at the end of each of the six subject-saving paths, after the
+  // path's last subject.save has resolved, and NOT awaited: the paths end six
+  // different ways and this waits on none of that (N2b round 2, finding 1).
+  // Nothing when the course is new (slugsBefore null: no batch row can exist
+  // for it), nothing new was saved, or outside cloud mode. The people come
+  // from the live index, re-read first; the run held slugs, so the ids come
+  // from one subject.list after the saves.
+  const offerNewSubjectsToBatchReceivers = useCallback(async (courseSlug, slugsBefore, slugsSaved) => {
+    if (!cloudModeRef.current || !courseSlug || !Array.isArray(slugsBefore)) return;
+    if (newSlugsOf(slugsBefore, slugsSaved).length === 0) return;
+    const shares = await loadSubjectShares();
+    if (!shares || batchReceivers(shares, courseSlug).length === 0) return;
+    const list = await shareCall(otterFetch, `/api/software/${courseSlug}/subjects`);
+    if (!list.ok || !Array.isArray(list.data)) return;
+    const plan = planNewSubjectReminder({ shares, courseId: courseSlug, slugsBefore, slugsSaved, listAfter: list.data });
+    if (plan) setReminderQueue(q => [...q, { ...plan, key: `${courseSlug}:${q.length}:${Date.now()}` }]);
+  }, [loadSubjectShares]);
+
   // ── Tier picker in the existing create-course flow ──
   const [newCourseVisibility, setNewCourseVisibility] = useState('personal');
   const [forkBusy, setForkBusy] = useState(false);
@@ -363,7 +479,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     const toolInterface = {
       toolName: 'otter',
       get currentContext() {
-        return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId };
+        // B2: while a LINKED subject is open, activeSubjectSlug is null (it is
+        // identified by link:<id>), and its lesson id is withheld too: alone,
+        // under the host course, `lesson_1_1` names the host's own lesson of
+        // that id (B2 review round 2, finding 7).
+        return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId: activeLinked ? null : selectedLessonId };
       },
       async getAvailableSubjects() {
         if (!activeSoftwareSlug) return [];
@@ -383,6 +503,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         return null;
       },
       async applyChange(target, changes) {
+        // B2 (design §5.4): a linked subject is the owner's row; the receiver
+        // cannot change it (the database would refuse the write anyway). While
+        // one is open activeSubjectSlug is null, and the agent's context keys
+        // on it, so the agent is handed no subject to change in the first
+        // place; this is the belt (B2 review round 1, finding 5).
+        if (activeLinked) throw new Error('This subject is linked from a colleague and is read-only.');
         // Load the full subject
         const res = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects/${target.subject_slug}`);
         if (!res.ok) throw new Error('Failed to load subject');
@@ -467,7 +593,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
     agent.registerTool('otter', toolInterface);
     return () => agent.unregisterTool('otter');
-  }, [agent, activeSoftwareSlug, activeSubjectSlug, selectedLessonId, activeSubject]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agent, activeSoftwareSlug, activeSubjectSlug, selectedLessonId, activeSubject, activeLinked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Tell the agent system this tool is in the foreground whenever
   // the OTTER page is visible. Mirrors the pattern used by RABBIT —
@@ -663,10 +789,20 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   //
   // Keyed on the mode rather than done inside the Settings handler so that any
   // future caller of setOtterAdapterMode gets the reset too.
-  const lastLibraryModeRef = useRef(libraryMode);
+  //
+  // S2 (night 3, 2026-10-27; RECONNECT_DESIGN.md §11.9): keyed on the library
+  // this screen is EFFECTIVELY showing, which a sign-in held at an offline
+  // launch also decides: while it is held the routes reach this computer's
+  // library (the desktop) or nothing (the web), and its confirmation turns
+  // them to the company's — the same slug-space change as a switch, so the
+  // same reset and re-list, without unmounting anything. Not under a "This
+  // computer" pin (build review round 1, F7): the routes stay on this
+  // computer's library either side of the confirmation.
+  const libraryKey = perms.offline && libraryMode !== 'local' ? `${libraryMode}:held` : libraryMode;
+  const lastLibraryModeRef = useRef(libraryKey);
   useEffect(() => {
-    if (lastLibraryModeRef.current === libraryMode) return;
-    lastLibraryModeRef.current = libraryMode;
+    if (lastLibraryModeRef.current === libraryKey) return;
+    lastLibraryModeRef.current = libraryKey;
     // Bump FIRST: a load already in flight against the old library must not
     // install its result or repopulate the caches we are about to clear.
     listGenerationRef.current += 1;
@@ -684,9 +820,16 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     // open course and then left the OTHER library's courses on screen, which is the
     // whole feature appearing not to work.
     loadSoftwareList();
-  }, [libraryMode, invalidateCache, loadSoftwareList]);
+  }, [libraryKey, invalidateCache, loadSoftwareList]);
 
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
+    setActiveLinked(null);
+    setArrivedShareIds(prev => (prev.size ? new Set() : prev));
+    // The study view draws the sharing banner too (round 1, finding 4): a
+    // notice from before does not follow the person into a subject (round 2,
+    // finding 2).
+    setSharingNotice(null);
+    setSharingError(null);
     setActiveSubjectSlug(subjectSlug);
     const cacheKey = `${softwareSlug}/${subjectSlug}`;
     const cached = subjectCacheRef.current[cacheKey];
@@ -720,6 +863,83 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       body: JSON.stringify(progress)
     });
   }, [activeSoftwareSlug]);
+
+  // ═══════════════════════════════════════════════════════════════
+  //  B2 — THE LINKED SUBJECT (design §5.4)
+  // ═══════════════════════════════════════════════════════════════
+
+  // A 404 on a read by id: the link ended or the subject went to the trash.
+  // The share list is re-read FIRST and the index's state chooses the words
+  // (round 1, finding 20); any state but revoked reads as gone. The row is
+  // closed in the course, and the pet's index is cleared (§5.6).
+  const closeLinkAfter404 = useCallback(async (row) => {
+    const fresh = await loadSubjectShares();
+    clearPetKnowledgeCache();
+    setSharingError(null);
+    // The 404 itself says the subject is no longer readable: an open view of
+    // it closes, whatever the re-read gives (§5.4; round 2, finding 1).
+    if (activeLinkedRef.current?.shareId === row.id) {
+      setActiveLinked(null);
+      setActiveSubject(null);
+      setCurrentView('library');
+    }
+    if (!fresh) {
+      // The re-read FAILED: there is no state to choose words by and no
+      // ground to close the ROW on, so it stays openable (a retry) and says
+      // only that it could not be read (B2 review round 1, finding 7).
+      setSharingNotice({ tone: 'info', text: linkUnreadWords(row.subject_title) });
+      return;
+    }
+    const now = fresh.find(r => r.id === row.id) ?? null;
+    setClosedLinkIds(prev => new Map(prev).set(row.id, now?.state ?? null));
+    setSharingNotice({ tone: 'info', text: linkClosedWords(now, row.subject_title) });
+  }, [loadSubjectShares]);
+
+  // Opened by id on EVERY use (live, as of the open), and handed to one
+  // reader, the study view: the body is never written to subjectCacheRef,
+  // softwareCacheRef or quizSelectionData (design §5.4; linkedProgress.test.js
+  // pins it). Its progress is the HOST course's row, under linkKey().
+  const openLinkedSubject = useCallback(async (row) => {
+    if (!row?.subject_id || !row.host_course_id) return;
+    // A notice belongs to the moment it was said: an open starts clean, and
+    // this open's own words (a 404, a failure) are set after (round 2, finding 2).
+    setSharingNotice(null);
+    setSharingError(null);
+    setArrivedShareIds(prev => (prev.size ? new Set() : prev));
+    if (activeSoftwareSlug !== row.host_course_id) selectSoftware(row.host_course_id);
+    const out = await shareCall(otterFetch, `/api/otter/subjects/${encodeURIComponent(row.subject_id)}`);
+    if (out.status === 404) { await closeLinkAfter404(row); return; }
+    if (!out.ok || !out.data) { setSharingNotice(null); setSharingError(out.text); return; }
+    const body = out.data;
+    setActiveSubjectSlug(null);
+    setActiveLinked({ shareId: row.id, subjectId: row.subject_id, hostSlug: row.host_course_id });
+    setActiveSubject(body);
+    setSelectedLessonId(null);
+    setExpandedSubjectSections({});
+    if (body.sections?.length && !body.is_stub) {
+      const firstSec = body.sections[0];
+      setExpandedSubjectSections({ [firstSec.id]: true });
+      if (firstSec.lessons?.length) setSelectedLessonId(firstSec.lessons[0].id);
+    }
+    setCurrentView('study');
+  }, [activeSoftwareSlug, selectSoftware, closeLinkAfter404]);
+
+  // The receiver's Remove (S3): the revoke, and with it every link they
+  // passed on below it (the cascade is the function's). A refusal stays in
+  // the confirm, in words.
+  const removeLink = useCallback(async (row) => {
+    setRemoveLinkError(null);
+    const out = await shareCall(otterFetch, `/api/otter/subject-shares/${row.id}/revoke`, { method: 'POST' });
+    if (!out.ok) { setRemoveLinkError(out.text); return; }
+    setRemoveLinkConfirm(null);
+    if (activeLinkedRef.current?.shareId === row.id) {
+      setActiveLinked(null);
+      setActiveSubject(null);
+      setCurrentView('library');
+    }
+    await loadSubjectShares();
+    setRequestsRefreshTick(t => t + 1);
+  }, [loadSubjectShares]);
 
   // ═══════════════════════════════════════════════════════════════
   //  SESSION 11 — derived capability state + sharing handlers
@@ -1252,6 +1472,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
       let existingSlugs = new Set();
       let existingMaxOrder = 0;
+      // B2 (design §5.9): the slugs the course held before this run (null:
+      // a new course, where no batch row can exist) and the slugs it saved.
+      let slugsBefore = null;
+      const savedSlugs = [];
       if (existingMatch) {
         try {
           const existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(r => r.json());
@@ -1259,6 +1483,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             existingSlugs.add(s.slug);
             if (s.subject_order != null && s.subject_order > existingMaxOrder) existingMaxOrder = s.subject_order;
           });
+          slugsBefore = existingSubs.map(s => s.slug);
           const existingTitlesLower = new Set(existingSubs.map(s => s.title.toLowerCase()));
           for (const sub of subjects) {
             if (existingTitlesLower.has(sub.title.toLowerCase())) {
@@ -1293,7 +1518,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             updated_at: new Date().toISOString(),
           })
         });
+        savedSlugs.push(subSlug);
       }
+      // After the run's last save, whatever the path does next.
+      offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs);
 
       setPromptText('');
       setSoftwareNameInput('');
@@ -1310,7 +1538,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       setGenerating(false);
       setGenPhase('');
     }
-  }, [softwareNameInput, promptText, skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, referenceUrls, newCourseVisibility]);
+  }, [softwareNameInput, promptText, skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, referenceUrls, newCourseVisibility, offerNewSubjectsToBatchReceivers]);
 
   // ═══════════════════════════════════════════════════════════════
   //  SUBJECT CONTENT GENERATION (for stubs)
@@ -1750,10 +1978,13 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         updated_at: new Date().toISOString(),
       };
 
+      // B2 (design §5.9): what the course held before this save.
+      const slugsBefore = await slugsHeldBy(activeSoftwareSlug);
       await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subject)
       });
+      offerNewSubjectsToBatchReceivers(activeSoftwareSlug, slugsBefore, [subSlug]);
 
       // Merge hotkeys if present (software type)
       if (parsed.hotkeys?.length > 0) {
@@ -1821,7 +2052,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       setGenerating(false);
       setGenPhase('');
     }
-  }, [promptText, skillLevel, activeSoftwareSlug, activeSoftware, editingPrompts, selectSoftware, selectSubject, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes]);
+  }, [promptText, skillLevel, activeSoftwareSlug, activeSoftware, editingPrompts, selectSoftware, selectSubject, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes, slugsHeldBy, offerNewSubjectsToBatchReceivers]);
 
   // ═══════════════════════════════════════════════════════════════
   //  AGENT GENERATION WRAPPERS — parameterized versions for agent
@@ -1977,10 +2208,13 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         updated_at: new Date().toISOString(),
       };
 
+      // B2 (design §5.9): what the course held before this save.
+      const slugsBefore = await slugsHeldBy(swSlug);
       await otterFetch(`/api/software/${swSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subject)
       });
+      offerNewSubjectsToBatchReceivers(swSlug, slugsBefore, [subSlug]);
 
       // Merge hotkeys if present
       if (parsed.hotkeys?.length > 0) {
@@ -2042,7 +2276,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     } finally {
       removeGenSubject(tempSlug);
     }
-  }, [activeSoftwareSlug, skillLevel, editingPrompts, selectSoftware, selectSubject, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes, invalidateCache, updateGenSubject, removeGenSubject]);
+  }, [activeSoftwareSlug, skillLevel, editingPrompts, selectSoftware, selectSubject, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes, invalidateCache, updateGenSubject, removeGenSubject, slugsHeldBy, offerNewSubjectsToBatchReceivers]);
 
   // Agent: generate a full course (mirrors generateCourse but takes params)
   const agentGenerateCourse = useCallback(async (softwareName, description) => {
@@ -2152,6 +2386,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
       let existingSlugs = new Set();
       let existingMaxOrder = 0;
+      // B2 (design §5.9): the slugs the course held before this run (null:
+      // a new course, where no batch row can exist) and the slugs it saved.
+      let slugsBefore = null;
+      const savedSlugs = [];
       if (existingMatch) {
         try {
           const existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(r => r.json());
@@ -2159,6 +2397,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             existingSlugs.add(s.slug);
             if (s.subject_order != null && s.subject_order > existingMaxOrder) existingMaxOrder = s.subject_order;
           });
+          slugsBefore = existingSubs.map(s => s.slug);
           const existingTitlesLower = new Set(existingSubs.map(s => s.title.toLowerCase()));
           for (const sub of subjects) {
             if (existingTitlesLower.has(sub.title.toLowerCase())) {
@@ -2193,7 +2432,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             updated_at: new Date().toISOString(),
           })
         });
+        savedSlugs.push(subSlug);
       }
+      // After the run's last save, whatever the path does next.
+      offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs);
 
       invalidateCache(slug);
       if (!(await loadSoftwareList())) return;
@@ -2205,7 +2447,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     } finally {
       removeGenSubject(tempSlug);
     }
-  }, [skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, referenceUrls, invalidateCache, updateGenSubject, removeGenSubject]);
+  }, [skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, referenceUrls, invalidateCache, updateGenSubject, removeGenSubject, offerNewSubjectsToBatchReceivers]);
 
   // Refs for agent generation functions so tool interface always gets latest
   const agentGenSingleRef = useRef(null);
@@ -2255,6 +2497,21 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           ).join('\n\n') + '\n\n';
         }
       }
+
+      // B2 (design §5.4, §5.5): this host course's linked subjects, read LIVE
+      // by id for this one generation and handed to the AI call — never
+      // written to subjectCacheRef or any other session cache, so a revoked
+      // subject cannot be quizzed on from memory. A read that fails adds nothing.
+      for (const row of linkedRowsForHost(subjectShares, swSlug)) {
+        if (row.subject_is_stub || isClosedLink(row, closedLinkIds)) continue;
+        if (selectedSubjects !== 'all' && !selectedSubjects.has(linkKey(row.subject_id))) continue;
+        const out = await shareCall(otterFetch, `/api/otter/subjects/${encodeURIComponent(row.subject_id)}`);
+        if (!out.ok || !Array.isArray(out.data?.sections)) continue;
+        allContent += `### ${swData.meta?.name}: ${out.data.title}\n`;
+        allContent += out.data.sections.map(s =>
+          (s.lessons || []).map(l => `## ${l.title}\n${l.content}`).join('\n\n')
+        ).join('\n\n') + '\n\n';
+      }
     }
 
     if (!allContent.trim()) return null;
@@ -2265,7 +2522,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       type: types.has('coding_language') ? 'coding_language' : 'software',
       skillLevel: [...levels][0] || 'beginner',
     };
-  }, [quizSelections, quizSelectionData]);
+  }, [quizSelections, quizSelectionData, subjectShares, closedLinkIds]);
 
   const generateQuiz = useCallback(async (types) => {
     setQuizLoading(true);
@@ -2430,6 +2687,25 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }
   }, [quizStarted, currentView]);
 
+  // B2 (design §5.3): an accept from the Requests view. The course list is
+  // re-read (the host may be new), the share list with it, the host course is
+  // selected and expanded with the linked rows marked, and the sentence is
+  // said in the library, where the host now is.
+  const handleSharesAccepted = useCallback(async ({ hostCourseId, rows }) => {
+    await loadSoftwareList();
+    await loadSubjectShares();
+    setRequestsRefreshTick(t => t + 1);
+    if (!hostCourseId) return;
+    const host = await shareCall(otterFetch, `/api/software/${hostCourseId}`);
+    invalidateCache(hostCourseId);
+    selectSoftware(hostCourseId, true);
+    setExpandedSoftware(hostCourseId);
+    setArrivedShareIds(new Set((rows ?? []).map(r => r.id)));
+    setSharingError(null);
+    setSharingNotice(acceptedSentence(rows, host.ok ? host.data?.name : null));
+    navigateTo('library');
+  }, [loadSoftwareList, loadSubjectShares, invalidateCache, selectSoftware, navigateTo]);
+
   // Picking a chip filters the LIBRARY, so it must also SHOW the library.
   // Without this the chip changed the sidebar list while the main pane stayed
   // on whatever view the user was in — and since every banner for these flows
@@ -2545,12 +2821,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             body: JSON.stringify({ name: sw.meta.name, type: sw.meta.type, skill_level: sw.meta.skill_level })
           });
           const slug = sw.meta.slug;
+          // B2 (design §5.9): once per course, with that course's slugs.
+          const slugsBefore = await slugsHeldBy(slug);
+          const savedSlugs = [];
           for (const sub of (sw.subjects || [])) {
             await otterFetch(`/api/software/${slug}/subjects`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(sub)
             });
+            savedSlugs.push(sub?.slug || slugify(sub?.title || ''));
           }
+          offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs);
           if (sw.hotkeys?.categories?.length) {
             await otterFetch(`/api/software/${slug}/hotkeys/merge`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2603,6 +2884,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           body: JSON.stringify({ name: softwareName, type: data.lesson.type || 'software', skill_level: data.lesson.skill_level || 'beginner' })
         });
         const subSlug = (data.lesson.title || 'imported').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const slugsBefore = await slugsHeldBy(slug);   // B2 (design §5.9)
         await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2619,6 +2901,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             updated_at: new Date().toISOString(),
           })
         });
+        offerNewSubjectsToBatchReceivers(slug, slugsBefore, [subSlug]);
         invalidateCache();
         loadSoftwareList();
         setShowImportModal(false);
@@ -2629,7 +2912,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     } catch (e) {
       alert('Import failed: ' + e.message);
     }
-  }, [loadSoftwareList]);
+  }, [loadSoftwareList, slugsHeldBy, offerNewSubjectsToBatchReceivers]);
 
   const handleDuplicateResolve = useCallback(async (action) => {
     setShowDuplicateModal(null);
@@ -2697,16 +2980,20 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     setDeletedSubjectsStack(prev => prev.slice(0, -1));
     setRedoSubjectsStack(prev => [...prev, last]);
 
+    // B2 (design §5.9): in cloud mode an undo saves a NEW row (RLS hides the
+    // trashed one from subject.save's lookup), so batch receivers are asked.
+    const slugsBefore = await slugsHeldBy(last.softwareSlug);
     await otterFetch(`/api/software/${last.softwareSlug}/subjects`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(last.subjectData)
     });
+    offerNewSubjectsToBatchReceivers(last.softwareSlug, slugsBefore, [last.subjectData?.slug]);
     // Renumber subjects to maintain clean ordering after restore
     await otterFetch(`/api/software/${last.softwareSlug}/subjects/renumber`, { method: 'POST' });
     invalidateCache(last.softwareSlug);
     selectSoftware(last.softwareSlug, true);
     loadSoftwareList();
-  }, [invalidateCache, selectSoftware, loadSoftwareList]);
+  }, [invalidateCache, selectSoftware, loadSoftwareList, slugsHeldBy, offerNewSubjectsToBatchReceivers]);
 
   const redoDeleteSubject = useCallback(async () => {
     const stack = redoSubjectsRef.current;
@@ -2725,9 +3012,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // ═══════════════════════════════════════════════════════════════
   //  MARK LESSON COMPLETE
   // ═══════════════════════════════════════════════════════════════
+  // B2 (design §5.5): keyed by activeSubjectKey — the slug for an own
+  // subject, link:<subject id> for a linked one — on the HOST course's row.
   const toggleLessonComplete = useCallback(async (lessonId) => {
-    if (!activeProgress || !activeSubjectSlug) return;
-    const subProgress = activeProgress.subjects?.[activeSubjectSlug] || { completed_lessons: [], last_accessed: new Date().toISOString() };
+    if (!activeProgress || !activeSubjectKey) return;
+    const subProgress = activeProgress.subjects?.[activeSubjectKey] || { completed_lessons: [], last_accessed: new Date().toISOString() };
     const completed = subProgress.completed_lessons.includes(lessonId)
       ? subProgress.completed_lessons.filter(id => id !== lessonId)
       : [...subProgress.completed_lessons, lessonId];
@@ -2735,7 +3024,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       ...activeProgress,
       subjects: {
         ...activeProgress.subjects,
-        [activeSubjectSlug]: { completed_lessons: completed, last_accessed: new Date().toISOString() }
+        [activeSubjectKey]: { completed_lessons: completed, last_accessed: new Date().toISOString() }
       }
     };
     setActiveProgress(updated);
@@ -2743,7 +3032,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       softwareCacheRef.current[activeSoftwareSlug].progress = updated;
     }
     saveProgress(updated);
-  }, [activeProgress, activeSubjectSlug, activeSoftwareSlug, saveProgress]);
+  }, [activeProgress, activeSubjectKey, activeSoftwareSlug, saveProgress]);
 
   // ═══════════════════════════════════════════════════════════════
   //  GET SELECTED LESSON
@@ -2778,9 +3067,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   }, [selectedLessonId, getAllLessons, activeSubject]);
 
   const completedLessonsCache = useMemo(() => {
-    if (!activeProgress || !activeSubjectSlug) return [];
-    return activeProgress.subjects?.[activeSubjectSlug]?.completed_lessons || [];
-  }, [activeProgress, activeSubjectSlug]);
+    if (!activeProgress || !activeSubjectKey) return [];
+    return activeProgress.subjects?.[activeSubjectKey]?.completed_lessons || [];
+  }, [activeProgress, activeSubjectKey]);
 
   const getCompletedLessons = useCallback(() => completedLessonsCache, [completedLessonsCache]);
 
@@ -3021,6 +3310,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               : currentView === 'validator' ? 'validator'
                 : null;
 
+  // B2 (design §5.3): the shares waiting on this person, on the Requests tab.
+  const shareCount = cloudMode ? shareInboxCount(subjectShares, perms.userId) : 0;
+
   // Each tab does exactly what its button's onClick did.
   function selectNavView(id) {
     if (id === 'library') {
@@ -3155,6 +3447,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               title: appRole === 'admin'
                 ? 'Company library — review and apply suggested changes'
                 : 'Change requests and feedback',
+              count: shareCount > 0 ? shareCount : null,
             }] : []),
             // Validate — right-aligned (otter.css), and always the last tab.
             { id: 'validator', label: <><ShieldCheck className="otter-nav-icon" aria-hidden="true" />Validate</>, title: 'Lesson Validator' },
@@ -3227,6 +3520,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 // is stale until this runs. invalidateCache too: the per-course
                 // meta in softwareCacheRef carries the old tier.
                 onCoursesChanged={() => { invalidateCache(); loadSoftwareList(); }}
+                shares={subjectShares}
+                onSharesChanged={loadSubjectShares}
+                onSharesAccepted={handleSharesAccepted}
               />
             </div>
           )}
@@ -3357,6 +3653,42 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           }}
         />
       )}
+      {/* B2 (design §5.2): lazily, like ShareCourseDialog — it mounts the
+          directory read. Its close bumps the Requests tick (§5.3). */}
+      {shareSubjectDialog && (
+        <ShareSubjectDialog
+          mode={shareSubjectDialog.mode}
+          course={shareSubjectDialog.course ?? null}
+          subject={shareSubjectDialog.subject ?? null}
+          share={shareSubjectDialog.share ?? null}
+          shares={subjectShares}
+          userId={perms.userId}
+          onShared={loadSubjectShares}
+          onDone={(said) => {
+            setShareSubjectDialog(null);
+            setRequestsRefreshTick(t => t + 1);
+            setSharingError(null);
+            if (said) setSharingNotice(said);
+          }}
+          onClose={() => { setShareSubjectDialog(null); setRequestsRefreshTick(t => t + 1); }}
+        />
+      )}
+      {/* B2 (design §5.9): one reminder at a time, in the order runs ended. */}
+      {reminderQueue.length > 0 && (
+        <NewSubjectShareReminder
+          key={reminderQueue[0].key}
+          plan={reminderQueue[0]}
+          onShared={loadSubjectShares}
+          onDone={(said) => {
+            setReminderQueue(q => q.slice(1));
+            setRequestsRefreshTick(t => t + 1);
+            setSharingError(null);
+            if (said) setSharingNotice(said);
+          }}
+          onClose={() => setReminderQueue(q => q.slice(1))}
+        />
+      )}
+      {removeLinkConfirm && renderRemoveLinkConfirm()}
 
       {/* ── SEARCH MODAL ── */}
       {showSearchModal && renderSearchModal()}
@@ -3650,6 +3982,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         title="Courses"
         actions={<SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />}
       >
+        {/* S2: not while a sign-in is held offline — a course is generated by
+            the AI, which needs the connection (her ruling: no New or Create). */}
+        {!perms.offline && (
         <div className="otter-courses-new">
           <Button
             variant="primary"
@@ -3660,6 +3995,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             New
           </Button>
         </div>
+        )}
         {/* Tier filters. Cloud only: signed out there is one user, one tier and
             no trash, so a chip strip would be pure noise in local mode. */}
         {cloudMode && (
@@ -3681,7 +4017,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               onRestore={restoreTrashRow}
             />
           ) : softwareList.length === 0 ? (
-            <EmptyState icon={Plus} title="No courses yet" body='Click "New" above to create your first course' compact />
+            perms.offline
+              ? <EmptyState icon={CloudOff} title={offlineSentence('courses')} compact />
+              : <EmptyState icon={Plus} title="No courses yet" body='Click "New" above to create your first course' compact />
           ) : visibleCourses.length === 0 ? (
             // A filter that silently shows an empty column reads as data loss.
             <EmptyState title="Nothing here yet" compact>
@@ -3751,6 +4089,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                           compact
                           sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                           onShare={setShareDialogCourse}
+                          onShareSubject={(c) => setShareSubjectDialog({ mode: 'subject', course: c })}
+                          onShareCourse={(c) => setShareSubjectDialog({ mode: 'course', course: c })}
                           onSuggestChange={setCrDialogCourse}
                           onFork={(c) => forkCourse(c)}
                           onTrash={(c) => setShowDeleteConfirm(c.slug)}
@@ -3761,7 +4101,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                   {isExpanded && (
                     <div className="otter-subjects">
                       {subjectList.map(sub => {
-                        const isSubActive = activeSubjectSlug === sub.slug;
+                        const isSubActive = activeSubjectKey === sub.slug;
                         const isStub = sub.is_stub;
                         return (
                           <div
@@ -3796,8 +4136,49 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                                 className="otter-subject-delete"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title });
+                                  setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title, subjectId: sub.id });
                                 }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                      {/* B2 (design §5.4): the subjects LINKED into this course,
+                          after its own, in accept order: a chain glyph where the
+                          order number sits, the hint naming whose it is, and no
+                          delete control. A closed link stays, greyed, with
+                          Remove. The active row is matched by KEY, so a linked
+                          `modifiers` never lights up the host's own. */}
+                      {cloudMode && linkedRowsForHost(subjectShares, sw.slug).map(row => {
+                        const closed = isClosedLink(row, closedLinkIds);
+                        return (
+                          <div
+                            key={row.id}
+                            className="otter-subject-row"
+                            data-active={activeSubjectKey === linkKey(row.subject_id) ? 'true' : undefined}
+                            data-stub={row.subject_is_stub ? 'true' : undefined}
+                            data-closed={closed ? 'true' : undefined}
+                            data-arrived={arrivedShareIds.has(row.id) ? 'true' : undefined}
+                          >
+                            <button
+                              onClick={() => { if (!closed) openLinkedSubject(row); }}
+                              disabled={closed}
+                              title={closed ? 'No longer available — the owner removed it' : linkedFromLine(row)}
+                              className="otter-subject-open"
+                            >
+                              <span className="otter-subject-label">
+                                <Link2 className="otter-subject-link" aria-hidden="true" />
+                                {row.subject_title}
+                                {row.subject_is_stub && <span className="otter-subject-outline">[outline]</span>}
+                              </span>
+                            </button>
+                            {closed && (
+                              <IconButton
+                                size="sm"
+                                icon={X}
+                                title="Remove from my course"
+                                className="otter-subject-delete"
+                                onClick={(e) => { e.stopPropagation(); setRemoveLinkError(null); setRemoveLinkConfirm(row); }}
                               />
                             )}
                           </div>
@@ -3981,14 +4362,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         </Banner>
       );
     }
+    // B2: a notice is a success sentence, or { tone: 'info', text } — a link
+    // that no longer reads is information, not a success (design §5.4).
+    const notice = typeof sharingNotice === 'string' ? { tone: 'success', text: sharingNotice } : sharingNotice;
     return (
       <Banner
-        tone="success"
-        Icon={Check}
+        tone={notice.tone}
+        Icon={notice.tone === 'info' ? Info : Check}
         className="otter-banner"
         action={<Button variant="ghost" size="sm" onClick={() => setSharingNotice(null)}>Dismiss</Button>}
       >
-        {sharingNotice}
+        {notice.text}
       </Banner>
     );
   }
@@ -4008,6 +4392,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // `usableMode` refuses a 'local' pin on that build for the same reason.
   function renderLibrarySourceNotice() {
     if (!hasLocalLibrary) return null;
+    // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch.
+    // This computer's library works offline, so it shows — and says why, with
+    // no way to the company library to offer until the connection returns.
+    // A "This computer" pin keeps its own notice (build review round 1, F7).
+    if (perms.offline && libraryMode !== 'local' && !cloudMode && !!perms.workspaceId) {
+      return (
+        <Banner tone="info" Icon={CloudOff} className="otter-banner">
+          This is the library on this computer: your company library could not be reached, and appears when the connection returns.
+        </Banner>
+      );
+    }
     const localHidden   = cloudMode;
     const companyHidden = !cloudMode && libraryMode === 'local' && !!perms.workspaceId;
     if (!localHidden && !companyHidden) return null;
@@ -4047,6 +4442,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }
 
     if (activeSoftwareSlug && activeSoftware) {
+      // B2 (design §5.4): the subjects linked into this course, after its own.
+      const linkedHere = cloudMode ? linkedRowsForHost(subjectShares, activeSoftwareSlug) : [];
       return (
         <div className="otter-view">
           <div className="otter-view-page" data-width="data">
@@ -4076,6 +4473,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                       role={appRole}
                       sourceIsStandard={sourceCourseOf(activeCourseRow)?.visibility === 'company_standard'}
                       onShare={setShareDialogCourse}
+                      onShareSubject={(c) => setShareSubjectDialog({ mode: 'subject', course: c })}
+                      onShareCourse={(c) => setShareSubjectDialog({ mode: 'course', course: c })}
                       onSuggestChange={setCrDialogCourse}
                       onFork={(c) => forkCourse(c)}
                       onTrash={(c) => setShowDeleteConfirm(c.slug)}
@@ -4130,7 +4529,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
               {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
             </SectionTitle>
-            {subjectList.length === 0 ? (
+            {subjectList.length === 0 && linkedHere.length === 0 ? (
               <EmptyState
                 icon={BookOpen}
                 title="No subjects yet"
@@ -4161,7 +4560,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                           danger
                           title="Delete subject"
                           className="otter-subject-card-delete"
-                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
+                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title, subjectId: sub.id }); }}
                         />
                       )}
                     </div>
@@ -4206,6 +4605,45 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                     </div>
                   </div>
                 ))}
+                {/* B2 (design §5.4): a linked card reads like any other, with
+                    the Linked badge and no delete control and no Generate; an
+                    outline says so in today's words; a closed link is greyed,
+                    with Remove, and does not open. */}
+                {linkedHere.map(row => {
+                  const closed = isClosedLink(row, closedLinkIds);
+                  return (
+                    <div
+                      key={row.id}
+                      className="otter-subject-card"
+                      data-stub={row.subject_is_stub ? 'true' : undefined}
+                      data-closed={closed ? 'true' : undefined}
+                      data-arrived={arrivedShareIds.has(row.id) ? 'true' : undefined}
+                      onClick={() => { if (!closed) openLinkedSubject(row); }}
+                    >
+                      <div className="otter-subject-card-head">
+                        <LinkedBadge hint={linkedFromLine(row)} />
+                        {row.skill_level && <Badge>{row.skill_level}</Badge>}
+                        {row.subject_is_stub && <Badge className="otter-outline-badge">Outline</Badge>}
+                      </div>
+                      <div className="otter-subject-card-body">
+                        <h3 className="otter-subject-card-title">{row.subject_title}</h3>
+                        <p className="otter-subject-card-desc">
+                          {closed ? 'No longer available — the owner removed it' : linkedFromLine(row)}
+                        </p>
+                        <div className="otter-spacer" />
+                        {closed ? (
+                          <Button size="sm" onClick={(e) => { e.stopPropagation(); setRemoveLinkError(null); setRemoveLinkConfirm(row); }}>
+                            Remove
+                          </Button>
+                        ) : row.subject_is_stub ? (
+                          <p className="otter-subject-card-note">
+                            Outline only — the owner hasn&apos;t written this yet.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -4234,9 +4672,15 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                   options={[{ value: 'date', label: 'Sort by date' }, { value: 'name', label: 'Sort by name' }]}
                   aria-label="Sort courses"
                 />
+                {/* S2: while a sign-in is held offline, Import only where this
+                    computer's library takes it (the desktop), and no New course
+                    anywhere (a course is the AI's to generate). */}
+                {(!perms.offline || hasLocalLibrary) && (
                 <Button variant="secondary" Icon={Upload} onClick={() => setShowImportModal(true)}>
                   Import
                 </Button>
+                )}
+                {!perms.offline && (
                 <Button
                   variant="primary"
                   Icon={Plus}
@@ -4244,6 +4688,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 >
                   New course
                 </Button>
+                )}
               </>
             }
           >
@@ -4259,6 +4704,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             >
               <Button variant="secondary" onClick={() => setCourseFilter('all')}>Show all courses</Button>
             </EmptyState>
+          ) : sorted.length === 0 && perms.offline ? (
+            // S2 (RECONNECT_DESIGN.md §11.8): her ruling — one sentence, no
+            // empty-state words, nothing to create from.
+            <EmptyState icon={CloudOff} title={offlineSentence('courses')} />
           ) : sorted.length === 0 ? (
             <EmptyState
               icon={BookOpen}
@@ -4296,6 +4745,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                         role={appRole}
                         sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                         onShare={setShareDialogCourse}
+                        onShareSubject={(c) => setShareSubjectDialog({ mode: 'subject', course: c })}
+                        onShareCourse={(c) => setShareSubjectDialog({ mode: 'course', course: c })}
                         onSuggestChange={setCrDialogCourse}
                         onFork={(c) => forkCourse(c)}
                         onTrash={(c) => setShowDeleteConfirm(c.slug)}
@@ -4666,6 +5117,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               <span className="otter-crumb-current" aria-current="page">{activeSubject.title}</span>
               <span className="otter-crumb-note">[outline]</span>
             </nav>
+            {/* B2: Share… and Pass on… answer here too (round 1, finding 4),
+                under the breadcrumb, which stays the page's first line (the
+                type-scale guard pins it there). */}
+            {renderSharingBanner()}
+            {renderSubjectShareBar()}
             <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
               {activeSubject.title}
             </SectionTitle>
@@ -4682,16 +5138,22 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 </ul>
               ) : <p className="otter-outline-desc">No section outlines available.</p>}
             </Card>
-            <Button
-              variant="primary"
-              className="otter-generate-full"
-              onClick={() => generateSubjectContent(activeSubject.slug)}
-              disabled={generatingSubjects.has(activeSubject.slug)}
-            >
-              {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
-              {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate full content'}
-            </Button>
-            {generatingSubjects.has(activeSubject.slug) && (() => {
+            {/* B2 (design §5.4): no Generate on a linked outline — it is the
+                owner's row, and it fills live when they write it. */}
+            {activeLinked ? (
+              <p className="otter-subject-bar-line">Outline only — the owner hasn&apos;t written this yet.</p>
+            ) : (
+              <Button
+                variant="primary"
+                className="otter-generate-full"
+                onClick={() => generateSubjectContent(activeSubject.slug)}
+                disabled={generatingSubjects.has(activeSubject.slug)}
+              >
+                {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+                {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate full content'}
+              </Button>
+            )}
+            {!activeLinked && generatingSubjects.has(activeSubject.slug) && (() => {
               const genEntry = generatingSubjects.get(activeSubject.slug);
               return (
                 // The same progress as the prompt screen's (O16: one idiom,
@@ -4736,6 +5198,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               </span>
               <span className="otter-crumb-current" aria-current="page">{selectedLesson.title}</span>
             </nav>
+            {/* B2: Share… and Pass on… answer here too (round 1, finding 4),
+                under the breadcrumb, which stays the page's first line (the
+                type-scale guard pins it there). */}
+            {renderSharingBanner()}
+            {renderSubjectShareBar()}
             {/* The reading surface's own title, at the H1 step: the one 20px
                 line on it. The markdown's headings sit one step below (O32),
                 so a stray "# heading" in a lesson can no longer read as the
@@ -4834,6 +5301,77 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     );
   }
 
+  // ── B2: the subject's share line (design §5.2, §5.4) ──
+  // A linked subject: the Linked badge, where it comes from ("Linked from
+  // Audrey's Blender 5.0 · read only · …"), Pass on… while it is accepted, and
+  // Remove from my course. One of the owner's own subjects: who has it (it
+  // opens Requests) and Share…. Cloud only: nothing on the Local Server (§5.8).
+  function renderSubjectShareBar() {
+    if (!cloudMode || !activeSubject) return null;
+    if (activeLinked) {
+      const row = subjectShares.find(r => r.id === activeLinked.shareId);
+      if (!row) return null;
+      return (
+        <div className="otter-subject-bar">
+          <LinkedBadge hint={linkedFromLine(row)} />
+          <span className="otter-subject-bar-line">{linkedFromLine(row, { study: true })}</span>
+          <span className="otter-subject-bar-actions">
+            {row.state === 'accepted' && (
+              <Button size="sm" Icon={Share2} onClick={() => setShareSubjectDialog({ mode: 'passOn', share: row })}>
+                Pass on…
+              </Button>
+            )}
+            <Button size="sm" Icon={X} onClick={() => { setRemoveLinkError(null); setRemoveLinkConfirm(row); }}>
+              Remove from my course
+            </Button>
+          </span>
+        </div>
+      );
+    }
+    if (activeCourseRow?.is_own !== true || !activeSubject.id) return null;
+    const line = ownerShareLine(subjectShares, activeSubject.id);
+    return (
+      <div className="otter-subject-bar">
+        {line && (
+          <button type="button" className="otter-subject-bar-link" onClick={() => navigateTo('requests')}>
+            {line}
+          </button>
+        )}
+        <span className="otter-subject-bar-actions">
+          <Button size="sm" Icon={Share2}
+            onClick={() => setShareSubjectDialog({ mode: 'subject', course: activeCourseRow, subject: activeSubject })}>
+            Share…
+          </Button>
+        </span>
+      </div>
+    );
+  }
+
+  // The receiver's Remove (S3), behind its confirm (design §5.4): it counts
+  // the links they passed on below this one, which fall with it.
+  function renderRemoveLinkConfirm() {
+    const row = removeLinkConfirm;
+    return (
+      <Dialog
+        title="Remove from my course"
+        width="confirm"
+        busy={confirmBusy}
+        error={removeLinkError}
+        dismissOnBackdrop
+        onClose={() => { setRemoveLinkConfirm(null); setRemoveLinkError(null); }}
+        footer={(
+          <>
+            <Button onClick={() => { setRemoveLinkConfirm(null); setRemoveLinkError(null); }} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => removeLink(row))}>Remove</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-subject" title={row.subject_title}>&quot;{row.subject_title}&quot;</p>
+        <p className="otter-confirm-note">{removeConfirmText(row, subjectShares)}</p>
+      </Dialog>
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════
   //  QUIZ CENTER
   // ═══════════════════════════════════════════════════════════════
@@ -4919,6 +5457,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 {softwareList.map(sw => {
                   const swData = quizSelectionData[sw.slug];
                   const subjects = (swData?.subjects || []).filter(s => !s.is_stub);
+                  // B2 (design §5.4, §5.5): the linked subjects listed under their
+                  // HOST course from the live share index, never from
+                  // quizSelectionData, keyed by linkKey(); their content is read
+                  // live by id at generation, and the attempt records the host.
+                  const linkedPicks = cloudMode
+                    ? linkedRowsForHost(subjectShares, sw.slug).filter(r => !r.subject_is_stub && !isClosedLink(r, closedLinkIds))
+                    : [];
+                  const picks = [
+                    ...subjects.map(s => ({ key: s.slug, title: s.title, level: s.skill_level, linked: false })),
+                    ...linkedPicks.map(r => ({ key: linkKey(r.subject_id), title: r.subject_title, level: r.skill_level, linked: true })),
+                  ];
                   const selected = quizSelections[sw.slug];
                   const isAllSelected = selected === 'all';
                   const selectedSubs = selected instanceof Set ? selected : new Set();
@@ -4948,12 +5497,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                           <span className="otter-quiz-course-text">
                             <span className="otter-quiz-course-name">{sw.name}</span>
                             <span className="otter-quiz-course-meta">
-                              <span>{subjects.length} subjects</span>
+                              <span>{picks.length} subjects</span>
                               {isCoding && <Badge>coding</Badge>}
                             </span>
                           </span>
                         </button>
-                        {subjects.length > 0 && (
+                        {picks.length > 0 && (
                           <IconButton
                             size="sm"
                             icon={ChevronDown}
@@ -4965,13 +5514,13 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                           />
                         )}
                       </div>
-                      {subjects.length > 0 && expanded && (
+                      {picks.length > 0 && expanded && (
                         <div className="otter-quiz-subs">
-                          {subjects.map(sub => {
-                            const subSelected = isAllSelected || selectedSubs.has(sub.slug);
+                          {picks.map(sub => {
+                            const subSelected = isAllSelected || selectedSubs.has(sub.key);
                             return (
                               <button
-                                key={sub.slug}
+                                key={sub.key}
                                 type="button"
                                 role="checkbox"
                                 aria-checked={subSelected}
@@ -4982,11 +5531,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                                   setQuizSelections(prev => {
                                     const next = { ...prev };
                                     let subs = next[sw.slug];
-                                    if (subs === 'all') { subs = new Set(subjects.map(s => s.slug)); }
+                                    if (subs === 'all') { subs = new Set(picks.map(s => s.key)); }
                                     else if (!(subs instanceof Set)) { subs = new Set(); }
                                     else { subs = new Set(subs); }
-                                    if (subs.has(sub.slug)) { subs.delete(sub.slug); } else { subs.add(sub.slug); }
-                                    if (subs.size === subjects.length) { next[sw.slug] = 'all'; }
+                                    if (subs.has(sub.key)) { subs.delete(sub.key); } else { subs.add(sub.key); }
+                                    if (subs.size === picks.length) { next[sw.slug] = 'all'; }
                                     else if (subs.size === 0) { delete next[sw.slug]; }
                                     else { next[sw.slug] = subs; }
                                     return next;
@@ -4996,14 +5545,17 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                                 <span className="otter-quiz-check" data-state={subSelected ? 'all' : 'none'} aria-hidden="true">
                                   {subSelected && <Check />}
                                 </span>
-                                <span className="otter-quiz-sub-title">{sub.title}</span>
-                                <span className="otter-quiz-sub-level">{sub.skill_level}</span>
+                                <span className="otter-quiz-sub-title">
+                                  {sub.linked && <Link2 className="otter-quiz-sub-link" aria-hidden="true" />}
+                                  {sub.title}
+                                </span>
+                                <span className="otter-quiz-sub-level">{sub.level}</span>
                               </button>
                             );
                           })}
                         </div>
                       )}
-                      {subjects.length === 0 && <p className="otter-quiz-none">No generated subjects yet.</p>}
+                      {picks.length === 0 && <p className="otter-quiz-none">No generated subjects yet.</p>}
                     </Card>
                   );
                 })}
@@ -5773,7 +6325,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   }
 
   function renderDeleteSubjectConfirm() {
-    const { softwareSlug, subjectSlug, title } = showDeleteSubjectConfirm;
+    const { softwareSlug, subjectSlug, title, subjectId } = showDeleteSubjectConfirm;
+    // B2 (design §5.4): what the delete does to the people it is shared with.
+    const sharedNote = cloudMode ? deleteShareSentence(subjectShares, subjectId) : null;
     return (
       <Dialog
         title="Delete subject"
@@ -5791,6 +6345,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         <p className="otter-confirm-text">Are you sure you want to delete:</p>
         <p className="otter-confirm-subject" title={title}>&quot;{title}&quot;</p>
         <p className="otter-confirm-note">This will permanently remove this subject and its lessons. This cannot be undone.</p>
+        {sharedNote && <p className="otter-confirm-note">{sharedNote}</p>}
       </Dialog>
     );
   }

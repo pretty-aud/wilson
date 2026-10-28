@@ -274,9 +274,9 @@ export default function HelpPage() {
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Using projects with D.O.G.</h4>
                     <ul className={`${L.listItem} ${L.list}`}>
-                      <li><span className={L.listBold}>Select a project</span> in D.O.G. to load its documents and assets into the generation context</li>
-                      <li><span className={L.listBold}>Enable "Use project assets"</span> to let the AI place project images into slide frames</li>
-                      <li><span className={L.listBold}>Project documents</span> are automatically included as context alongside any directly uploaded files</li>
+                      <li><span className={L.listBold}>Choose a project</span> in D.O.G.: its title and description go with every deck, and Project and references lists what else you tick</li>
+                      <li><span className={L.listBold}>Tick "Core files only"</span> to have the deck read the project's files marked Core instead of what you tick</li>
+                      <li><span className={L.listBold}>Enable "Place visual"</span> to let the AI place your images and videos, uploaded or referenced, into slide frames</li>
                     </ul>
                   </div>
                 </div>

@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { useHeldOffline } from '../../cloud/auth/heldSession';
+import { offlineSentence } from '../../cloud/ConnectionLostBanner';
 import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
@@ -26,7 +28,7 @@ import './dog.css';
 import HistoryModal from './modals/HistoryModal';
 import { enterIsDogs, enterStarts, deckContextWritten, ASK_FOR_CONTEXT } from './enterGenerates';
 import { useReferences } from './references/useReferences';
-import ReferencesCard, { useReferencePreview, ReferencePreviewDialog } from './references/ReferencesCard';
+import ReferencesCard, { useReferencePreview, ReferencePreviewDialog, ReferencesCount } from './references/ReferencesCard';
 import ReferencesPicker from './references/ReferencesPicker';
 import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } from './references/referenceModel';
 
@@ -52,6 +54,10 @@ import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } f
 function useOptionalToast() {
   try { return useToast(); } catch { return null; }
 }
+
+// Place visual's hover (DG4: Audrey's note 2 took its subtitle, "to place
+// media in the deck", away; the meaning stays on the hover).
+const PLACE_VISUAL_TITLE = 'Places the pictures and videos from your uploads and references in the slides.';
 
 export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
@@ -85,9 +91,11 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // context box has words; with the box empty it asks for them (FX13).
   const [fullDeckMode, setFullDeckMode] = useState(true);
 
-  // Visual Asset Placement State
-  const [useUploadedAssets, setUseUploadedAssets] = useState(false);
-  const [useProjectAssets, setUseProjectAssets] = useState(false);
+  // Visual Asset Placement State. DG4 (Audrey, 2026-10-28): one box, "Place
+  // visual" (was "Use visual assets"), for the uploads' media and the chosen
+  // references' alike; "Use project assets" is gone with its flag, since a
+  // reference is read because it is listed (placementFrom says the rest).
+  const [placeVisual, setPlaceVisual] = useState(false);
   
   // Section 2 State
   const [selectedLayout, setSelectedLayout] = useState('');
@@ -141,6 +149,9 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // RABBIT itself). Local state only owns the new-project modal
   // form fields and the currently-selected project id.
   const rabbitCtx = useRabbit();
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the
+  // cloud adapter — card 1 says so in one sentence and offers no New project.
+  const projectsHeldOffline = useHeldOffline() && rabbitCtx?.adapterMode === 'supabase';
   const projectsIndex = rabbitCtx?.projectsIndex || {};
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
@@ -212,37 +223,50 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // One reference's preview, opened from the card; drawn after </main>
   // with D.O.G.'s other windows.
   const refPreview = useReferencePreview(refs);
+  // DG4: Core files only can be ticked only when the project has Core files
+  // D.O.G. can read, so the project is listed when it is chosen: the list the
+  // window makes each time it opens (lists, never a file's body; on the Local
+  // Server the project's bundle). Choosing a project still sends nothing (Q2).
+  // Back on D.O.G. it is listed again only when what the box shows depends on
+  // it (review round 1, finding 5: a list on every return was the whole pool):
+  // ticked, its rows follow the list; off for want of Core files or a list,
+  // files marked Core in R.A.B.B.I.T. meanwhile turn it on.
+  const onDogPage = currentPage === 'dog';
+  useEffect(() => {
+    if (selectedProjectId) refs.loadPool();
+  }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wasOnDogPage = useRef(onDogPage);
+  useEffect(() => {
+    const back = onDogPage && !wasOnDogPage.current;
+    wasOnDogPage.current = onDogPage;
+    if (back && selectedProjectId && (refs.coreOnly || refs.core?.state !== 'ready')) refs.loadPool();
+  }, [onDogPage]); // eslint-disable-line react-hooks/exhaustive-deps
   // The New project window's own upload state (C3): its busy line and its
   // failure line sit under the project. The failure is its own state, so
   // nothing else can overwrite it (C3 review round 2).
   const [storedFilesBusy, setStoredFilesBusy] = useState(false);
   const [storedFilesError, setStoredFilesError] = useState('');
-  // The reference pictures and videos read at the last generation: "Use
-  // project assets" places them, and the placed-asset export writes them, as
-  // the project's media were before.
+  // The reference pictures and videos read at the last generation: "Place
+  // visual" places them, and the placed-asset export writes them, as the
+  // project's media were before.
   const [referenceMedia, setReferenceMedia] = useState([]);
   // What was chosen and could not be read at the last generation: not sent,
   // and said (amber, beside the theme generator's message).
   const [refsWarning, setRefsWarning] = useState('');
 
   /**
-   * The media the slides may place (Audrey's Q14: the two boxes "allow using
-   * images/videos from a project or uploaded in the outline like before").
-   * "Use visual assets" (was "Use uploaded assets"): the uploads' pictures
-   * and videos. "Use project assets": the pictures and videos among the
-   * chosen references (Audrey's Q19, 2026-10-17: "Only the ones you tick";
-   * a picture or video not ticked is never placed or sent to the AI).
+   * The media the slides may place (Audrey's Q14: "allow using images/videos
+   * from a project or uploaded in the outline like before"). DG4 (her note 2
+   * of 2026-10-28): one box, "Place visual", places the uploads' pictures and
+   * videos and those among the listed references alike, and nothing without
+   * it. A reference is listed only if ticked (her Q19, "Only the ones you
+   * tick") or, with Core files only, marked Core; nothing else is placed or
+   * sent to the AI.
    */
   const placementFrom = useCallback((refMedia) => {
-    const assets = [];
-    if (useUploadedAssets) {
-      assets.push(...uploadedFiles.filter(f => f.type === 'image' || f.type === 'video'));
-    }
-    if (useProjectAssets) {
-      assets.push(...refMedia.filter(f => f.type === 'image' || f.type === 'video'));
-    }
-    return assets;
-  }, [useUploadedAssets, useProjectAssets, uploadedFiles]);
+    if (!placeVisual) return [];
+    return [...uploadedFiles, ...refMedia].filter(f => f.type === 'image' || f.type === 'video');
+  }, [placeVisual, uploadedFiles]);
 
   // Visual assets eligible for placement into deck frames
   const placementAssets = useMemo(() => placementFrom(referenceMedia), [placementFrom, referenceMedia]);
@@ -287,14 +311,15 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   }, [selectedProject]);
 
   /**
-   * Everything one generation reads: the uploads, then the chosen references,
-   * read NOW (a fresh list, so an item edited or a file gated since it was
-   * chosen is current). Videos are read only when "Use project assets" may
-   * place them: they are never sent to the AI. A reference that cannot be
-   * read is left out and named in the amber line; the rest go.
+   * Everything one generation reads: the uploads, then the listed references
+   * (the chosen ones, or with Core files only the project's Core files), read
+   * NOW (a fresh list, so an item edited or a file gated since it was chosen
+   * is current). Videos are read only when "Place visual" may place them:
+   * they are never sent to the AI. A reference that cannot be read is left
+   * out and named in the amber line; the rest go.
    */
   const resolveSources = useCallback(async () => {
-    const { files: refFiles, referencesSource, notesSource, unreadable } = await resolveReferences({ includeVideo: useProjectAssets });
+    const { files: refFiles, referencesSource, notesSource, unreadable } = await resolveReferences({ includeVideo: placeVisual });
     // Each entry names the file and why ("brief.pdf (could not be read)").
     setRefsWarning(unreadable.length ? `Not sent: ${unreadable.join(', ')}.` : '');
     const media = refFiles.filter(f => f.type === 'image' || f.type === 'video');
@@ -318,7 +343,7 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
       placement: placementFrom(media),
       projectContext: projectContextFor(refFiles),
     };
-  }, [resolveReferences, useProjectAssets, uploadedFiles, placementFrom, projectContextFor]);
+  }, [resolveReferences, placeVisual, uploadedFiles, placementFrom, projectContextFor]);
 
   // An uploaded PDF's pages, counted once from its body in memory: the meter
   // counts a PDF by its pages, never its bytes (design review round 1, HIGH).
@@ -709,13 +734,14 @@ Generate 3 color themes for this deck.`;
 
   // Check if we have any file content for API calls
   // Q13 ("Both still apply"): out of sight in Single page, the full deck
-  // context and the theme setting still shape each page, so the page box
-  // says so.
+  // context still shapes each page, so the page box says so. DG4: the theme
+  // generator is on screen in both modes now (beside Place visual), so the
+  // line names the context alone, and is not drawn without one.
   const appliedFromFullDeck = useMemo(() => {
     const ctx = systemPrompt.trim().replace(/\s+/g, ' ');
-    const quoted = ctx ? `your context (\u201C${ctx.length > 60 ? `${ctx.slice(0, 60).trimEnd()}\u2026` : ctx}\u201D) and ` : '';
-    return `Also applied here, from Full deck: ${quoted}the theme generator (${enableThemeGen ? 'on' : 'off'}; set it under Full deck).`;
-  }, [systemPrompt, enableThemeGen]);
+    if (!ctx) return '';
+    return `Also applied here, from Full deck: your context (\u201C${ctx.length > 60 ? `${ctx.slice(0, 60).trimEnd()}\u2026` : ctx}\u201D).`;
+  }, [systemPrompt]);
 
   // A deck needs a source: an upload, or a chosen reference that can still be
   // read. DG1: references alone are enough ("pull from files, from databases,
@@ -1104,12 +1130,15 @@ ${alreadyPlacedContext}`;
   // A file removed from the picker, a reference untaken, the References set
   // cleared (or set aside by choosing another project): the ids nothing owns
   // are let go of. Never while a generation runs (its calls may still
-  // reference them): the effect runs again when it ends.
+  // reference them): the effect runs again when it ends. DG4: the owners are
+  // what is LISTED, so a Core file sent with Core files only is kept for the
+  // next Regenerate, and let go of when the box is cleared, as the set the
+  // box set aside was when it was ticked.
   const generationBusy = isGenerating || isRegenerating;
   useEffect(() => {
     if (generationBusy) return;
-    letGoOfAIFiles(aiFileIdCache.current.release(liveOwners(uploadedFiles, refs.chosen)));
-  }, [generationBusy, uploadedFiles, refs.chosen, letGoOfAIFiles]);
+    letGoOfAIFiles(aiFileIdCache.current.release(liveOwners(uploadedFiles, refs.listedKeys)));
+  }, [generationBusy, uploadedFiles, refs.listedKeys, letGoOfAIFiles]);
 
   const fileFingerprint = useCallback((fileData) => {
     const c = String(fileData.content || '');
@@ -3180,7 +3209,8 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
 
   // FX13 (Audrey, 2026-10-26: "Enter needs text in the box"): an Enter that
   // would have started a full deck with the deck context box empty starts
-  // nothing; the box gets focus (card 3 opens first if it is folded) and the
+  // nothing; the box gets focus (the Generate outline card, 2 since DG4,
+  // opens first if it is folded) and the
   // toast stack says why, one such toast at a time. The box is brought to the
   // middle of the page: focus alone left it on the bottom edge, under the
   // toast (measured at 1280x800 and 1440x900).
@@ -4105,25 +4135,31 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </Banner>
           )}
 
-          {/* Section 1, "1 Project": the project. The deck context box and
-              the boxes beside it moved to Section 3 (DG1, Audrey's brief);
-              the uploads moved to References, its first group (DG2,
-              2026-10-26: "lets move the upload documents section in dog tool
-              to the 2 References card"). Their state and handlers stay here
-              (uploadedFiles, isFileLoading, handleFileUpload, removeFile) and
-              reach the card as its `uploads` prop. */}
-          <Card pad={false} className="dog-card">
+          {/* Section 1, "1 Project and references" (DG4, Audrey 2026-10-28:
+              "lets consolidates cards 1 (project) and 2 (References) into
+              one card"): the project first, then what the deck reads
+              (./references/, ReferencesCard), in her order under the
+              contract line: Uploads, Items, Files, Notes, the meter, Add
+              references, with Core files only beside it. The deck context
+              box moved to the Generate outline card in DG1; the uploads
+              joined References in DG2, their state and handlers here
+              (uploadedFiles, isFileLoading, handleFileUpload, removeFile),
+              reaching the references as the `uploads` prop. The fold is
+              this card's (section1Collapsed); the header's count is the
+              References card's, one number for what is listed. */}
+          <Card pad={false} className="dog-card dog-card-project">
             <header
               className="ui-panel-head dog-card-head"
               data-collapsible="true"
               data-collapsed={section1Collapsed}
-              onClick={() => setSection1Collapsed(!section1Collapsed)}
+              onClick={() => setSection1Collapsed(c => !c)}
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
-                <span id="dog-card1-title">Project</span>
+                <span id="dog-card1-title">Project and references</span>
               </h2>
               <div className="ui-panel-actions">
+                <ReferencesCount refs={refs} uploads={uploadedFiles.length} extraTokens={baseTokens} extraUncounted={baseUncounted} />
                 {/* FX14 (FX13-01): the fold from the keyboard. A real button,
                     named by the heading's words, the chevron its glyph. It
                     has no handler of its own: Enter and Space click it, and
@@ -4145,14 +4181,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             <div className="dog-card-body" id="dog-card1-body">
               {/* Project Selection. DG3 (Audrey, 2026-10-27: "Choose a
                   project"): the label says what the dropdown does, and names
-                  it (FX15's htmlFor); the card's title stays "1 Project". */}
+                  it (FX15's htmlFor). DG4: the card's title is "1 Project and
+                  references"; the dropdown sits above what it scopes. */}
               <div>
                 <label className="ui-field-label dog-field-label" htmlFor="dog-project">
                   Choose a project
                 </label>
                 {/* DG1: choosing a project no longer sends its files (Q2); its
-                    title and description always go (Q17). */}
-                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else in References.</p>
+                    title and description always go (Q17). DG4: what else is
+                    chosen just below, in this card. */}
+                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else below.</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
@@ -4169,11 +4207,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </select>
                     <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
+                  {!projectsHeldOffline && (
                   <Button variant="secondary" onClick={() => setShowNewProjectModal(true)}>
                     <Plus aria-hidden="true" />
                     New project
                   </Button>
+                  )}
                 </div>
+                {projectsHeldOffline && (
+                  <p className="ui-field-hint dog-field-hint">{offlineSentence('projects')}</p>
+                )}
                 {selectedProject && (selectedProject.description || storedFilesBusy || storedFilesError) && (
                   <div className="dog-project-details">
                     {selectedProject.description && (
@@ -4192,27 +4235,31 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                 )}
               </div>
+
+              {/* What the deck reads (DG1; ./references/), the uploads its
+                  first group (DG2), Core files only beside Add references
+                  (DG4). */}
+              <ReferencesCard
+                refs={refs}
+                projectChosen={!!selectedProject}
+                extraTokens={baseTokens}
+                extraUncounted={baseUncounted}
+                onAdd={() => setShowRefsPicker(true)}
+                onPreview={refPreview.open}
+                uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
+                offline={projectsHeldOffline}
+              />
             </div>
             )}
           </Card>
 
-          {/* Section 2: what the deck reads (DG1; ./references/), the uploads
-              its first group (DG2) */}
-          <ReferencesCard
-            refs={refs}
-            projectChosen={!!selectedProject}
-            extraTokens={baseTokens}
-            extraUncounted={baseUncounted}
-            onAdd={() => setShowRefsPicker(true)}
-            onPreview={refPreview.open}
-            uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
-          />
-
-          {/* Section 3: one card for a single page and a full deck (DG1,
-              Audrey's brief): the switch names both sides; Full deck shows
-              the full deck box and the theme generator; Single page shows the
-              layout, the page number and the single page box; the two media
-              boxes show in both. Every hint and example is as it was. */}
+          {/* Section 2 (it was 3 until DG4 merged the first two; its ids
+              keep "card3", which the tests and labels point at): one card
+              for a single page and a full deck (DG1, Audrey's brief): the
+              switch names both sides; Full deck shows the full deck box;
+              Single page shows the layout, the page number and the single
+              page box; the two checkboxes show in both. Every hint and
+              example is as it was. */}
           <Card pad={false} className="dog-card dog-s2">
             <header
               className="ui-panel-head dog-card-head"
@@ -4221,7 +4268,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               onClick={() => setSection2Collapsed(!section2Collapsed)}
             >
               <h2 className="ui-panel-title dog-card-title dog-step-title">
-                <span className="dog-step">3</span>
+                <span className="dog-step">2</span>
                 <span id="dog-card3-title">Generate outline</span>
               </h2>
               <div className="ui-panel-actions">
@@ -4264,49 +4311,41 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   onClick={() => setFullDeckMode(true)}>Full deck</span>
               </div>
 
-              {/* The two media boxes, in both modes. "Use uploaded assets" reads
-                  "Use visual assets", "to place media in the deck" (her words). */}
+              {/* DG4 (Audrey, 2026-10-28, notes 2 and 3): the card's two
+                  checkboxes, together on one row in both modes. "Place
+                  visual" (was "Use visual assets", its subtitle gone; the
+                  hover says what it does) places media from the uploads and
+                  the listed references alike; "Use project assets" is gone.
+                  "Theme generator" sits to its right: a single page reads it
+                  too (generatePageOutline), so it shows on both sides. */}
               <div className="dog-checks">
                 <span className="dog-check-row">
                   <button
-                    onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                    className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use visual assets"
-                    aria-describedby="dog-visual-assets-hint"
+                    onClick={() => setPlaceVisual(!placeVisual)}
+                    className="dog-check" data-checked={placeVisual} role="checkbox" aria-checked={placeVisual} aria-label="Place visual"
+                    title={PLACE_VISUAL_TITLE}
                   >
-                    {useUploadedAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
+                    {placeVisual && <Check className="dog-check-glyph" aria-hidden="true" />}
                   </button>
-                  <span className="dog-check-label">Use visual assets</span>
-                  <span id="dog-visual-assets-hint" className="dog-check-hint">to place media in the deck</span>
+                  <span className="dog-check-label" title={PLACE_VISUAL_TITLE}>Place visual</span>
                 </span>
                 <span className="dog-check-row">
                   <button
-                    onClick={() => setUseProjectAssets(!useProjectAssets)}
-                    className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use project assets"
+                    onClick={() => setEnableThemeGen(!enableThemeGen)}
+                    className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
                   >
-                    {useProjectAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
+                    {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
                   </button>
-                  <span className="dog-check-label">Use project assets</span>
+                  <span className="dog-check-label">Theme generator</span>
                 </span>
               </div>
 
               {fullDeckMode ? (
                 <>
                   <div>
-                    <div className="flex items-center gap-3 mb-0.5">
-                      <label className="ui-field-label" htmlFor="dog-deck-context">
-                        Deck Context & Guidelines
-                      </label>
-                      {/* "Theme generator" checkbox: with Full deck (her brief) */}
-                      <span className="dog-check-row">
-                        <button
-                          onClick={() => setEnableThemeGen(!enableThemeGen)}
-                          className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
-                        >
-                          {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
-                        </button>
-                        <span className="dog-check-label">Theme generator</span>
-                      </span>
-                    </div>
+                    <label className="ui-field-label dog-field-label" htmlFor="dog-deck-context">
+                      Deck Context & Guidelines
+                    </label>
                     <p className="ui-field-hint dog-field-hint">
                       Set the overall tone, style, and objectives for the deck
                       <span className="dog-hint-emph"> • Include desired page count</span>
@@ -4434,9 +4473,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       placeholder="Example: I need a page listing all the main characters with summaries for each..."
                       className="ui-input dog-page-request" data-surface="dark" data-focused={pagePromptFocused}
                     />
-                    {/* Q13: the full deck context and the theme setting still
-                        shape single pages; out of sight here, so said here. */}
-                    <p className="dog-applied-line">{appliedFromFullDeck}</p>
+                    {/* Q13: the full deck context still shapes single pages;
+                        out of sight here, so said here (DG4: the theme
+                        generator is in sight, beside Place visual). */}
+                    {appliedFromFullDeck && <p className="dog-applied-line">{appliedFromFullDeck}</p>}
                   </div>
 
                   {/* Generate Button. DG3 (DG2-02): the page request box above

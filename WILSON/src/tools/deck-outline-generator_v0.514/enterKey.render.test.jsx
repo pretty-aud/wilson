@@ -32,12 +32,22 @@ vi.mock('../../cloud/aiProxy', async (orig) => ({ ...(await orig()), callAI: vi.
 // (FX12) is seen without a request. Only a PDF or a picture reaches it; the
 // FX13 cases upload text, which travels inline and never calls these.
 vi.mock('../../cloud/aiFiles', async (orig) => ({ ...(await orig()), uploadAIFile: vi.fn(), deleteAIFiles: vi.fn() }))
+// DG4: a project for the Core files and Place visual cases, through D.O.G.'s
+// own seam (useRabbit). Every other case mounts D.O.G. outside any provider,
+// as before: `rabbit.value` null hands the call to the real hook, which
+// answers null there.
+const rabbit = vi.hoisted(() => ({ value: null }))
+vi.mock('../rabbit_v0.1.0/state/RabbitProvider', async (orig) => {
+  const real = await orig()
+  return { ...real, useRabbit: () => rabbit.value ?? real.useRabbit() }
+})
 import { callAI } from '../../cloud/aiProxy'
 import { uploadAIFile, deleteAIFiles } from '../../cloud/aiFiles'
 import DeckOutlineGenerator from './DeckOutlineGenerator'
 import { ToastProvider } from '../../ui'
 import { ASK_FOR_CONTEXT } from './enterGenerates'
 import { _resetOverlaysForTests } from '../../ui/overlay'
+import { setHeldSession } from '../../cloud/auth/heldSession'
 
 const CONTEXT = 'A pitch deck for a watch launch, five pages.'
 
@@ -48,7 +58,7 @@ beforeEach(() => {
   uploadAIFile.mockReset(); uploadAIFile.mockImplementation(async () => ({ id: 'file_dg2_1' }))
   deleteAIFiles.mockReset(); deleteAIFiles.mockImplementation(async () => {})
 })
-afterEach(() => { cleanup(); _resetOverlaysForTests() })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); rabbit.value = null })
 
 async function openDog({ upload = true, provider = true } = {}) {
   const dog = <DeckOutlineGenerator currentPage="dog" />
@@ -179,7 +189,7 @@ describe('FX13 on the rendered D.O.G.: Enter at the start with Full deck on', ()
   it('CONTROL: a D.O.G. tick box with words in the box starts the full deck, the tick unchanged', async () => {
     const d = await openDog()
     await type(d.box(), CONTEXT)
-    const visual = d.check('Use visual assets')
+    const visual = d.check('Place visual')                 // "Use visual assets" until DG4
     await act(async () => { visual.focus() })
     await pressEnter(visual)
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
@@ -460,10 +470,13 @@ describe('FX13 on the rendered D.O.G.: Single page is untouched', () => {
 // (scripts/fx14-keyboard-shots.mjs).
 // =============================================================================
 // DG2 (2026-10-26): card 1 is "1 Project" and holds no upload any more; the
-// upload's file input is References' (its first group, below).
+// upload's file input is References' (its first group, below). DG4
+// (2026-10-28, Audrey: "lets consolidates cards 1 (project) and 2
+// (References) into one card"): card 1 is "1 Project and references", the
+// project and the references in one body; the Generate outline card is 2
+// (its ids keep "card3").
 const CARDS = [
-  { name: 'Project', body: '#dog-card1-body', inside: 'select.dog-project-select' },
-  { name: 'References', body: '#dog-refs-body', inside: '.dog-refs-contract' },
+  { name: 'Project and references', body: '#dog-card1-body', inside: 'select.dog-project-select' },
   { name: 'Generate outline', body: '#dog-card3-body', inside: 'textarea.dog-context-prompt' },
 ]
 /** Space on a button as a browser delivers it: down, up, and the click on the way up. */
@@ -478,7 +491,7 @@ const headButton = (name) => screen.getByRole('button', { name })
 const head = (name) => headButton(name).closest('.dog-card-head')
 
 describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboard', () => {
-  it('each of the three headers holds a button named by the heading\'s words, the chevron its hidden glyph, open and controlling its body', async () => {
+  it('each of the two headers holds a button named by the heading\'s words, the chevron its hidden glyph, open and controlling its body', async () => {
     await openDog()
     for (const c of CARDS) {
       const b = headButton(c.name)
@@ -510,12 +523,12 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
 
   it('one press is one fold (the bar\'s one handler), and the bar itself still folds under the pointer', async () => {
     await openDog()
-    // Counted by the fold itself. Cards 1 and 3 fold by a value read at
-    // render, so a second handler there would set the same value and fold
-    // once anyway (harmless, and invisible here); the References card folds
-    // by an updater, where two handlers fold twice and this goes red. (An
-    // earlier cut read React's own props off the node: dropped, review
-    // round 1, finding 6.)
+    // Counted by the fold itself. The Generate outline card folds by a value
+    // read at render, so a second handler there would set the same value and
+    // fold once anyway (harmless, and invisible here); card 1 folds by an
+    // updater (the References card's way, kept by DG4's merge), where two
+    // handlers fold twice and this goes red. (An earlier cut read React's
+    // own props off the node: dropped, review round 1, finding 6.)
     for (const c of CARDS) {
       await act(async () => { fireEvent.click(headButton(c.name)) })
       expect(head(c.name).getAttribute('data-collapsed')).toBe('true')   // once, not folded and unfolded
@@ -550,7 +563,7 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
   it('CONTROL: Enter on the page with words in the box still starts the full deck (the buttons changed nothing else)', async () => {
     const d = await openDog()
     await type(d.box(), CONTEXT)
-    await act(async () => { headButton('Project').focus() })
+    await act(async () => { headButton('Project and references').focus() })
     await act(async () => { document.activeElement.blur() })
     await pressEnter(document.body)
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
@@ -580,8 +593,7 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
       expect(at(headButton(c.name))).toBeGreaterThan(-1)
       expect(at(headButton(c.name))).toBeLessThan(at(firstIn(c.body)))
     }
-    expect(at(headButton('Project'))).toBeLessThan(at(headButton('References')))
-    expect(at(headButton('References'))).toBeLessThan(at(headButton('Generate outline')))
+    expect(at(headButton('Project and references'))).toBeLessThan(at(headButton('Generate outline')))
   })
 })
 
@@ -609,9 +621,10 @@ const METER_BEFORE = Object.freeze({
   valuenow: '2',
   over: 'false',
 })
-const refsBody = () => document.querySelector('#dog-refs-body')
-const uploadRows = () => [...document.querySelectorAll('#dog-refs-body .dog-refs-uploads .dog-refs-row')]
-const chooseInput = () => document.querySelector('#dog-refs-body .dog-refs-uploads input[type=file]')
+// DG4: the references are card 1's lower part (`.dog-refs`), no card of their own.
+const refsBody = () => document.querySelector('#dog-card1-body .dog-refs')
+const uploadRows = () => [...document.querySelectorAll('#dog-card1-body .dog-refs-uploads .dog-refs-row')]
+const chooseInput = () => document.querySelector('#dog-card1-body .dog-refs-uploads input[type=file]')
 async function addUpload(d, file) {
   await act(async () => { fireEvent.change(d.q('input[type=file][accept*=".txt"]'), { target: { files: [file] } }) })
   await waitFor(() => expect(d.view.container.textContent).toContain(file.name))
@@ -619,18 +632,21 @@ async function addUpload(d, file) {
 }
 const fullDeckButton = (d) => [...d.view.container.querySelectorAll('button.dog-generate')].find((b) => /full deck outline/.test(b.textContent))
 
-describe('DG2 on the rendered D.O.G.: the uploads are References\' first group; card 1 is "1 Project"', () => {
-  it('card 1 is "1 Project": the dropdown, its hint and New project, and no upload left in it', async () => {
+describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (card 1\'s lower part since DG4)', () => {
+  it('card 1 holds the project first (the dropdown, its hint, New project), then the references, the uploads their first group', async () => {
     const d = await openDog({ upload: false })
     const card1 = document.querySelector('#dog-card1-body')
-    expect(document.getElementById('dog-card1-title').textContent).toBe('Project')
-    expect(headButton('Project').getAttribute('aria-controls')).toBe('dog-card1-body')
+    expect(document.getElementById('dog-card1-title').textContent).toBe('Project and references')
+    expect(headButton('Project and references').getAttribute('aria-controls')).toBe('dog-card1-body')
     expect(card1.querySelector('select.dog-project-select')).not.toBe(null)
-    expect(card1.textContent).toContain('The deck’s project. Its title and description go with every deck; choose what else in References.')
+    expect(card1.textContent).toContain('The deck’s project. Its title and description go with every deck; choose what else below.')
     expect(within(card1).getByRole('button', { name: 'New project' })).toBeTruthy()
-    expect(card1.querySelector('input[type=file]')).toBe(null)
-    expect(card1.textContent).not.toMatch(/Upload Documents|Choose file|Source material/)
-    // The one upload control on the page is References' first group's.
+    expect(refsBody().parentElement).toBe(card1)
+    const projectPart = card1.querySelector('select.dog-project-select').closest('#dog-card1-body > *')
+    expect(projectPart.querySelector('input[type=file]')).toBe(null)
+    expect(projectPart.textContent).not.toMatch(/Upload Documents|Choose file|Source material/)
+    expect(!!(projectPart.compareDocumentPosition(refsBody()) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    // The one upload control on the page is the references' first group's.
     const inputs = d.view.container.querySelectorAll('.dog-main input[type=file]')
     expect(inputs).toHaveLength(1)
     expect(inputs[0]).toBe(chooseInput())
@@ -1044,19 +1060,22 @@ describe('FX15 on the rendered D.O.G.: the dropdowns answer to their labels', ()
 const here = dirname(fileURLToPath(import.meta.url))
 const PAGE_REQUEST = 'A page listing the three watch faces.'
 
-describe('DG3 on the rendered D.O.G.: card 1 says "Project" once', () => {
-  it('the field label reads "Choose a project" and names the dropdown; the heading stays "Project", and the card table\'s "Project" is the heading\'s button', async () => {
+// DG4: the heading is "Project and references" now (the merged card); DG3-01
+// stands inside it: the label reads "Choose a project" and names the dropdown.
+describe('DG3 on the rendered D.O.G.: card 1\'s label reads "Choose a project" (DG3-01, inside DG4\'s merged card)', () => {
+  it('the field label reads "Choose a project" and names the dropdown; the card table\'s name is the heading\'s button, and nothing else answers to it', async () => {
     const d = await openDog({ upload: false })
     const label = d.q('label[for="dog-project"]')
     expect(label.textContent.trim()).toBe('Choose a project')
     expect(label.control).toBe(d.q('select.dog-project-select'))
-    expect(document.getElementById('dog-card1-title').textContent).toBe('Project')
-    // The card table's name: 'Project' (FX14) is the heading's button, named
-    // by the heading; nothing else answers to it, the dropdown least of all.
-    expect(CARDS[0].name).toBe('Project')
-    expect(screen.getAllByRole('button', { name: 'Project' })).toEqual([headButton('Project')])
-    expect(headButton('Project').getAttribute('aria-labelledby')).toBe('dog-card1-title')
+    expect(document.getElementById('dog-card1-title').textContent).toBe('Project and references')
+    // The card table's name (FX14) is the heading's button, named by the
+    // heading; nothing else answers to it, the dropdown least of all.
+    expect(CARDS[0].name).toBe('Project and references')
+    expect(screen.getAllByRole('button', { name: 'Project and references' })).toEqual([headButton('Project and references')])
+    expect(headButton('Project and references').getAttribute('aria-labelledby')).toBe('dog-card1-title')
     expect(screen.queryByRole('combobox', { name: 'Project' })).toBe(null)
+    expect(screen.queryByRole('combobox', { name: 'Project and references' })).toBe(null)
     expect(screen.getAllByText('Choose a project', { exact: true })).toEqual([label])
   })
 })
@@ -1162,19 +1181,22 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
   const tabStops = (d) => [...d.view.container.querySelectorAll('.dog-main button, .dog-main input, .dog-main select, .dog-main textarea, .dog-main [tabindex]')]
     .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden]') && getComputedStyle(el).display !== 'none' && !el.classList.contains('hidden'))
 
-  it('Choose file is a Tab stop in References, after its header\'s button and before Add references; with two uploads, after their Removes; the file input never is', async () => {
+  // DG4: the references follow the project in one card, so the stop before
+  // Choose file is New project (it was the References header's button).
+  it('Choose file is a Tab stop in the references, after New project and before Add references; with two uploads, after their Removes; the file input never is', async () => {
     const d = await openDog({ upload: false })
     let stops = tabStops(d)
     const at = (el) => stops.indexOf(el)
-    expect(at(chooseButton())).toBeGreaterThan(at(headButton('References')))
-    expect(at(chooseButton())).toBe(at(headButton('References')) + 1)
+    const newProject = screen.getByRole('button', { name: 'New project' })
+    expect(at(chooseButton())).toBeGreaterThan(at(newProject))
+    expect(at(chooseButton())).toBe(at(newProject) + 1)
     expect(at(screen.getByRole('button', { name: 'Add references' }))).toBe(at(chooseButton()) + 1)
     expect(stops.some((el) => el.matches('input[type=file]'))).toBe(false)
     await addUpload(d, new File(['Note one.'], 'note-01.txt', { type: 'text/plain' }))
     await new Promise((r) => setTimeout(r, 2))
     await addUpload(d, new File(['Note two.'], 'note-02.txt', { type: 'text/plain' }))
     stops = tabStops(d)
-    const names = stops.slice(at(headButton('References')) + 1, at(screen.getByRole('button', { name: 'Add references' })) + 1)
+    const names = stops.slice(at(newProject) + 1, at(screen.getByRole('button', { name: 'Add references' })) + 1)
       .map((el) => el.getAttribute('aria-label') || el.textContent.trim())
     expect(names).toEqual(['Remove note-01.txt', 'Remove note-02.txt', 'Choose file', 'Add references'])
   })
@@ -1206,5 +1228,394 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
     await act(async () => { document.activeElement.blur() })
     await pressEnter(document.body)
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+  })
+})
+
+// =============================================================================
+// DG4 (Audrey, 2026-10-28; her five notes verbatim in
+// docs/sessions/briefs/po-dg4-dog-project-references-card.md), on the
+// rendered component. Chromium's own figures, before and after, are in the
+// DG4 hand-off and walkthrough 84's DG4 section.
+//   1  the References meter a fixed width and thicker (dogCss.test.js)
+//   2  "Use visual assets" reads "Place visual", its subtitle gone; "Use
+//      project assets" gone: a listed reference is read because it is
+//      listed, and Place visual places media from the uploads and the
+//      references alike
+//   3  "Theme generator" to its right: the card's only two checkboxes
+//   4  Core files only, beside Add references
+//   5  cards 1 and 2 are one, "1 Project and references"
+// The project, its files and their bodies are made up (a file name is
+// content); they reach D.O.G. through `rabbit.value` (the mock above).
+// =============================================================================
+const PROJECT = { id: 'p-dg4', title: 'Lantern test', description: 'A made-up project.', updated_at: '2026-10-28T00:00:00Z' }
+const FILE_KEY = 'projects/11111111-2222-3333-4444-555555555555'
+const fileRow = (over = {}) => ({
+  project_id: PROJECT.id, name: 'brief.txt', mime_type: 'text/plain', size_bytes: 40,
+  storage_path: `${FILE_KEY}/DOCUMENTS/${over.name || 'brief.txt'}`, is_core_definer: true, uploaded_at: '2026-10-28T09:00:00Z',
+  ...over,
+})
+// Two Core files D.O.G. can read, one it cannot (a Photoshop file), one not Core.
+const CORE = () => [
+  fileRow({ id: 'c1', name: 'core-brief.txt', body: 'THE CORE BRIEF.' }),
+  fileRow({ id: 'c2', name: 'core-board.png', mime_type: 'image/png', size_bytes: PNG_1PX.length, png: true }),
+  fileRow({ id: 'c3', name: 'core-prop.psd', mime_type: 'image/vnd.adobe.photoshop', size_bytes: 9000 }),
+  fileRow({ id: 'r1', name: 'ref-notes.txt', body: 'THE REFERENCE NOTES.', is_core_definer: false }),
+]
+/** The project and a cloud-like adapter, handed to D.O.G. through useRabbit. */
+function withProject(files) {
+  const adapter = {
+    listAssets: async () => [], listTasks: async () => [], listScenes: async () => [], listShots: async () => [],
+    listLevels: async () => [], listExperiences: async () => [], listPhases: async () => [], listMilestones: async () => [],
+    listFolders: async () => [], listTaskItems: async () => [], listNotes: async () => [],
+    listFiles: vi.fn(async (pid) => files.filter((f) => f.project_id === pid)),
+    downloadFile: vi.fn(async (row) => new Blob([row.png ? PNG_1PX : (row.body || 'BODY')], { type: row.mime_type })),
+  }
+  rabbit.value = { projectsIndex: { [PROJECT.id]: PROJECT }, refreshProjectsIndex: () => {}, adapterMode: 'supabase', getAdapter: () => adapter }
+  return adapter
+}
+const coreBox = () => screen.getByRole('checkbox', { name: 'Core files only' })
+// Off is aria-disabled, never disabled (DG4 review round 2, finding 1).
+const coreIsOff = () => { expect(coreBox().disabled).toBe(false); return coreBox().getAttribute('aria-disabled') === 'true' }
+const coreSaid = () => document.querySelector('#dog-card1-body .dog-refs-core-said')
+/** Choose the project and wait for its list (the checkbox's "Looking for…" gone). */
+async function chooseProject(d) {
+  await act(async () => { fireEvent.change(d.q('select.dog-project-select'), { target: { value: PROJECT.id } }) })
+  await waitFor(() => expect(coreSaid()?.textContent || '').not.toMatch(/^Looking for/))
+  await act(async () => {})
+}
+const refNames = () => [...refsBody().querySelectorAll('.dog-refs-group:not(.dog-refs-uploads) .dog-refs-name')].map((n) => n.textContent)
+
+describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note 5)', () => {
+  it('the project first, then the references in her order under the contract line, Core files only beside Add references; the steps read 1 and 2', async () => {
+    const d = await openDog({ upload: false })
+    expect(d.q('#dog-refs-body')).toBe(null)
+    expect(screen.queryByRole('button', { name: 'References' })).toBe(null)
+    expect([...d.view.container.querySelectorAll('.dog-main .dog-step-title')].map((h) => h.textContent)).toEqual(['1Project and references', '2Generate outline'])
+    const card1 = d.q('#dog-card1-body')
+    const order = [
+      d.q('label[for="dog-project"]'),
+      d.q('select.dog-project-select'),
+      within(card1).getByRole('button', { name: 'New project' }),
+      card1.querySelector('.dog-refs-contract'),
+      card1.querySelector('.dog-refs-uploads'),
+      [...card1.querySelectorAll('.dog-details-note')].find((p) => /^Choose a project to reference/.test(p.textContent)),
+      card1.querySelector('.dog-refs-meter'),
+      within(card1).getByRole('button', { name: 'Add references' }),
+      coreBox(),
+      coreSaid(),
+    ]
+    expect(order.every(Boolean)).toBe(true)
+    for (let i = 1; i < order.length; i++) {
+      expect(!!(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING), `item ${i}`).toBe(true)
+    }
+    // The header's one number is card 1's.
+    expect(d.q('.dog-refs-count').closest('.dog-card-head')).toBe(head('Project and references'))
+    expect(d.q('.dog-refs-count').textContent).toBe('None chosen')
+  })
+
+  it('folded, card 1 hides the project and the references, and its header keeps the one number', async () => {
+    const d = await openDog()
+    expect(d.q('.dog-refs-count').textContent).toBe('1 chosen')
+    await act(async () => { fireEvent.click(headButton('Project and references')) })
+    expect(d.q('#dog-card1-body')).toBe(null)
+    expect(d.q('select.dog-project-select')).toBe(null)
+    expect(d.q('.dog-main input[type=file]')).toBe(null)
+    expect(d.q('.dog-refs-count').textContent).toBe('1 chosen')
+  })
+})
+
+describe('DG4 on the rendered D.O.G.: the Generate outline card keeps two checkboxes, side by side (notes 2 and 3)', () => {
+  const card2 = (d) => d.q('#dog-card3-body')
+  for (const side of ['Full deck', 'Single page']) {
+    it(`${side}: exactly "Place visual" then "Theme generator", on one row; Place visual has no subtitle, its meaning on the hover`, async () => {
+      const d = await openDog({ upload: false })
+      if (side === 'Single page') await act(async () => { fireEvent.click(d.sw()) })
+      expect(d.sw().getAttribute('aria-checked')).toBe(side === 'Full deck' ? 'true' : 'false')
+      const boxes = [...card2(d).querySelectorAll('button.dog-check')]
+      expect(boxes.map((b) => b.getAttribute('aria-label'))).toEqual(['Place visual', 'Theme generator'])
+      const row = card2(d).querySelector('.dog-checks')
+      expect(boxes.every((b) => b.closest('.dog-checks') === row)).toBe(true)
+      expect(row.children).toHaveLength(2)
+      const place = d.check('Place visual')
+      expect(place.getAttribute('aria-checked')).toBe('false')
+      expect(place.hasAttribute('aria-describedby')).toBe(false)
+      expect(place.closest('.dog-check-row').textContent).toBe('Place visual')
+      expect(place.getAttribute('title')).toBe('Places the pictures and videos from your uploads and references in the slides.')
+      expect(d.view.container.querySelector('.dog-check-hint, #dog-visual-assets-hint')).toBe(null)
+      expect(screen.queryByRole('checkbox', { name: /Use (visual|project) assets/ })).toBe(null)
+    })
+  }
+
+  it('the deck context box\'s label stands alone, no checkbox beside it', async () => {
+    const d = await openDog({ upload: false })
+    expect(d.q('label[for="dog-deck-context"]').parentElement.querySelector('.dog-check')).toBe(null)
+  })
+
+  it('Single page names what Full deck still applies only when there is some: the context, never the theme generator (on screen now)', async () => {
+    const d = await openDog({ upload: false })
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.q('.dog-applied-line')).toBe(null)
+    await act(async () => { fireEvent.click(d.sw()) })
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.q('.dog-applied-line').textContent).toBe(`Also applied here, from Full deck: your context (“${CONTEXT}”).`)
+  })
+})
+
+describe('DG4 on the rendered D.O.G.: Place visual places an upload\'s media and a listed reference\'s alike; off, nothing (note 2)', () => {
+  async function deckWith({ place }) {
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    await addUpload(d, new File([PNG_1PX], 'picture-01.png', { type: 'image/png' }))
+    await chooseProject(d)
+    await act(async () => { fireEvent.click(coreBox()) })
+    if (place) await act(async () => { fireEvent.click(d.check('Place visual')) })
+    expect(d.check('Place visual').getAttribute('aria-checked')).toBe(String(place))
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    return d
+  }
+
+  it('off (as it opens): the listed reference\'s picture is still sent to be read, because it is listed, and nothing is placed', async () => {
+    await deckWith({ place: false })
+    expect(sent()).toContain('[Project · CORE] core-board.png (image)')
+    expect(sent()).not.toContain('AVAILABLE VISUAL ASSETS FOR PLACEMENT')
+  })
+
+  it('on: the upload\'s picture and the reference\'s alike are offered for placement, with no second box', async () => {
+    await deckWith({ place: true })
+    expect(sent()).toMatch(/AVAILABLE VISUAL ASSETS FOR PLACEMENT:\\n1\. picture-01\.png \(image\)\\n2\. core-board\.png \(image\)\\n/)
+  })
+
+  // Review round 1, finding 4: a listed video is read only to be placed, so
+  // only with Place visual; it is never sent to the AI either way.
+  for (const place of [false, true]) {
+    it(`a listed video with Place visual ${place ? 'on is read and offered for placement' : 'off is neither read nor named'}`, async () => {
+      const adapter = withProject([
+        fileRow({ id: 'v1', name: 'core-clip.mp4', mime_type: 'video/mp4', size_bytes: 64 }),
+        fileRow({ id: 'c1', name: 'core-brief.txt', body: 'THE CORE BRIEF.' }),
+      ])
+      const d = await openDog({ upload: false })
+      await chooseProject(d)
+      await act(async () => { fireEvent.click(coreBox()) })
+      await waitFor(() => expect(refNames()).toEqual(['core-brief.txt', 'core-clip.mp4']))
+      if (place) await act(async () => { fireEvent.click(d.check('Place visual')) })
+      await type(d.box(), CONTEXT)
+      await act(async () => { fireEvent.click(fullDeckButton(d)) })
+      await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+      const read = adapter.downloadFile.mock.calls.map(([row]) => row.id).sort()
+      if (place) {
+        expect(read).toEqual(['c1', 'v1'])
+        expect(sent()).toMatch(/AVAILABLE VISUAL ASSETS FOR PLACEMENT:\\n1\. core-clip\.mp4 \(video\)\\n/)
+      } else {
+        expect(read).toEqual(['c1'])
+        expect(sent()).not.toContain('core-clip.mp4')
+      }
+    })
+  }
+})
+
+describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
+  it('off, with its sentence, before a project is chosen; off while the project has no Core file D.O.G. can read', async () => {
+    withProject([CORE()[2], CORE()[3]])
+    const d = await openDog({ upload: false })
+    expect(coreIsOff()).toBe(true)
+    expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
+    await chooseProject(d)
+    expect(coreIsOff()).toBe(true)
+    expect(coreSaid().textContent).toBe('This project has no Core files D.O.G. can read.')
+  })
+
+  it('ticked: the card lists exactly the readable Core files, the meter counts them, Add references is off, and a deck sends exactly them', async () => {
+    const adapter = withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    expect(coreIsOff()).toBe(false)
+    expect(coreSaid()).toBe(null)
+    expect(refNames()).toEqual([])
+    await act(async () => { fireEvent.click(coreBox()) })
+    await waitFor(() => expect(refNames()).toEqual(['core-board.png', 'core-brief.txt']))
+    expect(coreBox().getAttribute('aria-checked')).toBe('true')
+    expect(d.view.container.textContent).not.toContain('core-prop.psd')
+    expect(d.view.container.textContent).not.toContain('ref-notes.txt')
+    expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(true)
+    expect(d.q('.dog-refs-count').textContent).toBe('2 chosen')
+    // The meter counts what is listed: the text by its size, the picture at
+    // its estimate, with the project's own words (Lantern test, its line).
+    const expected = Math.ceil(40 / 4) + 4000 + Math.ceil(`${PROJECT.title} ${PROJECT.description}`.length / 4)
+    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('title')).toBe(`An estimate: about ${expected.toLocaleString()} of 200,000 tokens`)
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(sent()).toContain('[Project · CORE] core-board.png (image)')
+    expect(sent()).toContain('[Project · CORE] core-brief.txt (text)')
+    expect(sent()).toContain('THE CORE BRIEF.')
+    expect(sent()).not.toContain('core-prop.psd')
+    expect(sent()).not.toContain('ref-notes.txt')
+    expect(adapter.downloadFile.mock.calls.map(([row]) => row.id).sort()).toEqual(['c1', 'c2'])
+  })
+
+  it('the window\'s choices step aside while it is ticked and come back as they were when it is cleared', async () => {
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add references' })) })
+    const dialog = await screen.findByRole('dialog')
+    const row = await waitFor(() => within(dialog).getByRole('checkbox', { name: 'ref-notes.txt' }))
+    await act(async () => { fireEvent.click(row) })
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Done' })) })
+    expect(refNames()).toEqual(['ref-notes.txt'])
+    await act(async () => { fireEvent.click(coreBox()) })
+    await waitFor(() => expect(refNames()).toEqual(['core-board.png', 'core-brief.txt']))
+    expect(coreSaid().textContent).toBe('Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
+    await act(async () => { fireEvent.click(coreBox()) })
+    expect(refNames()).toEqual(['ref-notes.txt'])
+    expect(coreSaid()).toBe(null)
+    expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(false)
+  })
+
+  it('a Core file a deck sent stays in the AI\'s file store for the next Regenerate, and is let go of when the box is cleared', async () => {
+    callAI.mockImplementation(async () => ({ content: [{ type: 'text', text: DECK }], stop_reason: 'end_turn' }))
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    await act(async () => { fireEvent.click(coreBox()) })
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(uploadAIFile).toHaveBeenCalledTimes(1))       // the Core picture
+    await waitFor(() => expect([...d.view.container.querySelectorAll('button.dog-generate')].some((b) => /Generating/.test(b.textContent))).toBe(false))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(deleteAIFiles).not.toHaveBeenCalled()
+    await act(async () => { fireEvent.click(coreBox()) })
+    await waitFor(() => expect(deleteAIFiles).toHaveBeenCalledTimes(1))
+    expect(deleteAIFiles).toHaveBeenCalledWith(['file_dg2_1'])
+  })
+
+  // Review round 1, finding 5: a list on every return to D.O.G. was the
+  // whole pool; it is made again only when what the box shows depends on it.
+  const showPage = async (d, page) => {
+    await act(async () => { d.view.rerender(<ToastProvider bar="0px"><DeckOutlineGenerator currentPage={page} /></ToastProvider>) })
+  }
+  it('back on D.O.G., a project whose box is off for want of Core files is listed again: a file marked Core meanwhile turns it on', async () => {
+    const files = [CORE()[2], CORE()[3]]
+    const adapter = withProject(files)
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    expect(coreIsOff()).toBe(true)
+    files.push(fileRow({ id: 'c9', name: 'core-new.txt', body: 'MARKED SINCE.' }))   // marked Core in R.A.B.B.I.T. meanwhile
+    await showPage(d, 'rabbit')
+    await showPage(d, 'dog')
+    await waitFor(() => expect(coreIsOff()).toBe(false))
+    expect(adapter.listFiles).toHaveBeenCalledTimes(2)
+  })
+
+  it('back on D.O.G. with the box on and clear, nothing is listed again', async () => {
+    const adapter = withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    expect(adapter.listFiles).toHaveBeenCalledTimes(1)
+    await showPage(d, 'rabbit')
+    await showPage(d, 'dog')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(adapter.listFiles).toHaveBeenCalledTimes(1)
+    // CONTROL: ticked, the return lists again (its rows follow the list).
+    await act(async () => { fireEvent.click(coreBox()) })
+    const ticked = adapter.listFiles.mock.calls.length
+    await showPage(d, 'rabbit')
+    await showPage(d, 'dog')
+    await waitFor(() => expect(adapter.listFiles.mock.calls.length).toBe(ticked + 1))
+  })
+
+  // S2 merged first (her ruling of 2026-10-27, "One offline sentence on each
+  // screen"): card 1 keeps its one offline sentence and no New project, and
+  // the box adds nothing of its own.
+  // Review round 2, finding 2: DG2's no-project note sat in card 2 on S2's
+  // tip; in the one card it is card 1's too, so it goes while held offline.
+  it('a sign-in held at an offline launch: the box is off and silent, card 1 says its one offline sentence and nothing else of its own, no New project', async () => {
+    withProject(CORE())
+    setHeldSession({ access_token: 'held-for-a-test' })
+    try {
+      const d = await openDog({ upload: false })
+      const card1 = d.q('#dog-card1-body')
+      expect(coreIsOff()).toBe(true)
+      expect(coreSaid()).toBe(null)
+      expect(coreBox().hasAttribute('aria-describedby')).toBe(false)
+      expect([...card1.querySelectorAll('p')].filter((p) => /^Could not reach the database/.test(p.textContent))).toHaveLength(1)
+      expect(card1.textContent).not.toContain('Choose a project to reference')
+      expect(within(card1).queryByRole('button', { name: 'New project' })).toBe(null)
+    } finally {
+      await act(async () => { setHeldSession(null) })
+    }
+    // CONTROL: the hold over, the box and the note say why it is off again.
+    expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
+    expect(document.querySelector('#dog-card1-body').textContent).toContain('Choose a project to reference')
+  })
+
+  // Review round 2, finding 4 (b): off for the hold itself, not for want of a project.
+  it('held offline with a project chosen that has Core files: the box is still off, and a press does nothing', async () => {
+    withProject(CORE())
+    setHeldSession({ access_token: 'held-for-a-test' })
+    try {
+      const d = await openDog({ upload: false })
+      await act(async () => { fireEvent.change(d.q('select.dog-project-select'), { target: { value: PROJECT.id } }) })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(coreIsOff()).toBe(true)
+      expect(coreSaid()).toBe(null)
+      await act(async () => { fireEvent.click(coreBox()) })
+      expect(coreBox().getAttribute('aria-checked')).toBe('false')
+      expect(refNames()).toEqual([])
+    } finally {
+      await act(async () => { setHeldSession(null) })
+    }
+    // CONTROL: the hold over, the same project's box comes on.
+    await waitFor(() => expect(coreIsOff()).toBe(false))
+  })
+
+  it('Enter on it is D.O.G.\'s, as on its other tick boxes: the box empty, it asks, and the tick stays', async () => {
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    await act(async () => { fireEvent.click(coreBox()) })
+    await act(async () => { coreBox().focus() })
+    expect(await pressEnter(coreBox())).toBe(false)
+    expect(coreBox().getAttribute('aria-checked')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(d.box()))
+    expect(callAI).not.toHaveBeenCalled()
+    expect(d.toasts()).toHaveLength(1)
+  })
+})
+
+// The brief: "The Tab order test moves with the new checkbox, deliberately,
+// with the before and after orders quoted." D.O.G.'s column at the start
+// (Full deck, nothing uploaded, no project), by this walk.
+describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
+  const nameOf = (el) => {
+    const by = el.getAttribute('aria-labelledby')
+    if (by) return document.getElementById(by).textContent.trim()
+    return el.getAttribute('aria-label') || el.labels?.[0]?.textContent.trim() || el.textContent.trim()
+  }
+  const stopNames = (d) => [...d.view.container.querySelectorAll('.dog-main button, .dog-main input, .dog-main select, .dog-main textarea, .dog-main [tabindex]')]
+    .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden]') && !(el.tagName === 'INPUT' && el.type === 'file'))
+    .map(nameOf)
+  // Before (d0a83cc1, the same walk): 'Project', 'Choose a project', 'New
+  // project', 'References', 'Choose file', 'Add references', 'Generate
+  // outline', 'Full deck', 'Use visual assets', 'Use project assets',
+  // 'Theme generator', 'Deck Context & Guidelines': twelve stops.
+  // Review round 2, finding 1: off, Core files only stays a stop (aria-disabled,
+  // so it can say why it is off and never loses focus), right after Add references.
+  it('at the start: eleven stops, one card header fewer, Place visual for the two media boxes, Core files only after Add references', async () => {
+    const d = await openDog({ upload: false })
+    expect(stopNames(d)).toEqual(['Project and references', 'Choose a project', 'New project', 'Choose file', 'Add references', 'Core files only',
+      'Generate outline', 'Full deck', 'Place visual', 'Theme generator', 'Deck Context & Guidelines'])
+    expect(coreIsOff()).toBe(true)
+  })
+
+  it('with a project that has Core files: Core files only is the stop after Add references', async () => {
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    await chooseProject(d)
+    const names = stopNames(d)
+    expect(names.slice(names.indexOf('Add references'), names.indexOf('Generate outline') + 1)).toEqual(['Add references', 'Core files only', 'Generate outline'])
   })
 })

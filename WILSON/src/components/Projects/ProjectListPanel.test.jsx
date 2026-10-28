@@ -197,3 +197,26 @@ describe('the chrome', () => {
     expect(onCreate).toHaveBeenCalled()
   })
 })
+
+// ── S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.8) ─────────
+// Her ruling: "One offline sentence on each screen, no empty-state words" — and
+// no New or Create control. ProjectsPage passes `offline` (a sign-in held at an
+// offline launch, on the cloud adapter) and no onCreate.
+describe('S2 — a sign-in held at an offline launch', () => {
+  const SENTENCE = 'Could not reach the database — your projects appear when the connection returns.'
+  it('one sentence: no "No projects yet", no "Create your first project", no New project, no "0 projects"', () => {
+    mount({ projects: [], offline: true, onCreate: null })
+    expect(screen.getByText(SENTENCE)).toBeTruthy()
+    expect(screen.queryByText('No projects yet')).toBeNull()
+    expect(screen.queryByText(/Create your first project/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /new project/i })).toBeNull()
+    expect(screen.queryByText(/^0 projects$/)).toBeNull()
+  })
+  it('CONTROL: the same empty list online keeps its empty state, its count and its New project', () => {
+    mount({ projects: [] })
+    expect(screen.queryByText(SENTENCE)).toBeNull()
+    expect(screen.getByText('No projects yet')).toBeTruthy()
+    expect(screen.getByText(/^0 projects$/)).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: /new project/i }).length).toBeGreaterThan(0)
+  })
+})

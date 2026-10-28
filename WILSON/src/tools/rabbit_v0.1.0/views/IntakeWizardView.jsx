@@ -24,6 +24,8 @@ import { Toolbar } from '../../../ui/Toolbar'
 import { Button } from '../../../ui/Button'
 import { Dialog } from '../../../ui/Dialog'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useHeldOffline } from '../../../cloud/auth/heldSession'
+import { offlineSentence } from '../../../cloud/ConnectionLostBanner'
 import { PERSONA_LIST } from '../intake/personas'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import IntakePrepare, { DEFAULT_GENERATION_OPTIONS } from './intake/IntakePrepare'
@@ -48,6 +50,8 @@ export default function IntakeWizardView() {
   const project = ctx?.project
   const createProject = ctx?.createProject
   const setActiveProject = ctx?.setActiveProject
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the cloud adapter.
+  const heldOffline = useHeldOffline() && ctx?.adapterMode === 'supabase'
 
   const [step, setStep] = useState('prepare')
   const [files, setFiles] = useState([])
@@ -83,6 +87,8 @@ export default function IntakeWizardView() {
 
   // No project? Show gate with new-project option
   if (!activeProjectId) {
+    // S2: offline there is nothing to create a project in — the sentence alone.
+    if (heldOffline) return <NoProjectGate offline />
     if (showNewProjectForm) {
       return <NewProjectForm createProject={createProject} onCreated={handleProjectCreated} onCancel={() => setShowNewProjectForm(false)} />
     }
@@ -612,7 +618,7 @@ function StepIndicator({ step }) {
 }
 
 // ─── No-project gate ───
-function NoProjectGate({ onNewProject }) {
+function NoProjectGate({ onNewProject, offline = false }) {
   return (
     <div
       className="h-full flex flex-col items-center justify-center gap-4 p-8"
@@ -623,10 +629,14 @@ function NoProjectGate({ onNewProject }) {
         className="text-dense text-center max-w-md"
         style={{ color: 'var(--color-ink-2)' }}
       >
-        No project selected. Open the <span style={{ color: 'var(--color-ink)' }}>Summary</span> tab
-        to pick an existing project, or create a new one below.
+        {offline ? offlineSentence('projects') : (
+          <>
+            No project selected. Open the <span style={{ color: 'var(--color-ink)' }}>Summary</span> tab
+            to pick an existing project, or create a new one below.
+          </>
+        )}
       </div>
-      <Button variant="primary" Icon={Plus} onClick={onNewProject}>New project</Button>
+      {!offline && <Button variant="primary" Icon={Plus} onClick={onNewProject}>New project</Button>}
     </div>
   )
 }

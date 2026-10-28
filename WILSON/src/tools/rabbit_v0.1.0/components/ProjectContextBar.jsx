@@ -55,6 +55,8 @@ import { confirmLeave } from '../state/leaveGuard'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Button } from '../../../ui/Button'
 import { StatusBadge } from '../../../ui/StatusBadge'
+import { useHeldOffline } from '../../../cloud/auth/heldSession'
+import { offlineSentence } from '../../../cloud/ConnectionLostBanner'
 import '../rabbitShell.css'
 
 export default function ProjectContextBar({ presenceSlot = null } = {}) {
@@ -63,6 +65,8 @@ export default function ProjectContextBar({ presenceSlot = null } = {}) {
   const projectsIndex = ctx?.projectsIndex || {}
   const activeProjectId = ctx?.activeProjectId
   const setActiveProject = ctx?.setActiveProject
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the cloud adapter.
+  const heldOffline = useHeldOffline() && ctx?.adapterMode === 'supabase'
 
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef(null)
@@ -99,7 +103,7 @@ export default function ProjectContextBar({ presenceSlot = null } = {}) {
         {open && (
           <div className="rb-ctx-menu">
             {projects.length === 0 ? (
-              <div className="rb-ctx-menu-empty text-dense">No projects yet.</div>
+              <div className="rb-ctx-menu-empty text-dense">{heldOffline ? offlineSentence('projects') : 'No projects yet.'}</div>
             ) : (
               projects.map(p => {
                 const isActive = p.id === activeProjectId

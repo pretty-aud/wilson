@@ -51,7 +51,9 @@ describe('the per-user pet is actually reached from App.jsx', () => {
     // `authed` is a boolean: it does not change when the identity under it
     // does, so an account switch would be invisible. And the pet's mount effect
     // wins the race against authentication, so a cloud read there gets nothing.
-    expect(app).toMatch(/\},\s*\[perms\.ready,\s*perms\.userId\]\)/)
+    // S2 (night 3): plus the retry counter, so a failed sync is read again
+    // without a relaunch (RECONNECT_DESIGN.md §11.10). Still not `authed`.
+    expect(app).toMatch(/\},\s*\[perms\.ready,\s*perms\.userId,\s*petSyncRetry\]\)/)
   })
 
   it('🚨 tears the pet down on sign-out', () => {
@@ -323,7 +325,8 @@ describe('A3/R1 — the corrections round 1 found', () => {
   it('🚨 an identity change clears the PET, not only the routing', () => {
     // petData was blanked only when userId was falsy, so an A → B switch with
     // no signed-out state in between left A's pet on screen with B's routing.
-    expect(app).toMatch(/if\s*\(previousOwner\)\s*setPetData\(null\);/)
+    // S2: the switch also forgets the previous identity's retry.
+    expect(app).toMatch(/if\s*\(previousOwner\)\s*\{\s*setPetData\(null\);\s*petSyncRetryRef\.current\.cancel\(\);/)
   })
 
   it('🚨 the sticky Settings notice is a SECOND state, not the toast\'s', () => {
@@ -414,7 +417,12 @@ describe('A3/R2 — the corrections round 2 found', () => {
     expect(app).toMatch(/bootOwnerRef\.current = owner;/)
     // ...and it is cleared wherever the session ends, or the next signed-out
     // save would throw instead of writing this machine's own cache.
-    expect(app).toMatch(/if \(!userId\) \{ setPetData\(null\); bootOwnerRef\.current = null; return; \}/)
+    // S2: the sign-out also stops the pet's retry.
+    expect(app).toMatch(/if \(!userId\) \{\s*setPetData\(null\); bootOwnerRef\.current = null;\s*petSyncRetryRef\.current\.cancel\(\); petSyncToastRef\.current = false;\s*return;\s*\}/)
+    // S2 (round 1, F5): and the identity the permissions name is the one the
+    // sign-out clears — while a sign-in is held offline petUserIdRef is never
+    // installed, and the signed-out pass above nulled this.
+    expect(app).toMatch(/bootOwnerRef\.current = userId;/)
     expect(app).toMatch(/const leavingUserId = petUserIdRef\.current \|\| bootOwnerRef\.current;/)
   })
 
@@ -432,7 +440,10 @@ describe('A3/R2 — the corrections round 2 found', () => {
     // person got a blank Companion card with their own cached pet sitting on
     // the machine. The cache is per-account, so it can only read their own.
     expect(app).toMatch(/const cached = await loadPet\(userId\);/)
-    expect(app).toMatch(/if \(!cancelled && cached\)/)
+    // S2 (round 1, F5): and only when no pet is on screen — a failed RETRY must
+    // not replace the pet on screen with the cache (a feed made since would go).
+    expect(app).toMatch(/if \(!petDataRef\.current\) \{/)
+    expect(app).toMatch(/if \(!cancelled && cached && !petDataRef\.current\)/)
   })
 
   it('the unrecoverable-sync copy names the relaunch, because nothing retries', () => {
@@ -440,6 +451,11 @@ describe('A3/R2 — the corrections round 2 found', () => {
     // TOKEN_REFRESHED without changing userId, so it never re-runs. A sentence
     // promising the save would happen "once the connection comes back" was a
     // promise the code does not keep.
+    //
+    // S2 (night 3, 2026-10-27): something retries now (petLifecycle.js's
+    // createPetSyncRetry: five tries over eight minutes, then on a trigger),
+    // and the brief keeps this wording as it is: a save made before the retry
+    // lands is still refused, and the relaunch it names still works.
     expect(app).toMatch(/Reopen WILSON to try again\./)
     expect(app).not.toMatch(/It will save once the connection comes back\./)
   })

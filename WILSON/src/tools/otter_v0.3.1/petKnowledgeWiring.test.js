@@ -174,8 +174,11 @@ describe('the session index cache is torn down with the identity', () => {
     // App.jsx:744 documents exactly this for the pet itself. Audrey runs two
     // accounts in two browsers at once; a cache keyed on a boolean would serve
     // one account's library to the other.
+    // S2 (night 3, 2026-10-27): one more trigger after the three, the
+    // confirmation of a sign-in held at an offline launch (on the desktop the
+    // library O.T.T.E.R. shows changes then); still keyed on the identity.
     const effect = appCode.slice(appCode.indexOf('clearPetKnowledgeCache()'))
-    expect(effect.slice(0, 200)).toMatch(/\[perms\.ready,\s*perms\.userId,\s*perms\.workspaceId\]/)
+    expect(effect.slice(0, 400)).toMatch(/\[perms\.ready,\s*perms\.userId,\s*perms\.workspaceId,\s*perms\.offline\]/)
   })
 })
 

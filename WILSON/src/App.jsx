@@ -16,7 +16,7 @@ import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
 import { looksLikeRecoveryLink } from './cloud/auth/recoveryLink'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
-import { hydrateSupabase, supabase, endSessionLocally } from './cloud/auth/supabaseClient'
+import { hydrateSupabase, supabase, endSessionLocally, onHeldSessionRefused } from './cloud/auth/supabaseClient'
 import { fetchWorkspaceStorage, clearWorkspaceStorageCache } from './cloud/workspaceStorage'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { releaseAllAIFiles } from './cloud/aiFiles'
@@ -26,7 +26,7 @@ import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSource
 import { loadPet, savePetData, clearPetCache, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import { canCreateNewEgg, mintEggFrom,
          DECAY_RATES, EVOLVE_TIMES, SLEEP_DURATIONS, CORPSE_TO_GHOST_MS,
-         derivePetState, applyOfflineDecay } from './lib/petLifecycle'
+         derivePetState, applyOfflineDecay, createPetSyncRetry } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
 import { installCompanionShiftHotkey } from './lib/companionHotkey'
 import { PAGES, PAGE_BARS, PAGE_TITLES, COMPRESSED_BAR_HEIGHT, getPage, navPages } from './layout/pages'
@@ -69,8 +69,9 @@ import { AUTH_TIMEOUT_MS } from './cloud/auth/withTimeout'
 // and the WIL-1002 reporter.
 import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from './cloud/auth/authEvents'
 import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from './cloud/auth/sessionTimeouts'
-import SessionWarning, { describeSessionExpiry } from './cloud/auth/SessionWarning'
+import SessionWarning, { describeSessionExpiry, HELD_REFUSED_NOTICE } from './cloud/auth/SessionWarning'
 import ConnectionLostBanner from './cloud/ConnectionLostBanner'
+import { connectionWatchdog } from './cloud/connectionWatchdog'
 import { reportAppEvent } from './cloud/errorCodes'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 // Post-overhaul S3c, step 7 (D12): an unsaved edit asks before every exit.
@@ -184,7 +185,15 @@ async function checkSessionValid() {
     // ceiling as every await in LoginScreen; a timeout is "no session", so the
     // sign-in screen appears within it. The request is left to settle
     // (withTimeout races, never aborts) — a late success is harmless.
-    const session = await withTimeout(hydrateSupabase(saved), AUTH_TIMEOUT_MS, 'session restore');
+    //
+    // S2 (night 3, 2026-10-27; docs/design/RECONNECT_DESIGN.md §11.4, her
+    // ruling "A sign-in less than 4 hours old"): `holdOffline` — this surface
+    // only, never the operator console — lets a saved sign-in inside the
+    // 4-hour cap whose launch reaches nothing open the shell OFFLINE: the
+    // client module holds it and returns it, decided within 10 s, so the
+    // bound here is reached only by a launch outside the cap (today's
+    // restore, untouched). A sign-in itself still cannot succeed offline.
+    const session = await withTimeout(hydrateSupabase(saved, { holdOffline: true }), AUTH_TIMEOUT_MS, 'session restore');
     return session ?? null;
   } catch (err) {
     console.warn('[wilson] session restore skipped:', err?.message ?? err);
@@ -473,7 +482,10 @@ export default function App() {
       } catch { /* non-fatal; user can still use the app without onboarding */ }
     })();
     return () => { cancelled = true; };
-  }, [authed]);
+    // S2: and again when a sign-in held at an offline launch is confirmed —
+    // offline the session read above has nothing to answer with
+    // (RECONNECT_DESIGN.md §11.9).
+  }, [authed, perms.offline]);
 
   // Session 20: fill the three model override tiers from Supabase once there is
   // a session, and move any S19 localStorage preferences into the user tier.
@@ -486,7 +498,11 @@ export default function App() {
   // Deliberately non-fatal: if these reads fail the app keeps the cached tiers
   // and keeps generating. A catalogue outage must not become an AI outage.
   useEffect(() => {
-    if (!authed) return;
+    // S2 (build review round 2, note iii): not while a sign-in held at an
+    // offline launch is unconfirmed — the guard refuses every read, and the
+    // migration would mark itself done with nothing moved. It runs on the
+    // confirmation instead (perms.offline below).
+    if (!authed || perms.offline) return;
     let cancelled = false;
     (async () => {
       try {
@@ -496,7 +512,8 @@ export default function App() {
       } catch { /* cached tiers stand; never block generation on this */ }
     })();
     return () => { cancelled = true; };
-  }, [authed]);
+    // S2: read again on the confirmation of an offline launch (§11.9).
+  }, [authed, perms.offline]);
 
   // Session 9 (locked #9): admin tiers without a verified TOTP factor get
   // the enrollment gate. Role comes from usePermissions (JWT-decoded) — the
@@ -517,7 +534,12 @@ export default function App() {
       } catch { /* gate is best-effort */ }
     })();
     return () => { cancelled = true; };
-  }, [authed, perms.ready, perms.role, perms.isPlatformOperator]);
+    // 🚨 S2 (security): `perms.offline` too. While a sign-in held at an offline
+    // launch is unconfirmed, listFactors() has no session to answer with and
+    // the gate stays down; without this an admin who quit at the gate and
+    // relaunched offline would skip it for the whole session once the
+    // connection returned (RECONNECT_DESIGN.md §11.9).
+  }, [authed, perms.ready, perms.role, perms.isPlatformOperator, perms.offline]);
 
   // Session 9: version check at sign-in (locked #10). The updater pushes
   // 'available' after our check; skipped versions stay quiet until the next
@@ -572,7 +594,13 @@ export default function App() {
   // failure this bundle's banner exists for — leaving the encrypted session
   // on disk. The in-memory JWT still serves the two log writes.
   const signingOutRef = useRef(null);
-  const signOutLocal = useCallback(async ({ event = 'sign_out' } = {}) => {
+  // S2: `notice` is the sign-in screen's one line when the reason is not an
+  // expiry — the held sign-in refused on the way back (below), which writes no
+  // auth_events row (event: null). `keepStore`: the client module has already
+  // cleared the stored session if it still held the refused token, and a
+  // newer one another tab saved is not this sign-out's to remove (build
+  // review round 1, F6).
+  const signOutLocal = useCallback(async ({ event = 'sign_out', notice = null, keepStore = false } = {}) => {
     if (signingOutRef.current) return signingOutRef.current;
     const run = (async () => {
       // 🚨 A3: THE CACHED PET LEAVES WITH THE PERSON.
@@ -591,19 +619,24 @@ export default function App() {
       const leavingUserId = petUserIdRef.current || bootOwnerRef.current;
       bootOwnerRef.current = null;
       const expiry = EXPIRE_REASONS.includes(event) ? event : null;
-      setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
-      await clearSession();
+      setSignedOutNotice(notice ?? (expiry ? describeSessionExpiry(expiry) : ''));
+      if (!keepStore) await clearSession();
       // S1: and the client module's latch, so a refresh that lands later (the
       // SDK's signOut below can queue behind a hung session check and run on
       // a dead network) cannot write the ended session back.
-      endSessionLocally();
+      // S2 (build review round 2, F1, F4): true when the session ended was one
+      // HELD at an offline launch — the SDK never held it, and there is no
+      // token to write with: no rows, no AI-files release and no SDK sign-out
+      // below (that one would queue behind the SDK's lock and run on whatever
+      // session it holds by then, a new sign-in's).
+      const endedHeld = endSessionLocally();
       // The cache goes right behind the session: a local write (or a loopback
       // DELETE on the desktop), never a cloud call, so it sits ahead of the
       // bounded log writes rather than behind a revoke that may hang.
       if (leavingUserId) await clearPetCache(leavingUserId);
       const writes = [];
-      if (event) writes.push(recordAuthEvent(event));
-      if (expiry) {
+      if (event && !endedHeld) writes.push(recordAuthEvent(event));
+      if (expiry && !endedHeld) {
         writes.push(withTimeout(reportAppEvent({
           code: 'WIL-1002', eventType: 'auth', severity: 'info',
           context: { reason: expiry, surface: 'app' },
@@ -613,11 +646,13 @@ export default function App() {
       // leaves with the person, while the token can still say whose it is.
       // keepalive, so a window closed mid-sign-out still sends; bounded like
       // the writes beside it, and the store's own expiry takes a miss.
-      writes.push(withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files').catch(() => { /* best-effort */ }));
+      if (!endedHeld) writes.push(withTimeout(releaseAllAIFiles({ keepalive: true }), 4000, 'AI files').catch(() => { /* best-effort */ }));
       if (writes.length) await Promise.all(writes);
-      try {
-        await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
-      } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      if (!endedHeld) {
+        try {
+          await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
+        } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      }
       setSessionId(null);
       // 🚨 Belt and braces with the perms.userId teardown effect: this runs
       // even if the permissions channel is slow to notice, so the next person
@@ -652,6 +687,16 @@ export default function App() {
     window.wilsonSignOut = signOutLocal;
     return () => { delete window.wilsonSignOut; };
   }, [signOutLocal]);
+
+  // S2 (RECONNECT_DESIGN.md §11.5): a sign-in held at an offline launch that
+  // the cloud refused once the connection returned is over — the client module
+  // has already cleared the stored session if it still held the refused token.
+  // The sign-in screen, with the one line that says why; no auth_events row.
+  // It is told while the hold still names the person, so the sign-out reads
+  // whose pet cache to clear (build review round 1, F3).
+  useEffect(() => onHeldSessionRefused(() => {
+    signOutLocal({ event: null, notice: HELD_REFUSED_NOTICE, keepStore: true });
+  }), [signOutLocal]);
 
   // B2 part 2: the idle warning at 25 minutes, sign-out at 30, and the
   // absolute 4-hour cap — sessionTimeouts.js carries the numbers and the
@@ -958,6 +1003,26 @@ export default function App() {
   // otherwise a slow resolveUserPet() landing after the click overwrites the
   // fresh egg with the dead pet it had already fetched.
   const petEpochRef = useRef(0);
+  // ── S2 (night 3, 2026-10-27; RECONNECT_DESIGN.md §11.10): a failed pet sync
+  // is retried without a relaunch. The identity effect below is keyed on the
+  // identity, which a blip does not change, so a failed resolve used to leave
+  // the routing uninstalled for the life of the process. This counter is in
+  // its dependencies; the bounded schedule (5 s … 5 min, then stop until a
+  // trigger) is petLifecycle.js's createPetSyncRetry. While a sign-in is held
+  // at an offline launch nothing is armed: its confirmation is the retry.
+  const [petSyncRetry, setPetSyncRetry] = useState(0);
+  const petSyncRetryRef = useRef(null);
+  if (petSyncRetryRef.current === null) {
+    petSyncRetryRef.current = createPetSyncRetry({ retry: () => setPetSyncRetry(n => n + 1) });
+  }
+  // The sync error's toast is up: said once, not again on each failed retry.
+  const petSyncToastRef = useRef(false);
+  // What the async catch below needs to know about NOW, not about the render
+  // that started the read: is a pet on screen, and is the session held offline?
+  const petDataRef = useRef(null);
+  petDataRef.current = petData;
+  const permsOfflineRef = useRef(false);
+  permsOfflineRef.current = perms.offline;
 
   // Companion state
   const [companionOpen, setCompanionOpen] = useState(false);
@@ -1260,7 +1325,7 @@ export default function App() {
       // prevent.
       const previousOwner = petUserIdRef.current;
       petUserIdRef.current = null;
-      if (previousOwner) setPetData(null);
+      if (previousOwner) { setPetData(null); petSyncRetryRef.current.cancel(); petSyncToastRef.current = false; }
     }
     // The settings writers live in other components and must know too. They are
     // a different store with a different failure mode — a settings write that
@@ -1277,7 +1342,16 @@ export default function App() {
     // nearly unreachable only because the sole sign-out control is buried in
     // the MFA enrolment gate. Adding a reachable one without this teardown
     // would turn a latent leak into a routine one.
-    if (!userId) { setPetData(null); bootOwnerRef.current = null; return; }
+    if (!userId) {
+      setPetData(null); bootOwnerRef.current = null;
+      petSyncRetryRef.current.cancel(); petSyncToastRef.current = false;
+      return;
+    }
+    // S2 (round 1, F5): who the permissions say this is, in the ref the sign-out
+    // reads to clear the cache. While a sign-in is held at an offline launch
+    // petUserIdRef is never installed and the signed-out pass above has nulled
+    // this, so a sign-out would otherwise leave this person's cache behind.
+    bootOwnerRef.current = userId;
 
     let cancelled = false;
     // Phase 3: the read is stamped with the epoch it was ISSUED in. Creating a
@@ -1293,6 +1367,16 @@ export default function App() {
         // yields nothing cannot re-point writes at an account whose pet is not
         // on screen.
         if (!cancelled && pet) petUserIdRef.current = userId;
+        // S2: the read landed: the retry stops, and its error toast goes with
+        // it. The Settings copy keeps R1 of A3's lifetime — cleared by the
+        // next successful save or a sign-out, and nowhere else.
+        if (!cancelled) {
+          petSyncRetryRef.current.succeeded();
+          if (petSyncToastRef.current) {
+            petSyncToastRef.current = false;
+            setPetNotice(n => (n && n.kind === 'error' ? null : n));
+          }
+        }
         // 🚨 Phase 3: this NO LONGER `return`s when the epoch has moved. It
         // only skips INSTALLING the pet, then falls through to the settings
         // half below. Returning here meant that creating an egg while the
@@ -1331,6 +1415,10 @@ export default function App() {
         // It must still SAY so, because "your pet stopped syncing" and "your pet
         // is fine" look identical on screen.
         if (!cancelled) {
+          // S2: try again later — bounded, and never while a sign-in is held
+          // at an offline launch (its confirmation is the retry).
+          const heldOffline = permsOfflineRef.current;
+          petSyncRetryRef.current.failed({ held: heldOffline });
           // 🚨 R2: FALL BACK TO THIS ACCOUNT'S OWN CACHE.
           //
           // The mount effect has `[]` deps, so on an identity switch it has
@@ -1339,25 +1427,57 @@ export default function App() {
           // switch left the new person with a blank Companion card even
           // though their own cached pet was sitting on the machine. The cache
           // is per-account, so this can only ever read their own.
-          try {
-            const cached = await loadPet(userId);
-            if (!cancelled && cached) {
-              const fresh = applyOfflineDecay(cached);
-              petPersistedSigRef.current = petMaterialSignature(fresh);
-              setPetData(fresh);
+          //
+          // S2 (round 1, F5): ONLY when no pet is on screen. A failed retry
+          // re-reading the cache would replace the pet on screen, and undo a
+          // feed made since the launch.
+          if (!petDataRef.current) {
+            try {
+              const cached = await loadPet(userId);
+              if (!cancelled && cached && !petDataRef.current) {
+                const fresh = applyOfflineDecay(cached);
+                petPersistedSigRef.current = petMaterialSignature(fresh);
+                setPetData(fresh);
+              }
+            } catch { /* the cache is a cache; the message below is the point */ }
+          }
+          // S2: while the session is held offline the strip already says the
+          // cloud is out of reach; no error line and no toast (which has no
+          // timer) say it again. Once confirmed, a failure is said — once.
+          if (!heldOffline) {
+            const message = err?.message || 'Your pet could not be synced from your account.';
+            setPetSaveError(message);
+            // 🚨 A3: and SAY it somewhere that exists when the pet does not. When
+            // this is a cold start the catch leaves petData null, so the
+            // companion — the only renderer of petSaveError — is never mounted.
+            if (!petSyncToastRef.current) {
+              petSyncToastRef.current = true;
+              announcePetNotice({ kind: 'error', message });
             }
-          } catch { /* the cache is a cache; the message below is the point */ }
-          const message = err?.message || 'Your pet could not be synced from your account.';
-          setPetSaveError(message);
-          // 🚨 A3: and SAY it somewhere that exists when the pet does not. When
-          // this is a cold start the catch leaves petData null, so the
-          // companion — the only renderer of petSaveError — is never mounted.
-          announcePetNotice({ kind: 'error', message });
+          }
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [perms.ready, perms.userId]);
+  }, [perms.ready, perms.userId, petSyncRetry]);
+
+  // ── S2: what asks for the pet again at once (RECONNECT_DESIGN.md §11.10) ──
+  // The window coming online, and a lost connection family recovering; each
+  // retries only after a failed read, and starts the bounded count again.
+  useEffect(() => {
+    const retry = petSyncRetryRef.current;
+    const onOnline = () => retry.trigger();
+    window.addEventListener('online', onOnline);
+    const offRecovered = connectionWatchdog.onRecovered(() => retry.trigger());
+    return () => { window.removeEventListener('online', onOnline); offRecovered(); retry.cancel(); };
+  }, []);
+  // …and the confirmation of a sign-in held at an offline launch, which
+  // follows the first answered ping: the retry the hold deferred.
+  const wasOfflineRef = useRef(perms.offline);
+  useEffect(() => {
+    if (wasOfflineRef.current && !perms.offline) petSyncRetryRef.current.trigger();
+    wasOfflineRef.current = perms.offline;
+  }, [perms.offline]);
 
   // ── S37: the storage-choice cache dies with the session ───────────────────
   // getWorkspaceStorageCached (the upload path's provider decision) holds one
@@ -1368,7 +1488,8 @@ export default function App() {
   useEffect(() => {
     if (!perms.ready) return;
     clearWorkspaceStorageCache();
-  }, [perms.ready, perms.workspaceId]);
+    // S2: and on the confirmation of an offline launch, ahead of the root's read below.
+  }, [perms.ready, perms.workspaceId, perms.offline]);
 
   // ── Phase 6: the pet's course index dies with the identity ────────────────
   // petKnowledge holds ONE module-level index of every course the caller may
@@ -1381,7 +1502,9 @@ export default function App() {
   useEffect(() => {
     if (!perms.ready) return;
     clearPetKnowledgeCache();
-  }, [perms.ready, perms.userId, perms.workspaceId]);
+    // S2: on the confirmation of an offline launch too: on the desktop the
+    // library O.T.T.E.R. shows changes from this computer's to the company's.
+  }, [perms.ready, perms.userId, perms.workspaceId, perms.offline]);
 
   // ── A4: the library switch moves the pet's index too ──────────────────────
   // O.T.T.E.R.'s Settings → Library control flips the adapter between the
@@ -1434,7 +1557,9 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [perms.ready, perms.workspaceId]);
+    // S2: read again on the confirmation of an offline launch, so a NAS
+    // company's root reaches the main process once the cloud answers (§11.9).
+  }, [perms.ready, perms.workspaceId, perms.offline]);
 
   // Decay timer — runs every 30 seconds
   useEffect(() => {

@@ -16,8 +16,13 @@
 // =============================================================================
 
 import { createClient } from '@supabase/supabase-js'
-import { saveSession } from './sessionStorage'
-import { connectionWatchdog, createAnonGuard } from '../connectionWatchdog'
+import { saveSession, loadSession, clearSession } from './sessionStorage'
+import { insideSessionCap, sessionIdOf } from './sessionTimeouts'
+import { heldSession, setHeldSession } from './heldSession'
+import {
+  connectionWatchdog, createAnonGuard, restoreSavedSession, rehydrateSession, classifyAuthFailure, headerOf,
+  ANON_GUARD_MESSAGE, HELD_GUARD_MESSAGE,
+} from '../connectionWatchdog'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -65,6 +70,195 @@ const baseFetch = typeof fetch === 'function' ? (input, init) => fetch(input, in
 let signedIn = false
 let endedLocally = false
 
+// ── S2 (night 3, 2026-10-27): the session held at an offline launch ─────────
+//
+// docs/design/RECONNECT_DESIGN.md §11. A saved sign-in inside the 4-hour cap
+// whose launch reached nothing opens the shell offline — on the APP surface
+// only (App's checkSessionValid passes `holdOffline`; the operator console
+// restores as before). auth-js's `_setSession` saved nothing in that case, so
+// the SDK holds no session and this module holds the saved one instead:
+//   * the guard is LATCHED from the hold (`signedIn`), so every PostgREST and
+//     storage request supabase-js sends with the anon bearer is refused before
+//     the network, with HELD_GUARD_MESSAGE — never the anon key on the wire;
+//   * usePermissions reads the held token's claims (heldSession.js, the one
+//     value and its listeners), with no network read;
+//   * the watchdog marks the auth family lost (the strip from the first paint)
+//     and pings it; the first answered ping re-hydrates (`setSession(held)`),
+//     the SDK emits SIGNED_IN or TOKEN_REFRESHED, and the hold ends: the
+//     confirmation. A refusal on the way back ends the session (App listens:
+//     onHeldSessionRefused) after clearing the stored session if it still
+//     holds the refused refresh token.
+const refusedListeners = new Set()
+let rehydration = null      // the re-hydration in flight, one at a time
+let signOutEpoch = 0        // bumped by endSessionLocally: a re-hydration begun before it is dropped
+let endedSid = null         // the session id a sign-out ended while it was held
+// The held session's own auth work — the launch's restore and the
+// re-hydration — sends its GET /user and its refresh through its work's
+// controller, and a sign-out aborts every piece of it (build review round 1,
+// F4): a late answer must never save the ended session into the SDK over a
+// newer sign-in. Each piece still out is one entry here (StrictMode's double
+// mount starts two launches in dev). Only the held session's own requests
+// are joined, told by its own tokens — the bearer of GET /user, the refresh
+// token in the refresh's body — never by URL alone, so a new sign-in's own
+// refresh is never touched (build review round 2, F1).
+const heldWorks = new Set()  // { ctl, session } for each piece of held work still out
+// Whether the SDK holds a session of its own, as its last event said. While
+// a session is held at an offline launch it holds none: the held one is
+// this module's, not the SDK's.
+let sdkHoldsSession = false
+
+// Once aborted, the work's further attempts are answered at once, without the
+// network (build review round 2, F1): auth-js retries an aborted refresh for
+// up to 30 s with its lock held, and a new sign-in's next step would wait
+// behind it. A refusal (a 400) ends that loop at its next attempt; auth-js
+// then removes the SDK's session and emits SIGNED_OUT, which is nothing while
+// the SDK holds none. Should a new sign-in have landed meanwhile (the password
+// grant takes no lock), a refusal would remove THAT session, so the answer is
+// a 503 instead: the loop runs out its window sending nothing, and removes
+// nothing.
+const HELD_WORK_ENDED = JSON.stringify({ code: 400, error_code: 'session_ended', msg: 'Signed out on this computer: the saved sign-in is not restored.' })
+
+function heldWorkEndedAnswer() {
+  const status = sdkHoldsSession ? 503 : 400
+  return new Response(HELD_WORK_ENDED, { status, headers: { 'content-type': 'application/json' } })
+}
+
+function ownHeldWork(session) {
+  if (typeof AbortController !== 'function' || !session) return null
+  const work = { ctl: new AbortController(), session }
+  heldWorks.add(work)
+  return work
+}
+
+function releaseHeldWork(work) {
+  if (work) heldWorks.delete(work)
+}
+
+/** Is this the held session's own GET /user or refresh? Told by its tokens. */
+function isHeldWorkRequest(input, init, session) {
+  const where = typeof input === 'string' ? input : (input?.url ?? String(input ?? ''))
+  const method = String(init?.method ?? 'GET').toUpperCase()
+  if (method === 'GET' && /\/auth\/v1\/user(\?|$)/.test(where)) {
+    return headerOf(init, 'authorization') === `Bearer ${session.access_token}`
+  }
+  if (method === 'POST' && where.includes('/auth/v1/token') && where.includes('grant_type=refresh_token')) {
+    try { return JSON.parse(typeof init?.body === 'string' ? init.body : 'null')?.refresh_token === session.refresh_token } catch { return false }
+  }
+  return false
+}
+
+const joinHeldWork = (f) => (input, init) => {
+  if (heldWorks.size && !init?.signal) {
+    for (const work of heldWorks) {
+      if (!isHeldWorkRequest(input, init, work.session)) continue
+      if (work.ctl.signal.aborted) return Promise.resolve(heldWorkEndedAnswer())
+      return f(input, { ...init, signal: work.ctl.signal })
+    }
+  }
+  return f(input, init)
+}
+
+/** Called when the cloud refused the held session on the way back: App ends the session. */
+export function onHeldSessionRefused(listener) {
+  refusedListeners.add(listener)
+  return () => { refusedListeners.delete(listener) }
+}
+
+/** The SDK holds the session now: the hold ends, and the launch's loss with it if nothing real is out. */
+function confirmHeld() {
+  if (!heldSession()) return
+  setHeldSession(null)
+  connectionWatchdog.launchEnded()
+}
+
+/**
+ * Clear the stored session only if it still holds this refresh token (another
+ * tab may have saved a newer one). A store that cannot be read is cleared
+ * anyway (build review round 2, note i): a refused sign-in left on disk would
+ * open the shell at a later offline launch.
+ */
+async function clearIfStillHolds(refreshToken) {
+  let current
+  try { current = await loadSession() } catch {
+    try { await clearSession() } catch { /* the store is best effort */ }
+    return
+  }
+  try {
+    if (current?.refresh_token && current.refresh_token === refreshToken) await clearSession()
+  } catch { /* the store is best effort; the sign-in screen follows either way */ }
+}
+
+async function refuseHeld(session) {
+  if (heldSession() !== session) return
+  await clearIfStillHolds(session.refresh_token)
+  if (heldSession() !== session) return
+  // App is told while the hold still names the person (build review round 1,
+  // F3): its sign-out reads whose pet cache to clear from the identity the
+  // held claims gave it, which ending the hold first would already have
+  // emptied. Its sign-out ends the hold (endSessionLocally); in case nobody
+  // listens, it is ended here after.
+  for (const l of refusedListeners) { try { l(session) } catch { /* same rule */ } }
+  if (heldSession() === session) {
+    setHeldSession(null)
+    connectionWatchdog.launchEnded()
+  }
+}
+
+function hold(session, late, work) {
+  signedIn = true
+  endedLocally = false
+  endedSid = null
+  setHeldSession(session)
+  connectionWatchdog.launchedOffline({ origin: url ?? '', apikey: anon ?? null })
+  // The SDK's restore may still be running (the launch ceiling decided): its
+  // answer, whenever it comes, is the confirmation or the refusal; meanwhile no
+  // ping is sent and no answer clears the strip (build review round 1, F2:
+  // an answer can hold no session — a 429, a portal's page).
+  if (late) {
+    const settled = Promise.resolve(late).then((r) => {
+      // the hold ended meanwhile: lower the launch's loss — but only when no
+      // other hold is current (a second launch's, under StrictMode's double
+      // mount: build review round 2, F5)
+      if (heldSession() !== session) { if (!heldSession()) connectionWatchdog.launchEnded(); return }
+      if (!r?.error && r?.data?.session) confirmHeld()
+      else if (classifyAuthFailure(r?.error) === 'refused-ends') return refuseHeld(session)
+      // anything else: still held, the strip still up, the pings resume
+    }, () => { /* a thrown restore changes nothing: the next answered ping asks again */ })
+      .finally(() => releaseHeldWork(work))
+    connectionWatchdog.quietWhile('auth', settled)
+  } else {
+    releaseHeldWork(work)
+  }
+}
+
+/** The re-hydration (§11.5): on the first answered auth ping while a session is held. */
+function rehydrate() {
+  if (!heldSession() || rehydration) return rehydration
+  const session = heldSession()
+  const epoch = signOutEpoch
+  const work = ownHeldWork(session)
+  rehydration = (async () => {
+    const r = await rehydrateSession({ auth: supabase.auth, held: session })
+    if (epoch !== signOutEpoch) {
+      // A sign-out landed while it was out (its request was aborted with it):
+      // the person's word stands. Should the SDK hold the session anyway, it
+      // is signed out locally; and the launch's loss is lowered now that the
+      // request has settled (build review round 1, F5).
+      if (r.outcome === 'online') Promise.resolve(supabase.auth.signOut({ scope: 'local' })).catch(() => { /* best effort */ })
+      if (!heldSession()) connectionWatchdog.launchEnded()
+      return
+    }
+    if (r.outcome === 'online') confirmHeld()
+    else if (r.outcome === 'refused') await refuseHeld(session)
+    // 'unreached' (a 404, a 429 or a page that is not GoTrue's included): still
+    // held; the family stays lost (quietWhile kept the answer from clearing
+    // it), so the next answered ping asks again.
+  })().catch(() => { /* reached nothing: still held; the next answered ping asks again */ })
+    .finally(() => { rehydration = null; releaseHeldWork(work) })
+  connectionWatchdog.quietWhile('auth', rehydration)
+  return rehydration
+}
+
 /**
  * S1 (review round 2, F1): the person ended the session HERE while the cloud
  * could not be reached. App.jsx's signOutLocal and the operator console's
@@ -84,12 +278,34 @@ let endedLocally = false
 export function endSessionLocally() {
   endedLocally = true
   signedIn = false
+  // S2: and a session held at an offline launch ends with it, so the guard,
+  // usePermissions and the pet follow the sign-out at once; the launch's loss
+  // is lowered (nothing is left to ask). A re-hydration still out is dropped.
+  signOutEpoch += 1
+  // The held session's own auth work (a restore or a re-hydration still out,
+  // every piece of it) is aborted: its answer must not save the ended session
+  // into the SDK.
+  for (const work of heldWorks) { try { work.ctl.abort() } catch { /* an unusual controller */ } }
+  const ending = heldSession()
+  if (ending) {
+    endedSid = sessionIdOf(ending)
+    setHeldSession(null)
+    connectionWatchdog.launchEnded()
+  }
+  // True when the session ended was a HELD one: the SDK never held it, so the
+  // caller queues no SDK sign-out (it would run, behind the SDK's lock, on
+  // whatever session the SDK holds by then — a new sign-in's) and writes no
+  // row (there is no token to write one with): build review round 2, F1, F4.
+  return !!ending
 }
 
 const guard = createAnonGuard({
   anonKey: anon ?? '',
   isSignedIn: () => signedIn,
-  onRefused: (path) => console.warn(`[wilson] ${path}: signed in, but the session check failed; the request was not sent`),
+  message: () => (heldSession() ? HELD_GUARD_MESSAGE : ANON_GUARD_MESSAGE),
+  onRefused: (path) => console.warn(heldSession()
+    ? `[wilson] ${path}: the session is held offline; the request was not sent`
+    : `[wilson] ${path}: signed in, but the session check failed; the request was not sent`),
 })
 
 export const supabase = createClient(url ?? '', anon ?? '', {
@@ -99,7 +315,7 @@ export const supabase = createClient(url ?? '', anon ?? '', {
     detectSessionInUrl: false,
     storageKey: surface === 'admin' ? 'sb-wilson-operator' : 'sb-wilson-app',
   },
-  global: baseFetch ? { fetch: guard(connectionWatchdog.wrapFetch(baseFetch)) } : {},
+  global: baseFetch ? { fetch: joinHeldWork(guard(connectionWatchdog.wrapFetch(baseFetch))) } : {},
 })
 
 // Keep the persisted copy current across refresh rotation (Session 12 web
@@ -108,10 +324,20 @@ export const supabase = createClient(url ?? '', anon ?? '', {
 // S1: the same events tell the guard above whether a person is signed in, and
 // a sign-in or the sign-out landing clears the latch; while it is set a
 // refreshed token is NOT written back (the person ended the session here).
+// S2: while a session is held a SIGNED_OUT (the SDK's, inside a refused
+// restore) leaves the latch on — the hold's end turns it off — and an event
+// that carries a session ends the hold (the confirmation). A SIGNED_IN of the
+// session a sign-out ended while it was held (a re-hydration's, landing late)
+// is not a sign-in: the latch stays, and the SDK's copy is signed out locally.
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT') { signedIn = false; endedLocally = false }
-  else if (event === 'SIGNED_IN') { signedIn = true; endedLocally = false }
-  else if (session && !endedLocally) signedIn = true
+  sdkHoldsSession = event !== 'SIGNED_OUT' && !!session
+  if (event === 'SIGNED_IN' && session && endedSid && sessionIdOf(session) === endedSid) {
+    Promise.resolve(supabase.auth.signOut({ scope: 'local' })).catch(() => { /* best effort */ })
+    return
+  }
+  if (event === 'SIGNED_OUT') { signedIn = !!heldSession(); endedLocally = false; endedSid = null }
+  else if (event === 'SIGNED_IN') { signedIn = true; endedLocally = false; endedSid = null; if (session) confirmHeld() }
+  else if (session && !endedLocally) { signedIn = true; confirmHeld() }
   if (event === 'TOKEN_REFRESHED' && session && !endedLocally) {
     Promise.resolve(saveSession(session)).catch(() => { /* best-effort */ })
   }
@@ -131,6 +357,8 @@ supabase.auth.onAuthStateChange((event, session) => {
 // nothing here re-issues a refresh.
 connectionWatchdog.onPingAnswered((family) => {
   if (family === 'auth') {
+    // S2: while a session is held, the real question is the session itself.
+    if (heldSession() && !endedLocally) { rehydrate(); return }
     const ask = endedLocally ? supabase.auth.signOut({ scope: 'local' }) : supabase.auth.getSession()
     Promise.resolve(ask).catch(() => { /* the strip says what is true */ })
   } else if (family === 'rest') {
@@ -139,16 +367,45 @@ connectionWatchdog.onPingAnswered((family) => {
 })
 
 // Hydrate the client from a previously-saved session. Called at boot from
-// App.jsx once sessionStorage.loadSession() resolves.
-export async function hydrateSupabase(session) {
+// App.jsx once sessionStorage.loadSession() resolves, and by the operator
+// console's boot.
+//
+// S2: `holdOffline` (App's start-up check only) adds the offline launch, for a
+// saved sign-in inside the 4-hour cap (sessionTimeouts.insideSessionCap: the
+// earlier of the cap's record and the token's own sign-in time): GoTrue's
+// health is asked first, within 5 s, and only an answer lets the SDK restore,
+// with S1's budgets, the whole decided within 10 s (restoreSavedSession).
+// Reached nothing: the saved session is HELD and returned, so the shell opens
+// offline. Refused for good: the stored session is cleared if it still holds
+// the refused refresh token (a refused sign-in is not a saved one). Without
+// the option, or outside the cap, the restore is exactly what it was.
+export async function hydrateSupabase(session, { holdOffline = false } = {}) {
   if (!session?.access_token || !session?.refresh_token) return null
-  const { data, error } = await supabase.auth.setSession({
-    access_token: session.access_token,
-    refresh_token: session.refresh_token,
-  })
-  if (error) {
-    console.warn('[wilson] setSession failed:', error.message)
-    return null
+  if (!holdOffline || !insideSessionCap(session)) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    })
+    if (error) {
+      console.warn('[wilson] setSession failed:', error.message)
+      return null
+    }
+    return data.session
   }
-  return data.session
+  const work = ownHeldWork(session)
+  const r = await restoreSavedSession({
+    auth: supabase.auth,
+    saved: session,
+    probe: () => connectionWatchdog.launchProbe({ origin: url ?? '', apikey: anon ?? null }),
+  })
+  if (r.outcome === 'held') {
+    console.info(`[wilson] offline launch: the saved sign-in is held (${r.reason}); the shell opens offline`)
+    hold(session, r.late, work)
+    return session
+  }
+  releaseHeldWork(work)
+  if (r.outcome === 'online') return r.session
+  if (r.outcome === 'refused') await clearIfStillHolds(session.refresh_token)
+  if (r.error) console.warn('[wilson] setSession failed:', r.error.message)
+  return null
 }

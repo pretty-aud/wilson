@@ -456,9 +456,11 @@
     color: var(--color-ink-3);
   }
 
-  /* The three option checkboxes. The kit has no Checkbox (review D26; A1
-     kit request A1-KR-4), so this stays D.O.G.'s — on the tokens, named, and
-     announced as a checkbox. The glyph is the checkbox's own mark. */
+  /* The option checkboxes (DG4: Place visual and Theme generator in the
+     Generate outline card, Core files only in card 1). The kit has no
+     Checkbox (review D26; A1 kit request A1-KR-4), so this stays D.O.G.'s —
+     on the tokens, named, and announced as a checkbox. The glyph is the
+     checkbox's own mark. */
   .dog-check {
     display: inline-flex;
     align-items: center;
@@ -487,21 +489,52 @@
     line-height: var(--text-body--line-height);
     color: var(--color-ink);
   }
+  /* DG4: Core files only is the first D.O.G. checkbox that can be off (no
+     project, or none of its files marked Core that D.O.G. can read). Off is
+     `aria-disabled`, never `disabled`, so it keeps focus (review round 2,
+     finding 1), drawn as the kit draws a disabled control on dark
+     (`.ui-btn:disabled`): the rule's hairline, the third ink, and the cursor
+     repeated here because `cursor: pointer` above is in a later layer than
+     base's `[aria-disabled="true"]`. */
+  .dog-check[aria-disabled='true'] {
+    border-color: var(--color-rule);
+    cursor: not-allowed;
+  }
+  .dog-check[aria-disabled='true'] + .dog-check-label { color: var(--color-ink-3); }
   @media (prefers-reduced-motion: reduce) {
     .dog-check { transition: none; }
   }
 
   /* ═══ REFERENCES (DG1) ═══════════════════════════════════════════════════
-     The second card and its "Add references" window (docs/design/
-     DOG_REFERENCES_DESIGN.md §2.2–§2.3). The kit's Card, Dialog, Button,
-     IconButton, Badge, StatusDot and EmptyState; these rules only lay them
-     out. No new ink: the meter fills in the third ink and turns to the
-     warning ink past the limit (Audrey's Q8: it warns, never blocks); the
-     orange stays the step titles' alone. */
+     Card 1's lower part since DG4 (it was the second card) and its "Add
+     references" window (docs/design/DOG_REFERENCES_DESIGN.md §2.2–§2.3).
+     The kit's Card, Dialog, Button, IconButton, Badge, StatusDot and
+     EmptyState; these rules only lay them out. No new ink: the meter fills
+     in the third ink and turns to the warning ink past the limit (Audrey's
+     Q8: it warns, never blocks); the orange stays the step titles' alone. */
   .dog-refs-count { margin-right: 8px; }
   /* Folded, the header still says when the meter needs a look. */
   .dog-refs-head-warn { color: var(--color-warning); }
-  .dog-refs-actions { display: flex; align-items: center; gap: 8px; }
+  /* DG4 (Audrey, 2026-10-28, note 5: one card, its layout by the laws of
+     UX). Card 1 is one column at the measure of its own text. Its longest
+     line, the contract line, measured 571.28px in Chromium at 1280, 1440
+     and 2560 (the Caption step in Geist), so the column is 576px, the next
+     8px step: no house measure is within a few pixels of it (66ch is 700px
+     at the meter's 16px, 45ch 477px, the reading width 720px). The
+     project's description and the references keep to it, so a row's
+     Preview and Remove stay one reach from its name at any width (Fitts)
+     and the meter ends where the words above it end; the dropdown, Choose
+     file, the meter and Add references share the column's left edge. The
+     rhythm inside the references is the card body's 16px. */
+  .dog-card-project { --dog-refs-measure: 576px; }
+  .dog-card-project .dog-project-details,
+  .dog-refs { max-width: var(--dog-refs-measure); }
+  .dog-refs > * + * { margin-top: 16px; }
+  /* Add references and Core files only side by side, the two ways to say
+     what the deck reads (proximity), one short reach apart (Fitts). The
+     sentence under them is the checkbox's: 8px, not the part's 16px. */
+  .dog-refs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .dog-refs > .dog-refs-core-said { margin: 8px 0 0; }
   .dog-refs-more {
     padding: 8px;
     font-size: var(--text-caption);
@@ -568,9 +601,16 @@
   }
 
   .dog-refs-meter { display: flex; flex-direction: column; gap: 4px; }
+  /* DG4 (her note 1: "make it a fixes size the is about the length of the
+     text lines above in the card. make the bar a little thicker too"): in
+     the card the meter is the column's fixed width, never a share of the
+     card, which it was (998px at 1280, 1158 at 1440, 2278 at 2560). The
+     window's footer meter keeps `flex: 1` (.dog-refs-foot, below). The
+     track is 8px, was 6px, in both places. */
+  .dog-refs .dog-refs-meter { width: var(--dog-refs-measure); max-width: 100%; }
   .dog-refs-meter-track {
     position: relative;
-    height: 6px;
+    height: 8px;
     background-color: var(--color-paper-recessed);
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
@@ -778,13 +818,10 @@
     cursor: pointer;
   }
   .dog-mode-side[data-active='true'] { color: var(--color-ink); }
+  /* DG4: Place visual, then Theme generator, on this one row in both modes;
+     `.dog-check-hint` went with Place visual's subtitle (her note 2). */
   .dog-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
   .dog-check-row { display: inline-flex; align-items: center; gap: 6px; }
-  .dog-check-hint {
-    font-size: var(--text-caption);
-    line-height: var(--text-caption--line-height);
-    color: var(--color-ink-3);
-  }
   .dog-applied-line {
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);

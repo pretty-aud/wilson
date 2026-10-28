@@ -18,10 +18,15 @@
 // the AI's store on Remove, the meter's figure and the Enter rule.
 //
 // Every name here is made up (a file name is content).
+//
+// DG4 (2026-10-28, Audrey: "lets consolidates cards 1 (project) and 2
+// (References) into one card"): this is card 1's lower part now, with no
+// header or fold of its own (D.O.G. draws the card; ReferencesCount is its
+// header's number), and Core files only beside Add references (her note 4).
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, screen, within } from '@testing-library/react'
-import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT } from './ReferencesCard'
+import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT, ReferencesCount, CORE_TITLE } from './ReferencesCard'
 
 afterEach(cleanup)
 
@@ -31,9 +36,12 @@ const UPLOADS = () => [up('note-01.txt', 'text', 2048), up('picture-01.png', 'im
 
 function fakeRefs(chosenList = [], over = {}) {
   return {
-    chosenList, unavailable: new Set(), notice: '', undoable: false,
+    chosenList, chosen: new Set(chosenList.map((s) => s.key)), listedKeys: new Set(chosenList.map((s) => s.key)),
+    unavailable: new Set(), notice: '', undoable: false,
     chosenTokens: 0, chosenUncounted: 0, chosenBytes: 0, pdfPages: new Map(),
+    coreOnly: false, core: { state: 'ready', count: 2, legacy: 0 },
     untick: vi.fn(), removeAll: vi.fn(), undoRemoveAll: vi.fn(), clearNotice: vi.fn(),
+    setCoreOnly: vi.fn(), loadPool: vi.fn(),
     ...over,
   }
 }
@@ -47,10 +55,10 @@ function mount({ files = [], busy = false, chosen = [], projectChosen = true, re
   const view = render(
     <ReferencesCard refs={r} uploads={uploads} projectChosen={projectChosen} onAdd={vi.fn()} onPreview={vi.fn()} />,
   )
-  const body = () => view.container.querySelector('#dog-refs-body')
-  const groups = () => [...view.container.querySelectorAll('#dog-refs-body .dog-refs-group')]
-  const uploadsGroup = () => view.container.querySelector('#dog-refs-body .dog-refs-uploads')
-  const uploadRows = () => [...view.container.querySelectorAll('#dog-refs-body .dog-refs-uploads .dog-refs-row')]
+  const body = () => view.container.querySelector('.dog-refs')
+  const groups = () => [...view.container.querySelectorAll('.dog-refs .dog-refs-group')]
+  const uploadsGroup = () => view.container.querySelector('.dog-refs .dog-refs-uploads')
+  const uploadRows = () => [...view.container.querySelectorAll('.dog-refs .dog-refs-uploads .dog-refs-row')]
   // DG3 (OUTSTANDING DG2-01): Choose file is a kit button beside the hidden
   // input (it was a <label> round it, which Tab never reached).
   const choose = () => uploadsGroup()?.querySelector('button.dog-upload') || null
@@ -231,8 +239,16 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(contract.getAttribute('title')).toBe('PDFs and pictures are placed in the AI\'s file store to be read. Your notes always travel in the request itself.')
   })
 
+  // DG4: the number is card 1's header's (ReferencesCount, which D.O.G. draws
+  // there); the fold is card 1's. The rendered D.O.G. pins both together
+  // (enterKey.render.test.jsx, DG4).
   it('the header counts the uploads and the references as one number', () => {
-    const count = (opts) => { const c = mount(opts); const t = c.view.container.querySelector('.dog-refs-count').textContent; cleanup(); return t }
+    const count = (opts) => {
+      const v = render(<ReferencesCount refs={fakeRefs(opts.chosen || [])} uploads={(opts.files || []).length} />)
+      const t = v.container.querySelector('.dog-refs-count').textContent
+      cleanup()
+      return t
+    }
     expect(count({})).toBe('None chosen')
     expect(count({ files: UPLOADS().slice(0, 1) })).toBe('1 chosen')
     expect(count({ files: UPLOADS().slice(0, 2) })).toBe('2 chosen')
@@ -240,12 +256,17 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(count({ files: UPLOADS().slice(0, 2), chosen: [ITEM, FILE, NOTE] })).toBe('5 chosen')
   })
 
-  it('folded, the header keeps the one number and its warning; the body and Choose file are not drawn', () => {
-    const c = mount({ files: UPLOADS().slice(0, 2), chosen: [ITEM], refs: fakeRefs([ITEM], { chosenTokens: 250000 }) })
-    fireEvent.click(screen.getByRole('button', { name: 'References' }))
-    expect(c.body()).toBe(null)
-    expect(c.view.container.querySelector('input[type=file]')).toBe(null)
-    expect(c.view.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit')
+  it('the header\'s number carries the meter\'s warning, so a folded card 1 still says it', () => {
+    const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 250000 })} uploads={2} />)
+    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit')
+    expect(v.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit')
+  })
+
+  it('DG4: this is card 1\'s lower part, with no header, title or fold of its own', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1), chosen: [ITEM] })
+    expect(c.body().parentElement).toBe(c.view.container)
+    expect(c.view.container.querySelector('header, h2, .dog-card, [aria-expanded], .dog-refs-count')).toBe(null)
+    expect(screen.queryByRole('button', { name: 'References' })).toBe(null)
   })
 
   // Review round 1, finding 3: "Remove all" in a card that lists uploads it
@@ -297,6 +318,116 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(before(c.uploadsGroup(), note)).toBe(true)
     expect(before(note, c.groups()[1])).toBe(true)
     expect(c.uploadsGroup().nextElementSibling).toBe(note)
+  })
+})
+
+// =============================================================================
+// DG4 (Audrey, 2026-10-28, note 4, verbatim): "lets also add a way for the
+// user to just press a checkbox to bypass selecting files and letting the
+// generator just reference the files marked as core project files." A
+// standing D.O.G. checkbox beside Add references. What it lists and sends is
+// the hook's (useReferences.test.jsx, DG4); here, what the card shows for
+// each state the hook reports.
+// =============================================================================
+describe('DG4: Core files only, beside Add references', () => {
+  const box = () => screen.getByRole('checkbox', { name: 'Core files only' })
+  const said = (c) => c.body().querySelector('.dog-refs-core-said')
+  const add = () => screen.getByRole('button', { name: 'Add references' })
+  // Off is `aria-disabled`, never `disabled` (review round 2, finding 1): a
+  // disabled button loses focus in Chromium, to <body>.
+  const off = () => { expect(box().disabled).toBe(false); return box().getAttribute('aria-disabled') === 'true' }
+
+  it('a D.O.G. checkbox right after Add references, sentence case, its hover saying what it does; off at the start', () => {
+    mount({ chosen: [ITEM] })
+    const b = box()
+    expect(b.tagName).toBe('BUTTON')
+    expect(b.matches('button.dog-check[role="checkbox"]')).toBe(true)
+    expect(b.getAttribute('aria-checked')).toBe('false')
+    expect(off()).toBe(false)
+    expect(b.getAttribute('title')).toBe(CORE_TITLE)
+    const row = b.closest('.dog-check-row')
+    expect(row.querySelector('.dog-check-label').textContent).toBe('Core files only')
+    expect(row.querySelector('.dog-check-label').getAttribute('title')).toBe(CORE_TITLE)
+    expect(add().nextElementSibling).toBe(row)
+    expect(row.parentElement.className).toBe('dog-refs-actions')
+  })
+
+  const OFF = [
+    ['no project chosen', { projectChosen: false, core: { state: 'no-project', count: 0, legacy: 0 } }, 'Core files come from a project: choose one above.'],
+    ['the project still being listed', { core: { state: 'listing', count: 0, legacy: 0 } }, 'Looking for the project’s Core files…'],
+    ['its files could not be listed', { core: { state: 'failed', count: 0, legacy: 0 } }, 'The project’s files could not be listed.'],
+    ['no Core file D.O.G. can read', { core: { state: 'none', count: 0, legacy: 0 } }, 'This project has no Core files D.O.G. can read.'],
+  ]
+  for (const [why, { projectChosen = true, core }, words] of OFF) {
+    it(`off, with one sentence, when ${why}; still a Tab stop, and a press does nothing`, () => {
+      const c = mount({ projectChosen, refs: fakeRefs([], { core }) })
+      expect(off()).toBe(true)
+      expect(box().tabIndex).toBe(0)
+      expect(said(c).textContent).toBe(words)
+      expect(box().getAttribute('aria-describedby')).toBe(said(c).id)
+      expect(document.getElementById(box().getAttribute('aria-describedby'))).toBe(said(c))
+      fireEvent.click(box())
+      expect(c.refs.setCoreOnly).not.toHaveBeenCalled()
+      expect(c.refs.loadPool).not.toHaveBeenCalled()
+    })
+  }
+
+  it('on when the project has Core files D.O.G. can read, with no sentence; a press ticks it and lists the project again', () => {
+    const c = mount({ refs: fakeRefs([ITEM], { core: { state: 'ready', count: 3, legacy: 0 } }) })
+    expect(off()).toBe(false)
+    expect(said(c)).toBe(null)
+    expect(box().hasAttribute('aria-describedby')).toBe(false)
+    fireEvent.click(box())
+    expect(c.refs.setCoreOnly).toHaveBeenCalledWith(true)
+    expect(c.refs.loadPool).toHaveBeenCalledTimes(1)
+  })
+
+  it('ticked: the rows are the Core files with no Remove, Add references and Remove all references are off, and the sentence says where the choices went', () => {
+    const CORE_A = { key: 'file:c1', kind: 'file', name: 'core-01.pdf', dogType: 'pdf', id: 'c1', size: 1000, isCore: true }
+    const CORE_B = { key: 'file:c2', kind: 'file', name: 'core-02.txt', dogType: 'text', id: 'c2', size: 100, isCore: true }
+    const refs = fakeRefs([CORE_A, CORE_B], { coreOnly: true, chosen: new Set(['scene:s1', 'note:n1']) })
+    const c = mount({ files: UPLOADS().slice(0, 1), refs })
+    expect(box().getAttribute('aria-checked')).toBe('true')
+    expect(box().querySelector('svg.dog-check-glyph')).not.toBe(null)
+    expect(add().disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: /^Remove all/ })).toBe(null)
+    const files = c.groups().find((g) => g.getAttribute('aria-label') === 'Files')
+    expect(files.querySelector('.dog-refs-group-label').textContent).toBe('Files (2)')
+    expect([...files.querySelectorAll('.dog-refs-row')].map((r) => r.querySelector('.dog-refs-core')?.textContent)).toEqual(['Core', 'Core'])
+    expect(within(files).queryAllByRole('button', { name: /^Remove/ })).toHaveLength(0)
+    expect(within(files).getAllByRole('button', { name: /^Preview/ })).toHaveLength(2)
+    // The upload keeps its Remove: uploads still go.
+    expect(within(c.uploadsGroup()).getAllByRole('button', { name: /^Remove/ })).toHaveLength(1)
+    expect(said(c).textContent).toBe('Your 2 chosen references are set aside while this is ticked; they come back when you clear it.')
+    fireEvent.click(box())
+    expect(c.refs.setCoreOnly).toHaveBeenCalledWith(false)
+    expect(c.refs.loadPool).not.toHaveBeenCalled()
+  })
+
+  // Review round 1, finding 6: ticked, the sentence also says where the
+  // window's choices went, whatever the state.
+  it('ticked, it can always be cleared: a project with no Core files since, or none chosen, leaves it on and says so', () => {
+    const none = mount({ refs: fakeRefs([], { coreOnly: true, core: { state: 'none', count: 0, legacy: 0 } }) })
+    expect(off()).toBe(false)
+    expect(said(none).textContent).toBe('This project has no Core files D.O.G. can read. Clear this to choose references yourself.')
+    cleanup()
+    const gone = mount({ projectChosen: false, refs: fakeRefs([], { coreOnly: true, core: { state: 'no-project', count: 0, legacy: 0 }, chosen: new Set(['note:n1']) }) })
+    expect(off()).toBe(false)
+    expect(said(gone).textContent).toBe('Core files come from a project: choose one above. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
+  })
+
+  it('the count of what is set aside leaves out a chosen file that is listed anyway, as one of the Core files', () => {
+    const CORE_A = { key: 'file:c1', kind: 'file', name: 'core-01.pdf', dogType: 'pdf', id: 'c1', size: 1000, isCore: true }
+    const c = mount({ refs: fakeRefs([CORE_A], { coreOnly: true, chosen: new Set(['file:c1', 'note:n1']) }) })
+    expect(said(c).textContent).toBe('Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
+  })
+
+  it('ticked with nothing chosen in the window, or on a legacy Local Server project, the sentence says that instead', () => {
+    const c = mount({ refs: fakeRefs([], { coreOnly: true, chosen: new Set() }) })
+    expect(said(c).textContent).toBe('Clear this to choose references yourself.')
+    cleanup()
+    const one = mount({ refs: fakeRefs([], { coreOnly: true, chosen: new Set(['note:n1']), core: { state: 'ready', count: 2, legacy: 2 } }) })
+    expect(said(one).textContent).toBe('Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it. Older attachments count as Core unless marked Ref.')
   })
 })
 
@@ -359,6 +490,69 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     mount({ files })
     press(removeOf(files[0].file.name))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+  })
+
+  // DG4: Core files only ticked holds Add references off, so focus goes to
+  // Choose file; never to the checkbox, a D.O.G. tick box, where the next
+  // Enter would make a deck (enterGenerates.js), nor stays on a gone row.
+  it('Core files only ticked: the only upload\'s Remove goes to Choose file, never to the checkbox', () => {
+    const files = UPLOADS().slice(0, 1)
+    mount({ files, refs: fakeRefs([], { coreOnly: true }) })
+    expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(true)
+    press(removeOf(files[0].file.name))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose file' }))
+    expect(document.activeElement.matches('.dog-check')).toBe(false)
+  })
+
+  // Review round 1, finding 2 (MEASURED in Chromium): Add references off,
+  // Choose file gone at the 20th upload, and the notice's buttons found
+  // nothing to hand focus to; it fell to <body>.
+  for (const [name, call] of [['Dismiss', 'clearNotice'], ['Undo', 'undoRemoveAll']]) {
+    it(`20 uploads and Core files only ticked: the notice's ${name} from the keyboard goes to the first upload's Remove`, () => {
+      const files = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
+      const c = mount({ files, refs: fakeRefs([], { coreOnly: true, notice: '2 references removed.', undoable: true }) })
+      expect(screen.queryByRole('button', { name: 'Choose file' })).toBe(null)
+      expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(true)
+      press(screen.getByRole('button', { name }))
+      expect(c.refs[call]).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(removeOf('note-01.txt'))
+    })
+  }
+
+  // Review rounds 1 and 2, finding 1 (MEASURED in Chromium): the box went off
+  // under the keyboard's focus, after a clear where it could not be ticked
+  // again (round 1) or after a list at Generate that failed or found no Core
+  // file (round 2), and Chromium dropped focus on <body>, where D.O.G.'s next
+  // Enter makes a deck. jsdom keeps focus on a disabled button, so what is
+  // pinned is the cause: in no state is the box `disabled`; off, it stays
+  // focusable and a Tab stop. Chromium's own result is in the DG4 hand-off.
+  const props = (over) => ({
+    refs: fakeRefs([], over),
+    uploads: { files: [], busy: false, add: vi.fn(), remove: vi.fn() }, projectChosen: true, onAdd: vi.fn(), onPreview: vi.fn(),
+  })
+  it('the box is never disabled: off after a clear from the keyboard, it keeps focus', () => {
+    const first = props({ coreOnly: true, core: { state: 'none', count: 0, legacy: 0 } })
+    const view = render(<ReferencesCard {...first} />)
+    const b = screen.getByRole('checkbox', { name: 'Core files only' })
+    press(b)
+    expect(first.refs.setCoreOnly).toHaveBeenCalledWith(false)
+    view.rerender(<ReferencesCard {...props({ coreOnly: false, core: { state: 'none', count: 0, legacy: 0 } })} />)
+    expect(b.getAttribute('aria-disabled')).toBe('true')
+    expect(b.hasAttribute('disabled')).toBe(false)
+    expect(document.activeElement).toBe(b)
+  })
+
+  it('the box is never disabled: turned off by a list while it holds focus (a failed list, or no Core file left), it keeps focus', () => {
+    for (const state of ['failed', 'none', 'listing']) {
+      const view = render(<ReferencesCard {...props({ core: { state: 'ready', count: 2, legacy: 0 } })} />)
+      const b = screen.getByRole('checkbox', { name: 'Core files only' })
+      b.focus()
+      view.rerender(<ReferencesCard {...props({ core: { state, count: 0, legacy: 0 } })} />)
+      expect(b.getAttribute('aria-disabled')).toBe('true')
+      expect(b.hasAttribute('disabled')).toBe(false)
+      expect(document.activeElement).toBe(b)
+      cleanup()
+    }
   })
 
   it('Remove all references from the keyboard goes to Add references (it goes itself)', () => {
