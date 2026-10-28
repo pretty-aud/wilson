@@ -29,8 +29,9 @@ for 1.0 with the reason written into the finding) count as nothing High; that is
 answers, (g) 8 does not pass. **Q1 was answered on 2026-10-28** ((a); her words in `TPN_AUDIT/SUMMARY.md` and in each finding):
 the seven of the areas' own other than TPN-AI-009 are fixed before the release by one session on Phase 8 of
 `TPN_AUDIT/REMEDIATION_PLAN.md`, so its merge comes before (g) 8 and the release commit carries it; TPN-AI-009 is accepted for the
-start of the production steps and closes at (c) and (g) 17, which must run before 2026-11-09 for her reason to hold. Q2 still
-holds (g) 8.
+start of the production steps and closes at (c) and (g) 17, which must run before 2026-11-09 for her reason to hold. **Q2 was
+answered the same day** ((a)): TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 are fixed by the same session, so (g) 8 waits for its
+merge, its ten fixes checked against Phase 8's exit criteria.
 
 **The release commit** is `feat/multi-user-v1`'s tip after the last beta merge and after (g) 8 has dated `CHANGELOG.md`'s 1.0.0
 heading there. Every deploy, every md5, the web build and the installer come from it, and the tag goes on PR #4's merge of it, so

@@ -95,8 +95,9 @@ and D14 make TPN-LOG-012 and TPN-SDLC-014 INFO, outside the gate. Phase 8 of `TP
 and I accept TPN-AI-009 for the start of the production steps, since it closes at the runbook's (c) and (g) 17 before 9 November."*
 TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013 and TPN-ENC-016 are fixed before the release by one
 session on Phase 8, which the controller names (`docs/sessions/PLAN_TO_1_0.md` §5 rule 8); TPN-AI-009 is accepted for the start
-of the production steps, her words in its block. **Q2 waits** (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011), and the runbook's (g) 8
-with it.
+of the production steps, her words in its block. **→ Q2 ruled the same day** (multiple choice, verbatim: *"(a) Count and fix them"*):
+TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 stay counted and are fixed by the same session, ten in all; she named neither near case,
+so both stay uncounted. The runbook's (g) 8 now waits for that session's merge.
 
 ---
 
