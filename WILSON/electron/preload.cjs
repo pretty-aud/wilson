@@ -138,7 +138,10 @@ try {
   const store = window.localStorage;
   const seed = ipcRenderer.sendSync('wilson:renderer-storage-seed');
   if (store && seed && Array.isArray(seed.pairs)) {
-    if (seed.first) {
+    // A later load whose store is empty while keys are kept (nothing in the
+    // app clears it) is filled as a first load is, never diffed into removing
+    // every kept key (build review round 2, note 6).
+    if (seed.first || (store.length === 0 && seed.pairs.length > 0)) {
       store.clear();
       for (const [key, value] of seed.pairs) {
         try { store.setItem(key, value); } catch { /* quota: the page starts with what fitted */ }

@@ -407,8 +407,12 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
   // (OUTSTANDING S2-01). Moved, with its reason: at a restore the surfaces pass
   // the token's own sign-in time through the option they use, and start() runs
   // from it. Red on the code before D1 (start() read no such option).
+  // D1: the cap's tests run at a real epoch, so a sign-in hours ago is a
+  // positive Unix time, as every real token's is (build review round 2, note 10a).
+  const atRealEpoch = () => { const h = harness(); h.advance(NOW - h.now()); return h }
+
   it('CONTROL, moved by D1: at a restore with no record, start() runs from the token\'s sign-in, so a five-hour-old sign-in ends at once', () => {
-    const h = harness()
+    const h = atRealEpoch()
     const s = storageWith(null)
     const sess = session({ amrAt: h.now() - 5 * HOUR })
     expect(insideSessionCap(sess, { storage: s, now: h.now() })).toBe(false)
@@ -433,7 +437,7 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
     })
 
     it('a relaunch inside the cap keeps the sign-in\'s deadline: the notice at four hours less five minutes from the sign-in, the end at four hours', () => {
-      const h = harness()
+      const h = atRealEpoch()
       const s = storageWith(null)                        // the desktop's relaunch: a new origin, no record
       const sess = session({ amrAt: h.now() - 2 * HOUR })
       const signedIn = tokenSignedInAt(sess)
@@ -450,14 +454,14 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
     })
 
     it('a relaunch past the cap ends the session the moment it starts', () => {
-      const h = harness()
+      const h = atRealEpoch()
       const { ctl, events } = restore(h, storageWith(null), session({ amrAt: h.now() - SESSION_CAP_MS - 1000 }))
       ctl.start()
       expect(events.filter((e) => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
     })
 
     it('the record and the token: the earlier wins, either way round', () => {
-      const h = harness()
+      const h = atRealEpoch()
       const older = session({ amrAt: h.now() - 3 * HOUR })
       const a = restore(h, storageWith({ sid: SID, at: h.now() - 1 * HOUR }), older)
       a.ctl.start()
@@ -468,7 +472,7 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
     })
 
     it('a fresh sign-in passes no time: its record is now, whatever the token says (a clock hours ahead is not signed out at the sign-in)', () => {
-      const h = harness()
+      const h = atRealEpoch()
       const s = storageWith(null)
       const sess = session({ amrAt: h.now() - 5 * HOUR })   // what a clock five hours ahead of the server reads at a sign-in
       const { ctl, events } = make(h, s, { sessionId: sessionIdOf(sess) })   // App's handleAuth, the console's handleSignedIn
@@ -479,7 +483,7 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
     })
 
     it('what proves nothing leaves the cap as before: a token without amr, an amr in the future, another session\'s record', () => {
-      const h = harness()
+      const h = atRealEpoch()
       const plain = session()
       const r1 = restore(h, storageWith({ sid: SID, at: h.now() - HOUR }), plain)
       r1.ctl.start()
@@ -502,7 +506,7 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
       let cases = 0
       for (const rec of records) {
         for (const amr of amrs) {
-          const h = harness()
+          const h = atRealEpoch()
           const s = storageWith(rec && { sid: rec.sid, at: h.now() + rec.at })
           const sess = session({ amrAt: amr == null ? null : h.now() + amr })
           const proved = sessionStartOf(sess, { storage: s, now: h.now() }) != null

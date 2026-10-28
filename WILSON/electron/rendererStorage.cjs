@@ -29,10 +29,13 @@
 // ── A FILE THAT CANNOT BE READ IS NEVER WRITTEN OVER ────────────────────────
 //
 // Windows' antivirus or indexer can hold the file for a moment. A read that
-// still fails after the retries makes the launch UNREADABLE: no seed (the page
-// keeps the window's own storage, as before D1) and no write, so a locked file
-// is never replaced by an empty map plus the first change (build review, F1).
-// Only a missing file is empty; an unparseable one gives way to the other copy.
+// still fails after the retries makes that load UNREADABLE: no seed (the page
+// keeps the window's own storage, as before D1, and what changes in it is not
+// kept) and no write, so a held file is never replaced by an empty map plus
+// the first change (build review round 1, F1); the next load reads again
+// (round 2, F1). A missing file is empty. An unparseable one, which this
+// module never writes (it renames a whole temporary file over it), is set
+// aside beside itself and logged before the launch starts over (round 2, F4).
 //
 // ── NEVER KEPT, WHATEVER IT IS SENT ─────────────────────────────────────────
 //
@@ -68,8 +71,9 @@ const FILE_NAME = 'renderer-storage.json';
 const DEV_FILE_NAME = 'renderer-storage.dev.json';
 /** Above what Chromium lets one origin hold (10 MiB of UTF-16, 5,242,880 characters). */
 const MAX_KEPT_CHARS = 6_000_000;
-/** Reads, writes and renames retried this many times when Windows holds the file. */
-const ATTEMPTS = 3;
+/** Tries while Windows holds the file: the launch's read waits longer (about 0.2 s) than a write. */
+const READ_ATTEMPTS = 5;
+const WRITE_ATTEMPTS = 3;
 const LOCK_CODES = ['EPERM', 'EBUSY', 'EACCES'];
 
 const NEVER_KEPT_KEYS = new Set([
@@ -96,12 +100,12 @@ function pauseSync(ms) {
 }
 
 /** Run `fn`, again after a short pause while Windows holds the file. */
-function withRetry(fn, pause) {
+function withRetry(fn, pause, attempts) {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return fn();
     } catch (err) {
-      if (attempt >= ATTEMPTS || !LOCK_CODES.includes(err?.code)) throw err;
+      if (attempt >= attempts || !LOCK_CODES.includes(err?.code)) throw err;
       pause(20 * attempt);
     }
   }
@@ -117,36 +121,57 @@ function parseKept(text) {
   return kept;
 }
 
+/** One copy: `absent`, `ok` with its map, `corrupt`, `locked` (held past the retries) or `failed` (another code). */
+function readCopy(f, fsImpl, pause) {
+  let text;
+  try {
+    text = withRetry(() => fsImpl.readFileSync(f, 'utf8'), pause, READ_ATTEMPTS);
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { status: 'absent' };
+    return { status: LOCK_CODES.includes(err?.code) ? 'locked' : 'failed', code: err?.code || String(err?.message || err) };
+  }
+  const kept = parseKept(text);
+  return kept ? { status: 'ok', kept } : { status: 'corrupt' };
+}
+
 /**
- * `{ kept, unreadable }`. A missing file is empty. The newer of the file and
- * its `.tmp` is read first (a `.tmp` newer than the file is a write whose
- * rename Windows refused); an unparseable one gives way to the other (a
- * `.tmp` cut short by a crash). One that exists but cannot be read past the
- * retries makes the whole read unreadable: never fall back to an older copy
- * then, and never write over it.
+ * `{ kept, unreadable, why? }`. The `.tmp` is read first, and no clock decides
+ * (build review round 2, F2: Windows' file times tie inside one tick): one
+ * that parses always holds a map written after the file's, since every write
+ * renames it away and only a rename Windows refused, or a crash between the
+ * write and the rename, leaves one. One cut short by a crash gives way to the
+ * file. Then the file: missing is empty; unparseable is set aside and the
+ * launch starts over (F4). A copy Windows still holds past the retries makes
+ * the read unreadable — never fall back to an older copy then, never write
+ * over it; a `.tmp` that fails otherwise (it is not a file) is set aside (F3).
  */
-function readKept(file, fsImpl = fs, pause = pauseSync) {
-  const found = [];
-  for (const f of [file, `${file}.tmp`]) {
+function readKept(file, fsImpl = fs, pause = pauseSync, log = () => {}) {
+  const name = path.basename(file);
+  const setAside = (f, why) => {
+    const to = `${f}.${why}-${Date.now()}`;
     try {
-      found.push({ f, mtime: withRetry(() => fsImpl.statSync(f), pause).mtimeMs });
+      fsImpl.renameSync(f, to);
+      log(`[wilson] ${path.basename(f)} set aside as ${path.basename(to)}`);
+      return true;
     } catch (err) {
-      if (err?.code !== 'ENOENT') return { kept: new Map(), unreadable: true };
+      log(`[wilson] ${path.basename(f)} could not be set aside (${err?.code || err?.message || err})`);
+      return false;
     }
+  };
+  const tmp = readCopy(`${file}.tmp`, fsImpl, pause);
+  if (tmp.status === 'ok') return { kept: tmp.kept, unreadable: false };
+  if (tmp.status === 'locked' || (tmp.status === 'failed' && !setAside(`${file}.tmp`, 'unreadable'))) {
+    return { kept: new Map(), unreadable: true, why: `${name}.tmp: ${tmp.code}` };
   }
-  found.sort((a, b) => b.mtime - a.mtime);
-  for (const { f } of found) {
-    let text;
-    try {
-      text = withRetry(() => fsImpl.readFileSync(f, 'utf8'), pause);
-    } catch (err) {
-      if (err?.code === 'ENOENT') continue;        // gone between the stat and the read
-      return { kept: new Map(), unreadable: true };
-    }
-    const kept = parseKept(text);
-    if (kept) return { kept, unreadable: false };
+  const main = readCopy(file, fsImpl, pause);
+  if (main.status === 'ok') return { kept: main.kept, unreadable: false };
+  if (main.status === 'absent') return { kept: new Map(), unreadable: false };
+  if (main.status === 'corrupt') {
+    return setAside(file, 'corrupt')
+      ? { kept: new Map(), unreadable: false }
+      : { kept: new Map(), unreadable: true, why: `${name}: unparseable, and could not be set aside` };
   }
-  return { kept: new Map(), unreadable: false };
+  return { kept: new Map(), unreadable: true, why: `${name}: ${main.code}` };
 }
 
 /**
@@ -157,8 +182,8 @@ function readKept(file, fsImpl = fs, pause = pauseSync) {
 function writeKept(file, kept, fsImpl = fs, pause = pauseSync) {
   const tmp = `${file}.tmp`;
   const text = JSON.stringify(Object.fromEntries(kept));
-  withRetry(() => fsImpl.writeFileSync(tmp, text), pause);
-  withRetry(() => fsImpl.renameSync(tmp, file), pause);
+  withRetry(() => fsImpl.writeFileSync(tmp, text), pause, WRITE_ATTEMPTS);
+  withRetry(() => fsImpl.renameSync(tmp, file), pause, WRITE_ATTEMPTS);
 }
 
 function sameMap(a, b) {
@@ -176,14 +201,19 @@ function sameMap(a, b) {
  * @param {(ms: number) => void} [opts.pause]   test seam for the retries
  */
 function createRendererStorage({ file, fsImpl = fs, maxChars = MAX_KEPT_CHARS, log = () => {}, pause = pauseSync }) {
-  let state = null;          // { kept, unreadable }, read once per launch
+  let state = null;          // { kept, unreadable }: read once, and again at each load while unreadable
   let seededOrigin = null;
   let dirty = false;         // the map in memory has not reached the disk
 
+  // Read again at each load while unreadable (round 2, F1). A refused seed
+  // records no origin, so the load that finally reads is that origin's first
+  // and replaces what the unseeded page held.
   const load = () => {
-    if (!state) {
-      state = readKept(file, fsImpl, pause);
-      if (state.unreadable) log('[wilson] the renderer\'s kept storage could not be read; this launch keeps the window\'s own storage and writes nothing');
+    if (!state || state.unreadable) {
+      state = readKept(file, fsImpl, pause, log);
+      if (state.unreadable) {
+        log(`[wilson] the renderer's kept storage could not be read (${state.why}); this load keeps the window's own storage, and what changes in it is not kept`);
+      }
     }
     return state;
   };

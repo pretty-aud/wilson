@@ -121,8 +121,7 @@ describe('electron/rendererStorage.cjs — the kept file', () => {
 
   it('a .tmp cut short by a crash gives way to the file it never replaced', () => {
     launch().apply({ set: [['a', '1']], removed: [] })
-    writeFileSync(`${file}.tmp`, '{"a":"2",')                        // unparseable...
-    utimesSync(file, new Date(1000), new Date(1000))                  // ...and the newer of the two, so it is read first
+    writeFileSync(`${file}.tmp`, '{"a":"2",')                        // unparseable: a write cut short
     expect(new Map(launch().seed('o').pairs)).toEqual(new Map([['a', '1']]))
   })
 
@@ -182,9 +181,51 @@ describe('electron/rendererStorage.cjs — the kept file', () => {
     expect(two.apply({ set: [['a', '2']], removed: [] })).toEqual({ ok: true, written: false, reason: 'write_failed' })
     expect(two.keys()).toEqual(['a'])
     expect(lines.join('\n')).toMatch(/not written \(EBUSY\)/)
-    utimesSync(file, new Date(1000), new Date(1000))                    // the .tmp is the newer one
-    expect(new Map(launch().seed().pairs)).toEqual(new Map([['a', '2']]))
+    expect(new Map(launch().seed().pairs)).toEqual(new Map([['a', '2']]))   // the .tmp a refused rename left
     expect(existsSync(`${file}.tmp`)).toBe(true)
+  })
+
+  it('a .tmp that parses is read first, whatever the clock says: Windows\' file times tie inside one tick (round 2, F2)', () => {
+    launch().apply({ set: [['a', '1']], removed: [] })
+    writeFileSync(`${file}.tmp`, '{"a":"2"}')                          // a later change set whose rename was refused
+    utimesSync(file, new Date(5000), new Date(5000))
+    utimesSync(`${file}.tmp`, new Date(5000), new Date(5000))          // the same time, to the millisecond
+    expect(new Map(launch().seed('o').pairs)).toEqual(new Map([['a', '2']]))
+    utimesSync(`${file}.tmp`, new Date(1000), new Date(1000))          // or older, after a clock stepped back
+    expect(new Map(launch().seed('o').pairs)).toEqual(new Map([['a', '2']]))
+  })
+
+  it('a .tmp that is not a file is set aside and the file read; the line names it (round 2, F3)', () => {
+    launch().apply({ set: [['a', '1']], removed: [] })
+    realFs.mkdirSync(`${file}.tmp`)
+    const lines = []
+    const one = launch({ log: (l) => lines.push(l) })
+    expect(one.seed('o')).toEqual({ first: true, pairs: [['a', '1']] })
+    expect(existsSync(`${file}.tmp`)).toBe(false)
+    expect(realFs.readdirSync(dir).some((n) => n.startsWith(`${FILE_NAME}.tmp.unreadable-`))).toBe(true)
+    expect(lines.join('\n')).toMatch(/renderer-storage\.json\.tmp set aside/)
+    expect(one.apply({ set: [['b', '2']], removed: [] })).toEqual({ ok: true, written: true })
+  })
+
+  it('an unparseable file with no .tmp is set aside beside itself and logged before the launch starts over (round 2, F4)', () => {
+    writeFileSync(file, '{"rabbit_edit_drafts":"{}", "trunc')
+    const lines = []
+    const one = launch({ log: (l) => lines.push(l) })
+    expect(one.seed('o')).toEqual({ first: true, pairs: [] })
+    const aside = realFs.readdirSync(dir).find((n) => n.startsWith(`${FILE_NAME}.corrupt-`))
+    expect(readFileSync(join(dir, aside), 'utf8')).toBe('{"rabbit_edit_drafts":"{}", "trunc')
+    expect(lines.join('\n')).toMatch(/set aside as renderer-storage\.json\.corrupt-/)
+  })
+
+  it('a launch whose first read was held reads again at the next load, and that load replaces the unseeded page (round 2, F1)', () => {
+    launch().apply({ set: [['wilson.lastCompany', 'Petal']], removed: [] })
+    let held = true
+    const fsImpl = { ...realFs, readFileSync: (...a) => { if (held) { const e = new Error('busy'); e.code = 'EBUSY'; throw e } return realFs.readFileSync(...a) } }
+    const one = launch({ fsImpl })
+    expect(one.seed('http://127.0.0.1:1')).toBeNull()                 // the launch's first load
+    held = false
+    expect(one.seed('http://127.0.0.1:1')).toEqual({ first: true, pairs: [['wilson.lastCompany', 'Petal']] })   // a reload
+    expect(one.seed('http://127.0.0.1:1').first).toBe(false)
   })
 
   it('one file per build flavour (the dev build and the installed one share a userData folder on Windows)', () => {
@@ -196,17 +237,20 @@ describe('electron/rendererStorage.cjs — the kept file', () => {
 
 // 🚨 The rule the module's header states: no writer keeps an address on the
 // loopback server (it would outlive its port, and the launch cookie is scoped
-// by host, not port). A module that builds one from the page's origin must not
-// write localStorage; a new one doing both is read here first.
-describe('no module that builds a loopback address writes localStorage (build review, F2)', () => {
+// by host, not port). A TRIPWIRE, not the proof: the proof is that every
+// `.setItem(` site in src/ was read by hand (build review round 2: 28 sites,
+// ids, names, flags and the drafts' keys and text, never a built address).
+// What this catches is a module that builds one from the page's origin and
+// also writes storage, itself or through the writers' helpers.
+describe('tripwire: no module that builds a loopback address writes storage (build review, F2)', () => {
   const walk = (d) => realFs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
     const p = join(d, e.name)
     if (e.isDirectory()) return e.name === 'node_modules' ? [] : walk(p)
     return /\.(js|jsx)$/.test(e.name) && !/\.test\.(js|jsx)$/.test(e.name) ? [p] : []
   })
   const files = walk(resolve(here, '..')).map((p) => ({ p, text: readFileSync(p, 'utf8') }))
-  const builders = files.filter((f) => /localMediaUrl\(|location\.origin/.test(f.text))
-  const writers = files.filter((f) => /localStorage(\?\.|\.)setItem\(|storage\?\.setItem\(/.test(f.text))
+  const builders = files.filter((f) => /localMediaUrl\(|location\.origin|\.getUrl\(/.test(f.text))
+  const writers = files.filter((f) => /\.setItem\(|localStorage\[|writeStoredDraft\(|writeLocal\(/.test(f.text))
   it('the two sets are known and do not meet', () => {
     expect(builders.length).toBeGreaterThan(2)
     expect(writers.length).toBeGreaterThan(10)
@@ -354,6 +398,14 @@ describe('electron/preload.cjs — the bridges first, then the kept storage', ()
     expect(r.sent).toEqual([])
     r.tick()
     expect(r.sent).toEqual([{ channel: 'wilson:renderer-storage-changes', sync: false, changes: { set: [['rabbit-holidays-v2', '[]']], removed: [] } }])
+  })
+
+  it('a later load whose store is empty while keys are kept is filled, never diffed into removing them (round 2, note 6)', () => {
+    const storage = fakeStorage()
+    const r = runPreload({ seed: { first: false, pairs: [['rabbit_edit_drafts', '{}'], ['wilson.lastCompany', 'Petal']] }, storage })
+    expect(storage.m).toEqual(new Map([['rabbit_edit_drafts', '{}'], ['wilson.lastCompany', 'Petal']]))
+    r.tick()
+    expect(r.sent).toEqual([])
   })
 
   it('a refused sender (no seed) keeps today\'s storage: nothing cleared, nothing sent', () => {
