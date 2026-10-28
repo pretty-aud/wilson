@@ -55,6 +55,8 @@
 // O.T.T.E.R.'s own views read it, so the pet and the page agree. A module
 // with no imports of its own, like this one.
 import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js'
+// B2: the one definition of a linked subject's key (design §5.5).
+import { linkKey } from './components/otterSharing.js'
 
 /** Everything the pet may inject, in characters. Comfortably inside Haiku's
  *  window next to a 42-message history, and small enough that a big library
@@ -396,15 +398,43 @@ async function readJson(fetchImpl, url) {
   try {
     res = await fetchImpl(url)
   } catch {
-    return { ok: false, data: null }
+    return { ok: false, data: null, status: 0 }
   }
-  if (!res || !res.ok) return { ok: false, data: null }
+  if (!res || !res.ok) return { ok: false, data: null, status: res?.status ?? 0 }
   try {
-    return { ok: true, data: await res.json() }
+    return { ok: true, data: await res.json(), status: res.status }
   } catch {
-    return { ok: false, data: null }
+    return { ok: false, data: null, status: res.status }
   }
 }
+
+/**
+ * The section and lesson TITLES of one full subject — what Phase A matches a
+ * question against (see loadKnowledgeIndex). One reader for an own subject
+ * and a linked one, so the two can never be indexed differently.
+ */
+function outlineOf(full) {
+  const sectionTitles = []
+  const lessonTitles = []
+  for (const sec of full?.sections || []) {
+    if (sec?.title) sectionTitles.push(sec.title)
+    // ⚠️ ONLY LESSONS THAT HAVE A BODY. `is_stub` is a SUBJECT-level flag;
+    //    a generated subject can still carry lessons whose content was
+    //    never filled in. Indexing those titles lets a subject be
+    //    promoted on the strength of a lesson that then contributes
+    //    nothing at Phase B (the excerpt loop skips `!lesson.content`) —
+    //    so the pet reports a match and injects none of it.
+    for (const l of sec?.lessons || []) {
+      if (l?.title && typeof l.content === 'string' && l.content.trim()) lessonTitles.push(l.title)
+    }
+  }
+  return { sectionTitles, lessonTitles }
+}
+
+/** A share-list status that means "there are no shares here", not "the read
+ *  failed": the Local Server (501), the web signed out (401), a backend
+ *  without the route (404). Any other failure leaves the build uncached. */
+const NO_SHARES_STATUS = new Set([401, 404, 501])
 
 /**
  * Run `worker` over `items` with bounded concurrency, preserving order.
@@ -503,21 +533,7 @@ export async function loadKnowledgeIndex(fetchImpl, now = Date.now()) {
       const outlines = await mapLimit(listed, INDEX_CONCURRENCY, async (s) => {
         const full = await readJson(fetchImpl, `/api/software/${slug}/subjects/${encodeURIComponent(s.slug)}`)
         if (!full.ok || !full.data) return { ...s, sectionTitles: [], lessonTitles: [] }
-        const sectionTitles = []
-        const lessonTitles = []
-        for (const sec of full.data.sections || []) {
-          if (sec?.title) sectionTitles.push(sec.title)
-          // ⚠️ ONLY LESSONS THAT HAVE A BODY. `is_stub` is a SUBJECT-level flag;
-          //    a generated subject can still carry lessons whose content was
-          //    never filled in. Indexing those titles lets a subject be
-          //    promoted on the strength of a lesson that then contributes
-          //    nothing at Phase B (the excerpt loop skips `!lesson.content`) —
-          //    so the pet reports a match and injects none of it.
-          for (const l of sec?.lessons || []) {
-            if (l?.title && typeof l.content === 'string' && l.content.trim()) lessonTitles.push(l.title)
-          }
-        }
-        return { ...s, sectionTitles, lessonTitles }
+        return { ...s, ...outlineOf(full.data) }
       })
 
       return {
@@ -528,7 +544,46 @@ export async function loadKnowledgeIndex(fetchImpl, now = Date.now()) {
         docRows,
       }
     })
-    return { reachable: true, courses: built }
+
+    // ── B2: the subjects LINKED into the receiver's courses (design §5.6) ──
+    // ONE share-list read per build, and only when a course the pet may read
+    // exists (a link lands in one of the receiver's OWN courses, so with none
+    // there is nowhere for it to go). For each accepted link whose host is
+    // live and in this index, one read BY ID builds an entry exactly as an
+    // own subject's — title, description, section and lesson titles — under
+    // the receiver's host course, carrying `linkedId` so Phase B reads its
+    // body by id too. A 404 drops the entry (the link ended, or the subject
+    // went to the trash), as an empty 200 drops a hidden course. Nothing of
+    // the owner's course beyond the one subject is read; isRetrievableCourse
+    // is unchanged.
+    let partial = false
+    if (built.length > 0) {
+      const shares = await readJson(fetchImpl, '/api/otter/subject-shares')
+      if (shares.ok && Array.isArray(shares.data)) {
+        const byHost = new Map(built.map(c => [c.slug, c]))
+        const links = shares.data.filter(r => r?.status === 'accepted' && r.state === 'accepted'
+          && r.host_live === true && r.subject_id && byHost.has(r.host_course_id))
+        const entries = await mapLimit(links, INDEX_CONCURRENCY, async (r) => {
+          const full = await readJson(fetchImpl, `/api/otter/subjects/${encodeURIComponent(r.subject_id)}`)
+          if (!full.ok || !full.data || full.data.is_stub) return null
+          return {
+            host: r.host_course_id,
+            entry: {
+              slug: linkKey(r.subject_id),
+              linkedId: r.subject_id,
+              title: full.data.title || r.subject_title || '',
+              description: full.data.description ?? '',
+              is_stub: false,
+              ...outlineOf(full.data),
+            },
+          }
+        })
+        for (const e of entries) if (e) byHost.get(e.host).subjects.push(e.entry)
+      } else if (!NO_SHARES_STATUS.has(shares.status)) {
+        partial = true
+      }
+    }
+    return { reachable: true, courses: built, partial }
   })()
 
   indexPromise = build
@@ -546,7 +601,9 @@ export async function loadKnowledgeIndex(fetchImpl, now = Date.now()) {
     //    started as one account could write its index back after the switch.
     //    (The clear also nulls indexPromise, so a caller arriving AFTER it
     //    starts a fresh build rather than joining the outgoing identity's.)
-    if (generation === cacheGeneration && result.reachable) {
+    // B2: and a build whose share-list read FAILED (not a 501, 401 or 404)
+    // is not cached either: its links are missing, not absent.
+    if (generation === cacheGeneration && result.reachable && !result.partial) {
       indexCache = result
       indexBuiltAt = now
     }
@@ -940,8 +997,11 @@ export async function retrieveOtterKnowledge({ question, fetchImpl }) {
   //    session-level body cache would fail exactly that, and unlike the index
   //    there is nothing forcing one: subject.get is a pure read on BOTH
   //    backends (one readJSON of one file locally, one select in the cloud).
-  const bodies = await Promise.all(candidates.map(cand =>
-    readJson(fetchImpl, `/api/software/${encodeURIComponent(cand.course.slug)}/subjects/${encodeURIComponent(cand.subject.slug)}`)
+  // B2 (design §5.6): a LINKED subject's body is read by its id, live, like
+  // every body here; it is the owner's row, under the receiver's own course.
+  const bodies = await Promise.all(candidates.map(cand => (cand.subject.linkedId
+    ? readJson(fetchImpl, `/api/otter/subjects/${encodeURIComponent(cand.subject.linkedId)}`)
+    : readJson(fetchImpl, `/api/software/${encodeURIComponent(cand.course.slug)}/subjects/${encodeURIComponent(cand.subject.slug)}`))
   ))
 
   const excerpts = []
