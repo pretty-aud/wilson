@@ -2,7 +2,8 @@
 // The gateway's own certificates (design §3, D3; review round 1, F6; review
 // round 2, R1, R21, D26).
 //
-//   root   ECDSA P-256, ten years, basicConstraints CA with path length 0
+//   root   ECDSA P-256, three years (P8, TPN-ENC-016: AS-2.5's one to three;
+//          ten until 2026-10-28), basicConstraints CA with path length 0
 //          (critical), keyUsage keyCertSign + cRLSign (critical), and NAME
 //          CONSTRAINTS (critical): permitted DNS names = the hostname and
 //          <hostname>.local; permitted IP ranges = the /24 around each inside
@@ -44,7 +45,11 @@ const OID = {
   authorityKeyIdentifier: '2.5.29.35',
 };
 
-const ROOT_YEARS = 10;
+// P8 (TPN-ENC-016): three years, inside AS-2.5's one to three for a key that
+// anchors trust (every office computer trusts this root). The store makes the
+// next root a year before the end and moves the leaf to it a month before
+// (certs/store.mjs), so the office's trust step comes round every three years.
+const ROOT_YEARS = 3;
 const LEAF_DAYS = 397;
 const DAY = 86_400_000;
 const DNS_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

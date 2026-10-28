@@ -17,6 +17,11 @@
 //   github-release --dir       a draft release with every asset, read back
 //                              through the API and held to the manifest; a real
 //                              release is published (and made latest) only then
+//   make-key --out <folder>    P8 (TPN-ENC-016): the successor release key. The
+//                              private half goes to one file in that folder
+//                              (outside the repository) and nowhere else; only
+//                              the public half is printed, as the slot line for
+//                              RELEASE_KEYS_WIRE. The steps: HARDENING.md §10
 // =============================================================================
 
 import fs from 'node:fs';
@@ -24,7 +29,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
-  planRelease, stampVersion, checkArtefact, floorsFor, makeManifest, privateKeyFromSecret, signManifest, readBack,
+  planRelease, stampVersion, checkArtefact, floorsFor, makeManifest, privateKeyFromSecret, signManifest, readBack, makeReleaseKey,
   artefactName, msiName, MANIFEST_NAME, SIGNATURE_NAME, RELEASE_REPOSITORY, TAG_RE,
 } from './lib.mjs';
 import { compiledReleaseKeys, compareVersions, CONTAINER_IMAGE } from '../src/update/manifest.mjs';
@@ -148,6 +153,21 @@ async function main() {
       if (!m || m[4] || tag !== `gateway-v${version}`) fail(`check-release: ${tag} is not the release tag gateway-v${version}`);
       const highest = await releasable({ API: process.env.GITHUB_API_URL || 'https://api.github.com', repo, tag, version });
       notice('Release check', `${tag} is not released yet, and is above every published gateway release (${highest ? `the highest is ${highest.tag}` : 'there is none yet'})`);
+      return;
+    }
+    case 'make-key': {
+      // P8 (TPN-ENC-016): the private half reaches the --out folder alone (hers:
+      // the GATEWAY_RELEASE_SIGNING_KEY secret, when this key's turn comes).
+      let k;
+      try { k = makeReleaseKey({ outDir: flag('out') }); } catch (e) { fail(e.message); }
+      process.stdout.write([
+        `Release key ${k.kid} made.`,
+        `  private half: ${k.file} (one line, base64 PKCS#8, mode 600: the value the GATEWAY_RELEASE_SIGNING_KEY secret takes when this key's turn comes; never commit it, never paste it anywhere else)`,
+        `  public half (SPKI SHA-256 ${k.spkiSha256}), the line for RELEASE_KEYS_WIRE in gateway/src/update/manifest.mjs:`,
+        k.slotLine,
+        '  Then the steps in docs/gateway/HARDENING.md §10, "Rotating the release key".',
+        '',
+      ].join('\n'));
       return;
     }
     case 'github-release': return githubRelease(flag('dir'));

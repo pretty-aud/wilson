@@ -200,6 +200,12 @@ describe('what the guide tells an admin to check or do is the code\'s', () => {
     expect(guide).not.toMatch(/signs with the second release key/);
     expect(s9).toContain('for a stolen key, ships a new release key inside a release signed by the old one and asks each company to reinstall the MSI, which carries the updater (the second slot is empty today, §10)');
     expect(guide).toContain('- **One release key is built in today.** The second slot is empty');
+    // P8 (TPN-ENC-016): the successor's steps, in §10, §9 and §11, and the three-year root in §4.
+    expect(guide).toContain('**Rotating the release key** (P8, TPN-ENC-016), planned or after a theft, in this order: (1) `node gateway/pipeline/cli.mjs make-key --out <a folder outside the repository>`');
+    expect(guide).toContain('replace the `GATEWAY_RELEASE_SIGNING_KEY` repository secret with the new file\'s line and publish the next release signed by the NEW key');
+    expect(s9).toContain('by the steps under *Rotating the release key* in §10');
+    expect(guide).toContain('| AS-2.5 (keys) | DPAPI, or in the container a seal under the operator\'s key (§3), for every private key, never a plain file; the office root lasts three years with its successor made a year ahead (P8, TPN-ENC-016)');
+    expect(guide).toContain('the root lasts three years, P8 TPN-ENC-016');
   });
   it('the TPN controls it touches, in the framework\'s numbering, each once and in order', () => {
     const s11 = guide.slice(guide.indexOf('## 11. '));

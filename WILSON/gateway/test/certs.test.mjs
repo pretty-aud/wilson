@@ -47,10 +47,11 @@ describe('the root and the leaf (§3)', () => {
   const rx = new crypto.X509Certificate(root.certPem);
   const lx = new crypto.X509Certificate(leaf.certPem);
 
-  it('the root: a CA, ten years, P-256, its fingerprint the SHA-256 of its DER', () => {
+  it('the root: a CA, three years (P8, TPN-ENC-016; ten before), P-256, its fingerprint the SHA-256 of its DER', () => {
     expect(rx.ca).toBe(true);
     expect(rx.publicKey.asymmetricKeyDetails.namedCurve).toBe('prime256v1');
-    expect(Date.parse(rx.validTo) - NOW).toBeGreaterThan(9.99 * 365 * 86_400_000);
+    expect(Date.parse(rx.validTo) - NOW).toBeGreaterThan(2.99 * 365 * 86_400_000);
+    expect(Date.parse(rx.validTo) - NOW).toBeLessThan(3.01 * 366 * 86_400_000);
     expect(root.fingerprint).toBe(crypto.createHash('sha256').update(rx.raw).digest('hex'));
     expect(fingerprintOf(root.certPem)).toBe(root.fingerprint);
     expect(displayFingerprint(root.fingerprint)).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
@@ -149,8 +150,9 @@ describe('the root and the leaf (§3)', () => {
     expect(await handshake({ cert: own.certPem, key: own.keyPem, ca: r.certPem, servername: undefined })).toEqual({ ok: true });
   });
   it('dates past 2049 are GeneralizedTime and still read back', () => {
-    const late = makeRoot({ hostname: 'nas', insideAddresses: ['10.0.0.5'], now: Date.parse('2045-01-01T00:00:00Z') });
-    expect(certInfo(late.certPem).notAfter).toBe(Date.parse('2055-01-01T00:00:00Z'));
+    // P8 (TPN-ENC-016): a three-year root made in 2048 ends in 2051 (it was 2045 → 2055).
+    const late = makeRoot({ hostname: 'nas', insideAddresses: ['10.0.0.5'], now: Date.parse('2048-01-01T00:00:00Z') });
+    expect(certInfo(late.certPem).notAfter).toBe(Date.parse('2051-01-01T00:00:00Z'));
   });
   it('host names: lower-cased, .local added, nothing for a name that is no DNS label', () => {
     expect(hostNames('STUDIO-NAS')).toEqual(['studio-nas', 'studio-nas.local']);
@@ -196,10 +198,14 @@ describe('the store: the certificates\' life (§3 "The day it expires")', () => 
     expect((await s.ensure({ insideAddresses: ['192.168.1.10'] })).leafMade).toBe(false);
     now.t = NOW + 368 * 86_400_000; // 29 days left
     expect((await s.ensure({ insideAddresses: ['192.168.1.10'] })).leafMade).toBe(true);
-    now.t = NOW + 5 * 365 * 86_400_000; // switched off for years
+    now.t = NOW + 5 * 365 * 86_400_000; // switched off for years: past the three-year root's end too
     const later = store(dir, now); await later.load();
-    expect((await later.ensure({ insideAddresses: ['192.168.1.10'] })).leafMade).toBe(true);
+    // P8 (TPN-ENC-016): with a three-year root the five-year jump is also a root
+    // replacement — the next root made and promoted at once, the leaf on it.
+    expect(await later.ensure({ insideAddresses: ['192.168.1.10'] })).toMatchObject({ nextRootMade: true, nextRootPromoted: true, leafMade: true });
     expect(later.state().leafNotAfter).toBeGreaterThan(now.t);
+    expect(later.state().rootNotAfter).toBeGreaterThan(now.t);
+    expect(new crypto.X509Certificate(later.state().leafPem).checkIssued(new crypto.X509Certificate(later.state().rootPem))).toBe(true);
   });
   it('the next root twelve months before the old one ends; the leaf moves to it one month before', async () => {
     const dir = path.join(tmp, 's4'); const now = { t: NOW };

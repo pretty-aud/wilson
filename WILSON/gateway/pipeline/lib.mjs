@@ -19,9 +19,11 @@
 // =============================================================================
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { readTar } from '../src/update/tar.mjs';
 import {
-  verifyManifest, parseVersion, compareVersions, compiledReleaseKeys, RELEASE_KEYS_WIRE, RELEASE_REPOSITORY,
+  verifyManifest, parseVersion, compareVersions, compiledReleaseKeys, RELEASE_KEYS_WIRE, RELEASE_KEY_SLOTS, RELEASE_REPOSITORY,
   ARTEFACT_URL_PREFIX, CONTAINER_IMAGE, artefactUrlOk,
 } from '../src/update/manifest.mjs';
 import { publicKeyToWire } from '../src/wire/formats.mjs';
@@ -143,22 +145,52 @@ export function privateKeyFromSecret(line) {
 
 /**
  * Signs the manifest's exact bytes. A REAL release refuses a key whose public
- * half is not in RELEASE_KEYS_WIRE (a gateway would refuse its manifests); the
- * signature is then verified with the gateway's own compiled-in keys, as a
- * gateway at version 0.0.0 would, for both platforms.
+ * half is not in the slots (RELEASE_KEYS_WIRE: a gateway would refuse its
+ * manifests); the signature is then verified with the gateway's own
+ * compiled-in keys, as a gateway at version 0.0.0 would, for both platforms.
+ * P8 (TPN-ENC-016): the slot list is a parameter, so a successor in slot 2 is
+ * proved to sign and verify before one exists.
  */
-export function signManifest(manifestBytes, privateKey, { dryRun }) {
+export function signManifest(manifestBytes, privateKey, { dryRun, keysWire = RELEASE_KEYS_WIRE }) {
   const publicKey = crypto.createPublicKey(privateKey);
   const wire = publicKeyToWire(publicKey);
-  const slot = RELEASE_KEYS_WIRE.findIndex((k) => k.public_key === wire);
+  const slot = keysWire.findIndex((k) => k.public_key === wire);
   if (!dryRun && slot < 0) throw new Error('the signing secret\'s public half is in no release key slot: gateways would refuse this release');
   const signature = crypto.sign(null, manifestBytes, privateKey).toString('base64');
-  const keys = dryRun ? [publicKey] : compiledReleaseKeys();
+  const keys = dryRun ? [publicKey] : compiledReleaseKeys(keysWire);
   for (const platformKey of ['windows-x64', 'container']) {
     const v = verifyManifest({ manifestBytes, signatureText: signature, keys, runningVersion: '0.0.0', platformKey });
     if (!v.ok) throw new Error(`the signed manifest does not verify for ${platformKey} (${v.reason})`);
   }
-  return { signature, publicKeyWire: wire, kid: slot >= 0 ? RELEASE_KEYS_WIRE[slot].kid : null };
+  return { signature, publicKeyWire: wire, kid: slot >= 0 ? keysWire[slot].kid : null };
+}
+
+/**
+ * P8 (TPN-ENC-016): the successor release key. An Ed25519 pair; the PRIVATE
+ * half goes to ONE file in `outDir` (the line the GATEWAY_RELEASE_SIGNING_KEY
+ * secret takes: base64 PKCS#8, mode 600, never overwritten) and nowhere else —
+ * not to stdout, not to the repository; the PUBLIC half comes back as the slot
+ * line to paste into RELEASE_KEYS_WIRE. The kid is rel<year><letter>, the
+ * letter after the last one that year holds (rel2026a → rel2026b). The steps
+ * around it are HARDENING.md §10, "Rotating the release key".
+ */
+export function makeReleaseKey({ outDir, now = Date.now(), keysWire = RELEASE_KEYS_WIRE, fsImpl = fs }) {
+  if (!outDir) throw new Error('make-key needs --out <a folder outside the repository>');
+  const year = new Date(now).getUTCFullYear();
+  const taken = keysWire.map((k) => /^rel(\d{4})([a-z])$/.exec(k.kid || '')).filter((m) => m && Number(m[1]) === year).map((m) => m[2].charCodeAt(0));
+  const letter = taken.length ? String.fromCharCode(Math.max(...taken) + 1) : 'a';
+  if (letter > 'z') throw new Error(`every kid rel${year}a to rel${year}z is taken`);
+  const kid = `rel${year}${letter}`;
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+  const publicKeyWire = publicKeyToWire(publicKey);
+  const spkiSha256 = crypto.createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
+  const file = path.join(outDir, `release-key-${kid}.secret`);
+  if (fsImpl.existsSync(file)) throw new Error(`${file} exists already: make-key never overwrites a key`);
+  fsImpl.mkdirSync(outDir, { recursive: true });
+  fsImpl.writeFileSync(file, privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64') + '\n', { mode: 0o600, flag: 'wx' });
+  const slot = Math.min(keysWire.length + 1, RELEASE_KEY_SLOTS);
+  const slotLine = `  // Slot ${slot}: made ${new Date(now).toISOString().slice(0, 10)} (SPKI SHA-256 ${spkiSha256}).\n  Object.freeze({ kid: '${kid}', public_key: '${publicKeyWire}' }),`;
+  return { kid, publicKeyWire, spkiSha256, file, slotLine };
 }
 
 /**

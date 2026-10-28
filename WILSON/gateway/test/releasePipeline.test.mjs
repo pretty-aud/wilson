@@ -14,11 +14,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
-  planRelease, stampVersion, checkArtefact, floorsFor, makeManifest, privateKeyFromSecret, signManifest, readBack,
+  planRelease, stampVersion, checkArtefact, floorsFor, makeManifest, privateKeyFromSecret, signManifest, readBack, makeReleaseKey,
   artefactName, msiName, MANIFEST_NAME, SIGNATURE_NAME, TAG_RE,
 } from '../pipeline/lib.mjs';
 import { writeTar } from '../src/update/tar.mjs';
-import { verifyManifest, RELEASE_KEYS_WIRE, CONTAINER_IMAGE } from '../src/update/manifest.mjs';
+import { verifyManifest, RELEASE_KEYS_WIRE, RELEASE_KEY_SLOTS, CONTAINER_IMAGE, compiledReleaseKeys } from '../src/update/manifest.mjs';
 import { publicKeyToWire } from '../src/wire/formats.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -144,6 +144,62 @@ describe('stable.json and its signature', () => {
     expect(() => signManifest(mb, other, { dryRun: false })).toThrow(/in no release key slot/);
     // CONTROL: the slot holds one key, and it is not this one.
     expect(RELEASE_KEYS_WIRE.some((k) => k.public_key === publicKeyToWire(crypto.createPublicKey(other)))).toBe(false);
+  });
+  // P8 (TPN-ENC-016): the successor, proved before it exists. Slot 2 is still
+  // empty in the build (the pins above); the signer and the gateway's key list
+  // take the slots as a parameter, so a two-slot list is exercised here.
+  it('P8 (TPN-ENC-016): a successor in slot 2 signs a real release and verifies with both compiled keys; a gateway built with slot 1 alone refuses it; a key in no slot is refused; a third key is beyond the slots', () => {
+    const mb = makeManifest({ installer: MSI, version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 });
+    const at = Date.parse('2026-10-11T10:00:00Z');
+    const successor = crypto.generateKeyPairSync('ed25519');
+    const twoSlots = [...RELEASE_KEYS_WIRE, { kid: 'rel2026b', public_key: publicKeyToWire(successor.publicKey) }];
+    const s = signManifest(mb, successor.privateKey, { dryRun: false, keysWire: twoSlots });
+    expect(s.kid).toBe('rel2026b');
+    expect(compiledReleaseKeys(twoSlots)).toHaveLength(2);
+    for (const platformKey of ['windows-x64', 'container']) {
+      expect(verifyManifest({ manifestBytes: mb, signatureText: s.signature, keys: compiledReleaseKeys(twoSlots), runningVersion: '0.0.0', platformKey, now: at }).ok).toBe(true);
+      expect(verifyManifest({ manifestBytes: mb, signatureText: s.signature, keys: compiledReleaseKeys(), runningVersion: '0.0.0', platformKey, now: at }).ok).toBe(false);
+    }
+    const stranger = crypto.generateKeyPairSync('ed25519').privateKey;
+    expect(() => signManifest(mb, stranger, { dryRun: false, keysWire: twoSlots })).toThrow(/in no release key slot/);
+    const third = crypto.generateKeyPairSync('ed25519');
+    const threeSlots = [...twoSlots, { kid: 'rel2026c', public_key: publicKeyToWire(third.publicKey) }];
+    expect(RELEASE_KEY_SLOTS).toBe(2);
+    expect(compiledReleaseKeys(threeSlots)).toHaveLength(2);
+    expect(() => signManifest(mb, third.privateKey, { dryRun: false, keysWire: threeSlots })).toThrow(/does not verify for windows-x64/);
+  });
+  it('P8 (TPN-ENC-016): make-key writes the private half to one file in --out (mode 600, never overwritten) and gives back only the public half, its kid and the slot line; the command prints no secret', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-make-key-'));
+    try {
+      const k = makeReleaseKey({ outDir: dir, now: Date.parse('2026-10-28T00:00:00Z') });
+      expect(k.kid).toBe('rel2026b');
+      expect(k.file).toBe(path.join(dir, 'release-key-rel2026b.secret'));
+      const line = fs.readFileSync(k.file, 'utf8').trim();
+      expect(line).toMatch(/^[A-Za-z0-9+/]+=*$/);
+      const priv = privateKeyFromSecret(line);
+      expect(publicKeyToWire(crypto.createPublicKey(priv))).toBe(k.publicKeyWire);
+      expect(k.slotLine).toBe(`  // Slot 2: made 2026-10-28 (SPKI SHA-256 ${k.spkiSha256}).\n  Object.freeze({ kid: 'rel2026b', public_key: '${k.publicKeyWire}' }),`);
+      expect(k.spkiSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(JSON.stringify(k)).not.toContain(line.slice(0, 24));
+      if (process.platform !== 'win32') expect(fs.statSync(k.file).mode & 0o777).toBe(0o600);
+      expect(() => makeReleaseKey({ outDir: dir, now: Date.parse('2026-10-28T00:00:00Z') })).toThrow(/exists already/);
+      expect(makeReleaseKey({ outDir: dir, now: Date.parse('2027-03-01T00:00:00Z') }).kid).toBe('rel2027a');
+      expect(makeReleaseKey({ outDir: dir, now: Date.parse('2026-11-01T00:00:00Z'), keysWire: [...RELEASE_KEYS_WIRE, { kid: 'rel2026b', public_key: 'x' }] }).kid).toBe('rel2026c');
+      expect(() => makeReleaseKey({ outDir: '' })).toThrow(/needs --out/);
+      // The command: the public half and the file's path, never the secret.
+      const cliDir = path.join(dir, 'cli');
+      const out = spawnSync(process.execPath, [CLI, 'make-key', '--out', cliDir], { encoding: 'utf8' });
+      expect(out.status).toBe(0);
+      const files = fs.readdirSync(cliDir);
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatch(/^release-key-rel\d{4}[a-z]\.secret$/);
+      const secret = fs.readFileSync(path.join(cliDir, files[0]), 'utf8').trim();
+      expect(out.stdout).toContain('public half');
+      expect(out.stdout).toContain(`private half: ${path.join(cliDir, files[0])}`);
+      expect(out.stdout).toContain('Object.freeze({ kid:');
+      expect(out.stdout).not.toContain(secret.slice(0, 24));
+      expect(spawnSync(process.execPath, [CLI, 'make-key'], { encoding: 'utf8' }).stdout).toContain('::error::make-key needs --out');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('the secret is ONE line of base64 PKCS#8 Ed25519; anything else is refused without echoing it', () => {
     const { privateKey } = crypto.generateKeyPairSync('ed25519');
