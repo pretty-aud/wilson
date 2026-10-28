@@ -952,6 +952,18 @@ fails. Not scheduled.
 
 ### A BYO workspace's thumbnails have no browser preview — deliberate, deferred to its own session
 
+✅ **CLOSED FOR s3 BY P1 (2026-10-28, `po/p1-own-storage-previews`), narrowed to
+the live proof and the NAS half.** The three deferred pieces below are built as
+one, as this entry said they would be: a GET-only batch signer,
+`storage-read-urls` (100 keys and 2 projects a call; the row checked as the
+caller; money refused), a longer media expiry (a stream 3600 s, a thumbnail
+3600 s, a body read once 300 s), and `getUrl` in `REQUIRED` with all three
+providers meeting it. FileManager signs an s3 row's preview in the company's
+bucket and renews it while it is shown; the Files tab previews and plays an
+s3 file. What remains: the live check on Audrey's test bucket (P1-06), and
+the NAS half, which is the `network` entry below. `NETWORK_STORAGE_DESIGN.md`
+§9.
+
 **The compliance half is FIXED (S44, migration 0054).** A thumbnail is now
 written to, and disposed of at, the provider its body went to; the entry that
 stood here — *"a BYO workspace's thumbnails are written to Petal storage"* — is
@@ -1039,7 +1051,9 @@ can tell an old key from a new one. For an s3 `files` row created *before* 0054,
 all three layers are wrong at once:
 
 1. **Display** — excluded by the provider filter, so a preview that *is*
-   signable stops being shown.
+   signable stops being shown. (P1, 2026-10-28: display now asks the
+   customer's bucket for that key, finds nothing there, and shows the same
+   icon — the outcome is unchanged and the rule below stands.)
 2. **Teardown** — excluded from the Petal sweep (left behind) **and** counted in
    `byo_thumbnails_left` as if it were in the customer's bucket.
 3. **`storage-gc`** — the worst: 0054 enqueues it as `byo-s3`/`s3`, the drain
@@ -1065,6 +1079,17 @@ filesystem has no cloud thumbnail path in either direction. **"A thumbnail lives
 where its source lives" is therefore a uniform RULE whose OUTCOME is not
 uniform**, and the desktop's own `sharp` cache is what serves people sitting
 next to the media.
+
+**Measured one level up by P1 (2026-10-28):** a `network` workspace has no
+cloud row for its media at all — it is recorded in the desktop's Local Server
+mode, and `uploadFile` refuses it on the cloud — so the browser has nothing to
+list, let alone preview. Its file panels now say so in one sentence (on the
+cloud backend, while the workspace's active provider is `network`). Whether
+those files are ever listed in the cloud (the file staying on the server, as
+a Bins clip is) is Audrey's Q1 in walkthrough 85, P1, asked for night 5's M3,
+which carries a desktop's managed files and on such a workspace would be
+refused; pictures would follow her B4 rule (Q2). `NETWORK_STORAGE_DESIGN.md`
+§9.4.
 
 ---
 
@@ -1951,6 +1976,12 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   and `files_money_provider_chk` refuses an s3 row under `LEGAL` once 0088
   is applied. Owner: Audrey (`supabase functions deploy storage-presign`
   on dev, then staging).
+  **Closed by measurement for dev and staging (P1, 2026-10-28):** the
+  deployed `storage-presign` was downloaded from both (dev v5 of 2026-10-02,
+  staging v5 of 2026-10-06) and is the repository's copy byte for byte,
+  LEGAL included. Production's is v3 of 2026-08-08, before LEGAL; production
+  is at 0063, where no LEGAL key exists, and the release runbook redeploys
+  every function there.
 - **S4b-03 · A manager's second window does not see a new invoice or Legal
   file until it reloads.** 0088 stops the realtime broadcast of money
   `files` rows, because the project topic is joined by every project reader
@@ -3004,3 +3035,49 @@ notes) met outside those notes and did not fix.
   `button.dog-check`, with no `<label>` (the kit has no Checkbox, A1-KR-4).
   Fix: the words inside the button's target, or the kit Checkbox when
   A1-KR-4 lands. Owner: a D.O.G. session, or the kit request.
+
+
+## P1 (`po/p1-own-storage-previews`) — left open (2026-10-28)
+
+What P1 (night 4: browser previews on a workspace's own storage) measured
+outside its scope, or built to a limit, and did not fix. The design is
+`NETWORK_STORAGE_DESIGN.md` §9.
+
+- **P1-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
+  any row-shaped key under a project the caller can read
+  (`can_presign_project_read` is project-level), so a key kept from before a
+  file was trashed, or of a row purged while its body waits for collection,
+  is still signed — 300 s, one key a call (design round, finding 1). The new
+  `storage-read-urls` checks the row as the caller and is not open to it.
+  Fix shape: the same caller-scoped row read in `storage-presign`'s GET and
+  HEAD. Owner: the next storage session; it needs a redeploy on every
+  environment.
+- **P1-02 · A download from a company's own bucket reads the whole body into
+  memory.** `s3Provider.getUrl` answers null for `{ download }` (the read
+  signer signs no attachment disposition, and a cross-origin `a.download` is
+  ignored), so `downloadUrl` falls back to the Blob path through
+  `storage-presign` — the S42 limit, still true for s3. Fix shape: a signed
+  `response-content-disposition` in `_shared/s3Presign.ts` (shared with three
+  functions). Owner: the next storage session.
+- **P1-03 · A clip longer than an hour restarts at 0:00 on its re-mint** — on
+  Petal and on a bucket alike: the player re-mints once on its first failed
+  range and keys the `<video>` on the new URL. Fix shape: `VideoStage`
+  keeps `currentTime` across the re-mint. Owner: none yet.
+- **P1-04 · Rows written on s3 before a switch to `network` answer "configure
+  S3".** 0050's switch rule nulls the s3 config, so both signers answer their
+  409 (*"…an admin sets it in Admin Terminal → Storage"*) for those rows: a
+  misleading sentence for a NAS admin. None exist (no s3 workspace exists
+  anywhere). Owner: the next storage session.
+- **P1-05 · A receipt uploaded to an s3 workspace before 0076 is
+  indistinguishable from any other file** (it sits under its container
+  segment, unflagged; 0076 counts and reports those rows and cannot flip
+  them), so either signer signs it for a reader of its project. None exists
+  on any environment. **A release check:** before any s3 workspace with
+  receipts from before 0076 exists, count `files` rows in
+  `expenses.file_ids` with `storage_provider = 's3'`; any above zero needs
+  its body moved into Supabase first. Owner: the release runbook.
+- **P1-06 · The live proof waits on Audrey's test bucket.** No S3 workspace
+  exists on any environment and no session holds a bucket's keys: the signer
+  is proven by its tests (21 failing controls) and by its refusals on
+  wilson-dev to a caller with no sign-in. Walkthrough 85, P1, is the live
+  check once the controller has deployed `storage-read-urls` to staging.

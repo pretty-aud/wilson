@@ -121,7 +121,10 @@ describe('🚨 wiring — the path exists AND is reached', () => {
   })
 
   it('downloadUrl returns null rather than throwing when the provider cannot sign', () => {
-    const block = adapter.slice(adapter.indexOf('async downloadUrl')).slice(0, 800)
-    expect(block).toMatch(/typeof provider\.getUrl !== 'function'\s*\)\s*return null/)
+    // P1 moved this pin: getUrl is REQUIRED, so every provider has one, and
+    // "cannot sign" is getUrl answering null (s3 for a download).
+    const block = adapter.slice(adapter.indexOf('async downloadUrl')).slice(0, 900)
+    expect(block).not.toMatch(/typeof provider\.getUrl/)
+    expect(block).toMatch(/if \(!url\) return null/)
   })
 })

@@ -44,6 +44,8 @@ const stub = () => ({
   del: async () => {},
   exists: async () => true,
   describe: async () => ({ provider: 'x' }),
+  // P1: getUrl joined REQUIRED (storage/index.js).
+  getUrl: async () => null,
 })
 
 beforeEach(() => { __resetStorageRegistry() })
@@ -173,12 +175,14 @@ describe('activeWorkspaceProvider — which provider accepts NEW bodies', () => 
 })
 
 describe('registration refuses the googleDriveAdapter shape', () => {
-  it('accepts a complete four-function provider', () => {
+  it('accepts a complete provider: the five functions and getUrl (P1)', () => {
     registerStorageProvider(FILE_PROVIDERS.SUPABASE, stub())
     expect(hasStorageProvider(FILE_PROVIDERS.SUPABASE)).toBe(true)
   })
 
-  it.each(['put', 'get', 'del', 'exists', 'describe'])(
+  // P1 moved this list: getUrl joined it once s3 could honour it
+  // (storage-read-urls), and a provider without it is refused at the door.
+  it.each(['put', 'get', 'del', 'exists', 'describe', 'getUrl'])(
     'refuses a provider missing %s', (fn) => {
       const partial = stub()
       delete partial[fn]
@@ -290,8 +294,8 @@ describe('the adapter actually calls the registry (no dead path)', () => {
     expect(adapter).toContain('Local Server mode')
   })
 
-  it('registers the s3 provider beside supabase at module load', () => {
-    expect(adapter).toContain('createS3StorageProvider(presignStorage)')
+  it('registers the s3 provider beside supabase at module load, with its read signer (P1)', () => {
+    expect(adapter).toContain('createS3StorageProvider(presignStorage, presignReadUrls)')
     expect(adapter).toContain('FILE_PROVIDERS.S3')
   })
 

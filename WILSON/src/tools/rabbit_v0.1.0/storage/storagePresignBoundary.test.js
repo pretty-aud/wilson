@@ -15,6 +15,12 @@ import { checkRowShapedPath } from '../../../../supabase/functions/_shared/presi
 import { MONEY_SEGMENTS, isMoneySegment } from '../../../../supabase/functions/_shared/moneySegments.ts'
 import { storageKeyHint } from '../../../../supabase/functions/_shared/storageSecretCrypto.ts'
 import { RATES_SEGMENT } from '../../../../supabase/functions/_shared/reservedObjects.ts'
+import {
+  handleReadUrls, classifyOwned, READ_URLS_MAX_KEYS, READ_URLS_MAX_PROJECTS, READ_URLS_MAX_BODY_BYTES,
+  READ_URLS_ROW_CHUNK, THUMBNAIL_EXPIRES, READ_ONCE_EXPIRES, STREAM_EXPIRES,
+} from '../../../../supabase/functions/_shared/readUrls.ts'
+import { S3_READ_BATCH } from './s3Provider'
+import { MONEY_SEGMENTS as CLIENT_MONEY_SEGMENTS, isMoneyKey } from './index.js'
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..')
 const read = (...p) => readFileSync(join(REPO_ROOT, ...p), 'utf8')
@@ -353,5 +359,280 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(codeOf(summary)).not.toContain('uploadFile')
     for (const planted of ["const up = ctx.uploadFile\nup(f)", "ctx['uploadFile'](f)"]) expect(codeOf(planted), planted).toContain('uploadFile')
     expect(codeOf('// the Files tab calls uploadFile now\nconst x = 1')).not.toContain('uploadFile')
+  })
+})
+
+// =============================================================================
+// P1 (night 4, 2026-10-28): storage-read-urls, the GET-only batch signer for
+// an s3 workspace's thumbnails and previews (NETWORK_STORAGE_DESIGN.md §9.2).
+// Its whole decision is _shared/readUrls.ts, imported here across the Deno
+// line and driven with fakes for what touches the world: every refusal the
+// design names, each with its failing control run once (the hand-off quotes
+// them). No S3 workspace exists on any environment, so this IS the proof
+// until Audrey's test bucket on the beta.
+// =============================================================================
+
+const PID2 = 'bbbb2222-0000-0000-0000-000000000002'
+const PID3 = 'cccc3333-0000-0000-0000-000000000003'
+const bodyKey = (leaf, pid = PID) => `projects/${pid}/assets/a1/1754612345678-${leaf}`
+const thumbOf = (k) => `${k}.jpg`
+
+function reqOf(payload, { method = 'POST', length } = {}) {
+  const text = payload === undefined ? '' : (typeof payload === 'string' ? payload : JSON.stringify(payload))
+  const declared = length !== undefined ? length : String(text.length)
+  return {
+    method,
+    headers: { get: (n) => (n.toLowerCase() === 'content-length' ? declared : null) },
+    json: async () => JSON.parse(text),
+  }
+}
+
+// The world, faked and counted. `readable` lists the projects the caller may
+// read; `rows` are the live s3 rows the caller's own select would see.
+function world({ readable = [PID, PID2], rows = [], signer = 'ok', guard = 'ok', limited = false, rowsFail = false, signThrows = null } = {}) {
+  const calls = { guard: 0, rate: 0, can: [], rows: [], load: 0, sign: [] }
+  const deps = {
+    guard: async () => {
+      calls.guard++
+      return guard === 'ok' ? { ok: true, ctx: { callerId: 'u1' } } : { ok: false, res: 'THE_GUARD_ANSWER' }
+    },
+    rateLimited: async () => { calls.rate++; return limited },
+    canReadProject: async (_ctx, p) => {
+      calls.can.push(p)
+      if (readable === 'throws') throw new Error('rpc failed')
+      if (readable === 'null') return null
+      return readable.includes(p)
+    },
+    ownedRows: async (_ctx, projects, paths) => {
+      calls.rows.push({ projects: [...projects].sort(), paths: [...paths] })
+      if (rowsFail) throw new Error('select failed')
+      return rows.filter((r) => paths.includes(r.storage_path))
+    },
+    loadSigner: async () => {
+      calls.load++
+      if (signer !== 'ok') {
+        return { ok: false, status: 409, body: { error: 'refused', detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage' } }
+      }
+      return {
+        ok: true,
+        sign: async (key, seconds) => {
+          calls.sign.push([key, seconds])
+          if (signThrows) throw new Error(signThrows(key))
+          return `https://bucket.example/${key}?X-Amz-Expires=${seconds}`
+        },
+      }
+    },
+  }
+  return { deps, calls }
+}
+
+describe('storage-read-urls — what it signs, and for how long (P1)', () => {
+  it('signs a live row\'s body and its thumbnail, in the order sent: a thumbnail for the hour, a body read once for 300 s', async () => {
+    const a = bodyKey('plate.png')
+    const b = bodyKey('dailies.mov')
+    const { deps } = world({ rows: [{ storage_path: a, thumbnail_url: thumbOf(a) }, { storage_path: b, thumbnail_url: null }] })
+    const out = await handleReadUrls(reqOf({ keys: [thumbOf(a), b, a] }), deps)
+    expect(out.status).toBe(200)
+    expect(Object.keys(out.body.urls)).toEqual([thumbOf(a), b, a])
+    expect(out.body.expires).toEqual({ [thumbOf(a)]: THUMBNAIL_EXPIRES, [b]: READ_ONCE_EXPIRES, [a]: READ_ONCE_EXPIRES })
+    expect([THUMBNAIL_EXPIRES, READ_ONCE_EXPIRES, STREAM_EXPIRES]).toEqual([3600, 300, 3600])
+    expect(out.body.refused).toEqual({})
+  })
+
+  it('answers {urls, refused} keyed by the input string, both in the order the keys were sent', async () => {
+    const ok1 = bodyKey('one.png')
+    const ok2 = bodyKey('two.png')
+    const { deps } = world({ rows: [{ storage_path: ok1, thumbnail_url: null }, { storage_path: ok2, thumbnail_url: null }] })
+    const keys = [`projects/${PID}/INVOICES/x/1-a.pdf`, ok2, 'nope', bodyKey('gone.png'), ok1]
+    const out = await handleReadUrls(reqOf({ keys }), deps)
+    expect(Object.keys(out.body.urls)).toEqual([ok2, ok1])
+    expect(Object.entries(out.body.refused)).toEqual([[keys[0], 'money'], ['nope', 'shape'], [keys[3], 'row']])
+  })
+
+  it.each([
+    ['INVOICES', `projects/${PID}/INVOICES/x/1-invoice.pdf`],
+    ['FINANCE', `projects/${PID}/FINANCE/RATES.json`],
+    ['LEGAL', `projects/${PID}/LEGAL/x/1-contract.pdf`],
+    ['lowercase legal', `projects/${PID}/legal/x/1-contract.pdf`],
+    ['a Legal thumbnail', `projects/${PID}/Legal/x/1-contract.pdf.jpg`],
+  ])('refuses a money key (%s) before any project or row is asked, and signs nothing', async (_label, key) => {
+    const { deps, calls } = world({ rows: [{ storage_path: key, thumbnail_url: null }] })
+    const out = await handleReadUrls(reqOf({ keys: [key] }), deps)
+    expect(out.body.refused).toEqual({ [key]: 'money' })
+    expect(out.body.urls).toEqual({})
+    expect([calls.can.length, calls.rows.length, calls.load, calls.sign.length]).toEqual([0, 0, 0, 0])
+  })
+
+  it.each([
+    ['not under projects/', `assets/${PID}/x.png`],
+    ['no project id', 'projects/not-a-uuid/assets/a1/x.png'],
+    ['a dot segment', `projects/${PID}/assets/../x.png`],
+    ['an empty segment', `projects/${PID}//x.png`],
+    ['a character the uploader never writes', `projects/${PID}/assets/a1/x y.png`],
+  ])('refuses a key outside projects/<uuid>/… (%s) as shape', async (_label, key) => {
+    const { deps, calls } = world()
+    const out = await handleReadUrls(reqOf({ keys: [key] }), deps)
+    expect(out.body.refused).toEqual({ [key]: 'shape' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it.each([
+    ['false', [PID]],
+    ['null', 'null'],
+    ['a thrown error', 'throws'],
+  ])('refuses every key of a project the caller cannot read (the predicate answers %s)', async (_label, readable) => {
+    const k1 = bodyKey('a.png', PID2)
+    const k2 = thumbOf(bodyKey('b.png', PID2))
+    const { deps, calls } = world({ readable, rows: [{ storage_path: k1, thumbnail_url: null }] })
+    const out = await handleReadUrls(reqOf({ keys: [k1, k2] }), deps)
+    expect(out.body.refused).toEqual({ [k1]: 'project', [k2]: 'project' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it('asks can_presign_project_read ONCE per distinct project, however many keys', async () => {
+    const keys = [bodyKey('a.png'), bodyKey('b.png'), bodyKey('c.png'), bodyKey('d.png', PID2), bodyKey('e.png', PID2)]
+    const { deps, calls } = world({ rows: keys.map((k) => ({ storage_path: k, thumbnail_url: null })) })
+    const out = await handleReadUrls(reqOf({ keys }), deps)
+    expect(Object.keys(out.body.urls)).toEqual(keys)
+    expect([...calls.can].sort()).toEqual([PID, PID2])
+  })
+
+  it('🚨 refuses a key no live row of the caller owns — a trashed file, a purged row, an object WILSON never wrote — as row', async () => {
+    const trashed = bodyKey('trashed.mov')
+    const { deps, calls } = world({ rows: [] })
+    const out = await handleReadUrls(reqOf({ keys: [trashed, thumbOf(trashed)] }), deps)
+    expect(out.body.refused).toEqual({ [trashed]: 'row', [thumbOf(trashed)]: 'row' })
+    expect(calls.load).toBe(0)
+    expect(calls.sign).toEqual([])
+    // The row read asked for the keys AND the bodies a thumbnail derives from.
+    expect(calls.rows[0].paths).toEqual([trashed, thumbOf(trashed)])
+  })
+
+  it('🚨 a thumbnail is only the key derived from its row\'s OWN body: a thumbnail_url set to something else signs nothing (it is client-writable)', async () => {
+    const mine = bodyKey('plate.png')
+    const elsewhere = bodyKey('somebody-elses.mov')
+    const { deps, calls } = world({ rows: [{ storage_path: mine, thumbnail_url: elsewhere }] })
+    const out = await handleReadUrls(reqOf({ keys: [elsewhere, thumbOf(mine)] }), deps)
+    expect(out.body.refused).toEqual({ [elsewhere]: 'row', [thumbOf(mine)]: 'row' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it('an inactive member gets the guard\'s answer, and nothing else runs', async () => {
+    const { deps, calls } = world({ guard: 'inactive' })
+    const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
+    expect(out).toEqual({ res: 'THE_GUARD_ANSWER' })
+    expect([calls.rate, calls.can.length, calls.rows.length, calls.load]).toEqual([0, 0, 0, 0])
+  })
+
+  it('a workspace not on s3 is the 409 with its sentence, and nothing is signed', async () => {
+    const k = bodyKey('a.png')
+    const { deps, calls } = world({ signer: 'not-s3', rows: [{ storage_path: k, thumbnail_url: null }] })
+    const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
+    expect(out.status).toBe(409)
+    expect(out.body.detail).toMatch(/no S3-compatible storage configured/)
+    expect(calls.sign).toEqual([])
+  })
+
+  it('stream: one body for the hour; a stream of two keys is refused', async () => {
+    const k = bodyKey('cut.mov')
+    const { deps } = world({ rows: [{ storage_path: k, thumbnail_url: null }, { storage_path: bodyKey('b.mov'), thumbnail_url: null }] })
+    const one = await handleReadUrls(reqOf({ keys: [k], stream: true }), deps)
+    expect(one.body.expires).toEqual({ [k]: STREAM_EXPIRES })
+    const two = await handleReadUrls(reqOf({ keys: [k, bodyKey('b.mov')], stream: true }), deps)
+    expect(two.status).toBe(400)
+  })
+
+  it('the bounds: 100 keys, two projects, 128 KB read by its length before parsing, POST only, JSON only', async () => {
+    const { deps } = world()
+    const many = Array.from({ length: READ_URLS_MAX_KEYS + 1 }, (_, i) => bodyKey(`f${i}.png`))
+    expect((await handleReadUrls(reqOf({ keys: many }), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [] }), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a'), bodyKey('b', PID2), bodyKey('c', PID3)] }), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a')] }, { length: String(READ_URLS_MAX_BODY_BYTES + 1) }), deps)).status).toBe(413)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a')] }, { length: null }), deps)).status).toBe(411)
+    expect((await handleReadUrls(reqOf('not json'), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a')] }, { method: 'GET' }), deps)).status).toBe(405)
+    expect(await handleReadUrls(reqOf(undefined, { method: 'OPTIONS' }), deps)).toEqual({ preflight: true })
+    expect([READ_URLS_MAX_KEYS, READ_URLS_MAX_PROJECTS, READ_URLS_MAX_BODY_BYTES]).toEqual([100, 2, 128 * 1024])
+  })
+
+  it('a limited caller is refused before the body is read', async () => {
+    const { deps, calls } = world({ limited: true })
+    const out = await handleReadUrls(reqOf({ keys: [bodyKey('a')] }), deps)
+    expect(out.status).toBe(429)
+    expect([calls.can.length, calls.rows.length]).toEqual([0, 0])
+  })
+
+  it('a row read that fails fails the call CLOSED: nothing is signed', async () => {
+    const { deps, calls } = world({ rowsFail: true })
+    const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
+    expect(out.status).toBe(500)
+    expect(calls.load).toBe(0)
+  })
+
+  it('a signer error that names the key is not echoed (a key carries a filename)', async () => {
+    const k = bodyKey('Secret_Title_v3.mov')
+    const { deps } = world({ rows: [{ storage_path: k, thumbnail_url: null }], signThrows: (key) => `refusing to presign a non-canonical key: ${key}` })
+    const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
+    expect(out.status).toBe(500)
+    expect(JSON.stringify(out.body)).not.toContain('Secret_Title')
+  })
+
+  it('duplicates are signed once; the row read is chunked at 20 keys', async () => {
+    const keys = Array.from({ length: 45 }, (_, i) => bodyKey(`f${i}.png`))
+    const { deps, calls } = world({ rows: keys.map((k) => ({ storage_path: k, thumbnail_url: null })) })
+    const out = await handleReadUrls(reqOf({ keys: [...keys, keys[0]] }), deps)
+    expect(Object.keys(out.body.urls)).toHaveLength(45)
+    expect(calls.sign).toHaveLength(45)
+    expect(calls.rows.map((r) => r.paths.length)).toEqual([READ_URLS_ROW_CHUNK, READ_URLS_ROW_CHUNK, 5])
+  })
+
+  it('classifyOwned: a key that is a body and a thumbnail is a body (the shorter-lived)', () => {
+    const k = bodyKey('a.png')
+    const owned = classifyOwned([k, thumbOf(k)], [{ storage_path: k, thumbnail_url: thumbOf(k) }, { storage_path: thumbOf(k), thumbnail_url: null }])
+    expect([...owned]).toEqual([[k, 'body'], [thumbOf(k), 'body']])
+  })
+})
+
+describe('storage-read-urls — the wiring is real (P1)', () => {
+  const fn = read('supabase', 'functions', 'storage-read-urls', 'index.ts')
+  const code = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
+  it('the function supplies the guard, its own limiter bucket, the predicate and the row AS THE CALLER, and signs GET only', () => {
+    expect(code).toContain('requireActiveMember(req)')
+    expect(code).toContain("isRateLimited(ctx.admin, 'storage-read-urls', ctx.callerId")
+    expect(code).toContain("envInt('STORAGE_READ_URLS_RPM', 120)")
+    expect(code).toContain("asCaller().rpc('can_presign_project_read', { p_project: projectId })")
+    expect(code).toMatch(/asCaller\(\)\s*\.from\('files'\)/)
+    expect(code).toContain(".eq('storage_provider', 's3')")
+    expect(code).toContain(".is('deleted_at', null)")
+    expect(code).toContain("method: 'GET'")
+    for (const m of ["'PUT'", "'DELETE'", "'HEAD'"]) expect(code).not.toContain(m)
+    expect(code).toContain('handleReadUrls<MemberContext>(req,')
+    // The prefix applied here and only here.
+    expect(code).toContain('cfg.prefix ? `${cfg.prefix}/${key}` : key')
+  })
+
+  it('config.toml opts it out of the gateway\'s JWT check, like every function here', () => {
+    expect(read('supabase', 'config.toml')).toMatch(/\[functions\.storage-read-urls\]\r?\nverify_jwt = false/)
+  })
+
+  it('the client calls it by its deployed name, and splits at the server\'s bound', () => {
+    const api = read('src', 'cloud', 'storageApi.js')
+    expect(api).toContain("callStorageFn('storage-read-urls',")
+    expect(S3_READ_BATCH).toBe(READ_URLS_MAX_KEYS)
+  })
+
+  it('the client\'s one copy of the money words agrees with the Deno copy, literally and case-folded', () => {
+    expect([...CLIENT_MONEY_SEGMENTS]).toEqual([...MONEY_SEGMENTS])
+    expect(isMoneyKey(`projects/${PID}/legal/x/1-a.pdf`)).toBe(true)
+    expect(isMoneyKey(`projects/${PID}/Invoices/x/1-a.pdf.jpg`)).toBe(true)
+    expect(isMoneyKey(`projects/${PID}/assets/legal/1-a.pdf`)).toBe(false)
+    expect(isMoneyKey(null)).toBe(false)
+  })
+
+  it('checkRowShapedPath names its refusal: money for a locked folder, shape for the rest', () => {
+    expect(checkRowShapedPath(`projects/${PID}/FINANCE/RATES.json`)).toMatchObject({ ok: false, code: 'money' })
+    expect(checkRowShapedPath('projects/x')).toMatchObject({ ok: false, code: 'shape' })
   })
 })

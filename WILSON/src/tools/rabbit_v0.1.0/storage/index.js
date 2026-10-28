@@ -17,7 +17,9 @@
 //   del(key) -> void                    exists(key) -> boolean
 // plus describe() for the configuration-time reachability probe (the S34
 // pattern: tell someone their storage is unreachable while they are SETTING
-// it, not at their first download six screens away).
+// it, not at their first download six screens away), and — since P1 —
+// getUrl(key, expiresIn, opts), the URL a preview or a player reads (REQUIRED
+// below says why it joined).
 // `googleDriveAdapter.js` is 57 readOnly() stubs across 68 methods, modelled
 // on single-user JSON bundles and predating workspaces, RLS, the folder tree
 // and the manifest. It is the shape to AVOID, not to finish.
@@ -105,6 +107,27 @@ export function activeWorkspaceProvider(storageRow) {
   return provider
 }
 
+// ── P1 (night 4): what a cloud surface says of a NAS workspace's media ──────
+// NETWORK_STORAGE_DESIGN.md §9.4, measured: a workspace whose ACTIVE provider
+// is 'network' keeps its media on its own server, recorded in the desktop's
+// Local Server mode; the cloud holds no `files` row for any of it (uploadFile
+// refuses one), so the browser has nothing to list or preview, and its file
+// panels would otherwise read as empty. This is the sentence they say instead
+// (the design round found it needs no new ruling: uploadFile says the same
+// when it refuses, and Bins says it for footage). Whether those files are ever
+// listed in the cloud is Audrey's question (Q1 of walkthrough 85, P1).
+export const SERVER_MEDIA_SENTENCE =
+  'This company keeps its media on its own server, so files are added and opened in the WILSON desktop app (Local Server mode). Footage on the server is listed in Bins.'
+
+/** Whether the workspace's ACTIVE choice is its own server; false on any doubt. */
+export function storesMediaOnServer(storageRow) {
+  try {
+    return activeWorkspaceProvider(storageRow) === WORKSPACE_PROVIDERS.NETWORK
+  } catch {
+    return false
+  }
+}
+
 // ── 🚨 The invariant that must survive every provider ───────────────────────
 // §4a2b invariant 2: money-gated files NEVER leave Supabase.
 //
@@ -121,6 +144,20 @@ export function activeWorkspaceProvider(storageRow) {
 // which refuses the same rows for a devtools caller, a hand-made PostgREST
 // request, or a future adapter that forgets — refusals in depth (the S34
 // rule), because this is the one invariant whose failure is silent.
+// The locked folders, the client's ONE copy of public.rabbit_money_segment's
+// vocabulary (0042 + 0088's LEGAL; the Deno copy is _shared/moneySegments.ts,
+// and storagePresignBoundary.test.js holds the two to each other). A key whose
+// THIRD segment is one of them is money-gated: the s3 read signer is never
+// asked for it (storageApi.presignReadUrls answers it itself), and the
+// connection dot never reads one. Case-folded, as the SQL is.
+export const MONEY_SEGMENTS = Object.freeze(['INVOICES', 'FINANCE', 'LEGAL'])
+
+export function isMoneyKey(path) {
+  if (typeof path !== 'string') return false
+  const seg = path.split('/')[2]
+  return typeof seg === 'string' && seg !== '' && MONEY_SEGMENTS.includes(seg.toUpperCase())
+}
+
 export function fileProviderFor(workspaceProvider, { financial = false } = {}) {
   if (financial) return FILE_PROVIDERS.SUPABASE
   const mapped = NEW_BODY_GOES_TO[workspaceProvider]
@@ -142,7 +179,14 @@ export function fileProviderFor(workspaceProvider, { financial = false } = {}) {
 
 const registry = new Map()
 
-const REQUIRED = ['put', 'get', 'del', 'exists', 'describe']
+// P1 (night 4): `getUrl(key, expiresIn, opts)` JOINS THE CONTRACT. It was
+// optional from S40 until now because s3 could not honour it — its only
+// signer was storage-presign's one-key, 300 s GET, which kills a clip at five
+// minutes and a grid at six. storage-read-urls (NETWORK_STORAGE_DESIGN.md
+// §9.2) gives s3 its own, so all three registered providers implement it:
+// supabase signs, local_server answers its own server's URL (or NOT_HERE),
+// s3 asks the read signer. A provider without it is now refused here.
+const REQUIRED = ['put', 'get', 'del', 'exists', 'describe', 'getUrl']
 
 export function registerStorageProvider(name, impl) {
   if (!Object.values(FILE_PROVIDERS).includes(name)) {

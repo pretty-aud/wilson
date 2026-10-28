@@ -94,10 +94,15 @@ export function tooLargeToRead(row, kind) {
 /**
  * Why there is no URL to show, in words — never a spinner (the brief: "every
  * unavailable state is a sentence"). The provider documents a null fileUrl as
- * "this backend or provider cannot mint one".
+ * "this backend cannot mint one".
+ *
+ * P1 (night 4): the s3 arm is gone — a file in a company's own bucket is
+ * signed by storage-read-urls now, and a refusal there arrives as its own
+ * sentence (a throw), not as a null. A NAS company's media has no row to come
+ * here with; its file panels say so instead (storage/index.js
+ * SERVER_MEDIA_SENTENCE).
  */
 export function unavailableSentence(row, adapterMode) {
-  if (row?.storage_provider === 's3') return 'Preview isn\'t available yet for files stored in your own bucket. Download it to view it.'
   if (adapterMode === 'fixtures') return 'The dev fixtures hold no file bytes, so there is nothing to preview here.'
   return 'This backend cannot show a preview of this file. Download it to view it.'
 }

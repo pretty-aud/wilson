@@ -45,6 +45,8 @@ function fakeProvider(name) {
     del: async () => {},
     exists: async () => true,
     describe: async () => ({ ok: true }),
+    // P1: getUrl is REQUIRED (storage/index.js); this file never reads one.
+    getUrl: async () => null,
   }
 }
 

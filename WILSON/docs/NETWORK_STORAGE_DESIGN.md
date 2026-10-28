@@ -2342,6 +2342,8 @@ Nine findings, four Medium and five Low, none High; every one is folded into
    generation.
 9. *Statements the code contradicts* (Low): pre-0076 receipts on s3 (9.3, and
    a release check); two client copies of the money words (the connection
-   dot's replaced; D.O.G.'s, which lacks LEGAL, recorded in OUTSTANDING); no
-   refusal code from the path gate (added); rows from before a switch to
-   `network` (recorded above).
+   dot's replaced by `isMoneyKey`; D.O.G.'s `moneySegment` lacks LEGAL, and
+   that was measured as deliberate, not a gap: `isDeckReferenceFile` refuses
+   a Legal file by its own `isLegalFile` test beside it); no refusal code from
+   the path gate (added); rows from before a switch to `network` (recorded
+   above, and in OUTSTANDING as P1-04).

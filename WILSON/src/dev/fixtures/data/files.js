@@ -252,7 +252,12 @@ const gameIdByPath = new Map(folderIdByPath)
 gamePlan.forEach((f, i) => gameIdByPath.set(f.path, fid('folder', 200 + i)))
 export const GAME_FOLDERS = gamePlan.map((f, i) => folderRowOf(f, FOLDERS.length + i, gameIdByPath))
 
-function gameFile(n, entityType, entity, name, kind, kb, d) {
+// P1 (night 4): `provider` is the fixtures' one s3 arm. The level's blockout
+// below sits in a company's own bucket, so the tester shows that row's
+// thumbnail through FileManager's s3 arm and its preview through the
+// adapter's s3 fileUrl (a fake bucket answering the generated picture); every
+// other row stays 'supabase' (dataset.test.js pins FILES so).
+function gameFile(n, entityType, entity, name, kind, kb, d, provider = 'supabase') {
   const folderPath = planEntityFolder(PROJECT, entityType, entity).folder.path
   const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
   const storage_path = `workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/${folderPath}/${name}`
@@ -271,7 +276,7 @@ function gameFile(n, entityType, entity, name, kind, kb, d) {
     name,
     mime_type: MIME[ext] || 'application/octet-stream',
     size_bytes: kb * 1024,
-    storage_provider: 'supabase',
+    storage_provider: provider,
     storage_path,
     thumbnail_url: THUMBABLE.has(ext) ? `${storage_path}.thumb.png` : null,
     kind,
@@ -291,7 +296,7 @@ function gameFile(n, entityType, entity, name, kind, kb, d) {
   }
 }
 export const GAME_FILES = [
-  gameFile(36, 'level', GAME_LEVELS[1], 'Lamp_Room_blockout_v2.png', 'reference', 1800, 33),
+  gameFile(36, 'level', GAME_LEVELS[1], 'Lamp_Room_blockout_v2.png', 'reference', 1800, 33, 's3'),
   gameFile(37, 'experience', GAME_EXPERIENCES[1], 'The_Storm_beat_sheet.pdf', 'source', 320, 41),
 ]
 

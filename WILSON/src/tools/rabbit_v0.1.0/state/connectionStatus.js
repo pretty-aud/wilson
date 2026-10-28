@@ -49,7 +49,7 @@
 //    path refuses), so that is amber in words, not a probe (R2-13).
 // =============================================================================
 
-import { activeWorkspaceProvider, WORKSPACE_PROVIDERS } from '../storage/index.js'
+import { activeWorkspaceProvider, WORKSPACE_PROVIDERS, isMoneyKey } from '../storage/index.js'
 
 /** One probe's ceiling. A check still pending then is aborted. */
 export const CONNECTION_TIMEOUT_MS = 6000
@@ -161,14 +161,14 @@ export function adapterKindOf(adapterMode, adapter) {
   return null
 }
 
-// The money segments (public.rabbit_money_segment, 0042 + 0088;
-// supabase/functions/_shared/moneySegments.ts): a body under one is gated by
-// the money and Legal rules, so it is never the one the dot reads.
-const MONEY_SEGMENTS = ['INVOICES', 'FINANCE', 'LEGAL']
+// The money segments (public.rabbit_money_segment, 0042 + 0088): a body under
+// one is gated by the money and Legal rules, so it is never the one the dot
+// reads. isMoneyKey is the client's one copy (storage/index.js; P1 retired
+// the copy that stood here).
 function readableFileOf(files, provider, projectId) {
   return (files || []).find(f => f && f.storage_provider === provider && f.storage_path && !f.deleted_at
     && !f.is_financial && (!projectId || f.project_id === projectId)
-    && !MONEY_SEGMENTS.includes(String(f.storage_path.split('/')[2] || '').toUpperCase())) || null
+    && !isMoneyKey(f.storage_path)) || null
 }
 
 /**
