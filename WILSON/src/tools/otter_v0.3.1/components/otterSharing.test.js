@@ -426,6 +426,15 @@ describe('B2: the linked subject inside the receiver\'s course (design §5.4)', 
     expect(reopenRestoredLinks(empty, rows)).toBe(empty)
   })
 
+  it('a row closed while accepted, then trashed, is remembered as gone, so the restore after it reopens it (round 2, note 4a)', () => {
+    const closed = new Map([['odd', 'accepted']])
+    const trashed = reopenRestoredLinks(closed, [host({ id: 'odd', state: 'gone' })])
+    expect(trashed).not.toBe(closed)
+    expect(trashed.get('odd')).toBe('gone')
+    expect(closed.get('odd'), 'the Map it was given is not changed').toBe('accepted')
+    expect(reopenRestoredLinks(trashed, [host({ id: 'odd' })]).has('odd')).toBe(false)
+  })
+
   it('a 404 whose re-read failed says only that it could not be read', () => {
     expect(linkUnreadWords('Modifiers')).toBe('«Modifiers» could not be read just now. Try again in a moment.')
   })

@@ -349,13 +349,48 @@ describe('a 404 on open (design §5.4)', () => {
     expect(linkedBtn.disabled).toBe(false)
   })
 
-  it('a state the functions could not have made reads as gone, and the row closes anyway', async () => {
+  it('a state the functions could not have made reads as gone, and the row closes anyway — and STAYS closed through the next list read', async () => {
     world.linked = null
     world.sharesAfter404 = [{ ...LINK }]   // still "accepted", yet the read is a 404
     const { linkedBtn } = await openHost()
     fireEvent.click(linkedBtn)
     expect(await screen.findByText(/is no longer available: the owner removed it/)).toBeTruthy()
-    await waitFor(() => expect(rows().find(x => x.querySelector('.otter-subject-link')).getAttribute('data-closed')).toBe('true'))
+    const linked = () => rows().find(x => x.querySelector('.otter-subject-link'))
+    await waitFor(() => expect(linked().getAttribute('data-closed')).toBe('true'))
+    // A list read gives it back as accepted, exactly as at the close: nothing
+    // was restored, so it must not reopen and 404 again on every read
+    // (round 2, finding 3).
+    const readsBefore = world.reads.filter(u => u === '/api/otter/subject-shares').length
+    fireEvent.click(screen.getByRole('tab', { name: /Library/ }))
+    const courseBtn = document.querySelector('.otter-course-open')
+    fireEvent.click(courseBtn)
+    if (!linked()) fireEvent.click(courseBtn)
+    await waitFor(() => expect(world.reads.filter(u => u === '/api/otter/subject-shares').length).toBeGreaterThan(readsBefore))
+    await new Promise(r => setTimeout(r, 30))
+    expect(linked().getAttribute('data-closed')).toBe('true')
+  })
+
+  it('a 404 on the subject that is OPEN closes the view, even when the re-read fails; the row stays openable (round 2, finding 1)', async () => {
+    const { linkedBtn, linkedRow } = await openHost()
+    fireEvent.click(linkedBtn)
+    await screen.findByRole('heading', { name: 'Linked lesson' })
+    world.linked = null
+    world.sharesAfter404 = 'fail'
+    fireEvent.click(linkedBtn)
+    expect(await screen.findByText('«Modifiers» could not be read just now. Try again in a moment.')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Linked lesson' })).toBeNull())
+    expect(linkedRow.getAttribute('data-closed')).toBeNull()
+  })
+
+  it('a notice does not follow the person into a subject (round 2, finding 2)', async () => {
+    world.linked = null
+    world.sharesAfter404 = [{ ...LINK, state: 'gone' }]
+    const { linkedBtn, ownRow } = await openHost()
+    fireEvent.click(linkedBtn)
+    await screen.findByText(/is no longer available: the owner removed it/)
+    fireEvent.click(ownRow.querySelector('.otter-subject-open'))
+    await screen.findByRole('heading', { name: 'Own lesson' })
+    expect(screen.queryAllByText(/is no longer available: the owner removed it/)).toHaveLength(0)
   })
 })
 
@@ -466,6 +501,23 @@ describe('the readers of a linked body, by source', () => {
     const linkedPart = quiz.slice(quiz.indexOf('linkedRowsForHost('))
     expect(linkedPart.length).toBeGreaterThan(100)
     expect(linkedPart).not.toMatch(CACHE_WRITE)
+  })
+
+  it('both study-view branches draw the sharing banner — the lesson page and the outline page (round 2, note 6)', () => {
+    const study = (src) => src.slice(src.indexOf('function renderStudyView() {'), src.indexOf('function renderSubjectShareBar() {'))
+    const count = (src) => (study(src).match(/\{renderSharingBanner\(\)\}/g) ?? []).length
+    expect(count(OTTER_SRC)).toBe(2)
+    // CONTROL: the outline page's banner removed is counted short.
+    const outline = '            {/* B2: Share… and Pass on… answer here too (round 1, finding 4). */}\n            {renderSharingBanner()}\n            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title]'
+    expect(OTTER_SRC).toContain(outline)
+    expect(count(OTTER_SRC.replace(outline, '            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title]'))).toBe(1)
+  })
+
+  it('the agent is not handed a bare lesson id while a link is open (round 2, finding 7)', () => {
+    const PIN = /selectedLessonId: activeLinked \? null : selectedLessonId/
+    expect(OTTER_SRC).toMatch(PIN)
+    // CONTROL: the context as it was reads the lesson id through.
+    expect('return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId };').not.toMatch(PIN)
   })
 
   it('the agent is refused a write on a linked subject, and is handed no read-only flag nobody reads (round 1, finding 5)', () => {

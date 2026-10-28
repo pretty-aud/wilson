@@ -569,10 +569,16 @@ export function isClosedLink(row, closedIds) {
 export function reopenRestoredLinks(closed, rows) {
   if (!closed?.size) return closed
   let next = null
+  const edit = () => (next = next ?? new Map(closed))
   for (const r of rows ?? []) {
-    if (closed.has(r?.id) && r.state === 'accepted' && closed.get(r.id) !== 'accepted') {
-      next = next ?? new Map(closed)
-      next.delete(r.id)
+    if (!closed.has(r?.id)) continue
+    const was = closed.get(r.id)
+    if (r.state === 'accepted') {
+      if (was !== 'accepted') edit().delete(r.id)
+    } else if (r.state !== was) {
+      // Closed while the index said accepted, then trashed: remember the new
+      // state, so the restore after it reopens the row (round 2, note 4a).
+      edit().set(r.id, r.state)
     }
   }
   return next ?? closed

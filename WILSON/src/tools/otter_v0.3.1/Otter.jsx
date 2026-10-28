@@ -476,7 +476,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     const toolInterface = {
       toolName: 'otter',
       get currentContext() {
-        return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId };
+        // B2: while a LINKED subject is open, activeSubjectSlug is null (it is
+        // identified by link:<id>), and its lesson id is withheld too: alone,
+        // under the host course, `lesson_1_1` names the host's own lesson of
+        // that id (B2 review round 2, finding 7).
+        return { activeSoftwareSlug, activeSubjectSlug, selectedLessonId: activeLinked ? null : selectedLessonId };
       },
       async getAvailableSubjects() {
         if (!activeSoftwareSlug) return [];
@@ -808,6 +812,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
     setActiveLinked(null);
     setArrivedShareIds(prev => (prev.size ? new Set() : prev));
+    // The study view draws the sharing banner too (round 1, finding 4): a
+    // notice from before does not follow the person into a subject (round 2,
+    // finding 2).
+    setSharingNotice(null);
+    setSharingError(null);
     setActiveSubjectSlug(subjectSlug);
     const cacheKey = `${softwareSlug}/${subjectSlug}`;
     const cached = subjectCacheRef.current[cacheKey];
@@ -854,20 +863,22 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     const fresh = await loadSubjectShares();
     clearPetKnowledgeCache();
     setSharingError(null);
-    if (!fresh) {
-      // The re-read FAILED: there is no state to choose words by and no
-      // ground to close the row on, so it stays as it was and says only that
-      // it could not be read (B2 review round 1, finding 7).
-      setSharingNotice({ tone: 'info', text: linkUnreadWords(row.subject_title) });
-      return;
-    }
-    const now = fresh.find(r => r.id === row.id) ?? null;
-    setClosedLinkIds(prev => new Map(prev).set(row.id, now?.state ?? null));
+    // The 404 itself says the subject is no longer readable: an open view of
+    // it closes, whatever the re-read gives (§5.4; round 2, finding 1).
     if (activeLinkedRef.current?.shareId === row.id) {
       setActiveLinked(null);
       setActiveSubject(null);
       setCurrentView('library');
     }
+    if (!fresh) {
+      // The re-read FAILED: there is no state to choose words by and no
+      // ground to close the ROW on, so it stays openable (a retry) and says
+      // only that it could not be read (B2 review round 1, finding 7).
+      setSharingNotice({ tone: 'info', text: linkUnreadWords(row.subject_title) });
+      return;
+    }
+    const now = fresh.find(r => r.id === row.id) ?? null;
+    setClosedLinkIds(prev => new Map(prev).set(row.id, now?.state ?? null));
     setSharingNotice({ tone: 'info', text: linkClosedWords(now, row.subject_title) });
   }, [loadSubjectShares]);
 
@@ -877,6 +888,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // pins it). Its progress is the HOST course's row, under linkKey().
   const openLinkedSubject = useCallback(async (row) => {
     if (!row?.subject_id || !row.host_course_id) return;
+    // A notice belongs to the moment it was said: an open starts clean, and
+    // this open's own words (a 404, a failure) are set after (round 2, finding 2).
+    setSharingNotice(null);
+    setSharingError(null);
     setArrivedShareIds(prev => (prev.size ? new Set() : prev));
     if (activeSoftwareSlug !== row.host_course_id) selectSoftware(row.host_course_id);
     const out = await shareCall(otterFetch, `/api/otter/subjects/${encodeURIComponent(row.subject_id)}`);

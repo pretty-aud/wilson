@@ -51,7 +51,7 @@ No session holds a password for any account, so this flow is yours.
 | 9 | You | **⋯ › Share this course with…** | The subtitle counts the subjects (*7 subjects, 2 of them outlines*); after Share: *Shared your course with <name>: N subjects, waiting for them to accept.* (any subject already shared with them is named). They see one card, **Accept all** / **Decline all** |
 | 10 | You | Add a subject to that course | *Share the new subject too?* with them ticked; **Share** or **Not now** |
 | 11 | You | **Withdraw** on a link | The confirm: *<name> will lose the link. Their own progress stays theirs.* (and, when they passed it on: *Removing it ends it for the 1 person it was passed on to…*). Their next open: *«…» is no longer shared with you.* and the row leaves their course |
-| 12 | You | Move the subject to **Recently deleted** | Their row greys: *No longer available — the owner removed it*, with **Remove**; restore it and it comes back |
+| 12 | You | Move the subject to **Recently deleted** | Their row greys: *No longer available — the owner removed it*, with **Remove**; restore it and it comes back the next time their list is read (they open the library or Requests, or another course) |
 | 13 | Either | Sign out on the desktop (your own library) | None of the above shows |
 
 ### Pictures

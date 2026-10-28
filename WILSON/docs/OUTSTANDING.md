@@ -438,16 +438,19 @@ confirm's cloud-mode wording for the subject. Outside B2's list; walkthrough
 84, B2's Q2.
 
 ### While a linked subject is open, the pet has no lesson to read and is not told it is read-only
-**MEASURED by reading (B2 review round 1, finding 5, 2026-10-27).** The
-agent's context (`src/agent/AgentProvider.jsx`) is keyed on
-`activeSubjectSlug`, which `Otter.jsx` sets to null while a LINKED subject is
-open (its slug may be the host's own subject's, so the client identifies it
-by `link:<subject_id>`, design §5.5). So for a linked subject the pet is
-handed no subject and no `getContent` of the open lesson: it cannot answer
-about the lesson on screen the way it can for an own subject, and the
-design's "the agent is told the subject is read-only" (§5.4) is true only by
-that omission. The write is refused regardless (`applyChange` throws while a
-link is open; the database would refuse it too). Fix shape: pass the open
+**MEASURED by reading (B2 review rounds 1 and 2, 2026-10-27).** The agent's
+context (`src/agent/AgentProvider.jsx`) reads the subject only when
+`activeSubjectSlug` is set, and `Otter.jsx` sets it to null while a LINKED
+subject is open (its slug may be the host's own subject's, so the client
+identifies it by `link:<subject_id>`, design §5.5); B2 withholds the lesson
+id then too (alone under the host course, `lesson_1_1` would name the host's
+own lesson of that id). So for a linked subject the pet is handed the host
+course and nothing of the subject: it cannot answer about the lesson on
+screen as it can for an own subject, and the design's "the agent is told the
+subject is read-only" (§5.4) is true only by that omission. Every write is
+refused while a link is open (`applyChange` throws, for the host's own
+subjects too, since the agent's target names a slug the two can share; the
+database would refuse a write to the link anyway). Fix shape: pass the open
 link to the agent's context (`activeSubjectKey`, or a linked flag the
 provider reads) and let `getContent` serve the open body. `AgentProvider.jsx`
 is outside B2's table (design §6.2), so this is recorded, not changed.
