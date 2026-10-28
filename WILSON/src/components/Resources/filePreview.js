@@ -33,6 +33,9 @@ const IMAGE = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'ico'
 const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon'])
 const IMAGE_NOT_DRAWN = new Set(['tif', 'tiff', 'psd', 'psb', 'exr', 'heic', 'heif', 'raw', 'cr2', 'cr3', 'nef', 'arw', 'dng', 'dpx', 'tga', 'hdr'])
 const AUDIO = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'weba'])
+// P1: what plays by range requests (with VIDEO_EXTENSIONS) — the read signer's
+// streaming hour covers exactly these (storagePresignBoundary.test.js).
+export const AUDIO_EXTENSIONS = AUDIO
 const MARKDOWN = new Set(['md', 'markdown', 'mdown', 'mkd'])
 const ESCAPED = new Set(['html', 'htm', 'xhtml', 'svg'])
 const ESCAPED_MIME = new Set(['text/html', 'application/xhtml+xml', 'image/svg+xml'])
@@ -94,10 +97,15 @@ export function tooLargeToRead(row, kind) {
 /**
  * Why there is no URL to show, in words — never a spinner (the brief: "every
  * unavailable state is a sentence"). The provider documents a null fileUrl as
- * "this backend or provider cannot mint one".
+ * "this backend cannot mint one".
+ *
+ * P1 (night 4): the s3 arm is gone — a file in a company's own bucket is
+ * signed by storage-read-urls now, and a refusal there arrives as its own
+ * sentence (a throw), not as a null. A NAS company's media has no row to come
+ * here with; its file panels say so instead (storage/index.js
+ * SERVER_MEDIA_SENTENCE).
  */
 export function unavailableSentence(row, adapterMode) {
-  if (row?.storage_provider === 's3') return 'Preview isn\'t available yet for files stored in your own bucket. Download it to view it.'
   if (adapterMode === 'fixtures') return 'The dev fixtures hold no file bytes, so there is nothing to preview here.'
   return 'This backend cannot show a preview of this file. Download it to view it.'
 }

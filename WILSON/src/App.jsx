@@ -60,6 +60,7 @@ import {
 import { AgentProvider, useAgent } from './agent'
 import { otterFetch, subscribeOtterAdapterMode } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
+import { clearS3ReadUrlCache } from './tools/rabbit_v0.1.0/storage/s3Provider'
 import { withTimeout } from './cloud/auth/withTimeout'
 // The line above is pinned VERBATIM by src/tools/otter_v0.3.1/petKnowledgeWiring.test.js
 // (a tree this sprint does not edit), so the boot ceiling's constant rides its own import.
@@ -1519,6 +1520,18 @@ export default function App() {
   // module variable in the adapters, not in React state: an effect dependency
   // could not see it move.
   useEffect(() => subscribeOtterAdapterMode(() => clearPetKnowledgeCache()), []);
+
+  // ── P1: an s3 workspace's signed preview URLs die with the identity too ───
+  // s3Provider keeps ONE module-level cache of the GET URLs storage-read-urls
+  // signed (NETWORK_STORAGE_DESIGN.md §9.3) — bearer URLs over the company's
+  // footage, signed for THIS person after a check of THEIR rows. Keyed on the
+  // person as well as the workspace, as the pet's index is (an admin and a
+  // member of one workspace may read different rows); the clear also bumps a
+  // generation, so a batch still in flight cannot refill it afterwards.
+  useEffect(() => {
+    if (!perms.ready) return;
+    clearS3ReadUrlCache();
+  }, [perms.ready, perms.userId, perms.workspaceId]);
 
   // ── S34: the workspace storage root reaches the main process ──────────────
   // main.cjs has no Supabase client, so the byos root (workspace_storage,

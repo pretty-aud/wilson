@@ -952,6 +952,18 @@ fails. Not scheduled.
 
 ### A BYO workspace's thumbnails have no browser preview — deliberate, deferred to its own session
 
+✅ **CLOSED FOR s3 BY P1 (2026-10-28, `po/p1-own-storage-previews`), narrowed to
+the live proof and the NAS half.** The three deferred pieces below are built as
+one, as this entry said they would be: a GET-only batch signer,
+`storage-read-urls` (100 keys and 2 projects a call; the row checked as the
+caller; money refused), a longer media expiry (a stream 3600 s, a thumbnail
+3600 s, a body read once 300 s), and `getUrl` in `REQUIRED` with all three
+providers meeting it. FileManager signs an s3 row's preview in the company's
+bucket and renews it while it is shown; the Files tab previews and plays an
+s3 file. What remains: the live check on Audrey's test bucket (OSP-06), and
+the NAS half, which is the `network` entry below. `NETWORK_STORAGE_DESIGN.md`
+§9.
+
 **The compliance half is FIXED (S44, migration 0054).** A thumbnail is now
 written to, and disposed of at, the provider its body went to; the entry that
 stood here — *"a BYO workspace's thumbnails are written to Petal storage"* — is
@@ -1039,7 +1051,9 @@ can tell an old key from a new one. For an s3 `files` row created *before* 0054,
 all three layers are wrong at once:
 
 1. **Display** — excluded by the provider filter, so a preview that *is*
-   signable stops being shown.
+   signable stops being shown. (P1, 2026-10-28: display now asks the
+   customer's bucket for that key, finds nothing there, and shows the same
+   icon — the outcome is unchanged and the rule below stands.)
 2. **Teardown** — excluded from the Petal sweep (left behind) **and** counted in
    `byo_thumbnails_left` as if it were in the customer's bucket.
 3. **`storage-gc`** — the worst: 0054 enqueues it as `byo-s3`/`s3`, the drain
@@ -1065,6 +1079,17 @@ filesystem has no cloud thumbnail path in either direction. **"A thumbnail lives
 where its source lives" is therefore a uniform RULE whose OUTCOME is not
 uniform**, and the desktop's own `sharp` cache is what serves people sitting
 next to the media.
+
+**Measured one level up by P1 (2026-10-28):** a `network` workspace has no
+cloud row for its media at all — it is recorded in the desktop's Local Server
+mode, and `uploadFile` refuses it on the cloud — so the browser has nothing to
+list, let alone preview. Its file panels now say so in one sentence (on the
+cloud backend, while the workspace's active provider is `network`). Whether
+those files are ever listed in the cloud (the file staying on the server, as
+a Bins clip is) is Audrey's Q1 in walkthrough 85, P1, asked for night 5's M3,
+which carries a desktop's managed files and on such a workspace would be
+refused; pictures would follow her B4 rule (Q2). `NETWORK_STORAGE_DESIGN.md`
+§9.4.
 
 ---
 
@@ -1275,6 +1300,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul P1 (2026-10-28; `po/p1-own-storage-previews` into `feat/post-overhaul-edit-versioning`) — browser previews on a workspace's own storage (`docs/sessions/PLAN_TO_1_0.md` night 4; `NETWORK_STORAGE_DESIGN.md` §9): measured first (an s3 row showed icons and an "own bucket" sentence; a NAS workspace's media has no cloud row at all); `storage-read-urls`, a GET-only batch signer (money refused, `can_presign_project_read` once per project, a key signed only when a live s3 row of the caller's, in the key's own project, owns it, read one folder at a time so no filename travels; a thumbnail or one streaming video or audio 3600 s, a body read once 300 s), on wilson-dev only; `getUrl` in `REQUIRED`; FileManager's s3 arm, the Files preview and player for s3 rows; the NAS half's one sentence, Q1–Q2 to Audrey; one design round and two build rounds (Opus, Opus, Fable), 40 failing controls | **OSP-01 to OSP-11** (OSP-08 closed by build round 2): the older signer signs by path; an s3 download is still a Blob; an hour-long clip restarts on its re-mint; rows from before a switch to `network` answer "configure S3"; pre-0076 receipts on s3 are unflagged (a release check); the live check is her test bucket; a writer can make a row vouch for a key in their own project (a migration night); a stale URL after failed renewals; a clip played by MIME alone gets five minutes; the fixtures pass the cloud gate | **The BYO thumbnails entry, closed for s3** (narrowed to the live check and the NAS half); **S4b-02, closed by measurement for dev and staging** (the deployed `storage-presign` downloaded from both is the repository's copy, LEGAL included; production's predates LEGAL). *S44's reversal…* kept true; the `network` entry measured one level up. |
 | Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
@@ -1951,6 +1977,12 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   and `files_money_provider_chk` refuses an s3 row under `LEGAL` once 0088
   is applied. Owner: Audrey (`supabase functions deploy storage-presign`
   on dev, then staging).
+  **Closed by measurement for dev and staging (P1, 2026-10-28):** the
+  deployed `storage-presign` was downloaded from both (dev v5 of 2026-10-02,
+  staging v5 of 2026-10-06) and is the repository's copy byte for byte,
+  LEGAL included. Production's is v3 of 2026-08-08, before LEGAL; production
+  is at 0063, where no LEGAL key exists, and the release runbook redeploys
+  every function there.
 - **S4b-03 · A manager's second window does not see a new invoice or Legal
   file until it reloads.** 0088 stops the realtime broadcast of money
   `files` rows, because the project topic is joined by every project reader
@@ -3004,3 +3036,89 @@ notes) met outside those notes and did not fix.
   `button.dog-check`, with no `<label>` (the kit has no Checkbox, A1-KR-4).
   Fix: the words inside the button's target, or the kit Checkbox when
   A1-KR-4 lands. Owner: a D.O.G. session, or the kit request.
+
+
+## P1 (`po/p1-own-storage-previews`) — left open (2026-10-28)
+
+What P1 (night 4: browser previews on a workspace's own storage) measured
+outside its scope, or built to a limit, and did not fix. The design is
+`NETWORK_STORAGE_DESIGN.md` §9.
+
+- **OSP-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
+  any row-shaped key under a project the caller can read
+  (`can_presign_project_read` is project-level), so a key kept from before a
+  file was trashed, or of a row purged while its body waits for collection,
+  is still signed — 300 s, one key a call (design round, finding 1). The new
+  `storage-read-urls` checks the row as the caller, so it is closed to a
+  READER (a writer can still forge a row in their own project: OSP-07).
+  Fix shape: the same caller-scoped row read in `storage-presign`'s GET and
+  HEAD. Owner: the next storage session; it needs a redeploy on every
+  environment.
+- **OSP-02 · A download from a company's own bucket reads the whole body into
+  memory.** `s3Provider.getUrl` answers null for `{ download }` (the read
+  signer signs no attachment disposition, and a cross-origin `a.download` is
+  ignored), so `downloadUrl` falls back to the Blob path through
+  `storage-presign` — the S42 limit, still true for s3. Fix shape: a signed
+  `response-content-disposition` in `_shared/s3Presign.ts` (shared with three
+  functions). Owner: the next storage session.
+- **OSP-03 · A clip longer than an hour restarts at 0:00 on its re-mint** — on
+  Petal and on a bucket alike: the player re-mints once on its first failed
+  range and keys the `<video>` on the new URL. Fix shape: `VideoStage`
+  keeps `currentTime` across the re-mint. Owner: none yet.
+- **OSP-04 · Rows written on s3 before a switch to `network` answer "configure
+  S3".** 0050's switch rule nulls the s3 config, so both signers answer their
+  409 (*"…an admin sets it in Admin Terminal → Storage"*) for those rows: a
+  misleading sentence for a NAS admin. None exist (no s3 workspace exists
+  anywhere). Owner: the next storage session.
+- **OSP-05 · A receipt uploaded to an s3 workspace before 0076 is
+  indistinguishable from any other file** (it sits under its container
+  segment, unflagged; 0076 counts and reports those rows and cannot flip
+  them), so either signer signs it for a reader of its project. None exists
+  on any environment. **A release check:** before any s3 workspace with
+  receipts from before 0076 exists, count `files` rows in
+  `expenses.file_ids` with `storage_provider = 's3'`; any above zero needs
+  its body moved into Supabase first. Owner: the release runbook.
+- **OSP-06 · The live proof waits on Audrey's test bucket.** No S3 workspace
+  exists on any environment and no session holds a bucket's keys: the signer
+  is proven by its tests (21 failing controls) and by its refusals on
+  wilson-dev to a caller with no sign-in. Walkthrough 85, P1, is the live
+  check once the controller has deployed `storage-read-urls` to staging.
+- **OSP-07 · A writer of a project can make a `files` row vouch for any key
+  under it.** `files_insert`/`_update` (0092) let anyone `can_write_project`
+  admits set `storage_path` (and `thumbnail_url`), and no CHECK ties a path to
+  its own project or stops it changing, so a writer can name a trashed file's
+  key, or a stray object's, and have `storage-read-urls` sign it (an hour if
+  it streams) — the reach `storage-presign`'s GET already gives a writer
+  (build review round 1, finding 1). Fix shape, a migration night: a CHECK
+  that `storage_path` sits under `projects/<project_id>/`, and a trigger that
+  refuses a change of it outside the re-filing. Owner: the next migration
+  session.
+- ~~**OSP-08 · `storage-read-urls` bounds its body by the declared length.**~~
+  **CLOSED by build review round 2 (2026-10-28):** the body is read by
+  `readJsonLimited`, streamed under the 128 KB cap; no declared length is
+  required. The entry as it stood:
+  It refuses a body without a `content-length` (411) or over 128 KB (413)
+  before reading it; HTTP/1.1 framing makes the declared length binding, but
+  the house readers (`gatewayWire.ts` `readJsonLimited`, `aiFileStore.ts`
+  `readSmallJson`) stream under a cap instead (round 1, finding 5). Owner:
+  none; a consistency change.
+- **OSP-09 · A failed renewal keeps an s3 preview URL past its life.**
+  FileManager keeps a key's last URL until a fresh one arrives, so after
+  failed renewals (offline, a 5xx) a tile below the fold that loads late gets
+  a dead URL, fails once and shows the icon until the next ask (five
+  minutes, or the tab's return); a key the signer has since refused keeps its
+  last URL until it expires (round 1, finding 7). Fix shape: `getUrls`
+  returns each URL's end and the merge drops the dead. Owner: none.
+- **OSP-10 · A clip the preview plays by its MIME type alone streams for
+  five minutes.** `previewKindFor` picks the player on `video/` or `audio/`,
+  while `storage-read-urls` gives the streaming hour only to the extensions
+  it knows (`STREAMABLE_EXTENSIONS`, the client's own lists), so an s3
+  `.ogv`, `.3gp`, `.aif` or `.wma` gets 300 s, stalls, re-mints once
+  (OSP-03) and stalls again (build review round 2, finding 4). Fix shape: the
+  s3 arm decides the stage by extension, or the lists grow. Owner: none.
+- **OSP-11 · The dev fixtures pass the server-media read's cloud gate.**
+  The fixtures adapter reports `adapterMode` 'supabase', so FileManager and
+  the Files tab ask the shared client for the storage choice; the read fails
+  (the fixtures' address is a closed port) and the ordinary words stay, so
+  nothing shows (round 2, finding 6). Fix shape: gate on the adapter's own
+  `mode !== 'fixtures'`. Owner: none.

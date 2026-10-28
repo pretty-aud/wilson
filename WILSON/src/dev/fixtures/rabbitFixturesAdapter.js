@@ -1046,7 +1046,14 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // cannot mint a playable URL": the viewer says "preview unavailable", no toast.
     async downloadFile() { throw devWriteRefused('Downloading a file') },
     async downloadUrl() { throw devWriteRefused('Downloading a file') },
-    async fileUrl() { return null },
+    // P1: the one s3 arm — a row in a company's own bucket (the level's
+    // blockout, data/files.js) answers its generated picture, as a fake
+    // bucket would answer storage-read-urls' signed URL, so the tester shows
+    // the s3 preview path. Every other row: null, as before.
+    async fileUrl(file) {
+      if (file?.storage_provider !== 's3' || !file.thumbnail_url) return null
+      return store.thumbnails.get(file.thumbnail_url) ?? null
+    },
     async thumbnailUrls(paths) {
       const out = new Map()
       for (const p of paths || []) { const u = store.thumbnails.get(p); if (u) out.set(p, u) }

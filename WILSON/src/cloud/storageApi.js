@@ -1,6 +1,7 @@
 // =============================================================================
 // storageApi — Session 37: client bindings for the S3-compatible storage Edge
-// Functions (storage-presign, storage-secret). House style follows
+// Functions (storage-presign, storage-secret; P1 added storage-read-urls, the
+// batch of GETs for thumbnails and previews). House style follows
 // adminApi.js: raw fetch to /functions/v1/<name> with { apikey,
 // authorization: Bearer } headers (supabase.functions.invoke is deliberately
 // not used anywhere in this codebase).
@@ -22,6 +23,7 @@
 
 import { supabase } from './auth/supabaseClient'
 import { releaseStaleUploads } from '../tools/rabbit_v0.1.0/storage/uploadReservation.js'
+import { isMoneyKey } from '../tools/rabbit_v0.1.0/storage/index.js'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -98,6 +100,44 @@ export async function presignStorage(op, path, opts) {
     throw Object.assign(new Error(`[s3] ${detail}`), { status: res.status })
   }
   return res.data
+}
+
+/**
+ * P1: signed GETs for an s3 workspace's thumbnails and previews, many keys
+ * per call (storage-read-urls, NETWORK_STORAGE_DESIGN.md §9.2). THROWS on a
+ * whole-call refusal with the server's sentence and its status, as
+ * presignStorage does; a key the server refused comes back in `refused` with
+ * its code ('shape' | 'money' | 'project' | 'row').
+ *
+ * 🚨 A MONEY KEY NEVER LEAVES THIS FUNCTION. It is the only caller of the
+ * read signer, and a key under INVOICES, FINANCE or LEGAL is answered here as
+ * refused 'money' without being sent — the signer refuses it too, but money
+ * never leaves Supabase, so the question is never asked.
+ *
+ * @param {string[]} keys row-shaped storage paths (never a prefix), ≤ 100
+ * @param {{stream?: boolean, token?: string, signal?: AbortSignal}} [opts]
+ *   `stream` (one key): the hour a <video> or <audio> needs, not 300 s.
+ * @returns {Promise<{urls: Object<string,string>, expires: Object<string,number>, refused: Object<string,string>}>}
+ */
+export async function presignReadUrls(keys, { stream = false, ...opts } = {}) {
+  const send = []
+  const local = {}
+  for (const key of keys || []) {
+    if (isMoneyKey(key)) local[key] = 'money'
+    else if (!send.includes(key)) send.push(key)
+  }
+  if (send.length === 0) return { urls: {}, expires: {}, refused: local }
+  const res = await callStorageFn('storage-read-urls',
+    stream ? { keys: send, stream: true } : { keys: send }, opts)
+  if (!res.ok || !res.data?.urls) {
+    const detail = res.data?.detail || res.data?.error || `the preview addresses could not be signed (${res.status})`
+    throw Object.assign(new Error(`[s3] ${detail}`), { status: res.status })
+  }
+  return {
+    urls: res.data.urls,
+    expires: res.data.expires || {},
+    refused: { ...local, ...(res.data.refused || {}) },
+  }
 }
 
 /** Save the bucket secret (admin). Returns { ok, status, data: { keyHint } }. */

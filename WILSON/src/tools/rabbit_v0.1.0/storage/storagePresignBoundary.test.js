@@ -8,13 +8,23 @@
 // the wiring section is what notices a seventh.
 // =============================================================================
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkRowShapedPath } from '../../../../supabase/functions/_shared/presignPath.ts'
 import { MONEY_SEGMENTS, isMoneySegment } from '../../../../supabase/functions/_shared/moneySegments.ts'
 import { storageKeyHint } from '../../../../supabase/functions/_shared/storageSecretCrypto.ts'
 import { RATES_SEGMENT } from '../../../../supabase/functions/_shared/reservedObjects.ts'
+import {
+  handleReadUrls, classifyOwned, folderOf, streams, readFolderRows, READ_URLS_MAX_KEYS, READ_URLS_MAX_PROJECTS,
+  READ_URLS_MAX_BODY_BYTES, READ_URLS_MAX_FOLDERS, READ_URLS_MIN_SEGMENTS, STREAMABLE_EXTENSIONS,
+  READ_URLS_ROW_PAGE, READ_URLS_MAX_FOLDER_ROWS,
+  THUMBNAIL_EXPIRES, READ_ONCE_EXPIRES, STREAM_EXPIRES,
+} from '../../../../supabase/functions/_shared/readUrls.ts'
+import { S3_READ_BATCH, S3_READ_FOLDERS } from './s3Provider'
+import { VIDEO_EXTENSIONS } from './videoThumbnails.js'
+import { AUDIO_EXTENSIONS, previewKindFor } from '../../../components/Resources/filePreview.js'
+import { MONEY_SEGMENTS as CLIENT_MONEY_SEGMENTS, isMoneyKey } from './index.js'
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..')
 const read = (...p) => readFileSync(join(REPO_ROOT, ...p), 'utf8')
@@ -353,5 +363,445 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(codeOf(summary)).not.toContain('uploadFile')
     for (const planted of ["const up = ctx.uploadFile\nup(f)", "ctx['uploadFile'](f)"]) expect(codeOf(planted), planted).toContain('uploadFile')
     expect(codeOf('// the Files tab calls uploadFile now\nconst x = 1')).not.toContain('uploadFile')
+  })
+})
+
+// =============================================================================
+// P1 (night 4, 2026-10-28): storage-read-urls, the GET-only batch signer for
+// an s3 workspace's thumbnails and previews (NETWORK_STORAGE_DESIGN.md §9.2).
+// Its whole decision is _shared/readUrls.ts, imported here across the Deno
+// line and driven with fakes for what touches the world: every refusal the
+// design names, each with its failing control run once (the hand-off quotes
+// them). No S3 workspace exists on any environment, so this IS the proof
+// until Audrey's test bucket on the beta.
+// =============================================================================
+
+const PID2 = 'bbbb2222-0000-0000-0000-000000000002'
+const PID3 = 'cccc3333-0000-0000-0000-000000000003'
+const bodyKey = (leaf, pid = PID) => `projects/${pid}/assets/a1/1754612345678-${leaf}`
+const thumbOf = (k) => `${k}.jpg`
+
+// A real Request (the signer streams its body: readJsonLimited, round 2),
+// counting every touch of the body. `length` overrides the declared length;
+// null declares none.
+let bodyReads = 0
+class CountedRequest extends Request {
+  get body() { bodyReads++; return super.body }
+}
+function reqOf(payload, { method = 'POST', length } = {}) {
+  const text = payload === undefined ? undefined : (typeof payload === 'string' ? payload : JSON.stringify(payload))
+  const headers = new Headers({ 'content-type': 'application/json' })
+  const declared = length !== undefined ? length : (text === undefined ? null : String(new TextEncoder().encode(text).length))
+  if (declared !== null) headers.set('content-length', declared)
+  const hasBody = method !== 'GET' && method !== 'OPTIONS' && text !== undefined
+  return new CountedRequest('https://fn.example/storage-read-urls', { method, headers, body: hasBody ? text : undefined })
+}
+// A row as the caller's own select returns it: in the project its path names.
+const row = (k, thumb = null, project = k.split('/')[1]) => ({ id: `id-${k}`, project_id: project, storage_path: k, thumbnail_url: thumb })
+
+// The world, faked and counted. `readable` lists the projects the caller may
+// read; `rows` are the live s3 rows the caller's own select would see.
+function world({ readable = [PID, PID2], rows = [], signer = 'ok', guard = 'ok', limited = false, rowsFail = false, signThrows = null } = {}) {
+  const calls = { guard: 0, rate: 0, can: [], rows: [], served: [], load: 0, sign: [] }
+  const deps = {
+    guard: async () => {
+      calls.guard++
+      return guard === 'ok' ? { ok: true, ctx: { callerId: 'u1' } } : { ok: false, res: 'THE_GUARD_ANSWER' }
+    },
+    rateLimited: async () => { calls.rate++; return limited },
+    canReadProject: async (_ctx, p) => {
+      calls.can.push(p)
+      if (readable === 'throws') throw new Error('rpc failed')
+      if (readable === 'null') return null
+      return readable.includes(p)
+    },
+    // Like the real read: one folder, its own files only (not deeper), by
+    // id, a page after `afterId`. Unlike it, it does NOT filter by project,
+    // so classifyOwned's own project check is exercised. `calls.rows` counts
+    // a folder once (its first page).
+    rowPage: async (_ctx, projectId, folder, afterId, limit) => {
+      if (afterId === null) calls.rows.push({ projectId, folder })
+      if (rowsFail) throw new Error('select failed')
+      const here = rows
+        .filter((r) => String(r.storage_path).startsWith(`${folder}/`) && !String(r.storage_path).slice(folder.length + 1).includes('/'))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      const from = afterId ? here.findIndex((r) => r.id === afterId) + 1 : 0
+      const out = here.slice(from, from + limit)
+      calls.served.push(...out.map((r) => r.storage_path))
+      return out
+    },
+    loadSigner: async () => {
+      calls.load++
+      if (signer !== 'ok') {
+        return { ok: false, status: 409, body: { error: 'refused', detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage' } }
+      }
+      return {
+        ok: true,
+        sign: async (key, seconds) => {
+          calls.sign.push([key, seconds])
+          if (signThrows) throw new Error(signThrows(key))
+          return `https://bucket.example/${key}?X-Amz-Expires=${seconds}`
+        },
+      }
+    },
+  }
+  return { deps, calls }
+}
+
+describe('storage-read-urls — what it signs, and for how long (P1)', () => {
+  it('signs a live row\'s body and its thumbnail, in the order sent: a thumbnail for the hour, a body read once for 300 s', async () => {
+    const a = bodyKey('plate.png')
+    const b = bodyKey('dailies.mov')
+    const { deps } = world({ rows: [row(a, thumbOf(a)), row(b)] })
+    const out = await handleReadUrls(reqOf({ keys: [thumbOf(a), b, a] }), deps)
+    expect(out.status).toBe(200)
+    expect(Object.keys(out.body.urls)).toEqual([thumbOf(a), b, a])
+    expect(out.body.expires).toEqual({ [thumbOf(a)]: THUMBNAIL_EXPIRES, [b]: READ_ONCE_EXPIRES, [a]: READ_ONCE_EXPIRES })
+    expect([THUMBNAIL_EXPIRES, READ_ONCE_EXPIRES, STREAM_EXPIRES]).toEqual([3600, 300, 3600])
+    expect(out.body.refused).toEqual({})
+  })
+
+  it('answers {urls, refused} keyed by the input string, both in the order the keys were sent', async () => {
+    const ok1 = bodyKey('one.png')
+    const ok2 = bodyKey('two.png')
+    const { deps } = world({ rows: [row(ok1), row(ok2)] })
+    const keys = [`projects/${PID}/INVOICES/x/1-a.pdf`, ok2, 'nope', bodyKey('gone.png'), ok1]
+    const out = await handleReadUrls(reqOf({ keys }), deps)
+    expect(Object.keys(out.body.urls)).toEqual([ok2, ok1])
+    expect(Object.entries(out.body.refused)).toEqual([[keys[0], 'money'], ['nope', 'shape'], [keys[3], 'row']])
+  })
+
+  it.each([
+    ['INVOICES', `projects/${PID}/INVOICES/x/1-invoice.pdf`],
+    ['FINANCE', `projects/${PID}/FINANCE/RATES.json`],
+    ['LEGAL', `projects/${PID}/LEGAL/x/1-contract.pdf`],
+    ['lowercase legal', `projects/${PID}/legal/x/1-contract.pdf`],
+    ['a Legal thumbnail', `projects/${PID}/Legal/x/1-contract.pdf.jpg`],
+  ])('refuses a money key (%s) before any project or row is asked, and signs nothing', async (_label, key) => {
+    const { deps, calls } = world({ rows: [row(key)] })
+    const out = await handleReadUrls(reqOf({ keys: [key] }), deps)
+    expect(out.body.refused).toEqual({ [key]: 'money' })
+    expect(out.body.urls).toEqual({})
+    expect([calls.can.length, calls.rows.length, calls.load, calls.sign.length]).toEqual([0, 0, 0, 0])
+  })
+
+  it.each([
+    ['not under projects/', `assets/${PID}/x.png`],
+    ['no project id', 'projects/not-a-uuid/assets/a1/x.png'],
+    ['a dot segment', `projects/${PID}/assets/../x.png`],
+    ['an empty segment', `projects/${PID}//x.png`],
+    ['a character the uploader never writes', `projects/${PID}/assets/a1/x y.png`],
+  ])('refuses a key outside projects/<uuid>/… (%s) as shape', async (_label, key) => {
+    const { deps, calls } = world()
+    const out = await handleReadUrls(reqOf({ keys: [key] }), deps)
+    expect(out.body.refused).toEqual({ [key]: 'shape' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it.each([
+    ['false', [PID]],
+    ['null', 'null'],
+    ['a thrown error', 'throws'],
+  ])('refuses every key of a project the caller cannot read (the predicate answers %s)', async (_label, readable) => {
+    const k1 = bodyKey('a.png', PID2)
+    const k2 = thumbOf(bodyKey('b.png', PID2))
+    const { deps, calls } = world({ readable, rows: [row(k1)] })
+    const out = await handleReadUrls(reqOf({ keys: [k1, k2] }), deps)
+    expect(out.body.refused).toEqual({ [k1]: 'project', [k2]: 'project' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it('asks can_presign_project_read ONCE per distinct project, however many keys', async () => {
+    const keys = [bodyKey('a.png'), bodyKey('b.png'), bodyKey('c.png'), bodyKey('d.png', PID2), bodyKey('e.png', PID2)]
+    const { deps, calls } = world({ rows: keys.map((k) => row(k)) })
+    const out = await handleReadUrls(reqOf({ keys }), deps)
+    expect(Object.keys(out.body.urls)).toEqual(keys)
+    expect([...calls.can].sort()).toEqual([PID, PID2])
+  })
+
+  it('🚨 refuses a key no live row of the caller owns — a trashed file, a purged row, an object WILSON never wrote — as row', async () => {
+    const trashed = bodyKey('trashed.mov')
+    const { deps, calls } = world({ rows: [] })
+    const out = await handleReadUrls(reqOf({ keys: [trashed, thumbOf(trashed)] }), deps)
+    expect(out.body.refused).toEqual({ [trashed]: 'row', [thumbOf(trashed)]: 'row' })
+    expect(calls.load).toBe(0)
+    expect(calls.sign).toEqual([])
+    // ONE read for the folder both keys sit in, carrying only ids.
+    expect(calls.rows).toEqual([{ projectId: PID, folder: folderOf(trashed) }])
+  })
+
+  it('🚨 a thumbnail is only the key derived from its row\'s OWN body: a thumbnail_url set to something else signs nothing (it is client-writable)', async () => {
+    const mine = bodyKey('plate.png')
+    const elsewhere = bodyKey('somebody-elses.mov')
+    const { deps, calls } = world({ rows: [row(mine, elsewhere)] })
+    const out = await handleReadUrls(reqOf({ keys: [elsewhere, thumbOf(mine)] }), deps)
+    expect(out.body.refused).toEqual({ [elsewhere]: 'row', [thumbOf(mine)]: 'row' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it('an inactive member gets the guard\'s answer, and nothing else runs', async () => {
+    const { deps, calls } = world({ guard: 'inactive' })
+    const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
+    expect(out).toEqual({ res: 'THE_GUARD_ANSWER' })
+    expect([calls.rate, calls.can.length, calls.rows.length, calls.load]).toEqual([0, 0, 0, 0])
+  })
+
+  it('a workspace not on s3 is the 409 with its sentence, and nothing is signed', async () => {
+    const k = bodyKey('a.png')
+    const { deps, calls } = world({ signer: 'not-s3', rows: [row(k)] })
+    const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
+    expect(out.status).toBe(409)
+    expect(out.body.detail).toMatch(/no S3-compatible storage configured/)
+    expect(calls.sign).toEqual([])
+  })
+
+  it('stream: one body for the hour; a stream of two keys is refused', async () => {
+    const k = bodyKey('cut.mov')
+    const { deps } = world({ rows: [row(k), row(bodyKey('b.mov'))] })
+    const one = await handleReadUrls(reqOf({ keys: [k], stream: true }), deps)
+    expect(one.body.expires).toEqual({ [k]: STREAM_EXPIRES })
+    const two = await handleReadUrls(reqOf({ keys: [k, bodyKey('b.mov')], stream: true }), deps)
+    expect(two.status).toBe(400)
+  })
+
+  it('the bounds: 100 keys, two projects, 128 KB read by its length before parsing, POST only, JSON only', async () => {
+    const { deps } = world()
+    const many = Array.from({ length: READ_URLS_MAX_KEYS + 1 }, (_, i) => bodyKey(`f${i}.png`))
+    expect((await handleReadUrls(reqOf({ keys: many }), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [] }), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a'), bodyKey('b', PID2), bodyKey('c', PID3)] }), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a')] }, { length: String(READ_URLS_MAX_BODY_BYTES + 1) }), deps)).status).toBe(413)
+    expect((await handleReadUrls(reqOf('not json'), deps)).status).toBe(400)
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a')] }, { method: 'GET' }), deps)).status).toBe(405)
+    expect(await handleReadUrls(reqOf(undefined, { method: 'OPTIONS' }), deps)).toEqual({ preflight: true })
+    expect([READ_URLS_MAX_KEYS, READ_URLS_MAX_PROJECTS, READ_URLS_MAX_BODY_BYTES]).toEqual([100, 2, 128 * 1024])
+  })
+
+  it('a limited caller is refused before the body is read', async () => {
+    const { deps, calls } = world({ limited: true })
+    const out = await handleReadUrls(reqOf({ keys: [bodyKey('a')] }), deps)
+    expect(out.status).toBe(429)
+    expect([calls.can.length, calls.rows.length]).toEqual([0, 0])
+  })
+
+  it('a row read that fails fails the call CLOSED: nothing is signed', async () => {
+    const { deps, calls } = world({ rowsFail: true })
+    const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
+    expect(out.status).toBe(500)
+    expect(calls.load).toBe(0)
+  })
+
+  it('a signer error that names the key is not echoed (a key carries a filename)', async () => {
+    const k = bodyKey('Secret_Title_v3.mov')
+    const { deps } = world({ rows: [row(k)], signThrows: (key) => `refusing to presign a non-canonical key: ${key}` })
+    const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
+    expect(out.status).toBe(500)
+    expect(JSON.stringify(out.body)).not.toContain('Secret_Title')
+  })
+
+  it('duplicates are signed once; the rows are read ONCE PER FOLDER, never by key', async () => {
+    const keys = Array.from({ length: 45 }, (_, i) => bodyKey(`f${i}.png`))
+    const shot = `projects/${PID}/scenes/sc1/sh1/1754612345678-board.png`
+    const { deps, calls } = world({ rows: [...keys, shot].map((k) => row(k)) })
+    const out = await handleReadUrls(reqOf({ keys: [...keys, keys[0], shot] }), deps)
+    expect(Object.keys(out.body.urls)).toHaveLength(46)
+    expect(calls.sign).toHaveLength(46)
+    expect(calls.rows).toEqual([
+      { projectId: PID, folder: `projects/${PID}/assets/a1` },
+      { projectId: PID, folder: `projects/${PID}/scenes/sc1/sh1` },
+    ])
+    // What travels to the database names no file.
+    for (const r of calls.rows) expect(r.folder).not.toMatch(/\.png/)
+  })
+
+  it('classifyOwned: a key that is a body and a thumbnail is a body (the shorter-lived)', () => {
+    const k = bodyKey('a.png')
+    const owned = classifyOwned([k, thumbOf(k)], [row(k, thumbOf(k)), row(thumbOf(k))])
+    expect([...owned]).toEqual([[k, 'body'], [thumbOf(k), 'body']])
+  })
+})
+
+describe('storage-read-urls — review round 1\'s corrections (P1)', () => {
+  beforeEach(() => { bodyReads = 0 })
+
+  it('🚨 a row vouches only for a key in ITS OWN project: a row in another project naming this key signs nothing', async () => {
+    const k = bodyKey('trashed.mov')
+    // A writer of PID2 made a row there whose storage_path is a PID key.
+    const { deps, calls } = world({ rows: [row(k, thumbOf(k), PID2)] })
+    const out = await handleReadUrls(reqOf({ keys: [k, thumbOf(k)] }), deps)
+    expect(out.body.refused).toEqual({ [k]: 'row', [thumbOf(k)]: 'row' })
+    expect(calls.sign).toEqual([])
+  })
+
+  it('🚨 the streaming hour is for what streams: a PDF or a still asked to stream is read once', async () => {
+    const pdf = bodyKey('script.pdf')
+    const still = bodyKey('plate.PNG')
+    const clip = bodyKey('cut.MOV')
+    const voice = bodyKey('voice.mp3')
+    const { deps } = world({ rows: [row(pdf), row(still), row(clip), row(voice)] })
+    for (const [k, want] of [[pdf, READ_ONCE_EXPIRES], [still, READ_ONCE_EXPIRES], [clip, STREAM_EXPIRES], [voice, STREAM_EXPIRES]]) {
+      const out = await handleReadUrls(reqOf({ keys: [k], stream: true }), deps)
+      expect(out.body.expires, k).toEqual({ [k]: want })
+    }
+  })
+
+  it('the streaming list is the client\'s own: every video and audio extension it plays, and nothing it does not', () => {
+    for (const ext of VIDEO_EXTENSIONS) expect(STREAMABLE_EXTENSIONS.has(ext.replace(/^\./, '')), ext).toBe(true)
+    for (const ext of AUDIO_EXTENSIONS) expect(STREAMABLE_EXTENSIONS.has(ext), ext).toBe(true)
+    for (const ext of STREAMABLE_EXTENSIONS) expect(['video', 'audio'], ext).toContain(previewKindFor({ name: `x.${ext}` }).kind)
+    expect(streams(bodyKey('noextension'))).toBe(false)
+  })
+
+  it('a key shallower than an entity\'s folder is refused as shape (it would scope a row read to a whole project)', async () => {
+    const shallow = `projects/${PID}/assets/1-x.png`
+    const { deps, calls } = world({ rows: [row(shallow)] })
+    const out = await handleReadUrls(reqOf({ keys: [shallow] }), deps)
+    expect(out.body.refused).toEqual({ [shallow]: 'shape' })
+    expect(calls.rows).toEqual([])
+    expect(READ_URLS_MIN_SEGMENTS).toBe(5)
+  })
+
+  it('at most ten folders a call', async () => {
+    const keys = Array.from({ length: READ_URLS_MAX_FOLDERS + 1 }, (_, i) => `projects/${PID}/assets/a${i}/1-x.png`)
+    const { deps, calls } = world({ rows: keys.map((k) => row(k)) })
+    expect((await handleReadUrls(reqOf({ keys }), deps)).status).toBe(400)
+    expect(calls.rows).toEqual([])
+    expect(READ_URLS_MAX_FOLDERS).toBe(10)
+  })
+
+  it('the body is never read before the guard, the limiter and the length say yes', async () => {
+    for (const [opts, want] of [[{ guard: 'inactive' }, undefined], [{ limited: true }, 429]]) {
+      const { deps } = world(opts)
+      const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
+      if (want) expect(out.status).toBe(want)
+    }
+    const { deps } = world()
+    expect((await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }, { length: String(READ_URLS_MAX_BODY_BYTES + 1) }), deps)).status).toBe(413)
+    expect(bodyReads).toBe(0)
+    await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
+    expect(bodyReads).toBeGreaterThan(0) // CONTROL: an admitted call reads it
+  })
+})
+
+describe('storage-read-urls — review round 2\'s corrections (P1)', () => {
+  beforeEach(() => { bodyReads = 0 })
+
+  // A folder of n rows in id order, served page by page like PostgREST, with an
+  // optional cap below what is asked (a hosted project's max-rows).
+  const folderOfRows = (n) => Array.from({ length: n }, (_, i) => ({ id: `r${String(i).padStart(6, '0')}`, project_id: PID, storage_path: `${bodyKey('f')}${i}`, thumbnail_url: null }))
+  const pager = (all, cap = Infinity) => {
+    const asked = []
+    const page = async (afterId, limit) => {
+      asked.push(afterId)
+      const from = afterId ? all.findIndex((r) => r.id === afterId) + 1 : 0
+      return all.slice(from, from + Math.min(limit, cap))
+    }
+    return { page, asked }
+  }
+
+  it('a folder of exactly the bound is read whole: five full pages and the empty one that ends it', async () => {
+    const { page, asked } = pager(folderOfRows(READ_URLS_MAX_FOLDER_ROWS))
+    expect(await readFolderRows(page)).toHaveLength(READ_URLS_MAX_FOLDER_ROWS)
+    expect(asked).toHaveLength(6)
+    expect([READ_URLS_ROW_PAGE, READ_URLS_MAX_FOLDER_ROWS]).toEqual([1000, 5000])
+  })
+
+  it('one row past the bound fails the read (and so the call, closed)', async () => {
+    const { page } = pager(folderOfRows(READ_URLS_MAX_FOLDER_ROWS + 1))
+    await expect(readFolderRows(page)).rejects.toThrow(/more files than a preview read takes/)
+  })
+
+  it('a page capped below the ask is not the end: the read goes on to the first EMPTY page', async () => {
+    const { page } = pager(folderOfRows(1200), 500)
+    expect(await readFolderRows(page)).toHaveLength(1200)
+  })
+
+  it('a page that does not move forward fails rather than looping', async () => {
+    await expect(readFolderRows(async () => [{ id: 'same', storage_path: 'x', thumbnail_url: null }])).rejects.toThrow(/did not move forward/)
+  })
+
+  it('a folder over the bound fails the whole call closed: 500, nothing signed', async () => {
+    const k = bodyKey('a.png')
+    const { deps, calls } = world({ rows: [row(k)] })
+    deps.rowPage = async (_c, _p, _f, afterId) => (afterId ? [] : folderOfRows(READ_URLS_MAX_FOLDER_ROWS + 1))
+    const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
+    expect(out.status).toBe(500)
+    expect(calls.sign).toEqual([])
+  })
+
+  it('a scene\'s folder holds its own files only, not its shots\' (the read excludes deeper paths)', async () => {
+    const sceneFile = `projects/${PID}/scenes/sc1/1754612345678-moodboard.png`
+    const shotFile = `projects/${PID}/scenes/sc1/sh1/1754612345678-board.png`
+    const { deps, calls } = world({ rows: [row(sceneFile), row(shotFile)] })
+    const out = await handleReadUrls(reqOf({ keys: [sceneFile] }), deps)
+    expect(Object.keys(out.body.urls)).toEqual([sceneFile])
+    expect(calls.served).toEqual([sceneFile])
+  })
+
+  it('a body that declares no length is still read, under the cap (a relay may re-frame it)', async () => {
+    const k = bodyKey('a.png')
+    const { deps } = world({ rows: [row(k)] })
+    const out = await handleReadUrls(reqOf({ keys: [k] }, { length: null }), deps)
+    expect(out.status).toBe(200)
+    const big = JSON.stringify({ keys: [k], pad: 'x'.repeat(READ_URLS_MAX_BODY_BYTES) })
+    expect((await handleReadUrls(reqOf(big, { length: null }), deps)).status).toBe(413)
+  })
+})
+
+describe('storage-read-urls — the wiring is real (P1)', () => {
+  const fn = read('supabase', 'functions', 'storage-read-urls', 'index.ts')
+  const code = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
+  it('the function supplies the guard, its own limiter bucket, the predicate and the row AS THE CALLER, and signs GET only', () => {
+    expect(code).toContain('requireActiveMember(req)')
+    expect(code).toContain("isRateLimited(ctx.admin, 'storage-read-urls', ctx.callerId")
+    expect(code).toContain("envInt('STORAGE_READ_URLS_RPM', 120)")
+    expect(code).toContain("asCaller().rpc('can_presign_project_read', { p_project: projectId })")
+    expect(code).toMatch(/asCaller\(\)\s*\.from\('files'\)/)
+    expect(code).toContain(".select('id, project_id, storage_path, thumbnail_url')")
+    // Directly in the folder, by cursor (round 2, finding 1).
+    expect(code).toContain(".not('storage_path', 'like', `${folder}/%/%`)")
+    expect(code).toContain("if (afterId) q = q.gt('id', afterId)")
+    expect(code).toContain("await q.order('id').limit(limit)")
+    expect(code).not.toContain('.range(')
+    expect(code).toContain(".eq('project_id', projectId)")
+    expect(code).toContain(".eq('storage_provider', 's3')")
+    expect(code).toContain(".is('deleted_at', null)")
+    // By folder, never by key: no filename in the query string (round 1, 4).
+    expect(code).toContain(".like('storage_path', `${folder}/%`)")
+    expect(code).not.toContain(".in('storage_path'")
+    expect(code).toContain("method: 'GET'")
+    for (const m of ["'PUT'", "'DELETE'", "'HEAD'"]) expect(code).not.toContain(m)
+    expect(code).toContain('handleReadUrls<MemberContext>(req,')
+    // The body streamed under the cap by the house reader (round 2, finding 3).
+    const decision = read('supabase', 'functions', '_shared', 'readUrls.ts')
+    expect(decision).toContain('await readJsonLimited(req, READ_URLS_MAX_BODY_BYTES)')
+    expect(decision).not.toContain('req.json()')
+    // The prefix applied here and only here.
+    expect(code).toContain('cfg.prefix ? `${cfg.prefix}/${key}` : key')
+  })
+
+  it('config.toml opts it out of the gateway\'s JWT check, like every function here', () => {
+    expect(read('supabase', 'config.toml')).toMatch(/\[functions\.storage-read-urls\]\r?\nverify_jwt = false/)
+  })
+
+  it('the client calls it by its deployed name, and splits at the server\'s bound', () => {
+    const api = read('src', 'cloud', 'storageApi.js')
+    expect(api).toContain("callStorageFn('storage-read-urls',")
+    expect(S3_READ_BATCH).toBe(READ_URLS_MAX_KEYS)
+    expect(S3_READ_FOLDERS).toBe(READ_URLS_MAX_FOLDERS)
+  })
+
+  it('the client\'s one copy of the money words agrees with the Deno copy, literally and case-folded', () => {
+    expect([...CLIENT_MONEY_SEGMENTS]).toEqual([...MONEY_SEGMENTS])
+    expect(isMoneyKey(`projects/${PID}/legal/x/1-a.pdf`)).toBe(true)
+    expect(isMoneyKey(`projects/${PID}/Invoices/x/1-a.pdf.jpg`)).toBe(true)
+    expect(isMoneyKey(`projects/${PID}/assets/legal/1-a.pdf`)).toBe(false)
+    expect(isMoneyKey(null)).toBe(false)
+  })
+
+  it('checkRowShapedPath names its refusal: money for a locked folder, shape for the rest', () => {
+    expect(checkRowShapedPath(`projects/${PID}/FINANCE/RATES.json`)).toMatchObject({ ok: false, code: 'money' })
+    expect(checkRowShapedPath('projects/x')).toMatchObject({ ok: false, code: 'shape' })
   })
 })
