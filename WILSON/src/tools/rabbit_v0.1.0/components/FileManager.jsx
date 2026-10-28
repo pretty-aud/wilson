@@ -44,8 +44,9 @@ import { guessMimeType } from './mimeTypes'
 // same browser, so a blanket "too large, use the desktop app" is a false
 // refusal for exactly the customers already paying for their own storage.
 import { classifyUpload, noticeAfterUpload, summarizeBatch } from '../storage/uploadNotices'
-import { activeWorkspaceProvider } from '../storage'
+import { activeWorkspaceProvider, storesMediaOnServer, SERVER_MEDIA_SENTENCE } from '../storage'
 import { localMediaUrl } from '../storage/localServerProvider'
+import { S3_READ_RENEW_MARGIN_MS } from '../storage/s3Provider'
 import { hasLocalServer } from '../../../lib/localData'
 import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/workspaceStorage'
 import { releaseStaleUploadReservations } from '../../../cloud/storageApi'
@@ -54,6 +55,12 @@ import { isVideoExtension } from '../storage/videoThumbnails'
 // B3 (Track B): the desktop loopback API refuses /api without the per-launch
 // token; localFetch attaches it (same-origin URLs only).
 import { localFetch } from '../../../lib/localServerFetch.js'
+
+// P1: how often an s3 row's preview URLs are asked for again while they are on
+// screen. HALF the margin below which s3Provider will not hand a cached URL
+// out again, so between two asks every URL in the map keeps at least the
+// other half of that margin to live.
+const S3_THUMB_REASK_MS = S3_READ_RENEW_MARGIN_MS / 2
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -308,24 +315,19 @@ export default function FileManager({
   // Keys RLS refuses simply do not come back, so an invoice's thumbnail
   // silently falls through to a file-type icon for anyone without the money
   // seat. That is the gate doing its job, not an error to surface.
-  // ⚠️ S44: ONLY PETAL-HOSTED PREVIEWS ARE ASKED FOR. Since S44 a thumbnail
-  // lives at its body's provider (Audrey, 2026-08-08 — a still frame IS the
-  // content, so it must not sit on Petal's infrastructure when its source does
-  // not). An s3 row's preview is in the CUSTOMER's bucket; signing it needs a
-  // batch presign that does not exist yet, and no S3 workspace exists on any
-  // environment to verify one against, so display is its own session.
-  //
-  // Filtering here rather than letting createSignedUrls miss them is the
-  // difference between a STATED behaviour and a lookup that quietly finds
-  // nothing: those tiles fall through to file-type icons, and this line is
-  // where the deferred work reconnects — carry the provider, and the arm that
-  // presigns s3 keys slots in beside the supabase one.
+  // ⚠️ S44: ONLY PETAL-HOSTED PREVIEWS ARE ASKED FOR IN THIS BATCH. Since S44
+  // a thumbnail lives at its body's provider (Audrey, 2026-08-08 — a still
+  // frame IS the content, so it must not sit on Petal's infrastructure when
+  // its source does not). An s3 row's preview is in the CUSTOMER's bucket, and
+  // since P1 (night 4) it is signed there by its own arm, below — the arm this
+  // comment said would slot in beside the supabase one once the provider was
+  // carried.
   //
   // 🚨 THE TEST IS `!== 's3'`, NOT `=== 'supabase'`, AND THE THREE COPIES OF
   // THIS MAPPING MUST AGREE. Where a preview lives is:
   //
-  //     s3             -> the customer's bucket   (not signable from here)
-  //     everything else -> rabbit-thumbnails       (signable)
+  //     s3             -> the customer's bucket   (the s3 arm: storage-read-urls)
+  //     everything else -> rabbit-thumbnails       (this batch)
   //
   // — the same expression as 0054's thumbnail arm and the teardown sweep's
   // `.neq('storage_provider','s3')`. A `local_server` or `google_drive` row CAN
@@ -334,7 +336,21 @@ export default function FileManager({
   // sitting right there and perfectly signable. S44 shipped that mistake in the
   // teardown sweep, caught it, and its own review then found the same shape
   // surviving here.
-  const [thumbUrls, setThumbUrls] = useState(() => new Map())
+  //
+  // P1 (night 4): THE s3 ARM, beside it — the complement of the filter below.
+  // An s3 row's preview is in the company's own bucket and is signed there by
+  // storage-read-urls (`{ provider: 's3' }`). 🚨 ITS OWN STATE, MERGED BY A
+  // MEMO into the one `thumbUrls` both render sites read: one state written by
+  // two effects lets whichever answer lands last erase the other provider's
+  // tiles, and a panel holding both is normal for a workspace that moved to
+  // its bucket (its Petal rows stay where they were).
+  const [petalThumbs, setPetalThumbs] = useState(() => new Map())
+  const [s3Thumbs, setS3Thumbs] = useState(() => new Map())
+  const [s3Ask, setS3Ask] = useState(0)
+  const thumbUrls = useMemo(
+    () => (s3Thumbs.size ? new Map([...petalThumbs, ...s3Thumbs]) : petalThumbs),
+    [petalThumbs, s3Thumbs],
+  )
   // Demo 2026-09-11: a PRIVATE project's previews live on THIS computer, at
   // a URL the desktop's own server serves (electron/localMedia.cjs) —
   // nothing to sign, and nothing a browser could show (off the desktop they
@@ -367,19 +383,89 @@ export default function FileManager({
   useEffect(() => {
     const local = new Map(localThumbs)
     if (!signThumbnails || thumbKeys.length === 0) {
-      setThumbUrls(local)
+      setPetalThumbs(local)
       return
     }
     let cancelled = false
     signThumbnails(thumbKeys).then(map => {
       // The list can change while a signing round trip is in flight; a late
       // response must not overwrite a newer one.
-      if (!cancelled) setThumbUrls(new Map([...local, ...map]))
+      if (!cancelled) setPetalThumbs(new Map([...local, ...map]))
     })
     return () => { cancelled = true }
     // thumbKeys is memoised on assetFiles, so this re-signs when the list
     // changes and not on every render.
   }, [signThumbnails, thumbKeys, localThumbs])
+
+  // P1 (NETWORK_STORAGE_DESIGN.md §9.4): a company whose ACTIVE storage is
+  // its own server has no cloud row for any of its media, so on the cloud
+  // backend this panel is empty for a reason, and the empty state says it
+  // (storage/index.js SERVER_MEDIA_SENTENCE). Read once from the cached
+  // storage choice; any doubt (no answer, the fixtures) keeps today's words.
+  // The Local Server backend lists the files themselves and never asks.
+  // The cloud backend only, as the reservation sweep above (review round 1,
+  // finding 6): Drive and the Local Server never ask.
+  const [mediaOnServer, setMediaOnServer] = useState(false)
+  const cloudBackend = !managed && ctx?.adapterMode === 'supabase'
+  useEffect(() => {
+    if (!cloudBackend) { setMediaOnServer(false); return undefined }
+    let live = true
+    getWorkspaceStorageCached()
+      .then(row => { if (live) setMediaOnServer(storesMediaOnServer(row)) })
+      .catch(() => { /* unknown keeps the ordinary empty state */ })
+    return () => { live = false }
+  }, [cloudBackend])
+
+  // P1: the s3 rows' previews. A key keeps its last URL until a fresh one
+  // comes, so a failed renewal (RabbitProvider answers an empty map) never
+  // blanks a drawn tile; a key the signer refused never had one, and its tile
+  // is the file-type icon. While s3 keys are on screen this re-asks every
+  // S3_THUMB_REASK_MS, half the margin below which s3Provider will not hand a
+  // cached URL out again, so a URL in the map always has minutes to live when
+  // a lazy tile below the fold finally loads it.
+  const s3ThumbKeys = useMemo(
+    () => assetFiles
+      .filter(f => f.storage_provider === 's3')
+      .map(f => f.thumbnail_url)
+      .filter(Boolean),
+    [assetFiles],
+  )
+  useEffect(() => {
+    if (!signThumbnails || s3ThumbKeys.length === 0) {
+      setS3Thumbs(prev => (prev.size ? new Map() : prev))
+      return undefined
+    }
+    let cancelled = false
+    Promise.resolve(signThumbnails(s3ThumbKeys, { provider: 's3' })).then(map => {
+      if (cancelled) return
+      setS3Thumbs(prev => {
+        const next = new Map()
+        for (const k of s3ThumbKeys) {
+          const url = map?.get?.(k) || prev.get(k)
+          if (url) next.set(k, url)
+        }
+        return next
+      })
+    }).catch(() => { /* keep what is drawn */ })
+    const timer = setTimeout(() => setS3Ask(n => n + 1), S3_THUMB_REASK_MS)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [signThumbnails, s3ThumbKeys, s3Ask])
+  // A hidden tab's timers are throttled and a sleeping machine's stop, so a
+  // tab that comes back, or a browser back online, asks at once.
+  const hasS3Thumbs = s3ThumbKeys.length > 0
+  useEffect(() => {
+    if (!hasS3Thumbs || typeof window === 'undefined') return undefined
+    const again = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      setS3Ask(n => n + 1)
+    }
+    document.addEventListener('visibilitychange', again)
+    window.addEventListener('online', again)
+    return () => {
+      document.removeEventListener('visibilitychange', again)
+      window.removeEventListener('online', again)
+    }
+  }, [hasS3Thumbs])
 
   // Listen for copy progress IPC events
   useEffect(() => {
@@ -955,7 +1041,13 @@ export default function FileManager({
 
       {/* Empty state — the kit's (R4-13): sentence case, never uppercase. */}
       {assetFiles.length === 0 && !copying && (
-        <EmptyState compact Icon={FolderOpen} title="No files yet" body="Click “Add files” to get started." />
+        <EmptyState
+          compact
+          Icon={FolderOpen}
+          title="No files yet"
+          body={mediaOnServer ? SERVER_MEDIA_SENTENCE : 'Click “Add files” to get started.'}
+          data-fm-empty={mediaOnServer ? 'server' : 'none'}
+        />
       )}
 
       {/* Table view — the kit Table (R4-01, R4-06): the Label-step header on

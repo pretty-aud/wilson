@@ -30,11 +30,20 @@ const ctx = {}
 const perms = { role: 'admin', ready: true, workspaceId: 'w1', userId: 'u1' }
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => ctx }))
 vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => perms }))
+// P1: the storage choice the explorer reads once (a NAS company's sentence).
+// Refused by default, as the unmocked read is here (no client).
+const storage = vi.hoisted(() => ({ cached: vi.fn(() => Promise.reject(new Error('no storage read in this test'))) }))
+vi.mock('../../cloud/workspaceStorage', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getWorkspaceStorageCached: (...a) => storage.cached(...a),
+}))
 
 const { default: ProjectFilesExplorer, _resetPreviewReadsForTests } = await import('./ProjectFilesExplorer')
 const { localServerAdapter } = await import('../../tools/rabbit_v0.1.0/adapters/localServerAdapter')
 const { managedStreamUrl } = await import('../../tools/rabbit_v0.1.0/storage/managedVideoThumbnail')
 const { readBounded } = await import('./FilePreviewDialog')
+const { createS3StorageProvider } = await import('../../tools/rabbit_v0.1.0/storage/s3Provider')
+const { SERVER_MEDIA_SENTENCE } = await import('../../tools/rabbit_v0.1.0/storage/index.js')
 
 const FOLDERS = [{ id: 'root', kind: 'root', path: '', name: 'Project' }]
 const row = (id, name, mime, extra = {}) => ({
@@ -143,7 +152,11 @@ describe('previewKindFor: what the preview may show (E9, E6)', () => {
     expect(Object.keys(CODE_LANGUAGE).length).toBeGreaterThan(30)
   })
   it('an unavailable state is a sentence', () => {
-    expect(unavailableSentence({ storage_provider: 's3' }, 'supabase')).toMatch(/your own bucket/)
+    // P1 moved this pin: an s3 row is signed by storage-read-urls now, so
+    // it has no "own bucket" arm — a refusal there arrives as its own
+    // sentence (a throw), and a null is a backend's, as for any row.
+    expect(unavailableSentence({ storage_provider: 's3' }, 'supabase')).not.toMatch(/your own bucket/)
+    expect(unavailableSentence({ storage_provider: 's3' }, 'supabase')).toMatch(/cannot show a preview/)
     expect(unavailableSentence({}, 'fixtures')).toMatch(/dev fixtures hold no file bytes/)
     expect(unavailableSentence({}, 'supabase')).toMatch(/cannot show a preview/)
   })
@@ -689,5 +702,93 @@ describe('the Local Server has URLs at last (localServerAdapter, main.cjs)', () 
   it('the routes the adapter names are fileReads.cjs\'s, mounted by main', () => {
     expect(main).toContain("require('./fileReads.cjs').mountFileStreamRead(expressApp, {")
     expect(main).toContain("require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);")
+  })
+})
+
+// =============================================================================
+// P1 (night 4): a file in the company's own bucket previews and plays. The
+// REAL s3 provider's getUrl, over a fake read signer standing in for
+// storage-read-urls (no S3 workspace exists on any environment): the stage
+// takes the URL the bucket's signer minted, a video asks for the streaming
+// hour and an image for a read-once URL, and a refusal says why.
+// =============================================================================
+describe('a file in the company\'s own bucket (P1)', () => {
+  const PROJ = 'aaaa1111-0000-0000-0000-000000000001'
+  const s3row = (id, name, mime) => row(id, name, mime, { storage_provider: 's3', storage_path: `projects/${PROJ}/project/x/1754612345678-${name}` })
+  let reads
+  const wire = ({ refuse = null } = {}) => {
+    reads = vi.fn(async (keys, { stream } = {}) => {
+      const k = keys[0]
+      if (refuse) return { urls: {}, expires: {}, refused: { [k]: refuse } }
+      const seconds = stream ? 3600 : 300
+      return { urls: { [k]: `https://bucket.example/${k}?X-Amz-Expires=${seconds}` }, expires: { [k]: seconds }, refused: {} }
+    })
+    const provider = createS3StorageProvider(vi.fn(), reads)
+    // RabbitProvider.fileUrl → the cloud adapter's fileUrl → the provider the
+    // row names, with the stage's stream flag (the adapter's default: true).
+    ctx.fileUrl = vi.fn(async (r, { stream = true } = {}) => provider.getUrl(r.storage_path, 3600, { stream }))
+  }
+
+  it('an s3 video plays from the URL its bucket signed, for the streaming hour', async () => {
+    FILES = [s3row('v1', 'cut.mp4', 'video/mp4')]
+    wire()
+    await mountTable()
+    openByDoubleClick('cut.mp4')
+    const v = await waitFor(() => { const x = dialog().querySelector('video'); expect(x).not.toBeNull(); return x })
+    expect(v.getAttribute('src')).toBe(`https://bucket.example/projects/${PROJ}/project/x/1754612345678-cut.mp4?X-Amz-Expires=3600`)
+    expect(v.getAttribute('crossorigin')).toBe('anonymous')
+    expect(reads.mock.calls[0][1]).toEqual({ stream: true })
+    expect(within(dialog()).queryByText(/your own bucket/)).toBeNull()
+  })
+
+  it('an s3 image is an <img> from a URL signed to be read once', async () => {
+    FILES = [s3row('i1', 'plate.png', 'image/png')]
+    wire()
+    await mountTable()
+    openByDoubleClick('plate.png')
+    const img = await waitFor(() => { const i = dialog().querySelector('img[data-pv-image]'); expect(i).not.toBeNull(); return i })
+    expect(img.getAttribute('src')).toMatch(/X-Amz-Expires=300$/)
+    expect(reads.mock.calls[0][1]).toEqual({ stream: false })
+  })
+
+  it('a file the bucket\'s signer refuses says why, in words', async () => {
+    FILES = [s3row('i2', 'still.png', 'image/png')]
+    wire({ refuse: 'project' })
+    await mountTable()
+    openByDoubleClick('still.png')
+    expect(await within(dialog()).findByText(/you cannot open the files of this project/)).toBeTruthy()
+  })
+})
+
+describe('the Files tab on a company that keeps its media on its own server (P1)', () => {
+  afterEach(() => { storage.cached.mockReset(); storage.cached.mockRejectedValue(new Error('no storage read in this test')) })
+
+  it('one sentence above its folders says where the media is', async () => {
+    storage.cached.mockReset()
+    storage.cached.mockResolvedValue({ mode: 'byos', provider: 'network', root_path: '\\\\nas\\projects' })
+    await mountTable()
+    const banner = await waitFor(() => { const b = document.querySelector('[data-files-server-media]'); expect(b).not.toBeNull(); return b })
+    expect(banner.textContent).toBe(SERVER_MEDIA_SENTENCE)
+  })
+
+  it.each([
+    ['Petal', null],
+    ['a bucket', { mode: 'byos', provider: 's3' }],
+  ])('CONTROL: on %s there is no such sentence', async (_label, choice) => {
+    storage.cached.mockReset()
+    storage.cached.mockResolvedValue(choice)
+    await mountTable()
+    await waitFor(() => expect(storage.cached).toHaveBeenCalled())
+    await act(async () => {})
+    expect(document.querySelector('[data-files-server-media]')).toBeNull()
+  })
+
+  it('CONTROL: the Local Server backend never asks', async () => {
+    ctx.adapterMode = 'local_server'
+    storage.cached.mockReset()
+    storage.cached.mockResolvedValue({ mode: 'byos', provider: 'network' })
+    await mountTable()
+    await act(async () => {})
+    expect(storage.cached).not.toHaveBeenCalled()
   })
 })

@@ -31,7 +31,9 @@
 //
 // The cap is keyed by the JWT's session_id: a reload keeps the original
 // sign-in time; a new sign-in starts a new clock; a session from before this
-// shipped counts from the first time this code saw it.
+// shipped counts from the first time this code saw it. D1 (2026-10-28): at a
+// restore, from the token's own sign-in time when that is earlier, so a
+// desktop relaunch (a new origin, no record) no longer starts four new hours.
 //
 // No React and no DOM in the core — createSessionTimeouts() takes its clock,
 // storage and timer as arguments so the test drives it under fake timers.
@@ -138,6 +140,12 @@ function signedInAtOf(claims, t) {
   return earliest
 }
 
+/** The cap's record for this session, read as start() resumes it: this id, a finite `at` not in the future. */
+function recordedStartOf(storage, startKey, sid, t) {
+  const stored = sid ? readJson(storage, startKey) : null
+  return stored && stored.sid === sid && Number.isFinite(stored.at) && stored.at <= t ? stored.at : null
+}
+
 /**
  * When this session's four hours started, as far as this computer can prove:
  * the earlier of the cap's record and the token's own sign-in time; null when
@@ -146,8 +154,7 @@ function signedInAtOf(claims, t) {
 export function sessionStartOf(session, { surfaceKey = SESSION_STORAGE_KEY, storage = safeLocalStorage(), now = Date.now() } = {}) {
   const t = typeof now === 'function' ? now() : now
   const sid = sessionIdOf(session)
-  const stored = sid ? readJson(storage, `${surfaceKey}.start`) : null
-  const recorded = stored && stored.sid === sid && Number.isFinite(stored.at) && stored.at <= t ? stored.at : null
+  const recorded = recordedStartOf(storage, `${surfaceKey}.start`, sid, t)
   const signedIn = signedInAtOf(readJwtClaims(session?.access_token), t)
   if (recorded == null) return signedIn
   if (signedIn == null) return recorded
@@ -166,12 +173,33 @@ export function insideSessionCap(session, { surfaceKey = SESSION_STORAGE_KEY, st
   return start != null && t - start < cap
 }
 
+// ── D1 (night 4, 2026-10-28): the cap at a restore ───────────────────────────
+//
+// docs/design/RECONNECT_DESIGN.md §12.2. At a RESTORE (App's start-up check:
+// every desktop launch, every web reload; the operator console's boot) start()
+// resumes the start the offline launch tests above: the earlier of the cap's
+// record and the token's own sign-in time. The desktop lost the record at every
+// launch (a new origin each time), so its cap ran from the latest launch, not
+// from the sign-in (OUTSTANDING S2-01). A FRESH sign-in passes no time: there
+// the token's time adds only the clock's skew, and a computer four hours ahead
+// of the server would be signed out at every sign-in (design review, F4).
+
+/**
+ * The token's own sign-in time in ms (its earliest `amr` timestamp), or null.
+ * Raw: start() judges "not in the future" at its own clock, as sessionStartOf
+ * does at its own, so the value stays the same for the whole session.
+ */
+export function tokenSignedInAt(session) {
+  return signedInAtOf(readJwtClaims(session?.access_token), Infinity)
+}
+
 // ── The core ─────────────────────────────────────────────────────────────────
 
 /**
  * @param {object} opts
  * @param {string}   opts.surfaceKey   the surface's session key; two keys hang off it
  * @param {string}   opts.sessionId    ties the cap clock to one sign-in
+ * @param {number}  [opts.signedInAt]  D1: at a restore, the token's own sign-in time (tokenSignedInAt)
  * @param {object}  [opts.storage]     { getItem, setItem, removeItem } — localStorage when present
  * @param {() => number} [opts.now]
  * @param {(fn: () => void, ms: number) => any} [opts.schedule]   periodic; defaults to setInterval
@@ -183,6 +211,7 @@ export function createSessionTimeouts(opts) {
   const {
     surfaceKey,
     sessionId,
+    signedInAt = null,
     storage = null,
     now = () => Date.now(),
     schedule = (fn, ms) => setInterval(fn, ms),
@@ -295,12 +324,16 @@ export function createSessionTimeouts(opts) {
     if (running || expired) return
     running = true
     const t = now()
-    const stored = readJson(storage, startKey)
-    if (stored && stored.sid === sessionId && Number.isFinite(stored.at) && stored.at <= t) {
-      startedAt = stored.at               // a reload; the clock keeps running
+    // D1 (§12.2): at a restore the earlier of the record and the token's own
+    // sign-in time, the start the offline launch tests; never later than the
+    // record alone, so never more lenient than before on either build.
+    const recorded = recordedStartOf(storage, startKey, sessionId, t)
+    const proven = Number.isFinite(signedInAt) && signedInAt <= t ? signedInAt : null
+    if (recorded != null) {
+      startedAt = proven != null && proven < recorded ? proven : recorded   // a reload; the clock keeps running
     } else {
-      startedAt = t                        // a new sign-in, or a session from before this shipped
-      write(storage, startKey, { sid: sessionId, at: t })
+      startedAt = proven ?? t              // a new sign-in, a session from before this shipped, a desktop launch with no record
+      write(storage, startKey, { sid: sessionId, at: startedAt })
     }
     memActivity = t
     lastPersisted = t
@@ -380,12 +413,13 @@ function readDevOverrides(storage = safeLocalStorage()) {
  * @param {object} opts
  * @param {boolean} opts.enabled      true while the surface has a session
  * @param {string|null} opts.sessionId
+ * @param {number|null} [opts.signedInAt]  D1: at a restore only, tokenSignedInAt(session); null at a fresh sign-in
  * @param {(reason: string) => void} opts.onExpire   sign the surface out, say why
  * @param {string} [opts.surfaceKey]  defaults to this bundle's session key
  * @param {object} [opts.overrides]   test seam; DEV overrides are merged first
  * @returns {{ phase: string, deadline: number|null, reason: string|null, stay: () => void }}
  */
-export function useSessionTimeouts({ enabled, sessionId, onExpire, surfaceKey = SESSION_STORAGE_KEY, overrides }) {
+export function useSessionTimeouts({ enabled, sessionId, signedInAt = null, onExpire, surfaceKey = SESSION_STORAGE_KEY, overrides }) {
   const [state, setState] = useState(INACTIVE_STATE)
   const ctlRef = useRef(null)
   const onExpireRef = useRef(onExpire)
@@ -399,6 +433,7 @@ export function useSessionTimeouts({ enabled, sessionId, onExpire, surfaceKey = 
     const ctl = createSessionTimeouts({
       surfaceKey,
       sessionId,
+      signedInAt,
       storage: safeLocalStorage(),
       ...readDevOverrides(),
       ...(overrides || {}),
@@ -414,6 +449,8 @@ export function useSessionTimeouts({ enabled, sessionId, onExpire, surfaceKey = 
       if (ctlRef.current === ctl) ctlRef.current = null
     }
     // `overrides` is a test seam; a new object per render must not restart the clock.
+    // D1: nor does `signedInAt` (a restart is a start(), which counts as activity):
+    // it travels with the session id it was read with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, sessionId, surfaceKey])
 

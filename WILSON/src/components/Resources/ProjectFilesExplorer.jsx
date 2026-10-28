@@ -164,7 +164,8 @@ import {
 // the browser's own clear affordance came with it. Replacing that with a
 // hand-rolled clear button would be swapping one control for another under a
 // constraint that says not to (C1), so the native one stays.
-import { formatBytes } from '../../cloud/workspaceStorage'
+import { formatBytes, getWorkspaceStorageCached } from '../../cloud/workspaceStorage'
+import { storesMediaOnServer, SERVER_MEDIA_SENTENCE } from '../../tools/rabbit_v0.1.0/storage/index.js'
 import { formatDuration } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
 import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, crumbsFor, folderPathIds, folderRows } from './fileTree'
 import { overlayOpen } from '../../ui/overlay'
@@ -784,6 +785,19 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   useEffect(() => { setActionError('') }, [selectedFileId])
   const adapterMode = ctx?.adapterMode
   const onDiskOf = useCallback((node) => (bridge ? diskSourceFor(node, { adapterMode, projectId }) : null), [bridge, adapterMode, projectId])
+  // P1 (NETWORK_STORAGE_DESIGN.md §9.4): on the cloud backend, a company whose
+  // ACTIVE storage is its own server has no cloud row for any of its media,
+  // so this tab lists its folders empty; one sentence above them says why
+  // (storage/index.js SERVER_MEDIA_SENTENCE). Any doubt keeps it hidden.
+  const [mediaOnServer, setMediaOnServer] = useState(false)
+  useEffect(() => {
+    if (adapterMode !== 'supabase') { setMediaOnServer(false); return undefined }
+    let live = true
+    getWorkspaceStorageCached()
+      .then(row => { if (live) setMediaOnServer(storesMediaOnServer(row)) })
+      .catch(() => { /* unknown says nothing */ })
+    return () => { live = false }
+  }, [adapterMode])
   // A refusal is the file's it was asked for: one that ARRIVES after ← → in
   // the preview or a click in the list selected another file is not shown on
   // that one (round 2, R2-UI-03, the save refusal's rule above).
@@ -1130,6 +1144,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           </Banner>
         )}
         {refileError && !refiling && <Banner tone="danger" data-shot-refile-error>{refileError}</Banner>}
+        {projectId && mediaOnServer && <Banner tone="info" live={false} data-files-server-media>{SERVER_MEDIA_SENTENCE}</Banner>}
 
         {/* Three states that used to be one component with three strings, so a
             slow adapter and an empty project drew the same picture (F-R13). */}

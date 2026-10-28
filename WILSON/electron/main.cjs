@@ -20,6 +20,10 @@ const {
   applyLocalServerLock,
   localServerErrorHandler,
 } = require('./localToken.cjs');
+// D1 (night 4, 2026-10-28): the renderer's localStorage, kept across a
+// relaunch in a userData file. The module's header says why, what is never
+// kept and whom the channels answer.
+const { createRendererStorage, rendererStorageFile, acceptsSender } = require('./rendererStorage.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
@@ -4719,6 +4723,53 @@ ipcMain.on('wilson:local-server-token', (event) => {
   event.returnValue = localServerToken;
 });
 
+// D1 (night 4, 2026-10-28; docs/design/RECONNECT_DESIGN.md §12.5): the
+// renderer's storage, kept across a relaunch (electron/rendererStorage.cjs).
+// Both channels answer only the main window's own top frame at this launch's
+// origin, and every synchronous call is answered (null or false when refused
+// or failed), so a refused page is never left blocked. The origin is
+// module-scoped for the same reason as the token: the channels are registered
+// once, at load.
+let localServerOrigin = null;
+let rendererStorage = null;
+function rendererStorageNow() {
+  if (!rendererStorage) {
+    rendererStorage = createRendererStorage({
+      file: rendererStorageFile(app.getPath('userData'), app.isPackaged),
+      log: (line) => console.warn(line),
+    });
+  }
+  return rendererStorage;
+}
+function fromThisLaunchsPage(event) {
+  const live = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+  return acceptsSender(event, { webContents: live, origin: localServerOrigin });
+}
+ipcMain.on('wilson:renderer-storage-seed', (event) => {
+  try {
+    event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().seed(localServerOrigin) : null;
+  } catch {
+    event.returnValue = null;
+  }
+});
+ipcMain.on('wilson:renderer-storage-changes', (event, changes) => {
+  try {
+    if (fromThisLaunchsPage(event)) rendererStorageNow().apply(changes);
+  } catch { /* never thrown into IPC; the module logs a failed write and tries again */ }
+});
+ipcMain.on('wilson:renderer-storage-changes-sync', (event, changes) => {
+  try {
+    event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().apply(changes).ok === true : false;
+  } catch {
+    event.returnValue = false;
+  }
+});
+// A write Windows refused stays in memory; the quit writes it once more
+// (build review, F3).
+app.on('will-quit', () => {
+  try { rendererStorage?.flush(); } catch { /* best effort at quit */ }
+});
+
 // Second copy launched: focus the one that already exists. Registered
 // unconditionally — it only ever fires in the process that HOLDS the lock.
 //
@@ -4745,6 +4796,21 @@ async function createWindow() {
   const { server, port, token, origin } = await startLocalServer(distPath);
   localServer = server;
   localServerToken = token;
+  localServerOrigin = origin;
+
+  // D1 (§12.4 c): every OTHER origin's localStorage — the earlier launches'
+  // loopback origins, unreachable since their port closed, which Chromium
+  // would otherwise keep on disk for ever — cleared once the server has bound.
+  // NOT awaited and excluding this launch's origin, so it never stands between
+  // the launch and its first paint and cannot touch the live store (design
+  // review, F3); the preload makes this origin exactly the kept keys at its
+  // first load, whatever the clear does.
+  try {
+    session.defaultSession.clearData({ dataTypes: ['localStorage'], excludeOrigins: [origin] })
+      .catch((err) => console.warn('[wilson] the earlier launches\' localStorage was not cleared:', err?.message ?? err));
+  } catch (err) {
+    console.warn('[wilson] the earlier launches\' localStorage was not cleared:', err?.message ?? err);
+  }
 
   // ── The cookie arm of the lock (Bundle B3) ────────────────────────────────
   // This is what carries FileThumbnail's <img src>, VideoPreview's <video src>

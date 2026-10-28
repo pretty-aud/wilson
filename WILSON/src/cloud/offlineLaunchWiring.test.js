@@ -166,3 +166,30 @@ describe('Settings and the dot say what is true while held', () => {
     expect(dot).toContain('token: () => tokenRef.current.token ?? heldSession()?.access_token ?? null,')
   })
 })
+
+// D1 (night 4, 2026-10-28; docs/design/RECONNECT_DESIGN.md §12.2): the cap at
+// a restore. The token's own sign-in time is passed on the restore paths only
+// (App's start-up check, the console's boot), never at a fresh sign-in, where
+// it would add nothing but the clock's skew (design review, F4). No harness
+// renders either surface; the hook itself is pinned in sessionDialogs.test.js.
+describe('D1: the token\'s sign-in time reaches the cap at a restore, never at a fresh sign-in', () => {
+  it('App: the start-up check sets it, handleAuth clears it, the sign-out clears it, the hook is given it', () => {
+    const restore = between(app, 'checkSessionValid().then(session => {', 'setSessionChecked(true);')
+    expect(restore).toContain('setSessionId(sessionIdOf(session));\n        setSessionSignedInAt(tokenSignedInAt(session));')
+    const fresh = between(app, 'const handleAuth = useCallback((session) => {', "recordAuthEvent('sign_in');")
+    expect(fresh).toContain('setSessionId(sessionIdOf(session));\n    setSessionSignedInAt(null);')
+    expect(between(app, 'setSessionId(null);', 'setSessionSignedInAt(null);', 60)).toBeTruthy()
+    expect(between(app, 'const sessionTimeouts = useSessionTimeouts({', '});')).toContain('signedInAt: sessionSignedInAt,')
+  })
+  it('the operator console: its boot sets it from the restored session, its sign-in and sign-out clear it, the hook is given it', () => {
+    const boot = between(operator, 'const live = stored ? await hydrateSupabase(stored) : null', 'setBooted(true)')
+    expect(boot).toContain('setSessionSignedInAt(tokenSignedInAt(live))\n          setSession(live)')
+    expect(between(operator, 'const handleSignedIn = useCallback(async (next) => {', 'setSession(next)')).toContain('setSessionSignedInAt(null)')
+    expect(between(operator, 'setSession(null)', 'setSessionSignedInAt(null)', 60)).toBeTruthy()
+    expect(between(operator, 'const sessionTimeouts = useSessionTimeouts({', '})')).toContain('signedInAt: sessionSignedInAt,')
+  })
+  it('the token\'s time is read once on each surface, at its restore, so no fresh sign-in path borrows it', () => {
+    expect(app.split('tokenSignedInAt(').length - 1).toBe(1)
+    expect(operator.split('tokenSignedInAt(').length - 1).toBe(1)
+  })
+})

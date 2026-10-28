@@ -272,12 +272,15 @@ export async function removeThumbnail(client, key) {
 // gate still reads the third segment — the property thumbnailKeyFor exists to
 // preserve.
 //
-// An unregistered provider ('local_server', 'google_drive') THROWS out of
-// getStorageProvider, and that is correct fail-closed behaviour rather than an
-// oversight: uploadFile refuses a `network` workspace before it ever reaches
-// here, and financial pins to Supabase, so the only values that can arrive are
-// 'supabase' and 's3'. If a third ever arrives, a thrown sentence costs a
-// preview — never the file — because the caller wraps this in a try.
+// An unregistered provider ('google_drive') THROWS out of getStorageProvider,
+// and that is correct fail-closed behaviour rather than an oversight: a thrown
+// sentence costs a preview — never the file — because the caller wraps this in
+// a try. (⚠️ Corrected by P1: this said 'local_server' was unregistered too,
+// and that 'supabase' and 's3' were the only values that could arrive. Since
+// the demo of 2026-09-11 'local_server' IS registered — a private project's
+// body and its preview go to the computer that added it, through the same
+// registry put — while uploadFile still refuses a `network` workspace before
+// it reaches here, and financial still pins to Supabase.)
 
 /** Where a NEW thumbnail goes: the provider its body just went to. */
 export async function putThumbnailTo(fileProvider, key, blob, {
@@ -308,25 +311,21 @@ export async function removeThumbnailFrom(fileProvider, key, {
 /**
  * Mint display URLs for a batch of thumbnail keys IN PETAL'S BUCKET.
  *
- * ⚠️ S44 — DELIBERATELY SUPABASE-ONLY, AND THE CALLER FILTERS TO MATCH.
- * Audrey, 2026-08-08, scoping S44: generation and disposal move this session;
- * BROWSER DISPLAY for a thumbnail in a customer's bucket does not. It needs a
- * batch presign that does not exist (storage-presign authorises ONE key per
- * call, at 300s against this function's 3600s), and — the deciding fact — there
- * is no S3 workspace on any environment to verify it against, so the first real
- * customer would be the test.
+ * ⚠️ PETAL'S BUCKET ONLY, BY NAME — the s3 arm is thumbnailUrlsAt's, below.
+ * S44 (Audrey, 2026-08-08) moved generation and disposal to the body's
+ * provider and left BROWSER DISPLAY of a preview in a customer's bucket for
+ * its own session: it needed a batch signer that did not exist (storage-presign
+ * authorises ONE key per call, at 300 s), and no S3 workspace existed anywhere
+ * to verify one against. P1 (night 4, 2026-10-28) built that signer,
+ * storage-read-urls, and thumbnailUrlsAt sends an s3 key to it; this function
+ * keeps signing what is on Petal.
  *
- * Until that session: an s3 workspace's previews are WRITTEN to its own bucket
- * and are never asked for here, so its grid shows file-type icons. FileManager
- * filters to supabase rows so this is a stated behaviour rather than a lookup
- * that quietly finds nothing.
- *
- * 🚨 GENERATION IS THE ONE-WAY DOOR, NOT DISPLAY — which is why the write half
- * shipped anyway. A thumbnail that exists can be displayed later by a pure
- * client change: no backfill, no egress. A thumbnail that was never generated
- * can only be made later by DOWNLOADING THE FULL SOURCE — the one expensive
- * design this module's header exists to refuse, and the reason `thumbnail_url`
- * sat unwritten from 0000 until S39.
+ * 🚨 GENERATION WAS THE ONE-WAY DOOR, NOT DISPLAY — which is why the write half
+ * shipped first, and why P1 could be a client change and a signer: a thumbnail
+ * that exists can be displayed later with no backfill and no egress. A
+ * thumbnail that was never generated could only be made by DOWNLOADING THE
+ * FULL SOURCE — the one expensive design this module's header exists to
+ * refuse, and the reason `thumbnail_url` sat unwritten from 0000 until S39.
  *
  * 🚨 BATCHED ON PURPOSE. The bucket is PRIVATE (0053; a public one would be
  * TPN-CLOUD-004 repeated for pre-release frames), so every tile needs a signed
@@ -354,4 +353,28 @@ export async function signedThumbnailUrls(client, keys, expiresIn = 3600) {
   } catch {
     return new Map()
   }
+}
+
+/**
+ * P1 (night 4): the THIRD dispatcher. putThumbnailTo says where a preview
+ * goes and removeThumbnailFrom where it is removed; this says where it is
+ * READ — by the same mapping the three pinned copies state (FileManager's
+ * filter, the teardown sweep, 0054's enqueue):
+ *
+ *     s3              -> the customer's bucket   (s3Provider.getUrls, the
+ *                                                 storage-read-urls signer)
+ *     everything else -> rabbit-thumbnails       (signedThumbnailUrls)
+ *
+ * Both arms answer a Map keyed by the thumbnail key, and a key that cannot be
+ * shown is simply absent (RLS on Petal's side; the read signer's refusals on
+ * the customer's), so the caller's tile falls back to the file-type icon.
+ * The s3 arm THROWS when its call fails; RabbitProvider.thumbnailUrls keeps a
+ * panel standing either way.
+ */
+export async function thumbnailUrlsAt(fileProvider, keys, {
+  client,
+  getProvider = getStorageProvider,
+} = {}) {
+  if (fileProvider === FILE_PROVIDERS.S3) return getProvider(FILE_PROVIDERS.S3).getUrls(keys)
+  return signedThumbnailUrls(client, keys)
 }

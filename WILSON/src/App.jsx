@@ -60,6 +60,7 @@ import {
 import { AgentProvider, useAgent } from './agent'
 import { otterFetch, subscribeOtterAdapterMode } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
+import { clearS3ReadUrlCache } from './tools/rabbit_v0.1.0/storage/s3Provider'
 import { withTimeout } from './cloud/auth/withTimeout'
 // The line above is pinned VERBATIM by src/tools/otter_v0.3.1/petKnowledgeWiring.test.js
 // (a tree this sprint does not edit), so the boot ceiling's constant rides its own import.
@@ -68,7 +69,7 @@ import { AUTH_TIMEOUT_MS } from './cloud/auth/withTimeout'
 // emitter, the idle/cap timeouts, their notice, the connection-lost banner
 // and the WIL-1002 reporter.
 import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from './cloud/auth/authEvents'
-import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from './cloud/auth/sessionTimeouts'
+import { useSessionTimeouts, sessionIdOf, tokenSignedInAt, EXPIRE_REASONS } from './cloud/auth/sessionTimeouts'
 import SessionWarning, { describeSessionExpiry, HELD_REFUSED_NOTICE } from './cloud/auth/SessionWarning'
 import ConnectionLostBanner from './cloud/ConnectionLostBanner'
 import { connectionWatchdog } from './cloud/connectionWatchdog'
@@ -315,6 +316,10 @@ export default function App() {
   // cap clock so a reload keeps it; the notice is the one line the login
   // screen shows after a timed-out session says why it ended.
   const [sessionId, setSessionId] = useState(null);
+  // D1 (RECONNECT_DESIGN.md §12.2): the token's own sign-in time, set at the
+  // start-up restore only (every desktop launch, every web reload), so the cap
+  // runs from the real sign-in; a fresh sign-in sets null, its record is now.
+  const [sessionSignedInAt, setSessionSignedInAt] = useState(null);
   const [signedOutNotice, setSignedOutNotice] = useState('');
   const [sessionChecked, setSessionChecked] = useState(false);
   // 'login' (default) | 'forgot-password' | 'recovery'
@@ -418,6 +423,7 @@ export default function App() {
         // A resumed session is not a sign-in: no auth_events row here, but the
         // cap clock must find its original start under this same session id.
         setSessionId(sessionIdOf(session));
+        setSessionSignedInAt(tokenSignedInAt(session));
         // Session 17: a recovery / invite link must NOT be swallowed by an
         // existing session. The overlay is what mounts ResetPasswordWizard
         // (`showOverlay && sessionChecked && authMode === 'recovery'`), so
@@ -442,6 +448,7 @@ export default function App() {
   const handleAuth = useCallback((session) => {
     signingOutRef.current = null;   // a new session may be signed out again
     setSessionId(sessionIdOf(session));
+    setSessionSignedInAt(null);
     setSignedOutNotice('');
     setAuthed(true);
     // B2 part 2: the client's own sign_in row — the one WITH the address and
@@ -654,6 +661,7 @@ export default function App() {
         } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
       }
       setSessionId(null);
+      setSessionSignedInAt(null);
       // 🚨 Belt and braces with the perms.userId teardown effect: this runs
       // even if the permissions channel is slow to notice, so the next person
       // at this computer cannot see the previous person's pet for a beat.
@@ -706,6 +714,7 @@ export default function App() {
   const sessionTimeouts = useSessionTimeouts({
     enabled: authed,
     sessionId,
+    signedInAt: sessionSignedInAt,
     onExpire: (reason) => { signOutLocal({ event: reason }); },
   });
 
@@ -1519,6 +1528,18 @@ export default function App() {
   // module variable in the adapters, not in React state: an effect dependency
   // could not see it move.
   useEffect(() => subscribeOtterAdapterMode(() => clearPetKnowledgeCache()), []);
+
+  // ── P1: an s3 workspace's signed preview URLs die with the identity too ───
+  // s3Provider keeps ONE module-level cache of the GET URLs storage-read-urls
+  // signed (NETWORK_STORAGE_DESIGN.md §9.3) — bearer URLs over the company's
+  // footage, signed for THIS person after a check of THEIR rows. Keyed on the
+  // person as well as the workspace, as the pet's index is (an admin and a
+  // member of one workspace may read different rows); the clear also bumps a
+  // generation, so a batch still in flight cannot refill it afterwards.
+  useEffect(() => {
+    if (!perms.ready) return;
+    clearS3ReadUrlCache();
+  }, [perms.ready, perms.userId, perms.workspaceId]);
 
   // ── S34: the workspace storage root reaches the main process ──────────────
   // main.cjs has no Supabase client, so the byos root (workspace_storage,
