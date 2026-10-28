@@ -26,7 +26,11 @@ production, after the TPN re-audit reports nothing High." So the controller's pr
 ((g) 1–7) and when the first section of `TPN_AUDIT/SUMMARY.md`, *Release gate*, reads **0 Critical and 0 High open in the four
 areas**. On 2026-10-28 it reads **11 High**. Walkthrough 85 Q1 and Q2 propose that her ruling on each (fixed before 1.0, or accepted
 for 1.0 with the reason written into the finding) count as nothing High; that is R2's proposal, not the plan's text, and until she
-answers, (g) 8 does not pass.
+answers, (g) 8 does not pass. **Q1 was answered on 2026-10-28** ((a); her words in `TPN_AUDIT/SUMMARY.md` and in each finding):
+the seven of the areas' own other than TPN-AI-009 are fixed before the release by one session on Phase 8 of
+`TPN_AUDIT/REMEDIATION_PLAN.md`, so its merge comes before (g) 8 and the release commit carries it; TPN-AI-009 is accepted for the
+start of the production steps and closes at (c) and (g) 17, which must run before 2026-11-09 for her reason to hold. Q2 still
+holds (g) 8.
 
 **The release commit** is `feat/multi-user-v1`'s tip after the last beta merge and after (g) 8 has dated `CHANGELOG.md`'s 1.0.0
 heading there. Every deploy, every md5, the web build and the installer come from it, and the tag goes on PR #4's merge of it, so
@@ -274,9 +278,10 @@ that do not talk to each other ([OWED] §5's table).
 | the rate-limit and gateway-floor names in (c)'s table | their functions | unset anywhere, by the documents | optional: the code's defaults apply |
 
 **TPN-ENC-015, at release.** The two encryption secrets are the same on all three environments, so a lower environment's value
-opens production's company keys and bucket secrets, in every nightly dump that leaves for B2. If she rules distinct values
-(walkthrough 85, Q1), production is the cheapest place to start: while a7 reads 0 bucket secrets and 0 AI keys, a fresh value
-there orphans nothing. The value is made and set as the gateway's is below.
+opens production's company keys and bucket secrets, in every nightly dump that leaves for B2. She ruled it among the seven fixed
+before the release (walkthrough 85 Q1, (a), 2026-10-28), and production is the cheapest place to start: while a7 reads 0 bucket
+secrets and 0 AI keys, a fresh value there orphans nothing. The value is made and set as the gateway's is below. Phase 8's session
+plans the other two environments with the controller (`TPN_AUDIT/REMEDIATION_PLAN.md`: a re-seal where ciphertexts exist).
 
 **The digest procedure** ([OWED] §5, §9 C2). `supabase secrets list --project-ref <ref>` prints each name with a digest of its
 value, never the value. Run it for production and for staging and compare the digest beside each name. **A matching digest proves

@@ -91,6 +91,12 @@ the two-factor step-up), TPN-CONT-019, TPN-AI-011 (ai-files falls back to the pl
 and D14 make TPN-LOG-012 and TPN-SDLC-014 INFO, outside the gate. Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md` is the work. →
 **Audrey's ruling, per finding** (walkthrough 85, Q1 and Q2, which propose that her ruling stand for "nothing High"): fixed before
 1.0, or accepted for 1.0 with the reason written into the finding.
+**→ Q1 ruled on 2026-10-28** (Audrey, in chat, verbatim): *"(a) — one session fixes the other seven before the release (Phase 8),
+and I accept TPN-AI-009 for the start of the production steps, since it closes at the runbook's (c) and (g) 17 before 9 November."*
+TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013 and TPN-ENC-016 are fixed before the release by one
+session on Phase 8, which the controller names (`docs/sessions/PLAN_TO_1_0.md` §5 rule 8); TPN-AI-009 is accepted for the start
+of the production steps, her words in its block. **Q2 waits** (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011), and the runbook's (g) 8
+with it.
 
 ---
 
