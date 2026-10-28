@@ -195,6 +195,9 @@ export function gatewayClipSentence(locationName, state) {
     // admin or manager has checked it (bin_files.vetted_at).
     case 'not_checked':
       return `This clip has not been checked by a workspace admin or manager yet, so the file gateway does not serve it. ${tail}`
+    // The location's own mark (bin_locations.vetted_at): the gateway is told checked locations only.
+    case 'location_not_checked':
+      return `${loc} has not been checked by a workspace admin or manager yet, so the file gateway does not serve clips from it. ${tail}`
     case 'unseen':
       return `The company's file gateway has not answered WILSON, so the clip cannot be played here. ${tail}`
     case 'not_mounted':

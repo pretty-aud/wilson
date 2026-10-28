@@ -53,6 +53,11 @@
 --   trigger treats a vetter's INSERT like anyone's (a checked twin's mark, or
 --   none); and withdrawing a check withdraws it from EVERY row at that file
 --   in the project (the twins that inherited, the copies), not the one row.
+--   BUILD ROUND 2: that cascade is an AFTER UPDATE trigger
+--   (trg_bin_files_vet_cascade), since a BEFORE trigger updating siblings
+--   fails a statement that withdraws two of them at once (27000); and it
+--   runs both ways — a check given by hand reaches the file's other rows as
+--   a withdrawal does, so a check is of the FILE, as inheritance is.
 --
 -- TPN-ENC-013 — the office-door certificate names private addresses.
 --   The gateway's fix (names-only leaves) needs the browser to reach the
@@ -103,6 +108,14 @@ BEGIN
      OR pg_get_functiondef('public.gateway_sync_apply(uuid,jsonb,inet,jsonb)'::regprocedure) NOT LIKE '%replaced_confirmed%' THEN
     RAISE EXCEPTION '0104 pre-flight failed: gateway_sync_apply is not 0095''s body — apply 0095 first';
   END IF;
+  -- §3b restates copy_bin_files and restore_bin_files from 0091 §10m/§10n:
+  -- a restatement landing between would be overwritten silently (round 2).
+  IF to_regprocedure('public.copy_bin_files(uuid[],uuid)') IS NULL
+     OR (SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.copy_bin_files(uuid[],uuid)'::regprocedure) NOT LIKE '%array_position(v_created%'
+     OR to_regprocedure('public.restore_bin_files(jsonb)') IS NULL
+     OR (SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.restore_bin_files(jsonb)'::regprocedure) NOT LIKE '%ON CONFLICT (id) DO UPDATE%' THEN
+    RAISE EXCEPTION '0104 pre-flight failed: copy_bin_files or restore_bin_files is not 0091 §10m/§10n''s body, which §3b restates';
+  END IF;
   IF to_regprocedure('public.gateway_enrol_apply(text,text,jsonb,inet,text)') IS NULL
      OR to_regprocedure('public.gateway_clips_for_tickets(uuid[])') IS NULL
      OR to_regprocedure('public.gateway_clean_inside_addresses(jsonb)') IS NULL
@@ -124,7 +137,7 @@ ALTER TABLE public.bin_locations
   ADD COLUMN IF NOT EXISTS vetted_by UUID;
 
 COMMENT ON COLUMN public.bin_files.vetted_at IS
-  '0104 (TPN-AUTH-012): when a workspace admin or manager checked this row''s path for the file gateway, or NULL. Decided by trg_bin_files_vet, never by a client''s value: stamped for a vetter''s insert or re-point, inherited from a checked twin (same project, same location, the same path) otherwise, cleared when anyone else re-points the row; an UPDATE of this column by hand is a vetter''s mark (now()) or withdrawal (NULL) and is refused for anyone else. The gateway confirms and serves a clip only with it (gateway_sync_apply, gateway_clips_for_tickets).';
+  '0104 (TPN-AUTH-012): when a workspace admin or manager checked this row''s path for the file gateway, or NULL. Decided by trg_bin_files_vet, never by a client''s value: stamped for a vetter''s insert or re-point, inherited from a checked twin (same project, same location, the same path) otherwise, cleared when anyone else re-points the row; an UPDATE of this column by hand is a vetter''s mark (now()) or withdrawal (NULL) and is refused for anyone else, and reaches every row at that file in the project (trg_bin_files_vet_cascade); a copy or an undo (copy_bin_files, restore_bin_files, under wilson.bins_mark = inherit) takes a checked twin''s mark or none. The gateway confirms and serves a clip only with it (gateway_sync_apply, gateway_clips_for_tickets).';
 COMMENT ON COLUMN public.bin_files.vetted_by IS
   '0104: the admin or manager whose act set vetted_at (auth.uid()), or the twin''s; NULL with vetted_at.';
 COMMENT ON COLUMN public.bin_locations.vetted_at IS
@@ -220,21 +233,9 @@ BEGIN
     END IF;
     IF NEW.vetted_at IS NULL THEN
       NEW.vetted_by := NULL;
-      -- Round 1 (finding 2): a check is withdrawn from the FILE, not the row:
-      -- every other row at the same address in the same project (a twin that
-      -- inherited, a copy) loses the mark with it, under the caller's own RLS.
-      -- The transaction-local flag keeps the cascade from re-entering itself.
-      IF OLD.vetted_at IS NOT NULL AND COALESCE(current_setting('wilson.bins_withdrawing', true), '') <> '1' THEN
-        PERFORM set_config('wilson.bins_withdrawing', '1', true);
-        UPDATE public.bin_files f
-           SET vetted_at = NULL, vetted_by = NULL
-         WHERE f.project_id = NEW.project_id
-           AND f.location_id = NEW.location_id
-           AND f.relative_path = NEW.relative_path
-           AND f.id <> NEW.id
-           AND f.vetted_at IS NOT NULL;
-        PERFORM set_config('wilson.bins_withdrawing', '', true);
-      END IF;
+      -- The cascade to the file's other rows is trg_bin_files_vet_cascade
+      -- (AFTER UPDATE, below): a BEFORE trigger updating siblings fails a
+      -- statement that updates two of them at once (round 2, finding 1).
     ELSE
       NEW.vetted_at := now();
       NEW.vetted_by := auth.uid();
@@ -250,6 +251,71 @@ DROP TRIGGER IF EXISTS trg_bin_files_vet ON public.bin_files;
 CREATE TRIGGER trg_bin_files_vet
   BEFORE INSERT OR UPDATE ON public.bin_files
   FOR EACH ROW EXECUTE FUNCTION public.fn_bin_files_vet();
+
+-- The cascade (build rounds 1 and 2): a check given or withdrawn BY HAND on
+-- one row is of the FILE — every other row at the same address in the same
+-- project (a twin that inherited, a copy) takes the same mark or loses it,
+-- under the caller's own RLS. An AFTER ROW trigger, so a statement that
+-- updates two such rows at once has updated both before either cascades
+-- (a BEFORE trigger's nested UPDATE of a sibling the statement is about to
+-- update raises 27000). A re-point (the address changes) does not cascade:
+-- the old path's other rows keep their marks. The transaction-local flag
+-- keeps the cascade's own rows from cascading again.
+CREATE OR REPLACE FUNCTION public.fn_bin_files_vet_cascade()
+RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = public
+AS $$
+DECLARE
+  v_client BOOLEAN := auth.uid() IS NOT NULL OR COALESCE(current_setting('role', true), '') IN ('authenticated', 'anon');
+BEGIN
+  IF NOT v_client OR COALESCE(current_setting('wilson.bins_cascading', true), '') = '1' THEN
+    RETURN NULL;
+  END IF;
+  PERFORM set_config('wilson.bins_cascading', '1', true);
+  IF NEW.vetted_at IS NULL THEN
+    UPDATE public.bin_files f
+       SET vetted_at = NULL, vetted_by = NULL
+     WHERE f.project_id = NEW.project_id
+       AND f.location_id = NEW.location_id
+       AND f.relative_path = NEW.relative_path
+       AND f.id <> NEW.id
+       AND f.vetted_at IS NOT NULL;
+  ELSE
+    UPDATE public.bin_files f
+       SET vetted_at = NEW.vetted_at, vetted_by = NEW.vetted_by
+     WHERE f.project_id = NEW.project_id
+       AND f.location_id = NEW.location_id
+       AND f.relative_path = NEW.relative_path
+       AND f.id <> NEW.id
+       AND f.vetted_at IS NULL;
+  END IF;
+  PERFORM set_config('wilson.bins_cascading', '', true);
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_bin_files_vet_cascade() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_bin_files_vet_cascade ON public.bin_files;
+CREATE TRIGGER trg_bin_files_vet_cascade
+  AFTER UPDATE OF vetted_at ON public.bin_files
+  FOR EACH ROW
+  WHEN (NEW.location_id IS NOT DISTINCT FROM OLD.location_id
+        AND NEW.relative_path IS NOT DISTINCT FROM OLD.relative_path
+        AND (NEW.vetted_at IS NULL) <> (OLD.vetted_at IS NULL))
+  EXECUTE FUNCTION public.fn_bin_files_vet_cascade();
+
+COMMENT ON FUNCTION public.fn_bin_files_vet_cascade() IS
+  '0104 (TPN-AUTH-012, build rounds 1 and 2): AFTER UPDATE OF vetted_at on bin_files, when the address is unchanged and the mark appears or goes — a client''s hand-set mark or withdrawal reaches every other row at the same project, location and byte-equal path (stamped if unchecked; cleared if checked), under the caller''s RLS; flag-guarded against re-entry; a non-client''s update does not cascade.';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger tg
+                  WHERE tg.tgrelid = 'public.bin_files'::regclass AND tg.tgname = 'trg_bin_files_vet_cascade'
+                    AND (tg.tgtype & 1) = 1 AND (tg.tgtype & 2) = 0 AND (tg.tgtype & 16) = 16 AND tg.tgqual IS NOT NULL) THEN
+    RAISE EXCEPTION '0104 post-condition failed: trg_bin_files_vet_cascade is not an AFTER UPDATE row trigger with a WHEN clause';
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION public.fn_bin_locations_vet()
 RETURNS TRIGGER
@@ -300,7 +366,7 @@ CREATE TRIGGER trg_bin_locations_vet
   FOR EACH ROW EXECUTE FUNCTION public.fn_bin_locations_vet();
 
 COMMENT ON FUNCTION public.fn_bin_files_vet() IS
-  '0104 (TPN-AUTH-012): BEFORE INSERT OR UPDATE on bin_files — decides vetted_at/vetted_by for a client''s write (a vetter''s insert or re-point is stamped; anyone else''s inherits a checked twin in the same project at the same location and byte-equal path, under the caller''s RLS, or has none; a hand-set mark is a vetter''s alone, 42501 otherwise). A non-client (postgres, the service role) keeps what it supplies.';
+  '0104 (TPN-AUTH-012): BEFORE INSERT OR UPDATE on bin_files — decides vetted_at/vetted_by for a client''s write (a vetter''s insert or re-point is stamped; anyone else''s inherits a checked twin in the same project at the same location and byte-equal path, under the caller''s RLS, or has none; a hand-set mark is a vetter''s alone, 42501 otherwise). Inside copy_bin_files or restore_bin_files (wilson.bins_mark = inherit) a vetter''s insert is treated like anyone''s. A non-client (postgres, the service role) keeps what it supplies. The cascade of a hand-set mark or withdrawal to the file''s other rows is trg_bin_files_vet_cascade (AFTER UPDATE).';
 COMMENT ON FUNCTION public.fn_bin_locations_vet() IS
   '0104 (TPN-AUTH-012): BEFORE INSERT OR UPDATE on bin_locations — the same rule for a location (stamped for a vetter''s insert or change of unc_path, cleared for anyone else''s; a hand-set mark is a vetter''s alone).';
 

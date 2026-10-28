@@ -38,7 +38,7 @@
 
 BEGIN;
 
-SELECT plan(57);
+SELECT plan(61);
 
 SELECT * FROM tests.rls_setup();
 
@@ -429,8 +429,9 @@ RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
 
 
--- ── 48-57: build round 1's corrections — a copy or an undo is no check; a
---          withdrawal is of the file (0104 §3, §3b) ────────────────────────
+-- ── 48-61: build rounds 1 and 2's corrections — a copy or an undo is no
+--          check; a check or a withdrawal by hand is of the file, cascaded
+--          AFTER the statement (0104 §3, §3b) ───────────────────────────────
 
 -- Both bodies set the mode (pinned: a restatement without the line would stamp again).
 SELECT ok(COALESCE((SELECT p.prosrc LIKE '%set_config(''wilson.bins_mark'', ''inherit'', true)%' FROM pg_proc p
@@ -499,7 +500,7 @@ SELECT ok((SELECT vetted_at IS NULL FROM public.bin_files WHERE id = '10700000-0
 UPDATE public.bin_files SET vetted_at = now() WHERE id = '10700000-0000-0000-0000-0000000000fc';
 SELECT is((SELECT count(*)::int FROM public.bin_files
             WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
-  1, 'a check given by hand is of that row (§3)');
+  2, 'a check given by hand is of the FILE: the copy, the same file, is checked with it (round 2, finding 3)');
 RESET ROLE;
 
 -- The reviewer's new row at the now-checked address inherits (§3): two rows carry the mark.
@@ -514,7 +515,7 @@ VALUES ('10700000-0000-0000-0000-0000000000fe', 'aaaa1111-0000-0000-0000-0000000
         'A001/F12.mov', 'F12 again', 'F12.mov', '.mov', 'video');
 SELECT is((SELECT count(*)::int FROM public.bin_files
             WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
-  2, 'a reviewer''s new row at a checked address inherits the mark (§3)');
+  3, 'a reviewer''s new row at a checked address inherits the mark (§3)');
 RESET ROLE;
 
 -- The manager withdraws the check on F12: every row at that file loses it.
@@ -527,6 +528,23 @@ UPDATE public.bin_files SET vetted_at = NULL WHERE id = '10700000-0000-0000-0000
 SELECT is((SELECT count(*)::int FROM public.bin_files
             WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
   0, '🚨 withdrawing the check on one row withdraws it from every row at that file (round 1, finding 2)');
+
+-- One statement withdrawing two rows at the same file: the cascade runs AFTER the statement, so no 27000.
+UPDATE public.bin_files SET vetted_at = now() WHERE id = '10700000-0000-0000-0000-0000000000fc';
+SELECT is((SELECT count(*)::int FROM public.bin_files
+            WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
+  3, 'the check given again by hand reaches every row at the file (round 2, finding 3)');
+SELECT lives_ok($$
+  UPDATE public.bin_files SET vetted_at = NULL
+   WHERE id IN ('10700000-0000-0000-0000-0000000000fc', '10700000-0000-0000-0000-0000000000fe')
+$$, 'one statement withdraws two rows at the same file (round 2, finding 1: the cascade is an AFTER trigger)');
+SELECT is((SELECT count(*)::int FROM public.bin_files
+            WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001' AND relative_path = 'A001/F12.mov' AND vetted_at IS NOT NULL),
+  0, 'and every row at the file is unchecked after it (round 2, finding 1)');
+SELECT ok(EXISTS (SELECT 1 FROM pg_trigger tg
+                   WHERE tg.tgrelid = 'public.bin_files'::regclass AND tg.tgname = 'trg_bin_files_vet_cascade'
+                     AND (tg.tgtype & 2) = 0 AND (tg.tgtype & 16) = 16 AND tg.tgqual IS NOT NULL),
+  'the cascade is an AFTER UPDATE row trigger with a WHEN clause (§3)');
 
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);

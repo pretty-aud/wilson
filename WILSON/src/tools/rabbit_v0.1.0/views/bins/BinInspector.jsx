@@ -513,7 +513,7 @@ function Preview({
     // GW3: the gateway's word per location (§2's fourth row), or a 404's
     // "missing at its location"; BC3's browser sentence where no gateway
     // backend answers; the desktop's two otherwise.
-    const sentence = row.not_checked && viaGateway ? gatewayClipSentence(location?.name, 'not_checked')
+    const sentence = (row.not_checked || row.location_not_checked) && viaGateway ? gatewayClipSentence(location?.name, row.not_checked ? 'not_checked' : 'location_not_checked')
       : row.gateway_missing ? gatewayMissingSentence(location?.name)
       : viaGateway ? gatewayClipSentence(location?.name, gatewayStateWord(location, gateway))
         : catalogue ? browserClipSentence(location?.name)

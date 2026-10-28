@@ -171,7 +171,7 @@ export default function SecretsSection({ isActive }) {
       return
     }
     const r = res.data || {}
-    setNotice(`${TITLES[which]}: ${r.resealed ?? 0} re-sealed under version ${r.to_version}, ${r.skipped ?? 0} already there, ${r.failed ?? 0} failed.`)
+    setNotice(`${TITLES[which]}: ${r.resealed ?? 0} re-sealed under version ${r.to_version}, ${r.skipped ?? 0} already there${r.unchanged ? `, ${r.unchanged} changed meanwhile and left` : ''}, ${r.failed ?? 0} failed.`)
     await reload()
   }
 

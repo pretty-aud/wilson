@@ -43,7 +43,7 @@ const rows = () => [
 ]
 const gw = (over = {}) => ({ id: 'g1', name: 'Studio NAS', inside_addresses: [{ host: '192.168.1.10', port: 8443 }], outside_address: null, reach: { [L1]: 'reachable', [L2]: 'not_mounted' }, last_seen_at: new Date(NOW - 4000).toISOString(), ...over })
 
-function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { t: NOW }, rowsNow = rows(), userId = null } = {}) {
+function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { t: NOW }, rowsNow = rows(), userId = null, locations = null } = {}) {
   const calls = { list: 0, tickets: [], renew: [], head: [] }
   const cloud = {
     listBins: vi.fn(async () => ({ bins: [], binFiles: rowsNow, binLocations: [{ id: L1, name: 'Footage' }, { id: L2, name: 'Archive' }] })),
@@ -70,6 +70,7 @@ function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { 
     },
     doors,
     rowOf: (id) => rowsNow.find((r) => r.id === id) || null,
+    locations: () => locations || [],
     onChange,
     now: () => clock.t,
     userId,
@@ -203,6 +204,19 @@ describe('online per row and the words per location (§5\'s last paragraph; D17)
     // A location both report as not reachable: the first reached gateway's word.
     expect(w.c.locationStatus([{ id: 'loc-9' }])[0].gateway).toBe('unknown_address')
     expect((await w.c.resolveBinFiles([{ id: 'x', location_id: L1, vetted_at: VETTED }])).get('x')).toEqual({ online: true })
+  })
+  it('P8 round 2 (TPN-AUTH-012): a checked clip at an UNCHECKED location is offline with its own reason while the reach report still names the location; an unknown location changes nothing', async () => {
+    const w = world({ gateways: [gw({ reach: { [L1]: 'reachable', [L2]: 'reachable' } })], locations: [{ id: L1, name: 'Footage', vetted_at: VETTED }, { id: L2, name: 'Archive', vetted_at: null }] })
+    await w.c.discover()
+    const marked = w.c.markOnline(rows())
+    expect(marked[0]).toMatchObject({ id: 'c1', online: true })
+    expect(marked[0].location_not_checked).toBeUndefined()
+    expect(marked[1]).toMatchObject({ id: 'c2', online: false, location_not_checked: true })
+    expect((await w.c.resolveBinFiles([{ id: 'c2', location_id: L2, vetted_at: VETTED }])).get('c2')).toEqual({ online: false, reason: 'location_not_checked' })
+    // A row the browser has no location row for (not loaded yet) is judged by the reach alone.
+    expect((await w.c.resolveBinFiles([{ id: 'x', location_id: 'loc-unknown', vetted_at: VETTED }])).get('x')).toEqual({ online: false, reason: 'unknown_address' })
+    await w.c.ensureTickets(['c1', 'c2'])
+    expect(w.calls.tickets.map((t) => t.ids)).toEqual([['c1']])
   })
   it('P8 (0104, TPN-AUTH-012): a row without the checked mark is offline with its own reason, flagged not_checked, and never asked for a ticket', async () => {
     const unchecked = () => rows().map((r) => (r.id === 'c1' ? { ...r, vetted_at: null } : r))

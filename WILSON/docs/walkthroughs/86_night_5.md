@@ -23,15 +23,19 @@ one you accepted (TPN-AI-009).
    not (unless the same file at the same location is already checked in that
    project, in which case it inherits the mark); re-pointing a clip clears
    it; the gateway confirms, sends and serves checked clips at checked
-   locations only. In the Bins tab an unchecked clip says *added by a
-   reviewer or member and not yet checked by an admin or manager*, and an
-   admin or manager has **Mark as checked** on the clip (in the inspector)
-   and on each location (in the locations list); the check can be withdrawn
-   the same way, and withdrawing it on one row withdraws it from every row
-   at that file. A copy, or an undo of a removal, is not a check: the new
-   row takes a checked twin's mark, or none. Every clip and location that existed before tonight starts
-   unchecked (dev: 2 clips and 2 locations), so on an environment with
-   footage in bins an admin or manager checks them once.
+   locations only. In the Bins tab an unchecked clip says *this clip has not
+   been checked by a workspace admin or manager yet*, and an admin or
+   manager has, in the clip's inspector, **Mark as checked** on the clip
+   (**Withdraw the check** once it is) and **Mark the location as checked**
+   beside its location while that is unchecked (a location's check, once
+   given, stays: withdrawing it is not in the UI tonight). A check given or
+   withdrawn by hand is of the file: every row at that file in the project
+   takes or loses it. A copy, or an undo of a removal, is not a check: the
+   new row takes a checked twin's mark, or none (so an undo of your own
+   checked clip comes back unchecked when no other row at that file is
+   checked; one click re-checks it). Every clip and location that existed
+   before tonight starts unchecked (dev: 2 clips and 2 locations), so on an
+   environment with footage in bins an admin or manager checks them once.
 
 2. **The bucket endpoint is vetted and reached at one address**
    (TPN-NET-016). The Storage section's **Test** and the storage sweep used to
@@ -113,9 +117,8 @@ one you accepted (TPN-AI-009).
 **Questions.**
 
 **Q1 — Where the check lives (item 1).** The mark that lets the gateway
-serve a clip is given today in two places: on a clip, in the Bins tab's
-inspector, and on a location, in the locations list; both only for an admin
-or manager. (a) **Keep it there (Recommended)**: the person who vouches for a
+serve a clip is given today in the Bins tab's inspector: on the clip, and on
+its location while that is unchecked; both only for an admin or manager. (a) **Keep it there (Recommended)**: the person who vouches for a
 path does so where they see the path. (b) Add a bulk control too: *Check
 every clip in this bin*, for a bin a reviewer filled from a known folder. (c)
 Somewhere else you name. The gateway's rule does not change with the answer.

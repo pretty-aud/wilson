@@ -128,19 +128,23 @@ Deno.serve(async (req: Request) => {
     // Round 1 (finding 3): paged — an un-ranged read stops at PostgREST's
     // max_rows (1000) even for the service role (teardownCollect.ts says the
     // same), and a row past the page would be orphaned when version 1 is unset.
+    // Round 2 (finding 4): the end is the exact count, not a short page, so a
+    // project with a lower max_rows is read whole too.
     const PAGE = 1000
     const rowsOf = async (d: Domain) => {
       const rows: Array<Record<string, unknown>> = []
+      let total: number | null = null
       for (let from = 0; ; from += PAGE) {
-        const { data, error } = await ctx.admin
+        const { data, error, count } = await ctx.admin
           .from(d.table)
-          .select(`workspace_id, ${d.column}`)
+          .select(`workspace_id, ${d.column}, key_version, updated_at`, { count: 'exact' })
           .order('workspace_id')
           .range(from, from + PAGE - 1)
         if (error) return { rows, error: error.message as string }
+        if (total === null) total = typeof count === 'number' ? count : 0
         const page = (data ?? []) as Array<Record<string, unknown>>
         rows.push(...page)
-        if (page.length < PAGE) break
+        if (page.length === 0 || rows.length >= total) break
       }
       return { rows, error: null as string | null }
     }
@@ -175,6 +179,7 @@ Deno.serve(async (req: Request) => {
     if (readErr) return reply({ error: 'read_failed', detail: readErr }, 500)
     let resealed = 0
     let skipped = 0
+    let unchanged = 0 // changed by someone else since it was read: left alone (round 2, note 8)
     let failed = 0
     const fromVersions: Record<string, number> = {}
     for (const r of rows) {
@@ -184,16 +189,19 @@ Deno.serve(async (req: Request) => {
       try {
         const plain = await d.decrypt(envelope)
         const sealed = await d.encrypt(plain)
-        // Round 1 (note 11): only the envelope that was read is replaced — a
-        // fresh key an operator set meanwhile is left alone, counted as skipped.
+        // Round 1 (note 11): only the row as it was read is replaced — a fresh
+        // key an operator set meanwhile is left alone, counted apart. Round 2
+        // (finding 5): the guard is the row's version and stamp, so no
+        // ciphertext travels in a query string (an API gateway's request log).
         const { data: upd, error: upErr } = await ctx.admin
           .from(d.table)
           .update({ [d.column]: sealed, key_version: current, updated_at: new Date().toISOString(), updated_by: ctx.callerId })
           .eq('workspace_id', r.workspace_id)
-          .eq(d.column, envelope)
+          .eq('key_version', r.key_version as number)
+          .eq('updated_at', r.updated_at as string)
           .select('workspace_id')
         if (upErr) { failed++; continue }
-        if (!upd || upd.length === 0) { skipped++; continue }
+        if (!upd || upd.length === 0) { unchanged++; continue }
         resealed++
         fromVersions[String(version)] = (fromVersions[String(version)] ?? 0) + 1
       } catch {
@@ -205,11 +213,11 @@ Deno.serve(async (req: Request) => {
       action: 'secret.resealed',
       code: 'WIL-7013',
       severity: failed ? 'warning' : 'info',
-      message: `Re-sealed ${resealed} of ${rows.length} ${d.label} under ${secretNameFor(d.base, current)} (${skipped} already there, ${failed} failed)`,
+      message: `Re-sealed ${resealed} of ${rows.length} ${d.label} under ${secretNameFor(d.base, current)} (${skipped} already there, ${unchanged} changed meanwhile and left, ${failed} failed)`,
       // Counts and names only — never a value, never a ciphertext.
-      context: { secret: which, to_version: current, from_versions: fromVersions, resealed, skipped, failed },
+      context: { secret: which, to_version: current, from_versions: fromVersions, resealed, skipped, unchanged, failed },
     })
-    return reply({ secret: which, to_version: current, resealed, skipped, failed, from_versions: fromVersions, rows: rows.length })
+    return reply({ secret: which, to_version: current, resealed, skipped, unchanged, failed, from_versions: fromVersions, rows: rows.length })
   }
 
   const workspaceId = typeof body.workspace_id === 'string' ? body.workspace_id : ''

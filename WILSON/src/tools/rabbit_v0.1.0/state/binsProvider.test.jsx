@@ -95,7 +95,8 @@ function makeAdapter() {
     project: { id: 'p1', title: 'Salt Hours', workspace_id: 'w1' },
     scenes: [{ id: 'sc1', project_id: 'p1', name: 'One', scene_number: 1 }],
     shots: [{ id: 'sh1', project_id: 'p1', scene_id: 'sc1', name: '1A', shot_number: 10 }],
-    locations: [{ id: 'L1', workspace_id: 'w1', name: 'Footage NAS', unc_path: '\\\\nas\\footage' }],
+    // P8 (0104): the gateway is told checked locations only, and the browser reads the mark too.
+    locations: [{ id: 'L1', workspace_id: 'w1', name: 'Footage NAS', unc_path: '\\\\nas\\footage', vetted_at: '2026-10-07T00:00:00Z' }],
     bins: [
       { id: 'b1', project_id: 'p1', workspace_id: 'w1', name: 'Footage', kind: 'footage', parent_bin_id: null, sort_order: 0 },
       { id: 'b2', project_id: 'p1', workspace_id: 'w1', name: 'Day 1', kind: 'footage', parent_bin_id: 'b1', sort_order: 0 },
@@ -439,7 +440,7 @@ describe('GW3 — a browser through the file gateway, through the real provider'
   })
 
   it('a project reload with the gateway reached marks a teammate\'s NEW clips at once by the gateway\'s reach, never "not on this computer" for all until the next re-read', async () => {
-    holder.adapter.db.locations.push({ id: 'L2', workspace_id: 'w1', name: 'Archive', unc_path: '\\\\nas\\archive' })
+    holder.adapter.db.locations.push({ id: 'L2', workspace_id: 'w1', name: 'Archive', unc_path: '\\\\nas\\archive', vetted_at: '2026-10-07T00:00:00Z' })
     holder.gateways = [{ ...gatewayRow(), reach: { L1: 'reachable', L2: 'not_mounted' } }]
     await reached()
     const base = { project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', sort_order: 9, review_flag: 'unflagged', vetted_at: '2026-10-07T00:00:00Z' } // P8: checked rows
