@@ -408,23 +408,36 @@ export function takesToLand(shotTakes, landedShots, landedClips, cloudTakes = []
  * `memberRates`, `assetTemplates`, `commentsElsewhere`, `invoicePaths`).
  */
 export const NOT_CARRIED = Object.freeze([
-  // A later run of the migration carries these (night 5).
-  ['teamAssignments', 'team assignments', null, true], ['projectTeam', 'project team members', null, true],
-  // M2: a budget line priced for one of this computer's team members goes up
-  // without the person, and a rate set for one stays here (the cloud knows
-  // people by their accounts: 0037's comment on team_member_id).
-  ['lineTeamMembers', 'team members named on budget lines', 'team member named on a budget line', true],
-  ['memberRates', "team members' project rates", "team member's project rate", true],
-  // M2: the task template an asset was made from (the company's templates
-  // stay on this computer for now; 23503 assets_task_template_id_fkey —
-  // measured — refused the whole asset).
-  ['assetTemplates', "assets' task templates", "asset's task template", true],
-  ['assetVersions', 'asset versions', null, true],
-  // The desktop's own file store (Local Server only, FileManager): a file
-  // kept with an asset, scene, shot, level or experience in its folder on
-  // this computer; each live record counted (a removed one is marked).
-  ['managedFiles', 'files kept with assets, scenes, shots, levels and experiences on this computer', 'file kept with an asset, scene, shot, level or experience on this computer', true],
-  // No migration carries these.
+  // M3 (night 5): a later run carries these — once the person has a WILSON
+  // account (Audrey's ruling of 2026-10-28: a desktop team member is matched
+  // to a company account by email; the others stay here, named, and their
+  // rows arrive without the person until they join), or once the template
+  // is in the cloud. Counted by the runner (the people map says who), not
+  // from a bundle array.
+  ['teamAssignments', 'team assignments of people without a WILSON account', 'team assignment of a person without a WILSON account', true],
+  ['lineTeamMembers', 'budget lines priced for a team member without a WILSON account', 'budget line priced for a team member without a WILSON account', true],
+  ['memberRates', 'project rates of team members without a WILSON account', 'project rate of a team member without a WILSON account', true],
+  ['entryPeople', 'rate card entries of team members without a WILSON account', 'rate card entry of a team member without a WILSON account', true],
+  ['taskPeople', 'tasks assigned to or reviewed by a team member without a WILSON account', 'task assigned to or reviewed by a team member without a WILSON account', true],
+  ['projectPeople', 'producers and directors without a WILSON account', 'producer or director without a WILSON account', true],
+  ['assetTemplates', "assets' task templates not in the cloud", "asset's task template not in the cloud", true],
+  // No migration carries these (M3: said as that, each with its reason).
+  // The project team is a derived copy (BudgetView's effect mirrors team
+  // members ∩ assignments to team.json): the cloud derives it from the roster.
+  ['projectTeam', 'project team mirrors (derived in the cloud from the roster)', 'project team mirror (derived in the cloud from the roster)'],
+  // The desktop has a route and a bundle key for asset versions and no writer
+  // (upsertAssetVersion is defined by four adapters and called by nothing);
+  // counted only when a bundle holds any, which the dry run measures.
+  ['assetVersions', 'asset versions (no desktop writes one)', 'asset version (no desktop writes one)'],
+  ['deptDefaults', "rate cards' department defaults (no cloud home)", "rate card's department default (no cloud home)"],
+  ['assignmentDates', "team assignments' start and end dates (no cloud columns)", "team assignment's start and end dates (no cloud columns)"],
+  // A managed row's version, label and stored name have no files columns: the
+  // cloud keeps the file under its own name (a second version is a second row,
+  // its label ahead of the notes).
+  ['managedVersions', 'version labels of files kept with assets, scenes, shots, levels and experiences (the cloud keeps the file, not its number)', 'version label of a file kept with an asset, scene, shot, level or experience (the cloud keeps the file, not its number)'],
+  // Her ruling of 2026-10-28: a company on its own server stays on it for 1.0.
+  ['managedFilesServer', "files kept with assets, scenes, shots, levels and experiences on the company's own server (the browser says where they are)", "file kept with an asset, scene, shot, level or experience on the company's own server (the browser says where it is)"],
+  ['managedFilesPrivate', 'files of a private project kept with assets, scenes, shots, levels and experiences (its media lives on the computer that added it)', 'file of a private project kept with an asset, scene, shot, level or experience (its media lives on the computer that added it)'],
   // Not a collection: a picture of a scene, shot, level or experience is a
   // file on this computer (no path to it is sent).
   ['thumbnails', 'scene, shot, level and experience pictures', 'scene, shot, level or experience picture'],
@@ -457,16 +470,18 @@ export function notCarriedLater(key) {
 const PICTURED = ['scenes', 'shots', 'levels', 'experiences']
 
 /** What a bundle holds that the migration leaves on this computer: `[{ key, label, count }]`, only the non-empty. */
+// The kinds a bundle's own arrays count (the rest the runner counts as it
+// goes: the people map says whose rows are left, the stores say the rest).
+const BUNDLE_COUNTED = new Set(['thumbnails', 'deckAttachments', 'projectTeam', 'assetVersions'])
 export function notCarriedOf(bundle) {
   const out = []
   for (const [key] of NOT_CARRIED) {
+    if (!BUNDLE_COUNTED.has(key)) continue
     const n = key === 'thumbnails'
       ? PICTURED.flatMap(k => (Array.isArray(bundle?.[k]) ? bundle[k] : [])).filter(r => r?.thumbnail_image).length
-      : key === 'managedFiles'
-        ? (bundle?.managedFiles ?? []).filter(f => f && !f.deleted_at).length
-        : key === 'deckAttachments'
-          ? ['documents', 'visualAssets'].reduce((s, k) => s + (Array.isArray(bundle?.project?.[k]) ? bundle.project[k].length : 0), 0)
-          : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
+      : key === 'deckAttachments'
+        ? ['documents', 'visualAssets'].reduce((s, k) => s + (Array.isArray(bundle?.project?.[k]) ? bundle.project[k].length : 0), 0)
+        : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
     if (n) out.push({ key, label: notCarriedLabel(key, n), count: n })
   }
   return out

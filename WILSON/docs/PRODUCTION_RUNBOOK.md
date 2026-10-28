@@ -365,13 +365,17 @@ Staging and dev need the same three steps; [OWED] §14 and [BC] §5 record them 
 **wilson-staging**, at `https://beta.petalstudios.co/wilson`; the same deployment serves the operator console at
 `/wilsonadmin` on `beta.` and on `https://admin.petalstudios.co` ([OWED] §11C, §12). **No document describes a web deployment
 against wilson-prod**, and production needs one for more than the app: the operator console is web-only (`vite.config.js` keeps it
-out of the installer), and invite and recovery links need a web address ([HB] §9). Where it lives is her question (walkthrough 85,
-Q3). Whichever she picks, it is built by `vercel.json`'s `npm run build:vercel && npm run build:vercel:admin` (both surfaces), and
-needs, per [WD]: the build-time `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` of production (the anon key is publishable; RLS
-is the boundary), `WILSON_SITE_URL` on production's Edge Functions ((d)), and production's Authentication → URL Configuration naming
-the host. Proof: the deployed bundle carries `rqyriuyldhovirbuievt` and neither `rzkirvkotslbovzbsdfh` nor `eqjzmnvkrakroyqxfsvw`
-(fetch `<host>/wilson/`, then the `index-*.js` it names, and search it), and both `/wilson` and `/wilsonadmin` answer with their
-sign-in.
+out of the installer), and invite and recovery links need a web address ([HB] §9). **She ruled where it lives on 2026-10-28**
+(walkthrough 85 Q3, in chat, multiple choice, verbatim: *"(a) A second website"*): a second Vercel project, built against
+**wilson-prod** at an address of its own, the beta staying on **wilson-staging** as her test bench. The address is chosen with her
+at (g) 12 and added as [OWED] §11C added `admin.`: the domain on the project in Vercel, then at Squarespace the CNAME Vercel shows.
+`admin.` itself is on the beta's project, so it serves staging's console (every domain on a project serves its one deployment,
+§11C); whether it moves to the new project is settled with her at (g) 12 too. The new project is built by `vercel.json`'s
+`npm run build:vercel && npm run build:vercel:admin` (both surfaces), and needs, per [WD]: the build-time `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` of production (the anon key is publishable; RLS is the boundary), `WILSON_SITE_URL` on production's Edge
+Functions ((d)), and production's Authentication → URL Configuration naming the host. Proof: the deployed bundle carries
+`rqyriuyldhovirbuievt` and neither `rzkirvkotslbovzbsdfh` nor `eqjzmnvkrakroyqxfsvw` (fetch `<host>/wilson/`, then the `index-*.js`
+it names, and search it), and both `/wilson` and `/wilsonadmin` answer with their sign-in.
 
 **The desktop.** Only `npm run dist` ships (electron-builder, NSIS, `package.json` `build`, written to **`release\`**);
 `forge.config.cjs` makes no updatable artefact ([HB] §11). The renderer's Supabase settings are compiled in by Vite at build time,
@@ -418,7 +422,7 @@ has put the five `gateway-*` functions there.
 | 9 | Controller | (a) a1–a11 | every read in the hand-off |
 | 10 | Controller | (b): the chain rehearsal, every file, then the suites | (b)'s proofs |
 | 11 | Controller | (c), the rollback copies first; (d)'s settings | (c)'s source comparison; (d)'s digests |
-| 12 | Controller, with her | (f) the web: production's web app and console per Q3, the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–3 (built; not yet installed or published) | (f)'s proofs |
+| 12 | Controller, with her | (f) the web: production's web app and console per Q3's (a), a second Vercel project (its address, and whether `admin.` moves to it, chosen with her), the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–3 (built; not yet installed or published) | (f)'s proofs |
 | 13 | Controller, with her | The first operator, if a6 read no company of hers, as Q4 decides: by Q4(a), the five steps under this table; then (f) the desktop, step 4 | she signs in to production's `/wilsonadmin` and sees **Companies**; the installed desktop signs in to her company |
 | 14 | Audrey | (e) on production | (e)'s probe, rows from `gotrue_hook` |
 | 15 | Audrey | The invite and recovery templates uploaded to production (`supabase/templates/invite.html`, `recovery.html`; Authentication → Email Templates) and SMTP confirmed as Resend ([OWED] §12; S18) | an invite sent to an address with no production account (not the one (g) 13 used, which answers *That email is already associated with a WILSON account.*) stays unspent for minutes, then opens *Welcome to WILSON* with **Continue** first (`docs/RELEASE_TESTING.md` §B) |

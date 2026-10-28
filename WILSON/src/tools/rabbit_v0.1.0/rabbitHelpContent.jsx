@@ -674,12 +674,19 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <p className={T.listItem}>
               A desktop project moves with its key dates, comments, shot lists
               and edits, its folders, its levels and experiences, the links on
-              its tasks, its budget, and its bins, logging, marks and takes:
-              App settings, Storage, Migrate to cloud. A budget moves only for
-              a workspace admin or the project&apos;s manager, who alone see it
-              in the cloud; anyone else&apos;s run leaves it on this computer
-              and says so. The team moves in a later run of the migration; the
-              report names it until then. Dry-run lists what will
+              its tasks, its budget, its roster, the files kept with its assets,
+              scenes, shots, levels and experiences, and its bins, logging,
+              marks and takes; the company&apos;s rate cards and task templates
+              go once: App settings, Storage, Migrate to cloud. A budget moves
+              only for a workspace admin or the project&apos;s manager, who
+              alone see it in the cloud; anyone else&apos;s run leaves it on
+              this computer and says so. Your desktop team is matched to
+              company accounts by email, which only a workspace admin or
+              manager may read; anyone without an account is named in the
+              report, and their seats, crew lines, rates and tasks arrive
+              without the person until they join (no email is sent). A company
+              that keeps its media on its own server keeps the files kept with
+              its rows there; the browser says where they are. Dry-run lists what will
               move and asks, once for each folder the clips were added from,
               {' '}{LOCATION_QUESTION_WORDS} An existing location of the company
               is matched by its network address; a new one is named now. A
@@ -695,14 +702,16 @@ export function RabbitHelpContent({ helpPage, theme }) {
               back nothing a teammate removed there since, for good or into
               the trash: the project on this computer keeps a record of every
               row a run carried, and the report names each one removed.
-              What a later run carries — the team, an asset&apos;s versions,
-              the files kept with an asset, scene, shot, level or experience
-              on this computer — and what no migration carries — deck
-              attachments not yet moved into project files, comments on rows
-              the cloud cannot hang a comment on, invoices attached by a path
-              on this computer, and the pictures of scenes, shots, levels and
-              experiences — stay on this computer, and the report lists them
-              before the archive is offered. A take of a shot or clip removed on this
+              What stays — the rows of a team member without a WILSON
+              account until they join, a rate card&apos;s department defaults,
+              an assignment&apos;s dates, a file&apos;s version label — and what
+              no migration carries — deck attachments not yet moved into
+              project files, comments on rows the cloud cannot hang a comment
+              on, invoices attached by a path on this computer, and the
+              pictures of scenes, shots, levels and experiences — stay on this
+              computer, and the report lists them before the archive is
+              offered; Archive and clear local keeps the team, the rate cards
+              and the templates in the archive file with the projects. A take of a shot or clip removed on this
               computer (kept there for undo) is not carried, and not an error.
               A shot whose primary take stayed behind waits for it: nothing is
               promoted in its place, and it lands as the primary once its
