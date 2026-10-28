@@ -86,7 +86,7 @@ sections themselves are pinned by tests, not photographed). In the folder
   purged*) sits under it. Recorded in `docs/OUTSTANDING.md`, not changed.
   (a) Reword it for the company library as the course delete already is,
   in 1.1 (Recommended). (b) Before 1.0.
-- **Q3. Size.** The app's main file grew by 35 KB (35,123 bytes: the share
+- **Q3. Size.** The app's main file grew by 36 KB (35,731 bytes: the share
   dialog, the reminder, the two Requests sections, the linked subject and
   the sentences the design names), over the night's 20 KB guide. (a) Accept it: it is one
   whole feature (Recommended). (b) Load the two dialogs only when first
