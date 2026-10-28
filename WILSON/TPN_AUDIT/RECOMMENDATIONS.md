@@ -832,7 +832,7 @@ regeneration breaks `npm ci` (recorded in MASTER_PLAN §8).
 
 ## RECO-NET-BASTION — Remote access to content through a bastion or a VPN, and a disclosed exception where it is not
 
-**Applies to:** TPN-NET-012 (RESOLVED 2026-10-12; added 2026-10-28 so its reference resolves).
+**Applies to:** TPN-NET-012 (INFO since 2026-10-28; added then so its reference resolves).
 
 ### What TPN requires
 TS-2: remote access by bastion host or VPN only (AES-256, no split tunnelling); default-deny at every boundary.

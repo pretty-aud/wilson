@@ -16,7 +16,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 
 0.6.3 was a single-user Electron app: one shared password checked against a hardcoded string, every user's data on their own disk, and an Anthropic API key sitting in `localStorage` on every client.
 
-1.0.0 is a multi-tenant platform. A company is a **workspace**, and **Postgres Row-Level Security is the security boundary**, not the client and not the Edge Functions. Sign-in is company-first, two-factor is required for admins' privileged actions and for the operator console, and the Anthropic key never reaches a client. The whole product runs on the web as well as the desktop, after a UI overhaul that gave every page one kit and one type scale. Behind the three tools sit a budget with living bid versions, shot lists and edits, footage bins with a file gateway that plays office footage in a browser, a company's own storage (its NAS or an S3-compatible bucket), custom table views, and an O.T.T.E.R. that shares one subject live with a colleague.
+1.0.0 is a multi-tenant platform. A company is a **workspace**, and **Postgres Row-Level Security is the security boundary**, not the client and not the Edge Functions. Sign-in is company-first; two-factor is challenged at sign-in once enrolled, required for the operator console, and a step-up on admin functions for an admin who has enrolled (enrolment itself is not yet required); and the Anthropic key never reaches a client. The whole product runs on the web as well as the desktop, after a UI overhaul that gave every page one kit and one type scale. Behind the three tools sit a budget with living bid versions, shot lists and edits, footage bins with a file gateway that plays office footage in a browser, a company's own storage (its NAS or an S3-compatible bucket), custom table views, and an O.T.T.E.R. that shares one subject live with a colleague.
 
 **The build, measured at `51e5a0d7`:** the app `1.0.0` (`package.json`); D.O.G. 0.514, O.T.T.E.R. 0.3.1 and R.A.B.B.I.T. 0.1.0 (their folders under `src/tools/`); the file gateway 0.1.0 (`gateway/package.json`). The database: **97 migration files, 0000 to 0101** (no file for 0065, 0079, 0080, 0087 or 0094). **22 Edge Functions** (`supabase/functions/`, `_shared` aside). **99 pgTAP suites** (`supabase/tests/rls/`). Vitest: 417 files, 10,404 passing (DG4's tip).
 
@@ -28,13 +28,13 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 
 - **Workspaces.** A workspace is a company; membership is a `workspace_members` row with a per-workspace username, an app role and rate-card grants; a person can belong to several and switch. (S1–S15; `docs/SYSTEMS_HANDBOOK.md` §4)
 - **Four tiers:** `user` → `manager` → `admin` → **platform operator**, and **project roles** in R.A.B.B.I.T. (`manager`, `reviewer`, `member`). (S9–S15; handbook §4.4)
-- **RLS on every tenant table**, reads trusting the token's claim and anything that acts re-checking a live row, pinned by pgTAP in CI. (handbook §4.4; `.github/workflows/rls.yml`)
+- **RLS on every tenant table**, reads trusting the token's claim and writes checking a live membership row and the token's role, pinned by pgTAP in CI. (handbook §4.4; `.github/workflows/rls.yml`)
 - **Private projects:** seen by their creator and the admins, their media kept on the creator's computer. (0072, `4c103875`; 0082, 0083)
 
 **Accounts, sign-in and sessions**
 
 - **Company-first sign-in.** The company is checked first and only its people sign in; the same username can live in two companies; the company is remembered on the device and `?company=` fills it. (S43 `bec91852`, `158172ce`; Track B B1 `397afef3`)
-- **Two-factor (TOTP)** in App settings → Profile, a challenge once a factor is verified, required for the operator console and as a step-up on admin actions. (S9–S17; handbook §4.2)
+- **Two-factor (TOTP)** in App settings → Profile, a challenge once a factor is verified, required for the operator console, and a step-up on admin functions for an admin who has enrolled; enrolment stays optional (`WILSON_REQUIRE_ADMIN_MFA` is off by default, TPN-AUTH-002). (S9–S17; handbook §4.2, §4.6)
 - **Show-once credentials** at creation and at an admin's reset; **invite, forgot-password and reset** flows mailed through Resend, with links a mail scanner cannot spend. (S9; S18 `28dec647`)
 - **A setup link** the operator can email a new company's first admin. (S43b `186fa636`, 0066; Track A A1 `5dcff986`)
 - **Sign-ins in the logs, and session limits.** Sign-in, two-factor, sign-out, idle and cap rows in Admin terminal → Logs → **Sign-ins** and in the console's **Sign-ins**; a warning at 25 idle minutes, a sign-out at 30, a cap at 4 hours, each saying why. (Track B B2: 0070 `cd8dfb8d`, 0071, `aafc488a`)
@@ -120,7 +120,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 - **The desktop's local server takes a per-launch token**, narrowed CORS and one running copy. (Track B B3; TPN-NET-001)
 - **Storage configuration is admin-only and contained:** the storage root, a project's folder inside it, and the paths a request may name. (S33–S35, 0048, 0049; TPN-AUTH-011, TPN-NET-013, TPN-NET-015, TPN-CLOUD-007)
 - **Thumbnails are private and money-gated**, and follow their source's storage. (S39 0053; S44 0054; TPN-CLOUD-008)
-- **Company bucket secrets** are AES-256-GCM ciphertext in a table no client reaches, under their own key. (S37 0051; `docs/OWED_AUDREY.md` §9 C2)
+- **Company bucket secrets** are AES-256-GCM ciphertext in a table no client reaches, under a key apart from the AI keys' (it also seals Google Drive tokens, and is the same on all three environments: TPN-ENC-015). (S37 0051; `docs/OWED_AUDREY.md` §9 C2)
 - **Uploads that never complete are certified**, at once, hourly and at teardown; receipts are money. (Track C 0073, 0074, 0076; TPN-CONT-017)
 - **A manager approving their own nomination is allowed and audited** (WIL-4108). (0069 `93c199e6`)
 - **The file gateway was attacked before release** and its findings fixed (a per-peer connection cap; `CF-Connecting-IP` honoured only behind a declared proxy). (GW5, `docs/sessions/handoffs/po-gw5-2026-10-12.md`)
@@ -133,7 +133,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 
 The defects that people testing the beta met; defects inside new work are described by the features above.
 
-- **Invites** spent by mail scanners before anyone clicked; two-factor sign-in deadlocking; `/wilsonadmin/` with a trailing slash. (S18 `28dec647`; 2026-07-31 `920a2f73`, `8222ea19`, `432687a0`)
+- **Invites** spent by mail scanners before anyone clicked; two-factor sign-in deadlocking; `/wilsonadmin/` with a trailing slash. (S18 `28dec647`; 2026-07-31 `920a2f73`, `8222ea19`, `a776907a`)
 - **AI features failing on a retired model id**, and the Validator's continuation. (S19; `dab90463`)
 - **Nothing could be created in cloud mode**; rate cards could not be created. (S23 `2727328`; S21, 0032)
 - **Budget** percentages not saving, four budget tabs never rendering, Client View printing "Project". (S24; S25)
@@ -162,7 +162,7 @@ The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; f
 
 **Security**
 
-- **The TPN re-audit of 2026-10-28 reports 4 High open** in the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/SUMMARY.md`, *Release gate*): TPN-AUTH-012, TPN-NET-016, TPN-CONT-018, TPN-ENC-013. The plan holds production for them until they are fixed or she rules on each.
+- **The TPN re-audit of 2026-10-28 reports 12 High open** in the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/SUMMARY.md`, *Release gate*): eight of the areas' own (TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013, TPN-DOC-004, TPN-AI-009) and four instances of open classes (TPN-AUTH-013, TPN-LOG-012, TPN-CONT-019, TPN-SDLC-013). The plan holds production for them until they are fixed or she rules on each.
 - **The `smoke_admin` password is in public git history** until it is rotated. (TPN-SDLC-007; `docs/OWED_AUDREY.md` §0)
 - **Staging's legacy `service_role` key was exposed** and is owed a roll. (`docs/OUTSTANDING.md`, S19)
 - **A private project's rows reach every member's workspace channel**, and the `tasks` and `assets` write policies lack the project hop. (OUTSTANDING A-R1-04, A-R2-03)
@@ -179,7 +179,7 @@ The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; f
 - **A company's own bucket or NAS has no browser previews** (night 4's P1 for S3); professional codecs need ffmpeg. (handbook §12.7b; OUTSTANDING)
 - **The pet does not sync live between machines** (1.1); an O.T.T.E.R. lesson imported in the cloud saves nothing. (`docs/sessions/PLAN_TO_1_0.md` §2; OUTSTANDING)
 - **The Summary's Budget tile is zero; the Agent skills checkboxes gate nothing; R.A.B.B.I.T.'s agent is unreachable; Google Drive is read-only.** (handbook §17)
-- **The workspace takeout leaves out every table added since the money tables.** (OUTSTANDING, R2 2026-10-28)
+- **The workspace takeout holds 23 tables, and none of the scenes, shots, levels, experiences, key dates, budgets, expenses, folders, task templates, shot lists, edits or bins.** (OUTSTANDING R2-01)
 - **About 160 accessibility and polish entries** wait for 1.1. (`docs/sessions/PLAN_TO_1_0.md` §2)
 
 ---
@@ -190,7 +190,7 @@ Production is brought up by `docs/PRODUCTION_RUNBOOK.md`, in its order: the read
 
 - **Before the tag,** `docs/sessions/PLAN_TO_1_0.md` §0's four conditions: the features merged and on the beta, the nine defects closed, her testing (`docs/RELEASE_TESTING.md` and the walkthroughs), and the release steps, hers in the browser and the controller's on production after the TPN re-audit reports nothing High.
 - **Hers, in the browser** (plan §6): rotate `smoke_admin`; roll staging's legacy `service_role` key; the two Auth hooks on staging; PR #4's title and body; the gateway's GitHub setup and the installer rehearsal; the AI-files sweep before 2026-11-09.
-- **Secrets are Edge Function secrets,** not GitHub's or Vercel's. `WILSON_AI_KEY_SECRET` and `WILSON_STORAGE_KEY_SECRET` must be identical on every environment, or stored company keys and bucket secrets cannot be opened; `WILSON_GATEWAY_KEY_SECRET` is set per environment (dev and staging have one, production not yet). (`docs/OWED_AUDREY.md` §5, §9; `docs/sessions/handoffs/po-gw1-2026-10-10.md` §2)
+- **Secrets are Edge Function secrets,** not GitHub's or Vercel's. `WILSON_AI_KEY_SECRET` and `WILSON_STORAGE_KEY_SECRET` are identical on every environment today, so that a key stored on one opens on the others; that sameness is TPN-ENC-015, and production can take fresh values while it holds no stored key; `WILSON_GATEWAY_KEY_SECRET` is set per environment (dev and staging have one, production not yet). (`docs/OWED_AUDREY.md` §5, §9; `docs/sessions/handoffs/po-gw1-2026-10-10.md` §2)
 - **The desktop installer** is built with `npm run dist` only, from a checkout whose build-time Supabase settings name production; the renderer's are compiled in. (`docs/PRODUCTION_RUNBOOK.md` (f); TPN-SDLC-008)
 - **The web app** is the Vercel project whose production branch is `feat/multi-user-v1`, on staging; where 1.0.0's production web app lives is her decision. (`docs/WEB_DEPLOY.md`)
 - **There is no migration path from 0.6.x data** other than the in-app tools: App settings → Storage holds the R.A.B.B.I.T., O.T.T.E.R. and deck-attachment migrations. Run them dry first; *Archive and clear local* is never automatic.

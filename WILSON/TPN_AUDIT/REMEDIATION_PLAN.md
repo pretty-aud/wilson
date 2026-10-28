@@ -3,7 +3,7 @@
 - **Project:** WILSON (Petal Studios)
 - **Repo path:** `C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON`
 - **Generated:** 2026-04-15; **revised at the 2026-07-30 re-audit**
-- **Total findings to address:** 114 on 2026-10-28 (92 at the 2026-07-30 re-audit, Track B's TPN-AUTH-009, and the scoped re-audit's ten opened and eleven merged; 14 are RESOLVED)
+- **Total findings to address:** 123 on 2026-10-28 (92 at the 2026-07-30 re-audit, Track B's TPN-AUTH-009, and the scoped re-audit's nineteen opened and eleven merged; 13 are RESOLVED)
 - **Total phases:** 9 (Phase 0 added by the 2026-07-30 re-audit, Phase 8 by the 2026-10-28 scoped re-audit, plus a parallel CVE-triage track)
 - **Non-negotiable rule for the implementation skill:** Preserve public IPC shapes, REST surface, on-disk JSON shapes, IndexedDB `wilson-db` schema, and exported markdown formats unless a finding explicitly requires a change. Any interface change must be flagged and approved by the user before execution.
 
@@ -17,7 +17,7 @@ Phase 5 (Content)  ◄───────────────────�
 Phase 6 (AI/ML)    ─► parallel after Phase 2 (needs safeStorage + structured logger)
 Phase 7 (Docs)     ─► parallel after Phase 1 (policy docs trail the code)
 Phase X (3P / CVE) ─► continuous, kicked off with Phase 1's CI bootstrap
-Phase 8 (the four areas, 2026-10-28) ─► independent of 1–7; its four HIGHs are the 1.0 release gate
+Phase 8 (the four areas, 2026-10-28) ─► independent of 1–7; its twelve HIGHs are the 1.0 release gate
 ```
 
 ---
@@ -430,37 +430,52 @@ self-attestation on TPN+ and schedule a Silver third-party assessment.
 
 ## Phase 8 — The four areas: the file gateway, bins, own storage, the AI file store (scoped re-audit, 2026-10-28)
 
-**Why this phase exists, and why here.** The scoped re-audit of 2026-10-28 found four HIGHs in code built after the 2026-07-30
-re-audit, and `docs/sessions/PLAN_TO_1_0.md` §0 item 4 holds the production steps until the four areas report nothing High. Each fix
-sits in one module, needs nothing from Phases 1 to 7, and keeps every public interface, so the phase can run on its own and first.
+**Why this phase exists, and why here.** The scoped re-audit of 2026-10-28 found twelve HIGHs in code built after the 2026-07-30
+re-audit, and `docs/sessions/PLAN_TO_1_0.md` §0 item 4 holds the production steps until the four areas report nothing High or Audrey
+has ruled on each. Each fix sits in one module, needs nothing from Phases 1 to 7, and keeps every public interface, so the phase can
+run on its own and first. TPN-AI-009 is closed by the release's own steps (`docs/PRODUCTION_RUNBOOK.md` (c) and (g) 17), not here.
 
 **Findings addressed:**
-- The release gate: TPN-AUTH-012, TPN-NET-016, TPN-CONT-018, TPN-ENC-013
-- Then: TPN-AUTH-010, TPN-ENC-014, TPN-CONT-016, TPN-AI-008, TPN-AI-009, TPN-AI-010, TPN-DOC-004, TPN-SDLC-012
+- The release gate: TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013, TPN-DOC-004, TPN-AUTH-013,
+  TPN-LOG-012, TPN-CONT-019, TPN-SDLC-013 (and TPN-AI-009, by the runbook)
+- Then: TPN-ENC-016, TPN-AUTH-010, TPN-CONT-016, TPN-CONT-020, TPN-AI-008, TPN-AI-010, TPN-DOC-005, TPN-SDLC-012
 
 **Entry criteria:**
-- Audrey's ruling, per HIGH: fix before 1.0, or accept for 1.0 with the reason recorded in `FINDINGS.md`.
-- A wilson-dev session that may apply a migration and deploy functions there (the house method,
-  `docs/sessions/handoffs/po-b1-2026-10-27.md` §4).
+- Audrey's ruling, per HIGH: fixed before 1.0, or accepted for 1.0 with the reason recorded in `FINDINGS.md`.
+- A wilson-dev session that may apply a migration, deploy functions there and cut a gateway release (the house method,
+  `docs/sessions/handoffs/po-b1-2026-10-27.md` §4; the gateway's own pipeline).
 
 **Exit criteria (testable):**
-- TPN-AUTH-012: a reviewer's or member's inserted `bin_files` row, and a member's new or changed `bin_locations` row, are refused
-  or never confirmed by the catalogue check; a pgTAP probe pins each.
-- TPN-NET-016: the bucket test and the storage-gc drain refuse an endpoint that resolves to a private, loopback, link-local, CGNAT
-  or reserved address, at save and at use; a boundary test pins it.
-- TPN-CONT-018: a teardown of a workspace holding one bin poster removes it and counts it on the certificate.
+- TPN-AUTH-012: a reviewer's or member's inserted or re-pointed `bin_files` path, and a member's new or changed `bin_locations`
+  row, are refused or never confirmed by the catalogue check; pgTAP probes pin each.
+- TPN-NET-016: the bucket test and the storage-gc drain refuse every 3xx (`redirect: 'manual'`), refuse an endpoint that resolves
+  to a private, loopback, link-local, CGNAT or reserved address, and connect to the address they checked, at save and at use; a
+  boundary test pins it.
+- TPN-ENC-015: each environment's encryption secrets distinct, the stored ciphertexts re-sealed (production first, while it holds
+  none).
+- TPN-ENC-014: no plaintext fallback (a secret write refuses when DPAPI fails; the container seals its secrets); a test pins it.
+- TPN-CONT-018: a teardown of a workspace holding one bin poster removes it and counts it; a prefix listing of
+  `projects/{id}/bin_files/` afterwards finds nothing.
 - TPN-ENC-013: a new install's office-door leaf carries DNS names only; IP SANs only by an explicit option, and HARDENING.md says so.
-- The MEDIUMs and the LOW as each finding's fix shape gives.
+- TPN-DOC-004 and TPN-DOC-005: HARDENING.md and GATEWAY_DESIGN.md state the posters' custody, the four-hour link life and the
+  155-second bound, with a review date.
+- TPN-AUTH-013: the switch and the gateway's admin calls refuse a session below aal2 for an admin with a factor, as adminGuard does.
+- TPN-LOG-012: an office-door play is recorded (who, clip, when, from where), and the mint and viewing records are kept a year.
+- TPN-CONT-019: both bin stream routes send `Cache-Control: no-store` and `Pragma: no-cache`.
+- TPN-SDLC-013: the gateway's release builds with provenance and an SBOM, and its workflows run an SCA and an image scan.
 
 **Prompt for implementation skill (copy/paste):**
 
 ```
 Use the tpn-compliance-implementation skill. Load TPN_AUDIT/REMEDIATION_PLAN.md.
 Execute Phase 8 only ("The four areas: the file gateway, bins, own storage, the AI file store").
-Start with the four HIGHs, one module at a time: TPN-AUTH-012 (0091's bin_files and bin_locations
-write policies, or a project-scoped location root), TPN-NET-016 (gatewayReach's isPublicIp applied
-to the S3 endpoint in storage-secret and storage-gc), TPN-CONT-018 (operator-workspaces collects
-bin_files.poster_path before the CASCADE), TPN-ENC-013 (the gateway's leaf without IP SANs by default).
+Start with the HIGHs she has not accepted, one module at a time: 0091's bins write policies
+(TPN-AUTH-012), the S3 endpoint's fetches in storage-secret and storage-gc (TPN-NET-016), the
+teardown's poster sweep in operator-workspaces (TPN-CONT-018), the two bin stream routes'
+headers in electron/rabbitBins.cjs (TPN-CONT-019), the outside switch and the gateway's admin
+calls behind aal2 (TPN-AUTH-013), then the gateway's own code and pipeline (TPN-ENC-013, -014,
+TPN-LOG-012, TPN-SDLC-013) and its documents (TPN-DOC-004, -005). TPN-ENC-015 is a secrets change
+with a re-seal: plan it with the controller.
 
 Before changing any code, present a plan that covers:
 1. Each HIGH's change, the files it touches, and the migration number and pgTAP suite it takes.
@@ -472,11 +487,11 @@ Do NOT execute until I approve the plan. After Phase 8 is complete, mark each fi
 resolved_date in FINDINGS.md, re-read this plan, and produce the next phase's prompt for my review.
 ```
 
-**Expected effort:** M (a day for the four HIGHs; the MEDIUMs a day more)
+**Expected effort:** L (about two days for the HIGHs; the MEDIUMs a day more)
 
-**Rollback notes:** each HIGH's fix is one migration or one function: revert the function's deploy, or ship a reviewed reverse
-migration (none of the four needs an enum value or a backfill). A gateway release that drops IP SANs keeps a config switch to put them
-back for a site that cannot use names.
+**Rollback notes:** each app-side fix is one migration or one function: revert the function's deploy, or ship a reviewed reverse
+migration (none needs an enum value or a backfill). Gateway changes ship as a gateway release, which the signed update channel can
+supersede; a release that drops IP SANs keeps a config switch to put them back for a site that cannot use names.
 
 ---
 

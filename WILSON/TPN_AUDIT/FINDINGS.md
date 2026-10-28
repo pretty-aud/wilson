@@ -4,12 +4,13 @@
 > reads this file to build a work queue. Do not renumber existing IDs on re-audit — append.
 
 > **Scoped re-audit, 2026-10-28 (R2, night 4 of `docs/sessions/PLAN_TO_1_0.md`; report only).** Four areas re-audited against the
-> code at `51e5a0d7`: the file gateway, bins, own storage and the AI file store. Ten findings opened (TPN-ENC-013, TPN-ENC-014,
-> TPN-AUTH-012, TPN-NET-016, TPN-CONT-018, TPN-SDLC-012, TPN-AI-008, TPN-AI-009, TPN-AI-010, TPN-DOC-004), and the eleven of
-> `DESIGN_REVIEW_network_storage.md` (2026-08-05) merged with their state on that date. Two of the review's IDs collided with this
-> file's and carry fresh ones: its TPN-AUTH-008 is **TPN-AUTH-010** (this file used TPN-AUTH-008 at the 2026-07-30 re-audit) and its
-> TPN-AUTH-009 is **TPN-AUTH-011** (this file's TPN-AUTH-009 is the company-existence oracle). Each block sits at the end of its
-> domain and says it came from this re-audit. Nothing outside the four areas was re-rated; `SUMMARY.md` opens with the release gate.
+> code at `51e5a0d7`: the file gateway, bins, own storage and the AI file store. Nineteen findings opened (TPN-ENC-013 to -016,
+> TPN-AUTH-012, -013, TPN-NET-016, TPN-LOG-012, TPN-CONT-018 to -020, TPN-SDLC-012 to -014, TPN-AI-008 to -010, TPN-DOC-004, -005),
+> four of them the areas' own instances of an open class of this file, and the eleven of `DESIGN_REVIEW_network_storage.md`
+> (2026-08-05) merged with their state on that date. Two of the review's IDs collided with this file's and carry fresh ones: its
+> TPN-AUTH-008 is **TPN-AUTH-010** (this file used TPN-AUTH-008 at the 2026-07-30 re-audit) and its TPN-AUTH-009 is **TPN-AUTH-011**
+> (this file's TPN-AUTH-009 is the company-existence oracle). Each block sits at the end of its domain and says where it came from.
+> Nothing outside the four areas was re-rated; `SUMMARY.md` opens with the release gate.
 
 ---
 
@@ -325,14 +326,14 @@ opened: 2026-07-30
 
 ---
 
-## TPN-ENC-013 — The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses, a prohibited signal
+## TPN-ENC-013 — The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses
 
 ```yaml
 id: TPN-ENC-013
 severity: HIGH
 control: AS-3.7
 domain: encryption
-title: The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses, a prohibited signal
+title: "The gateway's office-door certificates name private (RFC 1918 / unique-local) addresses"
 location: gateway/src/certs/x509.mjs:170-171
 evidence: |
   // makeLeaf: every inside address becomes an IP SAN
@@ -346,10 +347,10 @@ required: |
 gap: |
   Every office-door leaf carries each private or unique-local inside address as an IP SAN, and the gateway's own root (ten years, kept on
   the gateway's disk) is name-constrained to the /24 or /64 around them. It is the default on every install and does not depend on the
-  outside switch: the office door listens whatever the switch says. docs/gateway/HARDENING.md §10 states the deviation and argues the rule
-  is about certificates public authorities issue; an assessor working from the list raises it anyway. The exposure that matters is the
-  root's key (TPN-ENC-014): whoever holds it can mint a certificate that every office computer trusts for any address in that range, on
-  any network that reuses it (home networks commonly use 192.168.1.0/24).
+  outside switch: the office door listens whatever the switch says, and it serves clips. docs/gateway/HARDENING.md §10 states the
+  deviation and argues the rule is about certificates public authorities issue; an assessor working from the list raises it anyway.
+  The exposure that matters is the root's key (TPN-ENC-014, TPN-ENC-016): whoever holds it can mint a certificate every office
+  computer trusts for any address in that range, on any network that reuses it (home networks commonly use 192.168.1.0/24).
 effort: M
 blocks_tier: Gold
 recommendation_ref: RECO-ENC-TLS
@@ -358,47 +359,114 @@ opened: 2026-10-28
 
 **Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
 
-**Why HIGH and not CRITICAL.** The skill's checklist reads a banned signal as CRITICAL unless the use is clearly not a security one; this is a
-security use, but the root is private, name-constrained, trusted only on the office computers the company chooses, and the deviation is
-published. The misuse the ban targets, a publicly trusted certificate for a private address, does not arise. Fix shape: DNS names only by
-default, the office door probed by name, IP SANs an explicit opt-in; `config.json`'s own-certificate option exists but keeps the IP SANs.
+**The rating, said plainly.** Framework §6 allows CRITICAL or HIGH for a banned signal; the skill's severity checklist defaults to
+CRITICAL unless the use is clearly not a security one, and this is a security use on a content path. HIGH is chosen, against that
+default, because the root is private, name-constrained, trusted only on the office computers the company chooses, the deviation is
+published, and the misuse the ban targets (a publicly trusted certificate for a private address) does not arise. An assessor may read
+it as CRITICAL; the release gate holds production either way. Fix shape: DNS names only by default, the office door probed by name,
+IP SANs an explicit opt-in (`config.json`'s own-certificate option keeps them today).
 
 ---
 
-## TPN-ENC-014 — Gateway key custody: plaintext secrets in the container and after a DPAPI failure, a ten-year root key, one release key
+## TPN-ENC-014 — The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure
 
 ```yaml
 id: TPN-ENC-014
-severity: MEDIUM
+severity: HIGH
 control: AS-2.5
 domain: encryption
-title: "Gateway key custody: plaintext secrets in the container and after a DPAPI failure, a ten-year root key, one release key"
-location: gateway/src/platform/secrets.mjs:72,82,86; gateway/src/certs/x509.mjs:47; gateway/src/update/manifest.mjs:52
+title: "The gateway keeps its credentials and keys in plaintext in the container and after a DPAPI failure"
+location: gateway/src/platform/secrets.mjs:72,82,86
 evidence: |
   // secrets.mjs:72
     let dpapiOk = platform === 'win32';
   // secrets.mjs:82 (on any DPAPI error, for the rest of the process)
         dpapiOk = false;
+  // secrets.mjs:86: otherwise the 'WGPLAIN1' marker and the raw bytes
+  // gateway/src/platform/shares.mjs:90-92: the share's login, user and password, written through the same protect()
+    this.hosts[s.host] = { root: s.root, user: user.trim(), password, at: new Date(this.now()).toISOString() };
+    await fs.promises.writeFile(this.file, await this.secrets.protect(Buffer.from(JSON.stringify({ hosts: this.hosts }), 'utf8')), { mode: 0o600 });
+required: |
+  AS-2.5 and AS-3.6: credentials and keys are never stored in the clear; keys are kept apart from the host that uses them.
+gap: |
+  In the container every secret is a plaintext file (mode 600) on the NAS volume: the WILSON credential (runtime.mjs), the root and
+  leaf private keys (certs/store.mjs), the ACME and outside-door keys (acme/manager.mjs) and the share's login. On Windows one DPAPI
+  failure turns every later write into plaintext for the rest of the process, shown only as an amber health line (rules/health.mjs).
+  The share login is the footage account's password, one per server. Whoever backs up or reads the NAS volume holds them all.
+effort: M
+blocks_tier: Gold
+recommendation_ref: RECO-ENC-KEYS
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). Rated HIGH as this pack rates TPN-ENC-002 (plaintext third-party secrets on disk): it touches credentials, so the
+checklist's floor is HIGH. HARDENING.md §10 says a host's administrator can read everything the gateway can; plaintext at rest widens
+that to anyone holding a copy of the volume. The key-life half is TPN-ENC-016.
+
+---
+
+## TPN-ENC-015 — The bucket-secret and AI-key master secrets are identical on dev, staging and production
+
+```yaml
+id: TPN-ENC-015
+severity: HIGH
+control: AS-2.5
+domain: encryption
+title: "The bucket-secret and AI-key master secrets are identical on dev, staging and production"
+location: supabase/functions/_shared/storageSecretCrypto.ts:27; docs/OWED_AUDREY.md §9 C2 (structural)
+evidence: |
+  // storageSecretCrypto.ts:27
+  const SECRET_ENV = 'WILSON_STORAGE_KEY_SECRET'
+  // OWED_AUDREY.md §9 C2: "The digest is identical across dev, staging and prod … a bucket secret encrypted on one environment must
+  // be decryptable on the others." §5 says the same of WILSON_AI_KEY_SECRET, which ai-files uses to open a company's own key.
+required: |
+  AS-1.0 and AS-2.5: development, staging and production kept apart, with per-environment keys; the audit pass's signal "dev / prod
+  sharing the same secrets" is HIGH.
+gap: |
+  The secret that seals every company's bucket credential (and Google Drive tokens) and the one that seals every company's Anthropic
+  key are the same value on all three environments, on purpose, so that a ciphertext from one opens on the others. Production's
+  ciphertexts leave the platform nightly in the pg_dump to B2 (TPN-ENC-010), so dev's or staging's secret, held by every developer's
+  deploy and every test session, opens production's customer credentials from any copy of that dump.
+effort: M
+blocks_tier: Gold
+recommendation_ref: RECO-ENC-KEYS
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). Cheapest on production first: while production stores no bucket secret and no company key
+(`docs/PRODUCTION_RUNBOOK.md` (a) a7), a fresh value there orphans nothing; dev and staging then keep theirs. The AI key's half
+reaches outside the four areas (ai-proxy, operator-ai-keys) and is not re-rated there; TPN-ENC-011 is its rotation gap.
+
+---
+
+## TPN-ENC-016 — The gateway's root key lives ten years on its host, and its release key has no successor
+
+```yaml
+id: TPN-ENC-016
+severity: MEDIUM
+control: AS-2.5
+domain: encryption
+title: "The gateway's root key lives ten years on its host, and its release key has no successor"
+location: gateway/src/certs/x509.mjs:47; gateway/src/update/manifest.mjs:52
+evidence: |
   // x509.mjs:47
   const ROOT_YEARS = 10;
   // manifest.mjs:52
     // Slot 2: empty until a rotation.
 required: |
-  AS-2.5: keys in a vault or HSM kept apart from the host that uses them, rotated every one to three years, with a compromise procedure.
+  AS-2.5: keys rotated every one to three years, with a documented compromise procedure.
 gap: |
-  In the container every secret (the WILSON credential and the root, leaf and ACME private keys) is a plaintext file, mode 600, on the NAS
-  volume. On Windows one DPAPI failure turns every later write into plaintext, shown only as an amber health line. The root key the office
-  browsers trust lives ten years on the host, and its successor is made twelve months before it expires. The release key has no
-  pre-made successor and the updater keeps the keys it was installed with, so a rotation needs an MSI reinstall. The compromise
-  procedures exist (HARDENING.md §9) and the ticket keys are AES-256-GCM sealed and rotated, so this is cadence and custody, not a
-  missing control.
+  The root the office browsers trust lives ten years on the gateway's host, and its successor is made twelve months before it expires
+  (certs/store.mjs). The release key has no pre-made successor and the updater keeps the keys it was installed with
+  (HARDENING.md §10), so rotating it needs an MSI reinstall. The compromise procedures exist (HARDENING.md §9) and the ticket keys are
+  AES-256-GCM sealed and rotated, so this is cadence, not a missing control.
 effort: M
 blocks_tier: Gold Star
 recommendation_ref: RECO-ENC-KEYS
 opened: 2026-10-28
 ```
 
-**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). Split from TPN-ENC-014 by review round 1.
 
 ---
 
@@ -713,15 +781,15 @@ opened: 2026-09-06
 
 ---
 
-## TPN-AUTH-012 — The file gateway serves any path a member catalogues, so a catalogue write becomes a read of the whole share
+## TPN-AUTH-012 — The file gateway serves any path a member catalogues, so a catalogue write reads the share
 
 ```yaml
 id: TPN-AUTH-012
 severity: HIGH
 control: TS-1.7
 domain: authentication
-title: The file gateway serves any path a member catalogues, so a catalogue write becomes a read of the whole share
-location: supabase/migrations/0091_bins_on_the_cloud.sql:750-757 (bin_files_insert), :667-690 (bin_locations insert and update); supabase/migrations/0095_gateway_next_root_viewing_fraction.sql:347-351
+title: "The file gateway serves any path a member catalogues, so a catalogue write reads the share"
+location: supabase/migrations/0091_bins_on_the_cloud.sql:750-757 (bin_files_insert), :758-771 (bin_files_update), :667-690 (bin_locations insert and update); supabase/migrations/0095_gateway_next_root_viewing_fraction.sql:347-351
 evidence: |
   -- 0091
   CREATE POLICY bin_files_insert ON public.bin_files
@@ -742,15 +810,17 @@ evidence: |
 required: |
   TS-1.7: RBAC/ABAC enforced server-side on content access; who may read a project's footage follows that person's role on that project.
 gap: |
-  The gateway opens files with one service account and serves any bin_files row that exists at a location and path. Those rows, and
-  the company's footage locations themselves (bin_locations insert and update), are writable by anyone who passes can_edit_shot_lists on
-  some project: reviewers, members, and every active member on an unstaffed project. Such a person can insert, from a browser through
-  PostgREST, a row naming any relative path under any of the company's locations in a project they can see, mint a ticket for it
-  (gateway-ticket evaluates as the caller, and the row is theirs) and play the file, through the office door or, with the switch on, the
-  outside door. That reads past private-project visibility (another project's footage on the same share) and past every folder
-  permission on the share, because the gateway, not the person, opens the file. GATEWAY_DESIGN.md §10 says an uncatalogued file stays
-  unreadable: true against a forged ticket, not against a catalogue write. A HEAD answers a file's size and writes no viewing row
-  (gateway/src/doors/clips.mjs:183-191); the traces are the mint log (30 days) and the row's added_by.
+  The gateway opens files with one service account and serves any bin_files row that exists at a location and path. Those rows, and the
+  company's footage locations themselves, are writable by anyone who passes can_edit_shot_lists on some project: reviewers, members,
+  and every active member on an unstaffed project. Such a person can insert, from a browser through PostgREST, a row naming any
+  relative path under any of the company's locations in a project they can see, mint a ticket for it (gateway-ticket evaluates as the
+  caller, and the row is theirs) and play the file, through the office door or, with the switch on, the outside door. On Windows the
+  gateway may open any share on a server it holds a login for (gateway/src/runtime.mjs mayContact, by host), so the reach is every
+  share that login can read. That passes private-project visibility and every folder permission on the share, because the gateway,
+  not the person, opens the file. bin_files_update and bin_locations_update let the same people re-point rows others play, so a clip
+  can be swapped under its viewers. GATEWAY_DESIGN.md §10 says an uncatalogued file stays unreadable: true against a forged ticket,
+  not against a catalogue write. A HEAD answers a file's size and writes no viewing row (gateway/src/doors/clips.mjs:183-191); the
+  traces are the mint log (30 days) and the row's added_by.
 effort: M
 blocks_tier: Gold
 recommendation_ref: RECO-AUTH-RBAC
@@ -761,19 +831,52 @@ opened: 2026-10-28
 
 **Why HIGH and not CRITICAL.** It needs an authenticated member and a path; it touches content and leaves a Best Practice control
 materially unmet for everything the gateway serves. The desktop does not have it: signed in, it reads the share with the person's own
-credentials, so the share's permissions apply. Fix shape: limit the rows the gateway serves, and writes to bin_locations, to admins and
-managers, or scope each location's root to a project; a pgTAP probe that a reviewer-inserted path is not confirmed.
+credentials, so the share's permissions apply. Fix shape: limit the rows the gateway serves, and writes to bin_locations and
+bin_files' paths, to admins and managers, or scope each location's root to a project; a pgTAP probe that a reviewer-inserted or
+re-pointed path is not confirmed.
 
 ---
 
-## TPN-AUTH-010 — The file gateway trusts a two-minute ticket, so a removed member keeps playing for up to about 155 seconds
+## TPN-AUTH-013 — The gateway's admin calls and the outside switch need a live admin but no two-factor session
+
+```yaml
+id: TPN-AUTH-013
+severity: HIGH
+control: TS-1.6
+domain: authentication
+title: "The gateway's admin calls and the outside switch need a live admin but no two-factor session"
+location: supabase/migrations/0093_file_gateway.sql:591-603 (fn_workspaces_remote_viewing_live_admin); :1327 (gateway_confirm_root), :1398 (gateway_forget), :1475 (gateway_rotate_signing_key)
+evidence: |
+  -- 0093: the switch's guard checks a live admin row, and nothing else
+  IF (auth.uid() IS NOT NULL OR COALESCE(current_setting('role', true), '') IN ('authenticated', 'anon'))
+     AND NOT public.is_live_workspace_admin(NEW.id) THEN
+    RAISE EXCEPTION 'Only a workspace admin can change whether files may be viewed from outside the office network.'
+  -- grep -c aal in 0091, 0093 and 0095: 0
+required: |
+  MFA on all admin and privileged access (framework §5.3); the outside switch is the moment a workspace leaves Gold eligibility.
+gap: |
+  The switch that opens a direct internet path to content, and the gateway's admin calls (confirm a fingerprint, forget a gateway,
+  rotate the ticket key, the enrolment tokens), run as RLS-gated calls from the browser that check a live admin row and never the
+  session's assurance level. In the same areas, storage-secret and storage-gc go through adminGuard's two-factor step-up; the gateway's
+  calls chose the weaker path. An admin's stolen one-factor session can open the outside door.
+effort: S
+blocks_tier: Gold
+recommendation_ref: RECO-AUTH-MFA
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** as the four areas' own instance of TPN-AUTH-003 (no two-factor on admin paths): a choice in their own code, rated as that class is, and counted in the release gate (`SUMMARY.md`).
+
+---
+
+## TPN-AUTH-010 — The file gateway trusts a two-minute ticket: a removed member plays on for about 155 seconds
 
 ```yaml
 id: TPN-AUTH-010
 severity: MEDIUM
 control: AS-3.8
 domain: authentication
-title: The file gateway trusts a two-minute ticket, so a removed member keeps playing for up to about 155 seconds
+title: "The file gateway trusts a two-minute ticket: a removed member plays on for about 155 seconds"
 location: gateway/src/wire/ticket.mjs:109-115
 evidence: |
   // checkTicketScope, with TICKET_LIFE_S = 120 and SKEW_S = 30 (ticket.mjs:26-27)
@@ -788,7 +891,6 @@ gap: |
   and one gateway, minted only after GoTrue validates the caller and the live workspace_members row is active, with project visibility
   evaluated under the caller's own RLS (gateway-ticket/index.ts). A renewal every 75 s re-mints under the same checks. The bound for a
   removed member is the ticket's life, 30 s of skew and a 5-second cut of a long response: about 155 s, plus what the browser buffered.
-  Bounded, not immediate; HARDENING.md §9 says "within two minutes".
 effort: S
 blocks_tier: Gold Star
 recommendation_ref: RECO-AUTH-SESSION
@@ -807,17 +909,19 @@ severity: RESOLVED
 resolved_date: 2026-08-07
 control: TS-1.7
 domain: authentication
-title: The storage-root control had no permission gate; any member could repoint it
-location: src/components/settings/StorageConnections.jsx:125
+title: "The storage-root control had no permission gate; any member could repoint it"
+location: supabase/migrations/0048_workspace_storage.sql:137-163 (workspace_storage insert, update and delete); src/components/settings/StorageConnections.jsx:125
 evidence: |
+  -- 0048: CREATE POLICY workspace_storage_insert / _update / _delete, admin-only
+  // StorageConnections.jsx:125, the client's mirror
   const canEditMachineRoot = perms.ready && (!perms.workspaceId || perms.role === 'admin')
 required: |
   TS-1.7: RBAC/ABAC on privileged configuration; where a workspace's content is stored is privileged.
 gap: |
   Was TPN-AUTH-009 in DESIGN_REVIEW_network_storage.md (2026-08-05); renumbered because this file's TPN-AUTH-009 is the
-  company-existence oracle. RESOLVED by S34 (commit 79b62205, 2026-08-07, "the storage root lives with the workspace"): every writer
-  returns early on canEditMachineRoot, every control sits in GatedAction allowed={canEditMachineRoot}, closed while permissions load, and
-  the workspace root is admin-only in RLS (0048_workspace_storage.sql).
+  company-existence oracle. RESOLVED by S34 (commit 79b62205, 2026-08-07): the workspace root is admin-only in RLS (0048), and the
+  screen mirrors it (every writer returns early on canEditMachineRoot; every control sits in GatedAction, closed while permissions
+  load). The policies read the token's role claim, TPN-AUTH-006's class. Code comments still call it TPN-AUTH-009 (LEARNINGS).
 effort: S
 blocks_tier: none
 recommendation_ref: RECO-AUTH-RBAC
@@ -1381,32 +1485,34 @@ opened: 2026-07-30
 
 ---
 
-## TPN-NET-016 — Petal's Edge Functions fetch a company admin's S3 endpoint with no refusal of private, loopback or link-local addresses
+## TPN-NET-016 — Edge Functions fetch an admin's S3 endpoint with no private-address refusal, following redirects
 
 ```yaml
 id: TPN-NET-016
 severity: HIGH
 control: TS-2
 domain: network
-title: Petal's Edge Functions fetch a company admin's S3 endpoint with no refusal of private, loopback or link-local addresses
+title: "Edge Functions fetch an admin's S3 endpoint with no private-address refusal, following redirects"
 location: supabase/functions/_shared/s3Presign.ts:103-118; supabase/functions/storage-secret/index.ts:186,198,211; supabase/functions/storage-gc/index.ts:391-395
 evidence: |
   // s3Presign.ts: the only checks on the endpoint
   if (u.protocol !== 'https:') { throw new Error('the S3 endpoint must be https:// …') }
   if ((u.pathname && u.pathname !== '/') || u.search || u.username) { throw new Error('… a host only …') }
-  // storage-secret/index.ts:186, the bucket test, from the Edge runtime
+  // storage-secret/index.ts:186, the bucket test, from the Edge runtime, with fetch's default redirect: 'follow'
   const putRes = await fetch(await sign('PUT', serverKey), { method: 'PUT', body: payload })
   // storage-gc/index.ts:395, the drain
   const res = await fetch(url, { method: 'DELETE' })
 required: |
   TS-2: default-deny at every boundary. A server-side request to a host a tenant supplies refuses private, loopback, link-local, CGNAT
-  and reserved addresses; the repository's own gateway code does (supabase/functions/_shared/gatewayReach.ts, isPublicIp).
+  and reserved addresses, refuses redirects, and connects to the address it checked; the repository's gateway code does
+  (supabase/functions/_shared/gatewayReach.ts: isPublicIp, redirect: 'manual').
 gap: |
-  An endpoint of https://10.0.0.5, https://169.254.169.254 or any internal name passes the CHECK (0052_s3_endpoint_host_only.sql), the
-  resolver and the form's validator. A company's admin (a customer, with two-factor) can then aim the bucket test's PUT, GET and DELETE,
-  and the storage-gc drain's DELETE, from Petal's Edge runtime at addresses inside the platform, choosing the host, the port and the path
-  (bucket and prefix), and reads back each status code, the connection error's text and the timings (storage-secret answers them as
-  probe_failed details). The presign path is fetched by the browser and is not a Petal-side request; the test and the drain are.
+  An endpoint of https://10.0.0.5 or any internal name passes the CHECK (0052_s3_endpoint_host_only.sql), the resolver and the form's
+  validator; and because the fetches follow redirects, any public HTTPS host can bounce the Edge runtime on to an internal http address,
+  169.254.169.254 included. A company's admin (a customer, with two-factor) can aim the bucket test's PUT, GET and DELETE, and the
+  storage-gc drain's DELETE, at addresses inside the platform, choosing the host, port and path, and reads back each status code, the
+  connection error's text and the timings (storage-secret answers them as probe_failed details). storage-gc has no rate limiter. The
+  presign path is fetched by the browser and is not a Petal-side request; the test and the drain are.
 effort: S
 blocks_tier: Gold
 recommendation_ref: RECO-NET-SEG
@@ -1415,21 +1521,21 @@ opened: 2026-10-28
 
 **Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
 
-**Why HIGH and not CRITICAL.** An authenticated company admin with a fresh two-factor session is needed, the requests are HTTPS only and
-S3-signed, and what the Edge runtime can reach is the platform's to bound: the control gap is certain from the code, the reachability is
-not measurable read-only. Precedent in this file: TPN-NET-002, the desktop's open URL proxies, is HIGH. Fix shape: resolve the host and
-refuse with gatewayReach's isPublicIp before every fetch, at save and at use.
+**Why HIGH and not CRITICAL.** An authenticated company admin with a fresh two-factor session is needed, and what the Edge runtime can
+reach is the platform's to bound: the gap is certain from the code, the reachability is not measurable read-only. Precedent in this
+file: TPN-NET-002, the desktop's open URL proxies, is HIGH. Fix shape: refuse every 3xx (redirect: 'manual'), resolve the host and
+refuse a non-public address with isPublicIp, connect to the address that was checked, at save and at every use.
 
 ---
 
-## TPN-NET-014 — Positive observation: Options B and C add no external attack surface (credit, not a finding)
+## TPN-NET-014 — Credit: Options B and C add no external attack surface
 
 ```yaml
 id: TPN-NET-014
 severity: INFO
 control: TS-2
 domain: network
-title: "Positive observation: Options B and C add no external attack surface (credit, not a finding)"
+title: "Credit: Options B and C add no external attack surface"
 location: electron/main.cjs:4635
 evidence: |
   const server = expressApp.listen(0, '127.0.0.1', () => {
@@ -1447,37 +1553,37 @@ opened: 2026-08-05
 
 ---
 
-## TPN-NET-012 — The internet-facing file gateway (Option D) against the bastion/VPN-only remote-access control: the four conditions are built
+## TPN-NET-012 — The internet-facing gateway against TS-2: the four conditions are built, the residual disclosed
 
 ```yaml
 id: TPN-NET-012
-severity: RESOLVED
-resolved_date: 2026-10-12
+severity: INFO
 control: TS-2
 domain: network
-title: "The internet-facing file gateway (Option D) against the bastion/VPN-only remote-access control: the four conditions are built"
+title: "The internet-facing gateway against TS-2: the four conditions are built, the residual disclosed"
 location: supabase/migrations/0091_bins_on_the_cloud.sql:162; src/components/settings/FootageSettings.jsx:263-265; src/tools/rabbit_v0.1.0/bins/cloudPosters.js:30
 evidence: |
   ADD COLUMN IF NOT EXISTS remote_viewing_enabled BOOLEAN NOT NULL DEFAULT false;
   export const REMOTE_VIEWING_TPN_SENTENCE = 'Turning on external access is the moment this workspace leaves TPN Gold Shield eligibility: remote access to content then runs outside the VPN model TPN prescribes. …'
 required: |
-  TS-2: remote access by bastion or VPN only. The review re-scoped this finding into four conditions after Audrey bounded the gateway
-  to companies that do not need TPN compliance.
+  TS-2: remote access by bastion or VPN only. The review re-scoped this finding into four conditions after Audrey bounded the gateway to
+  companies that do not need TPN compliance.
 gap: |
   All four conditions are built (BC1's 0091, 2026-10-07; GW1's 0093, 2026-10-10; GW4's guide, 2026-10-11; GW5, 2026-10-12): (1) off by
-  default, and the gateway reads a missing value as off; (2) the sentence above sits directly under the switch's label, only a live
-  admin flips it (the screen and a database trigger in 0093), and every flip is audited; (3) WILSON never sells the gateway as
-  TPN-compliant (docs/gateway/HARDENING.md; rabbitHelpContent.jsx); (4) with the switch off the outside door is unbound and refuses
-  (pinned in .github/workflows/gateway.yml), and the desktop's own path shares no code with the gateway. Residual, by design and disclosed
-  at the control: a workspace with the switch on has a direct internet path to content and is out of Gold. The office door is a LAN
-  listener whatever the switch says and carries TPN-ENC-013's certificates; TPN-AUTH-012 is its catalogue gap.
+  default, and the gateway reads a missing value as off; (2) the sentence above sits directly under the switch's label, only a live admin
+  flips it (the screen and a database trigger in 0093), and every flip is audited; (3) WILSON never sells the gateway as TPN-compliant
+  (docs/gateway/HARDENING.md; rabbitHelpContent.jsx); (4) with the switch off the outside door is unbound and refuses (pinned in
+  .github/workflows/gateway.yml), and the desktop's own path shares no code with the gateway. What is left is an intentional, documented
+  exception: a workspace with the switch on has a direct internet path to content and is out of Gold, and is told so at the control.
+  The office door is a LAN listener whatever the switch says and carries TPN-ENC-013's certificates; TPN-AUTH-012 and TPN-AUTH-013 are
+  its other gaps.
 effort: XL
 blocks_tier: none
 recommendation_ref: RECO-NET-BASTION
 opened: 2026-08-05
 ```
 
-**Merged from `DESIGN_REVIEW_network_storage.md` (2026-08-05) by the 2026-10-28 scoped re-audit**, with its state on that date.
+**Merged from `DESIGN_REVIEW_network_storage.md` (2026-08-05) by the 2026-10-28 scoped re-audit**, with its state on that date. INFO, not RESOLVED (review round 1): TS-2 is not met for a workspace that turns the switch on; it is disclosed.
 
 ---
 
@@ -1489,7 +1595,7 @@ severity: RESOLVED
 resolved_date: 2026-08-07
 control: AS-2.3
 domain: network
-title: The containment guard's edit for UNC roots shipped with its escape-case tests
+title: "The containment guard's edit for UNC roots shipped with its escape-case tests"
 location: electron/pathContainment.cjs:44; src/tools/rabbit_v0.1.0/pathContainment.test.js:49-72
 evidence: |
   if (a !== b && !a.startsWith(b + pathImpl.sep)) return null
@@ -1517,7 +1623,7 @@ severity: RESOLVED
 resolved_date: 2026-08-07
 control: AS-2.3
 domain: network
-title: projects.folder_root was taken from the request body with no containment check
+title: "projects.folder_root was taken from the request body with no containment check"
 location: supabase/migrations/0049_project_folder_root_guard.sql (fn_project_folder_root_guard); electron/main.cjs (folderRootRefusal)
 evidence: |
   fn_project_folder_root_guard: an admin or manager seat, NULL-safe, strictly inside workspace_storage.root_path when the mode is byos
@@ -1861,6 +1967,42 @@ opened: 2026-07-30
 ```
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
+
+---
+
+## TPN-LOG-012 — The gateway's office door records a read only as a ticket mint, kept thirty days
+
+```yaml
+id: TPN-LOG-012
+severity: HIGH
+control: AS-2.9
+domain: logging
+title: "The gateway's office door records a read only as a ticket mint, kept thirty days"
+location: gateway/src/doors/clips.mjs:219-221; gateway/src/doors/viewings.mjs:2-3; supabase/migrations/0093_file_gateway.sql:1039-1066 (gateway_ticket_mints)
+evidence: |
+  // clips.mjs: a viewing row is begun only for the outside door
+    const viewing = door === 'outside'
+      ? ctx.viewings.begin({ … })
+      : null;
+  // viewings.mjs: "Only reads through the OUTSIDE door; the inside door writes nothing."
+  -- 0093: gateway_ticket_mints, "every ticket the cloud signed, kept thirty days" (gateway_sweep)
+required: |
+  AS-2.9: every view or download of content logged with its time, the person, the source address and a per-user-per-asset count;
+  logs kept a year or more.
+gap: |
+  A play through the office door writes no viewing row; the only record is the ticket's mint (who, which clip, when; no address, no
+  bytes), and gateway_sweep deletes mints after thirty days. Because the gateway reads the share with its own account, the share's own
+  audit can no longer tell people apart either. The outside door's viewing rows are full (who, clip, when, bytes, offsets, addresses,
+  via, user-agent family, ticket id).
+effort: M
+blocks_tier: Gold
+recommendation_ref: RECO-LOG-SCHEMA
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** as the four areas' own instance of TPN-LOG-002, TPN-CONT-008 and TPN-LOG-004 (the read side and its retention): a choice in their own code, rated as that class is, and counted in the release gate (`SUMMARY.md`). The design chose it (GATEWAY_DESIGN.md
+D7; HARDENING.md §10, "Office viewing is not written down"); no ruling of hers was found that accepts it, so it is not filed as an
+intentional exception.
 
 ---
 
@@ -2293,23 +2435,23 @@ opened: 2026-07-30
 
 ---
 
-## TPN-CONT-018 — Workspace teardown never collects bin posters, so frames of a destroyed tenant's footage outlive its certificate
+## TPN-CONT-018 — Workspace teardown never collects bin posters: frames of the tenant's footage stay, unrecorded
 
 ```yaml
 id: TPN-CONT-018
 severity: HIGH
 control: AS-3.15
 domain: content
-title: Workspace teardown never collects bin posters, so frames of a destroyed tenant's footage outlive its certificate
-location: supabase/functions/operator-workspaces/index.ts:364-428 (the thumbnail sweep); supabase/migrations/0091_bins_on_the_cloud.sql:582-622 (trg_bin_files_gc_enqueue)
+title: "Workspace teardown never collects bin posters: frames of the tenant's footage stay, unrecorded"
+location: supabase/functions/operator-workspaces/index.ts:364-428 (the thumbnail sweep), :1254-1263 (the queue's rows deleted after the CASCADE); supabase/migrations/0091_bins_on_the_cloud.sql:582-622 (trg_bin_files_gc_enqueue)
 evidence: |
   // operator-workspaces: the derived previews come from two row sources only
       .from('files')
       .select('thumbnail_url')
       .from('storage_gc_queue')
       .select('object_path')
-      .eq('workspace_id', workspaceId)
-      .eq('bucket_id', THUMBNAIL_BUCKET)
+  // step 4, after the CASCADE:
+      await ctx.admin.from('storage_gc_queue').delete().eq('workspace_id', workspaceId)
   -- 0091: a poster is queued only when its bin_files row is deleted
   CREATE TRIGGER trg_bin_files_gc_enqueue
     AFTER DELETE ON public.bin_files
@@ -2317,12 +2459,11 @@ required: |
   AS-3.15: certified disposal and proof of deletion for every object that holds content. A poster is a still frame of the clip.
 gap: |
   A bin clip's poster is named only by bin_files.poster_path, and neither operator-workspaces nor storage-gc reads bin_files. At
-  teardown the sweep collects files' thumbnails and the queue's rows before the CASCADE; the CASCADE then deletes the bin_files rows,
-  and their trigger queues each poster in storage_gc_queue for a workspace that no longer exists, which no admin can drain (the
-  function's own header says so of a dead tenant). The certificate (WIL-7005) records the tenant destroyed while frames of its footage
-  stay in Petal's rabbit-thumbnails bucket. It applies to every workspace whose outside switch was ever on, and it is the failure the
-  function's own S44 comment guards against for file thumbnails: "LEAVING A LEGIBLE FRAME IN rabbit-thumbnails while WIL-7005 certifies
-  the tenant destroyed".
+  teardown the sweep collects files' thumbnails and the queue's rows before the CASCADE; the CASCADE deletes the bin_files rows, their
+  trigger queues each poster, and step 4 then deletes every queue row of the workspace. The posters stay in Petal's rabbit-thumbnails
+  bucket with no row naming them, so nothing will ever remove them. The certificate's note says the sweep is row-derived from files and
+  the queue; a poster has a row, in bin_files, which the sweep never reads, so the note reads as covering it and does not. It applies to
+  every workspace whose outside switch was ever on.
 effort: S
 blocks_tier: Gold
 recommendation_ref: RECO-CONT-LIFECYCLE
@@ -2331,21 +2472,77 @@ opened: 2026-10-28
 
 **Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
 
-**Why HIGH, above TPN-CONT-014 (MEDIUM), the same teardown class for orphaned uploads.** Here every poster is stranded and the
-certificate's claim is certainly false for it; CONT-014's orphans are an edge case. Measured from the code, not from a teardown: a teardown
-of a test workspace holding one poster, then a read of rabbit-thumbnails under its project prefix, settles it. Fix shape: collect
-bin_files.poster_path into the teardown's thumbnail set before the CASCADE and count it on the certificate.
+**Why HIGH, above TPN-CONT-014 (MEDIUM), the same teardown class for orphaned uploads.** Here every poster of every such workspace is
+left, systematically, where CONT-014's orphans are an edge case. Measured from the code, not from a teardown. Fix shape: collect
+bin_files.poster_path, or list `projects/{id}/bin_files/` by prefix as the avatar pass lists its own, before the CASCADE, and certify
+it on its own line; the proof is a prefix listing that finds nothing after a teardown.
 
 ---
 
-## TPN-CONT-016 — SMB 3 with signing and encryption is documented, but WILSON's own share probe neither reads nor refuses the dialect
+## TPN-CONT-019 — The desktop's bin clip streams are served with no Cache-Control: no-store
+
+```yaml
+id: TPN-CONT-019
+severity: HIGH
+control: AS-3.7
+domain: content
+title: "The desktop's bin clip streams are served with no Cache-Control: no-store"
+location: electron/rabbitBins.cjs:1057, 2327
+evidence: |
+  res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
+required: |
+  AS-3.7 / AS-3.8: sensitive content responses carry Cache-Control: no-store and Pragma: no-cache.
+gap: |
+  Both bin routes that stream a clip's bytes to the desktop's own window send no caching directive at all (cacheControl: false omits
+  the header), so the window's HTTP cache may keep footage on disk under the user's profile. The file gateway, in the same areas, sets
+  no-store on every response (gateway/src/doors/http.mjs).
+effort: XS
+blocks_tier: Gold
+recommendation_ref: RECO-CONT-LINKS
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** as the four areas' own instance of TPN-CONT-003 (no no-store on content responses): a choice in their own code, rated as that class is, and counted in the release gate (`SUMMARY.md`).
+
+---
+
+## TPN-CONT-020 — On a company's own bucket any project writer can presign a DELETE of any of the project's files
+
+```yaml
+id: TPN-CONT-020
+severity: MEDIUM
+control: TS-1.7
+domain: content
+title: "On a company's own bucket any project writer can presign a DELETE of any of the project's files"
+location: supabase/functions/storage-presign/index.ts:136-137
+evidence: |
+    ? 'can_presign_project_read'
+    : 'can_presign_project_write'
+  // OPS = ['put', 'get', 'del', 'head']: del takes the write predicate
+required: |
+  TS-1.7: who may destroy a file is decided as narrowly as who may make it.
+gap: |
+  For an s3 workspace, every person who may write to a project can presign a DELETE of any row-shaped key in it, while on Petal's own
+  bucket a member may delete only their own upload within an hour (0042). Bounded: 0042's update policy already lets any writer
+  overwrite a file there, and the delete is of a body the files row still names.
+effort: S
+blocks_tier: Gold Star
+recommendation_ref: RECO-AUTH-RBAC
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). Found by review round 1.
+
+---
+
+## TPN-CONT-016 — SMB 3 with signing and encryption is documented, but the desktop's share probe never checks it
 
 ```yaml
 id: TPN-CONT-016
 severity: MEDIUM
 control: AS-3.7
 domain: content
-title: SMB 3 with signing and encryption is documented, but WILSON's own share probe neither reads nor refuses the dialect
+title: "SMB 3 with signing and encryption is documented, but the desktop's share probe never checks it"
 location: electron/main.cjs (rabbit:probe-storage-root); docs/gateway/HARDENING.md §4.1; docs/SYSTEMS_HANDBOOK.md §12.7
 evidence: |
   HARDENING.md §4.1: Set-SmbServerConfiguration -EnableSMB1Protocol $false -RequireSecuritySignature $true -EncryptData $true
@@ -2353,9 +2550,9 @@ evidence: |
 required: |
   AS-3.7: transit encryption; for a Windows share, SMB 3.x with encryption and signing required and SMB1 refused.
 gap: |
-  Partly met. The requirement is stated (handbook §12.7; HARDENING.md §4.1) and the file gateway warns on a dialect below 3. The
-  desktop's own storage-root probe (rabbit:probe-storage-root) tells a mapped drive from a UNC path but neither surfaces the negotiated
-  dialect nor refuses SMB1, which the review asked of it; signing and encryption are checked nowhere (WILSON cannot enforce the server's
+  Partly met. The requirement is stated (handbook §12.7; HARDENING.md §4.1) and the file gateway warns on a dialect below 3. The desktop's
+  own storage-root probe (rabbit:probe-storage-root) tells a mapped drive from a UNC path but neither surfaces the negotiated dialect
+  nor refuses SMB1, which the review asked of it; signing and encryption are checked nowhere (WILSON cannot enforce the server's
   configuration).
 effort: S
 blocks_tier: Gold Star
@@ -2367,7 +2564,7 @@ opened: 2026-08-05
 
 ---
 
-## TPN-CONT-017 — Resumable uploads left partial objects the lifecycle could not describe: certified since 0073 and 0074
+## TPN-CONT-017 — Resumable uploads' partial objects: certified as abandoned since 0073 and 0074
 
 ```yaml
 id: TPN-CONT-017
@@ -2375,18 +2572,18 @@ severity: RESOLVED
 resolved_date: 2026-09-07
 control: AS-3.15
 domain: content
-title: "Resumable uploads left partial objects the lifecycle could not describe: certified since 0073 and 0074"
+title: "Resumable uploads' partial objects: certified as abandoned since 0073 and 0074"
 location: supabase/migrations/0073_upload_reservations.sql (sweep_abandoned_uploads); supabase/migrations/0074_file_events_money_arm.sql (abandon_upload_reservation, sweep_open_uploads)
 evidence: |
   pg_cron 'wilson-sweep-abandoned-uploads', '39 * * * *': SELECT * FROM public.sweep_abandoned_uploads();
 required: |
   AS-3.15: every object holding content accounted for, incomplete ones included.
 gap: |
-  Carried with the status Track C recorded in the review (0073, 2026-09-06; 0074, 2026-09-07). An upload that does not complete writes a
-  file_events upload_abandoned row (the hourly sweep, the client's failure path, and teardown's sweep_open_uploads, certified in
-  platform_audit as WIL-7012). Stated limit: the partial object itself is reaped by the platform's 24-hour TUS expiry and cannot be
-  enumerated from WILSON, so the certificate says an upload was abandoned, not that bytes were destroyed; rows a person's own client
-  releases when they next open Files close uncertified by design. Outside the four areas: carried, not re-rated.
+  RESOLVED as Track C recorded it in the review (0073, 2026-09-06; 0074, 2026-09-07), on the certification axis: an upload that does not
+  complete writes a file_events upload_abandoned row (the hourly sweep, the client's failure path, and teardown's sweep_open_uploads,
+  certified in platform_audit as WIL-7012). Its stated limit stands: the partial object itself is reaped by the platform's 24-hour TUS
+  expiry and cannot be enumerated from WILSON, so the certificate says an upload was abandoned, not that bytes were destroyed; rows a
+  person's own client releases when they next open Files close uncertified by design. Outside the four areas.
 effort: M
 blocks_tier: none
 recommendation_ref: RECO-CONT-LIFECYCLE
@@ -2800,6 +2997,33 @@ opened: 2026-07-30
 
 ---
 
+## TPN-SDLC-013 — The gateway's release builds with provenance and SBOM off and runs no SAST, SCA or image scan
+
+```yaml
+id: TPN-SDLC-013
+severity: HIGH
+control: TS-4.0
+domain: sdlc
+title: "The gateway's release builds with provenance and SBOM off and runs no SAST, SCA or image scan"
+location: .github/workflows/gateway-release.yml:240
+evidence: |
+            args=(--platform linux/amd64,linux/arm64 --provenance=false --sbom=false
+required: |
+  TS-4.0 and AS-1.0: SAST per change, SCA per build, a scan per container image, and an SBOM with each release.
+gap: |
+  The gateway has its own pipeline (gateway.yml, gateway-release.yml), separate from the app's CI. Its container image is built with
+  provenance and the SBOM turned off, and neither workflow runs a static analysis, a dependency audit or an image scan. The gateway
+  has no runtime dependencies (gateway/package.json) and its base image is pinned by digest, which narrows the gap; it does not close it.
+effort: S
+blocks_tier: Gold
+recommendation_ref: RECO-SDLC-CI
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** as the four areas' own instance of TPN-SDLC-003 and TPN-3P-001 (no security scans or SBOM in CI): a choice in their own code, rated as that class is, and counted in the release gate (`SUMMARY.md`).
+
+---
+
 ## TPN-SDLC-012 — SHA-1 in the gateway's installer, used only to derive Windows' own service SID
 
 ```yaml
@@ -2807,7 +3031,7 @@ id: TPN-SDLC-012
 severity: LOW
 control: TPN-general
 domain: sdlc
-title: SHA-1 in the gateway's installer, used only to derive Windows' own service SID
+title: "SHA-1 in the gateway's installer, used only to derive Windows' own service SID"
 location: gateway/src/installer.mjs:60-61
 evidence: |
   export function serviceSid(name) {
@@ -2824,6 +3048,34 @@ opened: 2026-10-28
 ```
 
 **Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
+
+---
+
+## TPN-SDLC-014 — The gateway's MSI and service host are unsigned, by her ruling of 2026-10-11
+
+```yaml
+id: TPN-SDLC-014
+severity: INFO
+control: TS-4.0
+domain: sdlc
+title: "The gateway's MSI and service host are unsigned, by her ruling of 2026-10-11"
+location: gateway/windows/wix/Package.wxs:24-26; .github/workflows/gateway-release.yml:161-164
+evidence: |
+  GATEWAY_DESIGN.md, D14 (her rulings of 2026-10-11): "not signed (her ruling: ship unsigned for now). The release workflow has the
+  Authenticode steps in place …, skipped while no certificate is set."
+required: |
+  TS-4.0: release artefacts signed, so a download proves its origin.
+gap: |
+  An intentional, documented exception: Windows SmartScreen warns, and on a computer with no gateway yet nothing proves who made an
+  installer (HARDENING.md §10). Updates are signed (the manifest's Ed25519 key), so only the first install is unanchored. The class is
+  TPN-SDLC-009 (HIGH); this instance is hers.
+effort: S
+blocks_tier: none
+recommendation_ref: RECO-SDLC-CI
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). INFO by the rubric's rule for an intentional, documented exception, her ruling quoted above.
 
 ---
 
@@ -3193,14 +3445,46 @@ opened: 2026-07-30
 
 ---
 
-## TPN-AI-008 — An AI-file upload's 24-hour expiry is set by the client alone, and its attribution rests on a best-effort, 90-day row
+## TPN-AI-009 — Pre-FX12 AI-file uploads on staging and production never expire and soon cannot be attributed
+
+```yaml
+id: TPN-AI-009
+severity: HIGH
+control: OR-5.0
+domain: ai_ml
+title: "Pre-FX12 AI-file uploads on staging and production never expire and soon cannot be attributed"
+location: docs/OUTSTANDING.md (FX12-01); supabase/functions/ai-files, supabase/functions/operator-ai-files (production lacks both FX12 copies)
+evidence: |
+  OUTSTANDING FX12-01: "Every upload since S19's ai-files (2026-08-11) went to the store with no expiry and nothing deleted it … the first
+  rows go on 2026-11-09, and a file whose row is gone is left alone by every sweep for good."
+required: |
+  AS-3.15 and OR-5.0: content in a third-party AI store has certified disposal and stays attributable to its owner.
+gap: |
+  The platform key's store still holds staging's and production's pre-FX12 uploads, client PDFs and pictures, with no expiry. Only
+  FX12's functions and the operator's sweep reach them: on staging since 2026-10-26 (the controller's kit; FX12-01 says dev only, written
+  the day before), on production not at all, so there is no way to delete them there today. From 2026-11-09 the app_events purge removes
+  their attribution and every sweep leaves them for good. Audrey's ruling (2026-10-25): "Clean up before 9 November (Recommended)".
+effort: S
+blocks_tier: Gold
+recommendation_ref: RECO-AI-POLICY
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). HIGH, not MEDIUM (review round 1): it touches content, and disposal has no enforcement on production. It is closed by
+the release's own steps (`docs/PRODUCTION_RUNBOOK.md` (c), the two FX12 functions, and (g) 17, the sweep) and by her sweep on
+staging, so the release gate lists it without holding the start of the production steps on it. Production had no users on
+2026-09-07 (track-c-C2), so its half may be empty: the runbook's a7 counts it.
+
+---
+
+## TPN-AI-008 — An AI-file upload's 24-hour expiry is set by the client alone; its attribution row is best-effort
 
 ```yaml
 id: TPN-AI-008
 severity: MEDIUM
 control: OR-5.0
 domain: ai_ml
-title: An AI-file upload's 24-hour expiry is set by the client alone, and its attribution rests on a best-effort, 90-day row
+title: "An AI-file upload's 24-hour expiry is set by the client alone; its attribution row is best-effort"
 location: src/cloud/aiFiles.js:158; supabase/functions/ai-files/index.ts:139-150, 603-619
 evidence: |
   // aiFiles.js:158
@@ -3226,55 +3510,28 @@ opened: 2026-10-28
 
 ---
 
-## TPN-AI-009 — Uploads made before FX12 on staging and production never expire, and from 2026-11-09 nothing can tell whose they are
-
-```yaml
-id: TPN-AI-009
-severity: MEDIUM
-control: OR-5.0
-domain: ai_ml
-title: Uploads made before FX12 on staging and production never expire, and from 2026-11-09 nothing can tell whose they are
-location: docs/OUTSTANDING.md (FX12-01); supabase/functions/ai-files, supabase/functions/operator-ai-files (production lacks both FX12 copies)
-evidence: |
-  OUTSTANDING FX12-01: "Every upload since S19's ai-files (2026-08-11) went to the store with no expiry and nothing deleted it … the first
-  rows go on 2026-11-09, and a file whose row is gone is left alone by every sweep for good."
-required: |
-  AS-3.15 and OR-5.0: content in a third-party AI store has certified disposal and stays attributable to its owner.
-gap: |
-  The platform key's store still holds staging's and production's pre-FX12 uploads with no expiry. Only FX12's functions and the
-  operator's sweep reach them: on staging since 2026-10-26 (the controller's kit; FX12-01 says dev only, written the day before), on
-  production not at all. Audrey's ruling (2026-10-25): "Clean up before 9 November (Recommended)". docs/PRODUCTION_RUNBOOK.md (g) step 12
-  carries it.
-effort: S
-blocks_tier: Gold Star
-recommendation_ref: RECO-AI-POLICY
-opened: 2026-10-28
-```
-
-**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
-
----
-
-## TPN-AI-010 — One platform Anthropic key backs every environment and company, so the Files-API store holds all of their uploads together
+## TPN-AI-010 — One platform Anthropic key backs every environment and company, so its file store mixes them all
 
 ```yaml
 id: TPN-AI-010
 severity: MEDIUM
 control: AS-2.5
 domain: ai_ml
-title: One platform Anthropic key backs every environment and company, so the Files-API store holds all of their uploads together
-location: supabase/functions/_shared/aiFileStore.ts:13-20; supabase/functions/ai-files/index.ts:120-121
+title: "One platform Anthropic key backs every environment and company, so its file store mixes them all"
+location: supabase/functions/_shared/aiFileStore.ts:13-20; supabase/functions/ai-files/index.ts:100-124
 evidence: |
   // aiFileStore.ts:13-18: "ONE KEY, THREE ENVIRONMENTS, EVERY WORKSPACE … Its file list is the union of all of them."
-  // ai-files/index.ts:120-121: the platform key by default, Deno.env.get('ANTHROPIC_API_KEY')
+  // ai-files/index.ts:100-124: a company's own key when it opens, otherwise, on any failure, the platform key
+  } catch { /* fall through to platform key */ }
+  const platform = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 required: |
   AS-2.5 and CS-1.13: per-tenant key separation and isolation at every layer; AS-1.0: development and production kept apart.
 gap: |
   At the provider, every company's and every environment's uploads (dev's test files beside production's) sit in one store under one key;
   the only boundary is each environment's own app_events upload rows. WILSON's own surfaces hold it correctly (lookups use ids the
   workspace's own rows name, no file name is returned, the operator's sweep leaves another environment's files alone), so no cross-tenant
-  read or delete path was found through the functions; the unmet item is separation at rest. A company's own key (TPN-AI-005's path)
-  keeps its uploads apart.
+  read or delete path was found through the functions; the unmet item is separation at rest. A company's own key keeps its uploads
+  apart only while it opens: on any failure ai-files falls back to the platform key, silently (TPN-AI-005's class).
 effort: L
 blocks_tier: Gold Star
 recommendation_ref: RECO-CLOUD-KMS
@@ -3474,7 +3731,7 @@ opened: 2026-07-30
 
 ---
 
-## TPN-CLOUD-007 — workspaces.storage_mode and storage_config were client-writable and unread: client writes are now refused
+## TPN-CLOUD-007 — workspaces.storage_mode and storage_config were client-writable: client writes are now refused
 
 ```yaml
 id: TPN-CLOUD-007
@@ -3482,7 +3739,7 @@ severity: RESOLVED
 resolved_date: 2026-08-07
 control: TS-1.7
 domain: cloud
-title: "workspaces.storage_mode and storage_config were client-writable and unread: client writes are now refused"
+title: "workspaces.storage_mode and storage_config were client-writable: client writes are now refused"
 location: supabase/migrations/0048_workspace_storage.sql (fn_workspaces_client_guard, §5)
 evidence: |
   IF NEW.storage_mode IS DISTINCT FROM OLD.storage_mode OR NEW.storage_config IS DISTINCT FROM OLD.storage_config THEN RAISE EXCEPTION
@@ -3502,7 +3759,7 @@ opened: 2026-08-05
 
 ---
 
-## TPN-CLOUD-008 — The rabbit-thumbnails bucket had to be private and carry the money gate: it does
+## TPN-CLOUD-008 — The rabbit-thumbnails bucket had to be private and money-gated: it is
 
 ```yaml
 id: TPN-CLOUD-008
@@ -3510,7 +3767,7 @@ severity: RESOLVED
 resolved_date: 2026-08-08
 control: CS-1.13
 domain: cloud
-title: "The rabbit-thumbnails bucket had to be private and carry the money gate: it does"
+title: "The rabbit-thumbnails bucket had to be private and money-gated: it is"
 location: supabase/migrations/0053_thumbnails_bucket.sql:63-74, 311-315
 evidence: |
   INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -3637,34 +3894,62 @@ recommendation_ref: RECO-DOC-FILES
 
 ---
 
-## TPN-DOC-004 — The gateway's hardening guide misstates custody: Petal does hold frames, and a copied clip URL can outlive two minutes
+## TPN-DOC-004 — The gateway's hardening guide says Petal never holds a frame; Petal holds every clip's poster
 
 ```yaml
 id: TPN-DOC-004
+severity: HIGH
+control: OR-3.4
+domain: documentation
+title: "The gateway's hardening guide says Petal never holds a frame; Petal holds every clip's poster"
+location: docs/gateway/HARDENING.md (the control table's OR-3.4 row, and its custody lines); docs/design/GATEWAY_DESIGN.md:35
+evidence: |
+  HARDENING.md: | OR-3.4 (third parties) | Petal's servers never carry a frame; …
+  GATEWAY_DESIGN.md:35: "The cloud sees ids, names, counts and addresses; never a frame."
+  src/tools/rabbit_v0.1.0/adapters/supabaseAdapter.js (POSTER_BUCKET): a still frame of each reachable clip uploaded to rabbit-thumbnails
+required: |
+  OR-3.4, and the hardening guide a software provider publishes (CSBP v5.2 onward): it describes the shipped behaviour, because each
+  company's sub-processor disclosure rests on it.
+gap: |
+  While the outside switch is on, a still frame of every reachable clip goes to Petal's rabbit-thumbnails bucket, and it stays after the
+  switch goes off (FootageSettings.jsx says so at the control). The published guide and the design both say Petal never holds a frame,
+  so a company relying on the guide misstates Petal's custody of its footage to its own assessor.
+effort: XS
+blocks_tier: Gold
+recommendation_ref: RECO-DOC-FILES
+opened: 2026-10-28
+```
+
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). HIGH (review round 1): the published guide contradicts the code on content custody, worse than a missing document.
+The guide's figures are TPN-DOC-005.
+
+---
+
+## TPN-DOC-005 — The hardening guide's revocation and link-life figures are short, and it has no review date
+
+```yaml
+id: TPN-DOC-005
 severity: MEDIUM
 control: TPN-general
 domain: documentation
-title: "The gateway's hardening guide misstates custody: Petal does hold frames, and a copied clip URL can outlive two minutes"
-location: docs/gateway/HARDENING.md (the control table's OR-3.4 row; §9; §10)
+title: "The hardening guide's revocation and link-life figures are short, and it has no review date"
+location: docs/gateway/HARDENING.md §9, §10
 evidence: |
-  | OR-3.4 (third parties) | Petal's servers never carry a frame; …
   - **A leaked clip URL works for up to two minutes**, for one clip, …
+  | A person should no longer see the footage | … a clip they are playing stops within two minutes |
 required: |
-  The hardening guide a software provider publishes (CSBP v5.2 onward) describes the shipped behaviour: companies use it for their
-  sub-processor disclosure (OR-3.4) and their link-expiry assessment (AS-3.7, AS-3.8).
+  The hardening guide describes the shipped behaviour and carries a last-reviewed date.
 gap: |
-  (1) While the outside switch is on, a still frame of every reachable clip goes to Petal's rabbit-thumbnails bucket (supabaseAdapter.js,
-  POSTER_BUCKET) and stays after the switch goes off (FootageSettings.jsx says so at the control); the guide says Petal never carries a
-  frame. (2) A copied clip URL keeps its ticket id and each renewal re-anchors the stream, so it works for as long as its owner keeps
-  playing, up to four hours (GATEWAY_DESIGN.md §10, row 13); the guide says two minutes. (3) A removal takes about 155 s, not "within two
-  minutes" (TPN-AUTH-010). (4) No last-reviewed date.
+  A copied clip URL keeps its ticket id and each renewal re-anchors the stream, so it works for as long as its owner keeps playing, up to
+  four hours (GATEWAY_DESIGN.md §10, row 13 says so); the guide says two minutes. A removal takes about 155 s (TPN-AUTH-010), not
+  "within two minutes". The guide has no last-reviewed date.
 effort: XS
 blocks_tier: Gold Star
 recommendation_ref: RECO-DOC-FILES
 opened: 2026-10-28
 ```
 
-**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only).
+**Opened by the 2026-10-28 scoped re-audit** (the file gateway, bins, own storage, the AI file store; R2, night 4, report only). Split from TPN-DOC-004 by review round 1.
 
 ---
 
@@ -3917,7 +4202,7 @@ opened: 2026-07-30
 
 ---
 
-## TPN-3P-010 — A Petal-operated relay (Option E) would have made Petal a content-bearing sub-processor: it was never built
+## TPN-3P-010 — A Petal-operated relay (Option E) would have made Petal a sub-processor: it was never built
 
 ```yaml
 id: TPN-3P-010
@@ -3925,7 +4210,7 @@ severity: RESOLVED
 resolved_date: 2026-10-12
 control: OR-3.4
 domain: third_party
-title: "A Petal-operated relay (Option E) would have made Petal a content-bearing sub-processor: it was never built"
+title: "A Petal-operated relay (Option E) would have made Petal a sub-processor: it was never built"
 location: docs/design/GATEWAY_DESIGN.md (§1, "Relay through Petal"); gateway/src/cloud/client.mjs:175-200
 evidence: |
   GATEWAY_DESIGN.md: "Relay through Petal. No clip byte transits Petal's servers (storage design §4 Option E, rejected on TPN grounds: TPN-3P-010)."
@@ -3933,12 +4218,11 @@ required: |
   OR-3.4: any party content transits is a disclosed, assessed, contracted sub-processor.
 gap: |
   RESOLVED with GW1 to GW5 (2026-10-10 to 10-12): no relay exists; clip bytes go from the share through the gateway to the browser, and
-  the gateway talks only to the cloud's functions (JSON, no redirects), GitHub releases and Let's Encrypt. A tunnel the company chooses
-  is named in each outside viewing row. Bin posters are stored in Petal's cloud while the switch is on: storage, not relay, and
+  the gateway talks only to the cloud's functions (JSON, no redirects), GitHub releases and Let's Encrypt. A tunnel the company chooses is
+  named in each outside viewing row. Bin posters are stored in Petal's cloud while the switch is on: storage, not relay, and
   TPN-DOC-004's subject.
 effort: XL
 blocks_tier: none
-recommendation_ref: RECO-3P-CVE
 opened: 2026-08-05
 ```
 
