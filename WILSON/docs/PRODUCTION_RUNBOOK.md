@@ -21,13 +21,18 @@ Sources, by key: **[P]** `docs/sessions/PLAN_TO_1_0.md`; **[K]** the controller'
 
 ## 0. The gate, the release commit, and the rules for every step
 
-**The gate** ([P] §0 item 4): the controller's production steps start only after her browser steps ((g) 1–7) and when the first
-section of `TPN_AUDIT/SUMMARY.md`, *Release gate*, reads **0 Critical and 0 High open in the four areas, or she has ruled on each
-finding it names**. On 2026-10-28 it names twelve (walkthrough 85, Q1 and Q2).
+**The gate.** [P] §0 item 4, verbatim: "4. The release steps in §6 are done: hers in the browser, then the controller's on
+production, after the TPN re-audit reports nothing High." So the controller's production steps start only after her browser steps
+((g) 1–7) and when the first section of `TPN_AUDIT/SUMMARY.md`, *Release gate*, reads **0 Critical and 0 High open in the four
+areas**. On 2026-10-28 it reads **11 High**. Walkthrough 85 Q1 and Q2 propose that her ruling on each (fixed before 1.0, or accepted
+for 1.0 with the reason written into the finding) count as nothing High; that is R2's proposal, not the plan's text, and until she
+answers, (g) 8 does not pass.
 
-**The release commit** is `feat/multi-user-v1`'s tip after the last beta merge, with `CHANGELOG.md`'s 1.0.0 heading already dated
-in it. Every deploy, every md5, the web build and the installer come from it, and the tag goes on PR #4's merge of it, so that
-`git diff <release commit> v1.0.0 -- WILSON/` is empty ((g) 20).
+**The release commit** is `feat/multi-user-v1`'s tip after the last beta merge and after (g) 8 has dated `CHANGELOG.md`'s 1.0.0
+heading there. Every deploy, every md5, the web build and the installer come from it, and the tag goes on PR #4's merge of it, so
+that `git diff <release commit> v1.0.0 -- WILSON/` is empty ((g) 20). **Nothing else lands on `feat/multi-user-v1` from (g) 8 to
+(g) 20**: the controller's hand-off, FX12-01's removal from OUTSTANDING (`po-fx12-2026-10-25.md` §7, step 3) and any fix wait
+for the tag.
 
 **The rules.**
 
@@ -44,6 +49,8 @@ in it. Every deploy, every md5, the web build and the installer come from it, an
    `tap-all`, against any project. The CLI's temporary login role is per login, not per project, and two runs race ([HP] §6).
 6. **A file the controller writes for the database is written by a script that reads the git blob as bytes**, never by shell
    interpolation and never through a PowerShell pipe (which re-encodes text and adds CRLF) ([B1] §4), and it carries LF line ends.
+   The one exception is what `scripts/tap-hosted.py` writes for (b)'s rehearsals: it reads the working tree, CRLF here, and writes
+   CRLF; those files are rolled back and never recorded, so no md5 depends on them.
 
 ---
 
@@ -69,11 +76,11 @@ The link asks for production's database password; she types it. Proof: `supabase
 |---|---|---|
 | a1 | `supabase db query --linked "select inet_server_addr() as host, current_user as role, (select rolbypassrls from pg_roles where rolname = current_user) as bypassrls, (select count(*) from public.workspaces) as workspaces"` | `bypassrls` true: 0076, 0088 and 0092 refuse a role that row security binds, 0100 refuses one without BYPASSRLS, and 0069 refuses unless 0064's `otter_nomination_apply` is owned by a BYPASSRLS role (on hosted projects the Management API's `postgres` has it: 0076's header, measured 2026-09-09; [B1] §5) |
 | a2 | `supabase db query --linked "select inet_server_addr() as host, max(version) as last, string_agg(version, ' ' order by version) filter (where version >= '0055') as recent, (select count(*) from public.workspaces) as workspaces from supabase_migrations.schema_migrations"` | last `0063` ([P] §1, 2026-10-27; [K], 2026-10-26). Anything from 0064 on already present: (b) starts at the first absent file, and each present one is checked by step 5's md5 first |
-| a3 | `supabase db query --linked "select inet_server_addr() as host, string_agg(extname || ' ' || extversion || ' in ' || extnamespace::regnamespace::text, ', ' order by extname) as ext from pg_extension where extname in ('pg_cron', 'pgcrypto', 'pg_net')"` | `pg_cron` present; `pgcrypto in extensions` (0093 calls `extensions.gen_random_bytes`) |
-| a4 | `supabase db query --linked "select inet_server_addr() as host, count(*) as jobs, string_agg(coalesce(jobname, '(unnamed)') || ' ' || schedule || case when active then '' else ' (inactive)' end, ', ' order by jobname) as list from cron.job"` | five jobs ([HB] §4.8): `wilson-purge-edit-history` (0012, 04:43), `wilson-purge-soft-deleted` (0014, 04:47), `wilson-purge-app-events` (0021, 04:51), `wilson-purge-otter-trash` (0022, 04:55), `wilson-purge-rate-limits` (0028, 04:59), and **no `wilson-purge-abandoned-uploads`** (0057's, which 0058 unscheduled). That one present: stop, 0073's post-condition 10 refuses it. No `cron` schema: stop, 0073 and 0093 create pg_cron only where it is available |
-| a5 | `supabase db query --linked "select inet_server_addr() as host, string_agg(id || ' public=' || public || ' limit=' || coalesce(file_size_limit::text, 'none'), ', ' order by id) as buckets from storage.buckets"` | `rabbit-files public=false limit=53687091200, rabbit-thumbnails public=false limit=262144, user-avatars public=true limit=2097152` (0027 and 0057, 0053, 0009). **`rabbit-thumbnails` must be `false`**; if not, stop (TPN-CLOUD-008). `user-avatars` public is the known TPN-CLOUD-004 |
+| a3 | `supabase db query --linked "select inet_server_addr() as host, string_agg(extname || ' ' || extversion || ' in ' || extnamespace::regnamespace::text, ', ' order by extname) as ext, (select count(*) from public.workspaces) as workspaces from pg_extension where extname in ('pg_cron', 'pgcrypto', 'pg_net')"` | `pg_cron` present; `pgcrypto in extensions` (0093 calls `extensions.gen_random_bytes`) |
+| a4 | `supabase db query --linked "select inet_server_addr() as host, count(*) as jobs, string_agg(coalesce(jobname, '(unnamed)') || ' ' || schedule || case when active then '' else ' (inactive)' end, ', ' order by jobname) as list, (select count(*) from public.workspaces) as workspaces from cron.job"` | five jobs ([HB] §4.8): `wilson-purge-edit-history` (0012, 04:43), `wilson-purge-soft-deleted` (0014, 04:47), `wilson-purge-app-events` (0021, 04:51), `wilson-purge-otter-trash` (0022, 04:55), `wilson-purge-rate-limits` (0028, 04:59), and **no `wilson-purge-abandoned-uploads`** (0057's, which 0058 unscheduled). That one present: stop, 0073's post-condition 10 refuses it. No `cron` schema: stop, 0073 and 0093 create pg_cron only where it is available |
+| a5 | `supabase db query --linked "select inet_server_addr() as host, string_agg(id || ' public=' || public || ' limit=' || coalesce(file_size_limit::text, 'none'), ', ' order by id) as buckets, (select count(*) from public.workspaces) as workspaces from storage.buckets"` | `rabbit-files public=false limit=53687091200, rabbit-thumbnails public=false limit=262144, user-avatars public=true limit=2097152` (0027 and 0057, 0053, 0009). **`rabbit-thumbnails` must be `false`**; if not, stop (TPN-CLOUD-008). `user-avatars` public is the known TPN-CLOUD-004 |
 | a6 | `supabase db query --linked "select inet_server_addr() as host, (select count(*) from public.workspaces) as workspaces, (select count(*) from public.projects) as projects, (select count(*) from auth.users) as users, (select count(*) from public.platform_operators) as operators"` | `0 / 0 / 0` and no operator ([C2] §2, measured 2026-09-07). Nothing in (b) to (d) needs a company. With no company she belongs to, the first operator is (g) 13 (walkthrough 85, Q4) |
-| a7 | `supabase db query --linked "select inet_server_addr() as host, (select count(*) from public.workspace_storage_secrets) as bucket_secrets, (select count(*) from public.workspace_ai_keys) as ai_keys, (select count(*) from public.app_events where code = 'WIL-6001' and context->>'tool' = 'ai-files' and message = 'AI file upload completed') as ai_uploads, (select count(*) from public.workspaces) as workspaces"` | all 0 on an empty production. `ai_uploads` above 0 and release day after 2026-11-08: deploy `ai-files` and `operator-ai-files` first ((c), no migration needed) and sweep ((g) 17), or the attribution is gone ([OUT] FX12-01) |
+| a7 | `supabase db query --linked "select inet_server_addr() as host, (select count(*) from public.workspace_storage_secrets) as bucket_secrets, (select count(*) from public.workspace_ai_keys) as ai_keys, (select count(*) from public.app_events where code = 'WIL-6001' and context->>'tool' = 'ai-files' and message = 'AI file upload completed') as ai_uploads, (select count(*) from public.workspaces) as workspaces"` | all 0 on an empty production: an `app_events` row needs a company (`workspace_id NOT NULL`, 0021), so with a6 at 0 there is nothing to sweep, and (g) 17 says so. If a6 reads a company and `ai_uploads` is above 0, (c)'s two FX12 functions and (g) 17's sweep come before 2026-11-09, when the 90-day purge takes the attribution ([OUT] FX12-01) |
 | a8 | `supabase functions list --project-ref rqyriuyldhovirbuievt` | the deployed set; (c) compares it with the 22 in the tree |
 | a9 | `supabase secrets list --project-ref rqyriuyldhovirbuievt`, then the same with `rzkirvkotslbovzbsdfh` (staging) | names and digests only; (d) says which match |
 | a10 | Dashboard → wilson-prod → Authentication: **Hooks**, **Sessions**, **Email Templates**, **SMTP Settings**, **URL Configuration** | Hooks: **exactly one, Custom Access Token → `public.custom_access_token_hook`, enabled** (`docs/sessions/SESSION_04_prompt.md`: "enabled on both", staging and prod), and neither of 0070's two; the token hook absent: stop, every tenant policy reads the claims it mints ([HB] §4.3). Templates: **not uploaded** (`docs/RELEASE_TESTING.md` as of 2026-09-30: "Staging templates are uploaded; dev and prod are not"; [HB] §9 says all three: the read settles it). SMTP: Resend. Sessions: note the time-box and inactivity timeout. URLs: none yet for the host of (f) |
@@ -92,8 +99,8 @@ through **0101**; **0103** follows if M2 has merged (night 4), and **0104** if P
 1. **Drift.** `supabase db query --linked "select inet_server_addr() as host, string_agg(version, ' ' order by version desc) as last3, (select count(*) from public.workspaces) as workspaces from (select version from supabase_migrations.schema_migrations order by version desc limit 3) v"` → the previous file is first.
 2. **Rehearsal, rolled back.** `<W>\rehearse-NNNN.sql` holds `BEGIN;`, the file's LF text and `ROLLBACK;` (rule 6).
    `supabase db query --linked --file <W>\rehearse-NNNN.sql` → no error, and step 1 reads the same. A file's preflight fires
-   here, where it costs nothing. No file in the range holds a `BEGIN`, `COMMIT`, `ROLLBACK`, `CONCURRENTLY`, `VACUUM` or
-   `ADD VALUE` of its own (grep, 2026-10-28), so the wrapper is safe for all 33.
+   here, where it costs nothing. No file in the range holds a top-level `BEGIN;`, `COMMIT;` or `ROLLBACK;`, or any `CONCURRENTLY`,
+   `VACUUM` or `ADD VALUE` (grep, 2026-10-28; the `BEGIN`s inside function bodies are plpgsql's), so the wrapper is safe for all 33.
 3. **The statements.** `supabase db query --linked --file <W>\NNNN.lf.sql` (an LF copy of the blob, rule 6). `db query` drops
    `RAISE NOTICE`, so a file's "OK" line never shows ([B1] §5); an error is what matters.
 4. **The history row.** `<W>\hist-NNNN.sql` holds
@@ -101,17 +108,21 @@ through **0101**; **0103** follows if M2 has merged (night 4), and **0104** if P
    with `name` the file name without its `NNNN_` and `.sql` ([K]'s shape; no file contains `$m$`).
    `supabase db query --linked --file <W>\hist-NNNN.sql`. [OWED] §14 recorded 0071 on dev with `supabase migration repair`, which
    may not record the statements, so step 5 could not check it: use the row.
-5. **The md5.** `supabase db query --linked "select inet_server_addr() as host, version, md5(statements[1]) as md5 from supabase_migrations.schema_migrations where version = 'NNNN'"`
+5. **The md5.** `supabase db query --linked "select inet_server_addr() as host, version, md5(statements[1]) as md5, (select count(*) from public.workspaces) as workspaces from supabase_migrations.schema_migrations where version = 'NNNN'"`
    → the table's value, the md5 of the file's git blob (LF). Recompute it from the release commit **in Git Bash**
    (`git show <release commit>:WILSON/supabase/migrations/<file> | md5sum`; never in PowerShell, rule 6) and stop if it differs
    from the table (measured at `51e5a0d7`).
 6. **The file's own probe**, where the table gives one.
 
-**Before step 3 of the first file, the whole chain once, rolled back** (recommended): `python scripts/tap-hosted.py <W>\chain.sql`
-with the 33 files in order and then the suites below that a later file extended, as one rolled-back transaction, through
-`supabase db query --linked --file <W>\chain.sql`; each suite's verdict row must read `collected = planned` and no failure. It tests
-the final schema on production before anything commits. Untried at this size (about 1.6 MB of SQL in one call): if the
-Management API refuses it, run it per suite, the 33 files then one suite each.
+**Before step 3 of the first file, the whole chain once, rolled back** (recommended). `<W>\chain.sql` holds `BEGIN;`, the 33
+files' LF text in order and `ROLLBACK;` (rule 6); `supabase db query --linked --file <W>\chain.sql` → no error, and step 1 reads the
+same. It proves the 33 apply in order on production as it is, before anything commits. Untried at this size (about 1.6 MB of SQL in
+one call): if the Management API refuses it, rely on each file's own rehearsal (step 2). **To test the final schema the same way**,
+one suite per call. The suites cannot share a transaction (`tests.rls_setup()` runs as its caller and inserts into `auth.users`,
+and suite 01 leaves the role `authenticated`), which is why `scripts/tap-all.mjs` runs one suite per transaction. For a suite N of
+the list below: `python scripts/tap-hosted.py <W>\chain-N.sql`, then the 33 files in order and `supabase\tests\rls\N_<name>.sql`
+as its arguments, then `supabase db query --linked --file <W>\chain-N.sql` → its one verdict row reads `collected = planned`
+and no failure.
 
 **After the last file, the suites** (step 7): `node scripts/tap-all.mjs` from the release worktree → every suite `collected =
 planned`, no failure. On a production nobody has signed in to, suite 74 reads 35/35; on any database with real rows, suite 74's
@@ -164,8 +175,9 @@ suite 106.
 environment, removed by B1; 0100 replaced it); **0079** and **0080** (reserved on paper for bins and assemblies, retired by 0091:
 they would sort before files already applied everywhere, and edits superseded assemblies); **0087** (held for S3b, never used);
 **0094** (reserved, with suite 97, for aligning 0091's `unc_path` CHECK, BC3's deferral; `po-gw5-2026-10-12.md` leaves it to the
-controller); **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6). Once 0103 is applied,
-both 0094 and 0102 would sort before applied files, the reason 0079 was retired: walkthrough 85, Q5.
+controller); **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6). 0094 already sorts
+before files applied on dev and staging (0095 to 0101), and once 0103 is applied 0102 will too, the reason 0079 was retired:
+walkthrough 85, Q5.
 
 ---
 
@@ -177,13 +189,15 @@ function that bundles it), and the documents disagree about what is there (below
 nothing across them: *"Diff the source, never the version"* (`docs/MASTER_PLAN.md`).
 
 **First, the rollback copies.** Production's current functions came from several commits, so the only copy of each is the deployed
-one: from the release worktree's `WILSON\` (linked, rule 4), `supabase functions download <name> --project-ref
-rqyriuyldhovirbuievt` for each name (a8) lists, then move what it wrote (`supabase\functions\<name>`) to `<W>\before\<name>`, and
-`git checkout -- supabase/functions` so the worktree is the release commit's again. Proof: `git status --short` is empty.
+one. A download writes `supabase\functions\<name>\` and the `_shared` files it bundles under its workdir, overwriting what is
+there, so it goes into a scratch folder of its own and never into a repository (`docs/sessions/TRACK_C_storage_files_prompt.md`;
+`track-c-C1-2026-09-06-part2.md`). For each name (a8) lists: `supabase functions download <name> --project-ref
+rqyriuyldhovirbuievt --workdir <W>\before\<name>`. Proof: each `<W>\before\<name>\supabase\functions\<name>\` exists, and
+`git status --short` in the release worktree is empty.
 
-**Then the deploys**, one command per name in the table, from the same folder (the CLI reads `supabase\config.toml`, which gives
-all 22 `verify_jwt = false`: the platform's own check accepts only HS256 and this project signs ES256, the file's own comment;
-`--no-verify-jwt`, as the gateway hand-offs write it, is the same):
+**Then the deploys**, one command per name in the table, from the release worktree's `WILSON\` (the CLI reads
+`supabase\config.toml`, which gives all 22 `verify_jwt = false`: the platform's own check accepts only HS256 and this project signs
+ES256, the file's own comment; `--no-verify-jwt`, as the gateway hand-offs write it, is the same):
 
 ```
 supabase functions deploy <name> --project-ref rqyriuyldhovirbuievt
@@ -231,13 +245,14 @@ function and nobody sets.
 5. **`operator-workspaces`.** [OUT]'s setup-link note (2026-09-06) says production has *"neither 0064, 0066 nor the function"*;
    [C2] the next day records production at v9.
 
-**Proof, per function.** The source: `supabase functions download <name> --project-ref rqyriuyldhovirbuievt` again, and its
-`supabase\functions\<name>` (with the `_shared` files it bundles) identical to the release commit's; then `git checkout --
-supabase/functions`. `supabase functions list --project-ref rqyriuyldhovirbuievt` shows all 22. Two answers tell FX12's copies from
-the old ones: an unauthenticated `curl -s -X DELETE https://rqyriuyldhovirbuievt.supabase.co/functions/v1/ai-files` answers 401
-(the old copy 405, `po-fx12-2026-10-25.md` §6), and an unauthenticated `curl -s -X POST -d '{"action":"summary"}'
-https://rqyriuyldhovirbuievt.supabase.co/functions/v1/operator-ai-files` answers 401. For every other function the source
-comparison is the proof.
+**Proof, per function.** The source: `supabase functions download <name> --project-ref rqyriuyldhovirbuievt --workdir
+<W>\after\<name>`, and the files under its `supabase\functions\` (the function and the `_shared` files it bundles) identical to the
+release commit's. `supabase functions list --project-ref rqyriuyldhovirbuievt` shows all 22. Two answers tell FX12's copies from
+the old ones, in Git Bash (in Windows PowerShell 5.1 `curl` is `Invoke-WebRequest`, and the quoting below is bash's): an
+unauthenticated `curl -s -o /dev/null -w '%{http_code}\n' -X DELETE https://rqyriuyldhovirbuievt.supabase.co/functions/v1/ai-files`
+prints 401 (the old copy 405, `po-fx12-2026-10-25.md` §6), and `curl -s -o /dev/null -w '%{http_code}\n' -X POST -d
+'{"action":"summary"}' https://rqyriuyldhovirbuievt.supabase.co/functions/v1/operator-ai-files` prints 401. For every other
+function the source comparison is the proof.
 
 ---
 
@@ -267,8 +282,11 @@ value, never the value. Run it for production and for staging and compare the di
 the value is the same, not that it works** ([OWED] §9 C2), so each secret gets its working proof once a signed-in person exists
 ((g) 16): `WILSON_AI_KEY_SECRET`, a company key saved with the console's **Set key** and **Store key** on a test company;
 `WILSON_STORAGE_KEY_SECRET`, the first bucket secret saved in Admin terminal → **Storage** (a malformed key fails there by name,
-*"must decode to exactly 32 bytes"*); `WILSON_GATEWAY_KEY_SECRET`, at the first gateway enrolment, when a ticket is minted
-(`gateway-ticket` reaches its `crypto_unavailable` answer only for a real, confirmed gateway).
+*"must decode to exactly 32 bytes"*); `WILSON_GATEWAY_KEY_SECRET`, after the first gateway enrolment, `supabase db query --linked
+"select inet_server_addr() as host, count(*) as keys, (select count(*) from public.workspaces) as workspaces from
+public.gateway_signing_keys"` → 1 (a key is stored only when the secret seals it; `gateway-enrol` enrols without one and says
+nothing, `gateway-enrol/index.ts`), and the first clip played through a confirmed gateway answers a ticket, never 503
+`crypto_unavailable`.
 
 **Setting what production lacks.** A value that must match another environment's is pasted by her into production's dashboard
 from where she keeps it; the CLI never reads a value back. A fresh value (`WILSON_GATEWAY_KEY_SECRET`, or either encryption secret
@@ -329,13 +347,15 @@ and `userData/env.json` cannot change them (`electron/env.cjs`, its header); `.e
    production's `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, and `VITE_SENTRY_*` if the renderer should report (names from
    `.env.example`; values typed by her). The packaged main process reads its own settings from `{userData}\env.json`, where
    `WILSON_ENV` defaults to production (`electron/env.cjs`).
-2. **ffmpeg.** A clean checkout carries none: `resources/ffmpeg/` holds only its README, which asks for an LGPL build. Either put
-   that `ffmpeg.exe` there before the build, or ship without it and keep OUTSTANDING's *Professional codecs have no preview* entry
-   as the limit: her choice, recorded in the hand-off. Proof: `release\win-unpacked\resources\ffmpeg\` holds what was chosen.
+2. **ffmpeg.** A clean checkout carries none: `resources/ffmpeg/` holds only its README (which asks for an LGPL build) and a
+   `.gitignore`. Either put that `ffmpeg.exe` there before the build, or ship without it and keep OUTSTANDING's *Professional
+   codecs have no preview* entry as the limit: her choice, recorded in the hand-off. Proof: `release\win-unpacked\resources\ffmpeg\`
+   holds what was chosen.
 3. `npm run dist`. Proof: `findstr /s /m rqyriuyldhovirbuievt dist\assets\*.js` names a file; the same search for
    `eqjzmnvkrakroyqxfsvw` and for `rzkirvkotslbovzbsdfh` names none; `release\` holds the installer, its `.blockmap` and
    `latest.yml`.
-4. Install it on a clean Windows account and sign in once (hers): the company step answers against production.
+4. After (g) 13, since production holds no company before it: install it on a clean Windows account and sign in once (hers) to
+   her company: the company step answers against production.
 5. **Publish by hand.** The feed is `package.json`'s only publish entry, the `generic` provider at
    `https://updates.petalstudios.co/wilson` (B2 behind it, [HB] §8); electron-builder has no uploader for a generic feed, so
    `npm run dist:publish` uploads nothing. Upload `release\latest.yml`, the installer and its `.blockmap` to the feed's bucket. Proof:
@@ -358,19 +378,39 @@ has put the five `gateway-*` functions there.
 | 5 | Audrey | `docs/RELEASE_TESTING.md` worked and ticked, every `[BLOCKING]` passed or knowingly waived | the ticked file |
 | 6 | Audrey | PR #4's title and body pasted (the draft below) | the PR page |
 | 7 | Audrey | Her answers to walkthrough 85 (the gate's findings fixed or ruled; production's web host; the first operator; 0094 and 0102) | the answers in the chat |
-| 8 | Controller | The gate in §0 | the *Release gate* line, or her rulings |
+| 8 | Controller | The gate in §0; then the release commit: `CHANGELOG.md`'s 1.0.0 heading dated with the day planned for (g) 20, landed on `feat/multi-user-v1` through the integration branch's beta merge, and its hash recorded. From here nothing else lands there until (g) 20 (§0) | the *Release gate* line, or her rulings; the hash in the hand-off, its `CHANGELOG.md` heading dated |
 | 9 | Controller | (a) a1–a11 | every read in the hand-off |
 | 10 | Controller | (b): the chain rehearsal, every file, then the suites | (b)'s proofs |
 | 11 | Controller | (c), the rollback copies first; (d)'s settings | (c)'s source comparison; (d)'s digests |
-| 12 | Controller, with her | (f) the web: production's web app and console per Q3, the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–4 (not yet published) | (f)'s proofs |
-| 13 | Controller, with her | The first operator, if a6 read no company of hers: her account, two-factor in the production app, the operator row ([OWED] §9A–B), as Q4 decides | she signs in to production's `/wilsonadmin` and sees **Companies** |
+| 12 | Controller, with her | (f) the web: production's web app and console per Q3, the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–3 (built; not yet installed or published) | (f)'s proofs |
+| 13 | Controller, with her | The first operator, if a6 read no company of hers, as Q4 decides: by Q4(a), the five steps under this table; then (f) the desktop, step 4 | she signs in to production's `/wilsonadmin` and sees **Companies**; the installed desktop signs in to her company |
 | 14 | Audrey | (e) on production | (e)'s probe, rows from `gotrue_hook` |
-| 15 | Audrey | The invite and recovery templates uploaded to production (`supabase/templates/invite.html`, `recovery.html`; Authentication → Email Templates) and SMTP confirmed as Resend ([OWED] §12; S18) | an invite sent to her own Gmail stays unspent for minutes, then opens *Welcome to WILSON* with **Continue** first (`docs/RELEASE_TESTING.md` §B) |
-| 16 | Controller, with her | (d)'s working proofs: **Set key** on a test company; a bucket secret if she has a test bucket; the gateway's at its first enrolment | each proof as (d) says |
+| 15 | Audrey | The invite and recovery templates uploaded to production (`supabase/templates/invite.html`, `recovery.html`; Authentication → Email Templates) and SMTP confirmed as Resend ([OWED] §12; S18) | an invite sent to an address with no production account (not the one (g) 13 used, which answers *That email is already associated with a WILSON account.*) stays unspent for minutes, then opens *Welcome to WILSON* with **Continue** first (`docs/RELEASE_TESTING.md` §B) |
+| 16 | Controller, with her | (d)'s working proofs: **Set key** on a test company; a bucket secret if she has a test bucket; the gateway's after its first enrolment | each proof as (d) says |
 | 17 | Controller, with her | The operator console's **AI files** on production: read *Tied to a company of this environment*, sweep, read again, **before 2026-11-09** ([OUT] FX12-01; walkthrough 76 part C). With a7's `ai_uploads` at 0 there is nothing to sweep: say so | the before and after counts |
 | 18 | Controller | (f) the desktop, step 5: the feed | `latest.yml` names 1.0.0 |
 | 19 | Controller, on her go | PR #4 merged into `main` through GitHub's merge button, **with a merge commit, never a squash** (`main` takes no direct push, [HB] §7.1; the rule is [HP] §6 and `docs/sessions/FIX_PLAN_2026-09-04.md`, "Release last") | `main`'s head is a merge commit with two parents |
 | 20 | Controller, on her go | The tag `v1.0.0` on that merge commit, pushed | `git ls-remote --tags origin v1.0.0` names it, and `git diff <release commit> v1.0.0 -- WILSON/` is empty |
+
+**(g) 13 by Q4(a): the first company, by SQL.** S43 removed self-serve companies and only an operator makes one, so the first
+operator starts from a company written by hand, through the function the console's own **New company** calls
+(`operator-workspaces`' create action calls `public.provision_workspace_and_admin`, 0009; service role only, and `db query` runs as
+`postgres`). If Q4 is (b), the session that builds it replaces these five steps.
+
+1. **Hers:** Dashboard → wilson-prod → Authentication → Users → **Add user** → **Create new user**: the address she will type into
+   the console (not the one (g) 15 invites), a password she types, **Auto Confirm User** on. Proof: the user is listed.
+2. **The controller:** `<W>\first-company.sql` holds one statement, `select * from public.provision_workspace_and_admin('<company
+   name>', '<slug>', (select id from auth.users), '<username>', '<display name>');`: production holds that one user (a6 read 0), so
+   the subquery fails safe if it does not. Its guards: a name of 1 to 80 characters, a slug of `^[a-z0-9][a-z0-9-]{1,62}$`, a
+   username of `^[a-z0-9][a-z0-9._-]{1,31}$`. Rehearse it inside `BEGIN;` and `ROLLBACK;` ((b) step 2) → one row; then run it →
+   one row, the company's id and slug. Proof: `supabase db query --linked "select inet_server_addr() as host, (select count(*) from
+   public.workspaces) as workspaces, (select count(*) from public.workspace_members where app_role = 'admin' and is_active) as
+   admins"` → 1 and 1.
+3. **Hers:** production's app ((g) 12's web) → the company, the username, the password → **Secure your admin account** → enrol
+   ([OWED] §12, step 2).
+4. **The controller:** [OWED] §9B's `INSERT` with her address, by `db query`, then its check `SELECT` with `inet_server_addr()`
+   added (rule 3) → her row and its `granted_at`.
+5. **Hers:** production's `/wilsonadmin` → **Email**, **Password**, **Authenticator code** → **Companies**, (g) 13's proof.
 
 **PR #4, as it stands** (read through the public API on 2026-10-28): open, `feat/multi-user-v1` into `main`, title *Feat/multi
 user v1*, no body. A draft for her to paste or change:
@@ -387,8 +427,11 @@ user v1*, no body. A draft for her to paste or change:
 
 **Can be rolled back.**
 
-- **An Edge Function**: deploy the copy (c) downloaded into `<W>\before\<name>` (this is the first release, so there is no earlier
-  release commit to deploy from), and compare sources to prove it.
+- **An Edge Function**: `supabase functions deploy <name> --project-ref rqyriuyldhovirbuievt --workdir <W>\before\<name>
+  --no-verify-jwt` (outside the repository there is no `config.toml`, so the flag is what keeps `verify_jwt` off; this is the
+  first release, so there is no earlier release commit to deploy from), then compare sources as (c) does. A function production did
+  not have before the release (a8: the five `gateway-*` and `operator-ai-files`, by the documents) rolls back by `supabase functions
+  delete <name> --project-ref rqyriuyldhovirbuievt`.
 - **The Auth hooks and session settings**: switch them off or back in the dashboard. The hooks answer *continue* on every path,
   so turning one off loses only its rows.
 - **A web deployment**: Vercel → the project → Deployments → promote the previous one.

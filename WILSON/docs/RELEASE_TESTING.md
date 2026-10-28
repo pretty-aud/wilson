@@ -5,11 +5,13 @@ each part works is in `docs/SYSTEMS_HANDBOOK.md`; each section names the walkthr
 **Rewritten 2026-10-28 (R2, night 4) against the code at `51e5a0d7`**: every label and message below was found by its identifier in
 the source, not copied from a walkthrough, so where a walkthrough's words differ, this file's are the app's.
 
-**Length and time.** About 570 lines; about **8 hours**, a full day or two halves: an hour and a half of setup (Part 1, done once on
+**Length and time.** About 590 lines; about **8 hours**, a full day or two halves: an hour and a half of setup (Part 1, done once on
 each database) and about six and a half hours of checks (Part 2), plus about 30 minutes for §S once night 4's sessions are written
-in. The `[NOTE]` checks are about an hour of that. **Start the two slow clocks first** (§A's 4-hour cap and §O's offline launch): a
-browser profile and a desktop session signed in at the start and left untouched, never signed out, which restarts them; run §A's
-idle check in a profile of its own. Then Part 2 in order; note a failure by its section and bullet and carry on, never stop to fix.
+in. The `[NOTE]` checks are about an hour of that. **Start the two slow clocks first.** §A's 4-hour cap: a browser profile of its
+own on the beta, signed in as `testmgr` (no check signs it out or resets it), touched at least every 20 minutes or answered **Stay
+signed in**, because 30 idle minutes sign it out; §A's idle check runs in a profile of its own. §O's offline launch: on the desktop,
+sign in and quit at once; relaunch offline before the 4 hours are up, quit again, and relaunch offline after them. Then Part 2 in
+order; note a failure by its section and bullet and carry on, never stop to fix.
 
 **Legend**
 - `[BLOCKING]` must work to ship 1.0.0, or be waived knowingly. `[NOTE]` note it and move on.
@@ -68,9 +70,10 @@ self-serve company creation, and companies are made in the operator console.
 
 ## Step 3. Two-factor and the operator tier, on the database whose console you use
 
-1. Sign in to the app with your admin account on that database. An admin with no factor meets **Secure your admin account** first;
-   otherwise `App settings` → `Profile` → **Two-factor authentication** → **Set up** → **Activate MFA**. It ends on **Enabled** and
-   *Admins must keep MFA on.*, with no Disable.
+1. Sign in to the app with your admin account on that database (on dev, never `smoke_admin`: CI's Playwright signs in as it and
+   clicks **Set up later**, `tests/e2e/authFlow.ts`, so enrolling it turns CI red). An admin with no factor meets **Secure your
+   admin account** first; otherwise `App settings` → `Profile` → **Two-factor authentication** → **Set up** → **Activate MFA**. It
+   ends on **Enabled** and *Admins must keep MFA on.*, with no Disable.
 2. Sign out and back in with the code: every admin action now needs a two-factor session.
 3. Run the `INSERT` and the check `SELECT` of `OWED_AUDREY.md` §9B in that project's SQL editor. There is no screen for this
    anywhere, by design.
@@ -92,8 +95,10 @@ once (*This password is shown once and is not stored anywhere…*), **Copy all**
 
 ## Step 5. The new company's admin
 
-Sign in as Release Test Co's admin (the company, the username, the password shown once) and enrol two-factor as in Step 3.1, then
-sign out and back in with the code. That browser remembers the company; `/wilson?company=<slug>` pre-fills it anywhere.
+Sign in as Release Test Co's admin (the company, the username, the password shown once) in a **second browser profile first**, and
+choose **Set up later**: keep that profile signed in for §A's second-device check, answering **Still there?** with **Stay signed
+in**. Then sign in as the same admin in your main profile and enrol two-factor as in Step 3.1, then sign out and back in with the
+code. That browser remembers the company; `/wilson?company=<slug>` pre-fills it anywhere.
 
 ## Step 6. A manager and a user
 
@@ -103,8 +108,10 @@ sign out and back in with the code. That browser remembers the company; `/wilson
   card** / **Can edit rate card**) → **Create user** → the password shown once. A blank email makes a synthesised address nobody
   receives: that account's password is reset only by an admin.
 
-Make `testmgr` (Manager, **Can view rate card**) and `testuser` (User), and sign in as each once. In Throwaway Co, also make a
-`testuser` (blank email): §A's "one username in two companies".
+Make `testmgr` (Manager, **Can view rate card**, and an **Email** of yours, a `+testmgr` alias of your inbox for instance: §D signs
+in to the console by email, and a blank one is synthesised), `testmgr2` (Manager, no rate-card grant, never seated on a project:
+§J's manager with no seat) and `testuser` (User), and sign in as each once. In Throwaway Co, also make a `testuser` (blank email):
+§A's "one username in two companies".
 
 ## Step 7. Something to test against
 
@@ -112,7 +119,8 @@ Make `testmgr` (Manager, **Can view rate card**) and `testuser` (User), and sign
 2. R.A.B.B.I.T. → `Summary` → **New project**. In its **Control panel** turn on **Scenes and shots**, **Levels** and
    **Experiences** (their tabs show only then). Two phases and four tasks, some for `testuser`; a **Key date** on `Timeline`; a
    `Crew/team` and a `Talent` row in `Budget`.
-3. R.A.B.B.I.T. → `Team`: seat `testmgr` as **Manager** and `testuser` as **Reviewer** (the gates in §G to §J read the seats).
+3. R.A.B.B.I.T. → `Team`: seat `testmgr` as **Manager** and `testuser` as **Reviewer**, and leave `testmgr2` off (the gates in
+   §G to §J read the seats).
 4. One file with **Core project file** ticked (`Files`, its window).
 5. O.T.T.E.R.: a course with two subjects; as the admin, **Share or submit…** → make it the company standard.
 6. `Dashboard` → `Notes`: two notes (cloud only).
@@ -135,6 +143,10 @@ No automated test covers the two-factor path end to end: re-run the first three 
 - From **Secure your admin account**: **Activate MFA** → *Activating…* → **MFA active ✓**, closing within about 4 s; never stuck on
   *Activating…*, never an orange screen with nothing to click; at 1280 × 824 the screen sits clear of both bars. `[BLOCKING]`
 - Sign out, sign in with the code → Home. `[BLOCKING]`
+- From Step 5's second profile, signed in before you enrolled: invite from it (**Add people** → **Invite by email…**) → *This
+  action needs a fresh MFA sign-in. Sign out and back in with your authenticator code.*; after signing in there with the code it
+  sends. Enrolling upgrades the enrolling session itself, so it must be another device; run it before **Forgot password?** below,
+  which signs out every device. `[BLOCKING]`
 - A wrong code → *Code rejected. Try again.*, the field cleared, the button usable. `[BLOCKING]`
 - A stalled network (not the browser's Offline switch, which fails at once and reads as a rejected code) → *The server did not
   respond. Check your connection and try again.* within 15 s. `[NOTE]`
@@ -154,7 +166,8 @@ No automated test covers the two-factor path end to end: re-run the first three 
   is already associated with a WILSON account.*), so it needs a `workspace_members` row added in the SQL editor; the controller
   writes it if she wants this check. `[NOTE]`
 - `[Desktop]` Signed in, quit, relaunch → still signed in; signed out, relaunch → the sign-in. `[BLOCKING]`
-- `App settings` → `General`, the **Password** card: change your own password, sign out, sign in with the new one. `[BLOCKING]`
+- `App settings` → `General`, the **Change password** card: change your own password → *Password changed.*; sign out, sign in with
+  the new one. `[BLOCKING]`
 - `[Web]` **Forgot password?** on a real inbox → the email → *Confirm below to continue resetting your password.* and **Continue**
   first, then **NEW PASSWORD**, **CONFIRM**, **Set password**, with *You will be signed out on every device.* beforehand and
   *Password updated. You have been signed out on every device — sign in again with your new password.* after; a console tab open
@@ -168,15 +181,12 @@ No automated test covers the two-factor path end to end: re-run the first three 
 - The link → *Welcome to WILSON. Confirm below to activate your account and choose a password.* and **Continue** first, then the
   password form, the welcome, the app in the right company; the same link again → *This link has already been used, or it has
   expired.* `[BLOCKING]`
-- A second device signed in before you enrolled two-factor: invite from it → *This action needs a fresh MFA sign-in. Sign out and
-  back in with your authenticator code.*; after signing in with the code it sends. (Enrolling upgrades the enrolling session
-  itself, so it must be another device.) `[BLOCKING]`
 - **Create with password…** → the password once, the roster row with no refresh, and no way to see the password again; a taken
   username → *That username is already taken in this workspace.* `[BLOCKING]`
-- `testuser`'s **Role**, then **Can view rate card** → `Logs` shows a **WIL-4105** *Member privileges changed* row for each, naming
-  you. **Deactivate**, then **Reactivate** → **WIL-4103** *User deactivated* and **WIL-4104** *User reactivated*, naming you, each
-  beside a WIL-4105 row whose actor is *system* (the function writes as the service role). A display-name or avatar edit writes
-  none. `[BLOCKING]` A created user writes **WIL-4106** *Membership created*. `[NOTE]`
+- `testuser`'s **Role**, then **Can view rate card**, then both back → `Logs` shows a **WIL-4105** *Member privileges changed* row
+  for each of the four, naming you. **Deactivate**, then **Reactivate** → **WIL-4103** *Deactivated "testuser"* and **WIL-4104**
+  *Reactivated "testuser"*, naming you, each beside a WIL-4105 row whose actor is *system* (the function writes as the service role).
+  A display-name or avatar edit writes none. `[BLOCKING]` A created user writes **WIL-4106** *Membership created*. `[NOTE]`
 - The rate card follows the grants: `testmgr` (view) sees `Rate card` and cannot change it; `testuser` (no grant) does not see the
   rates. `[BLOCKING]`
 
@@ -186,8 +196,9 @@ No automated test covers the two-factor path end to end: re-run the first three 
 
 - As `testmgr` or `testuser`: no `Admin terminal` in Resources (its page says *Admins only*). `[BLOCKING]`
 - **Users**: *Search username, name, email…* and **All** / **Active** / **Deactivated** filter as you type `[NOTE]`; your own
-  detail shows your role as text, *Ask another admin to change your role.* `[BLOCKING]`; **Reset password** shows a new one once
-  `[BLOCKING]`; **Deactivate** stops their sign-in and **Reactivate** restores it `[BLOCKING]`.
+  detail shows your role as text, *Ask another admin to change your role.* `[BLOCKING]`; **Reset password** on `testuser` shows a
+  new one once `[BLOCKING]`; **Deactivate** stops `testuser`'s sign-in and **Reactivate** restores it `[BLOCKING]`. Never
+  `testmgr`, whose profile holds the 4-hour clock.
 - **Company**: **Download takeout (.zip)** → a CSV per table and *Exported N rows across M tables.*, with no O.T.T.E.R. or Notes
   content (excluded by design) `[BLOCKING]`; the **Teams** card adds and removes departments, kept on this computer only `[NOTE]`.
 - **Models**: *Which model each function uses for everyone in this company. …*; with nothing set, *Nothing overridden — every
@@ -204,9 +215,9 @@ No automated test covers the two-factor path end to end: re-run the first three 
 - `[Web]` Signed in at `https://beta.petalstudios.co/wilson`, open `https://beta.petalstudios.co/wilsonadmin` in the same browser
   (the same origin) → its own sign-in; signing in there leaves `/wilson` as it was. `[BLOCKING]` (`admin.petalstudios.co` is
   another origin and proves nothing here; `npm run dev:admin` cannot show it)
-- `testmgr` (no factor) → *The operator console requires two-factor authentication. Enrol an authenticator in WILSON → Settings →
-  Profile, then sign in here again.*; Release Test Co's admin (a factor, not an operator) → *Not a platform operator*.
-  `[BLOCKING]`
+- `testmgr` (no factor; the email Step 6 gave it) → *The operator console requires two-factor authentication. Enrol an
+  authenticator in WILSON → Settings → Profile, then sign in here again.*; Release Test Co's admin (a factor, not an operator) →
+  *Not a platform operator*. `[BLOCKING]`
 - **New company** with a slug in use → *That slug is already in use by another company.* `[BLOCKING]` No admin email → the warning
   that it is synthesised and reset by an admin only. `[NOTE]`
 - Release Test Co's panel → **Send setup link** → *Goes to <email>… Type it below to confirm.* → **Send link** → *Setup link sent.*;
@@ -276,8 +287,8 @@ No automated test covers the two-factor path end to end: re-run the first three 
 
 - `Intake` → **New project** (or `Resources` → `Projects` → **New project**) → it persists; **Switch** ▾ swaps projects with nothing
   left of the last. `[BLOCKING]`
-- A private project: `Resources` → `Projects` → **New project**, *Private project.* → `testuser` cannot see it, an admin can.
-  `[BLOCKING]`
+- `[Desktop]` `[Cloud]` A private project (the box shows only on the desktop, signed in): `Resources` → `Projects` → **New
+  project**, *Private project.* → `testuser` cannot see it, an admin can. `[BLOCKING]`
 - `Intake` on a script (needs the AI) → assets and scenes parsed out. `[BLOCKING]`
 - `[Cloud]` Tasks given to `testuser` show on their `Dashboard` → **My tasks**; one completed there shows in R.A.B.B.I.T. (on Local
   Server **My tasks** is empty by design). `[BLOCKING]`
@@ -294,8 +305,9 @@ No automated test covers the two-factor path end to end: re-run the first three 
 - As `testuser` (a reviewer): *<name>: changed for now. Only the project's editors can save views.*, no New view. `[NOTE]`
 - Levels and Experiences grey every write control for a seat that cannot write, with the reason on hover. `[BLOCKING]`
 - `Budget` uses the rate card's rates; **By asset** splits a two-item task in half and the rows add up. `[BLOCKING]`
-- At 1280 wide, `Team members` and `Rate card` scroll no sideways (R1); Tab into R.A.B.B.I.T.'s main area and its focus ring shows
-  as on every other page (DG3). `[NOTE]` D.O.G. reading past a project's first 1,000 cloud files rests on walkthrough 82.
+- At 1280 wide, `Team members` and `Rate card` scroll no sideways (P1-29/30); Tab into R.A.B.B.I.T.'s main area and its focus ring
+  shows as on every other page (DG3-02): two of plan §3's nine defects. `[BLOCKING]` D.O.G. reading past a project's first 1,000
+  cloud files rests on walkthrough 82.
 - The corner dot: green when the database and the files' home answer, amber when only the database does, red offline. `[NOTE]`
 
 ## §H. Scenes, shot lists and edits (20 min · walkthroughs 51, 53, 67)
@@ -348,8 +360,8 @@ R.A.B.B.I.T. → **Files** (or `Resources` → `Files`).
   this, add the file again.* and its **Core project file** is disabled. `[BLOCKING]`
 - `testuser` (a reviewer): no **Add as Legal**, no LEGAL folder; Legal files absent from the counts, **File activity** and D.O.G.'s
   project files. `[BLOCKING]`
-- A workspace manager with no seat on the project: the LEGAL folder and **Add as Legal**, while money stays shut (**INVOICES**
-  empty, no Budget tab, no **Bid ver.**). `[BLOCKING]`
+- `testmgr2`, a workspace manager with no seat on the project: the LEGAL folder and **Add as Legal**, while money stays shut
+  (**INVOICES** empty, no Budget tab, no **Bid ver.**). `[BLOCKING]`
 - `[Local]` Move the project's folder on disk → the Files tab's *N file(s) can’t be found on disk — the folder may have moved.* →
   **Relink…** → matches proposed, applied, the banner gone. `[BLOCKING]`
 
@@ -404,7 +416,8 @@ Bins shows only with the project's **Scenes and shots** on.
 - `[Desktop]` **Server / NAS** → **Storage root** `\\server\share\Projects` → **Save root** → *Reachable · read ✓ · write ✓ · N ms*; a
   drive letter is refused; on the cloud backend, in the browser and on the desktop alike, an upload is refused (*… add files from the
   desktop app in Local Server mode; …*). `[BLOCKING]` with a share, otherwise waived
-- **Storage mode** → **Petal cloud** again, before §R (on Your own storage a cloud upload is refused, and §R uploads). `[BLOCKING]`
+- Then **Storage mode** → **Petal cloud** again, before §R: with a **Server / NAS** set, a cloud upload is refused, and §R uploads
+  (a setup step, not a check).
 - `[Desktop]` `[Local]` Thumbnails, a video, an invoice attach and O.T.T.E.R.'s library on this computer all work: each goes through
   the loopback API, which refuses a request without the per-launch token, so an empty grid here is an auth failure (walkthrough 12).
   `[BLOCKING]`
@@ -435,8 +448,8 @@ The admin in one browser profile, `testuser` in another (or a private window): t
   it still recovers. `[NOTE]`
 - `[Desktop]` Signed in, quit, Wi-Fi off, relaunch within 4 hours → past the sign-in, the strip reconnecting from the first paint;
   each screen says one sentence and offers no New or Create: *Could not reach the database — your projects appear when the
-  connection returns.* (R.A.B.B.I.T., Projects, D.O.G.'s card 1; *tasks* or *notes* on the Dashboard; *courses* in O.T.T.E.R. on the
-  web). Wi-Fi back → the lists fill within about 10 s. `[BLOCKING]`
+  connection returns.* (R.A.B.B.I.T., Projects, D.O.G.'s card 1; *tasks* or *notes* on the Dashboard), and O.T.T.E.R. opens this
+  computer's library. Wi-Fi back → the lists fill within about 10 s, and O.T.T.E.R. moves to the company library. `[BLOCKING]`
 - `[Desktop]` Offline more than 4 hours after the sign-in → the sign-in. `[BLOCKING]`
 - A pet change offline → *Your pet could not be reached in your account, so this change was not saved. Reopen WILSON to try
   again.*; a failed sync retries by itself. `[NOTE]`
@@ -563,8 +576,9 @@ Plan §0, the four conditions, as boxes:
 - [ ] **Her browser steps** (plan §6): `smoke_admin` rotated and CI green; staging's legacy `service_role` key rolled; the two Auth
       hooks on staging; PR #4's title and body; the gateway's GitHub setup and the installer rehearsal; the AI-files sweep on the
       beta before 2026-11-09.
-- [ ] **The TPN re-audit**: `TPN_AUDIT/SUMMARY.md`'s *Release gate* reads 0 Critical and 0 High open in the four areas, or she has
-      ruled on each finding it names.
+- [ ] **The TPN re-audit** (plan §0 item 4: "after the TPN re-audit reports nothing High"): `TPN_AUDIT/SUMMARY.md`'s *Release gate*
+      reads 0 Critical and 0 High open in the four areas. On 2026-10-28 it reads 11 High; walkthrough 85 Q1 and Q2 propose that her
+      ruling on each count as nothing High.
 - [ ] **The controller's production steps**: `docs/PRODUCTION_RUNBOOK.md` in the order of its (g), her steps and the controller's
       interleaved, production's AI-files sweep before 2026-11-09 among them.
 - [ ] **The release**: `package.json` at `1.0.0` (it is); `CHANGELOG.md`'s 1.0.0 entry dated in the release commit; PR #4

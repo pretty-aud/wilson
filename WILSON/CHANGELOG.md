@@ -10,13 +10,13 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 
 ## [1.0.0] — Unreleased
 
-*The controller dates this heading at the tag. Rewritten 2026-10-28 (R2, night 4 of `docs/sessions/PLAN_TO_1_0.md`) from `docs/OUTSTANDING.md`'s Session log, the hand-offs in `docs/sessions/handoffs/` and `docs/MASTER_PLAN.md` §4, and checked against the tree at `51e5a0d7`. Each line ends with its source: a session, a merge or commit, or a file. What night 4 and night 5 merge after that commit, the controller adds.*
+*The controller dates this heading on release day, before the deploys (`docs/PRODUCTION_RUNBOOK.md` (g) 8). Rewritten 2026-10-28 (R2, night 4 of `docs/sessions/PLAN_TO_1_0.md`) from `docs/OUTSTANDING.md`'s Session log, the hand-offs in `docs/sessions/handoffs/` and `docs/MASTER_PLAN.md` §4, and checked against the tree at `51e5a0d7`. Each line ends with its source: a session, a merge or commit, or a file. What night 4 and night 5 merge after that commit, the controller adds.*
 
 ### The 1.0.0 story
 
 0.6.3 was a single-user Electron app: one shared password checked against a hardcoded string, every user's data on their own disk, and an Anthropic API key sitting in `localStorage` on every client.
 
-1.0.0 is a multi-tenant platform. A company is a **workspace**, and **Postgres Row-Level Security is the security boundary**, not the client and not the Edge Functions. Sign-in is company-first; two-factor is challenged at sign-in once enrolled, required for the operator console, and a step-up on admin functions for an admin who has enrolled (enrolment itself is not yet required); and the Anthropic key never reaches a client. The whole product runs on the web as well as the desktop, after a UI overhaul that gave every page one kit and one type scale. Behind the three tools sit a budget with living bid versions, shot lists and edits, footage bins with a file gateway that plays office footage in a browser, a company's own storage (its NAS or an S3-compatible bucket), custom table views, and an O.T.T.E.R. that shares one subject live with a colleague.
+1.0.0 is a multi-tenant platform. A company is a **workspace**, and **Postgres Row-Level Security is the security boundary**, not the client and not the Edge Functions. Sign-in is company-first; two-factor is challenged at sign-in once enrolled, required for the operator console, and a step-up on the admin Edge Functions for an admin who has enrolled (not yet on admin writes made through RLS, and enrolment itself is not yet required); and the Anthropic key never reaches a client. The whole product runs on the web as well as the desktop, after a UI overhaul that gave every page one kit and one type scale. Behind the three tools sit a budget with living bid versions, shot lists and edits, footage bins with a file gateway that plays office footage in a browser, a company's own storage (its NAS or an S3-compatible bucket), custom table views, and an O.T.T.E.R. that shares one subject live with a colleague.
 
 **The build, measured at `51e5a0d7`:** the app `1.0.0` (`package.json`); D.O.G. 0.514, O.T.T.E.R. 0.3.1 and R.A.B.B.I.T. 0.1.0 (their folders under `src/tools/`); the file gateway 0.1.0 (`gateway/package.json`). The database: **97 migration files, 0000 to 0101** (no file for 0065, 0079, 0080, 0087 or 0094). **22 Edge Functions** (`supabase/functions/`, `_shared` aside). **99 pgTAP suites** (`supabase/tests/rls/`). Vitest: 417 files, 10,404 passing (DG4's tip).
 
@@ -28,13 +28,13 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 
 - **Workspaces.** A workspace is a company; membership is a `workspace_members` row with a per-workspace username, an app role and rate-card grants; a person can belong to several and switch. (S1–S15; `docs/SYSTEMS_HANDBOOK.md` §4)
 - **Four tiers:** `user` → `manager` → `admin` → **platform operator**, and **project roles** in R.A.B.B.I.T. (`manager`, `reviewer`, `member`). (S9–S15; handbook §4.4)
-- **RLS on every tenant table**, reads trusting the token's claim and writes checking a live membership row and the token's role, pinned by pgTAP in CI. (handbook §4.4; `.github/workflows/rls.yml`)
+- **RLS on every tenant table**: every read and write needs the token's workspace and a live, active membership row, and a write that needs a role reads it from the token (TPN-AUTH-006); pinned by pgTAP in CI. (handbook §4.4; `.github/workflows/rls.yml`)
 - **Private projects:** seen by their creator and the admins, their media kept on the creator's computer. (0072, `4c103875`; 0082, 0083)
 
 **Accounts, sign-in and sessions**
 
 - **Company-first sign-in.** The company is checked first and only its people sign in; the same username can live in two companies; the company is remembered on the device and `?company=` fills it. (S43 `bec91852`, `158172ce`; Track B B1 `397afef3`)
-- **Two-factor (TOTP)** in App settings → Profile, a challenge once a factor is verified, required for the operator console, and a step-up on admin functions for an admin who has enrolled; enrolment stays optional (`WILSON_REQUIRE_ADMIN_MFA` is off by default, TPN-AUTH-002). (S9–S17; handbook §4.2, §4.6)
+- **Two-factor (TOTP)** in App settings → Profile, a challenge once a factor is verified, required for the operator console, and a step-up on the admin Edge Functions for an admin who has enrolled (not on admin writes made through RLS: TPN-AUTH-003, TPN-AUTH-013); enrolment stays optional (`WILSON_REQUIRE_ADMIN_MFA` is off by default, TPN-AUTH-002). (S9–S17; handbook §4.2, §4.6)
 - **Show-once credentials** at creation and at an admin's reset; **invite, forgot-password and reset** flows mailed through Resend, with links a mail scanner cannot spend. (S9; S18 `28dec647`)
 - **A setup link** the operator can email a new company's first admin. (S43b `186fa636`, 0066; Track A A1 `5dcff986`)
 - **Sign-ins in the logs, and session limits.** Sign-in, two-factor, sign-out, idle and cap rows in Admin terminal → Logs → **Sign-ins** and in the console's **Sign-ins**; a warning at 25 idle minutes, a sign-out at 30, a cap at 4 hours, each saying why. (Track B B2: 0070 `cd8dfb8d`, 0071, `aafc488a`)
@@ -120,7 +120,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 - **The desktop's local server takes a per-launch token**, narrowed CORS and one running copy. (Track B B3; TPN-NET-001)
 - **Storage configuration is admin-only and contained:** the storage root, a project's folder inside it, and the paths a request may name. (S33–S35, 0048, 0049; TPN-AUTH-011, TPN-NET-013, TPN-NET-015, TPN-CLOUD-007)
 - **Thumbnails are private and money-gated**, and follow their source's storage. (S39 0053; S44 0054; TPN-CLOUD-008)
-- **Company bucket secrets** are AES-256-GCM ciphertext in a table no client reaches, under a key apart from the AI keys' (it also seals Google Drive tokens, and is the same on all three environments: TPN-ENC-015). (S37 0051; `docs/OWED_AUDREY.md` §9 C2)
+- **Company bucket secrets** are AES-256-GCM ciphertext in a table no client reaches, under a key apart from the AI keys' (the same on all three environments: TPN-ENC-015). (S37 0051; `docs/OWED_AUDREY.md` §9 C2)
 - **Uploads that never complete are certified**, at once, hourly and at teardown; receipts are money. (Track C 0073, 0074, 0076; TPN-CONT-017)
 - **A manager approving their own nomination is allowed and audited** (WIL-4108). (0069 `93c199e6`)
 - **The file gateway was attacked before release** and its findings fixed (a per-peer connection cap; `CF-Connecting-IP` honoured only behind a declared proxy). (GW5, `docs/sessions/handoffs/po-gw5-2026-10-12.md`)
@@ -162,7 +162,7 @@ The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; f
 
 **Security**
 
-- **The TPN re-audit of 2026-10-28 reports 12 High open** in the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/SUMMARY.md`, *Release gate*): eight of the areas' own (TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013, TPN-DOC-004, TPN-AI-009) and four instances of open classes (TPN-AUTH-013, TPN-LOG-012, TPN-CONT-019, TPN-SDLC-013). The plan holds production for them until they are fixed or she rules on each.
+- **The TPN re-audit of 2026-10-28 reports 11 High open** in the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/SUMMARY.md`, *Release gate*): eight of the areas' own (TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013, TPN-ENC-016, TPN-AI-009) and three instances of open classes (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011). The plan holds the controller's production steps until the re-audit reports nothing High; walkthrough 85 asks her to rule on each.
 - **The `smoke_admin` password is in public git history** until it is rotated. (TPN-SDLC-007; `docs/OWED_AUDREY.md` §0)
 - **Staging's legacy `service_role` key was exposed** and is owed a roll. (`docs/OUTSTANDING.md`, S19)
 - **A private project's rows reach every member's workspace channel**, and the `tasks` and `assets` write policies lack the project hop. (OUTSTANDING A-R1-04, A-R2-03)
