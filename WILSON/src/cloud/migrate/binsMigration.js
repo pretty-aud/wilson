@@ -392,38 +392,42 @@ export function takesToLand(shotTakes, landedShots, landedClips, cloudTakes = []
 
 /**
  * What the runner does not copy, by the report's key: its words, and whether
- * part 2 of the migration carries it (M2, night 4 of
- * docs/sessions/PLAN_TO_1_0.md: the budgets, expenses, levels, experiences
- * and the team). Named so the report can say what stays on this computer
- * BEFORE the archive is offered (BC3's review round 2: "Done" was said, and
- * the desktop's copy offered for clearing, with a project's budget, comments
- * and shot lists in it alone). Since M1 (night 3) the comments, key dates,
- * shot lists with their items and edits, and the folders are carried, and
- * leave this list. An entry is [key, the plural, the singular (else the
- * plural less its s), part 2's]. The runner counts the keys no bundle array
- * is named after (`levelFolders`, `commentsElsewhere`; its own
- * `levelGroupings` and `assetLevelLinks`).
+ * a later run of the migration carries it (`later`: night 5 of
+ * docs/sessions/PLAN_TO_1_0.md, M3 — Audrey's ruling of 2026-10-28, "A night
+ * after part 2": the team, an asset's version history, the files the desktop
+ * keeps with its rows, the company's rate cards and task templates). Named so
+ * the report can say what stays on this computer BEFORE the archive is
+ * offered (BC3's review round 2: "Done" was said, and the desktop's copy
+ * offered for clearing, with a project's budget, comments and shot lists in
+ * it alone). Since M1 (night 3) the comments, key dates, shot lists with
+ * their items and edits, and the folders are carried; since M2 (night 4) the
+ * budgets, expenses, rate overrides, levels and experiences with what names
+ * them, and the links on tasks — and they leave this list. An entry is [key,
+ * the plural, the singular (else the plural less its s), a later run's]. The
+ * runner counts the keys no bundle array is named after (`lineTeamMembers`,
+ * `memberRates`, `assetTemplates`, `commentsElsewhere`, `invoicePaths`).
  */
 export const NOT_CARRIED = Object.freeze([
-  // Part 2 of the migration carries these.
-  ['budgetVersions', 'budget versions', null, true], ['budgetLines', 'budget lines', null, true], ['budgetActuals', 'budget actuals', null, true],
-  ['expenses', 'expenses', null, true], ['projectRateOverrides', 'rate overrides', null, true],
-  ['levels', 'levels', null, true], ['experiences', 'experiences', null, true],
-  ['teamAssignments', 'team assignments', null, true], ['projectTeam', 'project team members', null, true], ['taskLinks', 'links on tasks', 'link on tasks', true],
-  // FX2 (0096): the runner carries a task's asset, scene and shot items; its
-  // level and experience items wait with the levels and experiences.
-  ['taskLevelItems', 'levels and experiences named on tasks', 'level or experience named on a task', true],
-  // M1: a level's or an experience's folder waits with its row (the cloud
-  // refuses a folder of a row it does not hold, 23503 — measured).
-  ['levelFolders', 'folders of levels and experiences', 'folder of a level or experience', true],
-  // No migration carries these.
-  ['assetVersions', 'asset versions'],
+  // A later run of the migration carries these (night 5).
+  ['teamAssignments', 'team assignments', null, true], ['projectTeam', 'project team members', null, true],
+  // M2: a budget line priced for one of this computer's team members goes up
+  // without the person, and a rate set for one stays here (the cloud knows
+  // people by their accounts: 0037's comment on team_member_id).
+  ['lineTeamMembers', 'team members named on budget lines', 'team member named on a budget line', true],
+  ['memberRates', "team members' project rates", "team member's project rate", true],
+  // M2: the task template an asset was made from (the company's templates
+  // stay on this computer for now; 23503 assets_task_template_id_fkey —
+  // measured — refused the whole asset).
+  ['assetTemplates', "assets' task templates", "asset's task template", true],
+  ['assetVersions', 'asset versions', null, true],
   // The desktop's own file store (Local Server only, FileManager): a file
   // kept with an asset, scene, shot, level or experience in its folder on
   // this computer; each live record counted (a removed one is marked).
-  ['managedFiles', 'files kept with assets, scenes, shots, levels and experiences on this computer', 'file kept with an asset, scene, shot, level or experience on this computer'],
-  // Not a collection: a scene's or shot's picture is a file on this computer (cloudRowOf sends no path to it).
-  ['thumbnails', 'scene and shot pictures'],
+  ['managedFiles', 'files kept with assets, scenes, shots, levels and experiences on this computer', 'file kept with an asset, scene, shot, level or experience on this computer', true],
+  // No migration carries these.
+  // Not a collection: a picture of a scene, shot, level or experience is a
+  // file on this computer (no path to it is sent).
+  ['thumbnails', 'scene, shot, level and experience pictures', 'scene, shot, level or experience picture'],
   // M1: the project row's legacy deck attachments (`documents`,
   // `visualAssets`), no columns in the cloud (measured): Settings' "Move
   // deck attachments into project files" moves them into files first.
@@ -431,6 +435,10 @@ export const NOT_CARRIED = Object.freeze([
   // M1: a comment on a kind of row the cloud's comments cannot name (0000's
   // CHECK: a project, a phase, an asset or a task).
   ['commentsElsewhere', 'comments on rows the cloud cannot hang a comment on', 'comment on a row the cloud cannot hang a comment on'],
+  // M2: an actual's invoice attached by a path on this computer (the
+  // desktop-only builds before InvoiceAttachment), no address in the cloud:
+  // the actual goes up without it.
+  ['invoicePaths', 'invoices attached by a path on this computer', 'invoice attached by a path on this computer'],
 ].map(Object.freeze))
 
 /** The report's word for `count` of `key`: the plural, or the one given for a single (the plural less its s, else). */
@@ -441,24 +449,24 @@ export function notCarriedLabel(key, count) {
   return count === 1 ? (one || many.replace(/s$/, '')) : many
 }
 
-/** Whether part 2 of the migration carries `key` (the report says the two groups apart). */
-export function notCarriedPart2(key) {
+/** Whether a later run of the migration carries `key` (the report says the two groups apart). */
+export function notCarriedLater(key) {
   return NOT_CARRIED.find(([k]) => k === key)?.[3] === true
 }
+
+const PICTURED = ['scenes', 'shots', 'levels', 'experiences']
 
 /** What a bundle holds that the migration leaves on this computer: `[{ key, label, count }]`, only the non-empty. */
 export function notCarriedOf(bundle) {
   const out = []
   for (const [key] of NOT_CARRIED) {
     const n = key === 'thumbnails'
-      ? [...(bundle?.scenes ?? []), ...(bundle?.shots ?? [])].filter(r => r?.thumbnail_image).length
-      : key === 'taskLevelItems'
-        ? (bundle?.taskItems ?? []).filter(i => i?.entity_type === 'level' || i?.entity_type === 'experience').length
-        : key === 'managedFiles'
-          ? (bundle?.managedFiles ?? []).filter(f => f && !f.deleted_at).length
-          : key === 'deckAttachments'
-            ? ['documents', 'visualAssets'].reduce((s, k) => s + (Array.isArray(bundle?.project?.[k]) ? bundle.project[k].length : 0), 0)
-            : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
+      ? PICTURED.flatMap(k => (Array.isArray(bundle?.[k]) ? bundle[k] : [])).filter(r => r?.thumbnail_image).length
+      : key === 'managedFiles'
+        ? (bundle?.managedFiles ?? []).filter(f => f && !f.deleted_at).length
+        : key === 'deckAttachments'
+          ? ['documents', 'visualAssets'].reduce((s, k) => s + (Array.isArray(bundle?.project?.[k]) ? bundle.project[k].length : 0), 0)
+          : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
     if (n) out.push({ key, label: notCarriedLabel(key, n), count: n })
   }
   return out
