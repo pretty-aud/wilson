@@ -508,9 +508,13 @@ describe('the readers of a linked body, by source', () => {
     const count = (src) => (study(src).match(/\{renderSharingBanner\(\)\}/g) ?? []).length
     expect(count(OTTER_SRC)).toBe(2)
     // CONTROL: the outline page's banner removed is counted short.
-    const outline = '            {/* B2: Share… and Pass on… answer here too (round 1, finding 4). */}\n            {renderSharingBanner()}\n            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title]'
-    expect(OTTER_SRC).toContain(outline)
-    expect(count(OTTER_SRC.replace(outline, '            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title]'))).toBe(1)
+    const outline = '<span className="otter-crumb-note">[outline]</span>\n            </nav>\n'
+    const banner = '            {renderSharingBanner()}\n'
+    const at = OTTER_SRC.indexOf(outline)
+    expect(at).toBeGreaterThan(-1)
+    const cut = OTTER_SRC.indexOf(banner, at)
+    expect(cut).toBeGreaterThan(at)
+    expect(count(OTTER_SRC.slice(0, cut) + OTTER_SRC.slice(cut + banner.length))).toBe(1)
   })
 
   it('the agent is not handed a bare lesson id while a link is open (round 2, finding 7)', () => {

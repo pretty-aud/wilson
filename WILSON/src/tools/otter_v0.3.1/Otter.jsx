@@ -5068,8 +5068,6 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       return (
         <div className="otter-view">
           <div className="otter-view-page" data-width="subject">
-            {/* B2: Share… and Pass on… answer here too (round 1, finding 4). */}
-            {renderSharingBanner()}
             <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
@@ -5078,6 +5076,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               <span className="otter-crumb-current" aria-current="page">{activeSubject.title}</span>
               <span className="otter-crumb-note">[outline]</span>
             </nav>
+            {/* B2: Share… and Pass on… answer here too (round 1, finding 4),
+                under the breadcrumb, which stays the page's first line (the
+                type-scale guard pins it there). */}
+            {renderSharingBanner()}
             {renderSubjectShareBar()}
             <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
               {activeSubject.title}
@@ -5143,8 +5145,6 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       <div className="otter-study">
         {selectedLesson ? (
           <div className="otter-study-page">
-            {/* B2: Share… and Pass on… answer here too (round 1, finding 4). */}
-            {renderSharingBanner()}
             {/* One line (S2b, C5). Giving way, in order: the subject and the
                 section (one run, down to "› …"), then the course, and the
                 lesson only when it alone is longer than the line. The whole
@@ -5157,6 +5157,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
               </span>
               <span className="otter-crumb-current" aria-current="page">{selectedLesson.title}</span>
             </nav>
+            {/* B2: Share… and Pass on… answer here too (round 1, finding 4),
+                under the breadcrumb, which stays the page's first line (the
+                type-scale guard pins it there). */}
+            {renderSharingBanner()}
             {renderSubjectShareBar()}
             {/* The reading surface's own title, at the H1 step: the one 20px
                 line on it. The markdown's headings sit one step below (O32),
