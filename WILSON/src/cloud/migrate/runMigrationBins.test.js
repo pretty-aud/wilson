@@ -270,6 +270,19 @@ const fake = vi.hoisted(() => {
     // both still hold their keys.
     || (table === 'rate_cards' && r?.deleted_at != null)
     || (['rate_cards', 'task_templates', 'project_members'].includes(table) && r?.workspace_id != null && r.workspace_id !== FAKE_WS)
+  // M3 (review round 1): fn_projects_auto_staff, as wilson-dev's trigger
+  // (measured): the project's insert seats the person who made it, and a
+  // producer who is a member of the workspace, as its managers; the trigger
+  // swallows a refusal, so a producer who is no member is not seated and the
+  // project lands. A seat already there is left as it is.
+  const autoStaff = (project) => {
+    const seats = (state.lists.project_members ||= [])
+    for (const userId of [state.callerId, project.producer_id]) {
+      if (!userId || seats.some(s => s.project_id === project.id && s.user_id === userId)) continue
+      if (userId !== state.callerId && !has('workspace_members', m => m.user_id === userId && m.workspace_id === (project.workspace_id ?? FAKE_WS) && m.is_active !== false)) continue
+      seats.push({ project_id: project.id, user_id: userId, workspace_id: project.workspace_id ?? FAKE_WS, project_role: 'manager', project_title: null })
+    }
+  }
   const builder = (table) => {
     const q = { table, cols: null, filters: [], range: null, ins: [], badOrder: null }
     // A filter as PostgREST applies it: `eq`, or `is` (null).
@@ -326,6 +339,7 @@ const fake = vi.hoisted(() => {
         // seat takes its project's workspace (0013's trigger overwrites it).
         const stored = table === 'project_members' ? { ...row, workspace_id: (state.lists.projects || []).find(p => p.id === row.project_id)?.workspace_id ?? FAKE_WS } : { ...row }
         ;(state.lists[table] ||= []).push(stored)
+        if (table === 'projects') autoStaff(stored)
         return { error: null }
       },
       update(patch) {
@@ -2854,6 +2868,27 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: null })
   })
 
+  it('M3 (review round 1): a receipt whose row says ordinary while its body and picture are already behind the gate (a run that stopped after writing the path) gets only its row changed — nothing moved, nothing removed; the dry run counts it', async () => {
+    const b = desktopFixtures()
+    const preC4 = FILES.filter(f => f.is_financial)[1].id
+    const receipt = FILES.find(f => f.id === preC4)
+    b.files = b.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
+    serve([b])
+    const to = `projects/${PROJECT.id}/INVOICES/${preC4}/${receipt.name.replace(/[^a-zA-Z0-9._-]+/g, '_')}`
+    fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: to, is_financial: false, thumbnail_url: `${to}.jpg` }]
+    fake.state.objects.push({ bucket: 'rabbit-files', name: to, size: 3 }, { bucket: 'rabbit-thumbnails', name: `${to}.jpg`, size: 2 })
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(dry.receiptsMoved).toBe(1)
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.errors).toEqual([])
+    expect(report.receiptsMoved).toBe(1)
+    expect(fake.state.moves).toEqual([])
+    expect(fake.state.removed.filter(k => k.includes(preC4))).toEqual([])
+    expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: `${to}.jpg` })
+    expect(fake.state.objects.filter(o => o.name.includes(preC4)).map(o => o.name).sort()).toEqual([to, `${to}.jpg`].sort())
+    expect(recordOf(b).files).toContain(preC4)
+  })
+
   it('M2: someone the money gate shuts out leaves the money files an earlier run carried before the record is asked: none called removed, none written', async () => {
     const b = desktopFixtures()
     serve([b])
@@ -3028,7 +3063,7 @@ const { makeSlug } = await import('../../components/RateCard/useRateCard')
 const { TUS_CHUNK_SIZE } = await import('../../tools/rabbit_v0.1.0/storage/resumableUpload.js')
 const { registerStorageProvider, getStorageProvider, fileProviderFor, FILE_PROVIDERS } = await import('../../tools/rabbit_v0.1.0/storage/index.js')
 const {
-  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, PEOPLE_UNREAD, MANAGERS_SEATED, PEOPLE_SET,
+  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, PEOPLE_UNREAD, MANAGERS_SEATED, PEOPLE_SET, ROLES_LEFT,
   RATE_CARDS_NEED_RIGHT, CARD_NOT_OURS, ENTRIES_NEED_GRANT, EMPTY_CARDS, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
   MANAGED_FILES_WILL_UPLOAD, SERVER_MEDIA_STAY, BODIES_GONE, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
 } = await import('./runMigration')
@@ -3132,10 +3167,13 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     const desktopIds = new Set([...DESKTOP_MEMBERS.map(m => m.id), NADIA_ID])
     for (const v of personColumns()) expect(desktopIds.has(String(v)), v).toBe(false)
     expect(JSON.stringify(report) + lines.join('\n')).not.toMatch(/@lanternash\.example/)
-    // The roster: Mara (manager, title Producer), Theo (member), Dev twice → one seat (the pair skipped); Lena and Nadia unmatched; a role outside the three is member.
-    expect(ins('project_members').map(r => [r.user_id, r.project_role, r.project_title ?? null])).toEqual([[MEMBER_ID.mara, 'manager', 'Producer'], [MEMBER_ID.theo, 'member', 'Director'], [MEMBER_ID.dev, 'member', 'Production Coordinator']])
+    // The roster: Mara's seat is the project insert's own (fn_projects_auto_staff seats the mover — review round 1: the fake does as the trigger does), met on its pair and skipped;
+    // Theo (member), Dev twice → one seat (the pair skipped); Lena and Nadia unmatched; a role outside the three is member, said.
+    expect(ins('project_members').map(r => [r.user_id, r.project_role, r.project_title ?? null])).toEqual([[MEMBER_ID.theo, 'member', 'Director'], [MEMBER_ID.dev, 'member', 'Production Coordinator']])
+    expect(fake.state.lists.project_members.find(r => r.user_id === MEMBER_ID.mara)).toMatchObject({ project_id: PROJECT.id, project_role: 'manager' })
     for (const r of ins('project_members')) for (const k of ['id', 'workspace_id', 'start_date', 'end_date', 'member_id', 'role']) expect(r, k).not.toHaveProperty(k)
-    expect(report.projectMembers).toEqual({ total: 4, inserted: 3, skipped: 1, failed: 0, unmatched: 2, datesLeft: 1, rolesLeft: 1, left: 0 })
+    expect(report.projectMembers).toEqual({ total: 4, inserted: 2, skipped: 2, failed: 0, unmatched: 2, datesLeft: 1, rolesLeft: 1, left: 0 })
+    expect(lines).toContain(`  ${ROLES_LEFT(1)}`)
     expect(report.notCarried).toContainEqual({ key: 'teamAssignments', label: 'team assignments of people without a WILSON account', count: 2, later: true })
     expect(report.notCarried).toContainEqual({ key: 'assignmentDates', label: "team assignment's start and end dates (no cloud columns)", count: 1, later: false })
     expect(report.people.managersSeated).toEqual([nameOf('mara')])
@@ -3261,10 +3299,13 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(fake.state.log).toEqual([])
     expect(fake.state.updates).toEqual([])
     expect(fake.state.uploads).toEqual([])
-    expect(streamCalls).toEqual([])
+    // Review round 1: the dry run probes each body (one Range request, no event) and reads nothing else of it.
+    expect(streamCalls.map(c => [c.range, c.probe])).toEqual([['bytes=0-0', true], ['bytes=0-0', true]])
+    expect(streamEvents).toBe(0)
     expect(recordWrites).toEqual([])
     expect(dry.people).toMatchObject({ matched: 8, desktop: DESKTOP_MEMBERS.length, managersSeated: [nameOf('mara')] })
-    expect(dry.projectMembers).toMatchObject({ total: 4, inserted: 3, skipped: 1, unmatched: 2 })
+    // The mover's own seat, which the insert will make, is counted as there (review round 1).
+    expect(dry.projectMembers).toMatchObject({ total: 4, inserted: 2, skipped: 2, unmatched: 2 })
     expect(dry.rateCards).toMatchObject({ total: 2, inserted: 2, empty: 1 })
     expect(dry.rateCardEntries).toMatchObject({ inserted: RATE_CARD_ENTRIES.length, unmatched: 1 })
     expect(dry.taskTemplates).toMatchObject({ total: 2, inserted: 2 })
@@ -3274,6 +3315,7 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     const real = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     for (const k of ['rateCards', 'rateCardEntries', 'taskTemplates', 'managedFiles']) expect(real[k].inserted, k).toBe(dry[k].inserted)
     expect(real.projectMembers.inserted).toBe(dry.projectMembers.inserted)
+    expect(real.projectMembers.skipped).toBe(dry.projectMembers.skipped)
     expect(real.assetTemplatesLinked).toBe(dry.assetTemplatesLinked)
   })
 
@@ -3308,7 +3350,7 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     serveM3([b])
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(report.errors).toEqual([])
-    expect(ins('project_members')).toHaveLength(3)
+    expect(ins('project_members')).toHaveLength(2)
     expect(ins('rate_cards')).toHaveLength(2)
     expect(ins('task_templates')).toHaveLength(2)
   })
@@ -3325,10 +3367,9 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
 
   it('CONTROL: the mover\'s own seat, made by the project\'s insert, is met on its pair and skipped — never upserted, its role as the cloud gave it, recorded', async () => {
     const b = desktopFixtures()
-    // The desktop says Mara is a member; the cloud seated her manager when the project went in (fn_projects_auto_staff — measured).
+    // The desktop says Mara is a member; the cloud seats her manager when the project goes in (fn_projects_auto_staff — measured; the fake's insert does the same since review round 1).
     b.teamAssignments = b.teamAssignments.map(a => (a.member_id === DM('mara') ? { ...a, role: 'member' } : a))
     serveM3([b])
-    fake.state.lists.project_members = [{ project_id: PROJECT.id, user_id: MEMBER_ID.mara, workspace_id: WS, project_role: 'manager' }]
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(report.errors).toEqual([])
     expect(ins('project_members').map(r => r.user_id)).not.toContain(MEMBER_ID.mara)
@@ -3339,13 +3380,19 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(report.projectMembers).toMatchObject({ skipped: 2, inserted: 2 })
     // A seat a teammate removes stays removed.
     fake.state.lists.project_members = fake.state.lists.project_members.filter(r => r.user_id !== MEMBER_ID.theo)
-    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const said = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS, onProgress: (m) => said.push(m) })
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => said.push(m) })
     expect(fake.state.lists.project_members.some(r => r.user_id === MEMBER_ID.theo)).toBe(false)
-    expect(again.removed.byTable).toEqual({ project_members: 1 })
-    expect(again.removed.rows[0].name).toBe(nameOf('theo'))
+    for (const r of [dry, again]) {
+      expect(r.removed.byTable).toEqual({ project_members: 1 })
+      expect(r.removed.rows[0].name).toBe(nameOf('theo'))
+    }
+    // Review round 1: the progress log says it too (the snapshot is taken before the roster).
+    expect(said.filter(l => l === `  ${REMOVED_SINCE_LAST_RUN(removedWords({ project_members: 1 }))}`)).toHaveLength(2)
   })
 
-  it('below admin or manager nobody is matched: said once, no seat, every person column empty and counted, the run not done (the panel\'s gate) — and a directory the cloud did not answer is an error, never "ask an admin"', async () => {
+  it('below admin or manager nobody is matched: said once, no seat, every person column empty and none counted as a person without an account (the one sentence covers the team — review round 1), the run not done (the panel\'s gate) — and a directory the cloud did not answer is an error, never "ask an admin"', async () => {
     const b = desktopFixtures()
     serveM3([b])
     fake.state.callerId = MEMBER_ID.priya
@@ -3356,21 +3403,24 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(report.people).toMatchObject({ canMatch: false, needAdmin: true, matched: 0 })
     expect(ins('project_members')).toEqual([])
     expect(personColumns()).toEqual([])
-    expect(report.notCarried.map(n => n.key)).toEqual(expect.arrayContaining(['teamAssignments', 'taskPeople', 'projectPeople', 'lineTeamMembers']))
+    // Review round 1: nobody was looked up, so nobody is "without a WILSON account" beside PEOPLE_NEED_ADMIN; the roster is not even asked for.
+    for (const k of ['teamAssignments', 'taskPeople', 'projectPeople', 'lineTeamMembers', 'memberRates', 'entryPeople']) expect(report.notCarried.map(n => n.key), k).not.toContain(k)
+    expect(report.projectMembers).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0, unmatched: 0, datesLeft: 0, rolesLeft: 0, left: 0 })
+    expect(fake.state.inReads.filter(([t]) => t === 'project_members')).toEqual([])
     expect(report.errors).toEqual([])
-    // The directory unreadable: an error, said as one.
+    // The directory unreadable: an error, said as one — and the same silence beside it.
     newCloud({ inserts: {}, lists: {}, log: [], objects: [] })
     serveM3([desktopFixtures()])
     fake.state.directoryError = { code: '08006', message: 'connection failure' }
     const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(again.errors).toContainEqual({ scope: 'people', message: PEOPLE_UNREAD('connection failure') })
     expect(again.people.needAdmin).toBe(false)
+    for (const k of ['teamAssignments', 'taskPeople', 'projectPeople', 'lineTeamMembers']) expect(again.notCarried.map(n => n.key), k).not.toContain(k)
   })
 
   it('the people on rows an earlier run carried without them are set once — a line\'s person where null, a task\'s or the project\'s where the raw desktop id still stands — recorded, and a teammate who clears one is not overruled; the producer set is seated as manager', async () => {
     const b = desktopFixtures()
     // An earlier build's run: the project with raw desktop ids, the lines without their person, the tasks with raw ids, and its record.
-    const raw = ins
     serve([b])
     await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(fake.state.lists.projects[0].producer_id).toBeNull()
@@ -3378,7 +3428,6 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     fake.state.lists.projects[0].producer_id = DM('mara')
     fake.state.lists.projects[0].director_id = DM('theo')
     for (const t of fake.state.lists.tasks) { const src = TASKS.find(x => x.id === t.id); t.assignee_id = DESKTOP_ID_OF.get(src.assignee_id); t.reviewer_id = DESKTOP_ID_OF.get(src.reviewer_id) }
-    void raw
     fake.state.log = []; fake.state.updates = []
     serveM3([b])
     const lines = []
@@ -3386,8 +3435,9 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(report.errors).toEqual([])
     // Every column naming a matched person is set; Lena's (no account yet) keep the raw id until she joins.
     const linesWithPeople = BUDGET_LINES.filter(l => l.team_member_id && !lenaIs(l.team_member_id)).length
-    const taskColumns = TASKS.flatMap(t => [t.assignee_id, t.reviewer_id]).filter(u => u && !lenaIs(u)).length
-    expect(report.people.set).toBe(linesWithPeople + taskColumns + 2)
+    const tasksWithPeople = TASKS.filter(t => [t.assignee_id, t.reviewer_id].some(u => u && !lenaIs(u))).length
+    // Rows, not columns (review round 1): a task's assignee and reviewer are one row; the project's producer and director one.
+    expect(report.people.set).toBe(linesWithPeople + tasksWithPeople + 1)
     expect(lines).toContain(`  ${PEOPLE_SET(report.people.set)}`)
     const rawOr = (uid) => (lenaIs(uid) ? DESKTOP_ID_OF.get(String(uid)) : uid)
     for (const l of BUDGET_LINES.filter(l => l.team_member_id)) expect(fake.state.lists.budget_lines.find(x => x.id === l.id).team_member_id, l.label).toBe(lenaIs(l.team_member_id) ? null : l.team_member_id)
@@ -3415,6 +3465,41 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(third.people.set).toBeGreaterThan(0)
     expect(fake.state.lists.budget_lines.find(x => x.id === line.id).team_member_id).toBe(line.team_member_id)
   })
+
+  it('a row that arrives with its person is recorded as set at the insert, so a teammate who clears the person afterwards is not overruled by the next run — nor is a cleared producer seated again; a column that arrived empty is not recorded (review round 1)', async () => {
+    const b = desktopFixtures()
+    serveM3([b])
+    const first = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(first.errors).toEqual([])
+    const set = recordOf(b).people_set
+    const line = BUDGET_LINES.find(l => l.team_member_id && !lenaIs(l.team_member_id))
+    const task = TASKS.find(t => t.assignee_id && !lenaIs(t.assignee_id))
+    expect(set).toEqual(expect.arrayContaining([`project:${PROJECT.id}:producer_id`, `project:${PROJECT.id}:director_id`, `line:${line.id}:team_member_id`, `task:${task.id}:assignee_id`]))
+    // Lena's columns arrived empty (no account yet): not recorded, so the run after she joins sets them.
+    const lenaLine = BUDGET_LINES.find(l => lenaIs(l.team_member_id))
+    const lenaTask = TASKS.find(t => lenaIs(t.assignee_id))
+    expect(set).not.toContain(`line:${lenaLine.id}:team_member_id`)
+    expect(set).not.toContain(`task:${lenaTask.id}:assignee_id`)
+    // A teammate clears the three in the browser.
+    fake.state.lists.projects[0].producer_id = null
+    fake.state.lists.budget_lines.find(x => x.id === line.id).team_member_id = null
+    fake.state.lists.tasks.find(x => x.id === task.id).assignee_id = null
+    fake.state.updates = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const r of [dry, again]) { expect(r.people.set).toBe(0); expect(r.people.managersSeated).toEqual([]) }
+    expect(fake.state.updates.filter(u => ['tasks', 'budget_lines', 'projects'].includes(u.table))).toEqual([])
+    expect(fake.state.lists.projects[0].producer_id).toBeNull()
+    expect(fake.state.lists.budget_lines.find(x => x.id === line.id).team_member_id).toBeNull()
+    expect(fake.state.lists.tasks.find(x => x.id === task.id).assignee_id).toBeNull()
+    // CONTROL: with the keys the insert recorded taken out of the record (the build before this round), the next run sets all three again and seats the producer.
+    const carried = b[RECORD_KEY][WS].carried
+    carried.people_set = carried.people_set.filter(k => !k.startsWith('project:') && k !== `line:${line.id}:team_member_id` && k !== `task:${task.id}:assignee_id`)
+    const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(third.people.set).toBe(3)
+    expect(third.people.managersSeated).toEqual([nameOf('mara')])
+    expect(fake.state.lists.projects[0].producer_id).toBe(MEMBER_ID.mara)
+  })
 })
 
 describe('M3: the files kept with rows — the storage rule, the body, the key', () => {
@@ -3422,10 +3507,14 @@ describe('M3: the files kept with rows — the storage rule, the body, the key',
     const b = withManaged(desktopFixtures())
     b.managedFiles.push({ ...MANAGED.small, id: '0e1a0000-0000-4000-8000-0000000f0009', asset_id: 'asset-removed-here', original_name: 'orphan.png' })
     serveM3([b], { gone: new Set([MANAGED.large.id]) })
+    // Review round 1: the dry run probes the bodies too, so it promises what the real run does — the gone one said, the bytes the bytes sent.
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    expect(dry.managedFiles).toMatchObject({ total: 2, inserted: 2, failed: 0, bodiesGone: 1, linksLetGo: 1, bytes: 6 })
+    expect(fake.state.uploads).toEqual([])
     const lines = []
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
     expect(report.errors).toEqual([])
-    expect(report.managedFiles).toMatchObject({ total: 2, inserted: 2, failed: 0, bodiesGone: 1, linksLetGo: 1 })
+    expect(report.managedFiles).toMatchObject({ total: 2, inserted: 2, failed: 0, bodiesGone: 1, linksLetGo: 1, bytes: 6 })
     expect(byId('files', MANAGED.large.id)).toBeUndefined()
     expect(byId('files', '0e1a0000-0000-4000-8000-0000000f0009').asset_id).toBeNull()
     expect(lines).toContain(`  ${BODIES_GONE(1)}`)
@@ -3444,6 +3533,26 @@ describe('M3: the files kept with rows — the storage rule, the body, the key',
     const third = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(byId('files', MANAGED.small.id)).toBeUndefined()
     expect(third.errors.find(e => e.scope === 'managed_file' && e.id === MANAGED.small.id)?.message).toMatch(/its asset is not in the cloud, so the file was not carried \(a second run brings both\)/)
+  })
+
+  it('a file kept with a row that a teammate removed in the cloud since an earlier run is called removed, named — never skipped as if it were there — and never carried again; the dry run says the same (review round 1)', async () => {
+    const b = withManaged(desktopFixtures())
+    serveM3([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(recordOf(b).files).toContain(MANAGED.small.id)
+    // The teammate removes the small one in the browser.
+    fake.state.lists.files = fake.state.lists.files.filter(f => f.id !== MANAGED.small.id)
+    fake.state.uploads = []; streamCalls = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: SALT_LOCATIONS })
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const r of [dry, again]) {
+      expect(r.managedFiles).toMatchObject({ inserted: 0, skipped: 1, failed: 0 })
+      expect(r.removed.byTable).toEqual({ files: 1 })
+      expect(r.removed.rows).toEqual([{ projectId: PROJECT.id, table: 'files', id: MANAGED.small.id, name: 'plate.png' }])
+    }
+    expect(fake.state.uploads).toEqual([])
+    expect(streamCalls).toEqual([])
+    expect(fake.state.lists.files.some(f => f.id === MANAGED.small.id)).toBe(false)
   })
 
   it('a company on its own server (her ruling of 2026-10-28): nothing uploaded, no files row, one sentence; a private project the same; the ordinary files go as before', async () => {
@@ -3586,9 +3695,11 @@ describe('M3: the rate cards and the templates — who may, whose a card is', ()
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
     expect(report.errors).toEqual([])
     expect(fake.state.log).not.toContain('rate_cards')
-    expect(report.rateCards).toMatchObject({ total: 0, left: 3 })
+    // Review round 1: the desktop's empty shell is noise, not a card left for want of the right.
+    expect(report.rateCards).toMatchObject({ total: 0, left: 2, empty: 1 })
     expect(report.needsRights.rateCards).toBe(true)
-    expect(lines).toContain(`  ${RATE_CARDS_NEED_RIGHT(3)}`)
+    expect(lines).toContain(`  ${RATE_CARDS_NEED_RIGHT(2)}`)
+    expect(lines).toContain(`  ${EMPTY_CARDS(1)}`)
     // A manager matches people and writes the templates.
     expect(report.people.matched).toBe(8)
     expect(ins('task_templates')).toHaveLength(2)
@@ -3600,6 +3711,8 @@ describe('M3: the rate cards and the templates — who may, whose a card is', ()
     expect(second.errors).toEqual([])
     expect(second.rateCards.inserted).toBe(2)
     expect(second.rateCardEntries).toMatchObject({ inserted: 0, left: RATE_CARD_ENTRIES.length, unmatched: 1 })
+    // Review round 1: entries refused mid-run are a right this person lacks — the run is not done.
+    expect(second.needsRights.rateCards).toBe(true)
     // One insert met the gate; the rest were not tried (the gate is the person's, not a card's).
     expect(fake.state.log.filter(t => t === 'rate_card_entries')).toHaveLength(1)
     // The templates by a plain user who is a project manager: the pinned one lands, the global one is left, said, the run not done.

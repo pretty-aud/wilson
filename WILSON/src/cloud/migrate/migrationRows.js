@@ -752,6 +752,9 @@ export function peopleMapOf({ members, directory, callerUserId } = {}) {
   const shared = [...perUser.values()].filter(n => n > 1).reduce((s, n) => s + n, 0)
   return {
     canMatch,
+    // The signed-in person (the dry run counts the seat the project's insert
+    // gives them as there — review round 1).
+    callerUserId: named(callerUserId) ? String(callerUserId) : null,
     callerRole: caller?.app_role ?? null,
     // The rate cards' gate (0020): entries are written by a workspace admin
     // or someone with the edit grant; the directory carries the grants.

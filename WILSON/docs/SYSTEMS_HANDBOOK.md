@@ -364,7 +364,10 @@ person it shuts out, an earlier run's would read as removed). M3 (night 5,
 `project_members` (the table has no id; compared against the project's
 seats); the people set on rows an earlier run carried without them under
 `people_set` (`<kind>:<row>:<column>`, each once, so a teammate who clears
-one is not overruled); the files the desktop keeps with its rows under
+one is not overruled — and a row that arrives with its person is recorded
+there at the insert, review round 1, so the rule holds from the first run;
+a column that arrived empty is not, and is set once its person joins); the
+files the desktop keeps with its rows under
 `files`; and the workspace kinds — the rate cards, their entries (inserted
 only) and the templates — in a **workspace-level record** the desktop keeps
 beside their stores (`rabbit-data/cloud-migration/<workspace id>.json`,

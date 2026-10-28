@@ -38,8 +38,8 @@ const {
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT,
   RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
-  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, PEOPLE_SET,
-  RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
+  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, ROLES_LEFT, PEOPLE_SET,
+  RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, DEFAULTS_LEFT, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
   MANAGED_FILES_WILL_UPLOAD, MANAGED_FILES_UPLOADED, SERVER_MEDIA_STAY, BODIES_GONE, MANAGED_OVER_CAP, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
 } = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
@@ -474,10 +474,11 @@ describe('the question, once per root', () => {
     await dryRun(report({
       dryRun: false, footageRoots: [],
       people: { canMatch: true, desktop: 10, matched: 8, unmatched, shared: 2, managersSeated: ['Mara Okonkwo'], set: 4, needAdmin: false, unread: null },
-      projectMembers: { ...bucket(3), unmatched: 2, datesLeft: 1, rolesLeft: 0, left: 1 },
-      rateCards: { ...bucket(2), empty: 1, defaultsLeft: 0, left: 0 }, rateCardEntries: { ...bucket(20), unmatched: 1, left: 3 }, taskTemplates: { ...bucket(2), orphans: 1, left: 1 },
+      projectMembers: { ...bucket(3), unmatched: 2, datesLeft: 1, rolesLeft: 2, left: 1 },
+      rateCards: { ...bucket(2), empty: 1, defaultsLeft: 1, left: 0 }, rateCardEntries: { ...bucket(20), unmatched: 1, left: 3 }, taskTemplates: { ...bucket(2), orphans: 1, left: 1 },
       assetTemplatesLinked: 2, receiptsMoved: 1,
-      managedFiles: { ...bucket(4), inserted: 2, bytes: 62_914_563, placed: 2, linksLetGo: 0, bodiesGone: 1, server: 0, privateHome: 0, overCap: 1, overBound: 0, versions: 1 },
+      files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 2, receiptsGated: 0 },
+      managedFiles: { ...bucket(4), inserted: 2, bytes: 62_914_563, placed: 2, linksLetGo: 1, bodiesGone: 1, server: 0, privateHome: 0, overCap: 1, overBound: 0, versions: 1 },
     }))
     const said = (id) => screen.getByTestId(id).textContent
     expect(said('people-matched')).toBe(`${PEOPLE_MATCHED(8, 10)}.`)
@@ -486,6 +487,10 @@ describe('the question, once per root', () => {
     expect(said('people-shared')).toBe(`${PEOPLE_SHARED(2)}.`)
     expect(said('managers-seated')).toBe(`${MANAGERS_SEATED(['Mara Okonkwo'])}.`)
     expect(said('roster-left')).toBe(`${ROSTER_LEFT(1)}.`)
+    // Review round 1: three counts the runner filled reached no line.
+    expect(said('roles-left')).toBe(`${ROLES_LEFT(2)}.`)
+    expect(said('defaults-left')).toBe(`${DEFAULTS_LEFT(1)}.`)
+    expect(said('file-links-let-go')).toBe(`${FILE_LINKS_LET_GO(3)}.`)
     expect(said('people-set')).toBe(`${PEOPLE_SET(4)}.`)
     expect(said('empty-cards')).toBe(`${EMPTY_CARDS(1)}.`)
     expect(said('entries-need-grant')).toBe(`${ENTRIES_NEED_GRANT(3)}.`)
@@ -513,7 +518,7 @@ describe('the question, once per root', () => {
     // CONTROL: a run where none of it happened says none of it.
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], people: { canMatch: true, desktop: 0, matched: 0, unmatched: [], shared: 0, managersSeated: [], set: 0, needAdmin: false, unread: null } }))
-    for (const id of ['people-need-admin', 'people-matched', 'people-not-matched', 'people-shared', 'managers-seated', 'roster-left', 'people-set', 'rate-cards-need-right', 'empty-cards', 'entries-need-grant', 'templates-left', 'templates-orphan', 'asset-templates-linked', 'managed-files-uploaded', 'bodies-gone', 'managed-server', 'managed-over-cap', 'receipts-moved']) expect(screen.queryByTestId(id), id).toBeNull()
+    for (const id of ['people-need-admin', 'people-matched', 'people-not-matched', 'people-shared', 'managers-seated', 'roster-left', 'roles-left', 'people-set', 'rate-cards-need-right', 'empty-cards', 'defaults-left', 'entries-need-grant', 'templates-left', 'templates-orphan', 'asset-templates-linked', 'managed-files-uploaded', 'bodies-gone', 'managed-server', 'managed-over-cap', 'receipts-moved']) expect(screen.queryByTestId(id), id).toBeNull()
   })
 
   it('M3 (design review, findings 2 and 5): a body the desktop could not reach, or a kind this person could not write, is not Done — no archive, and Migrate says why', async () => {

@@ -188,6 +188,8 @@ export const PEOPLE_NEED_ADMIN = "the team stays on this computer: in the cloud 
 export const PEOPLE_UNREAD = (why) => `could not read the company's directory, so no desktop team member was matched and every person column arrives empty (run again): ${why}`
 export const MANAGERS_SEATED = (names) => `${plural(names.length, 'person', 'people')} seated as a project's manager — as on this computer, or as its producer, whom the cloud seats so: in the cloud a project manager sees its budget and sets its roster (make them members in the browser if that is too much): ${names.join(', ')}`
 export const ROSTER_LEFT = (n) => `${plural(n, 'seat')} not given: in the cloud a project's roster is set by a workspace admin or manager, or the project's manager, and you are none of these for this project`
+export const ROLES_LEFT = (n) => `${plural(n, 'seat')} given as member: the cloud's roles are manager, reviewer and member, and the desktop's role for ${n === 1 ? 'it' : 'them'} is none of these`
+export const DEFAULTS_LEFT = (n) => `${plural(n, 'rate card')} ${n === 1 ? 'arrives' : 'arrive'} not as the default of ${n === 1 ? 'its' : 'their'} type: the cloud already has its own default of that type (set yours as the default in the browser if you prefer ${n === 1 ? 'it' : 'them'})`
 export const PEOPLE_SET = (n) => `${plural(n, 'row')} an earlier run carried without ${n === 1 ? 'its' : 'their'} person (budget lines, tasks, the producer and director) now ${n === 1 ? 'names' : 'name'} them`
 export const RATE_CARDS_NEED_RIGHT = (n) => `${plural(n, 'rate card')} ${n === 1 ? 'stays' : 'stay'} on this computer: in the cloud rate card entries are written by a workspace admin or someone with the rate card edit grant, and you are neither`
 export const CARD_NOT_OURS = (name) => `rate card "${name}": a card with this id is in the cloud, but not one you can see (in the cloud's trash, or another company's — restored, it carries on the next run), so it was not written`
@@ -1355,7 +1357,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       ['task_dependencies', deps.filter(d => dependencyKind(d) !== 'phase')], ['phase_dependencies', deps.filter(d => dependencyKind(d) === 'phase')],
       ['task_links', bundle.taskLinks], ['comments', bundle.comments], ['scenes', bundle.scenes], ['shots', bundle.shots],
       ['shot_lists', bundle.shotLists], ['shot_list_items', bundle.shotListItems], ['edits', bundle.edits], ['folders', bundle.folders],
-      ['files', bundle.files], ['budget_versions', bundle.budgetVersions], ['budget_lines', bundle.budgetLines],
+      // Review round 1 (M3): the files kept with rows are recorded under
+      // `files` too, so one a teammate removed is called removed, not skipped.
+      ['files', [...(Array.isArray(bundle.files) ? bundle.files : []), ...(Array.isArray(bundle.managedFiles) ? bundle.managedFiles : []).filter(f => isObj(f) && !named(f.deleted_at))]],
+      ['budget_versions', bundle.budgetVersions], ['budget_lines', bundle.budgetLines],
       ['budget_actuals', bundle.budgetActuals], ['expenses', bundle.expenses], ['project_rate_overrides', bundle.projectRateOverrides],
       ['bins', bundle.bins], ['bin_files', bundle.binFiles], ['shot_takes', bundle.shotTakes], ['task_items', bundle.taskItems],
       ['table_views', bundle.tableViews], ['item_groupings', bundle.itemGroupings],
@@ -1621,6 +1626,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       if (!hasId(l)) { fail(report.budgetLines, 'budget_line', undefined, NO_ID); continue }
       const shaped = budgetLineRowForCloud(l, projectId, people)
       const out = await carryRow('budget_lines', report.budgetLines, l, shaped, 'budget_line', l.label || l.department || l.id)
+      // Review round 1 (M3): a line that arrives with its person is recorded as set.
+      if (out === 'inserted' && shaped.team_member_id != null) rc.add('people_set', `line:${l.id}:team_member_id`)
       if (out === 'inserted' || out === 'there') linesLanded.add(l.id)
       if (out === 'failed') linesFailed.add(l.id)
       if (out === 'unread') linesUnread.add(l.id)
@@ -1813,7 +1820,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     if (people.unmatched.length) note(`  ${PEOPLE_NOT_MATCHED(people.unmatched)}`)
     if (people.shared) note(`  ${PEOPLE_SHARED(people.shared)}`)
   }
-  const unmatchedPerson = (id) => named(id) && !people.userOf(id)
+  // Review round 1 (M3): below admin or manager, or with the directory
+  // unread, PEOPLE_NEED_ADMIN (or PEOPLE_UNREAD, an error) is the one sentence
+  // for the team, and nobody is counted beside it as "without a WILSON
+  // account" — the map never looked. A desktop with no team members has no
+  // sentence, and its rows' people (ids it cannot name) are counted as before.
+  const peopleSaid = () => !!people.desktop && !people.canMatch
+  const unmatchedPerson = (id) => !peopleSaid() && named(id) && !people.userOf(id)
   const seatName = (desktopId) => people.nameOf(desktopId) || String(desktopId)
 
   // The workspace record (the rate cards, their entries, the templates), as
@@ -1883,9 +1896,17 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // inserted entries only (a skip says nothing about whose an entry is).
   // Department defaults have no cloud home: counted, never carried.
   const carryRateCards = async (dry) => {
-    const cards = stores.rateCards
+    const all = stores.rateCards
+    if (!all.length) return
+    addNotCarried('deptDefaults', all.reduce((s, c) => s + c.deptDefaults.length, 0))
+    // The desktop's own auto-made shells (no entries, no defaults) are noise no
+    // run carries, whoever runs it: counted first, never among the cards left
+    // for want of the right (review round 1).
+    const shells = all.filter(({ card, entries, deptDefaults }) => hasId(card) && !entries.length && !deptDefaults.length)
+    const cards = all.filter(c => !shells.includes(c))
+    report.rateCards.empty += shells.length
+    if (shells.length) note(`  ${EMPTY_CARDS(shells.length)}`)
     if (!cards.length) return
-    addNotCarried('deptDefaults', cards.reduce((s, c) => s + c.deptDefaults.length, 0))
     if (!people.callerEditsRateCards) {
       report.rateCards.left += cards.length
       report.needsRights.rateCards = true
@@ -1902,15 +1923,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     const cloudCards = new Set(have.rows.map(c => String(c.id)))
     const defaults = have.rows.filter(c => c.is_default === true).map(c => c.type)
     const hasDefaultOfType = (type) => defaults.includes(type)
-    let empty = 0
     let defaultsLeft = 0
     let entriesLeft = 0
     let entriesUnmatched = 0
     let refusedByGate = false
-    for (const { card, entries, deptDefaults } of cards) {
+    for (const { card, entries } of cards) {
       if (!hasId(card)) { report.errors.push({ scope: 'rate_card', message: NO_ID }); bumpFailed(report.rateCards); continue }
       const name = String(card.name || card.id)
-      if (!entries.length && !deptDefaults.length) { empty++; continue }
       const g = wrc.gate('rate_cards', card.id, cloudCards)
       if (g === 'removed') { wrc.removed('rate_cards', card, name); continue }
       if (cloudCards.has(String(card.id)) || g === 'there') {
@@ -1945,7 +1964,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       for (const e of entries) {
         if (!hasId(e)) { report.errors.push({ scope: 'rate_card_entry', message: NO_ID }); bumpFailed(report.rateCardEntries); continue }
         const shaped = rateCardEntryRowForCloud(e, card.id, people)
-        if (shaped.userLeft) { entriesUnmatched++; continue }
+        if (shaped.userLeft) { if (!peopleSaid()) entriesUnmatched++; continue }
         const ge = wrc.gate('rate_card_entries', e.id, cloudEntries)
         if (ge === 'removed') { wrc.removed('rate_card_entries', e, e.role_label || e.id); continue }
         if (cloudEntries.has(String(e.id)) || ge === 'there') { bumpSkipped(report.rateCardEntries); continue }
@@ -1961,14 +1980,15 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         }
       }
     }
-    report.rateCards.empty += empty
     report.rateCards.defaultsLeft += defaultsLeft
     report.rateCardEntries.unmatched += entriesUnmatched
     report.rateCardEntries.left += entriesLeft
     addNotCarried('entryPeople', entriesUnmatched)
-    if (empty) note(`  ${EMPTY_CARDS(empty)}`)
-    if (entriesLeft) note(`  ${ENTRIES_NEED_GRANT(entriesLeft)}`)
-    note(`  ${plural(cards.length - empty, 'rate card')} with ${plural(report.rateCardEntries.total, 'entry', 'entries')}`)
+    if (defaultsLeft) note(`  ${DEFAULTS_LEFT(defaultsLeft)}`)
+    // Review round 1 (M3): entries the gate refused mid-run are a right this
+    // person lacks, as the up-front refusal is: the run is not done.
+    if (entriesLeft) { report.needsRights.rateCards = true; note(`  ${ENTRIES_NEED_GRANT(entriesLeft)}`) }
+    note(`  ${plural(cards.length, 'rate card')} with ${plural(report.rateCardEntries.total, 'entry', 'entries')}`)
   }
 
   // The task templates (0044), once per run, after the projects: the cloud's
@@ -2081,9 +2101,15 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // this project's manager) is counted once per project, never a failed
   // project; one whose account is no longer a member (23503) is counted as
   // unmatched.
-  const carryRoster = async (bundle, projectId, dry, rc) => {
+  // `autoSeated` (the dry run): the people the project's insert will seat
+  // itself — the mover, and a producer the map names (fn_projects_auto_staff,
+  // measured) — met on their pair by the real run and skipped (review round 1).
+  const carryRoster = async (bundle, projectId, dry, rc, autoSeated = []) => {
     const assignments = (bundle.teamAssignments ?? []).filter(isObj)
     if (!assignments.length) return
+    // Below admin or manager nobody is matched: the one sentence
+    // (PEOPLE_NEED_ADMIN, or PEOPLE_UNREAD as an error) covers the team.
+    if (peopleSaid()) return
     const membersById = new Map(stores.members.map(m => [String(m.id), m]))
     const have = await listCloud('project_members', 'project_id', projectId, 'user_id, project_role', 'user_id')
     if (have.error) {
@@ -2092,7 +2118,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       report.projectMembers.failed += assignments.length
       return
     }
-    const seated = new Set(have.rows.map(r => String(r.user_id)))
+    const seated = new Set([...have.rows.map(r => String(r.user_id)), ...autoSeated.filter(Boolean).map(String)])
     let unmatched = 0
     let dates = 0
     let roles = 0
@@ -2129,6 +2155,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     report.projectMembers.left += left
     addNotCarried('teamAssignments', unmatched)
     addNotCarried('assignmentDates', dates)
+    if (roles) note(`  ${ROLES_LEFT(roles)}`)
     if (left) { report.needsRights.roster = true; note(`  ${ROSTER_LEFT(left)}`) }
   }
 
@@ -2138,12 +2165,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // the raw id, and recorded (`people_set`: `<kind>:<row>:<column>`) so a
   // teammate who clears a person later is not overruled (the pointers'
   // rule). Rows this run inserted carry their people already and are not
-  // asked about. Setting a producer seats them as the project's manager
-  // (fn_projects_auto_staff, measured): named with the seated.
+  // asked about; those that arrived with one are recorded as set at the
+  // insert (review round 1: the project's, a task's, a line's), so the rule
+  // holds from the first run, and a column that arrived empty (its person
+  // without an account yet) is set once they join. Setting a producer seats
+  // them as the project's manager (fn_projects_auto_staff, measured): named
+  // with the seated.
   const PEOPLE_COLUMNS = [['budget_lines', 'budgetLines', 'team_member_id', 'line', true], ['tasks', 'tasks', 'assignee_id', 'task', false], ['tasks', 'tasks', 'reviewer_id', 'task', false]]
+  const TASK_PEOPLE = ['assignee_id', 'reviewer_id']
+  const PROJECT_PEOPLE = ['producer_id', 'director_id']
   const setPeopleOnEarlierRows = async (bundle, projectId, rc, dry, moneyGoes) => {
     if (!people.canMatch || !people.matched) return
-    let set = 0
+    // The rows set (a task's two columns are one row — review round 1).
+    const touched = new Set()
     const update = async (table, col, value, rowId, cur) => {
       try {
         let q = supabase.from(table).update({ [col]: value }).eq('id', rowId)
@@ -2172,15 +2206,15 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         if (!w) continue
         if (cur != null && String(cur) === w.user) { rc.add('people_set', `${word}:${row.id}:${col}`); continue }
         if (!(cur == null || String(cur) === w.desktop)) continue
-        if (dry) { set++; continue }
+        if (dry) { touched.add(`${word}:${row.id}`); continue }
         const out = await update(table, col, w.user, row.id, cur)
         if (out.error) { report.errors.push({ scope: table, projectId, id: row.id, message: `its person could not be set (run again): ${out.error.message || out.error}` }); continue }
-        if (out.changed) { set++; rc.add('people_set', `${word}:${row.id}:${col}`) }
+        if (out.changed) { touched.add(`${word}:${row.id}`); rc.add('people_set', `${word}:${row.id}:${col}`) }
       }
     }
     const p = bundle.project ?? {}
     const want = {}
-    for (const col of ['producer_id', 'director_id']) {
+    for (const col of PROJECT_PEOPLE) {
       if (!named(p[col]) || rc.has('people_set', `project:${projectId}:${col}`)) continue
       const user = people.userOf(p[col])
       if (user) want[col] = { user, desktop: String(p[col]) }
@@ -2199,13 +2233,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           const v = cur[col]
           if (v != null && String(v) === w.user) { rc.add('people_set', `project:${projectId}:${col}`); continue }
           if (!(v == null || String(v) === w.desktop)) continue
-          if (dry) { set++; if (col === 'producer_id') report.people.managersSeated.push(seatName(w.desktop)); continue }
+          if (dry) { touched.add('project'); if (col === 'producer_id') report.people.managersSeated.push(seatName(w.desktop)); continue }
           const out = await update('projects', col, w.user, projectId, v)
           if (out.error) { report.errors.push({ scope: 'project', projectId, message: `the project's ${col === 'producer_id' ? 'producer' : 'director'} could not be set (run again): ${out.error.message || out.error}` }); continue }
-          if (out.changed) { set++; rc.add('people_set', `project:${projectId}:${col}`); if (col === 'producer_id') report.people.managersSeated.push(seatName(w.desktop)) }
+          if (out.changed) { touched.add('project'); rc.add('people_set', `project:${projectId}:${col}`); if (col === 'producer_id') report.people.managersSeated.push(seatName(w.desktop)) }
         }
       }
     }
+    const set = touched.size
     report.people.set += set
     if (set) note(`  ${PEOPLE_SET(set)}`)
   }
@@ -2222,7 +2257,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // `petal` → the Supabase provider, `s3` → the s3 provider in one PUT up to
   // its bound. Before a byte moves: the row is asked for (as a file's is), the
   // links and the folder checked, the body's true size taken by one Range
-  // request to the desktop's stream (`?probe=1`: no 'downloaded' event per
+  // request to the desktop's stream, in the dry run too — review round 1
+  // (`?probe=1`: no 'downloaded' event per
   // file — the cloud's 'uploaded' event and the record are the record of the
   // move; 410 is a body not on the disk: counted, said, and the run is not
   // done). Under the resumable threshold the body is one Blob and the
@@ -2368,11 +2404,18 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       const versionLeft = !!managedVersionLabel(mf)
       const tooBig = (size) => (rule.provider === FILE_PROVIDERS.S3 && size > S3_MAX_SINGLE_PUT_BYTES ? 'overBound' : rule.provider === FILE_PROVIDERS.SUPABASE && size > PETAL_FILE_CAP_BYTES ? 'overCap' : null)
       if (dry) {
-        const size = Number(mf.size_bytes) || 0
+        // Review round 1 (M3): the body's true size by the same probe the real
+        // run makes (one Range request, no event), so a body gone is said
+        // before anything moves and the bytes promised are the bytes sent.
+        const probe = await probeManagedBody(projectId, mf.id)
+        if (probe.gone) { counts.gone++; continue }
+        if (probe.error) { report.errors.push({ scope: 'managed_file', projectId, id: mf.id, message: `${name}: the file's body could not be read on this computer (${probe.error})` }); bumpFailed(report.managedFiles); continue }
+        const size = probe.size
         const big = tooBig(size)
         if (big) { counts[big]++; continue }
         bumpInserted(report.managedFiles)
         counts.bytes += size
+        counts.uploaded++
         if (folderId) counts.placed++
         counts.letGo += letGoHere
         if (versionLeft) counts.versions++
@@ -2435,7 +2478,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     report.managedFiles.overBound += counts.overBound
     report.managedFiles.versions += counts.versions
     addNotCarried('managedVersions', counts.versions)
-    if (dry && report.managedFiles.inserted) note(`  ${MANAGED_FILES_WILL_UPLOAD(report.managedFiles.inserted, report.managedFiles.bytes)}`)
+    if (dry && counts.uploaded) note(`  ${MANAGED_FILES_WILL_UPLOAD(counts.uploaded, counts.bytes)}`)
     if (!dry && counts.uploaded) note(`  ${MANAGED_FILES_UPLOADED(counts.uploaded, counts.bytes)}`)
     if (counts.letGo) note(`  ${FILE_LINKS_LET_GO(counts.letGo)}`)
     if (counts.gone) note(`  ${BODIES_GONE(counts.gone)}`)
@@ -2466,7 +2509,9 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     let thumbTo = null
     if (named(already.thumbnail_url)) {
       thumbTo = thumbnailKeyFor(to)
-      if (await existsAt(thumbs, already.thumbnail_url)) {
+      // Review round 1: a picture already at its place is left there.
+      if (already.thumbnail_url === thumbTo) { /* nothing to move */ }
+      else if (await existsAt(thumbs, already.thumbnail_url)) {
         const { error } = await thumbs.move(already.thumbnail_url, thumbTo)
         if (error) {
           const rm = await thumbs.remove([already.thumbnail_url])
@@ -2475,11 +2520,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         }
       } else if (!(await existsAt(thumbs, thumbTo))) thumbTo = null
     }
-    if (!(await existsAt(bucket, to))) {
-      const { error } = await bucket.move(from, to)
-      if (error) throw new Error(`its body could not be moved behind the gate: ${error.message}`)
-    } else if (await existsAt(bucket, from)) {
-      throw new Error('its body is at both its old and its new place in the cloud; both were left')
+    // Review round 1: a row flagged ordinary whose object is already behind
+    // the gate (a run that stopped after writing the path, before the flag)
+    // needs only its row changed.
+    if (from !== to) {
+      if (!(await existsAt(bucket, to))) {
+        const { error } = await bucket.move(from, to)
+        if (error) throw new Error(`its body could not be moved behind the gate: ${error.message}`)
+      } else if (await existsAt(bucket, from)) {
+        throw new Error('its body is at both its old and its new place in the cloud; both were left')
+      }
     }
     const { data, error } = await supabase.from('files').update({ is_financial: true, storage_path: to, thumbnail_url: thumbTo }).eq('id', f.id).eq('project_id', projectId).eq('is_financial', false).select('id')
     if (error) throw new Error(`its row could not be put behind the gate: ${error.message}`)
@@ -2488,8 +2538,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   }
   // The dry run's count of the receipts the real run will move: the bundle's
   // money files already in the cloud whose row says ordinary.
-  const countOpenReceipts = async (bundle, projectId, money, rc) => {
-    const ids = money.files.filter(f => hasId(f) && !rc.has('receipts_open', f.id) || (hasId(f) && rc.has('receipts_open', f.id))).map(f => String(f.id))
+  const countOpenReceipts = async (projectId, money) => {
+    const ids = money.files.filter(hasId).map(f => String(f.id))
     if (!ids.length) return
     const r = await listCloudIn('files', 'id', ids, 'id, project_id, is_financial')
     if (r.error) return
@@ -2573,10 +2623,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       const rc = await recordContext(projectId, bundle, { dry: true, money: moneyGoes })
       // M3: the roster, as the real run gives the seats; a producer the map
       // names on a project about to arrive is seated by the cloud as its manager.
-      await carryRoster(bundle, projectId, true, rc)
-      if (!projectThere.there && people.userOf(bundle.project?.producer_id)) report.people.managersSeated.push(seatName(bundle.project.producer_id))
       const removedBefore = { ...report.removed.byTable }
       const linksBefore = report.rowLinksLetGo
+      await carryRoster(bundle, projectId, true, rc, projectThere.there ? [] : [people.callerUserId, people.userOf(bundle.project?.producer_id)])
+      if (!projectThere.there && people.userOf(bundle.project?.producer_id)) report.people.managersSeated.push(seatName(bundle.project.producer_id))
       // The rows of a table this run will try (those an earlier run carried
       // and the cloud no longer shows are counted as removed, and left out).
       const toTry = (table, rows) => (rows ?? []).filter(r => {
@@ -2687,7 +2737,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // receipts an earlier run left open; the people on rows an earlier
         // run carried; the assets whose template links wait on the templates.
         await carryManagedFiles(bundle, projectId, { dry: true, rc, folders, linkState: async (key, id) => (here[FILE_LINKS[key]]?.has(id) ? 'landed' : 'gone') })
-        if (moneyGoes) await countOpenReceipts(bundle, projectId, money, rc)
+        if (moneyGoes) await countOpenReceipts(projectId, money)
         if (moneyGoes) await carryBudgets(bundle, projectId, lists, true, rc)
         else if (!asked.unasked) leaveMoney(money)
         if (projectThere.there) await setPeopleOnEarlierRows(bundle, projectId, rc, true, moneyGoes)
@@ -2811,8 +2861,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     let arriving = false
     let statusRefused = null
+    let sent = null
     try {
       const row = projectRowForCloud(bundle.project ?? {}, workspaceId, people)
+      sent = row
       let r
       try {
         r = await insertOrSkip('projects', row)
@@ -2858,10 +2910,15 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     const moneyGoes = asked.sees
     const rc = await recordContext(projectId, bundle, { dry: false, money: moneyGoes })
     rc.add('projects', projectId)
-    // M3: the roster, right after the project row (the seats need nothing else).
-    await carryRoster(bundle, projectId, false, rc)
+    // Review round 1 (M3): the people the project arrived with are recorded
+    // as set now (`people_set`), so a teammate who clears one later is not
+    // overruled by the next run; a column that arrived empty (its person
+    // without an account yet) is not, and is set once they join.
+    if (arriving) for (const col of PROJECT_PEOPLE) if (sent?.[col] != null) rc.add('people_set', `project:${projectId}:${col}`)
     const removedBefore = { ...report.removed.byTable }
     const linksBefore = report.rowLinksLetGo
+    // M3: the roster, right after the project row (the seats need nothing else).
+    await carryRoster(bundle, projectId, false, rc)
     countPart2LeftAtHome(bundle, moneyGoes)
 
     // M1: which of this project's rows did not land in this run (a comment,
@@ -2917,7 +2974,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     let schedLetGo = 0
     // One row of the three: `shape(row)` answers its cloud row and the links
     // it let go, or throws why it waits (said, and its children with it).
-    const carrySched = async (table, scope, bucket, src, shape, onLanded) => {
+    const carrySched = async (table, scope, bucket, src, shape, onLanded, onInserted) => {
       const g = hasId(src) ? rc.gate(table, src.id) : 'new'
       if (g === 'removed') { rc.removed(table, src); return }
       if (g === 'there') { bumpSkipped(bucket); onLanded?.(src.id); return }
@@ -2925,7 +2982,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         const { row, letGo } = shape(src)
         const r = await insertOrSkip(table, row, oursSched(table))
         r.status === 'inserted' ? bumpInserted(bucket) : bumpSkipped(bucket)
-        if (r.status === 'inserted') schedLetGo += letGo
+        if (r.status === 'inserted') { schedLetGo += letGo; onInserted?.(row) }
         if (r.status === 'inserted' || knownSched[table]) onLanded?.(src.id)
         if (keepsId(r, !!knownSched[table])) rc.add(table, src.id, r.status === 'inserted')
       } catch (err) {
@@ -2988,6 +3045,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         const link = phaseLink(row.phase_id, src.title || src.id)
         row.phase_id = link.id
         return { row, letGo: link.letGo }
+      }, null, (row) => {
+        // Review round 1 (M3): a task that arrives with its people is recorded
+        // as set, so a teammate who clears one later is not overruled.
+        if (hasId(t)) for (const col of TASK_PEOPLE) if (row[col] != null) rc.add('people_set', `task:${t.id}:${col}`)
       })
     }
     report.rowLinksLetGo += schedLetGo

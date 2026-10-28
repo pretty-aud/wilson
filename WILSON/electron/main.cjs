@@ -5030,8 +5030,9 @@ ipcMain.handle('rabbit:clear-gdrive', () => {
 // directory and its two modules, lifted by brace matching into
 // runMigrationBins.test.js (as mergeCloudMigrationRecord is) and run there
 // against a real temporary directory, with its control: a store left in place.
-const ARCHIVED_WORKSPACE_STORES = ['rate-cards', 'team-members', 'task-templates', 'cloud-migration'];
 function archiveLocalRabbitData(rabbitDir, fs, path) {
+  // The workspace stores, named inside (the test lifts this function alone).
+  const stores = ['rate-cards', 'team-members', 'task-templates', 'cloud-migration'];
   const projectsDir = path.join(rabbitDir, 'projects');
   const thumbsDir   = path.join(rabbitDir, 'thumbnails');
   const archivesDir = path.join(rabbitDir, 'archives');
@@ -5051,7 +5052,7 @@ function archiveLocalRabbitData(rabbitDir, fs, path) {
     }
   }
   const storeCounts = {};
-  for (const store of ['rate-cards', 'team-members', 'task-templates', 'cloud-migration']) {
+  for (const store of stores) {
     const dir = path.join(rabbitDir, store);
     const rows = [];
     if (fs.existsSync(dir)) {
@@ -5070,7 +5071,7 @@ function archiveLocalRabbitData(rabbitDir, fs, path) {
   // Clear live stores. Binary files are already uploaded to Supabase Storage.
   fs.rmSync(projectsDir, { recursive: true, force: true });
   fs.rmSync(thumbsDir,   { recursive: true, force: true });
-  for (const store of ['rate-cards', 'team-members', 'task-templates', 'cloud-migration']) fs.rmSync(path.join(rabbitDir, store), { recursive: true, force: true });
+  for (const store of stores) fs.rmSync(path.join(rabbitDir, store), { recursive: true, force: true });
 
   return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts };
 }

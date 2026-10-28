@@ -43,8 +43,8 @@ import {
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, removedWords, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS,
   RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
-  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, PEOPLE_SET,
-  RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
+  PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, ROLES_LEFT, PEOPLE_SET,
+  RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, DEFAULTS_LEFT, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
   MANAGED_FILES_WILL_UPLOAD, MANAGED_FILES_UPLOADED, SERVER_MEDIA_STAY, PRIVATE_MEDIA_STAY, BODIES_GONE, MANAGED_OVER_CAP, MANAGED_OVER_BOUND, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
 } from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
@@ -360,9 +360,11 @@ function CarriedLines({ r }) {
     ['people-shared', people.shared, PEOPLE_SHARED],
     ['managers-seated', seated.length, () => MANAGERS_SEATED(seated)],
     ['roster-left', r.projectMembers?.left, ROSTER_LEFT],
+    ['roles-left', r.projectMembers?.rolesLeft, ROLES_LEFT],
     ['people-set', people.set, PEOPLE_SET],
     ['rate-cards-need-right', r.rateCards?.left, RATE_CARDS_NEED_RIGHT],
     ['empty-cards', r.rateCards?.empty, EMPTY_CARDS],
+    ['defaults-left', r.rateCards?.defaultsLeft, DEFAULTS_LEFT],
     ['entries-need-grant', r.rateCardEntries?.left, ENTRIES_NEED_GRANT],
     ['templates-left', r.taskTemplates?.left, TEMPLATES_LEFT],
     ['templates-orphan', r.taskTemplates?.orphans, TEMPLATES_ORPHAN],
@@ -395,7 +397,8 @@ function CarriedLines({ r }) {
     ['key-dates-phase-let-go', r.milestones?.phaseLetGo, KEY_DATES_PHASE_LET_GO],
     ['edits-chain-taken', r.edits?.taken, EDITS_CHAIN_TAKEN],
     ['row-links-let-go', r.rowLinksLetGo, ROW_LINKS_LET_GO],
-    ['file-links-let-go', r.files?.linksLetGo, FILE_LINKS_LET_GO],
+    // M3 (review round 1): the files kept with rows let links go too.
+    ['file-links-let-go', (r.files?.linksLetGo || 0) + (r.managedFiles?.linksLetGo || 0), FILE_LINKS_LET_GO],
     ['actuals-on-gone-lines', r.budgetActuals?.orphans, ACTUALS_ON_GONE_LINES],
     ['task-links-on-gone-tasks', r.taskLinks?.orphans, TASK_LINKS_ON_GONE_TASKS],
     ['comments-removed', r.comments?.trashed, COMMENTS_REMOVED],
