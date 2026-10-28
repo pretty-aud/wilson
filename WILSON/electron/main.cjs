@@ -4705,7 +4705,7 @@ function fromThisLaunchsPage(event) {
 }
 ipcMain.on('wilson:renderer-storage-seed', (event) => {
   try {
-    event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().seed() : null;
+    event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().seed(localServerOrigin) : null;
   } catch {
     event.returnValue = null;
   }
@@ -4713,7 +4713,7 @@ ipcMain.on('wilson:renderer-storage-seed', (event) => {
 ipcMain.on('wilson:renderer-storage-changes', (event, changes) => {
   try {
     if (fromThisLaunchsPage(event)) rendererStorageNow().apply(changes);
-  } catch { /* the next change set carries the whole map's state */ }
+  } catch { /* never thrown into IPC; the module logs a failed write and tries again */ }
 });
 ipcMain.on('wilson:renderer-storage-changes-sync', (event, changes) => {
   try {
@@ -4721,6 +4721,11 @@ ipcMain.on('wilson:renderer-storage-changes-sync', (event, changes) => {
   } catch {
     event.returnValue = false;
   }
+});
+// A write Windows refused stays in memory; the quit writes it once more
+// (build review, F3).
+app.on('will-quit', () => {
+  try { rendererStorage?.flush(); } catch { /* best effort at quit */ }
 });
 
 // Second copy launched: focus the one that already exists. Registered

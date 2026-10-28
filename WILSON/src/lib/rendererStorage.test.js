@@ -52,14 +52,22 @@ const launch = (opts = {}) => createRendererStorage({ file, pause: () => {}, ...
 describe('electron/rendererStorage.cjs — the kept file', () => {
   it('a value written at one launch is read at the next: the seed of a new instance over the same file', () => {
     const one = launch()
-    expect(one.seed()).toEqual({ first: true, pairs: [] })
+    expect(one.seed('http://127.0.0.1:60674')).toEqual({ first: true, pairs: [] })
     expect(one.apply({ set: [['rabbit-timeline-settings-v1', '{"showWeekends":false}'], ['rabbit_team_saved_views', '[{"name":"D1"}]']], removed: [] }))
       .toEqual({ ok: true, written: true })
     const two = launch()                                             // the relaunch
-    const seed = two.seed()
+    const seed = two.seed('http://127.0.0.1:60544')
     expect(seed.first).toBe(true)
     expect(new Map(seed.pairs)).toEqual(new Map([['rabbit-timeline-settings-v1', '{"showWeekends":false}'], ['rabbit_team_saved_views', '[{"name":"D1"}]']]))
-    expect(two.seed().first).toBe(false)                             // a reload in the same launch
+    expect(two.seed('http://127.0.0.1:60544').first).toBe(false)     // a reload in the same launch
+  })
+
+  it('the first load is per origin, not per process: a second window\'s new server starts clean too (build review, F5)', () => {
+    const one = launch()
+    one.apply({ set: [['k', 'v']], removed: [] })
+    expect(one.seed('http://127.0.0.1:1').first).toBe(true)
+    expect(one.seed('http://127.0.0.1:1').first).toBe(false)
+    expect(one.seed('http://127.0.0.1:2')).toEqual({ first: true, pairs: [['k', 'v']] })
   })
 
   it('a removed key is gone at the next launch, and an unchanged set writes nothing', () => {
@@ -70,7 +78,7 @@ describe('electron/rendererStorage.cjs — the kept file', () => {
     expect(launch().keys()).toEqual(['a'])
   })
 
-  it('never kept, whatever it is sent: the session keys, the idle clocks, tus fingerprints, a value naming the loopback address', () => {
+  it('never kept, whatever it is sent: the session keys, the idle clocks, tus fingerprints', () => {
     const one = launch()
     const session = JSON.stringify({ access_token: 'made-up', refresh_token: 'made-up' })
     one.apply({
@@ -78,18 +86,59 @@ describe('electron/rendererStorage.cjs — the kept file', () => {
         ['wilson.dev.session', session], ['wilson.operator.session', session], ['sb-abc-auth-token', session],
         ['wilson.dev.session.activity', '1793170282765'], ['wilson.operator.session.activity', '1'],
         ['tus::wilson/bucket/key::1', '{"uploadUrl":"https://example.invalid/x"}'],
-        ['rabbit_edit_drafts', '{"x":{"thumb":"http://127.0.0.1:60589/api/rabbit/media/k"}}'],
         ['wilson.dev.session.start', '{"sid":"s","at":1}'], ['wilson.lastCompany', 'Petal'],
       ],
       removed: [],
     })
     expect(one.keys().sort()).toEqual(['wilson.dev.session.start', 'wilson.lastCompany'])
     const onDisk = readFileSync(file, 'utf8')
-    for (const absent of ['made-up', 'activity', 'tus::', '127.0.0.1', 'sb-abc']) expect(onDisk).not.toContain(absent)
-    // a kept key whose new value may not be kept is removed, never left stale
-    one.apply({ set: [['wilson.lastCompany', 'see http://127.0.0.1:1/x']], removed: [] })
-    expect(launch().keys()).toEqual(['wilson.dev.session.start'])
+    for (const absent of ['made-up', 'activity', 'tus::', 'sb-abc']) expect(onDisk).not.toContain(absent)
     expect(isKeptPair('wilson.dev.session.start', '{}')).toBe(true)
+  })
+
+  it('ordinary text is kept whole, a prompt naming a local model server included (build review, F2)', () => {
+    const prompts = JSON.stringify({ scheduler: 'Use the model at http://127.0.0.1:11434 for drafts.' })
+    launch().apply({ set: [['rabbit-prompts-v1', prompts]], removed: [] })
+    expect(new Map(launch().seed('o').pairs).get('rabbit-prompts-v1')).toBe(prompts)
+  })
+
+  it('a file Windows holds past the retries is never written over: no seed, every change refused, the file untouched (build review, F1)', () => {
+    launch().apply({ set: [['rabbit-timeline-settings-v1', '{"showWeekends":false}'], ['wilson.lastCompany', 'Petal']], removed: [] })
+    const before = readFileSync(file, 'utf8')
+    const locked = { ...realFs, readFileSync: () => { const e = new Error('busy'); e.code = 'EBUSY'; throw e } }
+    const lines = []
+    const held = launch({ fsImpl: locked, log: (l) => lines.push(l) })
+    expect(held.seed('o')).toBeNull()
+    expect(held.apply({ set: [['wilson.update.skipped-version', '9.9.9']], removed: [] })).toEqual({ ok: false, reason: 'unreadable' })
+    expect(held.flush()).toBe(false)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(lines.join('\n')).toMatch(/could not be read/)
+    // a hold that ends inside the retries is no hold at all
+    let refusals = 2
+    const brief = { ...realFs, readFileSync: (...a) => { if (refusals-- > 0) { const e = new Error('busy'); e.code = 'EPERM'; throw e } return realFs.readFileSync(...a) } }
+    expect(new Map(launch({ fsImpl: brief }).seed('o').pairs).get('wilson.lastCompany')).toBe('Petal')
+  })
+
+  it('a .tmp cut short by a crash gives way to the file it never replaced', () => {
+    launch().apply({ set: [['a', '1']], removed: [] })
+    writeFileSync(`${file}.tmp`, '{"a":"2",')                        // unparseable...
+    utimesSync(file, new Date(1000), new Date(1000))                  // ...and the newer of the two, so it is read first
+    expect(new Map(launch().seed('o').pairs)).toEqual(new Map([['a', '1']]))
+  })
+
+  it('a write Windows refuses stays in memory and the quit writes it (build review, F3); nothing to write, nothing written', () => {
+    let refusals = 2
+    const flaky = { ...realFs, writeFileSync: (...a) => { if (refusals-- > 0) { const e = new Error('busy'); e.code = 'EBUSY'; throw e } return realFs.writeFileSync(...a) } }
+    expect(launch({ fsImpl: flaky }).apply({ set: [['a', '1']], removed: [] })).toEqual({ ok: true, written: true })
+    let down = true
+    const failing = { ...realFs, writeFileSync: (...a) => { if (down) { const e = new Error('busy'); e.code = 'EBUSY'; throw e } return realFs.writeFileSync(...a) } }
+    const one = launch({ fsImpl: failing })
+    expect(one.apply({ set: [['b', '2']], removed: [] })).toEqual({ ok: true, written: false, reason: 'write_failed' })
+    expect(new Map(launch().seed('o').pairs).has('b')).toBe(false)
+    down = false
+    expect(one.flush()).toBe(true)
+    expect(new Map(launch().seed('o').pairs)).toEqual(new Map([['a', '1'], ['b', '2']]))
+    expect(one.flush()).toBe(false)
   })
 
   it('the heartbeat of the idle clock alone never rewrites the file', () => {
@@ -141,7 +190,28 @@ describe('electron/rendererStorage.cjs — the kept file', () => {
   it('one file per build flavour (the dev build and the installed one share a userData folder on Windows)', () => {
     expect(rendererStorageFile('C:\\ud', true)).toBe(join('C:\\ud', FILE_NAME))
     expect(rendererStorageFile('C:\\ud', false)).toBe(join('C:\\ud', DEV_FILE_NAME))
-    expect(readKept(join(dir, 'absent.json')).size).toBe(0)
+    expect(readKept(join(dir, 'absent.json'))).toEqual({ kept: new Map(), unreadable: false })
+  })
+})
+
+// 🚨 The rule the module's header states: no writer keeps an address on the
+// loopback server (it would outlive its port, and the launch cookie is scoped
+// by host, not port). A module that builds one from the page's origin must not
+// write localStorage; a new one doing both is read here first.
+describe('no module that builds a loopback address writes localStorage (build review, F2)', () => {
+  const walk = (d) => realFs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
+    const p = join(d, e.name)
+    if (e.isDirectory()) return e.name === 'node_modules' ? [] : walk(p)
+    return /\.(js|jsx)$/.test(e.name) && !/\.test\.(js|jsx)$/.test(e.name) ? [p] : []
+  })
+  const files = walk(resolve(here, '..')).map((p) => ({ p, text: readFileSync(p, 'utf8') }))
+  const builders = files.filter((f) => /localMediaUrl\(|location\.origin/.test(f.text))
+  const writers = files.filter((f) => /localStorage(\?\.|\.)setItem\(|storage\?\.setItem\(/.test(f.text))
+  it('the two sets are known and do not meet', () => {
+    expect(builders.length).toBeGreaterThan(2)
+    expect(writers.length).toBeGreaterThan(10)
+    const both = builders.filter((b) => writers.some((w) => w.p === b.p)).map((f) => f.p.slice(resolve(here, '..').length + 1))
+    expect(both).toEqual([])
   })
 })
 
@@ -184,7 +254,7 @@ function fakeStorage(initial = []) {
 }
 
 /** Run the real preload with a fake bridge; `require` allows what a sandboxed preload's does. */
-function runPreload({ seed = null, storage = fakeStorage(), seedThrows = false, storageThrows = false } = {}) {
+function runPreload({ seed = null, storage = fakeStorage(), seedThrows = false, storageThrows = false, sendThrows = 0 } = {}) {
   const order = []
   const exposed = {}
   const sent = []
@@ -197,7 +267,10 @@ function runPreload({ seed = null, storage = fakeStorage(), seedThrows = false, 
       if (channel === 'wilson:renderer-storage-changes-sync') { sent.push({ channel, sync: true, changes: JSON.parse(JSON.stringify(payload)) }); return true }
       throw new Error(`unexpected sendSync ${channel}`)
     },
-    send(channel, payload) { sent.push({ channel, sync: false, changes: JSON.parse(JSON.stringify(payload)) }) },
+    send(channel, payload) {
+      if (sendThrows > 0) { sendThrows -= 1; throw new Error('an IPC send that failed') }
+      sent.push({ channel, sync: false, changes: JSON.parse(JSON.stringify(payload)) })
+    },
     invoke: async () => null,
     on() {},
     removeListener() {},
@@ -274,6 +347,15 @@ describe('electron/preload.cjs — the bridges first, then the kept storage', ()
     expect(r.sent[0].changes).toEqual({ set: [['written-before-a-crash', '1']], removed: ['removed-before-a-crash'] })
   })
 
+  it('a send that threw is sent again at the next flush: the baseline moves only once a change set has left (build review, F3)', () => {
+    const r = runPreload({ seed: { first: true, pairs: [] }, sendThrows: 1 })
+    r.storage.setItem('rabbit-holidays-v2', '[]')
+    r.tick()
+    expect(r.sent).toEqual([])
+    r.tick()
+    expect(r.sent).toEqual([{ channel: 'wilson:renderer-storage-changes', sync: false, changes: { set: [['rabbit-holidays-v2', '[]']], removed: [] } }])
+  })
+
   it('a refused sender (no seed) keeps today\'s storage: nothing cleared, nothing sent', () => {
     const storage = fakeStorage([['k', 'v']])
     const r = runPreload({ seed: null, storage })
@@ -288,7 +370,7 @@ describe('electron/main.cjs — the wiring, read from source', () => {
 
   it('the three channels sit beside the token\'s, each wrapped, every synchronous call answered when refused or failed', () => {
     const seed = between(block, "ipcMain.on('wilson:renderer-storage-seed'", '\n});')
-    expect(seed).toContain('event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().seed() : null;')
+    expect(seed).toContain('event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().seed(localServerOrigin) : null;')
     expect(seed).toMatch(/catch \{\n\s+event\.returnValue = null;/)
     const changes = between(block, "ipcMain.on('wilson:renderer-storage-changes',", '\n});')
     expect(changes).toContain('if (fromThisLaunchsPage(event)) rendererStorageNow().apply(changes);')
@@ -296,6 +378,10 @@ describe('electron/main.cjs — the wiring, read from source', () => {
     const sync = between(block, "ipcMain.on('wilson:renderer-storage-changes-sync'", '\n});')
     expect(sync).toContain('event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().apply(changes).ok === true : false;')
     expect(sync).toMatch(/catch \{\n\s+event\.returnValue = false;/)
+  })
+
+  it('the quit writes once more what a refused write left in memory', () => {
+    expect(block).toMatch(/app\.on\('will-quit', \(\) => \{\n\s+try \{ rendererStorage\?\.flush\(\); \} catch/)
   })
 
   it('the sender check is the module\'s, against the live main window and this launch\'s origin; the file is per build flavour', () => {

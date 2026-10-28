@@ -153,22 +153,21 @@ try {
       return now;
     };
     let last = new Map(seed.pairs);
-    const changes = () => {
-      const now = read();
-      const set = [];
-      const removed = [];
-      for (const [key, value] of now) if (last.get(key) !== value) set.push([key, value]);
-      for (const key of last.keys()) if (!now.has(key)) removed.push(key);
-      last = now;
-      return set.length || removed.length ? { set, removed } : null;
-    };
     const flush = (sync) => {
       try {
-        const c = changes();
-        if (!c) return;
-        if (sync) ipcRenderer.sendSync('wilson:renderer-storage-changes-sync', c);
-        else ipcRenderer.send('wilson:renderer-storage-changes', c);
-      } catch { /* the next flush carries it */ }
+        const now = read();
+        const set = [];
+        const removed = [];
+        for (const [key, value] of now) if (last.get(key) !== value) set.push([key, value]);
+        for (const key of last.keys()) if (!now.has(key)) removed.push(key);
+        if (set.length || removed.length) {
+          if (sync) ipcRenderer.sendSync('wilson:renderer-storage-changes-sync', { set, removed });
+          else ipcRenderer.send('wilson:renderer-storage-changes', { set, removed });
+        }
+        // Only once the change set has left (build review, F3): a send that
+        // threw leaves the baseline where it was, so the next flush sends it.
+        last = now;
+      } catch { /* the baseline did not move: the next flush sends it again */ }
     };
     setInterval(() => flush(false), 1000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(false); });
