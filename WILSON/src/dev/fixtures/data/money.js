@@ -175,11 +175,15 @@ export const BUDGET_LINES = LINE_ROWS.map(([n, sheet, department, label, is_sect
   updated_at: stamp(30, 10, i),
 }))
 
+// M2 (night 4): each actual's `source` is one the cloud's CHECK takes
+// (manual, timecard, expense — 0037). The rows said 'invoice' and
+// 'timesheet', which wilson-dev refuses (23514, measured rolled back) and the
+// desktop never writes (its two writers send 'manual').
 export const BUDGET_ACTUALS = [
-  { id: fid('budgetActual', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 33), column_index: 0, value: 16800, invoice_number: 'INV-0041', expense_id: fid('expense', 1), source: 'invoice', notes: 'Camera hire, deposit paid.', attachment_name: 'INV-0041_camera_hire.pdf', attachment_path: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(36, 12), updated_at: stamp(36, 12) },
-  { id: fid('budgetActual', 2), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 35), column_index: 0, value: 3860, invoice_number: 'INV-0042', expense_id: fid('expense', 2), source: 'invoice', notes: 'Timber under estimate.', attachment_name: 'INV-0042_set_timber.pdf', attachment_path: null, created_by: M.jonah, updated_by: M.jonah, created_at: stamp(38, 12), updated_at: stamp(38, 12) },
-  { id: fid('budgetActual', 3), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 12), column_index: 0, value: 7280, invoice_number: null, expense_id: null, source: 'timesheet', notes: '14 of 26 days logged.', attachment_name: null, attachment_path: null, created_by: M.jonah, updated_by: M.jonah, created_at: stamp(39, 9), updated_at: stamp(39, 9) },
-  { id: fid('budgetActual', 4), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 2),  column_index: 0, value: 9750, invoice_number: null, expense_id: null, source: 'timesheet', notes: '15 of 30 days logged.', attachment_name: null, attachment_path: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(39, 9, 1), updated_at: stamp(39, 9, 1) },
+  { id: fid('budgetActual', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 33), column_index: 0, value: 16800, invoice_number: 'INV-0041', expense_id: fid('expense', 1), source: 'expense', notes: 'Camera hire, deposit paid.', attachment_name: 'INV-0041_camera_hire.pdf', attachment_path: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(36, 12), updated_at: stamp(36, 12) },
+  { id: fid('budgetActual', 2), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 35), column_index: 0, value: 3860, invoice_number: 'INV-0042', expense_id: fid('expense', 2), source: 'expense', notes: 'Timber under estimate.', attachment_name: 'INV-0042_set_timber.pdf', attachment_path: null, created_by: M.jonah, updated_by: M.jonah, created_at: stamp(38, 12), updated_at: stamp(38, 12) },
+  { id: fid('budgetActual', 3), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 12), column_index: 0, value: 7280, invoice_number: null, expense_id: null, source: 'timecard', notes: '14 of 26 days logged.', attachment_name: null, attachment_path: null, created_by: M.jonah, updated_by: M.jonah, created_at: stamp(39, 9), updated_at: stamp(39, 9) },
+  { id: fid('budgetActual', 4), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 2),  column_index: 0, value: 9750, invoice_number: null, expense_id: null, source: 'timecard', notes: '15 of 30 days logged.', attachment_name: null, attachment_path: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(39, 9, 1), updated_at: stamp(39, 9, 1) },
 ]
 
 // Post-overhaul S5 (F12.1): the two bids in the shape every version carries
@@ -221,6 +225,10 @@ export const EXPENSES = [
   { id: fid('expense', 3), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, title: 'Compass props', description: 'Two brass compasses, one to weather.', estimated_cost: 260, actual_cost: 284, purchase_date: day(24), asset_ids: [ASSET_ID(10)], phase_ids: [PHASE_ID.pre], task_ids: [TASK_ID(24)], file_ids: [], created_by: M.jonah, updated_by: M.jonah, created_at: stamp(24, 12), updated_at: stamp(24, 12) },
 ]
 
+// M2 (night 4): a rate is a role's or a person's, never both (0037's
+// project_rate_overrides_target_chk; 23514 on wilson-dev, measured rolled
+// back), as the desktop's two writers set it. The row named the editor's role
+// beside Sofia; the app read it as hers (a member's rate is matched first).
 export const PROJECT_RATE_OVERRIDES = [
-  { id: fid('override', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, role_slug: 'editor', member_id: M.sofia, day_rate: 500, week_rate: 2500, month_rate: 10000, wage: null, currency: 'USD', notes: 'Agreed short-film rate.', created_by: M.mara, updated_by: M.mara, created_at: stamp(20, 10), updated_at: stamp(20, 10) },
+  { id: fid('override', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, role_slug: null, member_id: M.sofia, day_rate: 500, week_rate: 2500, month_rate: 10000, wage: null, currency: 'USD', notes: 'Agreed short-film rate.', created_by: M.mara, updated_by: M.mara, created_at: stamp(20, 10), updated_at: stamp(20, 10) },
 ]

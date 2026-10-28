@@ -291,7 +291,18 @@ walked in 33–44 ms over the stood-up share. Settle it by timing a folder of a
 few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
 worker thread, as the root question now is.
 
-### The desktop→cloud migration does not carry budgets, expenses, levels, experiences, the team or links on tasks yet (part 2)
+### ~~The desktop→cloud migration does not carry budgets, expenses, levels, experiences, the team or links on tasks yet (part 2)~~ — CLOSED for part 2 (M2, 2026-10-28); the team is night 5's (M2-L1)
+**Closed by M2 (night 4, `po/m2-migration-part-2`), MEASURED:** every part-2
+row shape was rehearsed on wilson-dev first, rolled back, and the runner
+carries each through the cloud's columns — the bid versions after the shot
+lists, the lines, the actuals on them, the expenses and the role rates behind
+the money gate, then the project's locked and open bid versions by UPDATE
+(each only to a version this run carried for this project); the levels and
+experiences before the assets, folders, files, a task's items and the
+groupings that name them; the links on tasks through the project's tasks.
+Pinned by the round trip in `runMigrationBins.test.js` (M2), the handbook's
+§3.1 table says what each key becomes. Night 5 (M3) carries what is left:
+M2-L1 below. The entry as it stood:
 **INFERRED (BC3, 2026-10-09); narrowed by M1 (2026-10-27, night 3 of
 `docs/sessions/PLAN_TO_1_0.md`), which carries the key dates, comments, shot
 lists with their items and edits, and folders.** The runner copies projects
@@ -336,7 +347,23 @@ same refusal to the CHECK through a small SQL function (PostgreSQL's regex
 has no Unicode-property classes; the function tests the code points), and
 the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
 
-### A second desktop→cloud migration brings back rows a teammate removed from the cloud
+### ~~A second desktop→cloud migration brings back rows a teammate removed from the cloud~~ — CLOSED by M2's record (2026-10-28), narrowed to rows a build before M2 carried
+**Closed by M2, the fix shape below, MEASURED by the round trip:** each run
+adds the ids it carried to a record kept in the project's bundle on this
+computer (`cloudMigration`, per workspace, through the desktop's route
+`POST /api/rabbit/projects/:id/cloud-migration-record`, written as rows land,
+never before), and a later run — and the dry run — never inserts an id the
+record holds: one the cloud no longer shows is counted, named and said
+(`REMOVED_SINCE_LAST_RUN`), whether a teammate removed it for good or into
+the trash. `runMigrationBins.test.js` "M2: a second run brings back nothing
+a teammate removed": run, remove a budget line, a level, a task, a clip, a
+key date and a link on a task in the fake cloud, run again — none comes back;
+red without the record (its CONTROL). **What remains (narrowed):** a row a
+build before M2 carried has no record, so the first M2 run brings it back if
+a teammate removed it; and the last rows of a run that stopped part way are
+recorded by the next run, which finds them there (a removal in between brings
+one back). Settle the first by migrating with M2 from the start. The entry as
+it stood:
 **INFERRED (BC3 review round 1, 2026-10-09; read from `src/cloud/migrate/runMigration.js`
 `insertOrSkip`).** The runner is idempotent by KEY: a row already in the
 cloud is skipped (23505), a row not there is inserted — for every table it
@@ -1275,6 +1302,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul M2 (2026-10-28; `po/m2-migration-part-2` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 2 (`docs/sessions/PLAN_TO_1_0.md` night 4): every part-2 row shape rehearsed on wilson-dev first (rolled back); the budgets behind the money gate (versions, lines, actuals, expenses, role rates, the two pointers, receipts kept money), the levels and experiences with what names them, the links on tasks; the phases', assets' and tasks' own checks; the second run's record; migration **0103** (the desktop's three statuses, her ruling of 2026-10-28) and suite **106**, on wilson-dev only; a cleared Director or Producer sent as NULL; two review rounds | M2-L1 (night 5's kinds, for M3), M2-L2 (`upsertTaskLink` sends `project_id`; measured, unreachable today), M2-L3 (a dry run on a cloud without 0103) | the part-2 entry and the resurrection entry (closed, the second narrowed); M1-L3, M1-L4 and M1-L5 closed; M1-L1 and M1-L2 to night 5 (M2-L1). |
 | Post-overhaul DG4 (2026-10-28; `po/dg4-dog-project-references-card` into `feat/post-overhaul-edit-versioning`) — Audrey's five notes on D.O.G.'s References (night 3, added by her): cards 1 and 2 one card, *1 Project and references*, laid out by the laws of UX in one 576px column; the References meter that column's fixed width (the contract line above it measured 571.28px) and 8px thick, the window's footer meter still `flex: 1`; *Place visual* (was *Use visual assets*, its subtitle gone) beside *Theme generator*, the Generate outline card's only two checkboxes, on both sides of the switch; *Use project assets* gone with its flag; *Core files only* beside Add references (the chosen project's readable Core files instead of what is chosen). No migration, no Edge Function. Walkthrough 84, its DG4 section. | DG4-01 (a click on a D.O.G. checkbox's words does nothing, only its 14px box ticks it; MEASURED, pre-existing). Comment markers: 4 → 4. | — |
 | Post-overhaul S2 (2026-10-27; `po/s2-offline-launch` into `feat/post-overhaul-edit-versioning`) — the offline launch (`docs/design/RECONNECT_DESIGN.md` §11, her two rulings of 2026-10-27): a saved sign-in inside the 4-hour cap whose launch reaches nothing opens the shell offline — held by the client module, the guard latched, the claims read from the saved token, the strip from the first paint, one sentence on each screen and no New or Create — and is given back to the SDK on the first answered ping; a refused sign-in is cleared from the store; the pet's failed sync is retried without a relaunch | S2-01 (on the desktop the 4-hour cap restarts at every launch: a new origin, an empty localStorage) | *An offline launch cannot get past the sign-in screen, however fresh the saved sign-in*; *A failed pet sync is never retried until WILSON is relaunched* — both closed by measurement (the probe's phase G; `createPetSyncRetry`) |
 | Post-overhaul M1 (2026-10-27; `po/m1-migration-part-1` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 1 (`docs/sessions/PLAN_TO_1_0.md` night 3): the inventory (the handbook's §3.1 table); a desktop project carried at all, its row through the cloud's columns and each value as its column takes it (measured on wilson-dev, rolled back: 42703, 23503, P0001, 22P02, 22007, 23502); its key dates, comments, shot lists with their items and edits, and folders, each file in its folder; every link only to this project's rows; the round trip on the fixtures; the report's part 2 apart from what no migration carries; two review rounds, both on Opus (Fable's usage out); no migration, no SQL | M1-L1 (asset versions and the desktop's own file store), M1-L2 (the workspace's stores), M1-L3 (a file's level or experience link), M1-L4 (the browser's status and person pickers; measured), M1-L5 (phases, assets and tasks without the project check; review round 2) | nothing; the part 2 entry narrowed and renamed, the resurrection entry measured for M1's kinds. |
@@ -2925,7 +2953,8 @@ What M1 (night 3: the desktop → cloud migration, part 1) found outside its
 list while taking the inventory of the bundle (the handbook's §3.1 table).
 
 - **M1-L1 · No night of the plan carries asset versions or the desktop's own
-  file store.** The plan's §2 list for *the migration carries everything*
+  file store.** **→ Night 5's (M3): Audrey's ruling of 2026-10-28, "A night
+  after part 2 (Recommended)"; M2-L1 holds the list.** The plan's §2 list for *the migration carries everything*
   names shot lists, edits, folders, comments, milestones, budgets, expenses,
   levels and experiences; a bundle's `assetVersions` (an asset's version
   history) and `managedFiles` (the files FileManager keeps with an asset,
@@ -2939,7 +2968,7 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   live managed file as a `files` row with its body (its folder by its
   `folder_path`, its entity link), after the folders; asset versions after the
   assets and files. Owner: the controller (a line for the plan).
-- **M1-L2 · No migration carries the workspace's rate cards, team members or
+- **M1-L2 · (→ night 5's, M3: Audrey's ruling of 2026-10-28; M2-L1) No migration carries the workspace's rate cards, team members or
   task templates.** `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/`
   are workspace stores; the runner reads projects only
   (`/api/rabbit/projects`), and neither night's brief names them. A desktop's
@@ -2948,7 +2977,10 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   projects (rate cards and their entries, task templates; team members want a
   decision — the cloud's directory seats people with accounts). Owner: the
   controller.
-- **M1-L3 · A desktop file linked to a level or an experience fails until
+- **M1-L3 · ~~CLOSED by M2 (2026-10-28): the levels and experiences land
+  before the files, and a file's level or experience link is kept only to
+  this project's row, let go otherwise (`FILE_LINKS`, measured: the key takes
+  any project's level).~~ A desktop file linked to a level or an experience fails until
   part 2 carries its row.** The runner sends a file's `level_id` /
   `experience_id` as the desktop holds them, and 0043's foreign keys refuse an
   id the cloud does not hold (`files_level_id_fkey`); levels and experiences
@@ -2957,7 +2989,12 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   with one meets it. Fix shape: part 2 carries levels and experiences before
   the files, or lets the link go and says so, as M1 does for a file's link to
   a row removed on this computer. Owner: M2.
-- **M1-L4 · In the browser, a project's status can be set to one the cloud
+- **M1-L4 · ~~CLOSED by M2 (2026-10-28), Audrey's ruling "Add the three to
+  the cloud (Recommended)": migration 0103 adds `draft`, `wrapped` and
+  `inactive` to `project_status` (suite 106: a member saves each of the
+  eight, a reader cannot); the cloud adapter sends a cleared Director or
+  Producer as NULL (`supabaseLoadProject.test.js`, "on the wire"); the
+  migration carries a project's status as it is.~~ In the browser, a project's status can be set to one the cloud
   refuses.** R.A.B.B.I.T.'s project settings offer Draft and Wrapped
   (`ProjectSummaryView.jsx`'s `STATUS_OPTIONS`) and the Projects page offers
   Inactive (`ProjectDetailPanel.jsx`); the cloud's `project_status` has
@@ -2976,7 +3013,11 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   cloud's UUID columns refuse (22P02, measured on wilson-dev), so a cleared
   picker's save is refused in the browser too (INFERRED from the code, not
   clicked); the migration sends such a value empty.
-- **M1-L5 · Phases, assets and tasks go up without an "is it this project's"
+- **M1-L5 · ~~CLOSED by M2 (2026-10-28): this project's phases, assets and
+  tasks are read before they go up (an id another project holds is said, and
+  what names it lets the link go), and each phase link is kept only to this
+  project's phase (measured: the three keys take any project's phase).~~
+  Phases, assets and tasks go up without an "is it this project's"
   check, and their own phase links raw.** Review round 2, outside M1's list.
   The runner inserts phases, assets and tasks with `insertOrSkip` and no
   `ours` test, so an id another project holds reads as "already there"; and
@@ -2989,6 +3030,41 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   read this project's rows first, as BC3 does for scenes, shots and bins, and
   give the three tables the `ours` test and their phase links the key dates'
   check. Owner: M2 (it reworks those inserts for the budgets).
+
+## Post-overhaul M2 (`po/m2-migration-part-2`) — left open (2026-10-28)
+
+What M2 (night 4: the desktop → cloud migration, part 2) leaves, and found
+outside its list.
+
+- **M2-L1 · Night 5 (M3) carries what no night has carried yet** (Audrey's
+  ruling of 2026-10-28, "A night after part 2 (Recommended)"). MEASURED from
+  the runner and the report (`NOT_CARRIED`'s later group): `teamAssignments`
+  and `projectTeam` (they land in `project_members` by cloud user id, after
+  her ruling on people without accounts — the cloud seats only people with
+  accounts); what a budget line says of a team member (`team_member_id`,
+  carried empty: 0037 reads it as a workspace member's user id on the cloud)
+  and a team member's project rate (not carried: 0037's target CHECK needs one
+  of role or person); an asset's version history (`assetVersions`); the
+  files the desktop keeps with an asset, scene, shot, level or experience
+  (`managedFiles`, their contents uploaded — designed first); the company's
+  rate cards and task templates (`{userData}/rabbit-data/`), and the template
+  an asset was made from (`task_template_id`, carried empty: the key refused
+  the whole asset, 23503, measured). Fix shape: the plan's night 5 row; M3's
+  brief follows M2's merge. Owner: M3.
+- **M2-L2 · The cloud adapter's `upsertTaskLink` sends the provider's
+  `project_id`, which `task_links` has no column for.** `RabbitProvider.addTaskLink`
+  builds `{ id, project_id, ...link }` and `supabaseAdapter.upsertTaskLink` strips
+  only `created_at`. MEASURED on wilson-dev (rolled back): *42703: column
+  "project_id" of relation "task_links" does not exist* (through PostgREST,
+  PGRST204: the whole write refused). Unreachable today: no screen calls
+  `addTaskLink` (MEASURED: no caller outside the provider). Fix shape: strip
+  `project_id` in `upsertTaskLink`, with a wire test. Owner: the controller.
+- **M2-L3 · A dry run against a cloud without 0103 does not foresee the
+  desktop's Draft, Wrapped and Inactive arriving as active.** Only the real
+  run's insert meets the type's refusal (22P02), and then sends the row again
+  without its status and says so. INFERRED from the runner (no probe of the
+  type is made). Moot once 0103 is on every cloud the desktop reaches.
+  Owner: none (said in the handbook's §17).
 
 ## Post-overhaul DG4 (`po/dg4-dog-project-references-card`) — left open (2026-10-28)
 

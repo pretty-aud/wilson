@@ -944,6 +944,20 @@ function blankDatesToNull(row) {
   return out;
 }
 
+// M2 (night 4; OUTSTANDING M1-L4): the project settings' Director and
+// Producer pickers store '' when cleared (SettingsSelect's empty option),
+// which the UUID columns refuse — 22P02, invalid input syntax for type uuid,
+// measured on wilson-dev — and with it the whole save. A person cleared is
+// none: NULL on the wire.
+const PERSON_FIELDS = new Set(['producer_id', 'director_id']);
+
+function blankPeopleToNull(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = { ...row };
+  for (const k of PERSON_FIELDS) if (out[k] === '') out[k] = null;
+  return out;
+}
+
 // ── 0084: a client AHEAD of its database ─────────────────────────────────
 // `feat/multi-user-v1` auto-deploys the staging-backed beta on every push
 // while migrations are applied by hand, so this client can meet a database
@@ -2848,7 +2862,7 @@ export function supabaseAdapter() {
       // 0084: the one project write that never runs toColumns, so the
       // older-database strip is applied here by hand (see stripUnmigrated).
       const data = unwrap(await client.from('projects')
-        .insert(stripUnmigrated('projects', row)).select().single());
+        .insert(stripUnmigrated('projects', blankPeopleToNull(row))).select().single());
       return data;
     },
 
@@ -2861,7 +2875,7 @@ export function supabaseAdapter() {
       // Before this, one unknown key (project.name, project.code, the nine
       // budget_* fields) rejected the entire patch with PGRST204 and the save
       // silently did nothing.
-      const row = toColumns('projects', blankDatesToNull(mapped.row));
+      const row = toColumns('projects', blankPeopleToNull(blankDatesToNull(mapped.row)));
       // Session 15: this check used to sit INSIDE the `row is empty` branch,
       // so it only fired for attachments-ONLY patches. A mixed patch — say
       // { title, documents } from a rename that happened to carry the file
