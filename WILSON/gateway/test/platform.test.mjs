@@ -291,7 +291,9 @@ describe('the updater\'s firewall request (arguments only: netsh never runs here
 });
 
 describe('the command and the installer\'s helper', () => {
-  const env = (extra = {}) => ({ ...process.env, WILSON_GATEWAY_STATE_DIR: path.join(tmp, 'cli-state'), ...extra });
+  // P8 (TPN-ENC-014): off Windows the command seals under a key and refuses to enrol without one — a throwaway for this file's runs.
+  const SEAL_KEY = crypto.randomBytes(32).toString('base64');
+  const env = (extra = {}) => ({ ...process.env, WILSON_GATEWAY_STATE_DIR: path.join(tmp, 'cli-state'), WILSON_GATEWAY_SECRETS_KEY: SEAL_KEY, ...extra });
   it('version names the gateway, Node and OpenSSL', () => {
     const out = execFileSync(process.execPath, [CLI, 'version'], { encoding: 'utf8', env: env() });
     expect(out).toMatch(/^wilson-gateway 0\.1\.0 \(node \d+\.\d+\.\d+, openssl [^,]+, (windows|container), /);
