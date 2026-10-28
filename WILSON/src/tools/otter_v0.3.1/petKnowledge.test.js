@@ -1127,3 +1127,119 @@ describe('mutation-killing coverage for the two corrections that had none', () =
       .toBeLessThan(r.block.indexOf('Introduction'))
   })
 })
+
+// =============================================================================
+// B2 (2026-10-27) — a subject LINKED into the receiver's course (design §5.6).
+// One share-list read per build; for each accepted link with a live host in
+// the index, one read BY ID makes an entry under the host course (title,
+// description, section and lesson titles — never a body); Phase B reads its
+// body by id; a 404 drops it; the Local Server's 501 and the web's 401 are
+// "no shares", and a failed read leaves the build uncached.
+// =============================================================================
+
+const HOST_COURSE = { slug: 'host-1', name: 'My Blender', type: 'software', visibility: 'personal', is_own: true, can_read_content: true }
+const LINK_ROW = {
+  id: 'sh-1', subject_id: 'sub-L', subject_title: 'Rigging basics', status: 'accepted', state: 'accepted',
+  host_course_id: 'host-1', host_live: true, owner_label: 'Audrey', course_name: 'Blender 5.0',
+}
+const LINKED_BODY = {
+  id: 'sub-L', slug: 'rigging', title: 'Rigging basics', description: 'Bones and armatures', is_stub: false, linked: true,
+  sections: [
+    { title: 'Armatures', lessons: [
+      { title: 'Weight Painting', content: 'Paint the weights in Weight Paint mode with the brush.' },
+      { title: 'Ungenerated', content: '' },
+    ] },
+  ],
+}
+function linkedRoutes(over = {}) {
+  return {
+    '/api/software': [HOST_COURSE],
+    '/api/software/host-1/subjects': [],
+    '/api/otter/subject-shares': [LINK_ROW],
+    '/api/otter/subjects/sub-L': LINKED_BODY,
+    ...over,
+  }
+}
+
+describe('B2: a linked subject in the pet\'s index (design §5.6)', () => {
+  it('one share-list read and one read by id make an entry under the HOST course: titles, never a body', async () => {
+    const log = []
+    const index = await loadKnowledgeIndex(makeFetch(linkedRoutes(), log))
+    const host = index.courses.find(c => c.slug === 'host-1')
+    expect(host.subjects).toHaveLength(1)
+    const entry = host.subjects[0]
+    expect(entry).toMatchObject({
+      linkedId: 'sub-L', slug: 'link:sub-L', title: 'Rigging basics', description: 'Bones and armatures',
+      sectionTitles: ['Armatures'], lessonTitles: ['Weight Painting'],
+    })
+    expect(entry).not.toHaveProperty('sections')
+    expect(JSON.stringify(index)).not.toContain('Paint the weights')   // the warm index holds titles only
+    expect(log.filter(u => u === '/api/otter/subject-shares')).toHaveLength(1)
+    expect(log.filter(u => u === '/api/otter/subjects/sub-L')).toHaveLength(1)
+    // Nothing of the owner's course is read: only the one subject, by id.
+    expect(log.some(u => u.includes('src-') || u.includes('/api/software/c-'))).toBe(false)
+  })
+
+  it('Phase B reads a linked body BY ID, live, and finds its lesson by what it is about', async () => {
+    const log = []
+    const r = await retrieveOtterKnowledge({ question: 'how do I do weight painting', fetchImpl: makeFetch(linkedRoutes(), log) })
+    expect(r.block).toContain('Paint the weights')
+    expect(r.block).toContain('Weight Painting')
+    // Read twice by id: once for the index's titles, once for this message's body.
+    expect(log.filter(u => u === '/api/otter/subjects/sub-L')).toHaveLength(2)
+    expect(log.some(u => u.includes('/subjects/link'))).toBe(false)
+  })
+
+  it('a 404 by id drops the entry (the link ended, or the subject went to the trash)', async () => {
+    const index = await loadKnowledgeIndex(makeFetch(linkedRoutes({ '/api/otter/subjects/sub-L': undefined })))
+    expect(index.courses.find(c => c.slug === 'host-1').subjects).toEqual([])
+    expect(_peekPetKnowledgeCache()).not.toBeNull()   // a dropped entry is not a failed build
+  })
+
+  it('a link that does not read is never read by id: gone, its host trashed, or its host not in the index', async () => {
+    for (const over of [{ state: 'gone' }, { host_live: false }, { host_course_id: 'elsewhere' }, { status: 'pending', state: 'pending' }]) {
+      clearPetKnowledgeCache()
+      const log = []
+      await loadKnowledgeIndex(makeFetch(linkedRoutes({ '/api/otter/subject-shares': [{ ...LINK_ROW, ...over }] }), log))
+      expect(log, JSON.stringify(over)).not.toContain('/api/otter/subjects/sub-L')
+    }
+  })
+
+  it('a linked outline (a stub) is not indexed: it has no lessons to find', async () => {
+    const index = await loadKnowledgeIndex(makeFetch(linkedRoutes({ '/api/otter/subjects/sub-L': { ...LINKED_BODY, is_stub: true } })))
+    expect(index.courses[0].subjects).toEqual([])
+  })
+
+  it('the Local Server\'s 501, the web\'s 401 and a missing route\'s 404 mean "no shares": the index is built and cached', async () => {
+    for (const status of [501, 401, 404]) {
+      clearPetKnowledgeCache()
+      const log = []
+      const f = makeFetch(linkedRoutes({ '/api/otter/subject-shares': status === 404 ? undefined : { __status: status, body: { error: 'x' } } }), log)
+      const index = await loadKnowledgeIndex(f)
+      expect(index.reachable, String(status)).toBe(true)
+      expect(index.courses[0].subjects).toEqual([])
+      const reads = log.length
+      await loadKnowledgeIndex(f)
+      expect(log.length, `${status}: cached`).toBe(reads)
+    }
+  })
+
+  it('a FAILED share-list read (a 500) leaves the build uncached, so the next message tries again', async () => {
+    const log = []
+    const f = makeFetch(linkedRoutes({ '/api/otter/subject-shares': { __status: 500, body: { error: 'x' } } }), log)
+    const first = await loadKnowledgeIndex(f)
+    expect(first.reachable).toBe(true)
+    expect(_peekPetKnowledgeCache()).toBeNull()
+    await loadKnowledgeIndex(f)
+    expect(log.filter(u => u === '/api/software')).toHaveLength(2)
+  })
+
+  it('no share-list read when the pet may read no course at all (a link lands in one of the receiver\'s own)', async () => {
+    const log = []
+    await loadKnowledgeIndex(makeFetch({
+      '/api/software': [{ slug: 'x', name: 'Theirs', visibility: 'personal', is_own: false, can_read_content: false }],
+      '/api/otter/subject-shares': [LINK_ROW],
+    }, log))
+    expect(log).toEqual(['/api/software'])
+  })
+})

@@ -42,7 +42,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  MoreHorizontal, Share2, Copy, Trash2, MessageSquarePlus,
+  MoreHorizontal, Share2, Copy, Trash2, MessageSquarePlus, Link2, Users,
 } from 'lucide-react'
 import { canManageEditors, selectableVisibilities, canReadCourse } from './otterSharing.js'
 import { IconButton } from '../../../ui'
@@ -57,7 +57,7 @@ const VIEWPORT_PAD = 8
 
 export default function CourseRowMenu({
   course, role, onShare, onSuggestChange, onFork, onTrash, compact = false,
-  sourceIsStandard = false,
+  sourceIsStandard = false, onShareSubject = null, onShareCourse = null,
 }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null)
@@ -86,6 +86,14 @@ export default function CourseRowMenu({
   // Mirrors fn_otter_trash_authz's course arm: owner or admin. Granted editors
   // may edit content but never bin someone else's course.
   const mayTrash   = isOwn || isAdmin
+  // B2 (design §5.2): subject shares, OWNER ONLY — the share functions admit
+  // the course's owner and nobody else (an admin or a granted editor cannot
+  // share a colleague's subject: S1). Cloud only: the caller passes the two
+  // handlers only from its cloud render sites, so a missing handler is no
+  // item. The menu sees only the course row, so it does not gate on the
+  // subjects (a stub may be shared: it is an outline that fills live).
+  const mayShareSubject = isOwn && typeof onShareSubject === 'function'
+  const mayShareCourse  = isOwn && typeof onShareCourse === 'function'
 
   const items = [
     // PHASE 5 label: "Sharing…" was the only route to the company library and it
@@ -93,6 +101,8 @@ export default function CourseRowMenu({
     // course company-wide and could not find this item. The verb she searched
     // for now appears in the one place she would have looked.
     mayShare   && { key: 'share',   label: 'Share or submit…',  Icon: Share2,            run: onShare },
+    mayShareSubject && { key: 'share-subject', label: 'Share a subject…',        Icon: Link2, run: onShareSubject },
+    mayShareCourse  && { key: 'share-course',  label: 'Share this course with…', Icon: Users, run: onShareCourse },
     maySuggest && { key: 'suggest', label: 'Suggest a change…', Icon: MessageSquarePlus, run: onSuggestChange },
     mayFork    && { key: 'fork',    label: 'Make my own copy',  Icon: Copy,              run: onFork },
   ].filter(Boolean)
@@ -109,6 +119,8 @@ export default function CourseRowMenu({
   // phase set out to fix. Derived from the same flags the items are.
   const verbs = [
     mayShare   && 'share or submit',
+    mayShareSubject && 'share a subject',
+    mayShareCourse  && 'share this course with someone',
     maySuggest && 'suggest a change',
     mayFork    && 'copy',
     mayTrash   && 'move to trash',
