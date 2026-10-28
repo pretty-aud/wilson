@@ -87,8 +87,9 @@ hours, the online and offline starts agree); the local server's lock harness
   is lost (measured: a key written 2.5 s before was kept, one written
   0.05 s before was not).
 - **If Windows holds the file as WILSON starts** (an antivirus scan that
-  lasts longer than WILSON waits), that launch starts from the defaults and
-  changes nothing in the file; the next launch has your settings back.
+  lasts longer than WILSON waits), that launch starts from the defaults,
+  what you change in it is not kept, and the file is left as it was: the
+  next launch, or a reload of the window, has your settings back.
 - **Two security findings outside this fix**, recorded for the controller
   (OUTSTANDING D1-01 and D1-02) and asked below.
 

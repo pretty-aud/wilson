@@ -6168,8 +6168,10 @@ documentation and starts being wrong answers.
   frame at the launch's origin. Never kept: the session keys, the idle clocks,
   tus-js-client's `tus::` fingerprints; no module that builds a loopback
   address writes `localStorage` (a source test pins it). A file Windows still
-  holds as WILSON starts leaves that launch on the window's own storage,
-  writing nothing. A crash loses the last second (measured); the earlier launches' origins are
+  holds as WILSON starts leaves that load on the window's own storage,
+  writing nothing, and what changes in it is not kept; the next load reads
+  again. An unparseable file is set aside beside itself. A crash loses the
+  last second (measured); the earlier launches' origins are
   cleared once the server has bound (`clearData` with `excludeOrigins`, not
   awaited); the first launch after the update starts from the defaults once.
   A page the window is sent to (a dropped file) is handed the bridges:
