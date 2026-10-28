@@ -827,3 +827,63 @@ regeneration breaks `npm ci` (recorded in MASTER_PLAN §8).
 
 - A deploy log shows `npm ci`.
 - Deliberately desync the lock in a branch and confirm the build fails.
+
+---
+
+## RECO-NET-BASTION — Remote access to content through a bastion or a VPN, and a disclosed exception where it is not
+
+**Applies to:** TPN-NET-012 (INFO since 2026-10-28; added then so its reference resolves).
+
+### What TPN requires
+TS-2: remote access by bastion host or VPN only (AES-256, no split tunnelling); default-deny at every boundary.
+
+### Recommended change pattern
+Steer a TPN-track company to its own VPN, or to one computer, and keep any internet-facing content path off by default, with the
+moment it leaves Gold eligibility said at the control. WILSON's file gateway does both (0091's `remote_viewing_enabled DEFAULT false`;
+`REMOTE_VIEWING_TPN_SENTENCE` under the switch).
+
+### Side effects / interface preservation
+None: the gateway's outside door is opt-in per workspace.
+
+### Verification
+The switch off, the outside port refuses (`.github/workflows/gateway.yml`); the sentence renders under the switch.
+
+---
+
+## RECO-CONT-TRANSFER — SMB 3 with signing and encryption on a company share, SMB1 refused
+
+**Applies to:** TPN-CONT-016.
+
+### What TPN requires
+AS-3.7: transit encryption; for a Windows share, SMB 3.x with encryption and signing required.
+
+### Recommended change pattern
+Keep the requirement in the setup guidance (handbook §12.7; `docs/gateway/HARDENING.md` §4.1), and have the desktop's storage-root
+probe report the negotiated dialect where Windows exposes it, warning below 3 as the file gateway does
+(`gateway/src/platform/shares.mjs`).
+
+### Side effects / interface preservation
+A warning, never a refusal: WILSON cannot change the server's configuration.
+
+### Verification
+On an SMB1 or SMB2 share the probe shows its warning; on SMB 3 it does not.
+
+---
+
+## RECO-CLOUD-PUBLIC — No client-writable storage configuration, and private buckets for derived content
+
+**Applies to:** TPN-CLOUD-007 and TPN-CLOUD-008 (both RESOLVED in August 2026; added 2026-10-28 so their references resolve).
+
+### What TPN requires
+CS-1.13: isolation and access control at every layer for content, derived images included; configuration that selects where content
+is stored is set through a validated, role-gated path only.
+
+### Recommended change pattern
+Guard dead configuration columns against client writes (0048's `fn_workspaces_client_guard`), and create every bucket that holds a
+derived image private, with the source bucket's policies ported whole, money arm included (0053).
+
+### Side effects / interface preservation
+None.
+
+### Verification
+pgTAP: a client write to `storage_mode` raises; a non-manager cannot read an invoice's thumbnail (suite 63).

@@ -8,15 +8,17 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 
 ---
 
-## [1.0.0] — 2026-07-30
+## [1.0.0] — Unreleased
+
+*The controller dates this heading on release day, before the deploys (`docs/PRODUCTION_RUNBOOK.md` (g) 8). Rewritten 2026-10-28 (R2, night 4 of `docs/sessions/PLAN_TO_1_0.md`) from `docs/OUTSTANDING.md`'s Session log, the hand-offs in `docs/sessions/handoffs/` and `docs/MASTER_PLAN.md` §4, and checked against the tree at `51e5a0d7`. Each line ends with its source: a session, a merge or commit, or a file. What night 4 and night 5 merge after that commit, the controller adds.*
 
 ### The 1.0.0 story
 
 0.6.3 was a single-user Electron app: one shared password checked against a hardcoded string, every user's data on their own disk, and an Anthropic API key sitting in `localStorage` on every client.
 
-1.0.0 is a multi-tenant platform. A company is a **workspace**, and **Postgres Row-Level Security is the security boundary** — not the client, not the Edge Functions. Every tenant-scoped table is policy-gated, either on its own `workspace_id` or through a live-parent join for child tables that carry none. Sign-in is username-first; TOTP is available to everyone, becomes a challenge stage once a factor is verified, and is mandatory on the operator console. The Anthropic key never reaches a client on either host, and each company can bring its own. There is a platform operator console for Petal Studios, four append-only audit streams, real-time collaborative editing across R.A.B.B.I.T., and the whole thing now runs on the web as well as the desktop.
+1.0.0 is a multi-tenant platform. A company is a **workspace**, and **Postgres Row-Level Security is the security boundary**, not the client and not the Edge Functions. Sign-in is company-first; two-factor is challenged at sign-in once enrolled, required for the operator console, and a step-up on the admin Edge Functions for an admin who has enrolled (not yet on admin writes made through RLS, and enrolment itself is not yet required); and the Anthropic key never reaches a client. The whole product runs on the web as well as the desktop, after a UI overhaul that gave every page one kit and one type scale. Behind the three tools sit a budget with living bid versions, shot lists and edits, footage bins with a file gateway that plays office footage in a browser, a company's own storage (its NAS or an S3-compatible bucket), custom table views, and an O.T.T.E.R. that shares one subject live with a colleague.
 
-Tools in this release: D.O.G. 0.514, O.T.T.E.R. 0.3.1, R.A.B.B.I.T. 0.1.0. Database at migration 0030; twelve Edge Functions across three environments.
+**The build, measured at `51e5a0d7`:** the app `1.0.0` (`package.json`); D.O.G. 0.514, O.T.T.E.R. 0.3.1 and R.A.B.B.I.T. 0.1.0 (their folders under `src/tools/`); the file gateway 0.1.0 (`gateway/package.json`). The database: **97 migration files, 0000 to 0101** (no file for 0065, 0079, 0080, 0087 or 0094). **22 Edge Functions** (`supabase/functions/`, `_shared` aside). **99 pgTAP suites** (`supabase/tests/rls/`). Vitest: 417 files, 10,404 passing (DG4's tip).
 
 ---
 
@@ -24,199 +26,173 @@ Tools in this release: D.O.G. 0.514, O.T.T.E.R. 0.3.1, R.A.B.B.I.T. 0.1.0. Datab
 
 **Tenancy and authority**
 
-- **Workspaces.** A workspace is a company. Membership is a `workspace_members` row carrying a per-workspace username, app role and rate-card grants. A user can belong to several and switch between them.
-- **Four tiers of authority:** `user` → `manager` (bypasses project-level gating, reads rate cards, views change requests without deciding) → `admin` (Admin Terminal, roster, grants, company-standard courses, project delete) → **platform operator** (cross-tenant, separate surface).
-- **Project roles inside R.A.B.B.I.T.** — `manager` / `reviewer` / `member`, orthogonal to app roles, gating writes at the project level. Producers and Creative Directors are auto-staffed as project managers (see *Changed* for what that does to access).
-- **RLS as the boundary.** Every tenant-scoped table is policy-gated; reads may trust the JWT claim, but **anything that acts re-checks a live database row**. Some tables deviate on purpose: `notes`, `note_subjects` and `otter_progress` add `owner_id = auth.uid()` with no admin bypass, and `workspace_ai_keys`, `edge_rate_limits` and `storage_gc_queue` carry no policies at all, so nothing but the service role reaches them. Pinned by pgTAP suites in CI.
+- **Workspaces.** A workspace is a company; membership is a `workspace_members` row with a per-workspace username, an app role and rate-card grants; a person can belong to several and switch. (S1–S15; `docs/SYSTEMS_HANDBOOK.md` §4)
+- **Four tiers:** `user` → `manager` → `admin` → **platform operator**, and **project roles** in R.A.B.B.I.T. (`manager`, `reviewer`, `member`). (S9–S15; handbook §4.4)
+- **RLS on every tenant table**: every read and write needs the token's workspace and a live, active membership row, and a write that needs a role reads it from the token (TPN-AUTH-006); pinned by pgTAP in CI. (handbook §4.4; `.github/workflows/rls.yml`)
+- **Private projects:** seen by their creator and the admins, their media kept on the creator's computer. (0072, `4c103875`; 0082, 0083)
 
-**Accounts, sign-in and onboarding**
+**Accounts, sign-in and sessions**
 
-- **Company-first login.** You type your company, then a workspace username (not an email) and password scoped to it; a constant-time, durably rate-limited server-side resolver finds the account. The same username can exist in two companies. The company is remembered on that device, and a `?company=` link pre-fills it. Multiple memberships still get a workspace chooser.
-- **TOTP multi-factor.** Enrol and manage in Settings → Profile. Enrolment is optional for ordinary users, and the login MFA stage fires only once an account has a verified factor. It is **required** for the operator console and enforced as a step-up on privileged admin actions.
-- **Show-once credentials.** New users get a copyable username + password panel shown exactly once at creation, plus admin-initiated resets.
-- **Invite, forgot-password and reset wizards**, with mail delivered through Resend.
-- **New Company wizard** (company → profile → team → submit, creating several users at once) and a **New User welcome** flow (display name, pronouns, title, avatar).
+- **Company-first sign-in.** The company is checked first and only its people sign in; the same username can live in two companies; the company is remembered on the device and `?company=` fills it. (S43 `bec91852`, `158172ce`; Track B B1 `397afef3`)
+- **Two-factor (TOTP)** in App settings → Profile, a challenge once a factor is verified, required for the operator console, and a step-up on the admin Edge Functions for an admin who has enrolled (not on admin writes made through RLS: TPN-AUTH-003, TPN-AUTH-013); enrolment stays optional (`WILSON_REQUIRE_ADMIN_MFA` is off by default, TPN-AUTH-002). (S9–S17; handbook §4.2, §4.6)
+- **Show-once credentials** at creation and at an admin's reset; **invite, forgot-password and reset** flows mailed through Resend, with links a mail scanner cannot spend. (S9; S18 `28dec647`)
+- **A setup link** the operator can email a new company's first admin. (S43b `186fa636`, 0066; Track A A1 `5dcff986`)
+- **Sign-ins in the logs, and session limits.** Sign-in, two-factor, sign-out, idle and cap rows in Admin terminal → Logs → **Sign-ins** and in the console's **Sign-ins**; a warning at 25 idle minutes, a sign-out at 30, a cap at 4 hours, each saying why. (Track B B2: 0070 `cd8dfb8d`, 0071, `aafc488a`)
+- **Reconnect after a hung session check:** *Connection lost — reconnecting…* while the client retries on its own, **Reload** after a minute. (S1 `dda71387`; `docs/design/RECONNECT_DESIGN.md`)
+- **The offline launch:** a saved sign-in less than four hours old opens the desktop's shell offline, one sentence on each screen and nothing that would create. (S2 `6076ea47`; her rulings of 2026-10-27)
+- **A password change in App settings** and a **Log out**. (S21 `10fcd29b`; S31 `272fb832`)
+- **One desktop copy at a time**, and a per-launch token on every request to the desktop's local server. (Track B B3 `15312107`)
 
-**Company Admin Terminal** (admins only)
+**The Admin terminal** (admins only): **Users**, **Company**, **Models**, **Storage**, **Requests**, **Logs** (System, Activity, Sign-ins) and **Diagnostics** (with storage cleanup and the AI file store's card). (`src/components/AdminTerminal/AdminTerminalPage.jsx`; S9, S20, S34, B2, FX12)
 
-- **Users** — roster, role dropdown, rate-card view/edit grant toggles with confirms, MFA and last-sign-in lookup, show-once reset, deactivate/reactivate with a last-admin guard, and Add People (invite or create-with-password).
-- **Company** — workspace name/slug/id, live member counts, departments editor, and **Workspace Takeout**.
-- **Requests** — the O.T.T.E.R. change-request review queue.
-- **Logs** — System (`app_events`) and Activity (`edit_history`) with filters and expandable context.
-- **Diagnostics** — build/env block, live adapter and realtime status, the WIL-#### error-code reference, test event, test Sentry exception, and **Storage Cleanup**.
+**The operator console** (`/wilsonadmin`, its own build): **Companies** (create, rename, suspend, restore, tear down with certificates, the setup link), **Models**, **AI files**, **Audit** and **Sign-ins**; per-company Anthropic keys, validated and stored as AES-256-GCM ciphertext; Petal cloud storage plans. Granting the operator tier stays SQL-only. (S15; S20; S41 `operator-storage-plans`; FX12; `src/admin/OperatorApp.jsx`)
 
-**Platform operator console (`/wilsonadmin`)**
+**AI**
 
-- Its own build target and its own React root — not a page inside the app, and **never built into the Electron installer**.
-- Sign-in is email + password + **TOTP**, because an operator has no company to resolve a username against.
-- **Sessions are isolated from the app** on the same origin by a build-time surface define that picks a distinct session key, so signing out of one no longer signs you out of the other.
-- **Companies**: list, create, rename, suspend, restore, and **teardown** — snapshot → typed-slug confirm → paged blob sweep → delete with a certificate at every step.
-- **Per-company Anthropic keys**: set and clear, validated against Anthropic before storage, stored as AES-256-GCM ciphertext, never readable back (you get a four-character hint).
-- **Audit**: `platform_audit`, append-only, with no workspace foreign key so teardown certificates outlive the tenant they describe.
-- **Granting the operator tier is SQL-only, by design.** There is no endpoint, no component and no UI on any surface. The console can destroy companies, so the one thing it must not be able to do is mint more operators — the highest privilege in the system cannot be escalated from a web session even by someone already holding it. Bootstrapping an environment costs one `INSERT` in the SQL editor (`docs/OWED_AUDREY.md` §9B).
+- **Every model call through one registry** and an operator-approved model catalogue at platform, company and user level (operator Models, Admin terminal Models, App settings Models). (S19 `8a73d446`; S20 `6e422d22`, 0031)
+- **D.O.G.'s documents go to the AI provider's file store** through `ai-files`, under a neutral name, expiring in 24 hours, deleted when a file leaves the deck, at sign-out and when the desktop closes, with an admin's and an operator's sweep. (`6d4ac65e`, 2026-08-11; FX12 `07f30a4f`)
 
-**Real-time collaboration (R.A.B.B.I.T.)**
+**R.A.B.B.I.T.**
 
-- **Live sync** over broadcast-from-database on two channels: a project channel and a workspace channel.
-- **Presence** — avatar chips and a LIVE pill showing who else is in the project.
-- **Last-writer-wins merge, per field.** Fields with an in-flight local write keep the local value; everything else takes the incoming row, with a stale guard on `updated_at`.
-- **Edit history with revert.** Append-only diff rows captured on 13 tables, browsable in a drawer by managers and above — members below manager write history but cannot read it. Revert-to-state on projects, phases, assets and tasks. 90-day retention.
-- **Soft delete with undo.** Delete gives you an undo toast; the row sits in a 30-day trash before purge, cascading each subtree.
+- **Everything in the cloud:** budgets with bids, actuals, expenses and per-project rates (S24, 0036–0039); scenes, shots, levels and experiences (S25, 0040); folders and files with a rewritable manifest (S26–S27, 0041–0043); task templates (S28, 0044); key dates with trash and undo, live between windows (Track A A2, 0067, 0077); dependencies and the phase tree (0061, 0063).
+- **Shot lists and edits.** Lists in the Scenes tab; edits, the saved cuts of a list, with Save edit, Save as…, drag and drop and a guard on leaving; a change to a saved edit saves into it. (0084 `bd67360f`, 0086; FX4 `ba0f6c9c`; walkthroughs 51, 53, 67)
+- **Files.** The Files tab and the file window; tags (0085); an explorer with one folder at a time and shot folders inside their scenes (S4a, S4c); a file's duration and source date (0081). (walkthroughs 52, 56)
+- **The Legal gate.** A file added as Legal is seen by project managers, workspace managers and admins only. (0088 `a9eac592`; 0092 `7b388e1a`; walkthrough 54)
+- **Bid versions as living documents.** An open version that shows exactly its own schedule, set-aside rows never lost, the versions block, the Timeline's **Bid ver.** bar, a read-only view and a lock, broadcast live to other windows. (0089, 0090; S5–S5d; 0101 R1; walkthrough 55)
+- **The Timeline** with weekends hidden and readable week labels. (S5p; post-overhaul S1)
+- **A task relates to many items** (assets, scenes, shots, levels, experiences), and there is no "main" one: deleting an asset never deletes a task. (0096 FX2; 0097 VW1m `de3eefae`; walkthroughs 65, 74)
+- **Custom table views** on Tasks, Assets, Levels, Experiences, Scenes and Shots: filters, sorts, groups, groupings, fields, shared per project, the last one used kept per person. (0098, 0099; VW1–VW1e; `docs/design/CUSTOM_VIEWS_DESIGN.md`; walkthrough 72)
+- **R1's robustness set:** Levels and Experiences take the Scenes write gate; a dependency's Replace link is one undoable step; D.O.G. reads past a project's first 1,000 cloud files; the Dashboard shows a task's items live; the Tasks CSV exports what the table shows. (R1 `d75e04de`; walkthrough 82)
+- **The desktop → cloud migration, part 1:** the project, key dates, comments, shot lists with their edits, folders with their files, scenes, shots, bins and the views, dry-run first, again without duplicates. (M1 `7a9668a8`; walkthrough 84)
+- **One connection dot** in each tab's corner for the database and the files' home. (FX11 `7ecfcbc7`; walkthrough 73)
 
-**Rate cards**
+**Storage, previews and footage**
 
-- **Rate cards are workspace-scoped**, with a `general` and an `internal` card auto-created per workspace. An entry's total is `wage + burden + overhead`, each a row-level percent or fixed amount or a department default.
-- **Access is the role matrix OR a live per-user grant** on the member's own row — fetched fresh rather than carried in the JWT, so a revoke bites immediately, and refreshed over the workspace channel.
-- **A view-only grant renders the card read-only rather than empty**, so an RLS-scoped empty table can never masquerade as "no data".
+- **Petal cloud plans:** metered and operator-managed, 50 GiB per file, 5 GiB free, resumable uploads, reservations so concurrent uploads cannot pass the quota, receipts and invoices exempt up to 25 MiB. (S41 0055/0056; S42 0057/0058; Track C 0073, 0078)
+- **A company's own storage:** its server or NAS as the workspace root, managers placing project folders inside it, and S3-compatible buckets (AWS S3, B2, Wasabi, Hetzner, R2, MinIO). (S34 0048; S35 0049; S36 0050; S37 0051/0052, `storage-presign`, `storage-secret`)
+- **Thumbnails and video:** thumbnails on both hosts in a private bucket, each kept where its source is; video preview and still frames. (S39 0053; S44 0054; S40 `4e53c341`)
+- **Footage bins:** ingest, review, logging, marks and takes, on the desktop and, as a catalogue, in the browser; locations named by network address; an admin switch, off by default, for viewing from outside the office. (demo bins; BC1 0091 `0b38077c`; BC2; BC3; walkthroughs 57, 58)
+- **The file gateway:** a small WILSON program in the office (a Windows service or a NAS container) that plays a company's footage in the browser, through an office door and, with the switch on, an outside door, on signed two-minute tickets, with a signed release channel and a hardening guide. (BC4 `docs/design/GATEWAY_DESIGN.md`; GW1–GW5; 0093, 0095; five `gateway-*` functions; `docs/gateway/HARDENING.md`; walkthroughs 60–63)
 
-**Personal Dashboard**
+**O.T.T.E.R.**
 
-- **My Tasks** — cross-project assignments as table, kanban or gallery, sharing the same detail popup as R.A.B.B.I.T.
-- **Notes** — rich text on TipTap, the one Yjs surface in the product. Owner-only with **no admin bypass**, never broadcast, excluded from exports. Multi-device safety comes from snapshot-merge-write with a version guard, not live sync.
-- **Profile** — the same profile and avatar editor Settings uses.
+- **Subject shares:** one subject or a whole course shared live and read-only, accepted first, passed on in a chain, each person keeping their own progress. (0100; N2/N2b design; B1 `41e1171f`; B2 `d0a83cc1`; walkthrough 84)
+- **Course nominations** with badges for where a course came from; quiz history kept; the Validator's Accept saves. (0064 `a7d87c56`; S30 0045)
+- **A Library switch,** the company's or this computer's; the function library in editor colours and the lesson at 66 characters. (Track A A4 `088dba82`; S2b; S2c)
+- **The cloud content model** from 0.x's July build: personal, shared and company-standard courses, editor grants, fork on use, the change-request loop and its review window. (S10–S13; handbook §13.2)
 
-**O.T.T.E.R. cloud content**
+**D.O.G.**
 
-- **Three visibility tiers**: `personal` (owner only, no admin bypass), `shared` (every active member), `company_standard` (admin-set, at most one per topic). Content is never visible across companies.
-- Sharing, per-course **editor grants**, admin set/clear of company standard, and a metadata-only index so admins can see that a private course *exists* without reading it.
-- **Fork on use** — opening a company-standard course gives you a personal copy, so the official version stays pristine and admin edits never change a course underneath someone mid-study.
-- **The change-request loop.** Submit a change against the standard; a decider approves, declines with a required note, or asks for changes. **Approval applies the change** — it archives the target to a private snapshot owned by the approver, then merges the proposer's **subjects** additively: update by slug in place, insert when absent, never delete. It moves subjects only; the five reference documents (hotkeys, functions, nodes, reference URLs, corrections) are deliberately left untouched, and the approve dialog says so. Declining can be accepted or revised and resubmitted, with a revision counter.
-- **The consented review window** — submitting grants reviewers read access to your own source course, opening on submit and closing the moment the request settles.
-- **Requests view inside O.T.T.E.R.**, serving three audiences by capability: deciders get the approve/decline queue with live diff counts, managers a read-only queue, proposers their own requests with the reviewer's note verbatim.
-- **Trash and restore** as a filter state, with a 30-day purge.
+- **References:** the project's items, files and personal notes chosen as sources, the uploads among them, in one card, **1 Project and references**, with **Core files only**; **Place visual** and **Theme generator** the only two options. (DG1 `9c21bd05`; DG1b `e90d6b86`; DG2 `247c090d`; DG4 `9a4dfe77`; walkthroughs 75, 80, 84)
+- **Cloud project attachments**, listed, downloaded and read like local ones. (Track C C3, 0075 `2a4924f2`)
+- **Keyboard:** Enter makes a full deck only with words in the context box; the cards fold from the keyboard. (FX13 `6db22a9b`; FX14 `566c6a8a`; FX15 `687667a3`; DG3 `10426db8`)
 
-**AI access**
+**The pet** follows its owner between computers and reads O.T.T.E.R.'s lessons; a failed sync retries by itself. (0046 S31; `8894fd23`; 0068 A3; S2)
 
-- **Every Anthropic call now rides the `ai-proxy` Edge Function**, on both hosts, with no direct-to-Anthropic fallback anywhere.
-- **Per-workspace key with a platform fallback.** A tenant key is a billing preference, not an authorization boundary.
-- Always-streaming upstream with a client-side reassembler, so long O.T.T.E.R. generations no longer die on the Edge response deadline.
-- Per-workspace rate limiting and usage telemetry (`WIL-6001` / `WIL-6002`, with model, tool, token counts and which key was used) into the Admin Terminal log stream.
+**Look and feel:** the UI overhaul, with Geist and Geist Mono self-hosted, one type scale, a shared kit with one dialog, dark working pages and sentence case; each tool's Help and Settings at its strip's right end. (merged `60a8981e`, 2026-09-29; `docs/design/UI_OVERHAUL_PLAN.md`; S2a; S6a; walkthrough 47)
 
-**The web build**
-
-- All three tools, the Dashboard, Projects, Rate Card, Team Members, Settings, Help and the Admin Terminal run in a browser at **`https://beta.petalstudios.co/wilson`** (staging-backed, auto-deploying from `feat/multi-user-v1`).
-- Deep links and back/forward work — every page has a path, synced to the shell without a router rewrite.
-- Web sessions persist across reloads and survive token refresh.
-
-**Files and storage**
-
-- **Three storage providers**: local / local server, Supabase Storage (the private `rabbit-files` bucket, the only web-capable one), and read-only Google Drive. Connections configured per company in Settings.
-- **Relink**, modelled on ShotGrid: point WILSON at the new folder and it re-finds moved files itself, in three matching rungs, with an old→new preview before it writes anything. Applying a relink re-homes the project's files directory — disclosed before the write, resettable, and refused outright if the change would strand files or if the current home is merely offline.
-- **`file_events`** — an append-only per-file lifecycle stream: uploaded, moved, relinked, trashed, restored, purged. The `purged` rows **are deletion certificates**, readable by project readers and by workspace admins so proof of deletion survives the project.
-- **Blob garbage collection** — admin-invoked from Diagnostics (a human clicking a stated confirm is the second authorization), draining the delete queue, sweeping orphaned objects and stale avatars, failing closed on tenancy, and writing a certificate for what it destroyed.
-- **CSV exports** on the team roster, rate card and project tasks — each exports exactly what the viewer sees, so a hidden wage column cannot leak through an export.
-- **Workspace takeout** (admin-only): one CSV per table across 19 tables plus a manifest, zipped, built from the requesting admin's own RLS-scoped reads and never a privileged sweep. O.T.T.E.R. content and Notes are excluded, with the reason stated in the UI and the manifest.
-
-**Operations**
-
-- **Auto-update** via electron-updater/NSIS off a Backblaze B2 feed, with an update prompt at login and a version panel in Settings.
-- **Nightly off-platform `pg_dump` backups** to B2, 90-day retention, alongside Supabase's own daily 7-day backups.
-- **Sentry** in both the renderer and the Electron main process, per environment.
-- **`app_events` with WIL-#### codes** and a visible error-code reference in Diagnostics.
-- **Single-user → cloud migration tools** for both R.A.B.B.I.T. and O.T.T.E.R. — dry-runnable, resumable, idempotent, with an optional Archive + Clear Local afterwards that is always user-initiated.
-- **CI**: four jobs — pgTAP against real Postgres, unit (Vitest), smoke, and Playwright e2e including a lane against the real web bundle.
+**Operations:** the web app at `https://beta.petalstudios.co/wilson` (staging, from `feat/multi-user-v1`); auto-update over an NSIS feed; nightly `pg_dump` backups to B2; Sentry; WIL-#### event codes; CI of four jobs on every session branch, plus the gateway's own workflows. (S9–S12; `docs/WEB_DEPLOY.md`; `.github/workflows/`)
 
 ---
 
 ### Changed
 
-- **Team Members reads the real membership table.** The roster is `workspace_members` via an RPC, not R.A.B.B.I.T.'s legacy local `team_members` entity. It has live roster updates, an assigned-projects column, a Day Rate column visible only to admins with rate access, and role-filtered saved views.
-- **New projects are staffed at creation, and that narrows who can write to them.** An unstaffed project stays open to every active member, as before; but `fn_projects_auto_staff` seats the creator and the producer on client creates, so projects made in-app are staffed from birth — **plain members no longer get write access to new projects they are not seated on**. That is the intent. Legacy projects are unchanged.
-- **Admins reset passwords; they never read them.** This is a deliberate departure from the original brief's "admin can see member passwords" — that is not securable. Credentials are show-once at creation, and reset-only thereafter.
-- **Settings no longer has a password field.** Your password belongs to your workspace account; use Forgot password or ask an admin.
-- **Settings no longer has an API key field.** The per-user key in `localStorage` is deleted on upgrade.
-- **Deactivating a member is a real cutoff** — RLS refusal, token revocation and a best-effort logout, not just a flag.
-- **Realtime uses broadcast-from-database, never `postgres_changes`** — because `postgres_changes` re-evaluates the subscriber's read policy against the new row, which would silently withhold the single event collaborators most need ("this was just trashed").
-- **Inviting a member now requires a fresh MFA sign-in.** An admin with a verified TOTP factor on an older session sees *"This action needs a fresh MFA sign-in"* instead of a successful invite. Its sibling path, create-with-password, always worked this way; invite could mint an admin and did not. Sign out and back in to complete the invite.
-- **Backups are two layers, and PITR stays deferred.** Supabase's own daily backups cover the last week on-platform; the nightly dump to B2 exists for what those cannot do — surviving a suspended account and holding long retention.
-- **In cloud mode an O.T.T.E.R. course's client-facing slug is its UUID**, because two visible courses in a shared workspace can legitimately share a name-derived slug.
-- **Google Drive rate-card reads return empty** rather than raising a permanent red error banner. Drive is read-only in v1.0 and now says so quietly.
-- **O.T.T.E.R.'s Space-to-search shortcut only fires on the O.T.T.E.R. page.** Every page is mounted at once, so it used to fire from anywhere in the app.
-- **The Help page's password section** was rewritten; it documented a panel that no longer exists.
+- **No self-serve company creation.** The operator creates companies; people join by invite or are created by an admin. (S43 `bec91852`)
+- **App settings' R.A.B.B.I.T. tab is now Storage**, and *Tool settings* left the nav strip. (S22 `8709b1ed`; S2a)
+- **Money is for managers:** the Budget tab is hidden from others; the internal rate card holds full-time staff only. (S24; 0059 `cfe2cbdc`)
+- **The pet and personal settings live with the person in the cloud**, not on the machine. (S31; Track A A3)
+- **A change-request approval moves the reference documents too** (hotkeys, functions, nodes, links); corrections stay with the proposer. (Track A A4 `dfe666e8`)
+- **Anyone may nominate a course as the company's standard**; admins and managers decide. (0064)
+- **D.O.G. sends documents as file ids**, not inline. (`6d4ac65e`)
+- **R.A.B.B.I.T.:** the LIVE pill became the connection dot; no main item; an edit changes in place. (FX11; VW1m; FX4)
+- **Edit history covers fourteen tables** and **the workspace takeout 23**. (0061; `WorkspaceTakeout.jsx`, `TAKEOUT_TABLES`)
+- **A lost connection reconnects by itself** before it asks for a reload. (S1)
 
 ---
 
 ### Security
 
-- **The access-token hook is locked away from clients.** `custom_access_token_hook` derives its target user from a caller-supplied argument rather than the caller's own identity, and a blanket grant in an early migration had silently re-opened it — it was reachable with nothing but the public anon key, returning any user's full claim set (memberships, role, operator flag). Now revoked, with a migration post-condition to keep it that way. The wider sweep of that same grant left a documented residue; see *Known limitations*.
-- **Privilege changes are audited.** Role promotions, rate-card grants and deactivations now write reserved audit lines (`WIL-4105` / `WIL-4106` / `WIL-4107`) from a trigger the client cannot forge. It fires only when authority actually changes — editing a profile writes nothing, so the stream stays one worth reading. "Who granted this person admin, and when" is now answerable. Coverage boundary: Edge Functions that change privileges run as `service_role` with no `auth.uid()`, so the trigger records a NULL actor and the function's own admin event records the real one.
-- **`invite-member` enforces the MFA step-up** it was missing while it could mint an admin. This does **not** mean no unauthenticated path can create an admin — see *Known limitations*.
-- **Path containment on managed files.** Hard delete, thumbnail cache and thumbnail source all resolved client-supplied path fragments against the project root with no containment check; the asset rename/delete pair could move an arbitrary directory; folder import lacked the authorization check its sibling had. All four now go through the containment resolver, and the update route strips path fields outright.
-- **Operator write lockdown.** A broad `FOR ALL` policy meant an operator's ordinary browser session could delete a workspace directly — skipping the console's hard MFA, the typed confirm, the blob sweep *and* the certificate. Write arms narrowed, INSERT/DELETE/TRUNCATE revoked, and a delete guard added at the table.
-- **The Anthropic key never reaches a client on either host**, and the two legacy `localStorage` slots are purged on every launch.
-- **Per-company AI keys** are AES-256-GCM with a per-record IV and a key-length check, held in a table with zero policies, and cannot be read back.
-- **Guards fail closed on MFA.** The company admin guard refuses on a failed factor check; the operator guard refuses both on no enrolment and on a failed lookup.
-- **Durable, cross-isolate rate limiting on the `ai-proxy` path**, replacing per-isolate in-memory counters whose real limit was requests-per-minute multiplied by however many warm isolates happened to be alive. It is not universal and it is not strict: `resolve-login` and `provision-workspace` still use per-isolate buckets, six other functions have no limiter, and the shared limiter **fails open** by design, so a limiter outage cannot take sign-in down with it. See *Known limitations*.
-- **Four append-only audit streams** — edit history, app events, file events and platform audit — each enforced append-only three ways: no write policies, revoked grants, and migration post-conditions. File and platform audit have no purge job, deliberately: the deletion certificates must outlive their subjects. `app_events` and `edit_history` do purge, at 90 days, which is short of the one-year retention the compliance target asks for.
-- **Storage buckets are split by sensitivity.** `rabbit-files` is private, with delete-own limited to a one-hour cleanup window. `user-avatars` is public with unconditional SELECT — an accepted weak point, listed below.
-- **The local password gate is gone**, along with its routes, its hardcoded constants and its on-disk credential file. The code and the data were removed together — deleting only the routes would have left the screen falling through to a string comparison, a fail-*open* gate strictly worse than the dead code.
+- **The `anon` role was swept:** 25 tables and seven SECURITY DEFINER functions closed to it, and the default privilege that would reopen them disarmed. (0033, S22 `494a13d6`)
+- **A live rate-card escalation was closed on every environment** (after 0059 any member could grant themselves the rate card). (0062 `5c907e82`)
+- **The pre-sign-in endpoint that made admins is gone.** (`provision-workspace`, S43)
+- **Sign-in's limiter is durable and fails closed**, keyed on the address the edge sets, not a header the client sends. (Track B B1; TPN-NET-004, TPN-NET-005)
+- **Sign-ins are logged**, the operator console's included, and an admin no longer reads a shared member's rows from another company. (Track B B2, 0070, 0071; TPN-LOG-003, TPN-LOG-007)
+- **The desktop's local server takes a per-launch token**, narrowed CORS and one running copy. (Track B B3; TPN-NET-001)
+- **Storage configuration is admin-only and contained:** the storage root, a project's folder inside it, and the paths a request may name. (S33–S35, 0048, 0049; TPN-AUTH-011, TPN-NET-013, TPN-NET-015, TPN-CLOUD-007)
+- **Thumbnails are private and money-gated**, and follow their source's storage. (S39 0053; S44 0054; TPN-CLOUD-008)
+- **Company bucket secrets** are AES-256-GCM ciphertext in a table no client reaches, under a key apart from the AI keys' (the same on all three environments: TPN-ENC-015). (S37 0051; `docs/OWED_AUDREY.md` §9 C2)
+- **Uploads that never complete are certified**, at once, hourly and at teardown; receipts are money. (Track C 0073, 0074, 0076; TPN-CONT-017)
+- **A manager approving their own nomination is allowed and audited** (WIL-4108). (0069 `93c199e6`)
+- **The file gateway was attacked before release** and its findings fixed (a per-peer connection cap; `CF-Connecting-IP` honoured only behind a declared proxy). (GW5, `docs/sessions/handoffs/po-gw5-2026-10-12.md`)
+- **Viewing from outside the office is off by default**, enforced in the database, and the switch says it leaves TPN Gold eligibility. (0091; TPN-NET-012)
+- **Earlier July work stands:** RLS as the boundary, privilege changes audited (WIL-4105/4106/4107), operator writes narrowed, MFA guards that fail closed, the Anthropic key never on a client, path containment on managed files, four append-only audit streams. (S15–S17; `TPN_AUDIT/FINDINGS.md`)
 
 ---
 
 ### Fixed
 
-The defects worth listing here are the ones a 0.6.3 user could actually have hit. Defects found and fixed inside the new multi-tenant code — which ships for the first time in this release — are described by the features above, not repeated as fixes.
+The defects that people testing the beta met; defects inside new work are described by the features above.
 
-- **R.A.B.B.I.T. milestones were dropped on every project load** by both the local and Drive adapters — a milestone silently reverted to nothing on the next reload, project switch or refetch. Real data loss; now pinned by a test that fails on the whole class of bug.
-
-Three further pre-1.0 defects are described under *Changed*, because the fix changed behaviour: the Google Drive rate-card error banner, O.T.T.E.R.'s global Space shortcut, and the Help page's password section.
+- **Invites** spent by mail scanners before anyone clicked; two-factor sign-in deadlocking; `/wilsonadmin/` with a trailing slash. (S18 `28dec647`; 2026-07-31 `920a2f73`, `8222ea19`, `a776907a`)
+- **AI features failing on a retired model id**, and the Validator's continuation. (S19; `dab90463`)
+- **Nothing could be created in cloud mode**; rate cards could not be created. (S23 `2727328`; S21, 0032)
+- **Budget** percentages not saving, four budget tabs never rendering, Client View printing "Project". (S24; S25)
+- **O.T.T.E.R.:** a course outline that failed to parse, lessons emptied by an empty save, the pet's saves failing silently. (`a9054713`; `9b56bec1`; `73828c75`)
+- **Every cloud upload broken** by a file list emptied in place; D.O.G. generating nothing (HTTP 546). (S40; `6d4ac65e`)
+- **Signing in on the desktop hid O.T.T.E.R.'s local courses.** (Track A A4 `088dba82`)
+- **The Crew and Talent invoice attach** now uploads and shows its errors. (S24 `dfdf3867`)
+- **The closed defects list for 1.0** (`docs/sessions/PLAN_TO_1_0.md` §3): D.O.G.'s Generate after typing and its Choose file, card 1's label, the focus ring on R.A.B.B.I.T. (DG3 `10426db8`); bid versions not broadcast, D.O.G.'s 1,000-file limit, Team members and Rate card wider than 1280, the Dashboard's stale items and the Tasks CSV (R1 `d75e04de`); the two-factor screen's overflow (S1 `dda71387`).
 
 ---
 
 ### Removed
 
-- The local password screen, its three Express routes, its hardcoded constants and its on-disk credential file.
-- The Settings Anthropic API key field, the `apiKey` prop plumbing behind it, and the per-user key in `localStorage`.
-- The legacy `public.users` table and the checked-in schema/seed files that recreated it.
-- **1,840 lines of unreachable code across 13 files** — verified by per-symbol greps, a strict import-path grep, and a module-reachability walk from every real entry point, and confirmed by an unchanged bundle size. Includes a superseded budget grid and topsheet tab, two orphaned data hooks and an empty constants module.
-- Superseded documentation copy in-product: the Agent Skills description no longer claims capability the checkboxes do not have. The copy was corrected; **the checkboxes themselves are still present and still inert** — see *Known limitations*.
+- **`provision-workspace`, the New company wizard and the *New company?* link.** (S43 `bec91852`)
+- **O.T.T.E.R.'s Storage Location field**, which nothing read. (Track A A4 `088dba82`)
+- **The LIVE pill, the adapter dot, the main item, *Use project assets***, and the browser's old saved views. (FX11; VW1m; DG4; VW1d, VW1e)
+- **Migration 0065**, the subject-shares draft, replaced by 0100. (B1)
+- **One-off scripts, session launch entries and dead exports**, the built bundle byte-identical before and after. (N1 `13543f14`; `docs/sessions/handoffs/po-n1-2026-10-27.md`)
+- From the July build: the local password screen and its routes, the Settings API-key field, the legacy `public.users` table, and 1,840 lines of unreachable code. (S12–S17)
 
 ---
 
 ### Known limitations
 
-The user-facing subset, with each item marked blocking or note, is **`docs/RELEASE_TESTING.md`**. The live gap register is `docs/MASTER_PLAN.md` §6, which carries a verdict — CLOSED, RE-OWNED or ACCEPTED — against every entry, and the consolidated technical list is `docs/SYSTEMS_HANDBOOK.md` §17. The headline items, because they change what you can do or what you can claim:
+The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; faults are `docs/OUTSTANDING.md`; limits by design are the handbook's §17; the security posture is `TPN_AUDIT/`.
 
-**Security and audit**
+**Security**
 
-- **`provision-workspace` can still create an `admin` from a public, pre-authentication endpoint.** This is by design — it is self-serve company creation and the caller becomes that company's first admin — but it means *"no unauthenticated path can mint an admin"* is not a true statement about this system, even with `invite-member` now gated.
-- **Eight SECURITY DEFINER functions remain executable by `anon`.** Six key on `auth.uid()` and leak nothing; `project_is_staffed` and `fn_comment_project_id` have no caller gate but reveal one bit about a UUID the caller must already hold. Revoking them was tested and is a **behaviour change** — `has_active_membership` backs nearly every policy, so every anonymous table read turns from an empty result into a 42501. The post-1.0 fix is a `auth.uid() IS NOT NULL` guard inside the two ungated functions, not a grant change.
-- **Authentication events are logged and visible since Track B bundle B2 (0070 + 0071), and the two hooks that feed the server-side half are a per-project dashboard switch.** Measured first: hosted GoTrue writes nothing to `auth.audit_log_entries` (empty on dev and staging beside hundreds of live sessions), so the stream the brief hoped to read does not exist. `public.auth_events` takes sign-in and MFA success/failure rows from two Supabase Auth hooks (`hook_password_verification_attempt`, `hook_mfa_verification_attempt`), operator sign-ins included, and the app's own `sign_in` / `sign_out` / `idle_timeout` / `session_cap` rows, stamped from the caller's session. Admin Terminal → Logs → **Sign-ins** and the operator console's **Sign-ins** show them; a 25-minute idle warning, a 30-minute idle sign-out and a 4-hour cap end sessions on both surfaces and say why; `WIL-1002` is emitted on both expiries. Still true: the hooks are inert until enabled in each project's dashboard (OWED_AUDREY §14), so failed sign-ins and two-factor checks go unlogged until then; hook rows carry no client address (GoTrue passes none); guard refusals are still unlogged; unknown-username attempts live in `auth_attempt_log`, operator-readable only, and appear in neither view. The freeze after a network blip now shows **"Connection lost — reload to continue"** instead of hanging silently; reconnecting without a reload is deferred.
-- **Rate limiting is uneven.** ~~`resolve-login` and `provision-workspace` still use per-isolate in-memory buckets … `resolve-login` keys its per-IP throttle on the **first**, client-supplied `X-Forwarded-For` hop~~ — Track B bundle B1 (2026-09-06) moved `resolve-login` onto the durable, fail-closed limiter keyed on the Cloudflare-set client address (`provision-workspace` left the tree in S43). Six other Edge Functions still have no limiter.
-- **`app_events` and `edit_history` purge at 90 days** against a one-year retention requirement.
-- **The `user-avatars` bucket is public**, with unconditional SELECT.
-- **Storage-cleanup failures log as informational.** `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup **failed**" is indistinguishable from the success line in the admin log stream. One line to fix — but `adminGuard.ts` is bundled by nine Edge Functions, so changing it forces a redeploy of all nine, which was not worth doing on release day.
-- ~~**A username that collides across two workspaces makes sign-in unreachable**~~ — closed: sign-in is company-first (S43, finished in Track B bundle B1), so the same username in two companies is two people and the company typed first decides which one signs in.
+- **The TPN re-audit of 2026-10-28 reports 11 High open** in the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/SUMMARY.md`, *Release gate*): eight of the areas' own (TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013, TPN-ENC-016, TPN-AI-009) and three instances of open classes (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011). The plan holds the controller's production steps until the re-audit reports nothing High; walkthrough 85 asks her to rule on each.
+- **The `smoke_admin` password is in public git history** until it is rotated. (TPN-SDLC-007; `docs/OWED_AUDREY.md` §0)
+- **Staging's legacy `service_role` key was exposed** and is owed a roll. (`docs/OUTSTANDING.md`, S19)
+- **A private project's rows reach every member's workspace channel**, and the `tasks` and `assets` write policies lack the project hop. (OUTSTANDING A-R1-04, A-R2-03)
+- **The `user-avatars` bucket is public, and a new avatar may not last** (the cause unproven; 0102 is reserved). (TPN-CLOUD-004; OUTSTANDING *Avatar does not persist*)
+- **Seven Edge Functions have no rate limiter** (the four `admin-*`, `invite-member`, `issue-session`, `storage-gc`). (the tree)
+- **Failed sign-ins are logged only once each project's two Auth hooks are on**; guard refusals are logged nowhere; `app_events` and `edit_history` purge at 90 days. (`docs/OWED_AUDREY.md` §14; TPN-LOG-004)
+- **The AI provider's store still holds staging's and production's uploads from before FX12** until the sweep, and from 2026-11-09 nothing can say whose they are. (OUTSTANDING FX12-01; TPN-AI-009)
+- **On the desktop the four-hour cap restarts at each launch.** (OUTSTANDING S2-01; night 4's D1)
 
-**Product and correctness**
+**Product**
 
-- **D.O.G. cloud attachments are refused at the write layer.** Local mode works end to end; re-homing them is post-1.0.
-- **Quiz scores and Validator findings are never persisted.** The columns, routes and adapter operations exist; the client never calls them. They live for the visit only.
-- **Scenes, shots, levels, experiences and milestones are local-only** — their cloud adapter methods throw with a stated reason and they do not sync.
-- **Managed files** (the ASSETS/SCENES/SHOTS folder mirror) are local-server only, and thumbnails resolve only under `ASSETS/` — `SCENES/` and `SHOTS/` thumbnails always 410.
-- **Google Drive is read-only.** Every write throws.
-- **Settings → Tools "Storage Location" is editable and has no effect.**
-- **R.A.B.B.I.T.'s agent integration is prompt-only and unreachable** — the agent surface is hard-gated to the O.T.T.E.R. page, so the R.A.B.B.I.T. prompt can never reach the model.
-- **The Agent Skills checkboxes gate nothing.** `isSkillEnabled` has zero call sites repo-wide, for O.T.T.E.R. as well as R.A.B.B.I.T.; the state is loaded, persisted, rendered and read by nothing. Only the misleading copy was fixed in this release.
-- **The Attach button in Budget → Crew and Talent appears to do nothing.** The invoice-folder call's `res.ok` is unchecked, so a 400 becomes a swallowed error with no message.
-- **The Summary view's Budget tile is structurally zero** — the estimate rollup is called with no role rates.
-- ~~**No single-instance lock** on the desktop app; two copies can run against one data directory.~~ **Fixed (Track B, bundle B3):** a second launch quits and brings the running window to the front. Web multi-tab is still last-writer-wins on companion, O.T.T.E.R. settings and agent skills.
+- **The migration does not yet carry** budgets, expenses, levels, experiences, the team or task links, and a second run brings back rows a teammate deleted (night 4's M2); no night yet carries asset versions, the desktop's own file store, rate cards, team members or task templates (night 5's M3). (OUTSTANDING M1-L1, M1-L2)
+- **Scenes, shots, levels and experiences do not reach a second window live**; key dates do. (her ruling, Track A)
+- **A company's own bucket or NAS has no browser previews** (night 4's P1 for S3); professional codecs need ffmpeg. (handbook §12.7b; OUTSTANDING)
+- **The pet does not sync live between machines** (1.1); an O.T.T.E.R. lesson imported in the cloud saves nothing. (`docs/sessions/PLAN_TO_1_0.md` §2; OUTSTANDING)
+- **The Summary's Budget tile is zero; the Agent skills checkboxes gate nothing; R.A.B.B.I.T.'s agent is unreachable; Google Drive is read-only.** (handbook §17)
+- **The workspace takeout holds 23 tables, and none of the scenes, shots, levels, experiences, key dates, budgets, expenses, folders, task templates, shot lists, edits or bins.** (OUTSTANDING R2-01)
+- **About 160 accessibility and polish entries** wait for 1.1. (`docs/sessions/PLAN_TO_1_0.md` §2)
 
 ---
 
-### Deployment and upgrade notes
+### Deployment notes
 
-There is no migration path from 0.6.x data other than the in-app tools: Settings → R.A.B.B.I.T. holds both single-user → cloud migrations. Run them dry first; Archive + Clear Local is offered afterwards and is never automatic.
+Production is brought up by `docs/PRODUCTION_RUNBOOK.md`, in its order: the reads first, the migrations from 0064 by file by the house method, every Edge Function, the secrets by name and digest, the two Auth hooks and the session time-box, the builds, then PR #4 merged into `main` with a merge commit and the tag.
 
-Before this release is usable in an environment, **four** things must be done by hand — they are secrets and grants, and none of them can be committed. Each is written out in **`docs/OWED_AUDREY.md`**:
-
-- **§0 — rotate the published CI probe password.** It was committed to this public repository and is permanent in git history, so rotation is the only remedy. Open critical.
-- **§5 / §9C — `ANTHROPIC_API_KEY` and `WILSON_AI_KEY_SECRET`** — ✅ done on all three environments (2026-07-30), digests verified matching. They must be **Supabase Edge Function** secrets: a GitHub *repository* secret of the same name is a different store that Edge Functions cannot read, and that is where the key had been sitting unused. Without them `ai-proxy` returns `501 ai_not_configured` and every AI feature in all three tools fails. `WILSON_AI_KEY_SECRET` must be identical across environments, or a company key stored on one cannot be decrypted on another.
-- **§9A + §9B — enrol TOTP *and* seed `platform_operators`.** Do both: either one alone leaves the operator console signing you in and then refusing everything.
-- **§9C — set `WILSON_AI_KEY_SECRET`** per environment, or per-company AI keys cannot be stored.
-
-Not a prerequisite, but decided post-1.0: **§11C — where the operator console is hosted.** It already serves at `https://beta.petalstudios.co/wilsonadmin` through a `vercel.json` rewrite; moving it to a subdomain would additionally buy browser-enforced session separation, which today is a build-time key string and nothing more.
-
-Deployment reference: `docs/WEB_DEPLOY.md`. Architecture reference: `docs/SYSTEMS_HANDBOOK.md`.
+- **Before the tag,** `docs/sessions/PLAN_TO_1_0.md` §0's four conditions: the features merged and on the beta, the nine defects closed, her testing (`docs/RELEASE_TESTING.md` and the walkthroughs), and the release steps, hers in the browser and the controller's on production after the TPN re-audit reports nothing High.
+- **Hers, in the browser** (plan §6): rotate `smoke_admin`; roll staging's legacy `service_role` key; the two Auth hooks on staging; PR #4's title and body; the gateway's GitHub setup and the installer rehearsal; the AI-files sweep before 2026-11-09.
+- **Secrets are Edge Function secrets,** not GitHub's or Vercel's. `WILSON_AI_KEY_SECRET` and `WILSON_STORAGE_KEY_SECRET` are identical on every environment today, so that a key stored on one opens on the others; that sameness is TPN-ENC-015, and production can take fresh values while it holds no stored key; `WILSON_GATEWAY_KEY_SECRET` is set per environment (dev and staging have one, production not yet). (`docs/OWED_AUDREY.md` §5, §9; `docs/sessions/handoffs/po-gw1-2026-10-10.md` §2)
+- **The desktop installer** is built with `npm run dist` only, from a checkout whose build-time Supabase settings name production; the renderer's are compiled in. (`docs/PRODUCTION_RUNBOOK.md` (f); TPN-SDLC-008)
+- **The web app** is the Vercel project whose production branch is `feat/multi-user-v1`, on staging; where 1.0.0's production web app lives is her decision. (`docs/WEB_DEPLOY.md`)
+- **There is no migration path from 0.6.x data** other than the in-app tools: App settings → Storage holds the R.A.B.B.I.T., O.T.T.E.R. and deck-attachment migrations. Run them dry first; *Archive and clear local* is never automatic.
 
 [1.0.0]: https://github.com/pretty-aud/wilson/releases/tag/v1.0.0

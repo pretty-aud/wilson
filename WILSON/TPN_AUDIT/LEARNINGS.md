@@ -178,3 +178,51 @@ explicit instruction. Result: `TPN_AUDIT/DESIGN_REVIEW_network_storage.md`.
 - `workspaces.storage_mode` / `storage_config` are admin-writable, unvalidated
   and have **zero readers** anywhere outside migrations (TPN-CLOUD-007). Dead
   columns that are also writable are worse than dead.
+
+## 2026-10-28 — scoped re-audit (the file gateway, bins, own storage, the AI file store), R2, report only
+
+Appended; nothing above was changed.
+
+- **A scoped re-audit can follow the six-file contract if it edits narrowly.** New blocks went at the end of their domain in
+  `FINDINGS.md`; `SUMMARY.md` opens with the release gate's count; the counts in `SUMMARY.md` and `AUDIT_INDEX.md` were recounted
+  from `FINDINGS.md` (they had drifted by one since Track B's TPN-AUTH-009 of 2026-09-06); one new phase in the plan. The 2026-08-05
+  design review's eleven findings were merged with their state on that date.
+- **A scoped gate counts the areas' own instances of a pack-wide class.** Round 1 caught the first draft excluding them. The rule
+  that held: a gap is the areas' own when it is a choice in their code (the gateway's admin calls skip the step-up storage-secret
+  takes; the bins' streams omit the no-store the gateway sends); a product-wide control the areas only inherit (SIEM, watermarking,
+  esm.sh pinning, CORS) stays the pack's single finding. Round 2 caught the rule applied selectively: each instance must name its
+  comparator in the same areas, and one counted case whose comparator did not exist ("the scans the app's CI has": it has none) went
+  back to its class, while ai-files' key fallback, beside storage-presign's refusal, was found and counted.
+- **Search her rulings before rating a gap unaccepted.** Round 1 filed the office door's unlogged reads HIGH and wrote that no ruling
+  of hers accepted them; her G6 (`docs/design/GATEWAY_QUESTIONS.md`, 2026-10-09) is that ruling, cited in HARDENING.md and in the
+  code's own comment. grep the `*_QUESTIONS.md` files and the design's D-numbers for the behaviour first.
+- **Quote a plan's gate verbatim.** The first drafts gave `PLAN_TO_1_0.md` §0 item 4 a clause it does not contain ("or until Audrey
+  has ruled on each") and then waived one finding on the strength of it.
+- **Before issuing an ID, `git grep` every ID minted anywhere**, merged names included: TPN-AUTH-008, TPN-CONT-013, TPN-ENC-009,
+  TPN-ENC-012 and TPN-SDLC-011 exist only as names merged into other findings. The design review's TPN-AUTH-008 and TPN-AUTH-009 are
+  now TPN-AUTH-010 and TPN-AUTH-011, but code comments still carry the old numbers: TPN-AUTH-009 for the storage-root gate
+  (`src/components/settings/StorageConnections.jsx`, `src/components/SettingsPage.jsx`, `workspaceRootWiring.test.js`) and
+  TPN-AUTH-008 for the gateway's membership re-check (`supabase/functions/gateway-ticket/index.ts`, 0093:194).
+- **When one service account reads on everyone's behalf, its authority is whatever it trusts.** The gateway trusts the bins catalogue,
+  so the catalogue's WRITE policies (insert and update) are its read policy (TPN-AUTH-012). Start from each table a service-role reader
+  trusts and audit who may write it.
+- **A row-derived teardown misses every object family added after it** (TPN-CONT-018, bin posters, whose queue rows the teardown then
+  deletes; before it TPN-CLOUD-005, avatars). List every writer of `storage.objects` and check the teardown names each one.
+- **A server-side fetch to a tenant's host needs three guards, not one:** refuse redirects, refuse a non-public address, and connect
+  to the address that was checked. The gateway has them (`_shared/gatewayReach.ts`); the S3 path, written earlier, has none
+  (TPN-NET-016). `fetch` follows redirects by default.
+- **A secret made identical across environments on purpose is still dev and prod sharing a secret** (TPN-ENC-015); the reason given
+  (a ciphertext opening anywhere) is the exposure.
+- **"RFC 1918 addresses in certs" was rated HIGH, against the checklist's CRITICAL default** (TPN-ENC-013), for a private,
+  name-constrained root trusted only on the company's own computers and documented. A future auditor may weigh it CRITICAL; the
+  finding says why it is not, and a DNS-names-only default resolves it.
+- **This pack lags its own prose and later work outside the areas:** TPN-NET-001 (Track B B3) and TPN-NET-004 (Track B B1) read FIXED
+  in their text and open in their YAML, and 0030's own header (`0030_privilege_audit_and_hook_lockdown.sql`) says it closes
+  TPN-LOG-005, still open and CRITICAL here. The next full re-audit closes them first.
+- **A tenant's own key that fails soft is a re-route, not only a billing choice, once the call stores content** (TPN-AI-011): the
+  same fallback that is defensible for a generation call puts a company's file in a store it did not choose.
+- **Re-audit checklist for these areas:** the write policies of `bin_files` and `bin_locations`; the catalogue check in
+  `gateway_sync_apply`; every `fetch` in `storage-secret` and `storage-gc` (redirects, addresses); the teardown's object sources
+  against every bucket writer; the gateway's leaf SANs, key lifetimes and secret store; HARDENING.md's custody and timing lines against
+  the code; the environments' encryption-secret digests; every admin write made through RLS (0048, 0093) for an aal check; ai-files'
+  key resolution; her rulings in the `*_QUESTIONS.md` files.

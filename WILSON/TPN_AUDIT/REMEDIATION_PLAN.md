@@ -3,8 +3,8 @@
 - **Project:** WILSON (Petal Studios)
 - **Repo path:** `C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON`
 - **Generated:** 2026-04-15; **revised at the 2026-07-30 re-audit**
-- **Total findings to address:** 92 (44 baseline + 48 opened by the re-audit; 5 are RESOLVED)
-- **Total phases:** 8 (Phase 0 added by the re-audit, plus a parallel CVE-triage track)
+- **Total findings to address:** 124 on 2026-10-28 (92 at the 2026-07-30 re-audit, Track B's TPN-AUTH-009, and the scoped re-audit's twenty opened and eleven merged; 13 are RESOLVED)
+- **Total phases:** 9 (Phase 0 added by the 2026-07-30 re-audit, Phase 8 by the 2026-10-28 scoped re-audit, plus a parallel CVE-triage track)
 - **Non-negotiable rule for the implementation skill:** Preserve public IPC shapes, REST surface, on-disk JSON shapes, IndexedDB `wilson-db` schema, and exported markdown formats unless a finding explicitly requires a change. Any interface change must be flagged and approved by the user before execution.
 
 ## Phase dependency graph
@@ -17,6 +17,7 @@ Phase 5 (Content)  ◄───────────────────�
 Phase 6 (AI/ML)    ─► parallel after Phase 2 (needs safeStorage + structured logger)
 Phase 7 (Docs)     ─► parallel after Phase 1 (policy docs trail the code)
 Phase X (3P / CVE) ─► continuous, kicked off with Phase 1's CI bootstrap
+Phase 8 (the four areas, 2026-10-28) ─► independent of 1–7; its eleven HIGHs are the 1.0 release gate
 ```
 
 ---
@@ -426,6 +427,81 @@ self-attestation on TPN+ and schedule a Silver third-party assessment.
 **Rollback notes:** Documentation is append-only; no technical rollback. Prior drafts are preserved in git history.
 
 ---
+
+## Phase 8 — The four areas: the file gateway, bins, own storage, the AI file store (scoped re-audit, 2026-10-28)
+
+**Why this phase exists, and why here.** The scoped re-audit of 2026-10-28 found eleven HIGHs in code built after the 2026-07-30
+re-audit, and `docs/sessions/PLAN_TO_1_0.md` §0 item 4 holds the production steps until "the TPN re-audit reports nothing High".
+Each fix sits in one module, needs nothing from Phases 1 to 7, and keeps every public interface, so the phase can run on its own and
+first. TPN-AI-009 is closed by the release's own steps (`docs/PRODUCTION_RUNBOOK.md` (c) and (g) 17), so this phase lists it with no
+change of its own. TPN-LOG-012 and TPN-SDLC-014 are her rulings (G6, D14), filed INFO: this phase does not touch them.
+
+**Findings addressed:**
+- The release gate: TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013, TPN-ENC-016, TPN-AUTH-013,
+  TPN-CONT-019, TPN-AI-011 (and TPN-AI-009, by the runbook)
+- Then: TPN-AUTH-010, TPN-CONT-016, TPN-CONT-020, TPN-SDLC-013, TPN-AI-008, TPN-AI-010, TPN-DOC-004, TPN-DOC-005, TPN-SDLC-012
+
+**Entry criteria:**
+- Audrey's ruling, per HIGH: fixed before 1.0, or accepted for 1.0 with the reason recorded in `FINDINGS.md` (walkthrough 85 Q1
+  and Q2 put it to her).
+- A wilson-dev session that may apply a migration, deploy functions there and cut a gateway release (the house method,
+  `docs/sessions/handoffs/po-b1-2026-10-27.md` §4; the gateway's own pipeline).
+
+**Exit criteria (testable):**
+- TPN-AUTH-012: a reviewer's or member's inserted or re-pointed `bin_files` path, and a member's new or changed `bin_locations`
+  row, are refused or never confirmed by the catalogue check; pgTAP probes pin each.
+- TPN-NET-016: the bucket test and the storage-gc drain refuse every 3xx (`redirect: 'manual'`), refuse an endpoint that resolves
+  to a private, loopback, link-local, CGNAT or reserved address, and connect to the address they checked, at save and at use; a
+  boundary test pins it.
+- TPN-ENC-015: each environment's encryption secrets distinct, the stored ciphertexts re-sealed (production first, while it holds
+  none).
+- TPN-ENC-014: no plaintext fallback (a secret write refuses when DPAPI fails; the container seals its secrets); a test pins it.
+- TPN-CONT-018: a teardown of a workspace holding one bin poster removes it and counts it; a prefix listing of
+  `projects/{id}/bin_files/` afterwards finds nothing.
+- TPN-ENC-013: a new install's office-door leaf carries DNS names only; IP SANs only by an explicit option, and HARDENING.md says so.
+- TPN-ENC-016: a new root lives at most three years, its successor made and trusted ahead of it; the release key has a pre-made
+  successor the updater accepts; HARDENING.md says both.
+- TPN-AUTH-013: the switch, the gateway's admin calls and the writes to `workspace_storage` refuse a session below aal2 for an
+  admin with a factor, as adminGuard does; a pgTAP probe pins the table's arm.
+- TPN-CONT-019: both bin stream routes send `Cache-Control: no-store` and `Pragma: no-cache`.
+- TPN-AI-011: ai-files refuses an upload, with a sentence, when a company's own key will not open, as storage-presign refuses; a
+  test pins it.
+- Then, for the MEDIUMs: TPN-DOC-004 and TPN-DOC-005, HARDENING.md and GATEWAY_DESIGN.md state the posters' custody, the four-hour
+  link life and the 155-second bound, with a review date; TPN-SDLC-013, the gateway's container release keeps buildx's provenance.
+
+**Prompt for implementation skill (copy/paste):**
+
+```
+Use the tpn-compliance-implementation skill. Load TPN_AUDIT/REMEDIATION_PLAN.md.
+Execute Phase 8 only ("The four areas: the file gateway, bins, own storage, the AI file store").
+Start with the HIGHs she has not accepted, one module at a time: 0091's bins write policies
+(TPN-AUTH-012), the S3 endpoint's fetches in storage-secret and storage-gc (TPN-NET-016), the
+teardown's poster sweep in operator-workspaces (TPN-CONT-018), the two bin stream routes'
+headers in electron/rabbitBins.cjs (TPN-CONT-019), ai-files' key fallback (TPN-AI-011), the
+outside switch, the gateway's admin calls and 0048's workspace_storage writes behind aal2
+(TPN-AUTH-013), then the gateway's own code (TPN-ENC-013, -014, -016). After the HIGHs, its
+pipeline and documents (TPN-SDLC-013, TPN-DOC-004, -005). TPN-ENC-015 is a secrets change with a
+re-seal: plan it with the controller. TPN-LOG-012 and TPN-SDLC-014 are her rulings (G6, D14):
+leave them.
+
+Before changing any code, present a plan that covers:
+1. Each HIGH's change, the files it touches, and the migration number and pgTAP suite it takes.
+2. Any interface change (a migration a gateway release must follow, a default a customer notices).
+3. The test that fails before the change and passes after, for each.
+4. A rollback path for each.
+
+Do NOT execute until I approve the plan. After Phase 8 is complete, mark each finding RESOLVED with a
+resolved_date in FINDINGS.md, re-read this plan, and produce the next phase's prompt for my review.
+```
+
+**Expected effort:** L (about three days for the HIGHs; the MEDIUMs a day more)
+
+**Rollback notes:** each app-side fix is one migration or one function: revert the function's deploy, or ship a reviewed reverse
+migration (none needs an enum value or a backfill). Gateway changes ship as a gateway release, which the signed update channel can
+supersede; a release that drops IP SANs keeps a config switch to put them back for a site that cannot use names.
+
+---
+
 
 ## Continuous — Phase X: Third-party / CVE triage
 

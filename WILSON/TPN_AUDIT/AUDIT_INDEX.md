@@ -2,21 +2,22 @@
 project: WILSON
 repo_path: C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON
 audit_date: 2026-07-30
+scoped_reaudit_date: 2026-10-28
 baseline_audit_date: 2026-04-15
 baseline_commit: 1ce18ec
 csbp_version: 5.3.1
 mode: standard
 schema_version: 1
 shield_eligibility: None
-total_findings: 92
+total_findings: 124
 critical: 3
-high: 43
-medium: 31
-low: 7
-info: 1
-resolved: 6
+high: 54
+medium: 39
+low: 9
+info: 5
+resolved: 13
 not_applicable: 1
-total_phases: 8
+total_phases: 9
 ---
 
 # Audit Index
@@ -49,6 +50,7 @@ total_phases: 8
 | 5 | Content lifecycle + watermarking + AS-2.9 | TPN-CONT-001..015, TPN-ENC-005, TPN-LOG-002 | XL | in progress — cloud lifecycle and certified disposal complete; watermarking, read-side audit and the Electron media path outstanding |
 | 6 | AI/ML controls | TPN-AI-001..007 | L | in progress — the gateway exists; policy, approval and redaction outstanding |
 | 7 | Docs + policies | TPN-DOC-001..003, TPN-IR-001..003, TPN-3P-003 | M | not started |
+| 8 | The four areas: gateway, bins, own storage, AI file store (scoped re-audit 2026-10-28) | the release gate's eleven HIGHs (TPN-AUTH-012, -013, TPN-NET-016, TPN-ENC-013, -014, -015, -016, TPN-CONT-018, -019, TPN-AI-009, -011); then TPN-AUTH-010, TPN-CONT-016, -020, TPN-SDLC-013, TPN-AI-008, -010, TPN-DOC-004, -005, TPN-SDLC-012 | L | not started |
 | X | 3P / CVE triage (continuous) | TPN-3P-001, -002, -004..009 | M | not started |
 
 ## Status legend
@@ -77,3 +79,17 @@ Grepping for the plan's prescribed artifact names would have produced false
 | Not re-assessed (policy-only: IR ×3, DOC ×3) | 6 |
 | N/A (permanent Physical exclusion) | 1 |
 | **New findings opened** | **48** (one, TPN-CLOUD-003, fixed before the session ended) |
+
+## What changed at the 2026-10-28 scoped re-audit
+
+Four areas only, report only: the file gateway, bins, own storage, the AI file store (`SUMMARY.md`, *Release gate*). Counts are
+recounted from `FINDINGS.md`: 93 before (the frontmatter said 92; Track B's TPN-AUTH-009 of 2026-09-06 was never counted), 124
+after. Outside the four areas nothing was re-rated or re-verified.
+
+| Verdict | Count | IDs |
+|---|---|---|
+| Opened, HIGH | 11 | TPN-AUTH-012, -013, TPN-NET-016, TPN-ENC-013, -014, -015, -016, TPN-CONT-018, -019, TPN-AI-009, -011 |
+| Opened, MEDIUM / LOW / INFO | 6 / 1 / 2 | TPN-CONT-020, TPN-SDLC-013, TPN-AI-008, -010, TPN-DOC-004, -005; TPN-SDLC-012; TPN-LOG-012, TPN-SDLC-014 (her rulings) |
+| Merged from `DESIGN_REVIEW_network_storage.md`, open | 4 | TPN-AUTH-010 (was the review's TPN-AUTH-008), TPN-CONT-016 (MEDIUM); TPN-NET-012, TPN-NET-014 (INFO) |
+| Merged from the review, RESOLVED | 7 | TPN-AUTH-011 (was the review's TPN-AUTH-009), TPN-NET-013, -015, TPN-CONT-017, TPN-CLOUD-007, -008, TPN-3P-010 |
+| Re-rated outside the four areas | 0 | — |

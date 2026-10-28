@@ -76,6 +76,22 @@ lookup's throw, so a database hiccup read as "Network error") and fixed it.
 Walkthrough `docs/walkthroughs/02_setup_link.md` is hers; the bundle merges
 after her report.
 
+### The TPN re-audit of 2026-10-28 reports eleven High in the file gateway, bins, own storage and the AI file store
+**MEASURED (from the code; R2, 2026-10-28; report only, nothing changed).** `docs/sessions/PLAN_TO_1_0.md` §0 item 4 holds the
+controller's production steps until "the TPN re-audit reports nothing High". It reports eleven (`TPN_AUDIT/SUMMARY.md`, *Release
+gate*), each with its file and line and a fix shape in `TPN_AUDIT/FINDINGS.md`. Eight are the areas' own defects: TPN-AUTH-012 (a
+member's catalogue row makes the file gateway serve any file on the share), TPN-NET-016 (the bucket test and the storage-gc drain
+fetch an admin's S3 endpoint with no private-address refusal, following redirects), TPN-ENC-015 (the bucket-secret and AI-key
+master secrets are the same on all three environments), TPN-ENC-014 (the gateway's keys and credential in plaintext in its
+container, and on Windows after a DPAPI failure), TPN-CONT-018 (a teardown leaves bin posters behind its certificate), TPN-ENC-013
+(the office door's certificates name private addresses), TPN-ENC-016 (the gateway's root key lives ten years, and its release key
+has no successor), TPN-AI-009 (staging's and production's pre-FX12 AI uploads, closed only by the release's own steps). Three are
+the areas' own instances of open classes: TPN-AUTH-013 (the outside switch, the gateway's admin calls and the bucket settings skip
+the two-factor step-up), TPN-CONT-019, TPN-AI-011 (ai-files falls back to the platform key when a company's own key fails). Her G6
+and D14 make TPN-LOG-012 and TPN-SDLC-014 INFO, outside the gate. Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md` is the work. →
+**Audrey's ruling, per finding** (walkthrough 85, Q1 and Q2, which propose that her ruling stand for "nothing High"): fixed before
+1.0, or accepted for 1.0 with the reason written into the finding.
+
 ---
 
 ## Broken features
@@ -1296,6 +1312,7 @@ tests run 40617232593's Vitest job on `ae80e2c4`, a branch that touches
 nothing under `gateway/`; it was the job's one failing test (the run's
 annotations). Twice now on CI, never on a Windows run of the suite.)*
 *(D1, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5) in RLS tests run 40661289297's Vitest job on `8221b1a8`, a docs-only commit (D1's hand-off) whose code is `f6ca0cf1`'s, which passed in run 40660619075; the job's one failing test by its annotations. D1 touches nothing under `gateway/`. Three times now on CI.)*
+*(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40666541669's Vitest job on `fcb28123`, R2's merge-in of P1 and D1, whose tree passed the full suite locally (418 files, 10,542 passed, 9 skipped); the job's one failing test by its annotations, the run's other three jobs green. Nothing under `gateway/` changed since `51e5a0d7`. Four times now on CI.)*
 
 ---
 
@@ -1305,6 +1322,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul R2 (2026-10-28; `po/r2-release-readiness` into `feat/post-overhaul-edit-versioning`) — release readiness (`docs/sessions/PLAN_TO_1_0.md` night 4), documents and an audit only, two review rounds: `docs/PRODUCTION_RUNBOOK.md` (new: the controller's ordered production steps, each with its proof), `docs/RELEASE_TESTING.md` rewritten against the code, `CHANGELOG.md`'s 1.0.0 entry rewritten and dated Unreleased, and the read-only TPN re-audit of the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/`: twenty findings opened, eleven of them High in the release gate, the 2026-08-05 design review's eleven merged, two of them renumbered) | **Two entries:** *The TPN re-audit of 2026-10-28 reports eleven High …* (under Security) and R2-01, the workspace takeout's missing tables (its own section at the end). Three entries carry a dated note of what the controller's kit records on staging and where production's step is: S4b-02, S4c-10, FX12-01. | **Nothing.** |
 | Post-overhaul M2 (2026-10-28; `po/m2-migration-part-2` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 2 (`docs/sessions/PLAN_TO_1_0.md` night 4): every part-2 row shape rehearsed on wilson-dev first (rolled back); the budgets behind the money gate (versions, lines, actuals, expenses, role rates, the two pointers, receipts kept money), the levels and experiences with what names them, the links on tasks; the phases', assets' and tasks' own checks; the second run's record; migration **0103** (the desktop's three statuses, her ruling of 2026-10-28) and suite **106**, on wilson-dev only; a cleared Director or Producer sent as NULL; two review rounds | M2-L1 (night 5's kinds, for M3), M2-L2 (`upsertTaskLink` sends `project_id`; measured, unreachable today), M2-L3 (a dry run on a cloud without 0103), and from review round 1 M2-L4 (receipts an earlier build left open, said every run), M2-L5 (crew lines out of the Crew tab until night 5), M2-L6 (what the dry run does not foresee), M2-L7 (a removed picture, unreachable), M2-L8 (the id trusted where no read can tell), and from review round 2 M2-L9 (three record rules that are choices) | the part-2 entry and the resurrection entry (closed, the second narrowed); M1-L3, M1-L4 and M1-L5 closed; M1-L1 and M1-L2 to night 5 (M2-L1). |
 | Post-overhaul D1 (2026-10-28; `po/d1-desktop-storage-across-relaunch` into `feat/post-overhaul-edit-versioning`) — the desktop keeps its stored state across a relaunch (`docs/design/RECONNECT_DESIGN.md` §12; her ruling of 2026-10-28, *"Fix it in 1.0, a session tonight (Recommended)"*, a fourth session on night 4): measured first (two launches of a development build, a new origin each), designed, the design reviewed on Opus (the Fable call refused, out of usage credits), built: the 4-hour cap from the token's own sign-in time at every restore (`start()` takes the earlier of its record and the `amr`; a fresh sign-in passes none), the renderer's `localStorage` kept in userData (`electron/rendererStorage.cjs`: the launch's first load made exactly the kept keys before the page's first script, written back once a second, when hidden and at `pagehide`; never the session, the idle clocks or tus fingerprints; a file Windows holds at launch never written over); the origin, the token, the cookie and the lock untouched; two build review rounds; walkthrough 85's D1 section | **D1-01** (security, there before D1: a page the main window is sent to, a dropped file's, is handed the preload's bridges; measured), **D1-02** (after a sleep the first key counts before the idle clock judges the absence; measured) | **S2-01** (closed by measurement: on the build a relaunch keeps the sign-in's start, 119.9 minutes left where the tip gave a fresh 240, and a relaunch 3 h 56 min after the sign-in shows *Session ending* 0.7 s after it opens, where the tip gave 239.8 minutes and no notice) and ***On the desktop, the browser's own storage most likely starts empty at every launch*** (closed by measurement: five keys written at one launch came back at the next with their values, where the tip kept none; a key written just before a reload or the window's close kept too; R.A.B.B.I.T.'s storage choice and last project were never in it, measured). Comment markers: 4 → 4. |
 | Post-overhaul P1 (2026-10-28; `po/p1-own-storage-previews` into `feat/post-overhaul-edit-versioning`) — browser previews on a workspace's own storage (`docs/sessions/PLAN_TO_1_0.md` night 4; `NETWORK_STORAGE_DESIGN.md` §9): measured first (an s3 row showed icons and an "own bucket" sentence; a NAS workspace's media has no cloud row at all); `storage-read-urls`, a GET-only batch signer (money refused, `can_presign_project_read` once per project, a key signed only when a live s3 row of the caller's, in the key's own project, owns it, read one folder at a time so no filename travels; a thumbnail or one streaming video or audio 3600 s, a body read once 300 s), on wilson-dev only; `getUrl` in `REQUIRED`; FileManager's s3 arm, the Files preview and player for s3 rows; the NAS half's one sentence, Q1–Q2 to Audrey; one design round and two build rounds (Opus, Opus, Fable), 40 failing controls | **OSP-01 to OSP-11** (OSP-08 closed by build round 2): the older signer signs by path; an s3 download is still a Blob; an hour-long clip restarts on its re-mint; rows from before a switch to `network` answer "configure S3"; pre-0076 receipts on s3 are unflagged (a release check); the live check is her test bucket; a writer can make a row vouch for a key in their own project (a migration night); a stale URL after failed renewals; a clip played by MIME alone gets five minutes; the fixtures pass the cloud gate | **The BYO thumbnails entry, closed for s3** (narrowed to the live check and the NAS half); **S4b-02, closed by measurement for dev and staging** (the deployed `storage-presign` downloaded from both is the repository's copy, LEGAL included; production's predates LEGAL). *S44's reversal…* kept true; the `network` entry measured one level up. |
@@ -2592,6 +2610,8 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   Edge Functions from a session: `supabase functions deploy storage-gc`
   on staging, then prod, by Audrey. Until then the walkthrough says to run
   the move with the app open and the network up. Owner: Audrey.
+  *(2026-10-28, R2: the controller's kit records staging at version 12 on 2026-10-12; production holds v8, and
+  `docs/PRODUCTION_RUNBOOK.md` (c) redeploys it.)*
 - **S4c-11 · On the Local Server a rename moves the folder ROWS, never the
   directory.** As before S4c for every entity (the PATCH route's note: the
   old directory is left with whatever is in it, and a managed record stays
@@ -2718,6 +2738,8 @@ S4b-11 are untouched and still hers.
   its sweep. Fix: the deploy, then the operator's sweep (and each company
   admin's card, which also reaches a company's own key) on both, before
   2026-11-09 (walkthrough 76 part C). Owner: the controller and Audrey.
+  *(2026-10-28, R2: the controller's kit records `ai-files` v3 and `operator-ai-files` v1 on staging on 2026-10-26, so staging
+  owes the sweep alone; production's deploy is `docs/PRODUCTION_RUNBOOK.md` (c) and its sweep (g) step 17. TPN-AI-009 tracks it.)*
 
 ## Post-overhaul FX15 (`po/fx15-fx14-leftovers`) — left open (2026-10-26)
 
@@ -3170,7 +3192,6 @@ notes) met outside those notes and did not fix.
   Fix: the words inside the button's target, or the kit Checkbox when
   A1-KR-4 lands. Owner: a D.O.G. session, or the kit request.
 
-
 ## P1 (`po/p1-own-storage-previews`) — left open (2026-10-28)
 
 What P1 (night 4: browser previews on a workspace's own storage) measured
@@ -3255,3 +3276,11 @@ outside its scope, or built to a limit, and did not fix. The design is
   (the fixtures' address is a closed port) and the ordinary words stay, so
   nothing shows (round 2, finding 6). Fix shape: gate on the adapter's own
   `mode !== 'fixtures'`. Owner: none.
+
+## R2 (2026-10-28, night 4 of `docs/sessions/PLAN_TO_1_0.md`) — left open
+
+- **R2-01 · The workspace takeout holds 23 tables, and none of the scenes, shots, levels, experiences, key dates, budgets or bins.** MEASURED (from the code, 2026-10-28):
+  `TAKEOUT_TABLES` in `src/components/AdminTerminal/WorkspaceTakeout.jsx` lists 23 tables, and scenes, shots, levels,
+  experiences, key dates (`milestones`), the budget tables, expenses, folders, task templates, shot lists, edits, bins and their
+  clips are not among them, while the Company card's *Workspace takeout* reads as the whole company's. Would settle it: a takeout
+  of a project that holds a scene and a budget. Owner: none named; 1.1 unless she says otherwise.

@@ -9,6 +9,10 @@
 - **Subject:** `docs/NETWORK_STORAGE_DESIGN.md` (Options A–E, Phases 0–2)
 - **Passes run:** Network, Content Handling, Authentication, Cloud, Third-Party
 
+> **Merged into `FINDINGS.md` on 2026-10-28** by the scoped re-audit of the file gateway, bins, own storage and the AI file store.
+> Two IDs below collided with `FINDINGS.md`'s and were renumbered there: this review's **TPN-AUTH-008 is TPN-AUTH-010** and its
+> **TPN-AUTH-009 is TPN-AUTH-011**. The text below is kept as written on 2026-08-05; each finding's state is `FINDINGS.md`'s.
+
 > **This file deliberately does NOT follow the six-file output contract.**
 > `TPN_AUDIT/` already holds the full 2026-07-30 re-audit (92 findings, the
 > baseline the remediation programme is built on). Writing `SUMMARY.md`,
