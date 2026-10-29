@@ -346,8 +346,8 @@ nine Windows-forbidden characters only. A location written past the app —
 through the REST API with a member's key — can carry a right-to-left
 override or a zero-width space into every Connect question in the company.
 Settle it with `psql`: insert a `bin_locations` row whose `unc_path` holds
-U+202E and watch it land. Fix shape: a migration (0095 or later: 0093 is the
-file gateway's, GW1, and 0094 is reserved) adding the
+U+202E and watch it land. Fix shape: a migration (the next free number, 0107
+at P8's merge; 0094 was retired on 2026-10-28, walkthrough 85 Q5) adding the
 same refusal to the CHECK through a small SQL function (PostgreSQL's regex
 has no Unicode-property classes; the function tests the code points), and
 the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
@@ -406,8 +406,8 @@ the Audio line); 0091's `bin_files` has no such columns and the cloud
 adapter's `BIN_FILE_COLUMNS` drops them, so a clip added from the desktop
 signed in, or migrated, shows no Audio line in the cloud. The migration
 strips them before `toColumns` so the console is not warned once per clip.
-Fix shape: two nullable columns on `bin_files` (0095 or later: 0093 is the
-file gateway's, GW1, and 0094 is reserved), the
+Fix shape: two nullable columns on `bin_files` (the next free number, 0107
+at P8's merge; 0094 was retired on 2026-10-28, walkthrough 85 Q5), the
 allowlist, and `add_bin_files` accepting them.
 
 ### A private project's media body is never purged from the desktop
@@ -769,10 +769,11 @@ capture:** as the seeded smoke user on wilson-dev, `POST
 one-pixel PNG, the bearer token and the anon `apikey` (the exact command is in
 `docs/sessions/handoffs/po-b1-2026-10-27.md`); a 200 excludes the policy and
 points at the client's `avatar_url` write or the render; a 400 whose body says
-`new row violates row-level security policy` proves it, and migration 0102 /
-suite 105 (reserved) then hold the smallest policy change that lets the owner
-of the path upload and still refuses another user's path. Delete the object
-after.
+`new row violates row-level security policy` proves it, and a migration at the
+next free numbers (0107 and suite 110 at P8's merge; 0102 and suite 105 were
+retired on 2026-10-28, walkthrough 85 Q5) then holds the smallest policy
+change that lets the owner of the path upload and still refuses another user's
+path. Delete the object after.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**

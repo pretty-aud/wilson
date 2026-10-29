@@ -166,7 +166,7 @@ The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; f
 - **The `smoke_admin` password is in public git history** until it is rotated. (TPN-SDLC-007; `docs/OWED_AUDREY.md` §0)
 - **Staging's legacy `service_role` key was exposed** and is owed a roll. (`docs/OUTSTANDING.md`, S19)
 - **A private project's rows reach every member's workspace channel**, and the `tasks` and `assets` write policies lack the project hop. (OUTSTANDING A-R1-04, A-R2-03)
-- **The `user-avatars` bucket is public, and a new avatar may not last** (the cause unproven; 0102 is reserved). (TPN-CLOUD-004; OUTSTANDING *Avatar does not persist*)
+- **The `user-avatars` bucket is public, and a new avatar may not last** (the cause unproven; a migration for it takes the next free number). (TPN-CLOUD-004; OUTSTANDING *Avatar does not persist*)
 - **Seven Edge Functions have no rate limiter** (the four `admin-*`, `invite-member`, `issue-session`, `storage-gc`). (the tree)
 - **Failed sign-ins are logged only once each project's two Auth hooks are on**; guard refusals are logged nowhere; `app_events` and `edit_history` purge at 90 days. (`docs/OWED_AUDREY.md` §14; TPN-LOG-004)
 - **The AI provider's store still holds staging's and production's uploads from before FX12** until the sweep, and from 2026-11-09 nothing can say whose they are. (OUTSTANDING FX12-01; TPN-AI-009)
