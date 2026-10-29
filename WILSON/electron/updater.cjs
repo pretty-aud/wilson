@@ -17,7 +17,12 @@
 // downloaded | error | unsupported | disabled.
 // =============================================================================
 
-const { ipcMain } = require('electron');
+// D3 (night 7, 2026-10-29; docs/design/RECONNECT_DESIGN.md §14): the four
+// channels are registered through the gate main.cjs hands initUpdater
+// (electron/ipcGate.cjs), so they answer only this launch's page, as every
+// other channel does. Electron's own ipcMain is never required here: this is
+// set from the gate first thing in initUpdater, which refuses anything else.
+let ipcMain = null;
 
 let autoUpdater = null;
 let statusSink = null;      // BrowserWindow.webContents getter
@@ -32,7 +37,9 @@ function send(status) {
   } catch { /* window gone — state is re-queried via wilson:update-state */ }
 }
 
-function initUpdater({ app, getWebContents, getMainWindow }) {
+function initUpdater({ app, ipcMain: gate, getWebContents, getMainWindow }) {
+  if (!gate || gate.isGate !== true) throw new TypeError("initUpdater: the update channels need main.cjs's gate (ipcGate.cjs)");
+  ipcMain = gate;
   statusSink = getWebContents;
 
   // Renderer can always ask for the latest state (mount-time sync).
