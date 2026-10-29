@@ -6442,11 +6442,13 @@ documentation and starts being wrong answers.
   Sentry's own IPC when a DSN is set (OUTSTANDING D3-01).
 - **An answer's link on the web** (the pet's, O.T.T.E.R.'s lessons) opens
   a web address on another origin in a new tab with `rel="noopener
-  noreferrer"`, and WILSON's tab stays (`src/components/AnswerLink.jsx`);
-  an email address, a relative address, a fragment and the page's own
-  origin stay plain anchors, and an address react-markdown emptied is
-  drawn as its text. On the desktop the window's guard still sends a web
-  address to the system browser (OUTSTANDING D2-06 closed).
+  noreferrer"`, and WILSON's tab stays (`src/components/AnswerLink.jsx`,
+  which decides by itself: build review rounds 1 and 2). An email address
+  and a fragment of the same page stay plain anchors; any other address on
+  WILSON's own origin (a click would reload WILSON in place, unsaved work
+  and all), an emptied address and every other scheme are drawn as text.
+  On the desktop the window's guard still sends a web address to the
+  system browser (OUTSTANDING D2-06 closed).
 - **Her rulings of 2026-10-29:** *"Q2. b"* (this lock, before 1.0) and
   *"Q1. a"* (the migration report keeps naming the clips left behind:
   OUTSTANDING D2-01 closed in words).
