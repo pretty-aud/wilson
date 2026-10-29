@@ -173,7 +173,10 @@ one gate (`ipcMain` in `main.cjs` is the gate; the updater is handed it),
 which asks D1's rule first — the main window's own `webContents`, its top
 frame, this launch's origin — and answers any other sender `null` at once,
 its handler never run, logging the channel and the asking page's scheme
-once (`none` at every launch, for the window's first, empty document).
+once (`none` at every launch, for the window's first, empty document);
+the one thing the preload hands over itself, where a dropped file lives
+(`rabbit.getPathForFile`), it hands only to a page the main process
+answered as WILSON's (build review round 1).
 Measured on `bb14b169`: a page that held the preload without being WILSON's
 (the main window showing another page, another window or a frame given the
 preload) was handed the local server's key, the session and every channel;
@@ -6430,7 +6433,9 @@ documentation and starts being wrong answers.
   session and every channel but D1's storage and D2's download; so was the
   window's first, empty document at every launch, before WILSON's page
   loads. On the build each gets `null` at once, and WILSON's page
-  everything it got before. What can script WILSON's page itself (a
+  everything it got before; a dropped file's place, which the preload
+  hands over itself, goes to WILSON's page alone too (build review round
+  1). What can script WILSON's page itself (a
   same-origin frame, the print window through `opener`) calls WILSON's
   page's own objects, from WILSON's top frame, and is answered as WILSON's
   page is: no sender test can tell it apart, and none needs to. Left:
