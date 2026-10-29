@@ -14,8 +14,9 @@ settled in words, nothing built: **a project you delete in the cloud stays
 deleted**, and there is no *Carry everything again* in 1.0. Measured first,
 designed, the design reviewed on Fable (nothing in it needed you), built,
 then reviewed twice more on Fable: the first build review found that cloud
-downloads would have opened in your browser, and that was fixed before
-anything merged.
+downloads would have opened in your browser, the second that an email link
+in an answer would have done nothing; both were fixed before anything
+merged.
 
 1. **WILSON's window shows WILSON and nothing else.** If anything tries to
    send the window to another page — a link, a script, a dropped file — it
@@ -31,9 +32,10 @@ anything merged.
    WILSON did that itself in one place: a cloud file's **Download** sent the
    window to the storage's address, which answered with the file, so the
    page stayed. Downloads now start inside WILSON instead (the same save
-   window as before). Nothing else in WILSON sends the window away, so the
-   gap needed something to have gone wrong first; it is closed all the same,
-   and the dropped-file case now has two locks of its own.
+   window as before). And a link in the pet's or O.T.T.E.R.'s answers sent
+   the window to the website itself; it now opens in your browser (an email
+   address in your mail app). The dropped-file case now has two locks of its
+   own.
 3. **A sleep is judged before the first key counts.** If the computer
    sleeps with WILSON open and you come back more than 30 minutes later, the
    first key or click signs you out with the usual line, instead of carrying
@@ -59,7 +61,10 @@ anything merged.
    Open an expense's receipt: it opens in its own window, as before.
    In a cloud project, open **Files** and **Download** a file: the save
    window opens, as before, and your browser does not open.
-4. **The sleep.** With WILSON open and in front, put the computer to sleep
+4. Ask the pet or O.T.T.E.R. something whose answer has a web link (for
+   example *"link me to the Electron website"*) and click it: it opens in
+   your browser, and WILSON stays as it was.
+5. **The sleep.** With WILSON open and in front, put the computer to sleep
    (Start → Power → Sleep) and leave it for **more than 30 minutes**. Wake
    it and press any key or click in WILSON. You are signed out, and the
    sign-in screen says *Signed out after 30 minutes without activity.* If
@@ -94,8 +99,9 @@ sign-in and the local key; after it, the window stayed on WILSON and the
 address went to the browser instead (stood in, so nothing really opened).
 With the desktop's drop setting deliberately switched on, each of the two
 new locks kept the page on its own. The print and receipt windows open and
-show their contents. The tests: 425 files, 10,814 passing; every new test
-was shown to fail on purpose against the old code.
+show their contents. A cloud download through the app lands its file, and
+nothing opens in your browser. The tests: 425 files, 10,827 passing; every
+new test was shown to fail on purpose against the old code.
 
 ### What is left as it is
 

@@ -149,7 +149,9 @@ Ctrl+R/F5 are intercepted and re-mapped to "reset zoom" rather than reloading
 `shell.openExternal`. **The window loads WILSON's page and nothing else**
 (D2, 2026-10-29; `electron/windowGuard.cjs`, `docs/design/RECONNECT_DESIGN.md`
 §13): every navigation, and every redirect of its top frame, outside this
-launch's origin is refused (an http(s) one goes to the OS browser instead);
+launch's origin is refused (an http(s) one goes to the OS browser instead,
+and a `mailto:` one to the mail app: the pet's and O.T.T.E.R.'s answers
+render their links as plain anchors);
 `window.open` opens only the print window (`about:blank`) and the page's
 own `blob:` addresses (receipts, invoices), sends http(s) to the OS browser
 and refuses everything else (`file:`, `data:`, `javascript:`, any other
