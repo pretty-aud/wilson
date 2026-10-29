@@ -440,3 +440,61 @@ Verdict: *ship once corrected*; nothing needs her ruling, and the cap, the gate 
 - **Notes 8–12:** round 1's F5 holds (`localServerOrigin` is set before the window exists); the pauses stall the main process only while Windows holds the file (about 0.2 s at a launch's read, 0.12 s at a write); the D1 cap tests run at a real epoch now (their "hours ago" sign-ins had been negative Unix times); the docs' three inexact sentences are corrected (here, in §12.5, the handbook's §17 entry and walkthrough 85); round 1 missed nothing in the cap, the surfaces, the channels or the clear.
 
 After the corrections: §12.12's two launches and the paths repeated on `26d6dee8`, the same results (ports 61350 → 61366; every key back with its value; 119.9 minutes left; the key 0.05 s before an `app.exit` lost, the one 2.5 s before kept). `npx vitest run --maxWorkers=4`, no `.env.local`: 418 files, 10,450 passed, 9 skipped (the tip: 417, 10,404, 9).
+
+## 13. The desktop window stays on WILSON's page, the idle clock judges a sleep first, and the migration names the actuals left without their invoice (D2, night 6, 2026-10-29)
+
+Night 6 of `docs/sessions/PLAN_TO_1_0.md` (brief `docs/sessions/briefs/po-d2-desktop-dropped-page-and-sleep-idle.md`): OUTSTANDING D1-01, D1-02 and M3-L7. Her rulings, verbatim: on 2026-10-29 at 00:39 UTC, typed into the R2 session, **"go with each one is safest and you recommend"**; then, in chat, asked whether that covers every open question of walkthroughs 85 and 86, **"2. a"** (*Yes, all of them*). So walkthrough 85's D1 Q1 is (a), *the window never leaves WILSON's own page, before 1.0*; D1 Q2 is (a), *judge the absence first, before 1.0*; M2 Q3 is yes, *the report names the actuals whose invoice stayed behind*; and M2 Q2 is *a project deleted in the cloud stays deleted* (no *Carry everything again* in 1.0: a ruling, nothing built).
+
+What does not move: the cap's length, the idle limit, the warnings and every other rule `sessionTimeouts.js` enforces; S2's offline launch and D1's kept storage (§11, §12); the local server's gate (the per-launch token by header or cookie, `applyLocalServerLock`, the per-launch origin); the Bins drop; the migration's record (ids by table, `mergeCloudMigrationRecord`) and its count of invoices attached by a path.
+
+### 13.1 What was measured (the tip `4728a92d`)
+
+The desktop: a development build of the tip, Electron 33.4.11, a scratch userData per launch, the window off-screen, a made-up session saved through the bridge (no sign-in), the build's cloud a made-up `.invalid` host. A "dropped file" is a made-up page dropped through the DevTools protocol's `Input.dispatchDragEvent` (a trusted drag: the page's own drop listeners receive it, with the file's path). Only booleans were read: is the session bridge there, does `load()` return a session, is the local server's key handed over.
+
+| What happens in the main window | Where the window is after | What a page there is handed |
+|---|---|---|
+| a file dropped outside any drop zone | **still WILSON's page** | — |
+| the same drop, on a control build with `navigateOnDragDrop: true` | **the file** (`file:`) | the session bridge, the session, the key |
+| a file dropped on a zone that takes files (a stand-in for Bins) | WILSON's page; the zone got the drop, one file, its path readable | — |
+| the page sends itself to a `file:` address | WILSON's page (Chromium refuses it) | — |
+| the page sends itself to another site (`https:`) | **the other site** | **the session bridge, the session, the key** |
+| `window.open` of a `file:` address | no window opens (Chromium refuses it) | — |
+| `window.open('')` (the estimate's print window), or of the page's own `blob:` address (a receipt or an invoice) | a second window | **no bridge, no key** |
+| that print window sent to another site | the second window there | no bridge, no key |
+
+So D1-01's drop does not leave the page on the tip: Electron 33's default `navigateOnDragDrop` is false, and the control shows what turning it on would hand over. What does leave the page, with the saved sign-in and the key, is a navigation the page itself starts to another site: a link without a target, or a script. Today no link in the app does that (every external link opens through `window.open`, which hands it to the system browser), so the hole needs a page that has already gone wrong; it is closed all the same.
+
+The idle clock (`sessionTimeouts.js` under a fake clock, the computer asleep modelled as time passing with no tick): after 120 minutes, or 31, the first `activity()` before any tick leaves the phase `active` and nothing expires; the same gap with a tick first, or with `visible()` first, ends in `idle_timeout`; 29 minutes stays `active` whatever comes first.
+
+The migration (the fixtures' M2 round trip, one actual on a line *Set timber and paint* with its invoice at a path on this computer): the dry run and the real run both report `invoicePaths`, *1 invoice attached by a path on this computer*, and name nothing; the path and the file's name appear in neither report, nor in the progress lines, nor in the record (which holds the actual's id after the real run).
+
+### 13.2 The window: it loads WILSON's page and nothing else
+
+1. **`will-navigate`** (the main frame): refused unless the destination's origin is this launch's origin, read from the main process's `localServerOrigin` at the moment (the port is new at every launch, D1's trap), never a fixed string. Nothing is opened in its place.
+2. **`will-redirect`**, the main frame: the same rule.
+3. **`navigateOnDragDrop: false`** written into the window's `webPreferences`: today's default, now stated, so an upgrade that changed it changes nothing.
+4. **`setWindowOpenHandler`**: `http:` and `https:` go to the system browser and the window is denied, as today; `about:blank` and a `blob:` address of this launch's origin are allowed (the print window, the receipts and invoices: measured without bridges); everything else (`file:`, `data:`, `javascript:`, any other scheme) is denied and handed to nothing, where today it was allowed and left to Chromium.
+5. **The renderer, both builds**: one pair of listeners on the `window`, bubble phase. `dragover` that nothing handled: `preventDefault()` and `dropEffect = 'none'` (the no-drop cursor); `drop` that nothing handled: `preventDefault()`. On the window, not the document, so it runs after every listener on the document and below it, Bins' own *drop anywhere on this tab* included, whatever was registered first; it never stops an event and never touches one a zone handled. In a browser it also keeps a dropped file from replacing the tab.
+6. **What a dropped file does outside a drop zone: nothing.** The cursor shows it is not taken.
+
+Not done here, recorded: the bridges' channels answering only the launch's page (OUTSTANDING D1-01's second half). With 1 to 4 no other page runs in the main window, and the windows the page opens get no bridge (measured); gating every channel is a larger change than this brief's. A child window can still be sent elsewhere by its own content (a link in a receipt's PDF): it holds no bridge and no key (measured).
+
+The decisions live in a new `electron/windowGuard.cjs` as plain functions (the destination's origin against the launch's; the open handler's answer) with one function that wires them to a `webContents`. `main.cjs` requires Electron at load, so no test can reach a rule written there; the test drives the functions and the wiring with a stand-in `webContents`, and main's call by source.
+
+### 13.3 The idle clock: the absence is judged before the activity counts
+
+`activity()` runs `evaluate()` first, as `visible()` does, and counts the activity only when the session is still running. A gap past the idle limit since the last activity (this tab's, or another tab's of the same surface through the shared key) ends the session in `idle_timeout`, as a tick at that moment would have; a cap passed while the computer slept ends it in `session_cap`; a warning that is up still clears on the next activity (the second `evaluate()`, after the activity is counted, as today). One module, so both builds. Never more lenient than today: the rule only adds a judgement before the activity is recorded.
+
+The sleep is not named to the renderer by the main process: `powerMonitor`'s `resume` would need a new channel and would serve the desktop alone, and the rule above already covers a sleep, a laptop lid, a suspended virtual machine and a throttled tab alike. A relaunch is not a sleep: `start()` is unchanged (a launch is activity, §12.3). The cost is `evaluate()`'s one storage read on each pointer and key event; nothing is written more often than today.
+
+The pins: no CONTROL of `sessionTimeouts.test.js` pins the gap (§12.3 recorded it in words, D1's probe was not kept). New, each red on today's code: a gap past the idle limit between two `activity()` calls ends the session; past the cap, `session_cap`; a warning followed by a sleep, then *Stay signed in*, ends it. Green on both: a gap inside the limit does not; another tab's recent activity of the same surface keeps it; the cap's length and the numbers unchanged.
+
+### 13.4 The report names the actuals that arrive without their invoice (M2 Q3)
+
+In the budget step, for the dry run and the real one alike, an actual whose invoice was a path on this computer and which arrives in the cloud in this run, or is already there, is listed in the report (`invoicesLeftBehind`: the project's id and title, the actual's id, the budget tab, and the actual as the budget's own popover titles it: *its line / its period*). Its line: on Crew/team the team member's name through the people map (what the row shows), else the line's label; on Talent and anywhere else, the line's label. Its period: `periodLabel` with the project's column mode and start, as the tabs print the header. The panel says, under the not-carried sentence: *N actual(s) arrive in the cloud without the invoice attached on this computer: attach it again in the browser, on the budget's Crew/team or Talent tab*, and lists them (twenty, then *… N more*), as it lists the clips left behind. An actual not carried (its line removed here, a teammate's removal, its place taken) is not listed: it is not in the cloud to attach to.
+
+Never the invoice's path or its file's name, in the report, the panel, the progress lines or the record; the record keeps ids only (unchanged); no progress line names the actual. The count in the not-carried sentence is unchanged.
+
+### 13.5 The tests, and the measurement after the build
+
+The window: the unit over `windowGuard.cjs` (a `file:`, another site, a redirect elsewhere, the launch's own origin, a port that is not this launch's; the open handler's answer for each scheme, `shell.openExternal` called only for `http:` and `https:`); main's wiring by source; the drop guard in jsdom (a drop nothing handled is prevented with `dropEffect` none; a zone's own handler and a document-level drop-anywhere handler, registered after the guard, still see the drop unhandled and get its files); and §13.1's desktop run repeated on the build. The clock: §13.3's tests. The report: the M2 round trip with the actual on a path (its line named, its period, the tab), the panel's line, and a pin that searches the report, the panel's text, the progress lines and the record for the fixture's path and file name and finds neither. Each with a planted control.
