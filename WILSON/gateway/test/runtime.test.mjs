@@ -520,6 +520,10 @@ describe('what is written down reaches the cloud (§6)', () => {
       await switchOn(W);
       const t = W.cloud.mint({ clip: CLIP, sub: SUB });
       await W.get(`/v1/clips/${CLIP}?t=${t}`, { headers: { range: 'bytes=0-1023', 'x-forwarded-for': '203.0.113.50' } });
+      // The door's own end for the response comes apart from the client's, and
+      // the response holds its row open until that end (one row per play), so
+      // the clock moves only once it has run (OUTSTANDING, the gateway's CI flake).
+      await waitFor(() => W.lines.some((l) => l.includes(' clip_served ')));
       W.clock.offset += 61_000;
       await W.gw.tickNow();
       await waitFor(() => W.cloud.state.events.length === 1, 8_000);
