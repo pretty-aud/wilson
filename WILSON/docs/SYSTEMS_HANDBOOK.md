@@ -146,7 +146,20 @@ Boot order (`main.cjs:16-20`, `2473-2490`):
 `sandbox` is not explicitly set and inherits Electron 33's default.
 Ctrl+R/F5 are intercepted and re-mapped to "reset zoom" rather than reloading
 (`main.cjs:2124-2131`); `http(s)` links open in the OS browser via
-`shell.openExternal` and in-window navigation is denied (`main.cjs:2134-2140`).
+`shell.openExternal`. **The window loads WILSON's page and nothing else**
+(D2, 2026-10-29; `electron/windowGuard.cjs`, `docs/design/RECONNECT_DESIGN.md`
+§13): every navigation, and every redirect of its top frame, outside this
+launch's origin is refused (an http(s) one goes to the OS browser instead);
+`window.open` opens only the print window (`about:blank`) and the page's
+own `blob:` addresses (receipts, invoices), sends http(s) to the OS browser
+and refuses everything else (`file:`, `data:`, `javascript:`, any other
+scheme); each window the page opens gets the same rules and opens none of
+its own; `navigateOnDragDrop: false` is stated; refusals are logged by
+scheme only. Before D2 this line said in-window navigation was denied; it
+was not (measured on `4728a92d`: a page that sent itself to another site
+landed there, handed the preload's bridges). In the page, a file drag that
+nothing handled is cancelled on the window (`src/lib/dropGuard.js`, after
+Bins' own listeners), so a file dropped outside a drop zone does nothing.
 Window close is intercepted and handed to the renderer as a `close-requested`
 event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
 flag before `quitAndInstall()`.
@@ -6336,7 +6349,7 @@ documentation and starts being wrong answers.
   ahead: signed out at every reload or relaunch, never at the sign-in itself);
   one behind reads the token's time as in the future, which proves nothing. A
   launch is activity: the idle clock starts again at every start, as a reload's
-  does on the web. A sleep followed by a key is OUTSTANDING D1-02.
+  does on the web. A sleep followed by a key is judged first since D2 (below).
 - **The renderer's storage.** Every launch is still a new origin (`listen(0)`;
   the token, the cookie and the lock reason from it). The renderer's
   `localStorage` is kept in `{userData}/renderer-storage.json`
@@ -6355,8 +6368,36 @@ documentation and starts being wrong answers.
   last second (measured); the earlier launches' origins are
   cleared once the server has bound (`clearData` with `excludeOrigins`, not
   awaited); the first launch after the update starts from the defaults once.
-  A page the window is sent to (a dropped file) is handed the bridges:
-  OUTSTANDING D1-01.
+  A page the window was sent to was handed the bridges: refused since D2
+  (below).
+
+**The window, the idle clock after a sleep, and the actuals left without their invoice (D2, 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §13)**
+
+- **The window stays on WILSON's page** (§3.1's posture line). Measured on
+  the tip: a dropped file never left the page (Electron 33's
+  `navigateOnDragDrop` is false; D1-01's drop was an inference), but a
+  navigation the page started to another site did, handing the saved
+  sign-in and the local server's key to that page. On the build each layer
+  holds alone: with drop navigation forced on, the main process's refusal
+  alone and the page's drop guard alone both keep the page. The print and
+  receipt windows open as before, with no bridge (measured). Left: the
+  bridges' channels answer any page that runs the preload (OUTSTANDING
+  D2-02); the operator console has no drop guard (D2-03).
+- **The idle clock judges a sleep first.** `activity()` runs `evaluate()`
+  before it records the activity, as `visible()` always did: after the
+  computer slept past thirty minutes, the first key or click signs out
+  (`idle_timeout`), and a cap passed in the sleep ends in `session_cap`.
+  Every time, not only when a tick is overdue; the added storage read
+  measured at 0.17 µs. No number moves; both builds, both surfaces.
+- **The migration names the actuals left without their invoice** (her
+  ruling on walkthrough 85's M2 Q3): the report's `invoicesLeftBehind`
+  and the panel's line under the not-carried sentence list each actual
+  whose invoice was a path on this computer and which is in the cloud
+  with no invoice, as the budget titles it (the project, the tab, the line
+  or team member, the period), never the file's path or name. M2 Q2 by her
+  ruling in words: a project deleted in the cloud stays deleted (no *Carry
+  everything again* in 1.0). The clips left behind are still named by
+  their files' names (OUTSTANDING D2-01).
 
 ## Appendix A — Glossary
 

@@ -520,3 +520,21 @@ The window: the unit over `windowGuard.cjs` (a `file:`, another site, a redirect
 - **F6 (Nit)**: where the guard is mounted (§13.2.7). **F7**: never more lenient, verified by the round.
 - **F8 (Low)**: always or gated: always, in words, its cost measured (§13.3). **F9 (Low)**: a sleep helper, the race named, `visible()` said, the hook-level pin added (§13.3).
 - **F10 (Medium)**: an actual already there was named on every run, even after its invoice was attached in the browser: the cloud's `attachment_path` is read (§13.4). **F11 (Low)**: the fields named (§13.4). **F12 (Low, a choice)**: a `taken` actual is not listed, said. **F13 (Nit)**: the two counts read as one. **F14 (Nit)**: the clips' names in the report, recorded in OUTSTANDING.
+
+### 13.7 Measured on the build (`da1cde97` for the window; `b1930404` and `6dcd065d` by their tests)
+
+§13.1's desktop run repeated on a development build of `da1cde97`, the same way, with `shell.openExternal` stood in inside the main process for every launch (a run that could not stand it in stopped before its first case: nothing opened the real browser):
+
+| What happens | The tip | The build |
+|---|---|---|
+| a file dropped outside any drop zone | WILSON's page | WILSON's page |
+| a file dropped on a zone that takes files | the zone gets it (one file, its path readable) | the same |
+| the page sends itself to a `file:` address | WILSON's page | WILSON's page |
+| the page sends itself to another site | **the other site, handed the session bridge, the session and the key** | **WILSON's page; the address went to the system browser** (stood in: one `https:`) |
+| `window.open` of a `file:` address | no window | no window |
+| the print window; a receipt's `blob:` window | a second window, no bridge | the same; the receipt's text readable in it |
+| the print window sent to another site | there, no bridge | **stays `about:`; the address went to the system browser** |
+
+The drop's layers, each alone, on control builds with `navigateOnDragDrop: true` (the setting that made the tip's control land on the file): the build's main process and page together keep WILSON's page; the build's main process without the page's drop guard keeps it; the tip's main process with the build's page keeps it. The idle clock's added read: 200,000 `localStorage.getItem` calls in the window took 34.2 ms, **0.17 µs each**.
+
+The tests: `windowGuard.test.js` 21, `dropGuard.test.js` 11; `sessionTimeouts.test.js` 39 (eight new) and `sessionDialogs.test.js` 13 (two new); `runMigrationBins.test.js` nine new, `migrationPanelBins.test.jsx` three new. Planted controls, every file restored by hash: the tip's `sessionTimeouts.js` swapped in fails exactly the four tests marked red (48 pass), and the judgement moved after the recording fails the two idle ones; sixteen more across the window, the drop guard and the report all bite (the scheme check dropped, `will-navigate` letting everything through, a log line with the whole address, `window.open` allowing a file, the tip's `main.cjs`, `navigateOnDragDrop` left to the default, the windows the page opens unguarded, the guard on every drag, the guard cancelling what a zone handled, the guard on the document, the tip's runner, the list naming the invoice's file, an actual named after its invoice was attached again, a taken actual named, the panel showing every field, the panel without its line). The bundle: the main chunk 4,996,863 → 4,999,498 bytes (+2,635), the CSS unchanged.
