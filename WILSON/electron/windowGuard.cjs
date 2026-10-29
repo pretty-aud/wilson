@@ -14,9 +14,12 @@
 // an http address at this launch's origin (http://127.0.0.1:<port>, new at
 // every launch, read from the main process at the moment, never a fixed
 // string). A refused http(s) address goes to the system browser, as
-// window.open's always did; nothing else is opened.
+// window.open's always did, and a mailto: one to the mail app (a link in the
+// pet's or O.T.T.E.R.'s answers is a plain anchor: build review round 2, F1);
+// nothing else is opened.
 //
-// window.open: http(s) goes to the system browser, as before; the print
+// window.open: http(s) goes to the system browser (mailto: to the mail app),
+// as before; the print
 // window (about:blank) and the page's own blob: addresses (receipts,
 // invoices) open, measured without bridges; anything else (file:, data:,
 // javascript:, any other scheme) is refused and handed to nothing. Each
@@ -47,6 +50,11 @@ function parse(url) {
 }
 
 const isWeb = (u) => u.protocol === 'http:' || u.protocol === 'https:';
+// What the system may open for the page, as before D2: a web address in the
+// system browser, and an email address in the mail app (a link in the pet's
+// or O.T.T.E.R.'s answers: build review round 2, F1). Never a file, a
+// settings page or any other scheme.
+const isForTheSystem = (u) => isWeb(u) || u.protocol === 'mailto:';
 
 /**
  * Is `url` this launch's own page? An http(s) address whose origin is exactly
@@ -73,7 +81,7 @@ function staysOnOwnPage(url, origin, { child = false } = {}) {
 function openDecision(url, origin, { child = false } = {}) {
   const u = parse(url);
   if (!u) return { action: 'deny', external: false };
-  if (isWeb(u)) return { action: 'deny', external: true };
+  if (isForTheSystem(u)) return { action: 'deny', external: true };
   if (child) return { action: 'deny', external: false };
   if (u.href === 'about:blank') return { action: 'allow', external: false };
   if (u.protocol === 'blob:' && typeof origin === 'string' && origin && origin !== 'null' && u.origin === origin) {
@@ -111,7 +119,7 @@ function guardWindow(webContents, { origin, openExternal, log = () => {}, child 
     if (staysOnOwnPage(url, origin(), { child })) return;
     event.preventDefault();
     const u = parse(url);
-    if (u && isWeb(u)) toBrowser(u.href);
+    if (u && isForTheSystem(u)) toBrowser(u.href);
     log(`[wilson] the window stays on WILSON's page: a navigation to ${schemeOf(url)} address was refused`);
   });
   webContents.on('will-redirect', (event, legacyUrl, _isInPlace, legacyIsMainFrame) => {

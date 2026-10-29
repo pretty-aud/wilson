@@ -1746,7 +1746,7 @@ describe('D2 — a signed download starts in the app on the desktop, never by se
     expect(clicked).toEqual([])
   })
 
-  it('CONTROL — the web (no bridge): the plain link, as before', async () => {
+  it('the web (no bridge): the plain link, as before', async () => {
     spyClicks()
     expect(await startSignedDownload(SIGNED)).toEqual({ via: 'link' })
     expect(clicked).toEqual([{ href: SIGNED, download: '' }])
@@ -1766,6 +1766,15 @@ describe('D2 — a signed download starts in the app on the desktop, never by se
     withDesktop({ ok: false })
     await expect(startSignedDownload(SIGNED)).rejects.toThrow('The download could not start. Try again.')
     expect(clicked).toEqual([])
+  })
+
+  // Build review round 2, F5: the line that must not move on the web, driven
+  // through downloadCloudFile itself (no bridge): the anchor, the signed
+  // address, no download attribute.
+  it('the web: downloadCloudFile still clicks the signed address, as before D2', async () => {
+    spyClicks()
+    expect(await downloadCloudFile({ downloadUrl: async () => SIGNED, downloadFile: async () => new Blob(['x']) }, { id: 'f1', name: 'x.pdf' }, 'x.pdf')).toEqual({ via: 'url' })
+    expect(clicked).toEqual([{ href: SIGNED, download: '' }])
   })
 
   it('downloadCloudFile: a signed body goes through the app on the desktop', async () => {

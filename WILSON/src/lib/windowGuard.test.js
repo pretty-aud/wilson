@@ -23,7 +23,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const { staysOnOwnPage, openDecision, guardWindow } = require('../../electron/windowGuard.cjs')
+const { staysOnOwnPage, openDecision, guardWindow, isDownloadAddress } = require('../../electron/windowGuard.cjs')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const MAIN = readFileSync(resolve(here, '../../electron/main.cjs'), 'utf8').replace(/\r\n/g, '\n')
@@ -108,7 +108,7 @@ describe('D2 — openDecision: what window.open gets', () => {
   })
 
   it('everything else is refused and handed to nothing: a file (never the system\'s file handler), data:, javascript:, another origin\'s blob:, any other scheme, junk', () => {
-    for (const url of [FILE, 'data:text/html,<p>x</p>', 'javascript:alert(1)', 'blob:http://127.0.0.1:60590/x', 'mailto:someone@example.invalid', 'ms-settings:privacy', 'about:blank#x', 'not a url', '']) {
+    for (const url of [FILE, 'data:text/html,<p>x</p>', 'javascript:alert(1)', 'blob:http://127.0.0.1:60590/x', 'ms-settings:privacy', 'tel:+15550100', 'about:blank#x', 'not a url', '']) {
       expect(openDecision(url, ORIGIN), url).toEqual({ action: 'deny', external: false })
     }
     expect(openDecision(`blob:${ORIGIN}/x`, null)).toEqual({ action: 'deny', external: false })
@@ -233,7 +233,6 @@ describe('D2 — main.cjs\'s calls, by source', () => {
 // to its signed address; refused now, it would reach the system browser with
 // its token. The page asks the main process instead (`wilson:download-url`).
 describe('D2 — the download channel (build review round 1, F1)', () => {
-  const { isDownloadAddress } = require('../../electron/windowGuard.cjs')
   const PRELOAD = readFileSync(resolve(here, '../../electron/preload.cjs'), 'utf8').replace(/\r\n/g, '\n')
   const FILE_MANAGER = readFileSync(resolve(here, '../tools/rabbit_v0.1.0/components/FileManager.jsx'), 'utf8').replace(/\r\n/g, '\n')
   const FILE_ACTIONS = readFileSync(resolve(here, '../components/Resources/fileActions.js'), 'utf8').replace(/\r\n/g, '\n')
@@ -262,5 +261,30 @@ describe('D2 — the download channel (build review round 1, F1)', () => {
     const helper = between(FILE_ACTIONS, 'export async function downloadCloudFile(', '\n}\n')
     expect(helper).toContain('await startSignedDownload(signed, doc)')
     expect(helper).not.toContain('clickLink(doc, signed)')
+  })
+})
+
+// Build review round 2, F1: the pet's and O.T.T.E.R.'s answers render markdown
+// links as plain anchors (no target), and remark-gfm turns an email address
+// into a mailto: link. Before D2 a click opened the mail app; refused by the
+// guard with nothing in its place it would do nothing. A mailto: address goes
+// to the system, as a web address does; no other scheme does.
+describe('D2 — an email link still opens the mail app (build review round 2, F1)', () => {
+  it('a navigation to mailto: is refused in the window and handed to the system', () => {
+    const w = standIn()
+    expect(w.navigate('mailto:someone@example.invalid')).toBe('refused')
+    expect(w.navigate('tel:+15550100')).toBe('refused')
+    expect(w.navigate('ms-settings:privacy')).toBe('refused')
+    expect(w.opened).toEqual(['mailto:someone@example.invalid'])
+  })
+
+  it('window.open of a mailto: address goes to the system, from the page and from a window it opened', () => {
+    expect(openDecision('mailto:someone@example.invalid', ORIGIN)).toEqual({ action: 'deny', external: true })
+    expect(openDecision('mailto:someone@example.invalid', ORIGIN, { child: true })).toEqual({ action: 'deny', external: true })
+  })
+
+  it('a mailto: address is never the page, and never a download', () => {
+    expect(staysOnOwnPage('mailto:someone@example.invalid', ORIGIN)).toBe(false)
+    expect(isDownloadAddress('mailto:someone@example.invalid')).toBe(false)
   })
 })
