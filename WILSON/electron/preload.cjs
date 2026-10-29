@@ -9,6 +9,15 @@ contextBridge.exposeInMainWorld('wilsonSession', {
   clear: ()        => ipcRenderer.invoke('wilson:session-clear'),
 });
 
+// D3 (night 7, 2026-10-29; docs/design/RECONNECT_DESIGN.md §14): the local
+// server's key, asked once, here. The main process answers it to WILSON's own
+// page alone and null to any other (electron/ipcGate.cjs), so the answer also
+// says whether this page may learn where a dropped file lives on this computer:
+// the one thing below that the preload hands over without asking the main
+// process (`rabbit.getPathForFile`; build review round 1, F2).
+const localServerToken = ipcRenderer.sendSync('wilson:local-server-token');
+const answeredAsWilsonsPage = typeof localServerToken === 'string' && localServerToken.length > 0;
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Bundle B3: the per-launch loopback token ──────────────────────────────
   // Every /api request the desktop server answers must carry this in the
@@ -21,7 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // all, so nothing there can see this, and no page loaded outside the preload
   // can reach it either. Read synchronously at preload time (see main.cjs) so
   // the renderer's first fetch already has it.
-  localServerToken: ipcRenderer.sendSync('wilson:local-server-token'),
+  localServerToken,
   // D2 (night 6, 2026-10-29): a signed cloud download, started by the main
   // process in the app, because the window no longer leaves its own page
   // (electron/windowGuard.cjs). → { ok }
@@ -120,7 +129,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // the window. Electron 33 removed the nonstandard `File.path`; this is the
     // supported way, and it only exists in the preload. Returns '' when the
     // File did not come from disk (a paste, a fetch).
-    getPathForFile: (file) => { try { return webUtils.getPathForFile(file) || ''; } catch { return ''; } },
+    // D3: '' too for a page the main process did not answer as WILSON's (above).
+    getPathForFile: (file) => {
+      if (!answeredAsWilsonsPage) return '';
+      try { return webUtils.getPathForFile(file) || ''; } catch { return ''; }
+    },
   },
 });
 

@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from '@babel/parser'
-import AnswerLink, { opensInANewTab } from './AnswerLink'
+import AnswerLink, { linkKind, opensInANewTab } from './AnswerLink'
 import PetCompanion from './PetCompanion'
 
 afterEach(cleanup)
@@ -60,6 +60,20 @@ describe('D3 — opensInANewTab: an absolute web address on another origin, and 
   })
 })
 
+describe('D3 — linkKind: a new tab, the plain anchor, or text, decided by the component itself (build review round 1, F3)', () => {
+  const PAGE = 'http://127.0.0.1:60598/'
+  it('another origin: a new tab; an email address, a relative address, a fragment, the page\'s own origin: the plain anchor', () => {
+    expect(linkKind(WEB, PAGE)).toBe('tab')
+    expect(linkKind('//d3-made-up.invalid/x', PAGE)).toBe('tab')
+    for (const href of ['mailto:d3@example.invalid', '/wilson/', '#section', 'lesson-2', 'http://127.0.0.1:60598/projects']) expect(linkKind(href, PAGE), href).toBe('link')
+  })
+  it('every other scheme, an emptied address, nothing and junk: text, never a live anchor (javascript: and data: whatever renderer the component is given to)', () => {
+    for (const href of ['javascript:alert(1)', 'JavaScript:alert(1)', 'data:text/html,<p>x</p>', 'blob:http://127.0.0.1:60598/x', 'tel:+15550100', 'irc://irc.example.invalid/x', 'xmpp:d3@example.invalid', 'file:///C:/x', 'ms-settings:privacy', '', undefined, null, 'http://[']) {
+      expect(linkKind(href, PAGE), String(href)).toBe('text')
+    }
+  })
+})
+
 describe('D3 — AnswerLink: what each address is drawn as', () => {
   it('a web address on another origin: a new tab, no opener, no referrer', () => {
     const a = anchor(render(<AnswerLink href={WEB}>the Electron website</AnswerLink>).container)
@@ -81,6 +95,14 @@ describe('D3 — AnswerLink: what each address is drawn as', () => {
       expect(a.getAttribute('href'), href).toBe(href)
       expect(a.hasAttribute('target'), href).toBe(false)
       expect(a.hasAttribute('rel'), href).toBe(false)
+    }
+  })
+  it('a javascript: or data: address handed to it directly (no react-markdown in front): its text, never a live anchor', () => {
+    for (const href of ['javascript:alert(1)', 'data:text/html,<script>x</script>']) {
+      cleanup()
+      const { container } = render(<AnswerLink href={href}>a trap</AnswerLink>)
+      expect(container.querySelector('a'), href).toBeNull()
+      expect(container.textContent).toBe('a trap')
     }
   })
   it('an address react-markdown emptied, or none: its text, never an anchor that reloads WILSON\'s page', () => {

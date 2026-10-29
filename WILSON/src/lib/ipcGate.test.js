@@ -3,25 +3,19 @@
 // §14; OUTSTANDING D2-02): every channel the preload bridges answers WILSON's
 // own page and nobody else.
 //
-// Three parts, each through the real code:
+// Four parts, each through the real code:
 //   * electron/ipcGate.cjs — the gate over stand-ins (an ipcMain that records,
 //     webContents and frames as plain objects), composed with D1's real
 //     acceptsSender exactly as main.cjs's fromThisLaunchsPage composes it;
 //   * electron/updater.cjs — loaded for real (it no longer requires Electron)
 //     and handed the gate: its four channels go through it, and a registrar
 //     without the gate's brand is refused;
-//   * the source of every electron/*.cjs and of the preload, PARSED
-//     (@babel/parser, so a comment is never code): main.cjs's `ipcMain` is the
-//     gate, Electron's is named once and handed to it; no file reaches
-//     Electron's ipcMain, a window's or frame's own ipc, or the raw IPC events
-//     Electron consults first; and the channels the preload sends on are
-//     exactly the channels registered through the gate. That equality is the
-//     backstop: a registration the parse somehow missed would leave the gated
-//     set one short. The checker's controls (a bare registration, the updater
-//     requiring Electron's again, a module on webContents.ipc or listening for
-//     ipc-message) run here too, and each must fail. The repo only: a library
-//     in node_modules registering on Electron's ipcMain (Sentry, with a DSN)
-//     is recorded in OUTSTANDING D3-01, not seen here.
+//   * the preload, run whole in a VM: a dropped file's place only for a page
+//     the main process answered as WILSON's (build review round 1, F2);
+//   * every source file under electron/, PARSED (@babel/parser, so a comment
+//     is never code): what that proves, and what it does not, is written above
+//     the checker below (build review round 1, F1); its controls run here too,
+//     and each must fail.
 // Measured on the tip bb14b169 (a development build, a scratch userData): a
 // page holding the preload that was not WILSON's was handed the local
 // server's key, the session and every channel but D1's storage and D2's
@@ -30,9 +24,11 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createRequire } from 'node:module'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve, dirname, join, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
 
 const require = createRequire(import.meta.url)
 const { createIpcGate } = require('../../electron/ipcGate.cjs')
@@ -330,14 +326,103 @@ describe('D3 — electron/updater.cjs: its four channels go through the gate it 
   })
 })
 
-// ── the source, parsed ───────────────────────────────────────────────────────
+// ── the preload's one capability that never asks the main process ────────────
+//
+// Build review round 1, F2: `rabbit.getPathForFile` answers in the preload
+// itself (webUtils), so the gate never saw it, and a page holding the preload
+// without being WILSON's would still learn where a dropped file lives (a
+// file's name is content). It now answers only when the main process answered
+// the key, i.e. when the gate took this page for WILSON's.
 
-const PARSE = { sourceType: 'script', allowReturnOutsideFunction: true }
+/** The real preload, run whole in a VM whose `require` allows only what a sandboxed preload's does. */
+function runPreloadWith(token) {
+  const exposed = {}
+  const asked = []
+  const ipcRenderer = {
+    sendSync: (channel) => (channel === 'wilson:local-server-token' ? token : null),
+    send() {},
+    invoke: async () => null,
+    on() {},
+    removeListener() {},
+  }
+  const electron = {
+    contextBridge: { exposeInMainWorld: (name, api) => { exposed[name] = api } },
+    ipcRenderer,
+    webUtils: { getPathForFile: (file) => { asked.push(file); return 'C:\\made-up\\folder\\clip-0042.mov' } },
+  }
+  const allowed = { electron, events: require('events'), timers: require('timers'), url: require('url') }
+  const sandboxRequire = (name) => {
+    if (!Object.hasOwn(allowed, name)) throw new Error(`a sandboxed preload cannot require '${name}'`)
+    return allowed[name]
+  }
+  const win = { addEventListener() {} }
+  Object.defineProperty(win, 'localStorage', { get() { throw new Error('SecurityError: an opaque origin') } })
+  const context = vm.createContext({ require: sandboxRequire, window: win, document: { visibilityState: 'visible', addEventListener() {} }, console, setInterval: () => 0 })
+  vm.runInContext(readFileSync(join(ELECTRON_DIR, 'preload.cjs'), 'utf8'), context, { filename: 'preload.cjs' })
+  return { exposed, asked }
+}
+
+describe('D3 — the preload: a dropped file\'s place only for a page the main process answered as WILSON\'s (build review round 1, F2)', () => {
+  it('WILSON\'s page (the key answered): the key, and the file\'s place', () => {
+    const { exposed, asked } = runPreloadWith(TOKEN)
+    expect(exposed.electronAPI.localServerToken).toBe(TOKEN)
+    expect(exposed.electronAPI.rabbit.getPathForFile({ name: 'clip-0042.mov' })).toBe('C:\\made-up\\folder\\clip-0042.mov')
+    expect(asked).toHaveLength(1)
+  })
+  it('any other page (the key answered null, or empty): no key, no place, and Electron is never asked', () => {
+    for (const token of [null, '', undefined]) {
+      const { exposed, asked } = runPreloadWith(token)
+      expect(exposed.electronAPI.localServerToken ?? null, String(token)).toBe(token === '' ? '' : null)
+      expect(exposed.electronAPI.rabbit.getPathForFile({ name: 'clip-0042.mov' }), String(token)).toBe('')
+      expect(asked, String(token)).toEqual([])
+    }
+  })
+  it('both bridges still exist on a refused page (it is answered with nothing, not broken)', () => {
+    const { exposed } = runPreloadWith(null)
+    expect(Object.keys(exposed).sort()).toEqual(['electronAPI', 'wilsonSession'])
+    expect(typeof exposed.wilsonSession.load).toBe('function')
+  })
+})
+
+// ── the source, parsed ───────────────────────────────────────────────────────
+//
+// What this proves, and what it does not (build review round 1, F1). Over
+// every .cjs, .js and .mjs file under electron/, parsed (a comment is never
+// code): Electron's module is loaded by main.cjs and the preload only, once
+// each, and only by destructuring it (never held in a name, never read as a
+// member); main.cjs takes `ipcMain` from it under another name and hands that
+// name to the gate alone; every `require` names its module by a literal, and
+// every relative one resolves inside the parsed set; no file reaches
+// `ipcMain` as a member, a window's or frame's own `ipc`, or the raw IPC
+// events, even through a computed name folded from literals; every
+// registration in main.cjs and updater.cjs is on the gate. Then the channels
+// the preload sends on equal the channels registered through the gate: that
+// catches a channel added on one side without its pair. It does NOT catch a
+// second listener on a channel the gate already holds, nor a name built at
+// run time from a variable (`x[name]`); the rules above are what keep such a
+// listener from reaching Electron's ipcMain in the first place. The repo only:
+// a library in node_modules (Sentry, with a DSN) is OUTSTANDING D3-01.
+
 const isCall = (n) => n && (n.type === 'CallExpression' || n.type === 'OptionalCallExpression')
 const isMember = (n) => n && (n.type === 'MemberExpression' || n.type === 'OptionalMemberExpression')
-const propName = (m) => (!m.computed && m.property.type === 'Identifier' ? m.property.name : m.computed && m.property.type === 'StringLiteral' ? m.property.value : null)
-const isRequireOf = (n, what) => isCall(n) && n.callee.type === 'Identifier' && n.callee.name === 'require' && n.arguments[0]?.type === 'StringLiteral' && (what === undefined || n.arguments[0].value === what)
 const SKIP = new Set(['loc', 'start', 'end', 'range', 'extra', 'leadingComments', 'trailingComments', 'innerComments', 'comments'])
+
+/** A string built only from literals ('ip' + 'c', `ipcMain`), folded; null for anything that needs a run. */
+function folded(n) {
+  if (!n) return null
+  if (n.type === 'StringLiteral') return n.value
+  if (n.type === 'TemplateLiteral' && n.expressions.length === 0) return n.quasis.map((q) => q.value.cooked).join('')
+  if (n.type === 'BinaryExpression' && n.operator === '+') {
+    const a = folded(n.left)
+    const b = folded(n.right)
+    return a !== null && b !== null ? a + b : null
+  }
+  return null
+}
+const propName = (m) => (!m.computed && m.property.type === 'Identifier' ? m.property.name : m.computed ? folded(m.property) : null)
+const isRequire = (n) => isCall(n) && n.callee.type === 'Identifier' && n.callee.name === 'require'
+const requiredName = (n) => (isRequire(n) && n.arguments.length === 1 ? folded(n.arguments[0]) : null)
+const isElectronModule = (s) => s === 'electron' || (typeof s === 'string' && s.startsWith('electron/'))
 
 /** Every node, with its parent and grandparent. */
 function walk(node, visit, parent = null, grand = null) {
@@ -363,70 +448,94 @@ function isName(n, parent) {
 }
 
 const REGISTER = new Set(['handle', 'on'])
-const FORBIDDEN_IPCMAIN = new Set(['once', 'handleOnce', 'addListener', 'prependListener', 'prependOnceListener', 'removeHandler', 'removeListener', 'removeAllListeners', 'off', 'emit'])
 const LISTEN = new Set(['on', 'once', 'addListener', 'prependListener', 'prependOnceListener'])
 const RAW_EVENTS = new Set(['ipc-message', 'ipc-message-sync', '-ipc-message', '-ipc-message-sync', '-ipc-invoke', 'web-contents-created'])
+const SOURCE = /\.(cjs|js|mjs)$/
+
+/** Does `spec`, required from `from` (both inside electron/), name a file in `files`, or a .json beside them? */
+function resolvesInside(files, from, spec) {
+  const base = resolve(ELECTRON_DIR, dirname(from), spec)
+  const to = relative(ELECTRON_DIR, base)
+  if (to.startsWith('..') || isAbsolute(to)) return 'outside'
+  const rel = (p) => relative(ELECTRON_DIR, p).split('\\').join('/')
+  for (const c of [base, `${base}.cjs`, `${base}.js`, `${base}.mjs`, join(base, 'index.cjs'), join(base, 'index.js')]) if (Object.hasOwn(files, rel(c))) return 'parsed'
+  if (spec.endsWith('.json') && existsSync(base)) return 'parsed'
+  return 'unread'
+}
 
 /**
- * The checker. `files` maps a file name in electron/ to its text; `preload`
- * is preload.cjs's. Returns what it counted and every problem it found.
+ * The checker. `files` maps a path inside electron/ (forward slashes) to its
+ * text, the preload included. Returns what it counted and every problem.
  */
-function checkElectron(files, preload) {
+function checkElectron(files) {
   const problems = []
   const counts = { main: 0, updater: 0 }
   const gated = new Set()
+  const sent = new Set()
+  const electronLoads = { 'main.cjs': 0, 'preload.cjs': 0 }
   for (const [name, text] of Object.entries(files)) {
     let ast
-    try { ast = parser.parse(text, PARSE) } catch (e) { problems.push(`${name}: does not parse (${e.message})`); continue }
-    const role = name === 'main.cjs' ? 'main' : name === 'updater.cjs' ? 'updater' : name === 'ipcGate.cjs' ? 'gate' : 'other'
+    try { ast = parser.parse(text, { sourceType: name.endsWith('.mjs') ? 'module' : 'script', allowReturnOutsideFunction: true }) } catch (e) { problems.push(`${name}: does not parse (${e.message})`); continue }
+    const role = { 'main.cjs': 'main', 'updater.cjs': 'updater', 'ipcGate.cjs': 'gate', 'preload.cjs': 'preload' }[name] || 'other'
     const ipcMainNames = []
     const electronIpcMainNames = []
     let gateCalls = 0
     walk(ast.program, (n, parent, grand) => {
-      // Electron's ipcMain, by any member access (`require('electron').ipcMain`, `electron.ipcMain`).
-      if (isMember(n) && propName(n) === 'ipcMain') problems.push(`${name}: reaches Electron's ipcMain as a member`)
-      // A window's or a frame's own ipc, consulted by Electron before ipcMain.
-      if (isMember(n) && propName(n) === 'ipc') problems.push(`${name}: reaches a window's or frame's own ipc`)
-      // The raw IPC events, and the hook that would reach every new window's.
-      if (isCall(n) && isMember(n.callee) && LISTEN.has(propName(n.callee)) && n.arguments[0]?.type === 'StringLiteral' && RAW_EVENTS.has(n.arguments[0].value)) {
-        problems.push(`${name}: listens for ${n.arguments[0].value}`)
+      // Every module named by a literal; dynamic import() not at all.
+      if (n.type === 'Import' || n.type === 'ImportExpression') problems.push(`${name}: a dynamic import()`)
+      if (isRequire(n)) {
+        const spec = requiredName(n)
+        if (spec === null) problems.push(`${name}: a require whose module is not named by a literal`)
+        else if (isElectronModule(spec)) {
+          if (role !== 'main' && role !== 'preload') problems.push(`${name}: requires Electron's module (only main.cjs and the preload do; hand a module what it needs, as windowGuard.cjs is handed shell.openExternal)`)
+          else electronLoads[name] += 1
+          if (!(parent?.type === 'VariableDeclarator' && parent.init === n && parent.id.type === 'ObjectPattern')) problems.push(`${name}: holds Electron's module instead of destructuring it`)
+        } else if (spec.startsWith('.')) {
+          const where = resolvesInside(files, name, spec)
+          if (where === 'outside') problems.push(`${name}: requires a module outside electron/ (${spec})`)
+          else if (where === 'unread') problems.push(`${name}: requires a module this parse does not read (${spec})`)
+        }
       }
-      // Electron's require: only main.cjs takes ipcMain from it, and only by another name.
-      if (n.type === 'VariableDeclarator' && isRequireOf(n.init, 'electron') && n.id.type === 'ObjectPattern') {
+      if (n.type === 'ImportDeclaration' && isElectronModule(n.source.value)) problems.push(`${name}: imports Electron's module`)
+      // What is taken from Electron's module.
+      if (n.type === 'VariableDeclarator' && isRequire(n.init) && isElectronModule(requiredName(n.init)) && n.id.type === 'ObjectPattern') {
         for (const p of n.id.properties) {
-          const key = p.type === 'ObjectProperty' && !p.computed && p.key.type === 'Identifier' ? p.key.name : null
+          if (p.type === 'RestElement') { problems.push(`${name}: spreads Electron's exports`); continue }
+          const key = !p.computed && p.key.type === 'Identifier' ? p.key.name : p.computed ? folded(p.key) : null
+          if (key === null) problems.push(`${name}: takes a computed name from Electron`)
           if (key !== 'ipcMain') continue
           if (role !== 'main') problems.push(`${name}: takes ipcMain from Electron`)
           else if (p.value.type !== 'Identifier' || p.value.name !== 'electronIpcMain') problems.push(`${name}: takes Electron's ipcMain by its own name`)
         }
       }
-      if (n.type === 'RestElement' && parent?.type === 'ObjectPattern' && grand?.type === 'VariableDeclarator' && isRequireOf(grand.init, 'electron')) problems.push(`${name}: spreads Electron's exports`)
-      // Relative requires stay inside electron/ (so this parse sees every module main loads).
-      if (isRequireOf(n) && n.arguments[0].value.startsWith('.')) {
-        const to = relative(ELECTRON_DIR, resolve(ELECTRON_DIR, n.arguments[0].value))
-        if (to.startsWith('..') || isAbsolute(to)) problems.push(`${name}: requires a module outside electron/ (${n.arguments[0].value})`)
-      }
-      // Calls on a name `ipcMain`.
+      // Electron's ipcMain as a member; a window's or a frame's own ipc (consulted before ipcMain); the raw events.
+      if (isMember(n) && propName(n) === 'ipcMain') problems.push(`${name}: reaches Electron's ipcMain as a member`)
+      if (isMember(n) && propName(n) === 'ipc') problems.push(`${name}: reaches a window's or frame's own ipc`)
+      if (isCall(n) && isMember(n.callee) && LISTEN.has(propName(n.callee)) && RAW_EVENTS.has(folded(n.arguments[0]))) problems.push(`${name}: listens for ${folded(n.arguments[0])}`)
+      // Calls on a name `ipcMain`: registrations, counted.
       if (isCall(n) && isMember(n.callee) && n.callee.object.type === 'Identifier' && n.callee.object.name === 'ipcMain') {
         const method = propName(n.callee)
-        if (FORBIDDEN_IPCMAIN.has(method) || !REGISTER.has(method)) problems.push(`${name}: calls ipcMain.${method}`)
+        if (!REGISTER.has(method)) problems.push(`${name}: calls ipcMain.${method}`)
         else if (role === 'main' || role === 'updater') {
           counts[role] += 1
-          const ch = n.arguments[0]
-          if (ch?.type === 'StringLiteral') gated.add(ch.value)
+          const ch = folded(n.arguments[0])
+          if (ch !== null) gated.add(ch)
           else problems.push(`${name}: a channel not named by a literal`)
-        } else if (role === 'gate') {
-          gateCalls += 1
-        } else problems.push(`${name}: registers on ipcMain`)
+        } else if (role === 'gate') gateCalls += 1
+        else problems.push(`${name}: registers on ipcMain`)
+      }
+      // The preload's channels.
+      if (role === 'preload' && isCall(n) && isMember(n.callee) && n.callee.object.type === 'Identifier' && n.callee.object.name === 'ipcRenderer' && ['invoke', 'sendSync', 'send'].includes(propName(n.callee))) {
+        const ch = folded(n.arguments[0])
+        if (ch !== null) sent.add(ch)
+        else problems.push('preload.cjs: a channel not named by a literal')
       }
       if (n.type === 'Identifier' && n.name === 'ipcMain' && isName(n, parent)) ipcMainNames.push({ n, parent, grand })
       if (n.type === 'Identifier' && n.name === 'electronIpcMain' && isName(n, parent)) electronIpcMainNames.push({ n, parent, grand })
-      if (n.type === 'Identifier' && n.name === 'ipcMain' && role === 'other') problems.push(`${name}: names ipcMain`)
     })
 
     const registrationObject = ({ parent, grand }) => isMember(parent) && parent.object.type === 'Identifier' && parent.object.name === 'ipcMain' && REGISTER.has(propName(parent)) && isCall(grand) && grand.callee === parent
     if (role === 'main') {
-      // `ipcMain` is bound once, to the gate; used only to register, and handed to initUpdater.
       const binding = ipcMainNames.filter(({ parent }) => parent?.type === 'VariableDeclarator' && parent.id.name === 'ipcMain')
       if (binding.length !== 1 || !(isCall(binding[0].parent.init) && binding[0].parent.init.callee.type === 'Identifier' && binding[0].parent.init.callee.name === 'createIpcGate')) {
         problems.push('main.cjs: `ipcMain` is not bound once, to createIpcGate(')
@@ -435,7 +544,6 @@ function checkElectron(files, preload) {
       const others = ipcMainNames.filter((u) => !binding.includes(u) && !handedToUpdater.includes(u) && !registrationObject(u))
       if (others.length) problems.push(`main.cjs: \`ipcMain\` used ${others.length} other way(s)`)
       if (handedToUpdater.length !== 1) problems.push('main.cjs: the gate is not handed to initUpdater once')
-      // Electron's own: named twice — at the require, and handed to the gate.
       const atRequire = electronIpcMainNames.filter(({ parent, grand }) => parent?.type === 'ObjectProperty' && grand?.type === 'ObjectPattern')
       const toGate = electronIpcMainNames.filter(({ parent, grand }) => parent?.type === 'ObjectProperty' && !parent.computed && parent.key.name === 'ipcMain' && grand?.type === 'ObjectExpression')
       if (electronIpcMainNames.length !== 2 || atRequire.length !== 1 || toGate.length !== 1) problems.push(`main.cjs: Electron's ipcMain named ${electronIpcMainNames.length} time(s), not once at the require and once handed to the gate`)
@@ -446,17 +554,11 @@ function checkElectron(files, preload) {
       if (declared.length !== 1 || setFromGate.length !== 1 || others.length) problems.push('updater.cjs: `ipcMain` is not the gate initUpdater is handed')
     } else if (role === 'gate') {
       if (gateCalls !== 2) problems.push(`ipcGate.cjs: ${gateCalls} raw registration(s), not its own handle and on`)
-    }
+    } else if (ipcMainNames.length) problems.push(`${name}: names ipcMain`)
     if (role !== 'main' && electronIpcMainNames.length) problems.push(`${name}: names electronIpcMain`)
   }
-  // The backstop: the preload's channels are exactly the gated ones.
-  const sent = new Set()
-  walk(parser.parse(preload, PARSE).program, (n) => {
-    if (isCall(n) && isMember(n.callee) && n.callee.object.type === 'Identifier' && n.callee.object.name === 'ipcRenderer' && ['invoke', 'sendSync', 'send'].includes(propName(n.callee))) {
-      if (n.arguments[0]?.type === 'StringLiteral') sent.add(n.arguments[0].value)
-      else problems.push('preload.cjs: a channel not named by a literal')
-    }
-  })
+  for (const [file, n] of Object.entries(electronLoads)) if (n !== 1) problems.push(`${file}: loads Electron's module ${n} time(s), not once`)
+  // The pairing: the preload's channels and the gated ones, each with its pair.
   const missing = [...sent].filter((c) => !gated.has(c))
   const extra = [...gated].filter((c) => !sent.has(c))
   if (missing.length) problems.push(`preload channels not registered through the gate: ${missing.join(', ')}`)
@@ -464,17 +566,38 @@ function checkElectron(files, preload) {
   return { problems, counts, channels: gated.size, preloadChannels: sent.size }
 }
 
-const ELECTRON_FILES = Object.fromEntries(readdirSync(ELECTRON_DIR).filter((f) => f.endsWith('.cjs') && f !== 'preload.cjs').map((f) => [f, readFileSync(join(ELECTRON_DIR, f), 'utf8')]))
-const PRELOAD = readFileSync(join(ELECTRON_DIR, 'preload.cjs'), 'utf8')
+/** Every source file under `root` (electron/), sub-folders included, by its path inside it. */
+function electronSources(root = ELECTRON_DIR, dir = root, out = {}) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) electronSources(root, p, out)
+    else if (SOURCE.test(e.name)) out[relative(root, p).split('\\').join('/')] = readFileSync(p, 'utf8')
+  }
+  return out
+}
+const ELECTRON_FILES = electronSources()
+
+describe('D3 — the reader: every source file, sub-folders included (round 1, F1)', () => {
+  it('reads .cjs, .js and .mjs at any depth, and nothing else', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'd3-reader-'))
+    try {
+      mkdirSync(join(dir, 'lib', 'deep'), { recursive: true })
+      for (const f of ['a.cjs', 'lib/b.js', 'lib/deep/c.mjs', 'notes.md', 'lib/data.json']) writeFileSync(join(dir, f), '// x\n')
+      expect(Object.keys(electronSources(dir)).sort()).toEqual(['a.cjs', 'lib/b.js', 'lib/deep/c.mjs'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('D3 — the source: no channel is registered past the gate', () => {
-  it('every electron/*.cjs, parsed: no problem; 46 registrations in main.cjs, 7 in updater.cjs, 50 channels, the preload\'s 50 the same', () => {
-    const r = checkElectron(ELECTRON_FILES, PRELOAD)
+  it('every source file under electron/, parsed: no problem; 46 registrations in main.cjs, 7 in updater.cjs, 50 channels, the preload\'s 50 the same', () => {
+    const r = checkElectron(ELECTRON_FILES)
     expect(r.problems).toEqual([])
     expect(r.counts).toEqual({ main: 46, updater: 7 })
     expect(r.channels).toBe(50)
     expect(r.preloadChannels).toBe(50)
-    expect(Object.keys(ELECTRON_FILES)).toContain('ipcGate.cjs')
+    expect(Object.keys(ELECTRON_FILES)).toEqual(expect.arrayContaining(['ipcGate.cjs', 'main.cjs', 'updater.cjs', 'preload.cjs']))
   })
 
   it('main.cjs makes the gate before its first registration, with D1\'s rule read at each call', () => {
@@ -493,34 +616,52 @@ describe('D3 — the source: no channel is registered past the gate', () => {
       if (!text.includes(from)) throw new Error(`control: ${from} not found in ${name}`)
       return { ...ELECTRON_FILES, [name]: text.replace(from, to) }
     }
+    const MAIN_ANCHOR = "const express = require('express');"
+    const problemsOf = (files) => checkElectron(files).problems.join('\n')
     it('one registration made bare, on Electron\'s own ipcMain', () => {
-      const r = checkElectron(swap('main.cjs', "ipcMain.handle('wilson:sentry-test'", "electronIpcMain.handle('wilson:sentry-test'"), PRELOAD)
-      expect(r.problems.join('\n')).toMatch(/Electron's ipcMain named 3 time/)
-      expect(r.problems.join('\n')).toMatch(/not registered through the gate: wilson:sentry-test/)
+      const p = problemsOf(swap('main.cjs', "ipcMain.handle('wilson:sentry-test'", "electronIpcMain.handle('wilson:sentry-test'"))
+      expect(p).toMatch(/Electron's ipcMain named 3 time/)
+      expect(p).toMatch(/not registered through the gate: wilson:sentry-test/)
     })
-    it('updater.cjs requiring Electron\'s ipcMain again', () => {
-      const r = checkElectron(swap('updater.cjs', 'let ipcMain = null;', "const { ipcMain } = require('electron');"), PRELOAD)
-      expect(r.problems.join('\n')).toMatch(/updater\.cjs: takes ipcMain from Electron/)
+    it('updater.cjs taking Electron\'s ipcMain again, at load or lazily', () => {
+      expect(problemsOf(swap('updater.cjs', 'let ipcMain = null;', "const { ipcMain } = require('electron');"))).toMatch(/updater\.cjs: requires Electron's module/)
+      expect(problemsOf(swap('updater.cjs', 'let ipcMain = null;', "let ipcMain = null;\nconst raw = () => require('electron').ipcMain;"))).toMatch(/updater\.cjs: (requires Electron's module|holds Electron's module)/)
+    })
+    it('Electron\'s module held in a name and destructured later, in a new file or in main.cjs (round 1, F1)', () => {
+      const rogue = "const e = require('electron');\nconst { ipcMain: raw } = e;\nraw.on('wilson:local-server-token', (ev) => { ev.returnValue = 'x'; });\n"
+      const p = problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': rogue })
+      expect(p).toMatch(/rogue\.cjs: requires Electron's module/)
+      expect(p).toMatch(/rogue\.cjs: holds Electron's module instead of destructuring it/)
+      const inMain = problemsOf(swap('main.cjs', MAIN_ANCHOR, `const e = require('electron');\n${MAIN_ANCHOR}`))
+      expect(inMain).toMatch(/main\.cjs: holds Electron's module/)
+      expect(inMain).toMatch(/main\.cjs: loads Electron's module 2 time/)
+    })
+    it('electron/main instead of electron, and a computed name folded from literals (round 1, F1)', () => {
+      expect(problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "const { ipcMain: raw2 } = require('electron/main');\nraw2.on('x', () => {});\n" })).toMatch(/rogue\.cjs: requires Electron's module/)
+      const computed = problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "require('electron')['ipc' + 'Main'].on('wilson:local-server-token', (ev) => { ev.returnValue = 'x'; });\n" })
+      expect(computed).toMatch(/rogue\.cjs: reaches Electron's ipcMain as a member/)
+      expect(computed).toMatch(/rogue\.cjs: holds Electron's module/)
+      expect(problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "module.exports = (win) => win.webContents['ip' + 'c'].handle('wilson:session-load', () => ({}));\n" })).toMatch(/rogue\.cjs: reaches a window's or frame's own ipc/)
+    })
+    it('a module in a sub-folder, a .js module, one main.cjs requires that this parse does not read, and a require not named by a literal (round 1, F1)', () => {
+      const rogue = "const { ipcMain } = require('electron');\nipcMain.on('wilson:local-server-token', (ev) => { ev.returnValue = 'x'; });\n"
+      expect(problemsOf({ ...swap('main.cjs', MAIN_ANCHOR, `require('./lib/rogue.cjs');\n${MAIN_ANCHOR}`), 'lib/rogue.cjs': rogue })).toMatch(/lib\/rogue\.cjs: requires Electron's module/)
+      expect(problemsOf({ ...ELECTRON_FILES, 'rogue.js': rogue })).toMatch(/rogue\.js: takes ipcMain from Electron/)
+      expect(problemsOf(swap('main.cjs', MAIN_ANCHOR, `require('./lib/not-read.cjs');\n${MAIN_ANCHOR}`))).toMatch(/requires a module this parse does not read \(\.\/lib\/not-read\.cjs\)/)
+      expect(problemsOf(swap('main.cjs', MAIN_ANCHOR, `require(path.join(__dirname, '..', 'scripts', 'rogue.cjs'));\n${MAIN_ANCHOR}`))).toMatch(/a require whose module is not named by a literal/)
+      expect(problemsOf(swap('main.cjs', MAIN_ANCHOR, `require('../scripts/elsewhere.cjs');\n${MAIN_ANCHOR}`))).toMatch(/outside electron\//)
     })
     it('a module answering on a window\'s own ipc, or listening for the raw events', () => {
-      const one = checkElectron({ ...ELECTRON_FILES, 'rogue.cjs': "module.exports = (win) => win.webContents.ipc.handle('wilson:session-load', () => ({}));\n" }, PRELOAD)
-      expect(one.problems.join('\n')).toMatch(/rogue\.cjs: reaches a window's or frame's own ipc/)
-      const two = checkElectron({ ...ELECTRON_FILES, 'rogue.cjs': "const { app } = require('electron');\napp.on('web-contents-created', (_e, wc) => { wc.on('ipc-message', () => {}); });\n" }, PRELOAD)
-      expect(two.problems.join('\n')).toMatch(/listens for web-contents-created/)
-      expect(two.problems.join('\n')).toMatch(/listens for ipc-message/)
+      expect(problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "module.exports = (win) => win.webContents.ipc.handle('wilson:session-load', () => ({}));\n" })).toMatch(/rogue\.cjs: reaches a window's or frame's own ipc/)
+      const raw = problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "module.exports = (app) => { app.on('web-contents-created', (_e, wc) => { wc.on('ipc-message', () => {}); }); };\n" })
+      expect(raw).toMatch(/listens for web-contents-created/)
+      expect(raw).toMatch(/listens for ipc-message/)
     })
-    it('Electron\'s ipcMain reached as a member, or named twice in main.cjs', () => {
-      const member = checkElectron({ ...ELECTRON_FILES, 'rogue.cjs': "require('electron').ipcMain.on('wilson:local-server-token', (e) => { e.returnValue = 'x'; });\n" }, PRELOAD)
-      expect(member.problems.join('\n')).toMatch(/rogue\.cjs: reaches Electron's ipcMain as a member/)
-      const twice = checkElectron(swap('main.cjs', "const express = require('express');", "const { ipcMain: second } = require('electron');\nconst express = require('express');"), PRELOAD)
-      expect(twice.problems.join('\n')).toMatch(/takes Electron's ipcMain by its own name/)
-    })
-    it('a module required from outside electron/', () => {
-      const r = checkElectron(swap('main.cjs', "const express = require('express');", "require('../scripts/elsewhere.cjs');\nconst express = require('express');"), PRELOAD)
-      expect(r.problems.join('\n')).toMatch(/outside electron\//)
+    it('Electron\'s ipcMain named twice in main.cjs', () => {
+      expect(problemsOf(swap('main.cjs', MAIN_ANCHOR, `const { ipcMain: second } = require('electron');\n${MAIN_ANCHOR}`))).toMatch(/takes Electron's ipcMain by its own name/)
     })
     it('and a registration written in a comment is not code: nothing counted, nothing wrong', () => {
-      const r = checkElectron(swap('main.cjs', "const express = require('express');", "// ipcMain.handle('d3-in-a-comment', () => 1)\n/* electronIpcMain.on('d3-in-a-block', () => {}) */\nconst express = require('express');"), PRELOAD)
+      const r = checkElectron(swap('main.cjs', MAIN_ANCHOR, `// ipcMain.handle('d3-in-a-comment', () => 1)\n/* electronIpcMain.on('d3-in-a-block', () => {}) */\n${MAIN_ANCHOR}`))
       expect(r.problems).toEqual([])
       expect(r.counts.main).toBe(46)
     })

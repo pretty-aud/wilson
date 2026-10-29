@@ -13,36 +13,45 @@
 // (electron/windowGuard.cjs: a new window for a web address goes to the
 // system browser, as the plain link's navigation did).
 //
-// Everything else stays the anchor it was: an email address (remark-gfm makes
-// it a mailto: link; the desktop's guard hands it to the mail app), a
-// relative address, a fragment, and an address on the page's own origin (a
-// new tab there would hand the desktop's loopback address to the system
-// browser). An address react-markdown emptied (its urlTransform empties
-// javascript:, data:, blob: and every scheme it does not trust) is drawn as
-// its text: an anchor with an empty address reloads WILSON's page on a click.
-// react-markdown hands every component its `node`, which React would write on
-// the anchor as an attribute: it is dropped.
+// An email address (remark-gfm makes it a mailto: link; the desktop's guard
+// hands it to the mail app), a relative address, a fragment and an address on
+// the page's own origin stay the plain anchor they were (a new tab at the
+// page's own origin would hand the desktop's loopback address to the system
+// browser). Anything else is drawn as its text, never a live anchor: an
+// address react-markdown emptied (an anchor with an empty address reloads
+// WILSON's page on a click) and every other scheme, javascript: and data:
+// included — by this component itself, whatever renderer it is given to
+// (react-markdown's own urlTransform empties those first today; build review
+// round 1, F3). react-markdown hands every component its `node`, which React
+// would write on the anchor as an attribute: it is dropped.
 // =============================================================================
 
 /**
- * Does `href` open in a new tab: an http(s) address on another origin than
- * the page's? Read against the page's own address, so a protocol-relative
- * one (`//elsewhere.example/x`, which leaves the page as surely as an
- * absolute one) is caught too, and a relative one stays the page's.
+ * What an answer's address is drawn as: 'tab' (a new tab), 'link' (the plain
+ * anchor) or 'text'. Read against the page's own address, so a
+ * protocol-relative one (`//elsewhere.example/x`, which leaves the page as
+ * surely as an absolute one) counts as the other origin it is, and a relative
+ * one as the page's.
  */
-export function opensInANewTab(href, pageHref = globalThis.location?.href) {
+export function linkKind(href, pageHref = globalThis.location?.href) {
+  if (typeof href !== 'string' || href === '') return 'text'
   let u
-  let page
-  try { u = new URL(String(href), pageHref) } catch { return false }
-  try { page = new URL(String(pageHref)) } catch { page = null }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
-  return !page || u.origin !== page.origin
+  try { u = new URL(href, pageHref) } catch { return 'text' }
+  if (u.protocol === 'mailto:') return 'link'
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'text'
+  let page = null
+  try { page = new URL(String(pageHref)) } catch { /* no page: every web address is elsewhere */ }
+  return page && u.origin === page.origin ? 'link' : 'tab'
+}
+
+/** Does `href` open in a new tab: an http(s) address on another origin than the page's? */
+export function opensInANewTab(href, pageHref) {
+  return linkKind(href, pageHref) === 'tab'
 }
 
 export default function AnswerLink({ node: _node, href, children, ...props }) {
-  if (typeof href !== 'string' || href === '') return <span {...props}>{children}</span>
-  if (opensInANewTab(href)) {
-    return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-  }
-  return <a {...props} href={href}>{children}</a>
+  const kind = linkKind(href)
+  if (kind === 'tab') return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+  if (kind === 'link') return <a {...props} href={href}>{children}</a>
+  return <span {...props}>{children}</span>
 }
