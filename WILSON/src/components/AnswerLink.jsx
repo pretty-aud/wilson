@@ -14,16 +14,18 @@
 // system browser, as the plain link's navigation did).
 //
 // An email address (remark-gfm makes it a mailto: link; the desktop's guard
-// hands it to the mail app), a relative address, a fragment and an address on
-// the page's own origin stay the plain anchor they were (a new tab at the
-// page's own origin would hand the desktop's loopback address to the system
-// browser). Anything else is drawn as its text, never a live anchor: an
-// address react-markdown emptied (an anchor with an empty address reloads
-// WILSON's page on a click) and every other scheme, javascript: and data:
-// included — by this component itself, whatever renderer it is given to
-// (react-markdown's own urlTransform empties those first today; build review
-// round 1, F3). react-markdown hands every component its `node`, which React
-// would write on the anchor as an attribute: it is dropped.
+// hands it to the mail app) and a fragment of this very page (it moves nowhere
+// but within it) stay the plain anchor they were. Anything else is drawn as its
+// text, never a live anchor: any other address on the page's own origin — a
+// relative one, `.`, `?x=1`, a blank one — because a click on it reloads
+// WILSON in place, unsaved work and all, on the web and on the desktop alike
+// (build review round 2, F1; a new tab there would hand the desktop's loopback
+// address to the system browser instead); an address react-markdown emptied;
+// and every scheme but http(s) and mailto:, javascript: and data: included —
+// by this component itself, whatever renderer it is given to (build review
+// round 1, F3; react-markdown's own urlTransform lets irc:, ircs: and xmpp:
+// through, and empties the rest). react-markdown hands every component its
+// `node`, which React would write on the anchor as an attribute: dropped.
 // =============================================================================
 
 /**
@@ -41,7 +43,10 @@ export function linkKind(href, pageHref = globalThis.location?.href) {
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'text'
   let page = null
   try { page = new URL(String(pageHref)) } catch { /* no page: every web address is elsewhere */ }
-  return page && u.origin === page.origin ? 'link' : 'tab'
+  if (!page || u.origin !== page.origin) return 'tab'
+  // The page's own origin: a fragment of this very page stays a link; any
+  // other address there would reload WILSON in place (round 2, F1).
+  return u.pathname === page.pathname && u.search === page.search && u.hash !== '' ? 'link' : 'text'
 }
 
 /** Does `href` open in a new tab: an http(s) address on another origin than the page's? */

@@ -400,8 +400,19 @@ describe('D3 — the preload: a dropped file\'s place only for a page the main p
 // catches a channel added on one side without its pair. It does NOT catch a
 // second listener on a channel the gate already holds, nor a name built at
 // run time from a variable (`x[name]`); the rules above are what keep such a
-// listener from reaching Electron's ipcMain in the first place. The repo only:
-// a library in node_modules (Sentry, with a DSN) is OUTSTANDING D3-01.
+// listener from reaching Electron's ipcMain in the first place, and a second
+// listener for a channel main.cjs already registers is caught by the count of
+// registrations (46) and, at load, by the gate itself, which refuses a second
+// listener for one channel (build review round 2, F4). The repo only: a
+// library in node_modules (Sentry, with a DSN) is OUTSTANDING D3-01.
+//
+// By design it also refuses what a later change might want, so that the change
+// is made knowingly (round 2, F2): a new module registering channels itself
+// (register them in main.cjs, or give this checker a role for the module, as
+// updater.cjs has, with its own pin like `handedToUpdater`, the pin on
+// main.cjs's one hand-off); a module that needs Electron's module (hand it what
+// it needs, as windowGuard.cjs is handed shell.openExternal); and a require
+// that leaves electron/, a JSON file included.
 
 const isCall = (n) => n && (n.type === 'CallExpression' || n.type === 'OptionalCallExpression')
 const isMember = (n) => n && (n.type === 'MemberExpression' || n.type === 'OptionalMemberExpression')
@@ -449,7 +460,10 @@ function isName(n, parent) {
 
 const REGISTER = new Set(['handle', 'on'])
 const LISTEN = new Set(['on', 'once', 'addListener', 'prependListener', 'prependOnceListener'])
-const RAW_EVENTS = new Set(['ipc-message', 'ipc-message-sync', '-ipc-message', '-ipc-message-sync', '-ipc-invoke', 'web-contents-created'])
+// The events Electron raises for a message before ipcMain sees it. (Not
+// web-contents-created: what a listener there could reach, a window's own
+// `ipc` or these events, is refused by the rules themselves; round 2, F2.)
+const RAW_EVENTS = new Set(['ipc-message', 'ipc-message-sync', '-ipc-message', '-ipc-message-sync', '-ipc-invoke'])
 const SOURCE = /\.(cjs|js|mjs)$/
 
 /** Does `spec`, required from `from` (both inside electron/), name a file in `files`, or a .json beside them? */
@@ -497,6 +511,7 @@ function checkElectron(files) {
         }
       }
       if (n.type === 'ImportDeclaration' && isElectronModule(n.source.value)) problems.push(`${name}: imports Electron's module`)
+      if ((n.type === 'ExportAllDeclaration' || n.type === 'ExportNamedDeclaration') && n.source && isElectronModule(n.source.value)) problems.push(`${name}: re-exports Electron's module`)
       // What is taken from Electron's module.
       if (n.type === 'VariableDeclarator' && isRequire(n.init) && isElectronModule(requiredName(n.init)) && n.id.type === 'ObjectPattern') {
         for (const p of n.id.properties) {
@@ -654,8 +669,9 @@ describe('D3 — the source: no channel is registered past the gate', () => {
     it('a module answering on a window\'s own ipc, or listening for the raw events', () => {
       expect(problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "module.exports = (win) => win.webContents.ipc.handle('wilson:session-load', () => ({}));\n" })).toMatch(/rogue\.cjs: reaches a window's or frame's own ipc/)
       const raw = problemsOf({ ...ELECTRON_FILES, 'rogue.cjs': "module.exports = (app) => { app.on('web-contents-created', (_e, wc) => { wc.on('ipc-message', () => {}); }); };\n" })
-      expect(raw).toMatch(/listens for web-contents-created/)
       expect(raw).toMatch(/listens for ipc-message/)
+      expect(raw).not.toMatch(/web-contents-created/)
+      expect(problemsOf({ ...ELECTRON_FILES, 'rogue.mjs': "export * from 'electron';\n" })).toMatch(/rogue\.mjs: re-exports Electron's module/)
     })
     it('Electron\'s ipcMain named twice in main.cjs', () => {
       expect(problemsOf(swap('main.cjs', MAIN_ANCHOR, `const { ipcMain: second } = require('electron');\n${MAIN_ANCHOR}`))).toMatch(/takes Electron's ipcMain by its own name/)
