@@ -3011,6 +3011,15 @@ and did not fix:
   `ipcMode: IPCMode.Protocol` and the preload injection left out, or the
   listeners' sender checked. Owner: the controller (whether 1.0's installer
   sets a DSN).
+  Settled by the controller the same evening (2026-10-29; measured, not
+  run): no shipped build carries a DSN. The beta's bundle has none
+  (`index-BlvqrGRe.js`: no `sentry.io`, its *DSN not set* line present);
+  the packaged main process reads only `userData/env.json`
+  (`electron/env.cjs`); a production bundle reads no `.env.development`.
+  A DSN is set only in her checkout's `.env.development`, so Sentry's own
+  channels are live on a development run of the desktop alone. Stays
+  recorded (`PLAN_TO_1_0.md` §5, rule 8); the fix shape above applies the
+  day a shipped build is given a DSN.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
