@@ -94,7 +94,7 @@ async function main() {
   report.outside_port = outsidePort;
 
   gateway = spawn(process.execPath, [CLI, 'run'], {
-    env: { ...process.env, WILSON_GATEWAY_STATE_DIR: dirs.state, WILSON_ENROL_TOKEN: cloud.newToken(), WILSON_CLOUD_URL: fake.url, NODE_EXTRA_CA_CERTS: fake.caFile, UV_THREADPOOL_SIZE: '32' },
+    env: { ...process.env, WILSON_GATEWAY_STATE_DIR: dirs.state, WILSON_GATEWAY_SECRETS_KEY: crypto.randomBytes(32).toString('base64') /* P8: a throwaway for this run */, WILSON_ENROL_TOKEN: cloud.newToken(), WILSON_CLOUD_URL: fake.url, NODE_EXTRA_CA_CERTS: fake.caFile, UV_THREADPOOL_SIZE: '32' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   gateway.stdout.on('data', (d) => log.push(...String(d).split('\n').filter(Boolean)));

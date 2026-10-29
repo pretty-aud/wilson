@@ -48,6 +48,20 @@
 // server for its offset and continues from there. Resuming across an app
 // restart would need a deterministic key, which the quota's INSERT-branch
 // argument above depends on NOT having.
+//
+// ── M3 (night 5): A BODY READ ON DEMAND ────────────────────────────────────
+//
+// The desktop → cloud migration carries the files the desktop keeps with its
+// rows, some of them larger than memory should hold. Such a body is not a
+// Blob: it is an object with `size`, `type`, `name` and `openSource()`, which
+// returns the source tus reads — `{ size, slice(start, end) → Promise<{ value:
+// Blob, done }>, close() }` (the library's own FileSource contract, with
+// `done` true exactly when `end >= size`). Each slice is one Range request to
+// the desktop, so no more than one chunk is in memory. tus takes it through
+// its `fileReader` option, set only when the body offers a source — a Blob or
+// File keeps the default reader, byte for byte as before. The provider's
+// reservation, the per-request token and the retry rule are unchanged: they
+// never looked inside the body.
 // =============================================================================
 
 import * as tus from 'tus-js-client'
@@ -149,7 +163,7 @@ export function putResumable({
   }
 
   return new Promise((resolve, reject) => {
-    const upload = new tus.Upload(body, {
+    const options = {
       endpoint: `${baseUrl}/storage/v1/upload/resumable`,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       headers: {
@@ -222,7 +236,12 @@ export function putResumable({
         ))
       },
       onSuccess: () => resolve({ key }),
-    })
+    }
+    // M3: a body read on demand (see the header) is read through its own
+    // source; the key is set only then, so a Blob keeps the default reader
+    // (an `undefined` here would replace it, and start() would throw).
+    if (typeof body?.openSource === 'function') options.fileReader = { openFile: async (input) => input.openSource() }
+    const upload = new tus.Upload(body, options)
 
     // 🚨 NO findPreviousUploads() — see the header. Resuming a fingerprint
     // matched on the file would stream these bytes to a previous attempt's key.

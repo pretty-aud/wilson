@@ -229,3 +229,6 @@ Appended; nothing above was changed.
 - **Accepted by her on 2026-10-28 (walkthrough 85 Q1, (a)): TPN-AI-009, for the start of the production steps,** because the
   runbook's (c) and (g) 17 close it before 2026-11-09. The next audit checks it closed by those steps and does not re-escalate it
   without new evidence. The other seven of the areas' own HIGHs she chose to have fixed before the release (Phase 8).
+- **Her Q2 of 2026-10-28 kept the instance rule:** the three instances (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011) are fixed with the
+  areas' own HIGHs. She named neither near case, so a direct-served download's missing record stays TPN-LOG-002's and the desktop's
+  bin streams' missing viewing row stays beside her G6.

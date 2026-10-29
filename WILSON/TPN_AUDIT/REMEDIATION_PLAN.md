@@ -441,13 +441,21 @@ change of its own. TPN-LOG-012 and TPN-SDLC-014 are her rulings (G6, D14), filed
   TPN-CONT-019, TPN-AI-011 (and TPN-AI-009, by the runbook)
 - Then: TPN-AUTH-010, TPN-CONT-016, TPN-CONT-020, TPN-SDLC-013, TPN-AI-008, TPN-AI-010, TPN-DOC-004, TPN-DOC-005, TPN-SDLC-012
 
+**Done — 2026-10-28, P8 (night 5; `docs/sessions/handoffs/po-p8-2026-10-28.md`).** The ten HIGHs are fixed to the exit criteria
+below and RESOLVED in `FINDINGS.md` with their evidence: migrations 0104, 0105 and 0106 with suites 107, 108 and 109, applied to
+wilson-dev; `storage-secret`, `storage-gc`, `operator-workspaces`, `ai-files`, `gateway-reach`, `gateway-enrol`, `gateway-sync`,
+`operator-ai-keys`, `storage-presign` and `storage-read-urls` redeployed there; the gateway's changes (TPN-ENC-013, -014, -016) as
+code, tests and `HARDENING.md`, for its next release. Two steps remain and are named in their blocks: TPN-ENC-015's rotation on
+each environment (the controller's, `docs/PRODUCTION_RUNBOOK.md` (d)) and TPN-ENC-016's successor key (hers, (g) 4). The *Then*
+MEDIUMs are untouched. The release gate reads 0 Critical, 1 High (TPN-AI-009, accepted).
+
 **Entry criteria:**
 - Audrey's ruling, per HIGH: fixed before 1.0, or accepted for 1.0 with the reason recorded in `FINDINGS.md` (walkthrough 85 Q1
   and Q2 put it to her).
   **Q1, ruled on 2026-10-28, (a):** TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013 and TPN-ENC-016
   are fixed before the release by one session on this phase; TPN-AI-009 is accepted for the start of the production steps (her
-  words in its block). **Q2 waits:** whether TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 join that session or follow their classes
-  past 1.0.
+  words in its block). **Q2, ruled the same day, (a):** TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 are counted and fixed by that
+  session too, so it carries ten HIGHs.
 - A wilson-dev session that may apply a migration, deploy functions there and cut a gateway release (the house method,
   `docs/sessions/handoffs/po-b1-2026-10-27.md` §4; the gateway's own pipeline).
 

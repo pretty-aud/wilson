@@ -115,9 +115,10 @@ describe('the refusals a person reads', () => {
 
   it('a grant\'s or a policy\'s technical refusal becomes the admin-only sentence', async () => {
     holder.sb = fakeClient([{ data: null, error: { code: '42501', message: 'permission denied for table gateways' } }])
-    expect((await api.listGateways({ admin: true })).friendly).toBe('Only a workspace admin can add or change the file gateway.')
+    // P8 (0105, TPN-AUTH-013): the sentence names the authenticator now.
+    expect((await api.listGateways({ admin: true })).friendly).toBe('Only a workspace admin, signed in with their authenticator code, can add or change the file gateway.')
     holder.sb = fakeClient([{ data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "gateways"' } }])
-    expect((await api.renameGateway('g1', 'x')).friendly).toBe('Only a workspace admin can add or change the file gateway.')
+    expect((await api.renameGateway('g1', 'x')).friendly).toBe('Only a workspace admin, signed in with their authenticator code, can add or change the file gateway.')
     // CONTROL: the RPC's own 42501 sentence is kept.
     holder.sb = fakeClient([{ data: null, error: { code: '42501', message: 'Only the admin who made this gateway\'s enrolment token can confirm its fingerprint: they are the one who saw it printed.' } }])
     expect((await api.confirmGatewayFingerprint('g1', 'a'.repeat(64))).friendly).toMatch(/^Only the admin who made this gateway's enrolment token/)
@@ -264,7 +265,7 @@ describe('GW3: the browser\'s playback calls', () => {
     expect(res.ok).toBe(true)
     expect(holder.sb.log).toContainEqual(['from', 'gateways_visible'])
     const select = holder.sb.log.find(l => l[0] === 'select')[1]
-    for (const col of ['id', 'workspace_id', 'name', 'inside_addresses', 'reach', 'last_seen_at', 'root_fingerprint', 'outside_address']) expect(select).toContain(col)
+    for (const col of ['id', 'workspace_id', 'name', 'inside_addresses', 'inside_names', 'reach', 'last_seen_at', 'root_fingerprint', 'outside_address']) expect(select).toContain(col)
     expect(select).not.toMatch(/root_cert_pem|reach_nonce|revoked_at/)
     expect(holder.sb.log).toContainEqual(['order', 'name'])
   })

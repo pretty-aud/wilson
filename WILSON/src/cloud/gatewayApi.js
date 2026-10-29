@@ -32,7 +32,7 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 // The admin's columns: what the card shows, and nothing it does not (the
 // grants leave out the root's PEM, the reach nonce and the delivery stamps).
 const GATEWAY_COLUMNS = [
-  'id', 'name', 'platform', 'version', 'hostname', 'inside_addresses', 'outside_address', 'outside_open',
+  'id', 'name', 'platform', 'version', 'hostname', 'inside_addresses', 'inside_names', 'outside_address', 'outside_open',
   'root_fingerprint', 'root_confirmed_at', 'reach', 'health', 'office_ranges', 'reach_ok', 'reach_checked_at',
   'reach_detail', 'reach_result', 'reach_check_id', 'update_check_requested_at', 'created_by', 'created_at',
   'last_seen_at', 'revoked_at',
@@ -46,12 +46,17 @@ const VISIBLE_COLUMNS = 'id, name, platform, version, last_seen_at'
 // GW3: what the Bins tab's gateway adapter reads to find a door and mark
 // each clip's location (§2 "How the web app learns the address"): the
 // view's whole shape, the outside address NULL while the switch is off.
-const PLAYBACK_COLUMNS = 'id, workspace_id, name, platform, version, inside_addresses, reach, last_seen_at, root_fingerprint, outside_address'
+// P8 (TPN-ENC-013, 0104): inside_names too — the names the office door answers
+// to, which the probe tries before the addresses.
+const PLAYBACK_COLUMNS = 'id, workspace_id, name, platform, version, inside_addresses, inside_names, reach, last_seen_at, root_fingerprint, outside_address'
 
 const SAID = {
   signIn: 'Sign in again: WILSON could not confirm who is asking for this.',
   network: 'WILSON could not reach the cloud. Check the connection and try again.',
-  notAdmin: 'Only a workspace admin can add or change the file gateway.',
+  // P8 (0105, TPN-AUTH-013): the gateway's writes need a live admin signed in
+  // with their authenticator (where they have one); a refusal below aal2 reads
+  // as this sentence or as the RPC's own.
+  notAdmin: 'Only a workspace admin, signed in with their authenticator code, can add or change the file gateway.',
   gone: 'That gateway is not in this company\'s list any more, or only a workspace admin can change it.',
   read: 'WILSON could not read the file gateway\'s details just now. Try again in a moment.',
   token: 'WILSON could not make a token just now. Try again in a moment.',

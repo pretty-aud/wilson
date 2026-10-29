@@ -19,6 +19,14 @@
 // surface as a wall of failed generations for that company days later —
 // with ai-proxy's fail-soft quietly spending the PLATFORM key in the
 // meantime, which is the expensive failure mode.
+//
+// P8 (TPN-ENC-015): two more actions, for BOTH master secrets (the AI key's
+// and the bucket secret's, _shared/keyVersions.ts). `secrets_status` reports
+// which versions this environment holds and how many rows each table has
+// under each version; `reseal` (`secret: 'ai' | 'storage'`) opens every row
+// under the version its envelope names and seals it again under the current
+// one, certified by one platform_audit row (secret.resealed, 0106) that
+// carries the counts. Never a value: not in a reply, not in the audit row.
 // =============================================================================
 
 import {
@@ -30,9 +38,19 @@ import {
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import {
   encryptAiKey,
+  decryptAiKey,
   keyHint,
   aiKeyCryptoConfigured,
+  aiKeyCurrentVersion,
 } from '../_shared/aiKeyCrypto.ts'
+// P8 (TPN-ENC-015): the re-seal covers the bucket secrets too.
+import {
+  encryptStorageSecret,
+  decryptStorageSecret,
+  storageSecretCryptoConfigured,
+  storageSecretCurrentVersion,
+} from '../_shared/storageSecretCrypto.ts'
+import { envelopeVersion, keyVersionsPresent, secretNameFor } from '../_shared/keyVersions.ts'
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_VERSION = '2023-06-01'
@@ -85,7 +103,7 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
 
   const action = typeof body.action === 'string' ? body.action : ''
-  if (action !== 'set' && action !== 'clear') {
+  if (action !== 'set' && action !== 'clear' && action !== 'secrets_status' && action !== 'reseal') {
     return reply({ error: 'validation_failed', errors: [{ field: 'action', error: 'unknown' }] }, 400)
   }
 
@@ -93,6 +111,114 @@ Deno.serve(async (req: Request) => {
     ctx.admin, 'operator-write', ctx.callerId, envInt('OPERATOR_WRITE_RPM', 20), 60,
   )
   if (limited) return reply({ error: 'rate_limited' }, 429)
+
+  // ── P8 (TPN-ENC-015): the master secrets' versions, and the re-seal ───────
+  if (action === 'secrets_status' || action === 'reseal') {
+    const domains = {
+      ai: {
+        label: 'company AI keys', base: 'WILSON_AI_KEY_SECRET', table: 'workspace_ai_keys', column: 'key_ciphertext',
+        current: aiKeyCurrentVersion, encrypt: encryptAiKey, decrypt: decryptAiKey, configured: aiKeyCryptoConfigured,
+      },
+      storage: {
+        label: 'bucket secrets', base: 'WILSON_STORAGE_KEY_SECRET', table: 'workspace_storage_secrets', column: 'secret_ciphertext',
+        current: storageSecretCurrentVersion, encrypt: encryptStorageSecret, decrypt: decryptStorageSecret, configured: storageSecretCryptoConfigured,
+      },
+    }
+    type Domain = typeof domains.ai
+    // Round 1 (finding 3): paged — an un-ranged read stops at PostgREST's
+    // max_rows (1000) even for the service role (teardownCollect.ts says the
+    // same), and a row past the page would be orphaned when version 1 is unset.
+    // Round 2 (finding 4): the end is the exact count, not a short page, so a
+    // project with a lower max_rows is read whole too.
+    const PAGE = 1000
+    const rowsOf = async (d: Domain) => {
+      const rows: Array<Record<string, unknown>> = []
+      let total: number | null = null
+      for (let from = 0; ; from += PAGE) {
+        const { data, error, count } = await ctx.admin
+          .from(d.table)
+          .select(`workspace_id, ${d.column}, key_version, updated_at`, { count: 'exact' })
+          .order('workspace_id')
+          .range(from, from + PAGE - 1)
+        if (error) return { rows, error: error.message as string }
+        if (total === null) total = typeof count === 'number' ? count : 0
+        const page = (data ?? []) as Array<Record<string, unknown>>
+        rows.push(...page)
+        if (page.length === 0 || rows.length >= total) break
+      }
+      return { rows, error: null as string | null }
+    }
+    const statusOf = async (d: Domain) => {
+      const { rows, error } = await rowsOf(d)
+      if (error) return { error }
+      const byVersion: Record<string, number> = {}
+      for (const r of rows) {
+        const v = String(envelopeVersion(String(r[d.column] ?? '')).version)
+        byVersion[v] = (byVersion[v] ?? 0) + 1
+      }
+      const present = keyVersionsPresent(d.base)
+      return {
+        current: d.current(),
+        versions_present: present,
+        names_present: present.map((v) => secretNameFor(d.base, v)),
+        rows: rows.length,
+        rows_by_version: byVersion,
+      }
+    }
+    if (action === 'secrets_status') {
+      return reply({ ai: await statusOf(domains.ai), storage: await statusOf(domains.storage) })
+    }
+    const which = body.secret === 'ai' ? 'ai' : body.secret === 'storage' ? 'storage' : null
+    if (!which) return reply({ error: 'validation_failed', errors: [{ field: 'secret', error: 'ai or storage' }] }, 400)
+    const d = domains[which]
+    const current = d.current()
+    if (current === null) {
+      return reply({ error: 'key_crypto_not_configured', detail: `${d.base} is not configured on this environment` }, 501)
+    }
+    const { rows, error: readErr } = await rowsOf(d)
+    if (readErr) return reply({ error: 'read_failed', detail: readErr }, 500)
+    let resealed = 0
+    let skipped = 0
+    let unchanged = 0 // changed by someone else since it was read: left alone (round 2, note 8)
+    let failed = 0
+    const fromVersions: Record<string, number> = {}
+    for (const r of rows) {
+      const envelope = String(r[d.column] ?? '')
+      const { version } = envelopeVersion(envelope)
+      if (version === current) { skipped++; continue }
+      try {
+        const plain = await d.decrypt(envelope)
+        const sealed = await d.encrypt(plain)
+        // Round 1 (note 11): only the row as it was read is replaced — a fresh
+        // key an operator set meanwhile is left alone, counted apart. Round 2
+        // (finding 5): the guard is the row's version and stamp, so no
+        // ciphertext travels in a query string (an API gateway's request log).
+        const { data: upd, error: upErr } = await ctx.admin
+          .from(d.table)
+          .update({ [d.column]: sealed, key_version: current, updated_at: new Date().toISOString(), updated_by: ctx.callerId })
+          .eq('workspace_id', r.workspace_id)
+          .eq('key_version', r.key_version as number)
+          .eq('updated_at', r.updated_at as string)
+          .select('workspace_id')
+        if (upErr) { failed++; continue }
+        if (!upd || upd.length === 0) { unchanged++; continue }
+        resealed++
+        fromVersions[String(version)] = (fromVersions[String(version)] ?? 0) + 1
+      } catch {
+        // The version it names is not set here, or the row does not open: left as it was, counted.
+        failed++
+      }
+    }
+    await logPlatformEvent(ctx, {
+      action: 'secret.resealed',
+      code: 'WIL-7013',
+      severity: failed ? 'warning' : 'info',
+      message: `Re-sealed ${resealed} of ${rows.length} ${d.label} under ${secretNameFor(d.base, current)} (${skipped} already there, ${unchanged} changed meanwhile and left, ${failed} failed)`,
+      // Counts and names only — never a value, never a ciphertext.
+      context: { secret: which, to_version: current, from_versions: fromVersions, resealed, skipped, unchanged, failed },
+    })
+    return reply({ secret: which, to_version: current, resealed, skipped, unchanged, failed, from_versions: fromVersions, rows: rows.length })
+  }
 
   const workspaceId = typeof body.workspace_id === 'string' ? body.workspace_id : ''
   if (!workspaceId) {
@@ -159,7 +285,7 @@ Deno.serve(async (req: Request) => {
       workspace_id: workspaceId,
       key_ciphertext: ciphertext,
       key_hint: keyHint(key),
-      key_version: 1,
+      key_version: aiKeyCurrentVersion() ?? 1, // P8 (TPN-ENC-015): the version the envelope names
       updated_at: new Date().toISOString(),
       updated_by: ctx.callerId,
     }, { onConflict: 'workspace_id' })

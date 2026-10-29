@@ -72,6 +72,9 @@ export class ShareLogins {
       const blob = await fs.promises.readFile(this.file);
       const data = JSON.parse((await this.secrets.unprotect(blob)).toString('utf8'));
       this.hosts = data && typeof data.hosts === 'object' ? data.hosts : {};
+      // P8 (TPN-ENC-014): an earlier version's plain file, sealed again once secrets can be written.
+      const sealed = typeof this.secrets.reseal === 'function' ? await this.secrets.reseal(blob).catch(() => null) : null;
+      if (sealed) await fs.promises.writeFile(this.file, sealed, { mode: 0o600 }).catch(() => {});
     } catch {
       this.hosts = {};
     }
@@ -88,8 +91,17 @@ export class ShareLogins {
     if (typeof user !== 'string' || !user.trim() || user.length > 256 || typeof password !== 'string' || password.length > 1024) return { ok: false, error: 'A user name and a password are needed.' };
     const mapped = await this.map({ unc: s.root, user: user.trim(), password });
     if (!mapped.ok) return { ok: false, error: `Windows refused the login for ${s.root}: ${mapped.error}` };
-    this.hosts[s.host] = { root: s.root, user: user.trim(), password, at: new Date(this.now()).toISOString() };
-    await fs.promises.writeFile(this.file, await this.secrets.protect(Buffer.from(JSON.stringify({ hosts: this.hosts }), 'utf8')), { mode: 0o600 });
+    // P8 (TPN-ENC-014): the login is kept only sealed; a refused write keeps
+    // nothing and says why (never a plain file).
+    const kept = { ...this.hosts, [s.host]: { root: s.root, user: user.trim(), password, at: new Date(this.now()).toISOString() } };
+    let blob;
+    try {
+      blob = await this.secrets.protect(Buffer.from(JSON.stringify({ hosts: kept }), 'utf8'));
+    } catch (e) {
+      return { ok: false, error: `The login for ${s.root} was opened but not kept: ${String(e.message || e)}.` };
+    }
+    this.hosts = kept;
+    await fs.promises.writeFile(this.file, blob, { mode: 0o600 });
     return { ok: true, root: s.root };
   }
 

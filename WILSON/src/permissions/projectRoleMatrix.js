@@ -66,6 +66,7 @@ export const PROJECT_ROLES = Object.freeze(['manager', 'reviewer', 'member'])
 // Unrecognised actions passed to canOnProject() warn at development time
 // (dev-build) and return false in production. Keep this list alphabetised.
 export const PROJECT_ACTIONS = Object.freeze([
+  'project.bins.vet',
   'project.bins.write',
   'project.comment.write',
   'project.entity.write',
@@ -340,6 +341,10 @@ export function projectActionDeniedReason(ctx, action) {
     case 'project.bins.write':
       return 'Only this project\'s managers, members and reviewers can change its bins, clips and takes.'
 
+    // P8 / 0104 (TPN-AUTH-012) — the checked mark the file gateway requires.
+    case 'project.bins.vet':
+      return 'Only a workspace admin or manager can mark a clip or a footage location as checked for the file gateway.'
+
     // 0084 / D8 — denied to everyone but a workspace ADMIN or the project
     // MANAGER; a workspace manager is told the same, because the rule names
     // the two seats that work and theirs is not one of them.
@@ -423,6 +428,14 @@ export function canOnProject(ctx, action) {
   if (action === 'project.shotlist.activate') {
     return appRole === 'admin' || projectRole === 'manager'
   }
+
+  // P8 (0104, TPN-AUTH-012): marking a clip or a footage location as checked
+  // for the file gateway is a workspace ADMIN's or MANAGER's act and nobody
+  // else's (bins_caller_may_vet reads the live row; the trigger refuses the
+  // rest with 42501). No seat opens it, and the Local Server has no gateway,
+  // so noRoles does not open it either. Decided before the short-circuit so
+  // the rule reads in one place.
+  if (action === 'project.bins.vet') return appRole === 'admin' || appRole === 'manager'
 
   // current_app_role() IN ('admin', 'manager') — bypasses every gate below.
   if (appRole === 'admin' || appRole === 'manager') return true

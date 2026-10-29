@@ -21,6 +21,12 @@ export const FILES = Object.freeze({
   certs: 'certs',
   healthy: 'healthy',
   status: 'status.json',
+  // Plaintext BY DESIGN, named for what they are (P8, TPN-ENC-014; HARDENING §3, §10):
+  //   enrol.json  the one-time enrolment TOKEN the installer writes as SYSTEM for
+  //               the service to spend (mode 600, 24 h, one use; deleted once spent)
+  //   pipe.key    the updater pipe's key, 32 random bytes the installer makes as
+  //               SYSTEM (mode 600; the two services read it, nobody else)
+  // Everything else a secret goes through platform/secrets.mjs: DPAPI, or sealed.
   enrol: 'enrol.json',
   enrolResult: 'enrol-result.json',
   pipeKey: 'pipe.key',

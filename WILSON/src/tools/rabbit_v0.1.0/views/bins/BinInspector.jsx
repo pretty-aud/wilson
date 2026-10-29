@@ -120,6 +120,11 @@ export default function BinInspector({
   // says why. `catalogue`: a browser (B5) — the sentence under a clip is the
   // browser's, and Space shows the picture large.
   canStream = true, canOpen = true, canProbe = true, catalogue = false,
+  // P8 (0104, TPN-AUTH-012): the checked mark the file gateway requires. A
+  // workspace admin or manager (project.bins.vet) marks a clip through
+  // onPatch({ vetted_at }) and a location through onVetLocation(id); the
+  // trigger stamps who and when, and refuses anyone else.
+  canVet = false, onVetLocation = null,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -327,7 +332,7 @@ export default function BinInspector({
             right={single.online !== false && canWrite && canProbe ? <IconBtn Icon={RefreshCw} title="Read the technical columns again" size={3} onClick={e => { e.stopPropagation(); onProbe?.(single.id) }} /> : null}>
             <TechRows row={single} fps={fps} binPath={binPathFor?.(single.bin_id)} ffmpeg={ffmpeg}
               location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} remoteLine={remoteLine}
-              onOpenRemoteViews={onOpenRemoteViews} />
+              onOpenRemoteViews={onOpenRemoteViews} canVet={canVet} onPatch={onPatch} onVetLocation={onVetLocation} />
             {canOpen && (
               <div className="flex items-center gap-1.5 flex-wrap pt-1">
                 <Btn small onClick={() => onOpen?.(single.id, false)} disabled={single.online === false} title="Open with the default app"><ExternalLink className="w-3 h-3" /> Open</Btn>
@@ -370,7 +375,7 @@ function useRemoteViewsLine(row, remoteViewsFor) {
   return line
 }
 
-function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, remoteLine = null, onOpenRemoteViews = null }) {
+function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, remoteLine = null, onOpenRemoteViews = null, canVet = false, onPatch = null, onVetLocation = null }) {
   const cloudRow = !!row.location_id
   const R = ({ k, v, title }) => v == null || v === '' ? null : (
     <div className="flex items-baseline gap-2 text-dense min-w-0">
@@ -396,6 +401,24 @@ function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, 
           {remoteLine && (onOpenRemoteViews
             ? <button type="button" className="text-dense text-left hover:underline" data-testid="bin-remote-views" style={{ color: C.text }} title="Every viewing of this clip from outside the office, in the last 30 days" onClick={() => onOpenRemoteViews(row.id)}>{remoteLine}</button>
             : <div className="text-dense" data-testid="bin-remote-views" style={{ color: C.text }}>{remoteLine}</div>)}
+          {/* P8 (0104, TPN-AUTH-012): the gateway serves a clip only once a
+              workspace admin or manager has checked its path; the mark, and
+              the control for those who may set it (the trigger refuses the
+              rest with 42501). A withdrawn mark stops the gateway within ten
+              minutes (24 hours on the office door while the cloud is away).
+              After the remote line: "Added by" stays beside it (GW3). */}
+          <R k="Checked" v={row.vetted_at ? `for the file gateway, ${new Date(row.vetted_at).toLocaleDateString()}` : 'not yet: the file gateway does not serve it'} />
+          {canVet && onPatch && (
+            <div className="flex flex-wrap gap-1.5">
+              <Btn small data-testid="bin-vet" onClick={() => onPatch({ vetted_at: row.vetted_at ? null : new Date().toISOString() })}
+                title={row.vetted_at ? 'The file gateway stops serving this clip within ten minutes' : 'Its path is one the file gateway may serve'}>
+                {row.vetted_at ? 'Withdraw the check' : 'Mark as checked'}
+              </Btn>
+              {location && !location.vetted_at && onVetLocation && (
+                <Btn small data-testid="bin-vet-location" onClick={() => onVetLocation(location.id)} title="The gateway is told this location only once it is checked">Mark the location as checked</Btn>
+              )}
+            </div>
+          )}
         </>
       ) : <R k="Path" v={row.source_path} />}
       {row.online === false && (cloudRow
@@ -490,7 +513,8 @@ function Preview({
     // GW3: the gateway's word per location (§2's fourth row), or a 404's
     // "missing at its location"; BC3's browser sentence where no gateway
     // backend answers; the desktop's two otherwise.
-    const sentence = row.gateway_missing ? gatewayMissingSentence(location?.name)
+    const sentence = (row.not_checked || row.location_not_checked) && viaGateway ? gatewayClipSentence(location?.name, row.not_checked ? 'not_checked' : 'location_not_checked')
+      : row.gateway_missing ? gatewayMissingSentence(location?.name)
       : viaGateway ? gatewayClipSentence(location?.name, gatewayStateWord(location, gateway))
         : catalogue ? browserClipSentence(location?.name)
           : location?.connected === false ? notConnectedClipSentence(location?.name) : notHereSentence(location?.name)

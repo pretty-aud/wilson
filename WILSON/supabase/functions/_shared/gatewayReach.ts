@@ -86,9 +86,14 @@ export function isPublicIp(ip: string): boolean {
   return classifyIp(ip) === 'public'
 }
 
-const LOCAL_SUFFIX = /\.(local|localhost|internal|intranet|lan|home|corp|localdomain|home\.arpa|invalid|test|example|onion)$/
-const SUPABASE_SUFFIX = /(^|\.)supabase\.(co|in|net|com)$/
-const NAME_RE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/
+// P8 (TPN-NET-016): exported for s3Reach.ts, the S3 endpoint's vet, which
+// applies the same three rules to the host a presigned URL names.
+export const LOCAL_NAME_SUFFIX = /\.(local|localhost|internal|intranet|lan|home|corp|localdomain|home\.arpa|invalid|test|example|onion)$/
+export const SUPABASE_HOST_SUFFIX = /(^|\.)supabase\.(co|in|net|com)$/
+export const DNS_NAME_RE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/
+const LOCAL_SUFFIX = LOCAL_NAME_SUFFIX
+const SUPABASE_SUFFIX = SUPABASE_HOST_SUFFIX
+const NAME_RE = DNS_NAME_RE
 
 export type AddressCheck =
   | { ok: true; host: string; port: number; literal: boolean }

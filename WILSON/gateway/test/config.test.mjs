@@ -4,6 +4,7 @@
 // HTTPS on loopback), the package's own shape.
 // =============================================================================
 
+import crypto from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,6 +19,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'src', 'cli.mjs');
 
 describe('config.json (config.mjs)', () => {
+  it('P8 (TPN-ENC-013): inside.ip_sans is true, false or absent (null); anything else is named and ignored', () => {
+    expect(parseConfig('{}').config.inside.ip_sans).toBeNull();
+    expect(parseConfig(JSON.stringify({ inside: { ip_sans: true } })).config.inside.ip_sans).toBe(true);
+    expect(parseConfig(JSON.stringify({ inside: { ip_sans: false } })).config.inside.ip_sans).toBe(false);
+    const { config, problems } = parseConfig(JSON.stringify({ inside: { ip_sans: 'yes' } }));
+    expect(config.inside.ip_sans).toBeNull();
+    expect(problems).toEqual(['inside.ip_sans (true or false)']);
+  });
   it('the defaults: 8443 inside, 8444 outside, no proxy, the gateway\'s own certificates', () => {
     const { config, problems } = parseConfig('');
     expect(config).toEqual(DEFAULT_CONFIG);
@@ -115,8 +124,12 @@ describe('the command enrols, end to end (cli.mjs against the fake cloud over HT
     fc = await serveFakeCloud(cloud, { dir: path.join(tmp, 'fc') });
   });
   afterAll(async () => { await fc.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
+  // P8 (TPN-ENC-014): off Windows the real gateway seals its secrets under a
+  // key, and refuses to enrol without one — a throwaway, made here for this
+  // file's runs and nowhere else (on Windows DPAPI is used and it is ignored).
+  const SEAL_KEY = crypto.randomBytes(32).toString('base64');
   const run = (args, env) => new Promise((resolve) => {
-    const c = spawn(process.execPath, [CLI, ...args], { env: { ...process.env, NODE_EXTRA_CA_CERTS: fc.caFile, ...env } });
+    const c = spawn(process.execPath, [CLI, ...args], { env: { ...process.env, NODE_EXTRA_CA_CERTS: fc.caFile, WILSON_GATEWAY_SECRETS_KEY: SEAL_KEY, ...env } });
     let out = ''; let err = '';
     c.stdout.on('data', (d) => { out += d; });
     c.stderr.on('data', (d) => { err += d; });

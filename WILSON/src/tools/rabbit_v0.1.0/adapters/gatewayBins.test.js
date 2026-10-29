@@ -31,20 +31,24 @@ const ticketFor = (id, { exp, jti, iat, sub } = {}) => `v1.${b64url(JSON.stringi
 const NOW = 1791633600 * 1000 // the vectors' now; a ticket's exp is 100 s off
 
 const L1 = 'loc-1', L2 = 'loc-2'
+// P8 (0104, TPN-AUTH-012): a company's row plays through the gateway only
+// with the checked mark (vetted_at); the rows here carry it, and one test
+// below takes it away.
+const VETTED = '2026-10-28T00:00:00.000Z'
 const rows = () => [
-  { id: 'c1', location_id: L1, relative_path: 'A001/c1.mp4', extension: '.mp4' },
-  { id: 'c2', location_id: L2, relative_path: 'B/c2.mp4', extension: '.mp4' },
-  { id: 'c3', location_id: L1, relative_path: 'A001/c3.mov', extension: '.mov' },
+  { id: 'c1', location_id: L1, relative_path: 'A001/c1.mp4', extension: '.mp4', vetted_at: VETTED },
+  { id: 'c2', location_id: L2, relative_path: 'B/c2.mp4', extension: '.mp4', vetted_at: VETTED },
+  { id: 'c3', location_id: L1, relative_path: 'A001/c3.mov', extension: '.mov', vetted_at: VETTED },
   { id: 'd1', source_path: 'D:\\x.mov' },
 ]
 const gw = (over = {}) => ({ id: 'g1', name: 'Studio NAS', inside_addresses: [{ host: '192.168.1.10', port: 8443 }], outside_address: null, reach: { [L1]: 'reachable', [L2]: 'not_mounted' }, last_seen_at: new Date(NOW - 4000).toISOString(), ...over })
 
-function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { t: NOW }, rowsNow = rows(), userId = null } = {}) {
+function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { t: NOW }, rowsNow = rows(), userId = null, locations = null } = {}) {
   const calls = { list: 0, tickets: [], renew: [], head: [] }
   const cloud = {
     listBins: vi.fn(async () => ({ bins: [], binFiles: rowsNow, binLocations: [{ id: L1, name: 'Footage' }, { id: L2, name: 'Archive' }] })),
-    copyBinFiles: vi.fn(async () => ({ created: [{ id: 'c9', location_id: L1 }] })),
-    restoreBinFiles: vi.fn(async () => ({ restored: [{ id: 'c1', location_id: L1 }] })),
+    copyBinFiles: vi.fn(async () => ({ created: [{ id: 'c9', location_id: L1, vetted_at: VETTED }] })),
+    restoreBinFiles: vi.fn(async () => ({ restored: [{ id: 'c1', location_id: L1, vetted_at: VETTED }] })),
     binsCapabilities: () => ({ backend: 'supabase' }),
     remoteViewsOfClip: vi.fn(async () => ({ count: 1 })),
   }
@@ -66,6 +70,7 @@ function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { 
     },
     doors,
     rowOf: (id) => rowsNow.find((r) => r.id === id) || null,
+    locations: () => locations || [],
     onChange,
     now: () => clock.t,
     userId,
@@ -198,7 +203,34 @@ describe('online per row and the words per location (§5\'s last paragraph; D17)
     expect(w.c.streamInfo('c1')).toMatchObject({ gatewayId: 'g2', gatewayName: 'Annex', door: 'inside' })
     // A location both report as not reachable: the first reached gateway's word.
     expect(w.c.locationStatus([{ id: 'loc-9' }])[0].gateway).toBe('unknown_address')
-    expect((await w.c.resolveBinFiles([{ id: 'x', location_id: L1 }])).get('x')).toEqual({ online: true })
+    expect((await w.c.resolveBinFiles([{ id: 'x', location_id: L1, vetted_at: VETTED }])).get('x')).toEqual({ online: true })
+  })
+  it('P8 round 2 (TPN-AUTH-012): a checked clip at an UNCHECKED location is offline with its own reason while the reach report still names the location; an unknown location changes nothing', async () => {
+    const w = world({ gateways: [gw({ reach: { [L1]: 'reachable', [L2]: 'reachable' } })], locations: [{ id: L1, name: 'Footage', vetted_at: VETTED }, { id: L2, name: 'Archive', vetted_at: null }] })
+    await w.c.discover()
+    const marked = w.c.markOnline(rows())
+    expect(marked[0]).toMatchObject({ id: 'c1', online: true })
+    expect(marked[0].location_not_checked).toBeUndefined()
+    expect(marked[1]).toMatchObject({ id: 'c2', online: false, location_not_checked: true })
+    expect((await w.c.resolveBinFiles([{ id: 'c2', location_id: L2, vetted_at: VETTED }])).get('c2')).toEqual({ online: false, reason: 'location_not_checked' })
+    // A row the browser has no location row for (not loaded yet) is judged by the reach alone.
+    expect((await w.c.resolveBinFiles([{ id: 'x', location_id: 'loc-unknown', vetted_at: VETTED }])).get('x')).toEqual({ online: false, reason: 'unknown_address' })
+    await w.c.ensureTickets(['c1', 'c2'])
+    expect(w.calls.tickets.map((t) => t.ids)).toEqual([['c1']])
+  })
+  it('P8 (0104, TPN-AUTH-012): a row without the checked mark is offline with its own reason, flagged not_checked, and never asked for a ticket', async () => {
+    const unchecked = () => rows().map((r) => (r.id === 'c1' ? { ...r, vetted_at: null } : r))
+    const w = world({ rowsNow: unchecked() })
+    await w.c.discover()
+    const marked = w.c.markOnline(unchecked())
+    expect(marked[0]).toMatchObject({ id: 'c1', online: false, not_checked: true })
+    expect(marked[2]).toMatchObject({ id: 'c3', online: true })
+    expect(marked[2].not_checked).toBeUndefined()
+    expect((await w.c.resolveBinFiles([{ id: 'c1', location_id: L1, vetted_at: null }])).get('c1')).toEqual({ online: false, reason: 'not_checked' })
+    // The reach word is the location's, not the row's: c3 at the same location plays.
+    expect((await w.c.resolveBinFiles([{ id: 'c3', location_id: L1, vetted_at: VETTED }])).get('c3')).toEqual({ online: true })
+    await w.c.ensureTickets(['c1', 'c3'])
+    expect(w.calls.tickets.map((t) => t.ids)).toEqual([['c3']])
   })
   it('a row with no location is left as it is (a desktop row); a row whose location nobody reaches is offline with the gateway\'s word', async () => {
     const w = world()
@@ -227,7 +259,7 @@ describe('the tickets (§5 steps 1–4; R12)', () => {
     expect(w.c.streamInfo('c1')).toMatchObject({ held: true, door: 'inside', jti: expect.stringMatching(/^jti\d+$/), expiresAt: (1791633600 + 120) * 1000, refused: null, missing: false }) // two minutes from the clock the cloud was asked at
   })
   it('fifty ids a call at most, in order; sixty ids are two calls', async () => {
-    const many = Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, location_id: L1, relative_path: `m/${i}.mp4` }))
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, location_id: L1, relative_path: `m/${i}.mp4`, vetted_at: VETTED }))
     const w = world({ rowsNow: many })
     await w.c.discover()
     await w.c.ensureTickets(many.map((r) => r.id))
@@ -488,7 +520,7 @@ describe('round 1\'s corrections (GW3 review round 1)', () => {
     const w = world({ rowsNow: [{ id: 'c1', location_id: L1, relative_path: 'A001/c1.mp4', extension: '.mp4', gateway_missing: true, online: false }] })
     await w.c.discover()
     expect(w.c.markOnline([{ id: 'c1', location_id: L1, gateway_missing: true }])[0].online).toBe(false)
-    expect(w.c.markOnline([{ id: 'c1', location_id: L1 }])[0].online).toBe(true)
+    expect(w.c.markOnline([{ id: 'c1', location_id: L1, vetted_at: VETTED }])[0].online).toBe(true)
     await w.c.ensureTickets(['c1'])
     expect(w.calls.tickets).toHaveLength(0)
   })
@@ -554,6 +586,17 @@ describe('round 1\'s corrections (GW3 review round 1)', () => {
     await w.c.refreshGateways()
     expect(w.doors.probe).toHaveBeenCalledTimes(2)
     expect(w.c.summary().reached[0].base).toBe('https://192.168.1.44:8443')
+  })
+  it('P8 (TPN-ENC-013): a door reached at one of the gateway\'s NAMES is believed and kept, and the summary names it before any address', async () => {
+    const list = [gw({ inside_names: [{ host: 'studio-nas.local', port: 8443 }] })]
+    const w = world({ gateways: () => list })
+    w.doors.probe.mockImplementationOnce(async (g) => ({ door: 'inside', base: 'https://studio-nas.local:8443', gatewayId: g.id }))
+    await w.c.discover()
+    expect(w.c.summary().reached[0].base).toBe('https://studio-nas.local:8443')
+    expect(w.c.summary().address).toBe('studio-nas.local:8443')
+    await w.c.refreshGateways()
+    expect(w.doors.probe).toHaveBeenCalledTimes(1)
+    expect(w.c.summary().reached[0].base).toBe('https://studio-nas.local:8443')
   })
 })
 

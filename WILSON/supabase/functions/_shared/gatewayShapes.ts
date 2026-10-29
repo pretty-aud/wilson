@@ -154,6 +154,17 @@ export function cleanInsideAddresses(list: unknown, insidePort?: unknown): Array
 }
 
 /**
+ * P8 (TPN-ENC-013): the NAMES the gateway's office door answers to (its host
+ * name, and that name under .local), as [{ host, port }], for
+ * gateways.inside_names (0104): cleanInsideAddresses's rule minus every
+ * literal. A member's browser probes these before the addresses, so an
+ * office-door certificate that names the host alone still opens.
+ */
+export function cleanInsideNames(list: unknown, insidePort?: unknown): Array<{ host: string; port: number }> {
+  return cleanInsideAddresses(list, insidePort).filter((a) => !isPrivateLiteral(a.host))
+}
+
+/**
  * The caller's public address — the rule resolve-login MEASURED on
  * wilson-dev (2026-09-06): Cloudflare's `cf-connecting-ip`; failing that the
  * X-Forwarded-For hop BEFORE the platform's own relay — never the first hop,
@@ -206,6 +217,7 @@ export type EnrolBody = {
     version: string
     hostname: string | null
     inside_addresses: Array<{ host: string; port: number }>
+    inside_names: Array<{ host: string; port: number }> // P8 (TPN-ENC-013)
     root_cert_pem: string
   }
 }
@@ -235,7 +247,8 @@ export function parseEnrolRequest(authorization: string | null, raw: unknown): {
     return refuse(400, 'bad_certificate', "root_cert_pem must be exactly one PEM certificate (the root's PUBLIC certificate, never its key).")
   }
   const inside = cleanInsideAddresses(body.inside_addresses ?? body.addresses, body.inside_port)
-  return { ok: true, value: { token, gateway: { name, platform, version, hostname, inside_addresses: inside, root_cert_pem: pem } } }
+  const names = cleanInsideNames(body.inside_names, body.inside_port) // P8 (TPN-ENC-013)
+  return { ok: true, value: { token, gateway: { name, platform, version, hostname, inside_addresses: inside, inside_names: names, root_cert_pem: pem } } }
 }
 
 // ── The credential (sync, events) ────────────────────────────────────────────
@@ -252,6 +265,7 @@ export type SyncReport = {
   version: string | null
   hostname: string | null
   inside_addresses?: Array<{ host: string; port: number }>
+  inside_names?: Array<{ host: string; port: number }> // P8 (TPN-ENC-013): absent leaves the stored names alone
   reach: Record<string, string>
   health: Record<string, unknown>
   // GW3 (migration 0095): a root the gateway reports at sync — the one it
@@ -327,6 +341,8 @@ export function parseSyncRequest(raw: unknown): { ok: true; report: SyncReport; 
   if (raw.inside_addresses !== undefined || raw.addresses !== undefined) {
     report.inside_addresses = cleanInsideAddresses(raw.inside_addresses ?? raw.addresses, raw.inside_port)
   }
+  // P8 (TPN-ENC-013): the names, when reported; absent leaves the stored ones (gateway_sync_apply, 0104).
+  if (raw.inside_names !== undefined) report.inside_names = cleanInsideNames(raw.inside_names, raw.inside_port)
   // GW3 (0095): the roots, one PEM certificate each (≤ 16 KB); anything else
   // is dropped, not fatal — the heartbeat must land whatever rides with it.
   if (isSingleCertificatePem(raw.root_cert_pem)) report.root_cert_pem = raw.root_cert_pem

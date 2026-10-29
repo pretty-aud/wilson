@@ -95,8 +95,14 @@ and D14 make TPN-LOG-012 and TPN-SDLC-014 INFO, outside the gate. Phase 8 of `TP
 and I accept TPN-AI-009 for the start of the production steps, since it closes at the runbook's (c) and (g) 17 before 9 November."*
 TPN-AUTH-012, TPN-NET-016, TPN-ENC-015, TPN-ENC-014, TPN-CONT-018, TPN-ENC-013 and TPN-ENC-016 are fixed before the release by one
 session on Phase 8, which the controller names (`docs/sessions/PLAN_TO_1_0.md` §5 rule 8); TPN-AI-009 is accepted for the start
-of the production steps, her words in its block. **Q2 waits** (TPN-AUTH-013, TPN-CONT-019, TPN-AI-011), and the runbook's (g) 8
-with it.
+of the production steps, her words in its block. **→ Q2 ruled the same day** (multiple choice, verbatim: *"(a) Count and fix them"*):
+TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 stay counted and are fixed by the same session, ten in all; she named neither near case,
+so both stay uncounted. The runbook's (g) 8 now waits for that session's merge.
+**→ P8 fixed the ten, 2026-10-28 (night 5; `po-p8-2026-10-28.md`):** each RESOLVED in `TPN_AUDIT/FINDINGS.md` with its evidence;
+0104 to 0106 with suites 107 to 109 and ten functions on wilson-dev (staging owes them, the runbook's (b) and (c)); the gateway's
+changes as code and tests for its next release. What remains is the controller's (TPN-ENC-015's rotation on each environment,
+runbook (d)) and hers (TPN-ENC-016's successor key, (g) 4). The gate reads **0 Critical, 1 High (TPN-AI-009, accepted)**, so (g) 8
+waits on that merge no longer.
 
 ---
 
@@ -340,8 +346,8 @@ nine Windows-forbidden characters only. A location written past the app —
 through the REST API with a member's key — can carry a right-to-left
 override or a zero-width space into every Connect question in the company.
 Settle it with `psql`: insert a `bin_locations` row whose `unc_path` holds
-U+202E and watch it land. Fix shape: a migration (0095 or later: 0093 is the
-file gateway's, GW1, and 0094 is reserved) adding the
+U+202E and watch it land. Fix shape: a migration (the next free number, 0107
+at P8's merge; 0094 was retired on 2026-10-28, walkthrough 85 Q5) adding the
 same refusal to the CHECK through a small SQL function (PostgreSQL's regex
 has no Unicode-property classes; the function tests the code points), and
 the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
@@ -400,8 +406,8 @@ the Audio line); 0091's `bin_files` has no such columns and the cloud
 adapter's `BIN_FILE_COLUMNS` drops them, so a clip added from the desktop
 signed in, or migrated, shows no Audio line in the cloud. The migration
 strips them before `toColumns` so the console is not warned once per clip.
-Fix shape: two nullable columns on `bin_files` (0095 or later: 0093 is the
-file gateway's, GW1, and 0094 is reserved), the
+Fix shape: two nullable columns on `bin_files` (the next free number, 0107
+at P8's merge; 0094 was retired on 2026-10-28, walkthrough 85 Q5), the
 allowlist, and `add_bin_files` accepting them.
 
 ### A private project's media body is never purged from the desktop
@@ -763,10 +769,11 @@ capture:** as the seeded smoke user on wilson-dev, `POST
 one-pixel PNG, the bearer token and the anon `apikey` (the exact command is in
 `docs/sessions/handoffs/po-b1-2026-10-27.md`); a 200 excludes the policy and
 points at the client's `avatar_url` write or the render; a 400 whose body says
-`new row violates row-level security policy` proves it, and migration 0102 /
-suite 105 (reserved) then hold the smallest policy change that lets the owner
-of the path upload and still refuses another user's path. Delete the object
-after.
+`new row violates row-level security policy` proves it, and a migration at the
+next free numbers (0107 and suite 110 at P8's merge; 0102 and suite 105 were
+retired on 2026-10-28, walkthrough 85 Q5) then holds the smallest policy
+change that lets the owner of the path upload and still refuses another user's
+path. Delete the object after.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**
@@ -1320,6 +1327,8 @@ annotations). Twice now on CI, never on a Windows run of the suite.)*
 *(D1, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5) in RLS tests run 40661289297's Vitest job on `8221b1a8`, a docs-only commit (D1's hand-off) whose code is `f6ca0cf1`'s, which passed in run 40660619075; the job's one failing test by its annotations. D1 touches nothing under `gateway/`. Three times now on CI.)*
 *(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40666541669's Vitest job on `fcb28123`, R2's merge-in of P1 and D1, whose tree passed the full suite locally (418 files, 10,542 passed, 9 skipped); the job's one failing test by its annotations, the run's other three jobs green. Nothing under `gateway/` changed since `51e5a0d7`. Four times now on CI.)*
 *(R2, 2026-10-28, MEASURED on GitHub's runner: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40735566652's Vitest job on `db120984`, the integration branch's merge of R2's record of her Q1 ruling. Its tree is byte for byte `6281d995`'s, which passed all four jobs in run 40734158776 just before, so the same tree has passed and failed on the runner; its other three jobs green, and nothing under `gateway/` changed since `51e5a0d7`. Five times now on CI.)*
+*(M3, 2026-10-28, MEASURED on GitHub's runner by the job's annotations: the same test and figures (`bytes` 524,288, `fraction` 0.5, `doorsOutside.test.mjs:364`) in RLS tests run 40780867528's Vitest job on `11de80e8`, M3's hand-off commit, whose tree passed the full suite locally twice, with and without `.env.local` (418 files, 10,615 passed, 9 skipped); the job's one failing test. M3 touches nothing under `gateway/`. Six times now on CI. The same run's smoke job failed apart, at its gateway-ticket probe — wilson-dev's fixture, not the suite: see M3's hand-off.)*
+*(P8, 2026-10-28, MEASURED on GitHub's runner by the job's annotations: a SECOND CI-only flake, in the Gateway workflow's *ACME against Pebble* job — a renewal refused with `badNonce` on `9e8f9290` (run 40787368497, 23:26 UTC), the same job green at 19:27 UTC that day and in every earlier run. The workflow runs Pebble with `PEBBLE_WFE_NONCEREJECT=20` (a fifth of nonces refused on purpose) and `gateway/src/acme/client.mjs` retries a bad nonce three times, so three refusals in a row — 0.8% a request, a few percent a run — fail the attempt. Nothing in P8 touches the client's requests. A longer retry is a gateway change for a later session; until then a red there is read against the step's own annotation, as this one was.)*
 
 ---
 
@@ -1329,6 +1338,8 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul P8 (2026-10-28; `po/p8-tpn-four-areas` into `feat/post-overhaul-edit-versioning`) — Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md`, night 5: the four areas' ten High findings fixed (the checked mark on bins, the S3 endpoint vetted and reached at one address, posters at teardown, no-store on the bin streams, ai-files failing closed, the two-factor step-up in SQL, the gateway's secrets sealed, its certificate naming the host, a three-year root with the release key's successor, the master secrets versioned with a re-seal); 0104 to 0106 with suites 107 to 109 on wilson-dev; ten functions redeployed there; walkthrough 86; three Fable rounds | **nothing.** The security entry above carries the arrow line; what remains is the controller's rotation and her successor key, both in the runbook. | **nothing.** Comment markers: 4 → 4. |
+| Post-overhaul M3 (2026-10-28; `po/m3-migration-part-3` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 3 (`docs/sessions/PLAN_TO_1_0.md` night 5): every row shape rehearsed on wilson-dev first (rolled back), one Fable design round before code; the team matched to company accounts by email for an admin or manager (the unmatched named, their rows arriving without the person), the roster inserted never upserted, every person column by the map and the people set once on rows earlier runs carried without them; the files kept with assets, scenes, shots, levels and experiences as `files` rows with their bodies by the company's storage rule (the resumable path fed by Range requests above the threshold; a server company's stay, her ruling); the rate cards and templates once per run with their gates, the assets' template links restored; the receipts an earlier build left open moved behind the gate; the archive keeps the workspace stores; no migration, no SQL; two review rounds | M3-L1 (the ordinary files step ignores the storage rule), M3-L2 (an s3 body one PUT up to 5 GiB), M3-L3 (a raw desktop id stays until its person joins), M3-L4 (`task_templates` stamps no maker), M3-L5 (the dry run's template links on a project not yet in the cloud), M3-L6 (a receipt's picture removed when it cannot be moved), M3-L7 (walkthrough 85's Q2 and Q3 still hers) | M1-L1, M1-L2, M2-L1, M2-L4 and M2-L5 closed. |
 | Post-overhaul R2 (2026-10-28; `po/r2-release-readiness` into `feat/post-overhaul-edit-versioning`) — release readiness (`docs/sessions/PLAN_TO_1_0.md` night 4), documents and an audit only, two review rounds: `docs/PRODUCTION_RUNBOOK.md` (new: the controller's ordered production steps, each with its proof), `docs/RELEASE_TESTING.md` rewritten against the code, `CHANGELOG.md`'s 1.0.0 entry rewritten and dated Unreleased, and the read-only TPN re-audit of the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/`: twenty findings opened, eleven of them High in the release gate, the 2026-08-05 design review's eleven merged, two of them renumbered) | **Two entries:** *The TPN re-audit of 2026-10-28 reports eleven High …* (under Security) and R2-01, the workspace takeout's missing tables (its own section at the end). Three entries carry a dated note of what the controller's kit records on staging and where production's step is: S4b-02, S4c-10, FX12-01. | **Nothing.** |
 | Post-overhaul M2 (2026-10-28; `po/m2-migration-part-2` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 2 (`docs/sessions/PLAN_TO_1_0.md` night 4): every part-2 row shape rehearsed on wilson-dev first (rolled back); the budgets behind the money gate (versions, lines, actuals, expenses, role rates, the two pointers, receipts kept money), the levels and experiences with what names them, the links on tasks; the phases', assets' and tasks' own checks; the second run's record; migration **0103** (the desktop's three statuses, her ruling of 2026-10-28) and suite **106**, on wilson-dev only; a cleared Director or Producer sent as NULL; two review rounds | M2-L1 (night 5's kinds, for M3), M2-L2 (`upsertTaskLink` sends `project_id`; measured, unreachable today), M2-L3 (a dry run on a cloud without 0103), and from review round 1 M2-L4 (receipts an earlier build left open, said every run), M2-L5 (crew lines out of the Crew tab until night 5), M2-L6 (what the dry run does not foresee), M2-L7 (a removed picture, unreachable), M2-L8 (the id trusted where no read can tell), and from review round 2 M2-L9 (three record rules that are choices) | the part-2 entry and the resurrection entry (closed, the second narrowed); M1-L3, M1-L4 and M1-L5 closed; M1-L1 and M1-L2 to night 5 (M2-L1). |
 | Post-overhaul D1 (2026-10-28; `po/d1-desktop-storage-across-relaunch` into `feat/post-overhaul-edit-versioning`) — the desktop keeps its stored state across a relaunch (`docs/design/RECONNECT_DESIGN.md` §12; her ruling of 2026-10-28, *"Fix it in 1.0, a session tonight (Recommended)"*, a fourth session on night 4): measured first (two launches of a development build, a new origin each), designed, the design reviewed on Opus (the Fable call refused, out of usage credits), built: the 4-hour cap from the token's own sign-in time at every restore (`start()` takes the earlier of its record and the `amr`; a fresh sign-in passes none), the renderer's `localStorage` kept in userData (`electron/rendererStorage.cjs`: the launch's first load made exactly the kept keys before the page's first script, written back once a second, when hidden and at `pagehide`; never the session, the idle clocks or tus fingerprints; a file Windows holds at launch never written over); the origin, the token, the cookie and the lock untouched; two build review rounds; walkthrough 85's D1 section | **D1-01** (security, there before D1: a page the main window is sent to, a dropped file's, is handed the preload's bridges; measured), **D1-02** (after a sleep the first key counts before the idle clock judges the absence; measured) | **S2-01** (closed by measurement: on the build a relaunch keeps the sign-in's start, 119.9 minutes left where the tip gave a fresh 240, and a relaunch 3 h 56 min after the sign-in shows *Session ending* 0.7 s after it opens, where the tip gave 239.8 minutes and no notice) and ***On the desktop, the browser's own storage most likely starts empty at every launch*** (closed by measurement: five keys written at one launch came back at the next with their values, where the tip kept none; a key written just before a reload or the window's close kept too; R.A.B.B.I.T.'s storage choice and last project were never in it, measured). Comment markers: 4 → 4. |
@@ -3008,7 +3019,11 @@ two review rounds found outside its scope.
 What M1 (night 3: the desktop → cloud migration, part 1) found outside its
 list while taking the inventory of the bundle (the handbook's §3.1 table).
 
-- **M1-L1 · No night of the plan carries asset versions or the desktop's own
+- **M1-L1 · ~~CLOSED by M3 (2026-10-28): each live managed file is a `files`
+  row with its body by the company's storage rule (`carryManagedFiles`,
+  `runMigrationBins.test.js`); asset versions by measurement — no desktop
+  writes one (0 rows on wilson-dev, `upsertAssetVersion` has no caller), so
+  the kind is named only when a bundle holds any.~~ No night of the plan carries asset versions or the desktop's own
   file store.** **→ Night 5's (M3): Audrey's ruling of 2026-10-28, "A night
   after part 2 (Recommended)"; M2-L1 holds the list.** The plan's §2 list for *the migration carries everything*
   names shot lists, edits, folders, comments, milestones, budgets, expenses,
@@ -3024,7 +3039,11 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   live managed file as a `files` row with its body (its folder by its
   `folder_path`, its entity link), after the folders; asset versions after the
   assets and files. Owner: the controller (a line for the plan).
-- **M1-L2 · (→ night 5's, M3: Audrey's ruling of 2026-10-28; M2-L1) No migration carries the workspace's rate cards, team members or
+- **M1-L2 · ~~CLOSED by M3 (2026-10-28): the rate cards with their entries
+  and the task templates go once per run (a workspace admin or the rate card
+  edit grant; a workspace admin or manager), the team through the people map
+  (matched by email, her ruling); department defaults stay (no cloud home,
+  counted).~~ (→ night 5's, M3: Audrey's ruling of 2026-10-28; M2-L1) No migration carries the workspace's rate cards, team members or
   task templates.** `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/`
   are workspace stores; the runner reads projects only
   (`/api/rabbit/projects`), and neither night's brief names them. A desktop's
@@ -3092,7 +3111,12 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
 What M2 (night 4: the desktop → cloud migration, part 2) leaves, and found
 outside its list.
 
-- **M2-L1 · Night 5 (M3) carries what no night has carried yet** (Audrey's
+- **M2-L1 · ~~CLOSED by M3 (2026-10-28): every kind on the list is carried or
+  settled — the team by email (the unmatched named, their rows arriving
+  without the person), a line's and a rate's person, the files kept with rows
+  (their bodies by the company's storage rule), the rate cards and templates,
+  the assets' template links restored by UPDATE; asset versions settled by
+  measurement (none exist).~~ Night 5 (M3) carries what no night has carried yet** (Audrey's
   ruling of 2026-10-28, "A night after part 2 (Recommended)"). MEASURED from
   the runner and the report (`NOT_CARRIED`'s later group): `teamAssignments`
   and `projectTeam` (they land in `project_members` by cloud user id, after
@@ -3121,7 +3145,11 @@ outside its list.
   without its status and says so. INFERRED from the runner (no probe of the
   type is made). Moot once 0103 is on every cloud the desktop reaches.
   Owner: none (said in the handbook's §17).
-- **M2-L4 · Receipts an earlier build carried as ordinary files stay open to
+- **M2-L4 · ~~CLOSED by M3 (2026-10-28): moved behind the gate — the picture,
+  the object (`files/` → `INVOICES/`, the Storage API's move measured as the
+  admin and as a plain-user project manager; a plain member refused on both,
+  42501), the row's flag, path and picture in one UPDATE; one that did not
+  take is said with its reason and the run is not done.~~ Receipts an earlier build carried as ordinary files stay open to
   every member of the project.** The night-3 build routed a file by its own
   flag, so a receipt kept before C4 (`is_financial` false, named by an
   expense or an actual) went up under `files/`, flagged false. Since review
@@ -3137,7 +3165,9 @@ outside its list.
   moves and flags each, said. MEASURED (the runner); INFERRED that one exists
   (only a project migrated by the night-3 build with a pre-C4 receipt).
   Owner: M3 or the controller.
-- **M2-L5 · A crew line priced for one of the desktop's team members cannot be
+- **M2-L5 · ~~CLOSED by M3 (2026-10-28): a line's person goes up by the people
+  map, and a line an earlier run carried without one is set once where the
+  cloud still holds nothing (`people_set`), a teammate's clearing standing.~~ A crew line priced for one of the desktop's team members cannot be
   reached in the Crew tab until night 5** (review round 1, M4). It goes up
   without its person (M2-L1), and the Crew tab lists people, so the line and
   its actuals show only in the Summary's totals. Audrey's Q1 in walkthrough
@@ -3157,7 +3187,11 @@ outside its list.
   rates' roles in the dry run, one paged read each); a project whose id is
   held out of the person's sight reads as arriving in the dry run, and only
   the real run meets its key (F7: no read can see it); the dry run counts no
-  set-aside rows. INFERRED from the runner unless said. Owner: none.
+  set-aside rows. M3's review round 2 adds one of the files kept with rows: one
+  whose id the cloud holds under another project is found only by the real
+  run's per-file read (said as not this project's), so the dry run counts it
+  as going and probes its body. INFERRED from the runner unless said. Owner:
+  none.
 - **M2-L7 · A clip's picture removed in the cloud would come back on the next
   run** (review round 1, L4). The runner uploads a picture for a clip whose
   cloud row has none; the record holds the clip, not its picture. Unreachable
@@ -3183,6 +3217,54 @@ outside its list.
   one (fix shape, if wanted: `<version>:<row>`). `SET_ASIDE_AGAIN` counts the
   rows asked, not those the function changed (it keeps an earlier stamp).
   INFERRED from the runner. Owner: none.
+
+## Post-overhaul M3 (`po/m3-migration-part-3`) — left open (2026-10-28)
+
+What M3 (night 5: the desktop → cloud migration, part 3) leaves, and found
+outside its list.
+
+- **M3-L1 · The ordinary `files` step sends every body to the Supabase bucket
+  whatever the company chose.** The runner's files step uploads through
+  `supabase.storage.from('rabbit-files')` with no read of the company's
+  storage rule, while the files kept with rows (M3) go where
+  `activeWorkspaceProvider` says (s3's provider, nothing for a server
+  company). MEASURED from the runner (the step predates the registry). An s3
+  company's desktop files land on Petal, where its browser upload would not
+  put them. Fix shape: route the ordinary files through the same
+  `storageRule()` as the managed ones, with the s3 bound and the server
+  sentence. Owner: the controller.
+- **M3-L2 · An s3 company's body is one PUT of a fetched Blob, up to 5 GiB.**
+  WILSON has no S3 multipart (S37), so the s3 provider's `put` takes a Blob;
+  the migration fetches the managed body whole (Chromium's blob store spills
+  to disk past its memory limit) and leaves one past
+  `S3_MAX_SINGLE_PUT_BYTES`, counted. The Range-fed path exists for Supabase
+  only. INFERRED (not measured against a bucket). Owner: none (the stated
+  limit of the s3 provider).
+- **M3-L3 · A raw desktop id a build before M3 left in a cloud person column
+  stays until the person has an account.** M3 sets the people on rows an
+  earlier run carried only where the map names the person; an unmatched
+  one's column keeps the desktop id (it names nobody — measured, no key), and
+  the next run after they join sets it once (`people_set`). Said in the
+  handbook's §17. Owner: none.
+- **M3-L4 · `task_templates` stamps no maker.** A template the migration (or
+  the adapter's upsert) inserts has `created_by` null — MEASURED on
+  wilson-dev: the table has 0004's `touch_updated_at` trigger and no
+  `fn_audit_touch`. 0044's gates read neither, so nothing hangs on it. Fix
+  shape, if wanted: the audit trigger on the table. Owner: none.
+- **M3-L5 · The dry run of a project not yet in the cloud counts its assets'
+  template links as linkable.** It cannot read rows that do not exist; the
+  real run links after the templates land, and a template refused then
+  leaves the link, counted (`assetTemplates`). INFERRED from the runner.
+  Owner: none.
+- **M3-L6 · A receipt's picture that cannot be moved is removed.** The move
+  behind the gate (M2-L4) removes a thumbnail it cannot move rather than
+  leave a legible JPEG of the receipt open; the browser then shows the icon
+  until the file is added again. By design (the design review's finding 1).
+  Owner: none.
+- **M3-L7 · Walkthrough 85's M2 Q2 and Q3 stay hers.** A *Carry everything
+  again* control (the record forgotten) and a list of the actuals whose
+  invoice was a path on one computer were not built: no ruling yet.
+  Owner: the controller (a line for the morning note).
 
 ## Post-overhaul DG4 (`po/dg4-dog-project-references-card`) — left open (2026-10-28)
 

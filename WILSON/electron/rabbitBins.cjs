@@ -1054,6 +1054,13 @@ function mountRabbitBins(expressApp, deps) {
     if (!isFile(abs)) return res.status(410).json({ error: 'file missing on disk', code: 'offline' });
     res.setHeader('Content-Type', safeMediaContentType(row.is_sequence ? guessMime(extOf(abs)) : (row.mime_type || guessMime(row.extension))));
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache.
+    // `cacheControl: false` only keeps send from writing its own header; a
+    // Cache-Control set here survives it (send sets one only when none is
+    // set), so these two are the gateway's BASE_HEADERS on the desktop's own
+    // streams.
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
     res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
       if (!err) return;
       if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
@@ -2324,6 +2331,13 @@ function mountCloudBins(expressApp, deps) {
     if (!(await statKind(abs, 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     res.setHeader('Content-Type', safeMediaContentType(guessMime(extOf(abs))));
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache.
+    // `cacheControl: false` only keeps send from writing its own header; a
+    // Cache-Control set here survives it (send sets one only when none is
+    // set), so these two are the gateway's BASE_HEADERS on the desktop's own
+    // streams.
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
     res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
       if (!err) return;
       if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;

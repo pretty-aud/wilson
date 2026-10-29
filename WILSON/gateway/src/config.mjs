@@ -9,6 +9,11 @@
 //   inside.addresses          a pinned list (interfaces.mjs still checks each)
 //   inside.certificate        { cert, key } file names in the state folder:
 //                             the company's own leaf, instead of the gateway's
+//   inside.ip_sans            P8 (TPN-ENC-013): true, false or absent. Whether
+//                             the office-door leaf names this host's ADDRESSES
+//                             (IP SANs) as well as its names. Absent: an
+//                             install whose leaf already names addresses keeps
+//                             them; a new install names the host alone
 //   outside.port              8444 (D2): the door the router forwards to
 //   outside.behind_local_proxy   the NAS's reverse proxy on this host: the
 //                             outside door listens on loopback only and takes
@@ -31,7 +36,7 @@ import { isServerName } from './rules/mountRule.mjs';
 export const DEFAULT_CONFIG = Object.freeze({
   cloud_url: null,
   name: null,
-  inside: { port: 8443, addresses: null, certificate: null },
+  inside: { port: 8443, addresses: null, certificate: null, ip_sans: null },
   outside: { port: 8444, behind_local_proxy: false, declared_proxy: null, certificate: null },
   limits: {},
   // Windows: the servers this gateway may contact without a share login (a
@@ -69,6 +74,8 @@ export function parseConfig(text) {
     else problems.push('inside.addresses (a list of addresses)');
   }
   c.inside.certificate = certificatePair(ri.certificate, problems, 'inside');
+  // P8 (TPN-ENC-013): whether the office-door leaf names this host's addresses too.
+  if (ri.ip_sans !== undefined) { if (typeof ri.ip_sans === 'boolean') c.inside.ip_sans = ri.ip_sans; else problems.push('inside.ip_sans (true or false)'); }
   if (ri.behind_local_proxy !== undefined) problems.push('inside.behind_local_proxy does not exist: only the outside door can sit behind a proxy (design §4)');
   if (ro.port !== undefined) { if (isPort(ro.port)) c.outside.port = ro.port; else problems.push('outside.port'); }
   if (ro.behind_local_proxy !== undefined) { if (typeof ro.behind_local_proxy === 'boolean') c.outside.behind_local_proxy = ro.behind_local_proxy; else problems.push('outside.behind_local_proxy'); }

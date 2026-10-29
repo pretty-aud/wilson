@@ -359,11 +359,26 @@ next run and one a teammate undid stays undone; and `receipts_open` (each
 receipt an earlier build left open in the cloud: said on every run while it
 stays open, and, once removed there, never brought back — review round 2). A
 Legal file is never asked about (0092's gate is not asked per project; to a
-person it shuts out, an earlier run's would read as removed).
+person it shuts out, an earlier run's would read as removed). M3 (night 5,
+2026-10-28): the roster's seats join the record by user id under
+`project_members` (the table has no id; compared against the project's
+seats); the people set on rows an earlier run carried without them under
+`people_set` (`<kind>:<row>:<column>`, each once, so a teammate who clears
+one is not overruled — and a row that arrives with its person is recorded
+there at the insert, review round 1, so the rule holds from the first run;
+a column that arrived empty is not, and is set once its person joins); the
+files the desktop keeps with its rows under
+`files`; and the workspace kinds — the rate cards, their entries (inserted
+only) and the templates — in a **workspace-level record** the desktop keeps
+beside their stores (`rabbit-data/cloud-migration/<workspace id>.json`,
+`GET`/`POST /api/rabbit/workspaces/:workspaceId/cloud-migration-record`, the
+same append-only merge; a body naming another workspace is refused): a
+workspace kind is nobody's project, and Archive and clear local takes the
+stores and their record together.
 
 | Kept on the desktop | Carried by | Where in the cloud, and what stays |
 |---|---|---|
-| `project` | the runner; M1 through the cloud's columns | `projects`, each value as its column takes it (review round 1, read on wilson-dev). Its status as it is: since 0103 (M2, Audrey's ruling of 2026-10-28) the type has the desktop's eight — `draft`, `active`, `on_hold`, `inactive`, `wrapped`, `completed`, `archived`, `cancelled`; a cloud without 0103 refuses Draft, Wrapped and Inactive (22P02, measured), and the runner sends the row again without its status, so it arrives as active, named; a word no build offers is left out the same way. The dates are the column's own (R.A.B.B.I.T.'s settings write `start_date` alone, later), else D.O.G.'s `startDate` / `endDate` (its new-project window writes those alone), each as the day a DATE column stores: the literal day of a string that starts with one (review round 2, measured: `'2026-12-01T00:00:00.000Z'::date` is 2026-12-01; the settings store a picked day as its midnight in UTC, which a local reading moved back a day west of Greenwich); a cleared date (`''`, which a DATE refuses) goes up empty; a null where the column is NOT NULL with a default (a cleared frame rate) is left out, so the default applies; a number past its column's room (NUMERIC(12,2), (7,3), (6,2), INTEGER), a fraction in a whole-number column, an unreadable date are left out and named in the settings' words (`VALUES_NOT_IN_CLOUD`); no title, "Untitled Project". `producer_id` and `director_id` go up as the desktop holds them when each is an id (UUID, no foreign key): a desktop team member's id names no one in the cloud until a later run carries the team (`fn_projects_auto_staff` staffs only a workspace member); a cleared picker's `''` (22P02, measured) goes up empty, and any other non-id empty and named. Stays: `documents` and `visualAssets` (no columns: Settings' "Move deck attachments into project files" moves them; the report counts any left), `files_dir` and `folder_root` (this computer's folders; the cloud takes a project folder only from an admin or a manager inside the company's drive), who the file says made it (the cloud stamps the person; `fn_projects_auto_staff` makes them the project's manager — measured). `active_shot_list_id` is set by M1 through `set_active_shot_list()` once the lists are in; `budget_active_version_id` and `open_budget_version_id` by M2 after the versions (below). Before M1 every desktop project was refused whole (measured: 42703 on `documents`). |
+| `project` | the runner; M1 through the cloud's columns | `projects`, each value as its column takes it (review round 1, read on wilson-dev). Its status as it is: since 0103 (M2, Audrey's ruling of 2026-10-28) the type has the desktop's eight — `draft`, `active`, `on_hold`, `inactive`, `wrapped`, `completed`, `archived`, `cancelled`; a cloud without 0103 refuses Draft, Wrapped and Inactive (22P02, measured), and the runner sends the row again without its status, so it arrives as active, named; a word no build offers is left out the same way. The dates are the column's own (R.A.B.B.I.T.'s settings write `start_date` alone, later), else D.O.G.'s `startDate` / `endDate` (its new-project window writes those alone), each as the day a DATE column stores: the literal day of a string that starts with one (review round 2, measured: `'2026-12-01T00:00:00.000Z'::date` is 2026-12-01; the settings store a picked day as its midnight in UTC, which a local reading moved back a day west of Greenwich); a cleared date (`''`, which a DATE refuses) goes up empty; a null where the column is NOT NULL with a default (a cleared frame rate) is left out, so the default applies; a number past its column's room (NUMERIC(12,2), (7,3), (6,2), INTEGER), a fraction in a whole-number column, an unreadable date are left out and named in the settings' words (`VALUES_NOT_IN_CLOUD`); no title, "Untitled Project". `producer_id` and `director_id` go through the people map since M3 (night 5): the account the desktop team member's email matches, or empty and counted (`projectPeople`) until they join, when the next run sets it once (`people_set`) — never a raw desktop id (UUID, no foreign key: it would name no one; `fn_projects_auto_staff` staffs only a workspace member, so a matched producer is seated as the project's manager, named); a cleared picker's `''` (22P02, measured) goes up empty, and any other non-id empty and named. Stays: `documents` and `visualAssets` (no columns: Settings' "Move deck attachments into project files" moves them; the report counts any left), `files_dir` and `folder_root` (this computer's folders; the cloud takes a project folder only from an admin or a manager inside the company's drive), who the file says made it (the cloud stamps the person; `fn_projects_auto_staff` makes them the project's manager — measured). `active_shot_list_id` is set by M1 through `set_active_shot_list()` once the lists are in; `budget_active_version_id` and `open_budget_version_id` by M2 after the versions (below). Before M1 every desktop project was refused whole (measured: 42703 on `documents`). |
 | `phases`, `assets`, `tasks`, `dependencies` | the runner; M2 checks them | `phases` (parents first), `assets`, `tasks`, `task_dependencies` and `phase_dependencies`. M2 (OUTSTANDING M1-L5): this project's rows of the three are read before they go up, so an id another project holds is said (never read as already there) and what names it lets the link go; a phase link — a phase's parent, an asset's or a task's phase, plain keys that take any project's phase (measured) — is kept only to a phase of this project in the cloud: one that failed in this run keeps the row with it, one removed on this computer, in the cloud's trash or another project's is let go, counted (`ROW_LINKS_LET_GO`). An asset's levels and experiences (two arrays, no key) the same way, after them; its task template stays (the company's templates are a later run's; `assets_task_template_id_fkey` refused the whole asset — measured). |
 | `milestones` | M1 | `milestones` (the Timeline's key dates), after the phases. One in this computer's Recently deleted is not carried; one in the cloud's trash keeps its id there and is skipped (read through `milestones_trash_index`). A phase link only to this project's phase: one whose phase did not land in this run fails with it (a second run brings both), as does one whose phase could not be checked (the read failed: said so); one to a phase removed on this computer (its delete leaves the link), in the cloud's trash, or not this project's, is let go, counted and named; a cleared picker's `''` is no phase. |
 | `levels`, `experiences` | M2 | `levels`, `experiences` (0040), right after the key dates — before the assets, folders, files, a task's items and the groupings that name them. A status outside 0040's nine, or none (NOT NULL: 23502, measured), takes the default; the older add's `files` key (42703, measured) is not sent; a picture is a path on this computer's disk and stays, counted with the scenes' and shots'. |
@@ -376,10 +391,12 @@ person it shuts out, an earlier run's would read as removed).
 | `scenes`, `shots`, `bins`, `binFiles`, `binRoots`, `shotTakes` | the runner (BC3) | `scenes`, `shots`, `bins`, `bin_files` under the footage location each root was named as (the roots are the question), `shot_takes`. A scene's or shot's picture stays (a file on this computer). |
 | `taskItems` | the runner (FX2) | `task_items`; since M2 a task's levels and experiences too (task_items' keys hold each to this project's row, 23503 — measured). |
 | `tableViews`, `itemGroupings` | the runner (VW1c) | `table_views`, `item_groupings`; since M2 a grouping of levels or experiences too. |
-| `teamAssignments`, `projectTeam` | a later run (night 5) | Named in the report as a later run's: they land in `project_members` by cloud user id, after Audrey rules on people without accounts. |
-| `assetVersions`, `managedFiles` | a later run (night 5) | Named in the report (managed files: the files kept with an asset, scene, shot, level or experience in its folder on this computer). `docs/OUTSTANDING.md`, night 5's entry. |
-| `fileEvents`, `ingestionRuns`, `ingestionChunks`, `tableViewRevision`, `legalLabelsStripped`, `legalLabelsSettled`, `cloudMigration` | not a migration's | This computer's own records: what happened to its files (the cloud's `file_events` is written by the database from the move on), past intake runs, its view-revision counter (the cloud numbers its own), the S4b label clean-up, and (M2) the record of what each run carried. Kept in the archive file. |
-| `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/` | a later run (night 5) | Workspace-level stores, not a project's: the runner reads projects only. |
+| `teamAssignments` | M3 | `project_members`, right after the project row. Each assignment whose person the **people map** names — desktop team-member id → cloud user id by email through `workspace_directory()`, for a caller whose live role is admin or manager (a plain member sees only their own email — measured — and matches nobody: one sentence, nothing fails), active accounts only, two desktop entries with one email both naming the one account (her ruling of 2026-10-28: the others stay here, named by desktop name, their rows arriving without the person until they join; no email is sent) — is INSERTED, never upserted: the table has no `id`, `workspace_id` is overwritten from the project (measured), a 23505 on the pair is a seat that is there (the mover's own, which the project's insert made — measured; or one already given), skipped and recorded under the person's id. The role as the desktop says (outside the three, `member`, counted), the member's job title as `project_title`, the dates left (no columns, counted). A desktop "manager" is a project manager in the cloud (its budget, its roster), and so is a producer the map names (`fn_projects_auto_staff` — measured): both named in the report. A seat the cloud refuses (42501: not an admin or manager, nor the project's manager) is counted and the run is not done. Every other person column goes through the same map: a line's `team_member_id`, a rate's `member_id` (a team member's rate is carried when its person has an account), an entry's, a task's assignee and reviewer, the project's producer and director — unmatched → empty, counted, never a raw desktop id. Rows an earlier run carried without their person are set once where the cloud still holds nothing or the raw id (`people_set`). |
+| `projectTeam` | no run | A derived copy (`BudgetView.jsx`'s effect mirrors team members ∩ assignments to `team.json`): the cloud derives it from the roster (`loadProject` maps `project_members` to `teamAssignments`). Named as that. |
+| `managedFiles` | M3 | `files`, after the ordinary files, each live row through the files columns (`managedFileRowForCloud`): its id, its own name with its extension, mime type and size, its six links checked as a file's are (a row that failed holds the file, one removed here is let go), its folder by `folder_path` through M1's folders (else its entity's), its notes as the description — behind the version label when past the first version, so two copies of one name are told apart — its tags (never Legal: a managed file is neither money nor Legal), the day it was added. Left and counted: `version`, `version_label`, `stored_name` (no columns — 42703, measured), the desktop's cache path and uploader, `storage_provider: 'local_managed'` (no such value — 22P02, measured). The body where the company keeps its media (`getWorkspaceStorageCached` → `activeWorkspaceProvider`, failing closed): **petal** → the Supabase provider — under `RESUMABLE_THRESHOLD_BYTES` one Blob and the standard put (a thumbnail as uploadFile makes one, for an image), above it the provider's resumable path **fed by Range requests** six MiB at a time (`rangeSource`: tus reads the source it is handed through its `fileReader` option, `resumableUpload.js`), reserved first by the provider (0073), the key never reused (the file's directory is listed and an object of the body's size taken as the body; else a new key with the moment in it); **s3** → one PUT up to 5 GiB (no multipart; a larger body left, counted); **network** → nothing uploaded, no row, one sentence (her ruling of 2026-10-28: the browser says where the files are); a **private** project → nothing (its media lives on the computer that added it; uploadFile's rule, without the `local_server` row the browser upload would write — a stated 1.0 difference). Before a byte moves the row is asked for, the links and the folder checked, and the body's true size taken by one Range request to `…/managed-files/:id/stream?probe=1` (no `downloaded` event per file: the cloud's `uploaded` event and the record are the record of the move); **410** (a body not on the disk: a drive unmounted, a folder moved) is counted, said, and the run is not done — Archive would clear the only metadata of intact files. |
+| `assetVersions` | no run | No desktop writes one: the route and the bundle key exist, `upsertAssetVersion` is defined by four adapters and called by nothing (0 rows on wilson-dev, 2026-10-28). Counted only when a bundle holds any, which the dry run measures. |
+| `fileEvents`, `ingestionRuns`, `ingestionChunks`, `tableViewRevision`, `legalLabelsStripped`, `legalLabelsSettled`, `cloudMigration` | not a migration's | This computer's own records: what happened to its files (the cloud's `file_events` is written by the database from the move on), past intake runs, its view-revision counter (the cloud numbers its own), the S4b label clean-up, and (M2) the record of what each run carried (M3: the workspace kinds' record under `rabbit-data/cloud-migration/`). Kept in the archive file. |
+| `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/` | M3 | Read once per run under the seed workspace id (written signed out) and this workspace's. **Team members**: no rows of their own in the cloud — the people map (above). **Rate cards**: `rate_cards` and `rate_card_entries`, before the projects, only for a workspace admin or someone with the rate card edit grant (entries are refused to anyone else: 42501 — measured; a card without its entries is noise, so the step waits and says so, and the run is not done); each card by its own id with the cloud's workspace (none, or the desktop's seed id, is refused before anything else — 42501, measured), `type` within the two (23514 otherwise), `is_default` only where the cloud has no default of that type (the cloud's own General and Internal pair is left alone), `source_file_id` left; the desktop's auto-made empty shells (no entries, no defaults) not carried, counted; a 23505 while the card is not among the readable ones is a trashed or another company's card (the same answer — measured): refused in words, never recorded. Entries by their own ids through the columns (the desktop's computed `total` dropped — 42703; a blank number none — 22P02; a type outside percent|fixed is percent — 23514; `wage ?? day_rate`), an internal entry's person by the map (one without an account left, counted), inserted ones recorded. **Department defaults**: no cloud home (no table, no adapter function; the desktop's card save already drops them) — counted, never carried. **Task templates**: `task_templates`, after the projects, with the cloud's workspace sent explicitly, `tasks` in the desktop's shape (`name`; an older row's `title` read as its name), a pinned one only after its project is in the cloud as this workspace's (the composite key refuses any other — 23503, measured; one whose project failed waits, one whose project is not on this computer is left, counted), written by an admin or manager (a pinned one by its project's manager; refused: counted, the run not done); then the assets' links restored by UPDATE only to templates this run carried or read under this workspace (the key takes another workspace's — measured — so the set is the guard) and only where empty. |
 | O.T.T.E.R.'s courses (`otter-data/`) | its own migration | `runOtterMigration.js` (the O.T.T.E.R. panel beside this one). |
 | The pet, O.T.T.E.R.'s settings, the agent's skills | adoption on sign-in | `src/lib/userState.js`, per person (0046), not the runner. |
 | `session.enc`, `env.json`, the Drive files, the thumbnail cache, `archives/` | not a migration's | This computer's. Notes are cloud-only; D.O.G. has no local deck store. |
@@ -3286,7 +3303,19 @@ lands under `INVOICES` with `is_financial` true, counted and said
 (`RECEIPTS_GATED`; `runMigrationBins.test.js`, with its control: a file
 nothing names stays an ordinary file). Measured on the fixtures first: both
 receipts there were flagged, so the residual was zero there. On the desktop
-itself the stranded copies stay as they were.
+itself the stranded copies stay as they were. **The receipts the night-3
+build carried OPEN in the cloud are moved behind the gate by M3 (2026-10-28,
+OUTSTANDING M2-L4):** the picture first (a legible JPEG of the receipt at
+`<key>.jpg` in `rabbit-thumbnails` — moved, or removed when it cannot be
+moved, never left open), then the object (`files/` → `INVOICES/`, the Storage
+API's move under 0092's policies — measured as the admin and as a plain user
+who is the project's manager; a plain member is refused on the object and on
+the row, 42501 both), then the row's `is_financial`, `storage_path` and
+`thumbnail_url` in one UPDATE (`files_money_key_chk` and `trg_files_legal_fixed`
+agree, measured); a move that did not take is said with its reason among the
+errors, the receipt stays open and the run is not done; a body moved before
+the row changed (a run that stopped) is not moved again. Only past the money
+gate, so the gate is the cloud's.
 
 **Reading a receipt back.** Marking it financial removed it from both surfaces
 that could open a file — `FileManager` and `ProjectsPage`'s **Project Files** table both
@@ -4426,10 +4455,17 @@ comments, shot lists with their items and edits, and its folders, each file
 filed in its folder, and the project row through the cloud's columns (every
 desktop project row had been refused whole); since M2 (night 4, 2026-10-28)
 its budget behind the money gate, its levels and experiences with what names
-them, and the links on its tasks; the team, an asset's versions and the files
-kept with its rows on this computer are a later run's (night 5), and the
-report names them apart from what no migration carries. What each bundle key
-becomes is §3.1's inventory. Each run keeps a record in the project's bundle
+them, and the links on its tasks; since M3 (night 5, 2026-10-28) its roster —
+the desktop's team matched to company accounts by email, for a workspace
+admin or manager, the unmatched named by desktop name and their rows arriving
+without the person until they join (her ruling of that evening) — the files
+the desktop keeps with its rows (their bodies where the company keeps its
+media; a company on its own server keeps them there, her ruling), the
+company's rate cards and task templates (once per run), and the receipts an
+earlier build left open moved behind the gate; what no run carries is named
+apart (the project team mirror, an asset version, a rate card's department
+defaults, an assignment's dates, a file's version label). What each bundle
+key becomes is §3.1's inventory. Each run keeps a record in the project's bundle
 of what it carried, and a later run never inserts an id it holds: a row a
 teammate removed in the cloud since — for good or into the trash — stays
 removed, named in the report (§3.1, the second run's record). O.T.T.E.R.'s reads local courses with **raw `fetch`, never
@@ -5749,22 +5785,35 @@ of a session — this section is limits by design, that file is faults.
 
 **The desktop → cloud migration, parts 1 and 2 (M1 — 2026-10-27; M2 — 2026-10-28)**
 
-- **A later run carries the rest** (M3, night 5, Audrey's ruling of
-  2026-10-28): the team (`teamAssignments`, `projectTeam`, and what a budget
-  line or a rate says of a team member), an asset's version history, the
-  files the desktop keeps with an asset, scene, shot, level or experience
-  (their contents uploaded), the company's rate cards and task templates (and
-  the template an asset was made from). The report names each as a later
-  run's (`docs/OUTSTANDING.md`, night 5's entry).
+- **The team, the files kept with rows, the rate cards and the templates
+  move since M3** (night 5, 2026-10-28, her rulings of that evening): the
+  desktop's team by email through `workspace_directory()` (a workspace admin
+  or manager; a plain member matches nobody, said once), every person column
+  by the map, the roster inserted and never upserted, the files the desktop
+  keeps with its rows where the company keeps its media (a server company's
+  stay — her ruling), the rate cards and entries (admin or the edit grant),
+  the templates (admin or manager), the assets' links restored. **What
+  stays, said as that:** a team member without a WILSON account — their
+  seats, lines, rates and tasks arrive without the person until they join,
+  and a raw desktop id a build before M3 left in a cloud column stays until
+  then (the next run sets it once matched); a rate card's department defaults
+  (no cloud home); an assignment's dates (no columns); a managed file's
+  version label and stored name (its label rides in the description past the
+  first version); a server company's and a private project's files kept with
+  rows; an s3 company's body past 5 GiB (no multipart: one PUT of a fetched
+  Blob, Chromium's blob store spilling to disk); an asset version (no desktop
+  writes one). **The ordinary `files` step still sends every body to the
+  Supabase bucket whatever the company chose** (OUTSTANDING M3-L1).
 - **A budget moves only for whoever may see it** (M2): a workspace admin or
   the project's manager — the person who inserts the project is, by
   `fn_projects_auto_staff`. Anyone else's run leaves the budget, its receipts
   and its bid version pointers on this computer, said once, and the panel
   offers no archive while it stays.
-- **Receipts an earlier build carried open stay open** (M2-L4): the night-3
-  build routed a file by its own flag, so a receipt kept before C4 went up
-  as an ordinary file. M2 says so on every run and cannot move one behind the
-  gate yet.
+- **Receipts an earlier build carried open are moved behind the gate**
+  (M3, M2-L4): the night-3 build routed a file by its own flag, so a receipt
+  kept before C4 went up as an ordinary file; M3 moves its picture, its
+  object and its row, in that order, past the money gate (§12.9); one that
+  did not take is said with its reason and the run is not done.
 - **The record covers what this build carried.** A row carried by a build
   before M2 has no record, so the first M2 run cannot tell one a teammate
   removed since from one never carried, and brings it back; from then on the

@@ -261,8 +261,12 @@ describe('the wiring is real — every link in the presign chain has a caller', 
   })
 
   it('teardown states what it leaves: byo_bodies_left rides the certificate', () => {
-    const fn = read('supabase', 'functions', 'operator-workspaces', 'index.ts')
-    expect(fn).toContain('byo_bodies_left')
+    const cert = read('supabase', 'functions', 'operator-workspaces', 'index.ts')
+    expect(cert).toContain('byo_bodies_left')
+    // P8 (TPN-CONT-018): the counting moved, verbatim, with collectBlobPaths
+    // into _shared/teardownCollect.ts, where vitest drives it; the pins on the
+    // counting read that file, the certificate's line reads index.ts.
+    const fn = read('supabase', 'functions', '_shared', 'teardownCollect.ts')
     // BOTH sources — a purged-but-undrained body has no files row and is
     // exactly what a failed drain left in the customer's bucket.
     expect(fn).toContain("eq('storage_provider', 's3')")

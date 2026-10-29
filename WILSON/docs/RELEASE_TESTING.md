@@ -556,7 +556,7 @@ brackets), limits by design in `docs/SYSTEMS_HANDBOOK.md` §17.
 25. A click on a D.O.G. checkbox's words does nothing; only its box ticks it (DG4-01, MEASURED).
 
 **Everywhere**
-26. A new avatar may not last (*Avatar does not persist*, REPORTED, cause unproven; 0102 is reserved for its policy).
+26. A new avatar may not last (*Avatar does not persist*, REPORTED, cause unproven; a migration for it takes the next free number).
 27. Screen-reader names, Tab stops, landmarks, forced colours and minimum font sizes, and about 160 polish entries, wait for 1.1
     (plan §2, §3).
 
@@ -579,10 +579,11 @@ Plan §0, the four conditions, as boxes:
 - [ ] **The TPN re-audit** (plan §0 item 4: "after the TPN re-audit reports nothing High"): `TPN_AUDIT/SUMMARY.md`'s *Release gate*
       reads 0 Critical and 0 High open in the four areas. On 2026-10-28 it reads 11 High; walkthrough 85 Q1 and Q2 propose that her
       ruling on each count as nothing High. Q1 was ruled the same day: seven fixed before the release (Phase 8), TPN-AI-009
-      accepted for the start of the production steps; Q2 waits.
+      accepted for the start of the production steps; Q2 too: the three instances are fixed in that session, ten in all.
 - [ ] **The controller's production steps**: `docs/PRODUCTION_RUNBOOK.md` in the order of its (g), her steps and the controller's
       interleaved, production's AI-files sweep before 2026-11-09 among them.
 - [ ] **The release**: `package.json` at `1.0.0` (it is); `CHANGELOG.md`'s 1.0.0 entry dated in the release commit; PR #4
       (`feat/multi-user-v1` into `main`) merged with a merge commit, never a squash; the tag `v1.0.0` on that merge commit, pushed.
       Vercel's production branch is `feat/multi-user-v1` (`docs/WEB_DEPLOY.md`), so merging into `main` deploys nothing on the
-      beta; where 1.0.0's web app lives is her question in walkthrough 85.
+      beta. By her ruling of 2026-10-28 (walkthrough 85 Q3, (a)), 1.0.0's web app is a second Vercel project, on production at
+      its own address, and the beta stays on staging (`docs/PRODUCTION_RUNBOOK.md` (f)).

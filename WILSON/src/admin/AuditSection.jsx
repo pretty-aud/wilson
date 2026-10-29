@@ -57,6 +57,8 @@ const ACTIONS = [
   ['blob.purged', 'Blobs purged'],
   ['ai_key.set', 'AI key set'],
   ['ai_key.cleared', 'AI key cleared'],
+  // P8 (TPN-ENC-015; 0106): the master secrets' re-seal, counts only.
+  ['secret.resealed', 'Secret re-sealed'],
   // ⚠️ PRE-EXISTING GAP, found by platformAuditActions.test.js on its first run
   // (S41) — not by anyone reading this file. 0028 has admitted these two since
   // S15 and this list has never carried them. Inert so far only because nothing

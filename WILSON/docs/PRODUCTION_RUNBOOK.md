@@ -29,8 +29,9 @@ for 1.0 with the reason written into the finding) count as nothing High; that is
 answers, (g) 8 does not pass. **Q1 was answered on 2026-10-28** ((a); her words in `TPN_AUDIT/SUMMARY.md` and in each finding):
 the seven of the areas' own other than TPN-AI-009 are fixed before the release by one session on Phase 8 of
 `TPN_AUDIT/REMEDIATION_PLAN.md`, so its merge comes before (g) 8 and the release commit carries it; TPN-AI-009 is accepted for the
-start of the production steps and closes at (c) and (g) 17, which must run before 2026-11-09 for her reason to hold. Q2 still
-holds (g) 8.
+start of the production steps and closes at (c) and (g) 17, which must run before 2026-11-09 for her reason to hold. **Q2 was
+answered the same day** ((a)): TPN-AUTH-013, TPN-CONT-019 and TPN-AI-011 are fixed by the same session, so (g) 8 waits for its
+merge, its ten fixes checked against Phase 8's exit criteria.
 
 **The release commit** is `feat/multi-user-v1`'s tip after the last beta merge and after (g) 8 has dated `CHANGELOG.md`'s 1.0.0
 heading there. Every deploy, every md5, the web build and the installer come from it, and the tag goes on PR #4's merge of it, so
@@ -96,7 +97,8 @@ The link asks for production's database password; she types it. Proof: `supabase
 
 **What production lacks** ([P] §1, [K]): every file from 0064 to the last merged. On 2026-10-28 that is the 34 files below: the
 33 through **0101**, and **0103**, which M2 merged (night 4; P1 merged with none, `po-p1-2026-10-28.md` §2). Dev and staging are at
-0101 ([P] night 3, 2026-10-28 05:05 UTC), and dev also holds 0103 (`po-m2-2026-10-28.md`, by query).
+0101 ([P] night 3, 2026-10-28 05:05 UTC), and dev also holds 0103 (`po-m2-2026-10-28.md`, by query). From night 5 dev also holds **0104, 0105 and 0106** (P8,
+`po-p8-2026-10-28.md` §2, by query), so production lacks 37 files and staging owes those three with suites 107 to 109.
 
 **The house method, per file** ([B1] §4; [K]). For file `NNNN_name.sql`:
 
@@ -174,14 +176,20 @@ suite 106.
 | `0100_otter_subject_shares` | refuses unless the applying role has BYPASSRLS (a1) | 103 | `19491dd13c1a118dbc0627bc5e6a7146` |
 | `0101_versions_and_items_realtime` | needs 0096, 0072, 0037, 0016 and 0018. Probe ([K]): triggers `trg_budget_versions_realtime:O, trg_task_items_ws_realtime:O`, and `md5(replace(prosrc, chr(13), ''))` of `public.fn_realtime_broadcast()` still `e5abdcf2b8abce914416acb148144971` | 104 | `d87f3daed0de606a12f42970f89aedc0` |
 | `0103_project_status_desktop_values` (M2) | three `ALTER TYPE public.project_status ADD VALUE IF NOT EXISTS` and nothing else, since a value cannot be used in the transaction that adds it; applied as its header says, the statements in one call and the history row in a second; rehearse it alone (step 2), and run suite 106 only after it commits, never in one transaction with it. **An enum value cannot be removed** (h) | 106 | `1426f7c5501dd8000b25e903975d9cf7` (at `4953cf64`, as M2 recorded it) |
+| `0104_bins_vetted_and_gateway_names` (P8) | needs 0093 and 0095 in their final shape (restates `gateway_enrol_apply`, `gateway_sync_apply`, `gateways_visible` and `gateway_clips_for_tickets` whole, the header diffing each). **No backfill**: every existing `bin_files` and `bin_locations` row starts unchecked, and the gateway serves none of them until an admin or manager marks it (the Bins tab's **Mark as checked**); write the counts at the apply (dev's: 2 clips, 2 locations, all unchecked, `po-p8-2026-10-28.md` §2), then stamp the environment's own fixture rows as postgres with `vetted_by` NULL (the migration's mark) where CI's gateway-ticket probe or a demo depends on them, as dev's GW1 rows were: the probe asks a ticket for its fixture clip and reads `missing` for an unchecked one. A customer's rows are an admin's or manager's to mark. `gateway-enrol`, `gateway-sync` and `gateway-reach` after it, (c). Its §3b restates `copy_bin_files` and `restore_bin_files` (a copy or an undo is no check) and a check or a withdrawal by hand is of the file (an AFTER trigger), build rounds 1 and 2's corrections: dev holds the corrected file (its §3 and §3b re-applied as statements, the history row's statements replaced); staging applies the file as committed | 107 | `8d9e3c61a8b6fd370fa6111cd01dc9fc` |
+| `0105_two_factor_step_up` (P8) | needs 0093, 0048 and 0104; `two_factor_satisfied()` reads `auth.mfa_factors` (the applying role must, a1). An admin signed in without their authenticator code can no longer flip the switch, manage the gateway or change the storage settings (the app's sign-in gives aal2). `gateway-reach` after it, (c) | 108 | `600918749bd670dc076f402d7f3f1267` |
+| `0106_s3_endpoint_public_hosts` (P8) | restates 0052's `workspace_storage_s3_config_chk` with the public-host arm (its pre-flight counts the rows the arm would refuse and stops with the count, none on dev) and 0066's `platform_audit_action_check` with `secret.resealed`; `storage-secret`, `storage-gc` and `operator-ai-keys` after it, (c) | 109 | `50f8f796ef8c309047a3824f65b35474` |
 
 **The numbers with no file, so nobody looks for them:** **0065** (the subject-shares draft of 2026-08-12, applied on no
 environment, removed by B1; 0100 replaced it); **0079** and **0080** (reserved on paper for bins and assemblies, retired by 0091:
 they would sort before files already applied everywhere, and edits superseded assemblies); **0087** (held for S3b, never used);
 **0094** (reserved, with suite 97, for aligning 0091's `unc_path` CHECK, BC3's deferral; `po-gw5-2026-10-12.md` leaves it to the
-controller); **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6). 0094 already sorts
-before files applied on dev and staging (0095 to 0101), and 0102 does on dev, where M2 applied 0103, the reason 0079 was retired:
-walkthrough 85, Q5.
+controller) and **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6), **both retired on
+paper with their suites** by her ruling of 2026-10-28 (walkthrough 85 Q4 and Q5, in chat, verbatim:
+*"go with each one is safest and you recommend"*, Q5's (a)): each would now sort before files already applied (0095 to 0101 and 0103
+on dev and staging, P8's 0104 to 0106 on dev), the reason 0079 was retired, so either change, if it is ever written, takes the next
+free numbers, 0107 and suite 110 at P8's merge. The files that still call them reserved (0093, 0095, 0096, 0098, 0103 and P8's 0104,
+in their comments) are applied and stay as they are: (b) proves each by its md5.
 
 ---
 
@@ -191,6 +199,12 @@ walkthrough 85, Q5.
 that every function bundles (`_shared/adminGuard.ts` reaches 21 of the 23; a change to a shared module is a redeploy of every
 function that bundles it), and the documents disagree about what is there (below). A version number counts per project and proves
 nothing across them: *"Diff the source, never the version"* (`docs/MASTER_PLAN.md`).
+
+**P8 (night 5, 2026-10-28) redeployed these on wilson-dev; staging owes each, and production deploys all 23 anyway:**
+`storage-secret` and `storage-gc` (TPN-NET-016, TPN-ENC-015), `operator-workspaces` (TPN-CONT-018), `ai-files` (TPN-AI-011,
+TPN-ENC-015), `gateway-reach` (TPN-AUTH-013), `gateway-enrol` and `gateway-sync` (TPN-ENC-013; after 0104), `operator-ai-keys`,
+`storage-presign` and `storage-read-urls` (TPN-ENC-015). `ai-proxy` was not redeployed (outside the four areas) and must be before
+any AI-key re-seal, (d). Deploy the ten after 0104, 0105 and 0106 are applied and recorded, (b).
 
 **First, the rollback copies.** Production's current functions came from several commits, so the only copy of each is the deployed
 one. A download writes `supabase\functions\<name>\` and the `_shared` files it bundles under its workdir, overwriting what is
@@ -283,6 +297,25 @@ before the release (walkthrough 85 Q1, (a), 2026-10-28), and production is the c
 secrets and 0 AI keys, a fresh value there orphans nothing. The value is made and set as the gateway's is below. Phase 8's session
 plans the other two environments with the controller (`TPN_AUDIT/REMEDIATION_PLAN.md`: a re-seal where ciphertexts exist).
 
+**The re-seal on dev and staging** (P8, night 5, 2026-10-28; the code reads a secret by version: the unsuffixed name is version 1,
+`_V2` to `_V9` the rest, the highest present seals new rows, and a row is opened under the version its envelope names). Each
+secret separately, dev first, then staging, and nothing on production (it gets a fresh version-1 value above, with no rows to
+move): (1) `supabase secrets list --project-ref <ref>` and note the digest beside the name; (2) make and set the NEXT version
+without showing it — the two lines of *Setting what production lacks* with the name `WILSON_AI_KEY_SECRET_V2` (then
+`WILSON_STORAGE_KEY_SECRET_V2`); (3) redeploy every reader of that secret on that environment and wait for each deploy
+CONFIRMED before going on — the AI key's: `ai-proxy`, `ai-files`, `operator-ai-keys`; the bucket secret's: `storage-presign`,
+`storage-gc`, `storage-read-urls`, `storage-secret`, `operator-ai-keys`. A reader built before P8 fails at `atob` on a `v2.`
+envelope, and `ai-proxy`'s own catch would then route every company to the platform key; (4) `/wilsonadmin` → **Secrets**: the
+card shows the versions set and the rows under each; press **Re-seal** and confirm: every row is opened under the version its
+envelope names and sealed again under `_V2`, and one `platform_audit` row, `secret.resealed` (WIL-7013), carries the counts;
+(5) verify by query, never by the card alone (its read is paged; the query is the truth): `supabase db query --linked "select
+count(*) filter (where key_ciphertext like 'v2.%') as v2, count(*) as rows from public.workspace_ai_keys"` (for the bucket
+secret, `secret_ciphertext` in `public.workspace_storage_secrets`) reads `v2` equal to `rows`; then one working proof as in the
+digest procedure above (a company key used by a generation; a bucket secret's **Test**); (6) `supabase secrets unset WILSON_AI_KEY_SECRET --project-ref <ref>` (then the
+storage name): the readers take the store's names at call time, so nothing is redeployed; (7) `supabase secrets list` on each
+environment: the digest beside `_V2` differs between dev and staging, production holds its own version-1 value, and the old name
+is gone from dev and staging. A later rotation is the same with `_V3`.
+
 **The digest procedure** ([OWED] §5, §9 C2). `supabase secrets list --project-ref <ref>` prints each name with a digest of its
 value, never the value. Run it for production and for staging and compare the digest beside each name. **A matching digest proves
 the value is the same, not that it works** ([OWED] §9 C2), so each secret gets its working proof once a signed-in person exists
@@ -335,13 +368,17 @@ Staging and dev need the same three steps; [OWED] §14 and [BC] §5 record them 
 **wilson-staging**, at `https://beta.petalstudios.co/wilson`; the same deployment serves the operator console at
 `/wilsonadmin` on `beta.` and on `https://admin.petalstudios.co` ([OWED] §11C, §12). **No document describes a web deployment
 against wilson-prod**, and production needs one for more than the app: the operator console is web-only (`vite.config.js` keeps it
-out of the installer), and invite and recovery links need a web address ([HB] §9). Where it lives is her question (walkthrough 85,
-Q3). Whichever she picks, it is built by `vercel.json`'s `npm run build:vercel && npm run build:vercel:admin` (both surfaces), and
-needs, per [WD]: the build-time `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` of production (the anon key is publishable; RLS
-is the boundary), `WILSON_SITE_URL` on production's Edge Functions ((d)), and production's Authentication → URL Configuration naming
-the host. Proof: the deployed bundle carries `rqyriuyldhovirbuievt` and neither `rzkirvkotslbovzbsdfh` nor `eqjzmnvkrakroyqxfsvw`
-(fetch `<host>/wilson/`, then the `index-*.js` it names, and search it), and both `/wilson` and `/wilsonadmin` answer with their
-sign-in.
+out of the installer), and invite and recovery links need a web address ([HB] §9). **She ruled where it lives on 2026-10-28**
+(walkthrough 85 Q3, in chat, multiple choice, verbatim: *"(a) A second website"*): a second Vercel project, built against
+**wilson-prod** at an address of its own, the beta staying on **wilson-staging** as her test bench. The address is chosen with her
+at (g) 12 and added as [OWED] §11C added `admin.`: the domain on the project in Vercel, then at Squarespace the CNAME Vercel shows.
+`admin.` itself is on the beta's project, so it serves staging's console (every domain on a project serves its one deployment,
+§11C); whether it moves to the new project is settled with her at (g) 12 too. The new project is built by `vercel.json`'s
+`npm run build:vercel && npm run build:vercel:admin` (both surfaces), and needs, per [WD]: the build-time `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` of production (the anon key is publishable; RLS is the boundary), `WILSON_SITE_URL` on production's Edge
+Functions ((d)), and production's Authentication → URL Configuration naming the host. Proof: the deployed bundle carries
+`rqyriuyldhovirbuievt` and neither `rzkirvkotslbovzbsdfh` nor `eqjzmnvkrakroyqxfsvw` (fetch `<host>/wilson/`, then the `index-*.js`
+it names, and search it), and both `/wilson` and `/wilsonadmin` answer with their sign-in.
 
 **The desktop.** Only `npm run dist` ships (electron-builder, NSIS, `package.json` `build`, written to **`release\`**);
 `forge.config.cjs` makes no updatable artefact ([HB] §11). The renderer's Supabase settings are compiled in by Vite at build time,
@@ -380,16 +417,16 @@ has put the five `gateway-*` functions there.
 | 1 | Audrey | Rotate `smoke_admin` on wilson-dev, update the `DEV_PROBE_PASSWORD` GitHub secret, re-run CI ([OWED] §0; TPN-SDLC-007) | CI's Playwright job green on the re-run |
 | 2 | Audrey | Roll staging's legacy `service_role` key: dashboard → wilson-staging → Settings → API → Legacy API keys ([OUT] security entry, S19) | the dashboard shows the new key; the functions take it from the platform with no redeploy (`docs/sessions/MASTER_PLAN_S19_ONWARD.md`), and the beta still signs in. If the dashboard says the roll also replaces the **anon** key, stop first: the beta's build carries it (`VITE_SUPABASE_ANON_KEY` in Vercel, [WD]) and would need it and a redeploy |
 | 3 | Audrey | The two Auth hooks and the session settings on staging and dev, (e) 1–3 ([OWED] §14) | (e)'s probe on each |
-| 4 | Audrey | The gateway's GitHub setup (the release signing key as a repository secret, once) and the Windows installer rehearsal (walkthrough 63) | the rehearsal's own checks in 63 |
+| 4 | Audrey | The gateway's GitHub setup (the release signing key as a repository secret, once) and the Windows installer rehearsal (walkthrough 63). **And the successor release key** (P8, TPN-ENC-016): `node gateway/pipeline/cli.mjs make-key --out <a folder outside the repository>` once, the private half kept with the first key (never in the repository or a chat), the printed slot line pasted into `RELEASE_KEYS_WIRE` and the one-key pins moved (`docs/gateway/HARDENING.md` §10, *Rotating the release key*, steps 1 and 2), landed before (g) 8: every 1.0.0 install then trusts both keys, so the first rotation needs no MSI reinstall | the rehearsal's own checks in 63; `RELEASE_KEYS_WIRE` with two entries and `npx vitest run gateway` green |
 | 5 | Audrey | `docs/RELEASE_TESTING.md` worked and ticked, every `[BLOCKING]` passed or knowingly waived | the ticked file |
 | 6 | Audrey | PR #4's title and body pasted (the draft below) | the PR page |
-| 7 | Audrey | Her answers to walkthrough 85 (the gate's findings fixed or ruled; production's web host; the first operator; 0094 and 0102) | the answers in the chat |
+| 7 | Audrey | Her answers to walkthrough 85 (the gate's findings fixed or ruled; production's web host; the first operator; 0094 and 0102): **all five given on 2026-10-28**, each in R2's hand-off §6 | the answers in the chat |
 | 8 | Controller | The gate in §0; then the release commit: `CHANGELOG.md`'s 1.0.0 heading dated with the day planned for (g) 20, landed on `feat/multi-user-v1` through the integration branch's beta merge, and its hash recorded. From here nothing else lands there until (g) 20 (§0) | the *Release gate* line, or her rulings; the hash in the hand-off, its `CHANGELOG.md` heading dated |
 | 9 | Controller | (a) a1–a11 | every read in the hand-off |
 | 10 | Controller | (b): the chain rehearsal, every file, then the suites | (b)'s proofs |
 | 11 | Controller | (c), the rollback copies first; (d)'s settings | (c)'s source comparison; (d)'s digests |
-| 12 | Controller, with her | (f) the web: production's web app and console per Q3, the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–3 (built; not yet installed or published) | (f)'s proofs |
-| 13 | Controller, with her | The first operator, if a6 read no company of hers, as Q4 decides: by Q4(a), the five steps under this table; then (f) the desktop, step 4 | she signs in to production's `/wilsonadmin` and sees **Companies**; the installed desktop signs in to her company |
+| 12 | Controller, with her | (f) the web: production's web app and console per Q3's (a), a second Vercel project (its address, and whether `admin.` moves to it, chosen with her), the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–3 (built; not yet installed or published) | (f)'s proofs |
+| 13 | Controller, with her | The first operator, if a6 read no company of hers, by Q4's (a), her ruling of 2026-10-28: the five steps under this table; then (f) the desktop, step 4 | she signs in to production's `/wilsonadmin` and sees **Companies**; the installed desktop signs in to her company |
 | 14 | Audrey | (e) on production | (e)'s probe, rows from `gotrue_hook` |
 | 15 | Audrey | The invite and recovery templates uploaded to production (`supabase/templates/invite.html`, `recovery.html`; Authentication → Email Templates) and SMTP confirmed as Resend ([OWED] §12; S18) | an invite sent to an address with no production account (not the one (g) 13 used, which answers *That email is already associated with a WILSON account.*) stays unspent for minutes, then opens *Welcome to WILSON* with **Continue** first (`docs/RELEASE_TESTING.md` §B) |
 | 16 | Controller, with her | (d)'s working proofs: **Set key** on a test company; a bucket secret if she has a test bucket; the gateway's after its first enrolment | each proof as (d) says |
@@ -401,7 +438,8 @@ has put the five `gateway-*` functions there.
 **(g) 13 by Q4(a): the first company, by SQL.** S43 removed self-serve companies and only an operator makes one, so the first
 operator starts from a company written by hand, through the function the console's own **New company** calls
 (`operator-workspaces`' create action calls `public.provision_workspace_and_admin`, 0009; service role only, and `db query` runs as
-`postgres`). If Q4 is (b), the session that builds it replaces these five steps.
+`postgres`). She ruled (a) on 2026-10-28 (walkthrough 85 Q4, in chat, verbatim: *"go with each one is safest and you recommend"*):
+no change to the app, so these five steps stand.
 
 1. **Hers:** Dashboard → wilson-prod → Authentication → Users → **Add user** → **Create new user**: the address she will type into
    the console (not the one (g) 15 invites), a password she types, **Auto Confirm User** on. Proof: the user is listed.

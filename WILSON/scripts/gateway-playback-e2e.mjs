@@ -146,7 +146,7 @@ async function main() {
 
   // ── The real gateway, as its own process ──
   gateway = spawn(process.execPath, [CLI, 'run'], {
-    env: { ...process.env, WILSON_GATEWAY_STATE_DIR: dirs.state, WILSON_ENROL_TOKEN: cloud.newToken(), WILSON_CLOUD_URL: fake.url, NODE_EXTRA_CA_CERTS: fake.caFile },
+    env: { ...process.env, WILSON_GATEWAY_STATE_DIR: dirs.state, WILSON_GATEWAY_SECRETS_KEY: crypto.randomBytes(32).toString('base64') /* P8: a throwaway for this run */, WILSON_ENROL_TOKEN: cloud.newToken(), WILSON_CLOUD_URL: fake.url, NODE_EXTRA_CA_CERTS: fake.caFile },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   gateway.stdout.on('data', (d) => log.push(...String(d).split('\n').filter(Boolean)));

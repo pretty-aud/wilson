@@ -213,6 +213,10 @@ describe('bytes, posters and columns by location + path', () => {
     expect(full.status).toBe(200)
     expect(full.headers.get('content-type')).toBe('video/mp4')
     expect(full.headers.get('x-content-type-options')).toBe('nosniff')
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache — the
+    // gateway's own two headers on the company's stream too.
+    expect(full.headers.get('cache-control')).toBe('no-store')
+    expect(full.headers.get('pragma')).toBe('no-cache')
     expect((await full.arrayBuffer()).byteLength).toBe(2048)
     const part = await api(`/stream${q('A001/clip.mp4')}`, { headers: { range: 'bytes=0-99' } })
     expect(part.status).toBe(206)

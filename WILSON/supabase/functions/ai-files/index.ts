@@ -64,7 +64,9 @@
 import { corsHeaders, reply, requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
-import { decryptAiKey } from '../_shared/aiKeyCrypto.ts'
+import { decryptAiKey, aiKeyCryptoConfigured } from '../_shared/aiKeyCrypto.ts'
+// P8 (TPN-AI-011): the upload's key, decided fail-closed.
+import { resolveUploadKey, type ResolvedUploadKey } from '../_shared/aiFilesKey.ts'
 import {
   SWEEP_AGE_HOURS, attribute, deleteOutcome, deleteVerdict, filesOfWorkspace, isFileId, isSweepable,
   publicFile, readSmallJson, sweepPlan, totalsOf,
@@ -90,35 +92,26 @@ const FILES_BETA = 'files-api-2025-04-14'
 const RPM = envInt('AI_FILES_RPM', envInt('AI_PROXY_RPM', 60))
 
 // ── Key resolution ───────────────────────────────────────────────────────────
-// 🚨 DUPLICATED FROM ai-proxy/index.ts ON PURPOSE. Keep the two in step.
-//
-// It is not shared through _shared/ because that would require redeploying
-// ai-proxy, and on 2026-08-11 ai-proxy was measured byte-identical to this
-// repo on all three environments while being the ONLY working AI path in the
-// product (O.T.T.E.R. runs through it). Preserving that identity was worth ~20
-// duplicated lines. If you ever do extract this, extract it for both callers in
-// one commit and redeploy both — a half-migration is worse than the copy.
-//
-// Same fail-soft rule as the original: any failure reading the per-workspace
-// key falls through to the platform key rather than failing the request. A
-// tenant key is a billing preference, not an authorization boundary.
-async function resolveAnthropicKey(
-  admin: MemberCtxAdmin,
-  workspaceId: string,
-): Promise<{ key: string; source: 'workspace' | 'platform' } | null> {
-  try {
-    const { data, error } = await admin
+// P8 (TPN-AI-011): _shared/aiFilesKey.ts, ai-files' OWN rule, fail-CLOSED.
+// Until P8 this was a copy of ai-proxy's resolver, which falls through to the
+// platform key on any failure: right for a chat call that spends, wrong for
+// a file store, where a company that set its own key chose WHERE its files
+// are held (the delete path below, keyForSource, already refused to fall
+// back). A company row that will not open is now a refusal with a sentence,
+// as storage-presign refuses in the same areas; ai-proxy keeps its copy,
+// untouched, by its own instruction. The resolver is pure, so
+// src/cloud/aiFilesKey.test.js drives every outcome.
+function resolveAnthropicKey(admin: MemberCtxAdmin, workspaceId: string): Promise<ResolvedUploadKey> {
+  return resolveUploadKey({
+    readRow: () => admin
       .from('workspace_ai_keys')
       .select('key_ciphertext, key_version')
       .eq('workspace_id', workspaceId)
-      .maybeSingle()
-    if (!error && data?.key_ciphertext) {
-      const plain = await decryptAiKey(data.key_ciphertext as string)
-      if (plain) return { key: plain, source: 'workspace' }
-    }
-  } catch { /* fall through to platform key */ }
-  const platform = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
-  return platform ? { key: platform, source: 'platform' } : null
+      .maybeSingle(),
+    decrypt: (ciphertext) => decryptAiKey(ciphertext),
+    cryptoConfigured: aiKeyCryptoConfigured,
+    platformKey: Deno.env.get('ANTHROPIC_API_KEY') ?? '',
+  })
 }
 
 // ── Telemetry ────────────────────────────────────────────────────────────────
@@ -592,10 +585,14 @@ Deno.serve(async (req: Request) => {
   }
 
   const resolved = await resolveAnthropicKey(admin, workspaceId)
-  if (!resolved) {
-    // 501 not 503, matching ai-proxy: a missing key is a permanent config
-    // state, and every client retry loop treats 503 as transient.
-    return reply({ error: 'ai_not_configured' }, 501)
+  if (!resolved.ok) {
+    // P8 (TPN-AI-011): fail CLOSED with a sentence — a company's own key that
+    // will not open is a refusal (500 secret_unusable, 503 key_read_failed or
+    // crypto_unavailable), never a re-route of the file to the platform's
+    // store; no key: 501 ai_not_configured, as ai-proxy answers it (a
+    // permanent state, so no client retry loop treats it as transient).
+    await logUpload(admin, workspaceId, callerId, false, { stage: 'key', error: resolved.error })
+    return reply({ error: resolved.error, detail: resolved.detail }, resolved.status)
   }
 
   let upstream: Response

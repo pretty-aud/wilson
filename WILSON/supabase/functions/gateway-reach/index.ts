@@ -4,8 +4,12 @@
 // 16; G3: the company exposes the gateway itself and WILSON only checks).
 //
 // In order:
-//   1. the caller: requireActiveMember, then a LIVE admin row (the switch's
-//      rule, D23 — not the token's claim)
+//   1. the caller: adminGuard's requireWorkspaceAdmin (P8, TPN-AUTH-013): the
+//      token's admin claim, a LIVE admin row (the switch's rule, D23) AND the
+//      two-factor step-up an enrolled admin owes (403 mfa_required below aal2;
+//      503 mfa_check_failed when the factors cannot be read — closed, never
+//      waved through), the same guard storage-secret and storage-gc take in
+//      these areas; its three answers put into this function's own sentences
 //   2. the rate limit, six a minute per COMPANY, failing open (D27)
 //   3. the shape: a gateway id
 //   4. the predicate AS THE CALLER (the S33 rule): the gateway must be
@@ -34,31 +38,46 @@
 // =============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { requireActiveMember } from '../_shared/memberGuard.ts'
+import { requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
-import { answer, preflight, readJson, refusal, withMemberSentence } from '../_shared/gatewayGuard.ts'
+import { answer, preflight, readJson, refusal } from '../_shared/gatewayGuard.ts'
 import { parseReachRequest } from '../_shared/gatewayShapes.ts'
 import { finish, runReachCheck, type BegunCheck, type ReachResult } from '../_shared/gatewayReachRun.ts'
 
 const DELIVERY_WAIT_MS = 15000
 
+/** adminGuard answers a code and no sentence; this function's reader gets one (P8). */
+async function withAdminSentence(res: Response): Promise<Response> {
+  let code = ''
+  try { code = String(((await res.clone().json()) as { error?: string })?.error ?? '') } catch { code = '' }
+  if (res.status === 401) {
+    return refusal(401, 'unauthorized', 'Sign in again: WILSON could not confirm who is asking for this.')
+  }
+  if (res.status === 403 && code === 'mfa_required') {
+    return refusal(403, 'mfa_required', 'Sign in with your authenticator code first: checking the gateway\'s reach needs two-factor.')
+  }
+  if (res.status === 403 && code === 'mfa_enrollment_required') {
+    return refusal(403, 'mfa_enrollment_required', 'Enrol an authenticator on your account first: this environment asks every admin for two-factor.')
+  }
+  if (res.status === 403) {
+    return refusal(403, 'forbidden', 'Only a workspace admin can check whether the gateway is reachable from outside.')
+  }
+  if (res.status === 503) {
+    return refusal(503, 'mfa_check_failed', 'WILSON could not check your two-factor status just now; try again in a moment.')
+  }
+  return res
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return preflight()
   if (req.method !== 'POST') return refusal(405, 'method_not_allowed', 'Use POST.')
 
-  // 1. The caller: an active member, and a LIVE admin.
-  const guard = await requireActiveMember(req)
-  if (!guard.ok) return withMemberSentence(guard.res)
+  // 1. The caller: a LIVE admin, signed in with their authenticator where
+  //    they have one (adminGuard, P8 TPN-AUTH-013). The guard's codes, in
+  //    this function's own sentences (gatewayGuard's shape).
+  const guard = await requireWorkspaceAdmin(req)
+  if (!guard.ok) return withAdminSentence(guard.res)
   const ctx = guard.ctx
-  const { data: row } = await ctx.admin
-    .from('workspace_members')
-    .select('app_role, is_active')
-    .eq('workspace_id', ctx.workspaceId)
-    .eq('user_id', ctx.callerId)
-    .maybeSingle()
-  if (!row || !row.is_active || row.app_role !== 'admin') {
-    return refusal(403, 'forbidden', 'Only a workspace admin can check whether the gateway is reachable from outside.')
-  }
 
   // 2. The rate limit (per company, fails open).
   if (await isRateLimited(ctx.admin, 'gateway-reach', ctx.workspaceId, envInt('GATEWAY_REACH_PER_MINUTE', 6), 60)) {

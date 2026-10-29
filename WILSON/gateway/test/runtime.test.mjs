@@ -21,13 +21,19 @@ import https from 'node:https';
 import net from 'node:net';
 import crypto from 'node:crypto';
 import { Gateway } from '../src/runtime.mjs';
+import { makeSecrets, SecretsWriteRefused } from '../src/platform/secrets.mjs';
 import { makeRoot, makeLeaf } from '../src/certs/x509.mjs';
 import { createFakeCloud, FAKE_BASE } from './fakeCloud.mjs';
 import { makeShare, SUB, SUB2, CLIP, CLIP2, LOC } from './harness.mjs';
 import { VERSION } from '../src/version.mjs';
 
 const LOOPBACK_ONLY = { 'Loopback Pseudo-Interface 1': [{ address: '127.0.0.1', family: 'IPv4', internal: true, cidr: '127.0.0.1/8' }, { address: '::1', family: 'IPv6', internal: true, cidr: '::1/128' }] };
-const plainSecrets = { kind: 'file', protect: async (b) => Buffer.concat([Buffer.from('WGPLAIN1'), Buffer.from(b)]), unprotect: async (b) => Buffer.from(b).subarray(8), status: () => ({ dpapi: null, reason: null }) };
+// P8 (TPN-ENC-014): the real secrets layer as the container runs it, sealed under a
+// throwaway key made here and nowhere else, so the files these tests inspect carry the
+// sealed marker and never a plain one. (The fake it replaces wrote WGPLAIN1.)
+const sealedSecrets = makeSecrets({ platform: 'linux', env: { WILSON_GATEWAY_SECRETS_KEY: crypto.randomBytes(32).toString('base64') }, readFileSync: () => { throw new Error('ENOENT'); } });
+// The container started without WILSON_GATEWAY_SECRETS_KEY: every write refused.
+const refusingSecrets = () => makeSecrets({ platform: 'linux', env: {}, readFileSync: () => { throw new Error('ENOENT'); } });
 
 async function waitFor(fn, ms = 5_000) {
   const t0 = Date.now();
@@ -60,7 +66,7 @@ async function world({ config = {}, token = true, clock = { offset: 0 }, cloudOp
   const env = { WILSON_CLOUD_URL: cloud.base };
   if (token) env.WILSON_ENROL_TOKEN = typeof token === 'string' ? token : cloud.newToken();
   const gw = new Gateway({
-    env, stateDir, now, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: plainSecrets,
+    env, stateDir, now, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: sealedSecrets,
     netInterfaces: () => LOOPBACK_ONLY, print: (l) => lines.push(l),
     locationRootFor: () => share.root, shareLogins: NAS_LOGIN,
     tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000,
@@ -109,11 +115,13 @@ describe('enrolment (§2)', () => {
       expect(st).toMatchObject({ gateway_id: W.cloud.onlyGateway(), workspace_id: W.cloud.state.workspace.id, workspace_name: 'Salt Hours Studio', cloud_url: W.cloud.base });
       expect(W.lines.some((l) => /^Certificate fingerprint \(SHA-256\): ([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(l))).toBe(true);
       expect([...W.cloud.state.tokens.values()][0].usedAt).not.toBeNull();
-      // Written through the secrets layer (its marker first; DPAPI on a real install), never bare. (The
-      // old check, "does not contain wgc_x", failed whenever a random credential began with an x: CI, 00e25939.)
-      expect(fs.readFileSync(path.join(W.stateDir, 'credential.bin')).subarray(0, 8).toString('latin1')).toBe('WGPLAIN1');
+      // Written through the secrets layer (its marker first; DPAPI on a real Windows install, sealed under
+      // the operator's key in the container: P8, TPN-ENC-014), never bare. (The old check, "does not
+      // contain wgc_x", failed whenever a random credential began with an x: CI, 00e25939.)
+      expect(fs.readFileSync(path.join(W.stateDir, 'credential.bin')).subarray(0, 8).toString('latin1')).toBe('WGSEALD1');
       const enrolBody = W.cloud.state.gateways.get(W.cloud.onlyGateway()).enrolBody;
-      expect(enrolBody).toMatchObject({ name: 'studio-nas', hostname: 'studio-nas', version: VERSION, inside_addresses: [], inside_names: ['studio-nas', 'studio-nas.local'] });
+      // P8 (TPN-ENC-013): the names in the cloud's [{ host, port }] shape (gateways.inside_names, 0104).
+      expect(enrolBody).toMatchObject({ name: 'studio-nas', hostname: 'studio-nas', version: VERSION, inside_addresses: [], inside_names: [{ host: 'studio-nas', port: 8443 }, { host: 'studio-nas.local', port: 8443 }] });
       expect(enrolBody.root_cert_pem).toMatch(/BEGIN CERTIFICATE/);
       expect(enrolBody.root_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     } finally { await W.close(); }
@@ -129,6 +137,49 @@ describe('enrolment (§2)', () => {
       expect((await W.gw.enrol(W.cloud.newToken(), 'http://insecure.example/functions/v1')).error).toMatch(/https/);
     } finally { await W.close(); }
   });
+  it('P8 (TPN-ENC-014): the container without a sealing key spends no token and writes no secret: no root, no credential, the reason logged, the line red', async () => {
+    const W = await world({ gw: { secrets: refusingSecrets() } });
+    try {
+      expect([...W.cloud.state.tokens.values()][0].usedAt).toBeNull();
+      expect(W.cloud.state.gateways.size).toBe(0);
+      expect(fs.existsSync(path.join(W.stateDir, 'credential.bin'))).toBe(false);
+      expect(fs.existsSync(path.join(W.stateDir, 'state.json'))).toBe(false);
+      expect(fs.existsSync(path.join(W.stateDir, 'certs', 'root.pem'))).toBe(false);
+      expect(fs.existsSync(path.join(W.stateDir, 'certs', 'root-key.bin'))).toBe(false);
+      expect(W.lines.some((l) => l.includes('enrol_refused') && l.includes('secrets cannot be written'))).toBe(true);
+      expect(W.lines.some((l) => l.includes('WGPLAIN1'))).toBe(false);
+      const warnings = W.gw.healthLine().warnings;
+      expect(warnings).toContainEqual({ text: 'secrets cannot be written: set WILSON_GATEWAY_SECRETS_KEY (32 random bytes, base64: openssl rand -base64 32) or WILSON_GATEWAY_SECRETS_KEY_FILE (a Docker secret\'s path) for this container', tone: 'red' });
+      expect(warnings.some((w) => w.tone === 'red' && /could not write its certificates/.test(w.text))).toBe(true);
+      expect(W.gw.insideServers.size).toBe(0);
+      // CONTROL: a gateway with a key, against the same cloud: enrolled, its token spent.
+      const keyedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-keyed-'));
+      const keyed = new Gateway({ env: { WILSON_CLOUD_URL: W.cloud.base }, stateDir: keyedDir, hostname: 'studio-nas', fetchImpl: W.cloud.fetch, secrets: sealedSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {}, enrolOnly: true, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
+      try {
+        await keyed.start();
+        expect((await keyed.enrol(W.cloud.newToken(), W.cloud.base)).ok).toBe(true);
+        expect(fs.readFileSync(path.join(keyedDir, 'credential.bin')).subarray(0, 8).toString('latin1')).toBe('WGSEALD1');
+      } finally { await keyed.stop(); fs.rmSync(keyedDir, { recursive: true, force: true }); }
+    } finally { await W.close(); }
+  });
+  it('P8 round 1 (finding 4): the enrolment proves data protection before the token is spent: a refusal found then spends nothing', async () => {
+    const flaky = {
+      kind: 'dpapi', probed: 0,
+      async probe() { this.probed++; this.kind = 'none'; return false; },
+      status() { return { dpapi: this.kind === 'dpapi', reason: 'Windows data protection is unavailable (language mode)', sealed: this.kind, unsealed: 0 }; },
+      protect: async () => { throw new SecretsWriteRefused('Windows data protection is unavailable (language mode)'); },
+      unprotect: async (b) => Buffer.from(b).subarray(8),
+    };
+    const W = await world({ token: false, gw: { secrets: flaky } });
+    try {
+      const r = await W.gw.enrol(W.cloud.newToken(), W.cloud.base);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/cannot keep the gateway\u2019s sign-in/);
+      expect(flaky.probed).toBe(1);
+      expect([...W.cloud.state.tokens.values()].every((t) => t.usedAt === null)).toBe(true);
+      expect(W.cloud.state.gateways.size).toBe(0);
+    } finally { await W.close(); }
+  });
   it('the command\'s one-shot enrolment (enrolOnly) makes no bind attempt, no sync and no status; a normal start does try to bind', async () => {
     // An office address this computer does not have: a bind attempt fails (EADDRNOTAVAIL) and is logged,
     // so the control below can see an attempt without anything being bound.
@@ -137,7 +188,7 @@ describe('enrolment (§2)', () => {
       const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-enrolonly-'));
       const cloud = createFakeCloud();
       const lines = [];
-      const gw = new Gateway({ env: { WILSON_CLOUD_URL: cloud.base }, stateDir, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: plainSecrets, netInterfaces: notHere, print: (l) => lines.push(l), enrolOnly, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
+      const gw = new Gateway({ env: { WILSON_CLOUD_URL: cloud.base }, stateDir, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: sealedSecrets, netInterfaces: notHere, print: (l) => lines.push(l), enrolOnly, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
       try {
         await gw.start();
         expect((await gw.enrol(cloud.newToken(), cloud.base)).ok).toBe(true);
@@ -447,7 +498,7 @@ describe('the container\'s own mount rule, end to end', () => {
     fs.writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify({ outside: { port: 0, behind_local_proxy: true } }));
     const cloud = createFakeCloud();
     cloud.addLocation({ id: LOC, unc_path: '\\\\NAS-01\\Archive\\Day 1', name: 'Archive' });
-    const gw = new Gateway({ env: { WILSON_GATEWAY_IMAGE: '1', WILSON_CLOUD_URL: cloud.base, WILSON_ENROL_TOKEN: cloud.newToken() }, stateDir, hostname: 'nas-01', fetchImpl: cloud.fetch, secrets: plainSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {}, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
+    const gw = new Gateway({ env: { WILSON_GATEWAY_IMAGE: '1', WILSON_CLOUD_URL: cloud.base, WILSON_ENROL_TOKEN: cloud.newToken() }, stateDir, hostname: 'nas-01', fetchImpl: cloud.fetch, secrets: sealedSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {}, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
     try {
       await gw.start();
       await gw.syncNow();
@@ -536,7 +587,7 @@ describe('GW3: the reach proof, the real runtime against the fake cloud\'s probe
     const W = await world({ clock });
     const again = () => new Gateway({
       env: { WILSON_CLOUD_URL: W.cloud.base }, stateDir: W.stateDir, now: () => Date.now() + clock.offset, hostname: 'studio-nas',
-      fetchImpl: W.cloud.fetch, secrets: plainSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {},
+      fetchImpl: W.cloud.fetch, secrets: sealedSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {},
       locationRootFor: () => share.root, shareLogins: NAS_LOGIN,
       tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000,
     });
