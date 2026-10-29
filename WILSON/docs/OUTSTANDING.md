@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul D3 (2026-10-29; `po/d3-bridge-sender-gate` into `feat/post-overhaul-edit-versioning`) — the sign-in bridge answers WILSON's page only, and an answer's link opens a new tab on the web (`docs/sessions/PLAN_TO_1_0.md` night 7; her *"Q2. b"* of 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §14): measured first on a development build of the tip and on the web, one Fable design round, built: every one of the 50 channels the preload bridges is registered through one gate (`electron/ipcGate.cjs`; `ipcMain` in `main.cjs` is the gate, the updater is handed it), which asks D1's rule first and answers any other sender `null` at once, logging the channel and the scheme once; one anchor component for the pet's and O.T.T.E.R.'s answers opens a web link in a new tab on the web; build review round 1 (Fable) found the preload handing a dropped file's place to any page that held it, the link leaving `javascript:` to react-markdown and the source check's blind spots, round 2 (Fable) an answer's link to WILSON's own address reloading WILSON in place, each corrected and measured | D3-01 (with a Sentry DSN, Sentry's own listeners and preload answer any page) | **D2-01** (closed by her ruling in words, *"Q1. a"*: the clips left behind stay listed by name), **D2-02** (closed by measurement: on the build the main window showing another page, another window holding the preload and a frame holding it are each answered `null` for the token, the session and every channel, where the tip handed them all three, and a dropped file's place reaches WILSON's page alone; WILSON's page gets everything it did), **D2-06** (closed by measurement: on the web the pet's and an O.T.T.E.R. lesson's web links open a new tab whose opener is cut and WILSON's tab stays, where the tip replaced it). Comment markers: 4 → 4. |
 | Post-overhaul GWF (2026-10-29; `po/gwf-gateway-viewing-row-flake` into `feat/post-overhaul-edit-versioning`) — M3's side session for the gateway's CI flake (`doorsOutside.test.mjs`'s "a play and a scrub make one viewing …", seven times on GitHub's runner): the race measured on Windows and made certain by a control, then fixed in the gateway (a viewing counts each chunk before it is passed on; a response's end only marks activity), the flaky test also checking that both ranges arrived whole; then, at Audrey's answer *one line per play*, D7's one row per play built (a response the door has not finished holds its row open, however long; no five-minute row; `GATEWAY_DESIGN.md` §6 changed in place, with its GWF entry); no migration, nothing outside `gateway/` but this file, the design and the hand-off | **None.** *A response open longer than the idle minute is counted only up to its viewing's close* (MEASURED), written with the first record (`5128e020`), went the same day with D7's one row per play | **The CI-flake thread** of *The gateway's tests fail under the full suite's load on Windows …*, closed by its dated line (the entry stays for the Windows time-outs and the journal's EPERM). Comment markers: 4 → 4. |
 | Post-overhaul smoke trace (2026-10-29; `po/smoke-gateway-ticket-trace`, documents only; a side session of M3) — the issue-session smoke job's step *Probe gateway-ticket* read `missing: 3` on wilson-dev on every RLS run from 22:33 to 23:17 UTC on 2026-10-28 (the probe gateway's mint log: the last ticket 19:41:28 UTC, the next 23:26:41 UTC). The cause, P8's 0104 (TPN-AUTH-012): `gateway_clips_for_tickets` returns only checked clips at checked locations, with no backfill, and GW1's fixture clip and location were unchecked; not a deploy (`gateway-ticket` v4 of 2026-10-10), not a policy (0091's eight), not a seat (the probe user an active admin). Reproduced as the probe user in one rolled-back file. Cured by P8's stamp of the four fixture rows as postgres at 23:20:34 UTC (`vetted_by` NULL, the migration's mark): green from run 40787368613 on, and on this branch's push. Nothing written on wilson-dev by this session; `docs/sessions/handoffs/po-smoke-trace-2026-10-29.md` | **nothing.** The problem is fixed; the fixture's missing recipe is in the hand-off's §5. | **nothing.** Comment markers: 4 → 4. |
 | Post-overhaul D2 (2026-10-29; `po/d2-desktop-dropped-page-and-sleep-idle` into `feat/post-overhaul-edit-versioning`) — the desktop's two fixes before 1.0 and the report line (`docs/sessions/PLAN_TO_1_0.md` night 6; her *"2. a"* of 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §13): measured first on a development build of the tip, one Fable design round, built: the main window and each window it opens refuse every navigation and top-frame redirect outside the launch's origin (an http(s) one goes to the system browser), `window.open` refuses `file:`, `data:` and every scheme but http(s), `about:blank` and the page's own `blob:`, `navigateOnDragDrop: false` is stated (`electron/windowGuard.cjs`); a file drag nothing handled is cancelled on the window, after Bins' own listeners (`src/lib/dropGuard.js`); `activity()` judges the absence before it counts; the report and panel name the actuals that arrive without the invoice attached by a path, by line and period, never the file; build review round 1 (Fable) found the cloud downloads sent the window to their signed address, now started in the app (`wilson:download-url`), measured; round 2 (Fable) found an email link in the pet's or O.T.T.E.R.'s answers would do nothing, now handed to the mail app, measured | D2-01 (the clips left behind named by their files' names), D2-02 (the bridges' channels not gated), D2-03 (the console has no drop guard), D2-04 (an expenses-sheet actual has no place to re-attach its invoice), D2-05 (the intake button takes no drop), D2-06 (on the web, an answer's link replaces the tab) | **D1-01** (closed by measurement: on the build a page that sends itself to another site stays on WILSON's page and the address goes to the system browser, where the tip landed there with the saved sign-in and the key handed over; a file dropped with drop navigation forced on stays, by either layer alone, where the tip's control build landed on the file; D1's drop itself was an inference), **D1-02** (closed by measurement: after 31 or 120 minutes asleep the first `activity()` ends the session in `idle_timeout`, where the tip carried on; 29 minutes stays), **M3-L7** (M2 Q2 closed by her ruling in words: a project deleted in the cloud stays deleted, no *Carry everything again* in 1.0; M2 Q3 by the build). Comment markers: 4 → 4. |
@@ -2968,19 +2969,10 @@ first, and the migration names the actuals left without their invoice
 (`docs/design/RECONNECT_DESIGN.md` §13; her *"2. a"* of 2026-10-29). Three
 entries closed (the session log's D2 row). What D2 met and did not fix:
 
-- **D2-01 · The migration report names the clips left behind by their
-  files' names.** INFERRED from the code (D2's design round, F14):
-  `runMigration.js` puts a clip's `display_name || original_name` in
-  `clipsLeftBehind`, and `MigrationPanel.jsx`'s `ReportTable` lists them. It
-  stays on her own screen, in no record and no event. BC3's, outside D2's
-  brief, whose rule (*a filename is content*) was scoped to the invoice.
-  Owner: the controller (whether the rule covers the clips).
-- **D2-02 · The bridges' channels answer any page that runs the preload.**
-  The other half of D1-01's fix shape, not built. The main window and every
-  window it opens are kept to the launch's page, and the windows it opens
-  hold no bridge (both measured), so no other page reaches the channels;
-  answering only `acceptsSender`'s page on every channel is defence in depth
-  and a larger change than D2's. Owner: none before 1.0.
+- **D2-01, D2-02 and D2-06 were closed by D3** (night 7, 2026-10-29):
+  D2-01 by her ruling in words, *"Q1. a"* (the clips left behind stay
+  listed by name, as they are); D2-02 and D2-06 by measurement (the session
+  log's D3 row, and `docs/design/RECONNECT_DESIGN.md` §14).
 - **D2-03 · The operator console has no drop guard.** A file dropped on
   `/wilsonadmin` in a browser opens in the tab's place, as on any page; the
   console holds no bridge. INFERRED (the guard is installed by the app's
@@ -2995,15 +2987,30 @@ entries closed (the session log's D2 row). What D2 met and did not fix:
   dropped on it does nothing on either build (before D2 it replaced the
   tab on the web). INFERRED from the code (build review round 1, F6).
   Owner: an intake session (wire it to the hidden input, or say *Click*).
-- **D2-06 · On the web, a link in the pet's or O.T.T.E.R.'s answers replaces
-  WILSON's tab.** Both render markdown with plain anchors (no target:
-  `PetCompanion.jsx`'s and `Otter.jsx`'s markdown components set none for
-  `a`). On the desktop the window guard sends such a link to the system
-  browser (an email link to the mail app), measured; in a browser the tab
-  goes to the site and the page's unsaved state with it, as before D2.
-  INFERRED from the code (build review round 2, F2). Fix: an `a` component
-  with `target="_blank" rel="noopener noreferrer"` in each. Owner: an
-  O.T.T.E.R. or pet session.
+
+## D3 (2026-10-29, night 7 of `docs/sessions/PLAN_TO_1_0.md`)
+
+The sign-in bridge answers WILSON's page only, and an answer's link opens a
+new tab on the web (`docs/design/RECONNECT_DESIGN.md` §14; her *"Q2. b"* of
+2026-10-29). Three entries closed (the session log's D3 row). What D3 met
+and did not fix:
+
+- **D3-01 · With a Sentry DSN set, Sentry's own IPC answers any page.**
+  INFERRED from the library's source (read, not run: no build here has a
+  DSN): `@sentry/electron` 5.12.0's main SDK (`ipcMode: IPCMode.Both`)
+  registers six listeners on Electron's `ipcMain` that take any sender and
+  answer none (`main/ipc.js`, `configureClassic`), a privileged
+  `sentry-ipc:` scheme any page of the session can reach, and its own
+  preload in every page of the default session
+  (`main/integrations/preload-injection.js`), the print and receipt windows
+  included. Inbound telemetry only: nothing of WILSON's (the key, the
+  session, a file) is handed back. Outside D3's gate, which covers the
+  channels WILSON's preload bridges; its source test covers the repo, not
+  `node_modules`. Would settle it: a desktop run with a DSN set and a page
+  that is not WILSON's sending an event. Fix shape: `initMainSentry` with
+  `ipcMode: IPCMode.Protocol` and the preload injection left out, or the
+  listeners' sender checked. Owner: the controller (whether 1.0's installer
+  sets a DSN).
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

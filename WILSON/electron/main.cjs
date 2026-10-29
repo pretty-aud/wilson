@@ -1,4 +1,6 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage, session } = require('electron');
+// D3 (night 7, 2026-10-29): Electron's own ipcMain is named here, once, and
+// handed to the gate below. `ipcMain` in this file is the gate, never this.
+const { app, BrowserWindow, ipcMain: electronIpcMain, shell, dialog, safeStorage, session } = require('electron');
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -28,6 +30,20 @@ const { createRendererStorage, rendererStorageFile, acceptsSender } = require('.
 // WILSON's own page and nothing else. The module's header says what is refused
 // and why (RECONNECT_DESIGN.md §13.2).
 const { guardWindow, isDownloadAddress } = require('./windowGuard.cjs');
+// D3 (night 7, 2026-10-29; RECONNECT_DESIGN.md §14): every channel the
+// preload bridges answers only this launch's page. `ipcMain` in this file IS
+// the gate (ipcGate.cjs), not Electron's: every `ipcMain.handle(` and
+// `ipcMain.on(` below is registered through it, so a channel added the usual
+// way is gated too, and a call the gate does not offer fails at load. The
+// rule is D1's (`fromThisLaunchsPage`, beside the token's channel), read at
+// each call, never here. A refused call is answered null and never left
+// waiting; its log line names the channel and the asking page's scheme only.
+const { createIpcGate } = require('./ipcGate.cjs');
+const ipcMain = createIpcGate({
+  ipcMain: electronIpcMain,
+  accepts: (event) => fromThisLaunchsPage(event),
+  log: (line) => console.warn(line),
+});
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
@@ -4756,7 +4772,8 @@ let localServerToken = null;
 // promise) turns "attach a header" into a plumbing change at ~150 call sites.
 // One sendSync during preload — before the page has painted, once per window —
 // is what this channel exists for. The value is minted before the BrowserWindow
-// is constructed, so it is always there by the time preload asks.
+// is constructed, so it is always there by the time preload asks. Since D3
+// only this launch's page is answered: the gate gives any other sender null.
 ipcMain.on('wilson:local-server-token', (event) => {
   event.returnValue = localServerToken;
 });
@@ -4767,7 +4784,8 @@ ipcMain.on('wilson:local-server-token', (event) => {
 // origin, and every synchronous call is answered (null or false when refused
 // or failed), so a refused page is never left blocked. The origin is
 // module-scoped for the same reason as the token: the channels are registered
-// once, at load.
+// once, at load. Since D3 the gate (ipcGate.cjs) asks the same rule first, for
+// every channel; the handlers' own test below stays behind it.
 let localServerOrigin = null;
 let rendererStorage = null;
 function rendererStorageNow() {
@@ -4806,8 +4824,9 @@ ipcMain.on('wilson:renderer-storage-changes-sync', (event, changes) => {
 // download. The page used to start one by sending the window to the signed
 // address, which the window now refuses (windowGuard.cjs); it asks here
 // instead, and the download runs in the app with the same save dialog. Only
-// this launch's page may ask, and only for an http(s) address; nothing else
-// is opened, and the address is never logged (it carries a token).
+// this launch's page may ask (since D3 the gate refuses any other first; this
+// test stays behind it), and only for an http(s) address; nothing else is
+// opened, and the address is never logged (it carries a token).
 ipcMain.handle('wilson:download-url', (event, url) => {
   try {
     if (!fromThisLaunchsPage(event) || !isDownloadAddress(url)) return { ok: false };
@@ -5612,6 +5631,8 @@ app.whenReady().then(() => {
     const { initUpdater } = require('./updater.cjs');
     initUpdater({
       app,
+      // D3: the four update channels go through the same gate (ipcGate.cjs).
+      ipcMain,
       getWebContents: () => mainWindow?.webContents ?? null,
       getMainWindow: () => mainWindow ?? null,
     });
