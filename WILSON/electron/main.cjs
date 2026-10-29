@@ -24,6 +24,10 @@ const {
 // relaunch in a userData file. The module's header says why, what is never
 // kept and whom the channels answer.
 const { createRendererStorage, rendererStorageFile, acceptsSender } = require('./rendererStorage.cjs');
+// D2 (night 6, 2026-10-29): the main window, and each window it opens, loads
+// WILSON's own page and nothing else. The module's header says what is refused
+// and why (RECONNECT_DESIGN.md §13.2).
+const { guardWindow, isDownloadAddress } = require('./windowGuard.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
@@ -4798,6 +4802,21 @@ ipcMain.on('wilson:renderer-storage-changes-sync', (event, changes) => {
     event.returnValue = false;
   }
 });
+// D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.8): a signed cloud
+// download. The page used to start one by sending the window to the signed
+// address, which the window now refuses (windowGuard.cjs); it asks here
+// instead, and the download runs in the app with the same save dialog. Only
+// this launch's page may ask, and only for an http(s) address; nothing else
+// is opened, and the address is never logged (it carries a token).
+ipcMain.handle('wilson:download-url', (event, url) => {
+  try {
+    if (!fromThisLaunchsPage(event) || !isDownloadAddress(url)) return { ok: false };
+    mainWindow.webContents.downloadURL(new URL(String(url)).href);
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+});
 // A write Windows refused stays in memory; the quit writes it once more
 // (build review, F3).
 app.on('will-quit', () => {
@@ -4897,6 +4916,11 @@ async function createWindow() {
       // Allow the startup chime (AuthShell) to play without requiring a user
       // gesture. Chrome's default blocks autoplay.
       autoplayPolicy: 'no-user-gesture-required',
+      // D2 (§13.2.3): a file dropped on the window never opens in its place.
+      // Electron 33's default, stated so an upgrade that changed it changes
+      // nothing (measured: with it on, the dropped file became the page and
+      // was handed the saved sign-in and the local server's key).
+      navigateOnDragDrop: false,
     },
   });
 
@@ -4935,13 +4959,25 @@ async function createWindow() {
     }
   });
 
-  // Open external links in system browser instead of new Electron window
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url);
-      return { action: 'deny' };
+  // D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.2): the window stays on
+  // this launch's page. A navigation or a top-frame redirect anywhere else is
+  // refused (an http(s) one goes to the system browser); window.open sends
+  // http(s) to the system browser, as before, opens the print window and the
+  // page's own blob: addresses, and refuses the rest. Each window the page
+  // opens gets the same guard and opens none of its own (review round, F2).
+  // `localServerOrigin` is read at the moment (a new port at every launch);
+  // `shell.openExternal` is looked up at the call.
+  const windowGuardOptions = {
+    origin: () => localServerOrigin,
+    openExternal: (url) => shell.openExternal(url),
+    log: (line) => console.warn(line),
+  };
+  guardWindow(mainWindow.webContents, windowGuardOptions);
+  mainWindow.webContents.on('did-create-window', (child) => {
+    try { guardWindow(child.webContents, { ...windowGuardOptions, child: true }); } catch (err) {
+      console.warn('[wilson] a window the page opened could not be guarded, so it is closed:', err?.message ?? err);
+      try { child.destroy(); } catch { /* already gone */ }
     }
-    return { action: 'allow' };
   });
 
   mainWindow.on('close', (e) => {

@@ -20,9 +20,16 @@ import { initSentry } from './cloud/sentry'
 import { initUserModelPrefs } from './lib/userModelPrefs'
 import { hydrateModelSourcesFromCache } from './lib/modelSources'
 import { devFixturesActive } from './dev/devFixtures'
+import { installDropGuard } from './lib/dropGuard'
 
 initUserModelPrefs()
 hydrateModelSourcesFromCache()
+
+// D2 (night 6, 2026-10-29; docs/design/RECONNECT_DESIGN.md §13.2): a file
+// dropped where nothing takes it does nothing — never opened in the page's
+// place. Once, on the window, before the first render; the zones that take
+// files (Bins) keep theirs (src/lib/dropGuard.js says how).
+installDropGuard(window)
 
 // Kick off Sentry init immediately; it resolves async and doesn't block render.
 // Exposed on window for the Session 1 verification test:

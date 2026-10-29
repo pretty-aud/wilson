@@ -1338,6 +1338,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul D2 (2026-10-29; `po/d2-desktop-dropped-page-and-sleep-idle` into `feat/post-overhaul-edit-versioning`) — the desktop's two fixes before 1.0 and the report line (`docs/sessions/PLAN_TO_1_0.md` night 6; her *"2. a"* of 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §13): measured first on a development build of the tip, one Fable design round, built: the main window and each window it opens refuse every navigation and top-frame redirect outside the launch's origin (an http(s) one goes to the system browser), `window.open` refuses `file:`, `data:` and every scheme but http(s), `about:blank` and the page's own `blob:`, `navigateOnDragDrop: false` is stated (`electron/windowGuard.cjs`); a file drag nothing handled is cancelled on the window, after Bins' own listeners (`src/lib/dropGuard.js`); `activity()` judges the absence before it counts; the report and panel name the actuals that arrive without the invoice attached by a path, by line and period, never the file; build review round 1 (Fable) found the cloud downloads sent the window to their signed address, now started in the app (`wilson:download-url`), measured; round 2 (Fable) found an email link in the pet's or O.T.T.E.R.'s answers would do nothing, now handed to the mail app, measured | D2-01 (the clips left behind named by their files' names), D2-02 (the bridges' channels not gated), D2-03 (the console has no drop guard), D2-04 (an expenses-sheet actual has no place to re-attach its invoice), D2-05 (the intake button takes no drop), D2-06 (on the web, an answer's link replaces the tab) | **D1-01** (closed by measurement: on the build a page that sends itself to another site stays on WILSON's page and the address goes to the system browser, where the tip landed there with the saved sign-in and the key handed over; a file dropped with drop navigation forced on stays, by either layer alone, where the tip's control build landed on the file; D1's drop itself was an inference), **D1-02** (closed by measurement: after 31 or 120 minutes asleep the first `activity()` ends the session in `idle_timeout`, where the tip carried on; 29 minutes stays), **M3-L7** (M2 Q2 closed by her ruling in words: a project deleted in the cloud stays deleted, no *Carry everything again* in 1.0; M2 Q3 by the build). Comment markers: 4 → 4. |
 | Post-overhaul P8 (2026-10-28; `po/p8-tpn-four-areas` into `feat/post-overhaul-edit-versioning`) — Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md`, night 5: the four areas' ten High findings fixed (the checked mark on bins, the S3 endpoint vetted and reached at one address, posters at teardown, no-store on the bin streams, ai-files failing closed, the two-factor step-up in SQL, the gateway's secrets sealed, its certificate naming the host, a three-year root with the release key's successor, the master secrets versioned with a re-seal); 0104 to 0106 with suites 107 to 109 on wilson-dev; ten functions redeployed there; walkthrough 86; three Fable rounds | **nothing.** The security entry above carries the arrow line; what remains is the controller's rotation and her successor key, both in the runbook. | **nothing.** Comment markers: 4 → 4. |
 | Post-overhaul M3 (2026-10-28; `po/m3-migration-part-3` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 3 (`docs/sessions/PLAN_TO_1_0.md` night 5): every row shape rehearsed on wilson-dev first (rolled back), one Fable design round before code; the team matched to company accounts by email for an admin or manager (the unmatched named, their rows arriving without the person), the roster inserted never upserted, every person column by the map and the people set once on rows earlier runs carried without them; the files kept with assets, scenes, shots, levels and experiences as `files` rows with their bodies by the company's storage rule (the resumable path fed by Range requests above the threshold; a server company's stay, her ruling); the rate cards and templates once per run with their gates, the assets' template links restored; the receipts an earlier build left open moved behind the gate; the archive keeps the workspace stores; no migration, no SQL; two review rounds | M3-L1 (the ordinary files step ignores the storage rule), M3-L2 (an s3 body one PUT up to 5 GiB), M3-L3 (a raw desktop id stays until its person joins), M3-L4 (`task_templates` stamps no maker), M3-L5 (the dry run's template links on a project not yet in the cloud), M3-L6 (a receipt's picture removed when it cannot be moved), M3-L7 (walkthrough 85's Q2 and Q3 still hers) | M1-L1, M1-L2, M2-L1, M2-L4 and M2-L5 closed. |
 | Post-overhaul R2 (2026-10-28; `po/r2-release-readiness` into `feat/post-overhaul-edit-versioning`) — release readiness (`docs/sessions/PLAN_TO_1_0.md` night 4), documents and an audit only, two review rounds: `docs/PRODUCTION_RUNBOOK.md` (new: the controller's ordered production steps, each with its proof), `docs/RELEASE_TESTING.md` rewritten against the code, `CHANGELOG.md`'s 1.0.0 entry rewritten and dated Unreleased, and the read-only TPN re-audit of the file gateway, bins, own storage and the AI file store (`TPN_AUDIT/`: twenty findings opened, eleven of them High in the release gate, the 2026-08-05 design review's eleven merged, two of them renumbered) | **Two entries:** *The TPN re-audit of 2026-10-28 reports eleven High …* (under Security) and R2-01, the workspace takeout's missing tables (its own section at the end). Three entries carry a dated note of what the controller's kit records on staging and where production's step is: S4b-02, S4c-10, FX12-01. | **Nothing.** |
@@ -2948,33 +2949,57 @@ closed by measurement: S2-01 and *On the desktop, the browser's own storage
 most likely starts empty at every launch* (the session log's D1 row). What D1
 met and did not fix:
 
-- **D1-01 · A page the main window is sent to is handed the preload's
-  bridges, the saved session and the local server's token among them.**
-  MEASURED 2026-10-28 in the desktop app (a development build of `16210d45`, a
-  scratch userData, no session saved, the build's cloud a made-up `.invalid`
-  host): the main window sent to a `file://` page, which is what a file
-  dropped outside Bins does (nothing in `electron/` refuses a navigation, and
-  only `BinsView.jsx` handles a drop on the page), ran the preload, and the
-  page could call `window.wilsonSession.load` (it returns the decrypted
-  session) and read `window.electronAPI.localServerToken` (a non-empty string,
-  not printed). D1's own channels refused that page: the key it wrote never
-  reached the kept file. Security, there before D1, not its brief: for the
-  controller to place (her Q1 in walkthrough 85's D1 section). Fix shape: the main window
-  never leaves the launch's origin (`will-navigate` and `will-frame-navigate`
-  refused outside it; a drop outside Bins does nothing), and the bridges'
-  channels answer only that origin, as `acceptsSender` does for D1's.
-- **D1-02 · After a sleep, the first key or pointer counts before the idle
-  clock judges the absence.** MEASURED 2026-10-28 (the core under a fake
-  clock, `sessionTimeouts.js` as it is, in a probe test not kept): two hours
-  with no tick, then `activity()` before any tick — no expiry, the phase
-  `active`; the same two hours with a tick first, or with `visible()` first,
-  end in `idle_timeout`. `activity()` sets the clock before it evaluates and
-  evaluates only while a warning is up, so a computer that slept with WILSON
-  open and visible (no tick and no visibility change in between) carries on
-  after hours idle. TPN AS-3.8's idle timeout; not D1's to change (the brief
-  keeps every rule of `sessionTimeouts.js`): her Q2 in walkthrough 85's D1 section. Fix
-  shape: `activity()` judges the absence first when the last evaluation is
-  older than a tick, as `visible()` does.
+- **D1-01 and D1-02 were closed by D2** (night 6, 2026-10-29): the session
+  log's D2 row, and `docs/design/RECONNECT_DESIGN.md` §13 for the
+  measurements. D1-01's drop was an inference: D1 sent the window to the
+  page from the main process (`loadURL`). Measured by D2 on the tip, a file
+  dropped on the window never left the page (Electron 33's
+  `navigateOnDragDrop` is false), while a navigation the page itself started
+  to another site did, and was handed the saved sign-in and the key.
+
+## D2 (2026-10-29, night 6 of `docs/sessions/PLAN_TO_1_0.md`)
+
+The desktop window stays on WILSON's page, the idle clock judges a sleep
+first, and the migration names the actuals left without their invoice
+(`docs/design/RECONNECT_DESIGN.md` §13; her *"2. a"* of 2026-10-29). Three
+entries closed (the session log's D2 row). What D2 met and did not fix:
+
+- **D2-01 · The migration report names the clips left behind by their
+  files' names.** INFERRED from the code (D2's design round, F14):
+  `runMigration.js` puts a clip's `display_name || original_name` in
+  `clipsLeftBehind`, and `MigrationPanel.jsx`'s `ReportTable` lists them. It
+  stays on her own screen, in no record and no event. BC3's, outside D2's
+  brief, whose rule (*a filename is content*) was scoped to the invoice.
+  Owner: the controller (whether the rule covers the clips).
+- **D2-02 · The bridges' channels answer any page that runs the preload.**
+  The other half of D1-01's fix shape, not built. The main window and every
+  window it opens are kept to the launch's page, and the windows it opens
+  hold no bridge (both measured), so no other page reaches the channels;
+  answering only `acceptsSender`'s page on every channel is defence in depth
+  and a larger change than D2's. Owner: none before 1.0.
+- **D2-03 · The operator console has no drop guard.** A file dropped on
+  `/wilsonadmin` in a browser opens in the tab's place, as on any page; the
+  console holds no bridge. INFERRED (the guard is installed by the app's
+  entry, `src/main.jsx`, only). Owner: none.
+- **D2-04 · An actual on a line outside Crew/team and Talent cannot have
+  its invoice attached again in the browser.** Only those two tabs'
+  popovers attach an invoice; the report lists such an actual with no tab.
+  No writer in the app makes one (INFERRED: `source: 'expense'` appears only
+  in the dev fixtures). Build review round 1, F3. Owner: none.
+- **D2-05 · The intake wizard's *Drop or click to add files* button takes
+  no drop.** `IntakeWizardView.jsx`'s button has no drop handler: a file
+  dropped on it does nothing on either build (before D2 it replaced the
+  tab on the web). INFERRED from the code (build review round 1, F6).
+  Owner: an intake session (wire it to the hidden input, or say *Click*).
+- **D2-06 · On the web, a link in the pet's or O.T.T.E.R.'s answers replaces
+  WILSON's tab.** Both render markdown with plain anchors (no target:
+  `PetCompanion.jsx`'s and `Otter.jsx`'s markdown components set none for
+  `a`). On the desktop the window guard sends such a link to the system
+  browser (an email link to the mail app), measured; in a browser the tab
+  goes to the site and the page's unsaved state with it, as before D2.
+  INFERRED from the code (build review round 2, F2). Fix: an `a` component
+  with `target="_blank" rel="noopener noreferrer"` in each. Owner: an
+  O.T.T.E.R. or pet session.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
@@ -3261,10 +3286,6 @@ outside its list.
   leave a legible JPEG of the receipt open; the browser then shows the icon
   until the file is added again. By design (the design review's finding 1).
   Owner: none.
-- **M3-L7 · Walkthrough 85's M2 Q2 and Q3 stay hers.** A *Carry everything
-  again* control (the record forgotten) and a list of the actuals whose
-  invoice was a path on one computer were not built: no ruling yet.
-  Owner: the controller (a line for the morning note).
 
 ## Post-overhaul DG4 (`po/dg4-dog-project-references-card`) — left open (2026-10-28)
 

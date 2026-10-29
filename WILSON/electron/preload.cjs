@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // can reach it either. Read synchronously at preload time (see main.cjs) so
   // the renderer's first fetch already has it.
   localServerToken: ipcRenderer.sendSync('wilson:local-server-token'),
+  // D2 (night 6, 2026-10-29): a signed cloud download, started by the main
+  // process in the app, because the window no longer leaves its own page
+  // (electron/windowGuard.cjs). → { ok }
+  downloadUrl: (url) => ipcRenderer.invoke('wilson:download-url', url),
   sentryTest: () => ipcRenderer.invoke('wilson:sentry-test'),
   minimize: () => ipcRenderer.invoke('window-minimize'),
   maximize: () => ipcRenderer.invoke('window-maximize'),

@@ -3824,3 +3824,132 @@ describe('M3: the archive keeps its promise (electron/main.cjs, archiveLocalRabb
   })
 })
 
+
+// =============================================================================
+// D2 (night 6 of docs/sessions/PLAN_TO_1_0.md, 2026-10-29;
+// RECONNECT_DESIGN.md §13.4): her ruling on walkthrough 85's M2 Q3 — the
+// report names the actuals that arrive in the cloud without the invoice
+// attached by a path on this computer, as the budget names them (its line /
+// its period), so she can attach each again in the browser. Never the
+// invoice's path or its file's name: a file's name is content. Measured on the
+// tip 4728a92d: the report counted the invoice and named nothing.
+// =============================================================================
+
+const { actualAsTheBudgetShowsIt, INVOICES_LEFT_BEHIND } = await import('./runMigration')
+const { periodLabel } = await import('../../tools/rabbit_v0.1.0/views/budget/periodLabel')
+
+const BS = String.fromCharCode(92)
+// Names found nowhere else in the fixtures (their files carry an INV-0042_set_timber.pdf of their own, a gated file the migration carries).
+const INVOICE_PATH = ['C:', 'Invoices', 'd2-timber-invoice-kept-here.pdf'].join(BS)
+const INVOICE_NAME = 'd2-timber-invoice-kept-here.pdf'
+const CREW_PATH = ['D:', 'Paperwork', 'jonah-week-one-invoice.pdf'].join(BS)
+const CREW_NAME = 'jonah-week-one-invoice.pdf'
+/** The desktop fixtures with two invoices on a path: the timber actual's (line 35, as the M2 round trip has it) and Jonah's crew actual's (line 12), each file named. */
+const withCrewInvoice = () => {
+  const b = desktopFixtures()
+  b.budgetActuals = b.budgetActuals.map((a, i) => (i === 1 ? { ...a, attachment_path: INVOICE_PATH, attachment_name: INVOICE_NAME } : i === 2 ? { ...a, column_index: 1, attachment_path: CREW_PATH, attachment_name: CREW_NAME } : a))
+  return b
+}
+const headerOf = (index) => periodLabel(index, PROJECT.budget_actual_column_mode || 'fortnightly', PROJECT.start_date || PROJECT.created_at)
+
+describe('D2: actualAsTheBudgetShowsIt — an actual as its popover is titled', () => {
+  const project = { budget_actual_column_mode: 'weekly', start_date: '2026-10-05' }
+  const names = { 'desk-mara': 'Mara Okonkwo' }
+  const nameOf = (id) => names[id] ?? null
+
+  it('Crew/team: the team member\'s name, as the row shows it; without a name, the line\'s label', () => {
+    const line = { sheet: 'crew', team_member_id: 'desk-mara', label: 'Producer', department: 'Production' }
+    expect(actualAsTheBudgetShowsIt({ column_index: 2 }, line, project, nameOf)).toBe('Mara Okonkwo / Wk3 10/19')
+    expect(actualAsTheBudgetShowsIt({ column_index: 2 }, { ...line, team_member_id: 'desk-nobody' }, project, nameOf)).toBe('Producer / Wk3 10/19')
+  })
+
+  it('Talent and any other sheet: the line\'s label, else its department, else "a budget line"', () => {
+    expect(actualAsTheBudgetShowsIt({ column_index: 0 }, { sheet: 'talent', label: 'Talent 1', team_member_id: 'desk-mara' }, project, nameOf)).toBe('Talent 1 / Wk1 10/05')
+    expect(actualAsTheBudgetShowsIt({ column_index: 0 }, { sheet: 'expenses_travel', label: '', department: 'Kit' }, project, nameOf)).toBe('Kit / Wk1 10/05')
+    expect(actualAsTheBudgetShowsIt({ column_index: 0 }, undefined, project, nameOf)).toBe('a budget line / Wk1 10/05')
+  })
+
+  it('the period as the tabs print it: fortnightly by default, a count, a column that is not a whole number read as the first', () => {
+    const line = { sheet: 'talent', label: 'Talent 1' }
+    expect(actualAsTheBudgetShowsIt({ column_index: 1 }, line, { start_date: '2026-10-05' })).toBe('Talent 1 / P2 10/19')
+    expect(actualAsTheBudgetShowsIt({ column_index: 3 }, line, { budget_actual_column_mode: 'count', start_date: '2026-10-05' })).toBe('Talent 1 / #4')
+    for (const column_index of [-1, 1.5, 'x', null]) expect(actualAsTheBudgetShowsIt({ column_index }, line, project), String(column_index)).toBe('Talent 1 / Wk1 10/05')
+  })
+
+  it('the sentence, one and many', () => {
+    expect(INVOICES_LEFT_BEHIND(1)).toBe('1 actual arrives in the cloud without its invoice (attached by a path on this computer, which the migration does not carry): attach it again in the browser, on the project\'s Budget')
+    expect(INVOICES_LEFT_BEHIND(2)).toBe('2 actuals arrive in the cloud without their invoices (attached by a path on this computer, which the migration does not carry): attach them again in the browser, on the project\'s Budget')
+  })
+})
+
+describe('D2: the report names the actuals that arrive without their invoice', () => {
+  it('the dry run and the real run name the same actuals, by line and period, with the tab; the count is unchanged', async () => {
+    const dryLines = []
+    serveM3([withCrewInvoice()])
+    const dry = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, dryRun: true, onProgress: (m) => dryLines.push(m) })
+    const want = [
+      { projectId: PROJECT.id, id: BUDGET_ACTUALS[1].id, project: 'Salt Hours', tab: null, actual: `Set timber and paint / ${headerOf(0)}` },
+      { projectId: PROJECT.id, id: BUDGET_ACTUALS[2].id, project: 'Salt Hours', tab: 'Crew/team', actual: `${nameOf('jonah')} / ${headerOf(1)}` },
+    ]
+    expect(dry.invoicesLeftBehind).toEqual(want)
+    expect(dry.notCarried).toContainEqual({ key: 'invoicePaths', label: 'invoices attached by a path on this computer', count: 2, later: false })
+    serveM3([withCrewInvoice()])
+    const real = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(real.invoicesLeftBehind).toEqual(want)
+    expect(byId('budget_actuals', BUDGET_ACTUALS[1].id)).toMatchObject({ attachment_path: null, attachment_name: null })
+    expect(byId('budget_actuals', BUDGET_ACTUALS[2].id)).toMatchObject({ attachment_path: null, attachment_name: null })
+  })
+
+  it('never the invoice\'s path or its file\'s name: not in the report, the progress lines, the record or any request the run made', async () => {
+    serveM3([withCrewInvoice()])
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    expect(report.invoicesLeftBehind).toHaveLength(2)
+    const sent = [
+      JSON.stringify(report), lines.join('\n'), JSON.stringify(recordWrites),
+      JSON.stringify(fake.state.inserts), JSON.stringify(fake.state.updates), JSON.stringify(fake.state.rpcs),
+      JSON.stringify(globalThis.fetch.mock.calls),
+    ]
+    // Build review round 1, F4: JSON doubles a backslash, so each path is also
+    // searched in the form JSON writes it.
+    const escaped = (p) => JSON.stringify(p).slice(1, -1)
+    expect(escaped(INVOICE_PATH)).not.toBe(INVOICE_PATH)
+    for (const needle of [INVOICE_PATH, escaped(INVOICE_PATH), INVOICE_NAME, CREW_PATH, escaped(CREW_PATH), CREW_NAME, 'Invoices' + BS, 'Paperwork', 'timber-invoice', 'week-one-invoice']) {
+      for (const [i, hay] of sent.entries()) expect(hay.includes(needle), `${needle} in #${i}`).toBe(false)
+    }
+  })
+
+  it('a second run names an actual still without its invoice, and not one she attached again in the browser', async () => {
+    const b = withCrewInvoice()
+    serveM3([b])
+    await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    // In the browser, the crew actual's invoice attached again (a files row of the project).
+    const row = (fake.state.lists.budget_actuals || []).find(r => r.id === BUDGET_ACTUALS[2].id)
+    row.attachment_path = 'file:0e1a0000-0000-4000-8000-00000000f042'
+    row.attachment_name = 'attached in the browser'
+    const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(again.invoicesLeftBehind.map(x => x.id)).toEqual([BUDGET_ACTUALS[1].id])
+    expect(again.budgetActuals.inserted).toBe(0)
+  })
+
+  it('an actual not carried is not named: its line removed on this computer, or its place held by another row', async () => {
+    const b = withCrewInvoice()
+    b.budgetLines = b.budgetLines.filter(l => l.id !== BUDGET_ACTUALS[2].line_id)          // the crew line removed here
+    serveM3([b])
+    // the timber actual's place (its line and period) holds another row in the cloud
+    fake.state.lists.budget_actuals = [{ id: '0e1a0000-0000-4000-8000-00000000ac01', project_id: PROJECT.id, line_id: BUDGET_ACTUALS[1].line_id, column_index: BUDGET_ACTUALS[1].column_index, value: 1 }]
+    fake.state.failWith = (table, row) => (table === 'budget_actuals' && row.id === BUDGET_ACTUALS[1].id ? { code: '23505', message: 'duplicate key value violates unique constraint "budget_actuals_line_column_uniq"' } : null)
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.budgetActuals.taken).toBe(1)
+    expect(report.budgetActuals.orphans).toBeGreaterThanOrEqual(1)
+    expect(report.invoicesLeftBehind).toEqual([])
+    expect(report.notCarried).toContainEqual({ key: 'invoicePaths', label: 'invoices attached by a path on this computer', count: 2, later: false })
+  })
+
+  it('a project whose budget stays on this computer names nothing (its actuals do not arrive)', async () => {
+    serveM3([withCrewInvoice()])
+    fake.state.moneyGate = false
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(report.invoicesLeftBehind).toEqual([])
+  })
+})
