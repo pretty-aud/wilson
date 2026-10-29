@@ -159,7 +159,11 @@ scheme only. Before D2 this line said in-window navigation was denied; it
 was not (measured on `4728a92d`: a page that sent itself to another site
 landed there, handed the preload's bridges). In the page, a file drag that
 nothing handled is cancelled on the window (`src/lib/dropGuard.js`, after
-Bins' own listeners), so a file dropped outside a drop zone does nothing.
+Bins' own listeners), so a file dropped outside a drop zone does nothing. A
+cloud file's download, which used to send the window to its signed address,
+starts in the app (`startSignedDownload` → `wilson:download-url` →
+`webContents.downloadURL`, this launch's page only, http(s) only; the web
+keeps its plain link).
 Window close is intercepted and handed to the renderer as a `close-requested`
 event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
 flag before `quitAndInstall()`.

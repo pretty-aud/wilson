@@ -13,7 +13,9 @@ Your ruling of 2026-10-29, *"2. a"*: everything open in walkthroughs 85 and
 settled in words, nothing built: **a project you delete in the cloud stays
 deleted**, and there is no *Carry everything again* in 1.0. Measured first,
 designed, the design reviewed on Fable (nothing in it needed you), built,
-reviewed twice more.
+then reviewed twice more on Fable: the first build review found that cloud
+downloads would have opened in your browser, and that was fixed before
+anything merged.
 
 1. **WILSON's window shows WILSON and nothing else.** If anything tries to
    send the window to another page — a link, a script, a dropped file — it
@@ -26,9 +28,12 @@ reviewed twice more.
    even before this fix (the desktop's own setting already refused it). What
    could leave the page, taking your saved sign-in and the local key with
    it, was the window being sent to another website by a link or a script.
-   No link in WILSON does that today, so it needed something to have gone
-   wrong first; it is closed all the same, and the dropped-file case now has
-   two locks of its own.
+   WILSON did that itself in one place: a cloud file's **Download** sent the
+   window to the storage's address, which answered with the file, so the
+   page stayed. Downloads now start inside WILSON instead (the same save
+   window as before). Nothing else in WILSON sends the window away, so the
+   gap needed something to have gone wrong first; it is closed all the same,
+   and the dropped-file case now has two locks of its own.
 3. **A sleep is judged before the first key counts.** If the computer
    sleeps with WILSON open and you come back more than 30 minutes later, the
    first key or click signs you out with the usual line, instead of carrying
@@ -52,6 +57,8 @@ reviewed twice more.
    bin, as before.
 3. Open **Budget** → **Client view** → **Print**: the print window opens.
    Open an expense's receipt: it opens in its own window, as before.
+   In a cloud project, open **Files** and **Download** a file: the save
+   window opens, as before, and your browser does not open.
 4. **The sleep.** With WILSON open and in front, put the computer to sleep
    (Start → Power → Sleep) and leave it for **more than 30 minutes**. Wake
    it and press any key or click in WILSON. You are signed out, and the
@@ -100,6 +107,12 @@ was shown to fail on purpose against the old code.
 - **The operator console** (`/wilsonadmin`, in a browser) does not swallow a
   dropped file: it opens in the tab, as on any website. It holds no saved
   sign-in bridge. Left as it is.
+- **An actual on a budget line outside Crew/team and Talent** is listed
+  without a tab: the browser has no place to attach an invoice to one. The
+  desktop never makes such an actual; only test data does (OUTSTANDING
+  D2-04).
+- **The intake wizard's *Drop or click to add files* button** takes a click,
+  not a drop: a file dropped on it does nothing (OUTSTANDING D2-05).
 
 ### Questions
 
