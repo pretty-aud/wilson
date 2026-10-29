@@ -30,7 +30,10 @@
 // first; then one line, the channel and the asking frame's scheme — never its
 // address (an address can carry a file's name, and a file's name is content),
 // never a value — once per channel and scheme, so a page that asks in a loop
-// cannot fill the log.
+// cannot fill the log. MEASURED on the build: at every launch the main window's
+// first, empty document (no address yet, its origin 'null') runs the preload
+// and asks for the key before WILSON's page loads; it is refused, and its
+// line names the scheme `none`. WILSON's page then asks and is answered.
 //
 // Plain functions, no Electron: a test reaches every rule (main.cjs requires
 // Electron at load and cannot be loaded by one).
@@ -38,10 +41,15 @@
 
 'use strict';
 
-/** The asking frame's scheme for the log line ('file:'), never its address; 'unknown' for a frame that is gone. */
+/**
+ * The asking frame's scheme for the log line ('file:'), never its address:
+ * 'none' for a page with no address yet (the window's first, empty document),
+ * 'unknown' for a frame that is gone.
+ */
 function schemeOf(event) {
   try {
-    return new URL(String(event.senderFrame.url)).protocol;
+    const url = String(event.senderFrame.url);
+    return url === '' ? 'none' : new URL(url).protocol;
   } catch {
     return 'unknown';
   }

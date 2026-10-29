@@ -261,6 +261,26 @@ describe('D3 — the gate: the refusal\'s line names the channel and the scheme,
   })
 })
 
+describe('D3 — the window\'s first, empty document (measured on the build: it asks for the key at every launch)', () => {
+  // MEASURED on a development build of 0f262874: 0.5 s into every launch the
+  // main window's own top frame, still on its first document (no address,
+  // origin 'null', the webContents' address empty), runs the preload and asks
+  // for the key; on the tip it was handed it. Refused now; WILSON's page,
+  // loading next in the same frame, is answered.
+  it('is refused and answered null, its line names the scheme none; WILSON\'s page then gets its key', () => {
+    const { ipc, gate, logged, mainWc } = gateOver()
+    gate.on('wilson:local-server-token', (event) => { event.returnValue = TOKEN })
+    const first = { origin: 'null', url: '' }
+    mainWc.mainFrame = first
+    expect(message(ipc, 'wilson:local-server-token', { sender: mainWc, senderFrame: first }, true)).toEqual([null])
+    expect(logged).toEqual(["[wilson] the bridge answers WILSON's page only: wilson:local-server-token was refused (the asking page's scheme: none)"])
+    const page = { origin: ORIGIN, url: `${ORIGIN}/` }
+    mainWc.mainFrame = page
+    expect(message(ipc, 'wilson:local-server-token', { sender: mainWc, senderFrame: page }, true)).toEqual([TOKEN])
+    expect(logged).toHaveLength(1)
+  })
+})
+
 describe('D3 — the gate: registration', () => {
   it('the rule is never asked at registration, only at each call', () => {
     const accepts = vi.fn(() => true)
