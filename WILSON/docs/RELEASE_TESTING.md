@@ -556,7 +556,7 @@ brackets), limits by design in `docs/SYSTEMS_HANDBOOK.md` §17.
 25. A click on a D.O.G. checkbox's words does nothing; only its box ticks it (DG4-01, MEASURED).
 
 **Everywhere**
-26. A new avatar may not last (*Avatar does not persist*, REPORTED, cause unproven; 0102 is reserved for its policy).
+26. A new avatar may not last (*Avatar does not persist*, REPORTED, cause unproven; a migration for it takes the next free number).
 27. Screen-reader names, Tab stops, landmarks, forced colours and minimum font sizes, and about 160 polish entries, wait for 1.1
     (plan §2, §3).
 

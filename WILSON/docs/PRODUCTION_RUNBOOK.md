@@ -184,9 +184,12 @@ suite 106.
 environment, removed by B1; 0100 replaced it); **0079** and **0080** (reserved on paper for bins and assemblies, retired by 0091:
 they would sort before files already applied everywhere, and edits superseded assemblies); **0087** (held for S3b, never used);
 **0094** (reserved, with suite 97, for aligning 0091's `unc_path` CHECK, BC3's deferral; `po-gw5-2026-10-12.md` leaves it to the
-controller); **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6). 0094 already sorts
-before files applied on dev and staging (0095 to 0101), and 0102 does on dev, where M2 applied 0103, the reason 0079 was retired:
-walkthrough 85, Q5.
+controller) and **0102** (reserved, with suite 105, for the avatars bucket's policy, `po-b1-2026-10-27.md` §6), **both retired on
+paper with their suites** by her ruling of 2026-10-28 (walkthrough 85 Q4 and Q5, in chat, verbatim:
+*"go with each one is safest and you recommend"*, Q5's (a)): each would now sort before files already applied (0095 to 0101 and 0103
+on dev and staging, P8's 0104 to 0106 on dev), the reason 0079 was retired, so either change, if it is ever written, takes the next
+free numbers, 0107 and suite 110 at P8's merge. The files that still call them reserved (0093, 0095, 0096, 0098, 0103 and P8's 0104,
+in their comments) are applied and stay as they are: (b) proves each by its md5.
 
 ---
 
@@ -417,13 +420,13 @@ has put the five `gateway-*` functions there.
 | 4 | Audrey | The gateway's GitHub setup (the release signing key as a repository secret, once) and the Windows installer rehearsal (walkthrough 63). **And the successor release key** (P8, TPN-ENC-016): `node gateway/pipeline/cli.mjs make-key --out <a folder outside the repository>` once, the private half kept with the first key (never in the repository or a chat), the printed slot line pasted into `RELEASE_KEYS_WIRE` and the one-key pins moved (`docs/gateway/HARDENING.md` §10, *Rotating the release key*, steps 1 and 2), landed before (g) 8: every 1.0.0 install then trusts both keys, so the first rotation needs no MSI reinstall | the rehearsal's own checks in 63; `RELEASE_KEYS_WIRE` with two entries and `npx vitest run gateway` green |
 | 5 | Audrey | `docs/RELEASE_TESTING.md` worked and ticked, every `[BLOCKING]` passed or knowingly waived | the ticked file |
 | 6 | Audrey | PR #4's title and body pasted (the draft below) | the PR page |
-| 7 | Audrey | Her answers to walkthrough 85 (the gate's findings fixed or ruled; production's web host; the first operator; 0094 and 0102) | the answers in the chat |
+| 7 | Audrey | Her answers to walkthrough 85 (the gate's findings fixed or ruled; production's web host; the first operator; 0094 and 0102): **all five given on 2026-10-28**, each in R2's hand-off §6 | the answers in the chat |
 | 8 | Controller | The gate in §0; then the release commit: `CHANGELOG.md`'s 1.0.0 heading dated with the day planned for (g) 20, landed on `feat/multi-user-v1` through the integration branch's beta merge, and its hash recorded. From here nothing else lands there until (g) 20 (§0) | the *Release gate* line, or her rulings; the hash in the hand-off, its `CHANGELOG.md` heading dated |
 | 9 | Controller | (a) a1–a11 | every read in the hand-off |
 | 10 | Controller | (b): the chain rehearsal, every file, then the suites | (b)'s proofs |
 | 11 | Controller | (c), the rollback copies first; (d)'s settings | (c)'s source comparison; (d)'s digests |
 | 12 | Controller, with her | (f) the web: production's web app and console per Q3's (a), a second Vercel project (its address, and whether `admin.` moves to it, chosen with her), the Auth URL Configuration, `WILSON_SITE_URL`; (f) the desktop: steps 1–3 (built; not yet installed or published) | (f)'s proofs |
-| 13 | Controller, with her | The first operator, if a6 read no company of hers, as Q4 decides: by Q4(a), the five steps under this table; then (f) the desktop, step 4 | she signs in to production's `/wilsonadmin` and sees **Companies**; the installed desktop signs in to her company |
+| 13 | Controller, with her | The first operator, if a6 read no company of hers, by Q4's (a), her ruling of 2026-10-28: the five steps under this table; then (f) the desktop, step 4 | she signs in to production's `/wilsonadmin` and sees **Companies**; the installed desktop signs in to her company |
 | 14 | Audrey | (e) on production | (e)'s probe, rows from `gotrue_hook` |
 | 15 | Audrey | The invite and recovery templates uploaded to production (`supabase/templates/invite.html`, `recovery.html`; Authentication → Email Templates) and SMTP confirmed as Resend ([OWED] §12; S18) | an invite sent to an address with no production account (not the one (g) 13 used, which answers *That email is already associated with a WILSON account.*) stays unspent for minutes, then opens *Welcome to WILSON* with **Continue** first (`docs/RELEASE_TESTING.md` §B) |
 | 16 | Controller, with her | (d)'s working proofs: **Set key** on a test company; a bucket secret if she has a test bucket; the gateway's after its first enrolment | each proof as (d) says |
@@ -435,7 +438,8 @@ has put the five `gateway-*` functions there.
 **(g) 13 by Q4(a): the first company, by SQL.** S43 removed self-serve companies and only an operator makes one, so the first
 operator starts from a company written by hand, through the function the console's own **New company** calls
 (`operator-workspaces`' create action calls `public.provision_workspace_and_admin`, 0009; service role only, and `db query` runs as
-`postgres`). If Q4 is (b), the session that builds it replaces these five steps.
+`postgres`). She ruled (a) on 2026-10-28 (walkthrough 85 Q4, in chat, verbatim: *"go with each one is safest and you recommend"*):
+no change to the app, so these five steps stand.
 
 1. **Hers:** Dashboard → wilson-prod → Authentication → Users → **Add user** → **Create new user**: the address she will type into
    the console (not the one (g) 15 invites), a password she types, **Auto Confirm User** on. Proof: the user is listed.
