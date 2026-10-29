@@ -1704,3 +1704,85 @@ describe('the Table as an explorer (S4c)', () => {
     expect(code).toMatch(/if \(isTextField\(e\.target\) \|\| e\.ctrlKey \|\| e\.metaKey\) return/)
   })
 })
+
+// =============================================================================
+// D2 (night 6, 2026-10-29; docs/design/RECONNECT_DESIGN.md §13.8; build review
+// round 1, F1, HIGH): a cloud file's download used to send the WINDOW to its
+// signed address (Chromium turned the attachment into a download and the
+// page stayed). The desktop window now refuses to leave its own page
+// (electron/windowGuard.cjs), and a refused https address goes to the system
+// browser — the signed token with it. So on the desktop the page asks the
+// main process to download it in the app (`electronAPI.downloadUrl`); the web
+// keeps its plain link, and a same-origin address (the local server's
+// download route) stays a link everywhere.
+// =============================================================================
+
+const { startSignedDownload, downloadCloudFile } = await import('./fileActions')
+describe('D2 — a signed download starts in the app on the desktop, never by sending the window away', () => {
+  const SIGNED = 'https://project.supabase.example/storage/v1/object/sign/rabbit-files/x.pdf?token=made-up&download=x.pdf'
+  let clicked
+  let restoreClick
+  const withDesktop = (answer = { ok: true }) => {
+    const calls = []
+    window.electronAPI = { downloadUrl: async (url) => { calls.push(url); return typeof answer === 'function' ? answer(url) : answer } }
+    return calls
+  }
+  afterEach(() => {
+    delete window.electronAPI
+    restoreClick?.()
+  })
+  const spyClicks = () => {
+    clicked = []
+    const original = HTMLAnchorElement.prototype.click
+    HTMLAnchorElement.prototype.click = function click() { clicked.push({ href: this.href, download: this.download }) }
+    restoreClick = () => { HTMLAnchorElement.prototype.click = original; restoreClick = null }
+  }
+
+  it('the desktop: a signed address on another origin goes to the main process, and no link is clicked', async () => {
+    spyClicks()
+    const calls = withDesktop()
+    expect(await startSignedDownload(SIGNED)).toEqual({ via: 'app' })
+    expect(calls).toEqual([SIGNED])
+    expect(clicked).toEqual([])
+  })
+
+  it('the web (no bridge): the plain link, as before', async () => {
+    spyClicks()
+    expect(await startSignedDownload(SIGNED)).toEqual({ via: 'link' })
+    expect(clicked).toEqual([{ href: SIGNED, download: '' }])
+  })
+
+  it('the desktop, a same-origin address (the local server\'s download route): still a link the window may follow', async () => {
+    spyClicks()
+    const calls = withDesktop()
+    const local = `${window.location.origin}/api/rabbit/projects/p1/files/f1/download?download=1`
+    expect(await startSignedDownload(local)).toEqual({ via: 'link' })
+    expect(calls).toEqual([])
+    expect(clicked.map((c) => c.href)).toEqual([local])
+  })
+
+  it('the desktop refusing: said, never sent to the window instead', async () => {
+    spyClicks()
+    withDesktop({ ok: false })
+    await expect(startSignedDownload(SIGNED)).rejects.toThrow('The download could not start. Try again.')
+    expect(clicked).toEqual([])
+  })
+
+  // Build review round 2, F5: the line that must not move on the web, driven
+  // through downloadCloudFile itself (no bridge): the anchor, the signed
+  // address, no download attribute.
+  it('the web: downloadCloudFile still clicks the signed address, as before D2', async () => {
+    spyClicks()
+    expect(await downloadCloudFile({ downloadUrl: async () => SIGNED, downloadFile: async () => new Blob(['x']) }, { id: 'f1', name: 'x.pdf' }, 'x.pdf')).toEqual({ via: 'url' })
+    expect(clicked).toEqual([{ href: SIGNED, download: '' }])
+  })
+
+  it('downloadCloudFile: a signed body goes through the app on the desktop', async () => {
+    spyClicks()
+    const calls = withDesktop()
+    const row = { id: 'f1', name: 'x.pdf' }
+    expect(await downloadCloudFile({ downloadUrl: async () => SIGNED, downloadFile: async () => new Blob(['x']) }, row, 'x.pdf')).toEqual({ via: 'url' })
+    expect(calls).toEqual([SIGNED])
+    expect(clicked).toEqual([])
+  })
+})

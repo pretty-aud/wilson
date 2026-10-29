@@ -52,6 +52,9 @@ import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/wor
 import { releaseStaleUploadReservations } from '../../../cloud/storageApi'
 import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
 import { isVideoExtension } from '../storage/videoThumbnails'
+// D2 (night 6): a signed download starts in the app on the desktop, never by
+// sending the window to the signed address (electron/windowGuard.cjs).
+import { startSignedDownload } from '../../../components/Resources/fileActions'
 // B3 (Track B): the desktop loopback API refuses /api without the per-launch
 // token; localFetch attaches it (same-origin URLs only).
 import { localFetch } from '../../../lib/localServerFetch.js'
@@ -825,12 +828,7 @@ export default function FileManager({
         ? await ctx.downloadUrl(file, displayName(file))
         : null
       if (signed) {
-        const a = document.createElement('a')
-        a.href = signed
-        a.rel = 'noopener'
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
+        await startSignedDownload(signed)
         return
       }
 

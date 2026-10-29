@@ -17,7 +17,9 @@
 // Activity: pointer, key, wheel and touch events, capture phase, passive. A
 // return to visibility is evaluated FIRST (a person away for 40 minutes is
 // signed out on return, not handed a fresh half hour) and THEN counted as
-// activity (switching to the tab is an action).
+// activity (switching to the tab is an action). D2 (2026-10-29): so is every
+// activity — a key pressed after the computer slept is judged against the
+// absence before it counts.
 //
 // Storage, per SURFACE. Two keys under the surface's own session key —
 // `<key>.activity` and `<key>.start` — so /wilson (`wilson.dev.session`) and
@@ -303,6 +305,17 @@ export function createSessionTimeouts(opts) {
 
   function activity() {
     if (!running || expired) return
+    // D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.3; OUTSTANDING
+    // D1-02): the absence is judged BEFORE this activity counts, as visible()
+    // judges a return. After a sleep the overdue tick is a timer task, and a
+    // key or pointer event can run before it: recorded first, it made hours
+    // idle into a fresh half hour (measured: 120 minutes asleep, then a key,
+    // and the session carried on). A gap past the idle limit ends the session
+    // here as a tick would have; a cap passed in the sleep, the same. Every
+    // time, not only when a tick is overdue: the stricter of the two, for one
+    // storage read (measured on the desktop at 0.17 µs).
+    evaluate()
+    if (expired) return
     const t = now()
     memActivity = t
     if (t - lastPersisted >= activityPersistMs) {

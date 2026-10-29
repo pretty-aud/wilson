@@ -56,7 +56,7 @@ export async function downloadCloudFile({ downloadUrl, downloadFile }, row, name
   if (signed) {
     // No `a.download` on a signed URL: it is cross-origin, the attribute is
     // ignored, and the filename rides on Content-Disposition (S42).
-    clickLink(doc, signed)
+    await startSignedDownload(signed, doc)
     return { via: 'url' }
   }
   if (!downloadFile) throw new Error('This backend cannot download files.')
@@ -69,6 +69,32 @@ export async function downloadCloudFile({ downloadUrl, downloadFile }, row, name
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
   return { via: 'blob' }
+}
+
+/**
+ * Start the download of a signed attachment address (D2, night 6,
+ * 2026-10-29; docs/design/RECONNECT_DESIGN.md §13.8). In a browser: a click
+ * on a plain link, as before (the answer is an attachment, so the tab stays).
+ * On the desktop the window refuses to leave its own page
+ * (electron/windowGuard.cjs), so an address on another origin goes to the
+ * main process, which downloads it in the app with the same save dialog
+ * (`electronAPI.downloadUrl`), never to the system browser. A same-origin
+ * address (the local server's download route) stays a link. Throws when the
+ * desktop refuses, for the caller to show.
+ */
+export async function startSignedDownload(url, doc = document) {
+  const bridge = typeof window !== 'undefined' ? window.electronAPI?.downloadUrl : null
+  if (typeof bridge === 'function' && !sameOrigin(url, doc)) {
+    const r = await bridge(String(url))
+    if (!r?.ok) throw new Error('The download could not start. Try again.')
+    return { via: 'app' }
+  }
+  clickLink(doc, url)
+  return { via: 'link' }
+}
+
+function sameOrigin(url, doc) {
+  try { return new URL(url, doc.baseURI).origin === new URL(doc.baseURI).origin } catch { return false }
 }
 
 function clickLink(doc, href, filename) {
