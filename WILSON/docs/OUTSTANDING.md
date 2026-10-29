@@ -1338,6 +1338,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul D3 (2026-10-29; `po/d3-bridge-sender-gate` into `feat/post-overhaul-edit-versioning`) — the sign-in bridge answers WILSON's page only, and an answer's link opens a new tab on the web (`docs/sessions/PLAN_TO_1_0.md` night 7; her *"Q2. b"* of 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §14): measured first on a development build of the tip and on the web, one Fable design round, built: every one of the 50 channels the preload bridges is registered through one gate (`electron/ipcGate.cjs`; `ipcMain` in `main.cjs` is the gate, the updater is handed it), which asks D1's rule first and answers any other sender `null` at once, logging the channel and the scheme once; one anchor component for the pet's and O.T.T.E.R.'s answers opens a web link in a new tab on the web | D3-01 (with a Sentry DSN, Sentry's own listeners and preload answer any page) | **D2-01** (closed by her ruling in words, *"Q1. a"*: the clips left behind stay listed by name), **D2-02** (closed by measurement: on the build the main window showing another page, another window holding the preload and a frame holding it are each answered `null` for the token, the session and every channel, where the tip handed them all three; WILSON's page gets everything it did), **D2-06** (closed by measurement: on the web the pet's and an O.T.T.E.R. lesson's web links open a new tab whose opener is cut and WILSON's tab stays, where the tip replaced it). Comment markers: 4 → 4. |
 | Post-overhaul D2 (2026-10-29; `po/d2-desktop-dropped-page-and-sleep-idle` into `feat/post-overhaul-edit-versioning`) — the desktop's two fixes before 1.0 and the report line (`docs/sessions/PLAN_TO_1_0.md` night 6; her *"2. a"* of 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §13): measured first on a development build of the tip, one Fable design round, built: the main window and each window it opens refuse every navigation and top-frame redirect outside the launch's origin (an http(s) one goes to the system browser), `window.open` refuses `file:`, `data:` and every scheme but http(s), `about:blank` and the page's own `blob:`, `navigateOnDragDrop: false` is stated (`electron/windowGuard.cjs`); a file drag nothing handled is cancelled on the window, after Bins' own listeners (`src/lib/dropGuard.js`); `activity()` judges the absence before it counts; the report and panel name the actuals that arrive without the invoice attached by a path, by line and period, never the file; build review round 1 (Fable) found the cloud downloads sent the window to their signed address, now started in the app (`wilson:download-url`), measured; round 2 (Fable) found an email link in the pet's or O.T.T.E.R.'s answers would do nothing, now handed to the mail app, measured | D2-01 (the clips left behind named by their files' names), D2-02 (the bridges' channels not gated), D2-03 (the console has no drop guard), D2-04 (an expenses-sheet actual has no place to re-attach its invoice), D2-05 (the intake button takes no drop), D2-06 (on the web, an answer's link replaces the tab) | **D1-01** (closed by measurement: on the build a page that sends itself to another site stays on WILSON's page and the address goes to the system browser, where the tip landed there with the saved sign-in and the key handed over; a file dropped with drop navigation forced on stays, by either layer alone, where the tip's control build landed on the file; D1's drop itself was an inference), **D1-02** (closed by measurement: after 31 or 120 minutes asleep the first `activity()` ends the session in `idle_timeout`, where the tip carried on; 29 minutes stays), **M3-L7** (M2 Q2 closed by her ruling in words: a project deleted in the cloud stays deleted, no *Carry everything again* in 1.0; M2 Q3 by the build). Comment markers: 4 → 4. |
 | Post-overhaul P8 (2026-10-28; `po/p8-tpn-four-areas` into `feat/post-overhaul-edit-versioning`) — Phase 8 of `TPN_AUDIT/REMEDIATION_PLAN.md`, night 5: the four areas' ten High findings fixed (the checked mark on bins, the S3 endpoint vetted and reached at one address, posters at teardown, no-store on the bin streams, ai-files failing closed, the two-factor step-up in SQL, the gateway's secrets sealed, its certificate naming the host, a three-year root with the release key's successor, the master secrets versioned with a re-seal); 0104 to 0106 with suites 107 to 109 on wilson-dev; ten functions redeployed there; walkthrough 86; three Fable rounds | **nothing.** The security entry above carries the arrow line; what remains is the controller's rotation and her successor key, both in the runbook. | **nothing.** Comment markers: 4 → 4. |
 | Post-overhaul M3 (2026-10-28; `po/m3-migration-part-3` into `feat/post-overhaul-edit-versioning`) — the desktop → cloud migration, part 3 (`docs/sessions/PLAN_TO_1_0.md` night 5): every row shape rehearsed on wilson-dev first (rolled back), one Fable design round before code; the team matched to company accounts by email for an admin or manager (the unmatched named, their rows arriving without the person), the roster inserted never upserted, every person column by the map and the people set once on rows earlier runs carried without them; the files kept with assets, scenes, shots, levels and experiences as `files` rows with their bodies by the company's storage rule (the resumable path fed by Range requests above the threshold; a server company's stay, her ruling); the rate cards and templates once per run with their gates, the assets' template links restored; the receipts an earlier build left open moved behind the gate; the archive keeps the workspace stores; no migration, no SQL; two review rounds | M3-L1 (the ordinary files step ignores the storage rule), M3-L2 (an s3 body one PUT up to 5 GiB), M3-L3 (a raw desktop id stays until its person joins), M3-L4 (`task_templates` stamps no maker), M3-L5 (the dry run's template links on a project not yet in the cloud), M3-L6 (a receipt's picture removed when it cannot be moved), M3-L7 (walkthrough 85's Q2 and Q3 still hers) | M1-L1, M1-L2, M2-L1, M2-L4 and M2-L5 closed. |
@@ -2964,19 +2965,10 @@ first, and the migration names the actuals left without their invoice
 (`docs/design/RECONNECT_DESIGN.md` §13; her *"2. a"* of 2026-10-29). Three
 entries closed (the session log's D2 row). What D2 met and did not fix:
 
-- **D2-01 · The migration report names the clips left behind by their
-  files' names.** INFERRED from the code (D2's design round, F14):
-  `runMigration.js` puts a clip's `display_name || original_name` in
-  `clipsLeftBehind`, and `MigrationPanel.jsx`'s `ReportTable` lists them. It
-  stays on her own screen, in no record and no event. BC3's, outside D2's
-  brief, whose rule (*a filename is content*) was scoped to the invoice.
-  Owner: the controller (whether the rule covers the clips).
-- **D2-02 · The bridges' channels answer any page that runs the preload.**
-  The other half of D1-01's fix shape, not built. The main window and every
-  window it opens are kept to the launch's page, and the windows it opens
-  hold no bridge (both measured), so no other page reaches the channels;
-  answering only `acceptsSender`'s page on every channel is defence in depth
-  and a larger change than D2's. Owner: none before 1.0.
+- **D2-01, D2-02 and D2-06 were closed by D3** (night 7, 2026-10-29):
+  D2-01 by her ruling in words, *"Q1. a"* (the clips left behind stay
+  listed by name, as they are); D2-02 and D2-06 by measurement (the session
+  log's D3 row, and `docs/design/RECONNECT_DESIGN.md` §14).
 - **D2-03 · The operator console has no drop guard.** A file dropped on
   `/wilsonadmin` in a browser opens in the tab's place, as on any page; the
   console holds no bridge. INFERRED (the guard is installed by the app's
@@ -2991,15 +2983,30 @@ entries closed (the session log's D2 row). What D2 met and did not fix:
   dropped on it does nothing on either build (before D2 it replaced the
   tab on the web). INFERRED from the code (build review round 1, F6).
   Owner: an intake session (wire it to the hidden input, or say *Click*).
-- **D2-06 · On the web, a link in the pet's or O.T.T.E.R.'s answers replaces
-  WILSON's tab.** Both render markdown with plain anchors (no target:
-  `PetCompanion.jsx`'s and `Otter.jsx`'s markdown components set none for
-  `a`). On the desktop the window guard sends such a link to the system
-  browser (an email link to the mail app), measured; in a browser the tab
-  goes to the site and the page's unsaved state with it, as before D2.
-  INFERRED from the code (build review round 2, F2). Fix: an `a` component
-  with `target="_blank" rel="noopener noreferrer"` in each. Owner: an
-  O.T.T.E.R. or pet session.
+
+## D3 (2026-10-29, night 7 of `docs/sessions/PLAN_TO_1_0.md`)
+
+The sign-in bridge answers WILSON's page only, and an answer's link opens a
+new tab on the web (`docs/design/RECONNECT_DESIGN.md` §14; her *"Q2. b"* of
+2026-10-29). Three entries closed (the session log's D3 row). What D3 met
+and did not fix:
+
+- **D3-01 · With a Sentry DSN set, Sentry's own IPC answers any page.**
+  INFERRED from the library's source (read, not run: no build here has a
+  DSN): `@sentry/electron` 5.12.0's main SDK (`ipcMode: IPCMode.Both`)
+  registers six listeners on Electron's `ipcMain` that take any sender and
+  answer none (`main/ipc.js`, `configureClassic`), a privileged
+  `sentry-ipc:` scheme any page of the session can reach, and its own
+  preload in every page of the default session
+  (`main/integrations/preload-injection.js`), the print and receipt windows
+  included. Inbound telemetry only: nothing of WILSON's (the key, the
+  session, a file) is handed back. Outside D3's gate, which covers the
+  channels WILSON's preload bridges; its source test covers the repo, not
+  `node_modules`. Would settle it: a desktop run with a DSN set and a page
+  that is not WILSON's sending an event. Fix shape: `initMainSentry` with
+  `ipcMode: IPCMode.Protocol` and the preload injection left out, or the
+  listeners' sender checked. Owner: the controller (whether 1.0's installer
+  sets a DSN).
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

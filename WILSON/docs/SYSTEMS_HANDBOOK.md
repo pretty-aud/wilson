@@ -166,6 +166,19 @@ cloud file's download, which used to send the window to its signed address,
 starts in the app (`startSignedDownload` → `wilson:download-url` →
 `webContents.downloadURL`, this launch's page only, http(s) only; the web
 keeps its plain link).
+**Every channel the preload bridges answers WILSON's page only** (D3,
+2026-10-29; `electron/ipcGate.cjs`, `docs/design/RECONNECT_DESIGN.md` §14),
+the second lock behind the window's: the 50 channels are registered through
+one gate (`ipcMain` in `main.cjs` is the gate; the updater is handed it),
+which asks D1's rule first — the main window's own `webContents`, its top
+frame, this launch's origin — and answers any other sender `null` at once,
+its handler never run, logging the channel and the asking page's scheme
+once (`none` at every launch, for the window's first, empty document).
+Measured on `bb14b169`: a page that held the preload without being WILSON's
+(the main window showing another page, another window or a frame given the
+preload) was handed the local server's key, the session and every channel;
+on the build, nothing. With a Sentry DSN, Sentry's own listeners and preload
+are outside it (OUTSTANDING D3-01).
 Window close is intercepted and handed to the renderer as a `close-requested`
 event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
 flag before `quitAndInstall()`.
@@ -438,6 +451,8 @@ stores and their record together.
 
 `rabbit:pick-directory` is security-relevant: it is the **only** way a folder
 enters `userAuthorizedDirs`, which is what the relink routes check.
+Since D3 every channel in this table answers only the main window's own top
+frame at this launch's origin (`electron/ipcGate.cjs`; the posture line above).
 
 ### 3.2 The web build
 
@@ -6387,8 +6402,9 @@ documentation and starts being wrong answers.
   holds alone: with drop navigation forced on, the main process's refusal
   alone and the page's drop guard alone both keep the page. The print and
   receipt windows open as before, with no bridge (measured). Left: the
-  bridges' channels answer any page that runs the preload (OUTSTANDING
-  D2-02); the operator console has no drop guard (D2-03).
+  bridges' channels answered any page that ran the preload (OUTSTANDING
+  D2-02, closed by D3, below); the operator console has no drop guard
+  (D2-03).
 - **The idle clock judges a sleep first.** `activity()` runs `evaluate()`
   before it records the activity, as `visible()` always did: after the
   computer slept past thirty minutes, the first key or click signs out
@@ -6403,7 +6419,32 @@ documentation and starts being wrong answers.
   or team member, the period), never the file's path or name. M2 Q2 by her
   ruling in words: a project deleted in the cloud stays deleted (no *Carry
   everything again* in 1.0). The clips left behind are still named by
-  their files' names (OUTSTANDING D2-01).
+  their files' names, as her ruling keeps them (*"Q1. a"*; D3, below).
+
+**The sign-in bridge answers WILSON's page only, and an answer's link opens a new tab on the web (D3, 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §14)**
+
+- **Every channel the preload bridges asks who is calling** (§3.1's
+  posture line). Measured on the tip: whatever held the preload was
+  answered — the main window's top frame showing another page, a second
+  window given it, a frame given it — with the local server's key, the
+  session and every channel but D1's storage and D2's download; so was the
+  window's first, empty document at every launch, before WILSON's page
+  loads. On the build each gets `null` at once, and WILSON's page
+  everything it got before. What can script WILSON's page itself (a
+  same-origin frame, the print window through `opener`) calls WILSON's
+  page's own objects, from WILSON's top frame, and is answered as WILSON's
+  page is: no sender test can tell it apart, and none needs to. Left:
+  Sentry's own IPC when a DSN is set (OUTSTANDING D3-01).
+- **An answer's link on the web** (the pet's, O.T.T.E.R.'s lessons) opens
+  a web address on another origin in a new tab with `rel="noopener
+  noreferrer"`, and WILSON's tab stays (`src/components/AnswerLink.jsx`);
+  an email address, a relative address, a fragment and the page's own
+  origin stay plain anchors, and an address react-markdown emptied is
+  drawn as its text. On the desktop the window's guard still sends a web
+  address to the system browser (OUTSTANDING D2-06 closed).
+- **Her rulings of 2026-10-29:** *"Q2. b"* (this lock, before 1.0) and
+  *"Q1. a"* (the migration report keeps naming the clips left behind:
+  OUTSTANDING D2-01 closed in words).
 
 ## Appendix A — Glossary
 
