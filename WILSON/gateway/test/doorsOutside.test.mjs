@@ -7,7 +7,7 @@
 // close with a half-open TLS socket held open.
 // =============================================================================
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -354,9 +354,15 @@ describe('what is written down (G6, D7): one row per viewing, outside only', () 
     try {
       const size = share.clipBytes.length;
       const t = W.ticket();
-      await W.request(W.clipUrl(t), { headers: { range: 'bytes=0-524287', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' } });
+      const first = await W.request(W.clipUrl(t), { headers: { range: 'bytes=0-524287', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' } });
       W.clock.t += 5_000;
-      await W.request(W.clipUrl(t), { headers: { range: `bytes=524288-${size - 1}` } });
+      const second = await W.request(W.clipUrl(t), { headers: { range: `bytes=524288-${size - 1}` } });
+      // Both ranges reached the client whole. The door counts each chunk before
+      // passing it on, so the row has them now, though the door's own end for
+      // the second range may still be to come: while the count waited for that
+      // end, the tick below closed the row short (the CI flake in OUTSTANDING's
+      // gateway tests entry; the control after this test holds that end open).
+      expect([first.status, first.body.length, second.status, second.body.length]).toEqual([206, 524288, 206, size - 524288]);
       expect(W.journal.lines.map((l) => l.t)).toEqual(['start']);
       W.clock.t += 60_000;
       W.ctx.viewings.tick();
@@ -366,6 +372,52 @@ describe('what is written down (G6, D7): one row per viewing, outside only', () 
       expect(Object.keys(end)).not.toContain('ranges');
     } finally { await W.close(); }
   });
+  it('the row holds every byte the client has, even when the response\'s own end lands after the idle check (the control)', async () => {
+    // The race behind the CI flake (OUTSTANDING, the gateway's tests entry,
+    // S1 to M3; settled 2026-10-29): the client's 'end' needs only the bytes,
+    // while the door's pipeline ends (its 'finish', then the stream's done())
+    // after the socket's own write callbacks, so the two land in either order.
+    // The count once landed in done(), and an idle check between the two closed
+    // the row without the second range: bytes 524,288, fraction 0.5,
+    // last_offset 524,287, read_in_full false. Holding the second response's
+    // 'finish' and 'close' makes that order certain here.
+    let holding = false;
+    const held = [];
+    const W = await makeWorld({
+      door: 'outside', share,
+      onRequest: (_req, res) => {
+        if (!holding) return;
+        const emit = res.emit;
+        res.emit = function heldEmit(event, ...args) {
+          if (holding && (event === 'finish' || event === 'close')) { held.push(() => emit.call(this, event, ...args)); return true; }
+          return emit.call(this, event, ...args);
+        };
+      },
+    });
+    const release = () => { holding = false; for (const f of held.splice(0)) f(); };
+    const servedLines = () => W.state.log.filter((e) => e.event === 'clip_served').length;
+    const patiently = { timeout: 10_000, interval: 5 }; // a loaded runner's slow loop is no failure here
+    try {
+      const size = share.clipBytes.length;
+      const t = W.ticket();
+      expect((await W.request(W.clipUrl(t), { headers: { range: 'bytes=0-524287' } })).status).toBe(206);
+      await vi.waitFor(() => expect(servedLines()).toBe(1), patiently);
+      W.clock.t += 5_000;
+      holding = true;
+      const second = await W.request(W.clipUrl(t), { headers: { range: `bytes=524288-${size - 1}` } });
+      expect(second.status).toBe(206);
+      expect(second.body.equals(share.clipBytes.subarray(524288))).toBe(true); // the client has every byte…
+      expect(servedLines()).toBe(1); // …and the door's end for that range has not run
+      W.clock.t += 60_000;
+      W.ctx.viewings.tick();
+      const end = W.journal.lines.find((l) => l.t === 'end').row;
+      expect(end).toMatchObject({ bytes: size, clip_bytes: size, fraction: 1, read_in_full: true, range_count: 2, first_offset: 0, last_offset: size - 1 });
+      await vi.waitFor(() => expect(held.length).toBeGreaterThan(0), patiently);
+      release();
+      await vi.waitFor(() => expect(servedLines()).toBe(2), patiently);
+      expect(W.journal.lines.map((l) => l.t)).toEqual(['start', 'end']); // the late end opens no row
+    } finally { release(); await W.close(); }
+  }, 30_000);
   it('five minutes of activity close a row and the next byte starts another', async () => {
     const W = await makeWorld({ door: 'outside', share });
     try {

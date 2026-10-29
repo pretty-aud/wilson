@@ -235,6 +235,11 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     let finished = false;
     const counter = new Transform({
       transform(chunk, _enc, cb) {
+        // The viewing counts each chunk here, before it is passed on, at the
+        // point `sent` and the bytes budget count it: the client cannot have a
+        // byte the row lacks, whenever this pipeline's own end runs (it can
+        // run after the client has its last byte; viewings.mjs, served).
+        if (viewing) ctx.viewings.served(viewing, { start: plan.start + sent, bytes: chunk.length });
         sent += chunk.length;
         if (door === 'outside' && ctx.outsideBytes.spend(authority.sub, chunk.length)) {
           cb(Object.assign(new Error('bytes budget'), { code: 'EBUDGET' }));
@@ -251,7 +256,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
       clearInterval(live);
       release();
       closeStreamSlot();
-      if (viewing) ctx.viewings.served(viewing, { start: plan.start, bytes: sent });
+      if (viewing) ctx.viewings.settled(viewing, { bytes: sent });
       ctx.log('clip_served', { door, status: plan.status, jti: stream.jti, bytes: sent, peer: source.address, via: source.via });
     };
     // The bytes from the handle that was checked (autoClose: the stream closes it).

@@ -91,15 +91,28 @@ export class Viewings {
     return v;
   }
 
-  /** Bytes actually handed to the socket for one response, from `start`. */
+  /**
+   * Bytes handed on for one response, from `start`: called for each chunk
+   * before it is passed on (clips.mjs), so a row that closes holds every byte
+   * the client could have received by then. The response's own end comes
+   * apart from its bytes (the pipeline finishes on the socket's write
+   * callbacks; the client's 'end' needs only the bytes), and when the count
+   * waited for that end, an idle check between the two closed the row without
+   * the response (OUTSTANDING, the gateway's CI flake; settled 2026-10-29).
+   * What a response hands on after its row has closed (one open longer than
+   * the idle minute) is counted in no row yet: OUTSTANDING's entry on it.
+   */
   served(v, { start, bytes }) {
     if (!(bytes > 0)) return;
-    const t = this.now();
-    v.lastAt = t;
     v.bytes += bytes;
     if (v.first_offset === null) v.first_offset = start;
     v.last_offset = start + bytes - 1;
     v.coverage.add(start, start + bytes);
+  }
+
+  /** A response is over, finished or cut, having served `bytes`: its end is activity, as a request is. */
+  settled(v, { bytes }) {
+    if (bytes > 0) v.lastAt = this.now();
   }
 
   rowOf(v, { incomplete = false, endedAt = this.now() } = {}) {
