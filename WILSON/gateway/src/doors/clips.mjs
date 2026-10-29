@@ -214,9 +214,15 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
   // E). `done()` releases them on the normal path; the catch covers the window
   // before `done` is wired. All three releases are once-guarded (release's
   // released flag, closeStreamSlot, closeHandle), so neither path double-frees.
+  // So is the viewing's settle: a response holds its row open until it is
+  // settled (one row per play, viewings.mjs), so every path after begin
+  // settles it exactly once, or the row would never end.
   let handed = false;
+  let viewing = null;
+  let settledOnce = false;
+  const settle = (bytes) => { if (viewing && !settledOnce) { settledOnce = true; ctx.viewings.settled(viewing, { bytes }); } };
   try {
-    const viewing = door === 'outside'
+    viewing = door === 'outside'
       ? ctx.viewings.begin({ sub: authority.sub, clip: clipId, jti: stream.jti, clipBytes: size, source: source.address, via: source.via, userAgent: ctx.userAgent(req), shared })
       : null;
 
@@ -227,7 +233,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     res.writeHead(plan.status);
     if (plan.length === 0) {
       res.end();
-      release(); closeStreamSlot(); closeHandle();
+      release(); closeStreamSlot(); closeHandle(); settle(0);
       return undefined;
     }
 
@@ -235,6 +241,11 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     let finished = false;
     const counter = new Transform({
       transform(chunk, _enc, cb) {
+        // The viewing counts each chunk here, before it is passed on, at the
+        // point `sent` and the bytes budget count it: the client cannot have a
+        // byte the row lacks, whenever this pipeline's own end runs (it can
+        // run after the client has its last byte; viewings.mjs, served).
+        if (viewing) ctx.viewings.served(viewing, { start: plan.start + sent, bytes: chunk.length });
         sent += chunk.length;
         if (door === 'outside' && ctx.outsideBytes.spend(authority.sub, chunk.length)) {
           cb(Object.assign(new Error('bytes budget'), { code: 'EBUDGET' }));
@@ -251,7 +262,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
       clearInterval(live);
       release();
       closeStreamSlot();
-      if (viewing) ctx.viewings.served(viewing, { start: plan.start, bytes: sent });
+      settle(sent);
       ctx.log('clip_served', { door, status: plan.status, jti: stream.jti, bytes: sent, peer: source.address, via: source.via });
     };
     // The bytes from the handle that was checked (autoClose: the stream closes it).
@@ -262,7 +273,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     handed = true;
     return undefined;
   } catch (e) {
-    if (!handed) { release(); closeStreamSlot(); closeHandle(); }
+    if (!handed) { release(); closeStreamSlot(); closeHandle(); settle(0); }
     throw e;
   }
 }

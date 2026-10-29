@@ -68,7 +68,7 @@ export function memoryJournal() {
 
 /**
  * One door on loopback.
- * @param o { door, gate?, limits?, share, confirmed?: Set<clip>|'all', cloudReachable?: boolean, clock?: { t }, ids?: { gatewayId, workspaceId } }
+ * @param o { door, gate?, limits?, share, confirmed?: Set<clip>|'all', cloudReachable?: boolean, clock?: { t }, ids?: { gatewayId, workspaceId }, onRequest?: (req, res) => void }
  */
 export async function makeWorld(o) {
   const door = o.door;
@@ -123,7 +123,11 @@ export async function makeWorld(o) {
   });
   if (o.liveCheckMs) ctx.liveCheckMs = o.liveCheckMs;
   const gate = o.gate || (() => ({ admit: true }));
-  const server = createDoorServer({ door, host: '127.0.0.1', port: 0, tls: { cert: certs.leaf.certPem, key: certs.leaf.keyPem }, limits, gate, handler: makeHandler(ctx, door), onEvent: (e, d) => state.log.push({ event: e, ...d }) });
+  // onRequest: a test's look at each request and its response before the door
+  // handles them (the viewing rows' control holds a response's end with it).
+  const handle = makeHandler(ctx, door);
+  const handler = o.onRequest ? (req, res) => { o.onRequest(req, res); return handle(req, res); } : handle;
+  const server = createDoorServer({ door, host: '127.0.0.1', port: 0, tls: { cert: certs.leaf.certPem, key: certs.leaf.keyPem }, limits, gate, handler, onEvent: (e, d) => state.log.push({ event: e, ...d }) });
   await server.listen();
 
   const ticket = (over = {}) => mintTicket(claimsOf({ kid: 'k1', gw: GW, ws: WS, sub: SUB, clip: CLIP, loc: LOC, path: 'A001/clip.mp4', mt: 'video/mp4', rv: door === 'outside', iat: Math.floor(clock.t / 1000) - 1, ...over }), key.privateKey);

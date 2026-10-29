@@ -7,8 +7,9 @@
 // close with a half-open TLS socket held open.
 // =============================================================================
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import net from 'node:net';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -349,15 +350,29 @@ describe('the limits (D12) on the outside door', () => {
 });
 
 describe('what is written down (G6, D7): one row per viewing, outside only', () => {
+  // The door's own end for a response (its pipeline's, which settles the
+  // response in its row and logs clip_served) comes apart from the client's
+  // 'end' (the CI flake in OUTSTANDING's gateway tests entry), and a response
+  // the door has not finished holds its row open (one row per play, Audrey's
+  // answer of 2026-10-29). So the idle minute runs from the door's end, and a
+  // test waits for that end before it moves the clock: patiently, since a
+  // loaded runner's slow loop is no failure here.
+  const servedLines = (W) => W.state.log.filter((e) => e.event === 'clip_served').length;
+  const lineTypes = (W) => W.journal.lines.map((l) => l.t);
+  const patiently = { timeout: 10_000, interval: 5 };
+  const iso = (t) => new Date(t).toISOString();
+
   it('a play and a scrub make one viewing; 60 s idle ends it; the row has counts and two offsets', async () => {
     const W = await makeWorld({ door: 'outside', share });
     try {
       const size = share.clipBytes.length;
       const t = W.ticket();
-      await W.request(W.clipUrl(t), { headers: { range: 'bytes=0-524287', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' } });
+      const first = await W.request(W.clipUrl(t), { headers: { range: 'bytes=0-524287', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' } });
       W.clock.t += 5_000;
-      await W.request(W.clipUrl(t), { headers: { range: `bytes=524288-${size - 1}` } });
-      expect(W.journal.lines.map((l) => l.t)).toEqual(['start']);
+      const second = await W.request(W.clipUrl(t), { headers: { range: `bytes=524288-${size - 1}` } });
+      expect([first.status, first.body.length, second.status, second.body.length]).toEqual([206, 524288, 206, size - 524288]);
+      await vi.waitFor(() => expect(servedLines(W)).toBe(2), patiently);
+      expect(lineTypes(W)).toEqual(['start']);
       W.clock.t += 60_000;
       W.ctx.viewings.tick();
       const end = W.journal.lines.find((l) => l.t === 'end').row;
@@ -366,14 +381,199 @@ describe('what is written down (G6, D7): one row per viewing, outside only', () 
       expect(Object.keys(end)).not.toContain('ranges');
     } finally { await W.close(); }
   });
-  it('five minutes of activity close a row and the next byte starts another', async () => {
+  it('the row holds every byte the client has, even when the response\'s own end lands after the idle check (the control)', async () => {
+    // The race behind the CI flake (OUTSTANDING, the gateway's tests entry,
+    // S1 to M3; settled 2026-10-29): the client's 'end' needs only the bytes,
+    // while the door's pipeline ends (its 'finish', then the stream's done())
+    // after the socket's own write callbacks, so the two land in either order.
+    // The count once landed in done(), and an idle check between the two closed
+    // the row without the second range: bytes 524,288, fraction 0.5,
+    // last_offset 524,287, read_in_full false. Now each chunk is counted as it
+    // leaves, and the response holds its row open until the door's end: the
+    // idle check closes nothing, and the row ends a minute after that end,
+    // whole. Holding the second response's 'finish' and 'close' makes that
+    // order certain here.
+    let holding = false;
+    const held = [];
+    const W = await makeWorld({
+      door: 'outside', share,
+      onRequest: (_req, res) => {
+        if (!holding) return;
+        const emit = res.emit;
+        res.emit = function heldEmit(event, ...args) {
+          if (holding && (event === 'finish' || event === 'close')) { held.push(() => emit.call(this, event, ...args)); return true; }
+          return emit.call(this, event, ...args);
+        };
+      },
+    });
+    const release = () => { holding = false; for (const f of held.splice(0)) f(); };
+    try {
+      const size = share.clipBytes.length;
+      const t = W.ticket();
+      expect((await W.request(W.clipUrl(t), { headers: { range: 'bytes=0-524287' } })).status).toBe(206);
+      await vi.waitFor(() => expect(servedLines(W)).toBe(1), patiently);
+      W.clock.t += 5_000;
+      holding = true;
+      const second = await W.request(W.clipUrl(t), { headers: { range: `bytes=524288-${size - 1}` } });
+      expect(second.status).toBe(206);
+      expect(second.body.equals(share.clipBytes.subarray(524288))).toBe(true); // the client has every byte…
+      expect(servedLines(W)).toBe(1); // …and the door's end for that range has not run…
+      const [open] = [...W.ctx.viewings.open.values()];
+      expect(W.ctx.viewings.rowOf(open)).toMatchObject({ bytes: size, fraction: 1, range_count: 2, last_offset: size - 1 }); // …yet the row has them all
+      W.clock.t += 60_000;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start']); // held open by the response
+      await vi.waitFor(() => expect(held.length).toBeGreaterThan(0), patiently);
+      release();
+      await vi.waitFor(() => expect(servedLines(W)).toBe(2), patiently);
+      const doorsEnd = W.clock.t;
+      W.clock.t += 59_999;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start']);
+      W.clock.t += 1;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start', 'end']);
+      expect(W.journal.lines[1].row).toMatchObject({ bytes: size, clip_bytes: size, fraction: 1, read_in_full: true, range_count: 2, first_offset: 0, last_offset: size - 1, ended_at: iso(doorsEnd) });
+    } finally { release(); await W.close(); }
+  }, 30_000);
+  it('a play keeps one row however long it runs: a range every 50 s for nearly six minutes is one row, ended a minute after the last', async () => {
+    // Five minutes once closed a row and the next byte started another.
     const W = await makeWorld({ door: 'outside', share });
     try {
-      for (let i = 0; i < 7; i++) {
-        await W.request(W.clipUrl(W.ticket()), { headers: { range: `bytes=${i}-${i}` } });
-        W.clock.t += 50_000;
+      const t0 = W.clock.t;
+      for (let i = 0; i < 8; i++) {
+        if (i) W.clock.t += 50_000;
+        expect((await W.request(W.clipUrl(W.ticket()), { headers: { range: `bytes=${i}-${i}` } })).status).toBe(206);
+        await vi.waitFor(() => expect(servedLines(W)).toBe(i + 1), patiently);
+        W.ctx.viewings.tick();
       }
-      expect(W.journal.lines.filter((l) => l.t === 'start')).toHaveLength(2);
+      expect(lineTypes(W)).toEqual(['start']);
+      W.clock.t += 59_999;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start']);
+      W.clock.t += 1;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start', 'end']);
+      expect(W.journal.lines[1].row).toMatchObject({ bytes: 8, range_count: 8, first_offset: 0, last_offset: 7, started_at: iso(t0), ended_at: iso(t0 + 350_000) });
+    } finally { await W.close(); }
+  });
+  it('a response still being served holds its row open past the idle minute and past five minutes; the row ends a minute after it, whole', async () => {
+    // A browser may read a whole play as one open range. Here the reader
+    // pauses while six minutes pass on the gateway's clock, the stream renewed
+    // as the web app renews it (§5 step 7); the file is larger than loopback's
+    // socket buffers, as the D5 test's is, so the response is still being
+    // served. The row once closed at the idle minute with what had left by
+    // then, and the rest was counted in no row (OUTSTANDING).
+    const big = makeShare();
+    const size = 48 * 1024 * 1024;
+    fs.writeFileSync(path.join(big.root, 'A001', 'long.mp4'), Buffer.alloc(size, 7));
+    const W = await makeWorld({ door: 'outside', share: big });
+    try {
+      const t0 = W.clock.t;
+      const t = W.ticket({ path: 'A001/long.mp4' });
+      const jti = JSON.parse(Buffer.from(t.split('.')[1], 'base64url')).jti;
+      let reader = null;
+      let got = 0;
+      const whole = new Promise((resolve, reject) => {
+        const req = https.request({ host: '127.0.0.1', port: W.server.port, path: W.clipUrl(t), agent: false, servername: 'studio-nas', ca: W.certs.root.certPem, headers: { host: `studio-nas:${W.server.port}` } }, (res) => {
+          res.pause();
+          reader = res;
+          res.on('data', (c) => { got += c.length; });
+          res.on('end', () => resolve(res.statusCode));
+          res.on('close', () => { if (!res.complete) reject(new Error('the response was cut')); });
+          res.on('error', reject);
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      await vi.waitFor(() => expect(reader).not.toBeNull(), patiently);
+      for (let i = 0; i < 5; i++) {
+        W.clock.t += 75_000;
+        const renewed = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti, t: W.ticket({ path: 'A001/long.mp4' }) }) });
+        expect(renewed.status).toBe(204);
+        W.ctx.viewings.tick();
+        expect(lineTypes(W)).toEqual(['start']);
+      }
+      expect(servedLines(W)).toBe(0); // still being served: the door's end has not run
+      reader.resume();
+      expect(await whole).toBe(200);
+      expect(got).toBe(size);
+      await vi.waitFor(() => expect(servedLines(W)).toBe(1), patiently);
+      const doorsEnd = W.clock.t;
+      W.clock.t += 59_999;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start']);
+      W.clock.t += 1;
+      W.ctx.viewings.tick();
+      expect(lineTypes(W)).toEqual(['start', 'end']);
+      expect(W.journal.lines[1].row).toMatchObject({ bytes: size, clip_bytes: size, fraction: 1, read_in_full: true, range_count: 1, first_offset: 0, last_offset: size - 1, started_at: iso(t0), ended_at: iso(doorsEnd) });
+      expect(doorsEnd - t0).toBe(375_000);
+    } finally { await W.close(); big.cleanup(); }
+  }, 60_000);
+  it('the outside door closing ends a row whose response is still being served: ended then, with what had left', async () => {
+    // endAll (the door closed, or the gateway stopping) ends every row, held
+    // open or not; one held open by a response ends at that moment, not at its
+    // last request, which may be hours before.
+    const big = makeShare();
+    const size = 48 * 1024 * 1024;
+    fs.writeFileSync(path.join(big.root, 'A001', 'long.mp4'), Buffer.alloc(size, 7));
+    const W = await makeWorld({ door: 'outside', share: big });
+    let req = null;
+    try {
+      const t0 = W.clock.t;
+      const t = W.ticket({ path: 'A001/long.mp4' });
+      let reader = null;
+      req = https.request({ host: '127.0.0.1', port: W.server.port, path: W.clipUrl(t), agent: false, servername: 'studio-nas', ca: W.certs.root.certPem, headers: { host: `studio-nas:${W.server.port}` } }, (res) => {
+        res.pause();
+        res.on('error', () => {});
+        reader = res;
+      });
+      req.on('error', () => {});
+      req.end();
+      await vi.waitFor(() => expect(reader).not.toBeNull(), patiently);
+      const counted = () => W.ctx.viewings.rowOf([...W.ctx.viewings.open.values()][0]).bytes;
+      await vi.waitFor(() => expect(counted()).toBeGreaterThan(0), patiently);
+      W.clock.t += 90_000;
+      W.ctx.viewings.endAll();
+      expect(lineTypes(W)).toEqual(['start', 'end']);
+      const row = W.journal.lines[1].row;
+      expect(row).toMatchObject({ started_at: iso(t0), ended_at: iso(t0 + 90_000), range_count: 1, first_offset: 0 });
+      expect(row.bytes).toBeGreaterThan(0);
+      expect(row.bytes).toBeLessThan(size);
+    } finally { req?.destroy(); await W.close(); big.cleanup(); }
+  }, 60_000);
+  it('a response that serves nothing, fails after its row began, or is cut by the client does not hold the row open', async () => {
+    // Every response that begins a row settles it exactly once (clips.mjs),
+    // or the row would never end.
+    let failWriteHead = false;
+    const W = await makeWorld({
+      door: 'outside', share,
+      onRequest: (_req, res) => {
+        if (!failWriteHead) return;
+        failWriteHead = false;
+        const writeHead = res.writeHead;
+        res.writeHead = function failingOnce() { res.writeHead = writeHead; throw new Error('writeHead failed'); };
+      },
+    });
+    const idleMinute = () => { W.clock.t += 60_000; W.ctx.viewings.tick(); };
+    try {
+      // An empty clip: 200 and no byte; its row began, and ends a minute later.
+      const empty = await W.request(W.clipUrl(W.ticket({ path: 'A001/empty.mp4' })));
+      expect([empty.status, empty.body.length]).toEqual([200, 0]);
+      idleMinute();
+      expect(lineTypes(W)).toEqual(['start', 'end']);
+      expect(W.journal.lines[1].row).toMatchObject({ bytes: 0, range_count: 1 });
+      // A throw after the row began (here, in writeHead): 500, and the row still ends.
+      failWriteHead = true;
+      expect((await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-9' } })).status).toBe(500);
+      idleMinute();
+      expect(lineTypes(W)).toEqual(['start', 'end', 'start', 'end']);
+      // The client cuts the response: the door's end settles it, and the row ends a minute after.
+      expect((await W.request(W.clipUrl(W.ticket()), { abortAfterBytes: 1 })).aborted).toBe(true);
+      await vi.waitFor(() => expect(servedLines(W)).toBe(1), patiently);
+      idleMinute();
+      expect(lineTypes(W)).toEqual(['start', 'end', 'start', 'end', 'start', 'end']);
+      expect(W.ctx.viewings.open.size).toBe(0);
     } finally { await W.close(); }
   });
   it('a declared local proxy: the forwarded address is recorded and via names the proxy', async () => {
