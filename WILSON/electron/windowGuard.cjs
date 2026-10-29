@@ -6,8 +6,11 @@
 // The preload hands whatever page the main window shows the saved sign-in
 // (`wilsonSession`) and the local server's key (`electronAPI`). MEASURED on
 // the tip (4728a92d): a page that sends itself to another site lands there
-// with both. So the window refuses every navigation, and every server
-// redirect of its top frame, whose destination is not this launch's own page:
+// with both. So the window refuses every navigation that fetches, and every
+// server redirect of its top frame, whose destination is not this launch's own
+// page (a renderer's navigation to about:blank commits without a fetch and so
+// without `will-navigate`; it stays the page's own origin and hands nothing to
+// anyone: build review round 1, F2):
 // an http address at this launch's origin (http://127.0.0.1:<port>, new at
 // every launch, read from the main process at the moment, never a fixed
 // string). A refused http(s) address goes to the system browser, as
@@ -20,6 +23,13 @@
 // window the page opens is guarded the same way (review round, F2): its own
 // page is its two starting points or the launch's origin, and it opens no
 // window of its own.
+//
+// A cloud download used to be a navigation of this window to its signed
+// address (Chromium turned the attachment into a download and the page
+// stayed). Refused now, it would go to the system browser, token and all
+// (build review round 1, F1, HIGH), so the page asks the main process
+// instead (`wilson:download-url`): only an http(s) address is downloaded,
+// in the app, with the same save dialog (`isDownloadAddress`).
 //
 // Only the top frame: the preload runs there alone (`nodeIntegrationInSubFrames`
 // is not set), so a frame inside the page holds no bridge.
@@ -120,4 +130,10 @@ function guardWindow(webContents, { origin, openExternal, log = () => {}, child 
   });
 }
 
-module.exports = { staysOnOwnPage, openDecision, guardWindow };
+/** May the page's download channel download this address in the app? http(s) only. */
+function isDownloadAddress(url) {
+  const u = parse(url);
+  return !!u && isWeb(u);
+}
+
+module.exports = { staysOnOwnPage, openDecision, guardWindow, isDownloadAddress };

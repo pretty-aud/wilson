@@ -3910,7 +3910,11 @@ describe('D2: the report names the actuals that arrive without their invoice', (
       JSON.stringify(fake.state.inserts), JSON.stringify(fake.state.updates), JSON.stringify(fake.state.rpcs),
       JSON.stringify(globalThis.fetch.mock.calls),
     ]
-    for (const needle of [INVOICE_PATH, INVOICE_NAME, CREW_PATH, CREW_NAME, 'Invoices' + BS, 'Paperwork', 'timber-invoice', 'week-one-invoice']) {
+    // Build review round 1, F4: JSON doubles a backslash, so each path is also
+    // searched in the form JSON writes it.
+    const escaped = (p) => JSON.stringify(p).slice(1, -1)
+    expect(escaped(INVOICE_PATH)).not.toBe(INVOICE_PATH)
+    for (const needle of [INVOICE_PATH, escaped(INVOICE_PATH), INVOICE_NAME, CREW_PATH, escaped(CREW_PATH), CREW_NAME, 'Invoices' + BS, 'Paperwork', 'timber-invoice', 'week-one-invoice']) {
       for (const [i, hay] of sent.entries()) expect(hay.includes(needle), `${needle} in #${i}`).toBe(false)
     }
   })

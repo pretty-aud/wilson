@@ -27,7 +27,7 @@ const { createRendererStorage, rendererStorageFile, acceptsSender } = require('.
 // D2 (night 6, 2026-10-29): the main window, and each window it opens, loads
 // WILSON's own page and nothing else. The module's header says what is refused
 // and why (RECONNECT_DESIGN.md §13.2).
-const { guardWindow } = require('./windowGuard.cjs');
+const { guardWindow, isDownloadAddress } = require('./windowGuard.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
@@ -4800,6 +4800,21 @@ ipcMain.on('wilson:renderer-storage-changes-sync', (event, changes) => {
     event.returnValue = fromThisLaunchsPage(event) ? rendererStorageNow().apply(changes).ok === true : false;
   } catch {
     event.returnValue = false;
+  }
+});
+// D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.8): a signed cloud
+// download. The page used to start one by sending the window to the signed
+// address, which the window now refuses (windowGuard.cjs); it asks here
+// instead, and the download runs in the app with the same save dialog. Only
+// this launch's page may ask, and only for an http(s) address; nothing else
+// is opened, and the address is never logged (it carries a token).
+ipcMain.handle('wilson:download-url', (event, url) => {
+  try {
+    if (!fromThisLaunchsPage(event) || !isDownloadAddress(url)) return { ok: false };
+    mainWindow.webContents.downloadURL(new URL(String(url)).href);
+    return { ok: true };
+  } catch {
+    return { ok: false };
   }
 });
 // A write Windows refused stays in memory; the quit writes it once more

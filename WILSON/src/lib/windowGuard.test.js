@@ -202,7 +202,7 @@ describe('D2 — main.cjs\'s calls, by source', () => {
   const prefs = between(createWindow, 'webPreferences: {', '},')
 
   it('the main window is guarded, with this launch\'s origin read at the moment and the system browser looked up at the call', () => {
-    expect(MAIN).toContain("const { guardWindow } = require('./windowGuard.cjs');")
+    expect(MAIN).toContain("const { guardWindow, isDownloadAddress } = require('./windowGuard.cjs');")
     expect(createWindow).toContain('guardWindow(mainWindow.webContents, windowGuardOptions);')
     expect(createWindow).toContain('origin: () => localServerOrigin,')
     expect(createWindow).toContain('openExternal: (url) => shell.openExternal(url),')
@@ -226,5 +226,41 @@ describe('D2 — main.cjs\'s calls, by source', () => {
     expect(prefs).toContain('nodeIntegration: false,')
     expect(MAIN).not.toContain('nodeIntegrationInSubFrames')
     expect(MAIN).not.toContain('webviewTag: true')
+  })
+})
+
+// Build review round 1, F1 (HIGH): a cloud download used to send the window
+// to its signed address; refused now, it would reach the system browser with
+// its token. The page asks the main process instead (`wilson:download-url`).
+describe('D2 — the download channel (build review round 1, F1)', () => {
+  const { isDownloadAddress } = require('../../electron/windowGuard.cjs')
+  const PRELOAD = readFileSync(resolve(here, '../../electron/preload.cjs'), 'utf8').replace(/\r\n/g, '\n')
+  const FILE_MANAGER = readFileSync(resolve(here, '../tools/rabbit_v0.1.0/components/FileManager.jsx'), 'utf8').replace(/\r\n/g, '\n')
+  const FILE_ACTIONS = readFileSync(resolve(here, '../components/Resources/fileActions.js'), 'utf8').replace(/\r\n/g, '\n')
+
+  it('only an http(s) address is downloaded', () => {
+    for (const url of ['https://project.supabase.example/storage/v1/object/sign/x?token=t', 'http://gateway.local:8443/x']) expect(isDownloadAddress(url), url).toBe(true)
+    for (const url of [FILE, 'data:text/plain,x', 'javascript:alert(1)', `blob:${ORIGIN}/x`, 'ms-settings:privacy', '', 'not a url', null]) expect(isDownloadAddress(url), String(url)).toBe(false)
+  })
+
+  it('main answers only this launch\'s page, only for an http(s) address, downloads in the app, and logs nothing', () => {
+    const channel = between(MAIN, "ipcMain.handle('wilson:download-url'", '\n});')
+    expect(channel).toContain('if (!fromThisLaunchsPage(event) || !isDownloadAddress(url)) return { ok: false };')
+    expect(channel).toContain('mainWindow.webContents.downloadURL(new URL(String(url)).href);')
+    expect(channel).not.toMatch(/console\.|openExternal|\.loadURL\(/)
+    expect(MAIN).toContain("const { guardWindow, isDownloadAddress } = require('./windowGuard.cjs');")
+  })
+
+  it('the preload hands the page the channel and nothing more', () => {
+    expect(PRELOAD).toContain("downloadUrl: (url) => ipcRenderer.invoke('wilson:download-url', url),")
+  })
+
+  it('no page code sends the window to a signed address any more: both cloud downloads go through startSignedDownload', () => {
+    const cloud = between(FILE_MANAGER, 'const handleCloudDownload = useCallback(async (file) => {', '}, [ctx])')
+    expect(cloud).toContain('await startSignedDownload(signed)')
+    expect(cloud).not.toContain('a.href = signed')
+    const helper = between(FILE_ACTIONS, 'export async function downloadCloudFile(', '\n}\n')
+    expect(helper).toContain('await startSignedDownload(signed, doc)')
+    expect(helper).not.toContain('clickLink(doc, signed)')
   })
 })
