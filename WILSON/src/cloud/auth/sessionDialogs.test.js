@@ -297,3 +297,40 @@ describe('useSessionTimeouts — the token\'s sign-in time at a restore (D1)', (
     unmount()
   })
 })
+
+// D2 (night 6, 2026-10-29; docs/design/RECONNECT_DESIGN.md §13.3; OUTSTANDING
+// D1-02): the hook as the two surfaces mount it, a key pressed on the window
+// after the computer slept. The clock is the hook's test seam (`overrides`):
+// time moves and no tick fires, as in a sleep. Red on the code before D2 (the
+// key counted first, and the session carried on).
+describe('useSessionTimeouts — a key after a sleep is judged against the absence first (D2)', () => {
+  afterEach(() => { localStorage.clear() })
+  const asleepFor = (ms) => {
+    let t = Date.now()
+    const overrides = { now: () => t, schedule: () => null, unschedule: () => {} }
+    return { overrides, sleep: () => { t += ms } }
+  }
+
+  it('31 minutes asleep, then a key: signed out for inactivity, and Stay signed in after it changes nothing', () => {
+    const onExpire = vi.fn()
+    const clock = asleepFor(31 * 60 * 1000)
+    const { result, unmount } = renderHook(() => useSessionTimeouts({ enabled: true, sessionId: 'd2-asleep', onExpire, overrides: clock.overrides }))
+    clock.sleep()
+    fireEvent.keyDown(window, { key: 'a' })
+    expect(onExpire).toHaveBeenCalledTimes(1)
+    expect(onExpire).toHaveBeenCalledWith('idle_timeout')
+    result.current.stay()
+    expect(onExpire).toHaveBeenCalledTimes(1)
+    unmount()
+  })
+
+  it('29 minutes asleep, then a key: still signed in', () => {
+    const onExpire = vi.fn()
+    const clock = asleepFor(29 * 60 * 1000)
+    const { unmount } = renderHook(() => useSessionTimeouts({ enabled: true, sessionId: 'd2-short', onExpire, overrides: clock.overrides }))
+    clock.sleep()
+    fireEvent.pointerDown(window)
+    expect(onExpire).not.toHaveBeenCalled()
+    unmount()
+  })
+})

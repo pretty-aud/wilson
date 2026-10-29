@@ -523,3 +523,127 @@ describe('S2 — sessionStartOf / insideSessionCap', () => {
     })
   })
 })
+
+// =============================================================================
+// D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.3; OUTSTANDING D1-02): a
+// sleep is judged before the first activity counts. `harness().advance()`
+// fires every due tick, so a sleep is modelled by `asleep()`: the clock moves
+// and no ticker fires, which is the race a real sleep leaves (the overdue tick
+// is a timer task; a key or pointer event can run first). Measured on the tip
+// 4728a92d: after 120 or 31 minutes asleep, a first activity() kept the
+// session `active`. Each test marked "red on the code before D2" fails there.
+// =============================================================================
+
+describe('D2 — after a sleep, the absence is judged before the first activity counts', () => {
+  /** A clock and tickers the test steps by hand; `sleep` moves time and fires nothing, `tick` fires each ticker once. */
+  function asleep() {
+    let t = 1_000_000
+    const tickers = new Set()
+    return {
+      now: () => t,
+      schedule: (fn, ms) => { const x = { fn, ms }; tickers.add(x); return x },
+      unschedule: (x) => { tickers.delete(x) },
+      sleep: (ms) => { t += ms },
+      tick: () => { for (const x of [...tickers]) x.fn() },
+      tickerCount: () => tickers.size,
+    }
+  }
+  const expiries = (events) => events.filter((e) => e[0] === 'expire')
+
+  it('a gap past the idle limit between two activity() calls ends the session in idle_timeout, and the activity is not counted (red on the code before D2)', () => {
+    for (const gap of [IDLE_SIGN_OUT_MS, 31 * MIN, 2 * HOUR]) {
+      const h = asleep(); const st = memoryStorage()
+      const { ctl, events } = make(h, st)
+      ctl.start()
+      ctl.activity()
+      h.sleep(gap)
+      ctl.activity()
+      expect(ctl.getState().phase, `${gap / MIN} min`).toBe('expired')
+      expect(expiries(events), `${gap / MIN} min`).toEqual([['expire', 'idle_timeout']])
+      expect(st.getItem('wilson.dev.session.activity'), `${gap / MIN} min`).toBe(String(1_000_000))
+      expect(h.tickerCount(), `${gap / MIN} min`).toBe(0)
+    }
+  })
+
+  it('a gap inside the idle limit does not: the activity counts and the half hour starts again from it', () => {
+    const h = asleep(); const st = memoryStorage()
+    const { ctl, events } = make(h, st)
+    ctl.start()
+    h.sleep(29 * MIN)
+    ctl.activity()
+    expect(ctl.getState().phase).toBe('active')
+    h.sleep(29 * MIN)
+    ctl.activity()
+    expect(ctl.getState().phase).toBe('active')
+    expect(st.getItem('wilson.dev.session.activity')).toBe(String(1_000_000 + 58 * MIN))
+    expect(expiries(events)).toEqual([])
+  })
+
+  it('a sleep across the four hours ends the session in session_cap at the first activity (red on the code before D2)', () => {
+    const h = asleep(); const st = memoryStorage()
+    const { ctl, events } = make(h, st)
+    ctl.start()
+    for (let i = 0; i < 22; i++) { h.sleep(10 * MIN); h.tick(); ctl.activity() }   // busy until 220 minutes
+    expect(ctl.getState().phase).toBe('active')
+    h.sleep(25 * MIN)                                                               // asleep past the cap
+    ctl.activity()
+    expect(expiries(events)).toEqual([['expire', 'session_cap']])
+  })
+
+  it('a warning up when the computer slept, then Stay signed in: signed out, not handed a fresh half hour (red on the code before D2)', () => {
+    const h = asleep(); const st = memoryStorage()
+    const { ctl, events } = make(h, st)
+    ctl.start()
+    h.sleep(26 * MIN); h.tick()
+    expect(ctl.getState().phase).toBe('idle-warning')
+    h.sleep(10 * MIN)
+    ctl.activity()                         // the dialog's Stay signed in is activity()
+    expect(expiries(events)).toEqual([['expire', 'idle_timeout']])
+  })
+
+  it('a warning still clears on the next activity while the limit has not passed, and visible() still judges then counts', () => {
+    const h = asleep(); const st = memoryStorage()
+    const { ctl } = make(h, st)
+    ctl.start()
+    h.sleep(26 * MIN); h.tick()
+    expect(ctl.getState().phase).toBe('idle-warning')
+    h.sleep(2 * MIN)
+    ctl.activity()
+    expect(ctl.getState().phase).toBe('active')
+    h.sleep(20 * MIN)
+    ctl.visible()
+    expect(ctl.getState().phase).toBe('active')
+    h.sleep(31 * MIN)
+    ctl.visible()
+    expect(ctl.getState().reason).toBe('idle_timeout')
+  })
+
+  it('another tab of the same surface that was busy keeps it: the shared clock is what is judged', () => {
+    const h = asleep(); const st = memoryStorage()
+    const opts = { surfaceKey: 'wilson.dev.session', sessionId: 's', storage: st, now: h.now, schedule: h.schedule, unschedule: h.unschedule }
+    const busy = createSessionTimeouts(opts)
+    const quiet = createSessionTimeouts(opts)
+    busy.start(); quiet.start()
+    for (let i = 0; i < 8; i++) { h.sleep(5 * MIN); busy.activity() }   // forty minutes of the other tab's work
+    quiet.activity()
+    expect(quiet.getState().phase).toBe('active')
+    expect(busy.getState().phase).toBe('active')
+  })
+
+  it('a relaunch is not a sleep: a new start() after hours is activity, and the next key keeps it', () => {
+    const h = asleep(); const st = memoryStorage()
+    const first = make(h, st)
+    first.ctl.start()
+    first.ctl.stop()
+    h.sleep(2 * HOUR)
+    const again = make(h, st)
+    again.ctl.start()
+    again.ctl.activity()
+    expect(again.ctl.getState().phase).toBe('active')
+    expect(expiries(again.events)).toEqual([])
+  })
+
+  it('the numbers do not move: a warning at 25 minutes, sign-out at 30, a cap of 4 hours with 5 minutes\' notice, a tick of 5 seconds', () => {
+    expect([IDLE_WARN_MS, IDLE_SIGN_OUT_MS, SESSION_CAP_MS, CAP_WARN_MS, TICK_MS]).toEqual([25 * MIN, 30 * MIN, 4 * HOUR, 5 * MIN, 5000])
+  })
+})
