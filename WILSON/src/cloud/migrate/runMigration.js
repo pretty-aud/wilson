@@ -72,6 +72,9 @@ import { getWorkspaceStorageCached } from '../workspaceStorage'
 import { RESUMABLE_THRESHOLD_BYTES } from '../../tools/rabbit_v0.1.0/storage/resumableUpload.js'
 import { S3_MAX_SINGLE_PUT_BYTES } from '../../tools/rabbit_v0.1.0/storage/uploadNotices.js'
 import { canThumbnail, generateThumbnail, thumbnailKeyFor, putThumbnailTo, THUMBNAIL_BUCKET } from '../../tools/rabbit_v0.1.0/storage/thumbnails.js'
+// D2 (night 6): an actual's period, as the budget's Crew/team and Talent tabs
+// print their headers.
+import { periodLabel } from '../../tools/rabbit_v0.1.0/views/budget/periodLabel'
 
 const RABBIT_BASE = '/api/rabbit'
 const POSTER_BUCKET = 'rabbit-thumbnails'
@@ -166,6 +169,29 @@ export const LINE_PCTS_LEFT_OUT = (n) => `${plural(n, 'budget line')} ${n === 1 
 // A key's place another row holds (review round 1): no run can change it, so
 // counted and said, never an error.
 export const ACTUALS_TAKEN = (n) => `${plural(n, 'actual')} not carried: the cloud has another for the same budget line and period (entered there since)`
+// D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.4; her ruling of
+// 2026-10-29 on walkthrough 85's M2 Q3): the actuals that arrive in the cloud
+// without the invoice attached by a path on this computer, named as the
+// budget names them, so she can attach each again in the browser. Never the
+// invoice's path or its file's name: a file's name is content.
+export const INVOICES_LEFT_BEHIND = (n) => `${plural(n, 'actual')} ${n === 1 ? 'arrives' : 'arrive'} in the cloud without ${n === 1 ? 'its invoice' : 'their invoices'} (attached by a path on this computer, which the migration does not carry): attach ${n === 1 ? 'it' : 'them'} again in the browser, on the project's Budget`
+/** The budget tab a line's sheet is (CrewTeamTab, TalentTab); any other sheet has none. */
+const BUDGET_TAB_OF_SHEET = Object.freeze({ crew: 'Crew/team', talent: 'Talent' })
+
+/**
+ * D2: an actual as the budget's own popover titles it, `<its line> / <its
+ * period>` (ActualPopover in CrewTeamTab and TalentTab): on Crew/team the team
+ * member's name (what the row shows), else the line's label, else its
+ * department; the period header from the project's column mode and start,
+ * as the tabs print it (with no start, counted from today, as the header is).
+ */
+export function actualAsTheBudgetShowsIt(actual, line, project, nameOf = () => null) {
+  const member = line?.sheet === 'crew' && named(line?.team_member_id) ? nameOf(line.team_member_id) : null
+  const who = (named(member) && String(member)) || (named(line?.label) && String(line.label)) || (named(line?.department) && String(line.department)) || 'a budget line'
+  const i = Number(actual?.column_index)
+  const p = project || {}
+  return `${who} / ${periodLabel(Number.isInteger(i) && i >= 0 ? i : 0, p.budget_actual_column_mode || 'fortnightly', p.start_date || p.created_at)}`
+}
 export const RATES_TAKEN = (n) => `${plural(n, 'rate')} not carried: the cloud has another rate for the same role or person on this project (set there since)`
 // A receipt an earlier build carried as an ordinary file (before M2 routed
 // receipts as money): said on every run while it stays open, never recorded
@@ -510,6 +536,16 @@ async function cloudIds(table, projectId) {
   return r.error ? r : { ids: new Set(r.rows.map(x => x.id)) }
 }
 
+/**
+ * D2: a project's actuals in the cloud, as `cloudIds` reads a table, and those
+ * whose row has an invoice attached (`withInvoice`), so an actual whose
+ * invoice she attached again in the browser is not named again; or `{ error }`.
+ */
+async function cloudActuals(projectId) {
+  const r = await listCloud('budget_actuals', 'project_id', projectId, 'id,attachment_path')
+  return r.error ? r : { ids: new Set(r.rows.map(x => x.id)), withInvoice: new Set(r.rows.filter(x => named(x.attachment_path)).map(x => x.id)) }
+}
+
 // M2: a filter on a list of values goes in the URL (PostgREST's `in.(…)`),
 // so a long list is asked a hundred at a time (a hundred ids is ~3,700
 // characters; a page of answers is under PostgREST's thousand).
@@ -699,6 +735,10 @@ function makeReport() {
     footageRoots: [],
     footageLocations: [],
     clipsLeftBehind: [],
+    // D2 (night 6): the actuals that arrive without the invoice attached by a
+    // path on this computer — `[{ projectId, id, project, tab, actual }]`,
+    // the actual as the budget names it, never the file.
+    invoicesLeftBehind: [],
     remoteViewing: null,
     errors: [],
     startedAt: new Date().toISOString(),
@@ -1557,9 +1597,12 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // people map); one whose person has none stays, counted (memberRates).
     const rates = (bundle.projectRateOverrides ?? []).filter(o => isObj(o) && (!isMemberRate(o) || people.userOf(o.member_id)))
     const known = {}
+    // D2 (§13.4): the actuals there whose cloud row has an invoice.
+    let actualsWithInvoice = new Set()
     for (const [table, rows] of [['budget_versions', versions], ['budget_lines', lines], ['budget_actuals', actuals], ['expenses', expenses], ['project_rate_overrides', rates]]) {
       if (!rows.length) continue
-      const r = await cloudIds(table, projectId)
+      const r = table === 'budget_actuals' ? await cloudActuals(projectId) : await cloudIds(table, projectId)
+      if (r.withInvoice) actualsWithInvoice = r.withInvoice
       if (r.error) report.errors.push({ scope: table, projectId, message: `could not read the project's budget in the cloud, so what hangs on a row already there waits for a run that can (run again): ${r.error.message || r.error}` })
       known[table] = r.error ? null : r.ids
     }
@@ -1654,6 +1697,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       }
       const out = await carryRow('budget_actuals', report.budgetActuals, a, budgetActualRowForCloud(a, projectId), 'budget_actual', name, { budget_actuals_line_column_uniq: 'taken' })
       if (out === 'taken') actualsTaken++
+      // D2 (§13.4): its invoice was a path on this computer, and the actual
+      // is in the cloud (it arrives now, or is there with no invoice): named,
+      // as the budget names it. One not carried, or whose place another row
+      // holds, has no row of its own to attach to; one already there whose
+      // row the read could not show is not named.
+      if (isLegacyAttachment(a.attachment_path) && (out === 'inserted' || (out === 'there' && known.budget_actuals?.has(a.id) && !actualsWithInvoice.has(a.id)))) {
+        const line = lines.find(l => l.id === a.line_id)
+        report.invoicesLeftBehind.push({
+          projectId, id: a.id, project: named(bundle.project?.title) ? String(bundle.project.title) : 'Untitled Project',
+          tab: BUDGET_TAB_OF_SHEET[line?.sheet] ?? null,
+          actual: actualAsTheBudgetShowsIt(a, line, bundle.project, (id) => people.nameOf(id)),
+        })
+      }
     }
     report.budgetActuals.orphans += orphans
     if (orphans) note(`  ${ACTUALS_ON_GONE_LINES(orphans)}`)

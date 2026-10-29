@@ -561,3 +561,45 @@ describe('the question, once per root', () => {
     for (const id of ids) expect(document.querySelector(`label[for="${id}"]`)).toBeTruthy()
   })
 })
+
+// D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.4): her ruling on
+// walkthrough 85's M2 Q3 — under the not-carried sentence, the actuals that
+// arrive without the invoice attached by a path on this computer, as the
+// budget names them. Only the project, the tab and the actual are shown:
+// whatever else an entry carried (a path, a file's name) never reaches the
+// screen.
+const { INVOICES_LEFT_BEHIND } = await import('./runMigration')
+describe('D2: the actuals that arrive without their invoice', () => {
+  const entry = (n, over = {}) => ({
+    projectId: 'p1', id: `a${n}`, project: 'Salt Hours', tab: n % 2 ? 'Crew/team' : null, actual: `Line ${n} / P1 10/05`,
+    // planted: fields the panel must never show
+    attachment_path: `C:\\Invoices\\d2-panel-file-${n}.pdf`, attachment_name: `d2-panel-file-${n}.pdf`,
+    ...over,
+  })
+
+  it('one line, then each actual as project · tab · line / period; never a path or a file name', async () => {
+    await dryRun(report({ notCarried: [{ key: 'invoicePaths', label: 'invoices attached by a path on this computer', count: 2, later: false }], invoicesLeftBehind: [entry(1), entry(2)] }))
+    const box = screen.getByTestId('invoices-left-behind')
+    expect(within(box).getByText(`${INVOICES_LEFT_BEHIND(2)}.`)).toBeTruthy()
+    expect([...box.querySelectorAll('li')].map(li => li.textContent)).toEqual(['Salt Hours · Crew/team · Line 1 / P1 10/05', 'Salt Hours · Line 2 / P1 10/05'])
+    // under the not-carried sentence, which counts them
+    const notCarried = screen.getByTestId('not-carried')
+    expect(notCarried.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/d2-panel-file|Invoices/)
+  })
+
+  it('twenty, then how many more', async () => {
+    await dryRun(report({ invoicesLeftBehind: Array.from({ length: 23 }, (_, i) => entry(i + 1)) }))
+    const items = [...screen.getByTestId('invoices-left-behind').querySelectorAll('li')].map(li => li.textContent)
+    expect(items).toHaveLength(21)
+    expect(items[20]).toBe('… 3 more')
+  })
+
+  it('none to name, no line', async () => {
+    await dryRun(report({ invoicesLeftBehind: [] }))
+    expect(screen.queryByTestId('invoices-left-behind')).toBeNull()
+    cleanup()
+    await dryRun(report())
+    expect(screen.queryByTestId('invoices-left-behind')).toBeNull()
+  })
+})

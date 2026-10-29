@@ -37,7 +37,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePermissions } from '../../permissions'
 import {
-  runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE,
+  runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE, INVOICES_LEFT_BEHIND,
   PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED, COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS,
   FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
@@ -561,6 +561,20 @@ function ReportTable({ r }) {
           this names what did not (review round 2). */}
       {r.notCarried?.length > 0 && (
         <p className="s-row-desc mt-2" data-testid="not-carried">{NOT_CARRIED_SENTENCE(r.notCarried)}</p>
+      )}
+      {/* D2 (night 6): the actuals that arrive without the invoice attached by
+          a path on this computer, named as the budget names them — the
+          project, the tab, the line and the period — never the file. */}
+      {r.invoicesLeftBehind?.length > 0 && (
+        <div className="mt-2" data-testid="invoices-left-behind">
+          <p className="s-row-desc">{INVOICES_LEFT_BEHIND(r.invoicesLeftBehind.length)}.</p>
+          <ul className="s-data s-row-desc mt-1 space-y-1">
+            {r.invoicesLeftBehind.slice(0, 20).map((x) => (
+              <li key={`${x.projectId}:${x.id}`}>{[x.project, x.tab, x.actual].filter(Boolean).join(' · ')}</li>
+            ))}
+            {r.invoicesLeftBehind.length > 20 && <li>… {r.invoicesLeftBehind.length - 20} more</li>}
+          </ul>
+        </div>
       )}
       {/* This <details> is the one disclosure on the surface that is NOT a
           C1 problem: it hides a list of error text, not a control, and it was
