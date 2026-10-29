@@ -3,8 +3,8 @@
 ## 1. Where you are
 
 - **Session:** started by M3 (`docs/sessions/handoffs/po-m3-2026-10-28.md`) after its runs read the issue-session smoke job red at its step *Probe gateway-ticket*: find the cause with evidence, get the step green (the owning track's fix, or a fixture repair if that is all it is), record it. M3's brief was written before the cure: its read of the fixture was at 22:59 UTC, P8's stamp at 23:20 UTC. Started on Fable 5.1; on **Opus 5.5 by her word in this session, *"use opus"*** (about 09:33 UTC 2026-10-29); every query and document below ran on Opus 5.5.
-- **Branch:** `po/smoke-gateway-ticket-trace`, cut from `origin/feat/post-overhaul-edit-versioning` at `ce782612` (D2's merge), upstream unset. **Documents only:** this file and one row at the top of `docs/OUTSTANDING.md`'s session log. Not merged.
-- **Commits:** the record (this file and the row), then this file's CI record.
+- **Branch:** `po/smoke-gateway-ticket-trace`, cut from `origin/feat/post-overhaul-edit-versioning` at `ce782612` (D2's merge); the integration branch unset as its upstream at the cut, its own `origin/po/smoke-gateway-ticket-trace` the upstream since the push. **Documents only:** this file and one row at the top of `docs/OUTSTANDING.md`'s session log. Not merged.
+- **Commits:** `1636ac64` (this file and the row), then this file's CI record (the commit after it).
 - **Worktree:** `gallant-keller-9bd82c` (the app under `WILSON/`). The untracked root `.claude/launch.json` (the app's copy, a subset of the tracked one) was moved to the session's scratchpad before the checkout, never deleted. Linked to wilson-dev (`supabase/.temp/project-ref` and `linked-project.json` say `eqjzmnvkrakroyqxfsvw`, wilson-dev). No `npm install`, no `.env.local`, no dev server.
 - **wilson-dev:** read, and one `BEGIN … ROLLBACK` file; **nothing written, applied or deployed** by this session. Staging and production not touched.
 
@@ -25,20 +25,20 @@
 | 40780867528 | 10-28 22:33:25 | `11de80e8` | red, `missing: 3` (M3's read) |
 | 40783623773 | 10-28 22:55:37 | `c0123c3c` | red, `missing: 3` (M3's read) |
 | 40784810530 | 10-28 23:05:17 | `5b44533c` | red, `missing: 3` (M3's read) |
-| 40785427273 | 10-28 23:10:20 | `9eec04a2` | red at 23:10:41, the only red job |
+| 40785427273 | 10-28 23:10:20 | `9eec04a2` | red at 23:10:41, the only red job; annotation the same `missing: 3` (this session's read) |
 | 40786314809 | 10-28 23:17:35 | `e91dbdd5` | red at 23:17:55, the only red job; annotation `no ticket for the clip the probe user may read: {"error":null,"tickets":0,"missing":3,"refused":0}` |
 | — | 10-28 23:20:34 | — | P8 stamps the four fixture rows on dev |
 | 40787368613 | 10-28 23:26:22 | `9e8f9290` | green at 23:26:39 (the mint at 23:26:41), *Probe ai-files* ran too; the run red on Vitest alone (`gateway/test/config.test.mjs:137`, P8's, fixed by `91c89cce`) |
 | 40788805342, 40789703303 | 10-28 23:38:55, 23:46:55 | `357f1579`, `fd3af69d` | green; every job green |
 
-- **The verifying push:** this branch's first commit, documents only; its run is recorded in the commit after it.
+- **The verifying push:** `1636ac64` (this branch's first commit, documents only), RLS tests run **40852934517** (created 2026-10-29 09:51:40 UTC, completed 09:57:08 UTC, success): the issue-session smoke green, Playwright auth green, Vitest green, pgTAP green. The smoke job's steps: *Probe issue-session* green, *Probe gateway-ticket* green at 09:52:01 UTC (its notice annotation: *one ticket in the wire's shape, two missing, a forgotten gateway 404, no sign-in 401*), *Probe ai-files* green. The commit carrying this line is documents only; its run is in the chat close-out.
 
 ## 3. Done and verified
 
 1. **The cause, named:** P8's migration **0104** (`0104_bins_vetted_and_gateway_names.sql`, TPN-AUTH-012), applied on wilson-dev in the window. Its §4 restated `gateway_clips_for_tickets` to return only clips that carry the new checked mark (`vetted_at`) at a location that carries it, and its header says **no backfill**: every existing row starts unchecked. Dev's only bins rows are GW1's fixture, so from the apply the RPC returned nothing for the probe's three ids and `gateway-ticket` answered 200 with all three `missing`, the gateway still found (not 404). It is the migration working as designed on a fixture written before the mark existed; nothing is broken in the code.
 2. **Not the cause, by the same reads:** no deploy (`gateway-ticket` and `resolve-login` are the October and September versions); no policy (0091's eight); no change to the view's filters (0093's); no seat removed (the probe user is the active admin it was, and the fixture project never had or needed a seat).
 3. **Reproduced as the probe user, rolled back** (`supabase db query --linked --file`, one file, `BEGIN … ROLLBACK`; the claims carry the user's id, `role` authenticated and the workspace claim; `SET LOCAL ROLE authenticated`): **as stamped**, the RPC returns `…f1` alone (`…f2` out of sight by RLS, `…ff` unknown) and `gateways_visible` shows the probe gateway; **with `…f1`'s and `…c1`'s marks cleared** (as postgres, no claims, as 0104 left them) the RPC returns nothing while the gateway, the clip and its location are all still in the caller's sight. The RPC's own join for `…f1` finds 1 row without the marks and 0 with either conjunct added, so the predicates that failed are 0104's two, both. Read again after the run: all four rows' `vetted_at` and `updated_at` still 23:20:34.830594 UTC.
-4. **The cure, P8's (the owning track; not redone here):** after the controller traced the probe to the fixture, P8 stamped the two clips and their two locations as postgres with `vetted_by` NULL at 23:20:34 UTC, the mark 0104 gives a non-client's row (`UPDATE public.bin_locations SET vetted_at = now(), vetted_by = NULL WHERE id IN (…) AND vetted_at IS NULL`, then the same on `bin_files`; P8's hand-off §6 item 1, `4b1fc3fd`; the plan's night 5 record, `4728a92d`). The step has passed on every run since: 40787368613 onward, and the mints to 09:35 UTC today.
+4. **The cure, P8's (the owning track; not redone here):** after the controller traced the probe to the fixture, P8 stamped the two clips and their two locations as postgres with `vetted_by` NULL at 23:20:34 UTC, the mark 0104 gives a non-client's row (`UPDATE public.bin_locations SET vetted_at = now(), vetted_by = NULL WHERE id IN (…) AND vetted_at IS NULL`, then the same on `bin_files`; P8's hand-off §6 item 1, `4b1fc3fd`; the plan's night 5 record, `4728a92d`). The step has passed on every run since: 40787368613 onward, the mints to 09:35 UTC today, and run 40852934517 on this branch's push, every job green (§2).
 5. **The record:** `docs/OUTSTANDING.md`'s session log, one row at the top: the window, the cause, the cure. No entry was added: the file keeps only what is broken and unfixed, and this is fixed. Comment markers: 4 → 4.
 
 ## 4. In flight
