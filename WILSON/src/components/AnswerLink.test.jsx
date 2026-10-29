@@ -42,9 +42,11 @@ const own = () => window.location.origin
 const anchor = (container) => container.querySelector('a')
 
 describe('D3 — opensInANewTab: an absolute web address on another origin, and nothing else', () => {
-  it('http and https on another origin', () => {
+  it('http and https on another origin, a protocol-relative address included (it leaves the page as surely)', () => {
     expect(opensInANewTab(WEB, 'http://127.0.0.1:60598')).toBe(true)
     expect(opensInANewTab('http://d3-made-up.invalid/x', 'https://beta.example.invalid')).toBe(true)
+    expect(opensInANewTab('//d3-made-up.invalid/x', 'https://beta.example.invalid/wilson/')).toBe(true)
+    expect(opensInANewTab('//beta.example.invalid/wilson/x', 'https://beta.example.invalid/wilson/')).toBe(false)
   })
   it('never an email address, a relative address, a fragment, the page\'s own origin, an untrusted scheme or nothing', () => {
     for (const href of ['mailto:d3@example.invalid', '/wilson/', 'lesson-2', '#section', 'javascript:alert(1)', 'data:text/html,x', 'tel:+15550100', '', null, undefined]) {
@@ -65,6 +67,12 @@ describe('D3 — AnswerLink: what each address is drawn as', () => {
     expect(a.getAttribute('target')).toBe('_blank')
     expect(a.getAttribute('rel')).toBe('noopener noreferrer')
     expect(a.textContent).toBe('the Electron website')
+  })
+  it('a protocol-relative address (//elsewhere): a new tab too, read against the page\'s own address', () => {
+    const a = anchor(render(<AnswerLink href="//d3-made-up.invalid/x">elsewhere</AnswerLink>).container)
+    expect(a.getAttribute('href')).toBe('//d3-made-up.invalid/x')
+    expect(a.getAttribute('target')).toBe('_blank')
+    expect(a.getAttribute('rel')).toBe('noopener noreferrer')
   })
   it('an email address, a relative address, a fragment and the page\'s own origin: the plain anchor, as before', () => {
     for (const href of ['mailto:d3@example.invalid', '/wilson/?x=1', '#section', `${own()}/projects`]) {

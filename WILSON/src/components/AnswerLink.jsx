@@ -24,12 +24,19 @@
 // the anchor as an attribute: it is dropped.
 // =============================================================================
 
-/** Does `href` open in a new tab: an absolute http(s) address on another origin than the page's? */
-export function opensInANewTab(href, pageOrigin = globalThis.location?.origin) {
+/**
+ * Does `href` open in a new tab: an http(s) address on another origin than
+ * the page's? Read against the page's own address, so a protocol-relative
+ * one (`//elsewhere.example/x`, which leaves the page as surely as an
+ * absolute one) is caught too, and a relative one stays the page's.
+ */
+export function opensInANewTab(href, pageHref = globalThis.location?.href) {
   let u
-  try { u = new URL(String(href)) } catch { return false }
+  let page
+  try { u = new URL(String(href), pageHref) } catch { return false }
+  try { page = new URL(String(pageHref)) } catch { page = null }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
-  return u.origin !== pageOrigin
+  return !page || u.origin !== page.origin
 }
 
 export default function AnswerLink({ node: _node, href, children, ...props }) {
