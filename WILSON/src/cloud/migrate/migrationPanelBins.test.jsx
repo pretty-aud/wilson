@@ -33,7 +33,7 @@ vi.mock('../auth/supabaseClient', () => ({ supabase: {} }))
 const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED, MIGRATE_AGAIN_MONEY, MIGRATE_AGAIN_RECORD, MIGRATE_AGAIN_BODIES, MIGRATE_AGAIN_RIGHTS } = await import('./MigrationPanel')
 const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE,
-  FILES_PLACED, ARCHIVED_IN_CLOUD, LIVE_IN_CLOUD, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED,
+  FILES_PLACED, INVOICES_FILED, ARCHIVED_IN_CLOUD, LIVE_IN_CLOUD, PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED,
   COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT,
@@ -397,7 +397,7 @@ describe('the question, once per root', () => {
   it('M1: one line each under the report for what the five kinds and the project rows did beside the counts, only when it happened', async () => {
     await dryRun(report({
       dryRun: false, footageRoots: [],
-      files: { ...bucket(35), bytes: 0, placed: 31, linksLetGo: 2 },
+      files: { ...bucket(35), bytes: 0, placed: 31, invoicesFiled: 2, linksLetGo: 2 },
       milestones: { ...bucket(3), trashed: 1, phaseLetGo: 1 }, comments: { ...bucket(6), trashed: 2, orphans: 3, leftBehind: 0 },
       shotLists: { ...bucket(2), archived: 1 }, shotListItems: { ...bucket(29), orphans: 4 }, edits: { ...bucket(3), archived: 1, taken: 2 },
       folders: { ...bucket(40), orphans: 5, taken: 1 },
@@ -405,6 +405,8 @@ describe('the question, once per root', () => {
     }))
     const said = (id) => screen.getByTestId(id).textContent
     expect(said('files-placed')).toBe(`${FILES_PLACED(31)}.`)
+    // Her ruling of 2026-10-29: the invoices filed in INVOICES, said apart from "as on this computer".
+    expect(said('invoices-filed')).toBe(`${INVOICES_FILED(2)}.`)
     expect(said('archived-in-cloud')).toBe(`${ARCHIVED_IN_CLOUD(1, 1, false)}.`)
     expect(said('archived-in-cloud')).toBe('1 shot list and 1 edit archived in the cloud too, as on this computer.')
     expect(said('live-in-cloud')).toBe(`${LIVE_IN_CLOUD(1)}.`)
@@ -429,7 +431,7 @@ describe('the question, once per root', () => {
     // CONTROL: a run where none of it happened says none of it.
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], milestones: { ...bucket(3), trashed: 0, phaseLetGo: 0 }, edits: { ...bucket(3), archived: 0, taken: 0 }, files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0 }, folders: { ...bucket(4), orphans: 0, taken: 0 }, projectsLeftAtHome: { folders: 0, statuses: {}, withValues: 0, values: {} } }))
-    for (const id of ['files-placed', 'archived-in-cloud', 'live-in-cloud', 'project-folders', 'project-statuses', 'project-values', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
+    for (const id of ['files-placed', 'invoices-filed', 'archived-in-cloud', 'live-in-cloud', 'project-folders', 'project-statuses', 'project-values', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
     // A report from before round 1 (no statuses) says no status either.
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], projectsLeftAtHome: { folders: 0 } }))

@@ -465,6 +465,30 @@ export function desktopFolderOfFile(file, folders) {
   return null
 }
 
+// Her ruling of 2026-10-29 (walkthrough 84, M1's Q1, "b"): money the desktop
+// shows at the project's top — an invoice or a receipt, whose body the
+// desktop keeps in the project's INVOICES directory and whose row names no
+// folder — is filed in the INVOICES folder in the cloud, where 0041 means
+// invoice files to sit. Every other file keeps the desktop's own rule.
+export const INVOICES_FOLDER_PATH = 'INVOICES'
+
+/** The bundle's INVOICES category folder (folderPaths.js's FOLDER_CATEGORIES), or null. */
+export function invoicesFolderOf(folders) {
+  return (folders || []).find(f => isRow(f) && f.kind === 'category' && f.path === INVOICES_FOLDER_PATH) || null
+}
+
+/**
+ * The bundle folder a desktop file goes into in the cloud: the one the
+ * desktop shows it in (desktopFolderOfFile), else, for money (`money`: an
+ * invoice, or a receipt carried as money), the INVOICES folder; null: the
+ * project's top. A Legal file is never filed (LEGAL has no row).
+ */
+export function cloudHomeOfFile(file, folders, money = false) {
+  const desk = desktopFolderOfFile(file, folders)
+  if (desk || !money || !isRow(file) || isLegalFile(file)) return desk
+  return invoicesFolderOf(folders)
+}
+
 // ── Part 2 (M2, night 4): budgets, levels and experiences, links on tasks ──
 //
 // Each row through its table's columns (the cloud adapter's allowlist, less
