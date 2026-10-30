@@ -448,8 +448,9 @@ export function cloudFolderIndex(rows) {
  * experience — the folder row carrying the same link), else none (the
  * project's top). A Legal file sits in LEGAL, which has no row in either
  * tree, so none (the cloud's own upload files it so, supabaseAdapter's
- * uploadFile). Measured: the desktop writes no `folder_id` on a file row
- * (projectFileStream.cjs), so a file's folder is its entity's.
+ * uploadFile). Measured: the desktop writes `folder_id` on a file row only
+ * for an invoice or a receipt, its INVOICES folder (projectFileStream.cjs,
+ * since M1-L7), so any other file's folder is its entity's.
  */
 export function desktopFolderOfFile(file, folders) {
   if (!isRow(file) || isLegalFile(file)) return null
