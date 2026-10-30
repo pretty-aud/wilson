@@ -3187,7 +3187,11 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   ordinary file goes in none, and a removed INVOICES row is planned again by
   the desktop's next read (Session 26's reconcile on read) and the next
   invoice files into it; the same driver on the commit before the change
-  files neither. The fallback that makes the row under the root (a bundle
+  files neither. Review round 1 (on Fable): the hook is built in one tested
+  place (`invoicesFolderHook`), and the desktop's folder delete lets its
+  files' `folder_id` go, as 0043's SET NULL does in the cloud — measured the
+  same way (the removed row's invoice and receipt keep no id; before the fix,
+  they kept it). The fallback that makes the row under the root (a bundle
   read without that reconcile) is pinned by the route tests, not reachable
   through the routes.~~ In Local Server mode (a project kept on the desktop), an invoice
   added there still sits at the top of the Files tree.** Review round 1 of
