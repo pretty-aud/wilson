@@ -7,6 +7,13 @@
 // its row, directory and 'uploaded' event match what the base64 POST writes;
 // a financial scope goes to INVOICES; an unknown project is 404; a missing
 // name is 400; a name with separators is sanitised; no .part file survives.
+//
+// OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now"):
+// with the host's hook (main.cjs: its planner's INVOICES row and its one row
+// writer), both transports file an invoice or a receipt in the project's
+// INVOICES category folder — found, or made under the root where the tree
+// lacks it — as the cloud's uploadFile does; no tree, no hook, or a hook that
+// fails: the top, as before, the failure said without the file's name.
 // =============================================================================
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -17,7 +24,7 @@ import path from 'node:path'
 import express from 'express'
 
 const require = createRequire(import.meta.url)
-const { mountProjectFileStream, parseScope, parseSize, parseDuration, parseIsoDate } = require('../../../../electron/projectFileStream.cjs')
+const { mountProjectFileStream, invoicesFolderOfBundle, parseScope, parseSize, parseDuration, parseIsoDate } = require('../../../../electron/projectFileStream.cjs')
 const { randomUUID } = require('node:crypto')
 
 const PID = 'p-stream-1'
@@ -126,6 +133,8 @@ describe('PUT …/files-stream', () => {
     expect(row.is_financial).toBe(true)
     expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(true)
     expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
+    // M1-L7: a host without the INVOICES hook (this mount) files it nowhere.
+    expect(row).not.toHaveProperty('folder_id')
   })
 
   // Post-overhaul S4b (0088): a Legal file goes to the LEGAL folder beside
@@ -270,5 +279,148 @@ describe('POST …/files — the base64 transport, beside the stream (S4b review
     expect((await post('nope', { name: 'a', base64: b64('a') })).status).toBe(404)
     expect((await post(PID, { base64: b64('a') })).status).toBe(400)
     expect((await post(PID, { name: 'a' })).status).toBe(400)
+  })
+})
+
+// ── M1-L7: an invoice or a receipt in the project's INVOICES folder ─────────
+
+// The planner's own INVOICES row (folderPaths.js; main.cjs's copy of the
+// categories is pinned equal to it by folderParity.test.js).
+const { planProjectFolders } = await import('../folderPaths')
+const PLANNED = planProjectFolders({}).find(f => f.kind === 'category' && f.entityType === 'invoice')
+/** A stand-in for main.cjs's addFolderRow: the row under the planned parent, pushed onto the bundle. */
+function addFolderRow(bundle, projectId, planned) {
+  if (!bundle.folders) bundle.folders = []
+  if (bundle.folders.some(f => f.path === planned.path)) return false
+  const parent = bundle.folders.find(f => f.path === planned.parentPath)
+  bundle.folders.push({ id: `made-${planned.slug}`, project_id: projectId, parent_id: parent ? parent.id : null, kind: planned.kind, entity_type: planned.entityType, slug: planned.slug, label: planned.label, path: planned.path })
+  return true
+}
+const ROOT = { id: 'f-root', kind: 'root', path: '' }
+const INVOICES_ROW = { id: 'f-invoices', kind: 'category', path: 'INVOICES', parent_id: 'f-root' }
+
+describe('invoicesFolderOfBundle — the three answers, as the cloud\'s uploadFile gives them', () => {
+  it('finds the INVOICES category row, and makes nothing', () => {
+    const bundle = { folders: [ROOT, { ...INVOICES_ROW }] }
+    expect(PLANNED).toMatchObject({ kind: 'category', path: 'INVOICES', parentPath: '' })
+    expect(invoicesFolderOfBundle(bundle, 'p1', { planned: PLANNED, addFolderRow })).toMatchObject({ id: 'f-invoices' })
+    expect(bundle.folders).toHaveLength(2)
+  })
+
+  it('makes it under the root where the tree lacks it, through the host\'s writer', () => {
+    const bundle = { folders: [ROOT] }
+    const made = invoicesFolderOfBundle(bundle, 'p1', { planned: PLANNED, addFolderRow })
+    expect(made).toMatchObject({ id: 'made-INVOICES', parent_id: 'f-root', kind: 'category', path: 'INVOICES', entity_type: 'invoice' })
+    expect(bundle.folders).toContain(made)
+  })
+
+  it('a project with no tree is left to the planner: nothing made, no folder', () => {
+    for (const bundle of [{}, { folders: [] }, { folders: [{ id: 'x', kind: 'entity', path: 'ASSETS/a' }] }]) {
+      expect(invoicesFolderOfBundle(bundle, 'p1', { planned: PLANNED, addFolderRow })).toBeNull()
+      expect((bundle.folders || []).some(f => f.path === 'INVOICES')).toBe(false)
+    }
+  })
+
+  it('another kind of folder at that path is not INVOICES, and the writer makes none over it', () => {
+    const bundle = { folders: [ROOT, { id: 'f-custom', kind: 'custom', path: 'INVOICES' }] }
+    expect(invoicesFolderOfBundle(bundle, 'p1', { planned: PLANNED, addFolderRow })).toBeNull()
+    expect(bundle.folders.filter(f => f.path === 'INVOICES')).toHaveLength(1)
+  })
+})
+
+describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
+  const P_FILED = 'p-invoices-filed'
+  const P_NO_INVOICES = 'p-invoices-missing'
+  const P_NO_TREE = 'p-invoices-no-tree'
+  const P_HOOK_FAILS = 'p-invoices-hook-fails'
+  let srv2, base2
+  const logged2 = []
+  const put2 = (pid, q, body) => fetch(`${base2}/${pid}/files-stream?${new URLSearchParams(q)}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body })
+  const post2 = (pid, body) => fetch(`${base2}/${pid}/files`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const folderIdOf = (pid, id) => readRabbitBundle(pid).files.find(f => f.id === id)?.folder_id
+  const b64 = (text) => Buffer.from(text).toString('base64')
+
+  beforeAll(async () => {
+    store.set(P_FILED, JSON.stringify({ project: { id: P_FILED }, files: [], folders: [ROOT, INVOICES_ROW] }))
+    store.set(P_NO_INVOICES, JSON.stringify({ project: { id: P_NO_INVOICES }, files: [], folders: [ROOT] }))
+    store.set(P_NO_TREE, JSON.stringify({ project: { id: P_NO_TREE }, files: [] }))
+    store.set(P_HOOK_FAILS, JSON.stringify({ project: { id: P_HOOK_FAILS }, files: [], folders: [ROOT, INVOICES_ROW] }))
+    const app = express()
+    app.use(express.json({ limit: '50mb' }))
+    mountProjectFileStream(app, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
+      resolveProjectFilesDir: () => filesDir,
+      resolveProjectInvoicesDir: () => invoicesDir,
+      resolveProjectLegalDir: () => legalDir,
+      uuidv4: randomUUID,
+      // As main.cjs wires it, but for one project whose hook throws.
+      invoicesFolderFor: (bundle, projectId) => {
+        if (projectId === P_HOOK_FAILS) throw new Error('the bundle\'s folders could not be read')
+        return invoicesFolderOfBundle(bundle, projectId, { planned: PLANNED, addFolderRow })
+      },
+      log: (line) => logged2.push(line),
+    })
+    await new Promise((r) => { srv2 = app.listen(0, '127.0.0.1', r) })
+    base2 = `http://127.0.0.1:${srv2.address().port}/api/rabbit/projects`
+  })
+  afterAll(async () => { await new Promise((r) => srv2.close(r)) })
+
+  it('the stream files an invoice in the project\'s INVOICES folder, on the row it writes and in the bundle', async () => {
+    const r = await put2(P_FILED, { name: 'invoice.pdf', scope: JSON.stringify({ financial: true, lineId: 'l1' }) }, Buffer.from('pdf'))
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row).toMatchObject({ is_financial: true, folder_id: 'f-invoices' })
+    expect(folderIdOf(P_FILED, row.id)).toBe('f-invoices')
+    expect(readRabbitBundle(P_FILED).folders).toHaveLength(2)
+  })
+
+  it('the base64 POST likewise (a receipt: financial, no line)', async () => {
+    const row = await (await post2(P_FILED, { name: 'receipt.pdf', base64: b64('rcpt'), scope: { financial: true } })).json()
+    expect(row).toMatchObject({ is_financial: true, folder_id: 'f-invoices' })
+    expect(folderIdOf(P_FILED, row.id)).toBe('f-invoices')
+  })
+
+  it('CONTROL: an ordinary file and a Legal file are filed in no folder by this rule', async () => {
+    const plain = await (await put2(P_FILED, { name: 'notes.txt' }, Buffer.from('n'))).json()
+    expect(plain).not.toHaveProperty('folder_id')
+    const legal = await (await post2(P_FILED, { name: 'release.pdf', base64: b64('l'), scope: { legal: true } })).json()
+    expect(legal.tags).toEqual(['legal'])
+    expect(legal).not.toHaveProperty('folder_id')
+  })
+
+  it('a project whose tree lacks the INVOICES row has it made under the root, kept in the bundle, and the invoice filed in it — by either transport', async () => {
+    const r = await put2(P_NO_INVOICES, { name: 'invoice.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('pdf'))
+    const row = await r.json()
+    expect(row.folder_id).toBe('made-INVOICES')
+    const folders = readRabbitBundle(P_NO_INVOICES).folders
+    expect(folders.find(f => f.id === 'made-INVOICES')).toMatchObject({ parent_id: 'f-root', kind: 'category', path: 'INVOICES' })
+    // A second upload finds it: one INVOICES row.
+    const again = await (await post2(P_NO_INVOICES, { name: 'invoice-2.pdf', base64: b64('i2'), scope: { financial: true } })).json()
+    expect(again.folder_id).toBe('made-INVOICES')
+    expect(readRabbitBundle(P_NO_INVOICES).folders.filter(f => f.path === 'INVOICES')).toHaveLength(1)
+  })
+
+  it('a project with no tree: nothing made, the invoice at the top', async () => {
+    const row = await (await put2(P_NO_TREE, { name: 'invoice.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('pdf'))).json()
+    expect(row.is_financial).toBe(true)
+    expect(row).not.toHaveProperty('folder_id')
+    expect(readRabbitBundle(P_NO_TREE).folders).toBeUndefined()
+  })
+
+  it('a hook that fails is said in the log without the file\'s name, and the invoice still lands, at the top', async () => {
+    logged2.length = 0
+    const r = await put2(P_HOOK_FAILS, { name: 'secret-budget-q3.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('pdf'))
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row.is_financial).toBe(true)
+    expect(row).not.toHaveProperty('folder_id')
+    const said = logged2.filter(l => l.startsWith('[files]'))
+    expect(said).toEqual([`[files] ${P_HOOK_FAILS}: the INVOICES folder could not be found or made, so the file sits at the project's top: the bundle's folders could not be read`])
+    expect(said.some(l => l.includes('secret-budget'))).toBe(false)
+    // CONTROL: the POST says the same.
+    logged2.length = 0
+    const viaPost = await (await post2(P_HOOK_FAILS, { name: 'secret-budget-q4.pdf', base64: b64('s'), scope: { financial: true } })).json()
+    expect(viaPost).not.toHaveProperty('folder_id')
+    expect(logged2.filter(l => l.startsWith('[files]'))).toHaveLength(1)
   })
 })

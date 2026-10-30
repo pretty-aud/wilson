@@ -30,6 +30,17 @@
 // for real in tests. Every host dependency is injected (the helpers are
 // closures inside main.cjs's startLocalServer); projectFileStream.test.js
 // drives both through a real express app on a temp root.
+//
+// OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now":
+// "The same rule in the desktop's two upload routes, so the desktop and the
+// cloud agree, as your parity rule asks"): a financial upload — an invoice or
+// a receipt — is filed in the project's INVOICES category folder, as the
+// cloud's uploadFile files it: `invoicesFolderFor` (main.cjs's planner and
+// its one row writer, addFolderRow) answers the row, made under the root
+// where the tree lacks it, or null where the project has no tree (left to the
+// planner). Both transports write it on the row as `folder_id`; a hook that
+// fails is said in the log, without the file's name, and the file still lands,
+// at the top as before.
 // =============================================================================
 'use strict';
 
@@ -70,6 +81,25 @@ function parseIsoDate(raw) {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
+/**
+ * M1-L7: the project's INVOICES category row in `bundle` — found by the
+ * planner's own row (`planned`: its kind and path), or made under the root by
+ * the host's one row writer (`addFolderRow(bundle, projectId, planned)`, which
+ * pushes it onto bundle.folders) where the tree lacks it; null where the
+ * project has no tree (no root: left to the planner) or the writer made none
+ * (another kind of folder holds that path). The cloud's uploadFile is the
+ * model: the same three answers.
+ */
+function invoicesFolderOfBundle(bundle, projectId, { planned, addFolderRow } = {}) {
+  if (!bundle || !planned) return null;
+  const isInvoices = (f) => !!f && f.kind === 'category' && f.path === planned.path;
+  const hit = (bundle.folders || []).find(isInvoices);
+  if (hit) return hit;
+  if (!(bundle.folders || []).some((f) => !!f && f.path === '')) return null;
+  addFolderRow(bundle, projectId, planned);
+  return (bundle.folders || []).find(isInvoices) || null;
+}
+
 function mountProjectFileStream(expressApp, {
   readRabbitBundle,
   writeRabbitBundle,
@@ -80,6 +110,7 @@ function mountProjectFileStream(expressApp, {
   resolveProjectInvoicesDir,
   resolveProjectLegalDir,
   uuidv4,
+  invoicesFolderFor = null,
   log = () => {},
 } = {}) {
   for (const [name, fn] of Object.entries({
@@ -97,6 +128,22 @@ function mountProjectFileStream(expressApp, {
     : isFinancial
       ? resolveProjectInvoicesDir(bundle, projectId)
       : resolveProjectFilesDir(bundle, projectId));
+
+  // M1-L7: the folder a financial upload is filed in — the INVOICES category
+  // row's id, found or made by the host on `bundle` (which the route then
+  // writes), or null: no hook, no tree, or a hook that failed (said without
+  // the file's name). A Legal upload never gets here as money (refused above
+  // as both together, checkLegalUpload).
+  const invoicesFolderIdFor = (bundle, projectId) => {
+    if (typeof invoicesFolderFor !== 'function') return null;
+    try {
+      const row = invoicesFolderFor(bundle, projectId);
+      return row && row.id ? row.id : null;
+    } catch (err) {
+      log(`[files] ${projectId}: the INVOICES folder could not be found or made, so the file sits at the project's top: ${err && err.message ? err.message : err}`);
+      return null;
+    }
+  };
 
   // ── Files: upload (base64 JSON payload) — moved from main.cjs (S4b) ──
   // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
@@ -121,6 +168,8 @@ function mountProjectFileStream(expressApp, {
     const { isLegal, isFinancial } = placement;
     const filesDir = uploadDirFor(bundle, req.params.projectId, placement);
     fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
+    // M1-L7: an invoice or a receipt in the project's INVOICES folder.
+    const folderId = isFinancial ? invoicesFolderIdFor(bundle, req.params.projectId) : null;
 
     const row = rabbitTouch({
       id:               fileId,
@@ -152,6 +201,8 @@ function mountProjectFileStream(expressApp, {
       uploaded_at:      new Date().toISOString(),
       // S4b: the legal tag, written with the LEGAL folder (and only then).
       ...(isLegal ? { tags: ['legal'] } : {}),
+      // M1-L7: written only for money filed in INVOICES, as the stream does.
+      ...(folderId ? { folder_id: folderId } : {}),
     });
     bundle.files.push(row);
     rabbitLogFileEvent(bundle, {
@@ -232,6 +283,8 @@ function mountProjectFileStream(expressApp, {
       // The row, field for field the one the base64 POST writes.
       const fresh = readRabbitBundle(req.params.projectId) || bundle;
       if (!fresh.files) fresh.files = [];
+      // M1-L7: found or made on the bundle this route writes.
+      const folderId = isFinancial ? invoicesFolderIdFor(fresh, req.params.projectId) : null;
       const row = rabbitTouch({
         id:               fileId,
         project_id:       req.params.projectId,
@@ -260,6 +313,8 @@ function mountProjectFileStream(expressApp, {
         // 0081's two columns, mirrored on the local row (demo 2026-09-11).
         duration_sec:       durationSec,
         source_modified_at: sourceModifiedAt,
+        // M1-L7: an invoice or a receipt in the project's INVOICES folder.
+        ...(folderId ? { folder_id: folderId } : {}),
       });
       fresh.files.push(row);
       rabbitLogFileEvent(fresh, {
@@ -279,4 +334,4 @@ function mountProjectFileStream(expressApp, {
   });
 }
 
-module.exports = { mountProjectFileStream, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE, POST_ROUTE };
+module.exports = { mountProjectFileStream, invoicesFolderOfBundle, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE, POST_ROUTE };

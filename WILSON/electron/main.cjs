@@ -4711,6 +4711,16 @@ function startLocalServer(distPath) {
     require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
       resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
+      // OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30): an invoice or a
+      // receipt goes into the project's INVOICES category folder, as the
+      // cloud's uploadFile files it — this planner's own row for it (its path
+      // is the category's slug), found in the bundle or made under the root
+      // by the one row writer, addFolderRow (invoicesFolderOfBundle says the
+      // three answers). The route writes the bundle.
+      invoicesFolderFor: (bundle, projectId) => require('./projectFileStream.cjs').invoicesFolderOfBundle(bundle, projectId, {
+        planned: planProjectFolderList(bundle && bundle.project).find((f) => f.kind === 'category' && f.entityType === 'invoice'),
+        addFolderRow,
+      }),
       log: (line) => console.info(line),
     });
 
