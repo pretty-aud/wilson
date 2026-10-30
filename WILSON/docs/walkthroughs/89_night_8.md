@@ -103,7 +103,7 @@ the dev fixtures' tester (a made-up project and files). In the folder
 
 The "after" pictures at 1280 were retaken on 2026-10-30 for your Q2: the
 first two show the cards stacked, and the Single page one shows card 2
-scrolled into view under card 1. At the other three sizes the cards are side
+scrolled to the top of the window (card 1 is above it, out of the picture). At the other three sizes the cards are side
 by side.
 
 ### How it was checked
@@ -128,14 +128,16 @@ by side.
   corrected.
 - After your answers: the side-by-side cards moved up to a 1,414 px window.
   Measured before and after at 1280, 1366, 1400, 1414, 1440 and 1920; the
-  tests now say that nothing sits side by side below that width, and 23
+  tests now hold the widths where the cards change layout, and 28
   deliberate breakages each turned a test red; two more reviews on Fable
   looked at the change. The first of them found that, with a real
   scrollbar, the cards went side by side 10 px too early (from 1,404 px)
   and the main column scrolled sideways for those few pixels; the column
   now keeps room for its scrollbar, so they go side by side from 1,414 px
   (1,415 in the desktop app on this computer, whose scrollbar is a pixel
-  wider) and nothing scrolls sideways.
+  wider) and nothing scrolls sideways. When a page is short enough not to
+  scroll, that kept room shows as a slightly wider margin on the right of
+  the cards (about 18 px, against 8 on the left).
 
 ### Questions
 

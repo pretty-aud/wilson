@@ -3820,7 +3820,8 @@ window less the 240px sidebar, the column's 16px of padding and the 10px
 scrollbar, whose gutter the column keeps: `scrollbar-gutter: stable`, since
 DG5's follow-up measured a size query on this scroll column answered before
 its scrollbar took its share, the pair laid into a 1138px column at a 1404
-window with a sideways scrollbar): under W 1148 (windows up to about 1,413) the cards stack as DG4
+window with a sideways scrollbar; when the column does not scroll the kept
+gutter shows as an 18px right margin against the left's 8): under W 1148 (windows up to about 1,413) the cards stack as DG4
 left them, card 2's box and Generate its full width; from W 1148 (a 1414
 window; her answer to walkthrough 89's Q2 of 2026-10-30, *"Side by side from
 about 1,414 only"*, which retired the design follow-up's pair from W 1000)

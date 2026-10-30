@@ -95,7 +95,9 @@
        1964 window with card 1's references 6px into its padding. Keeping
        the scrollbar's gutter, as O.T.T.E.R.'s scroll views do, makes the
        query see the width the cards get: the pair from a 1414 window, the
-       triple from 1974, nothing sideways. */
+       triple from 1974, nothing sideways. Its cost (review round 2,
+       MEASURED): when the column does not scroll, the kept gutter shows as
+       a wider right margin, 18px against the left's 8. */
     scrollbar-gutter: stable;
   }
   .dog-main > * + * { margin-top: 8px; }
@@ -117,8 +119,9 @@
      scroll column's height, so the grid is `.dog-inputs`, a plain wrapper
      round the two cards. W is .dog-main's content width: the window less
      the 240px sidebar, this column's 16px of padding and the scrollbar's
-     gutter, kept even before the scrollbar shows (10px in the app; a 1414
-     window is W 1148).
+     gutter, kept even before the scrollbar shows (10px in Chromium, where a
+     1414 window is W 1148; 11px in Electron 33 on the computer it was
+     measured on, where the pair starts at a 1415 window).
        stack   W < 1148 (windows up to about 1,413): DG4's cards, one under
                the other, 8px apart, card 2's box and Generate its full width.
        pair    W >= 1148 = 602 + 8 + 538: card 1 at the measure (576 + 2 x

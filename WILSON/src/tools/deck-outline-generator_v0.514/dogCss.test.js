@@ -216,8 +216,11 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     // about 1,414 only". The design follow-up's W 1000 rule is gone, and
     // nothing else lays the row out (the follow-up's review round 1, finding
     // 5): every container query in the sheet is one of the column's two, and
-    // every rule whose subject is the row sets its columns only in the stack,
-    // the pair or the triple.
+    // every rule whose selector ends in the row sets grid-template-columns only
+    // in the stack, the pair or the triple. Its reach (review round 2, finding
+    // 2): the row's other ways to set cards side by side (display: flex on it,
+    // grid-auto-flow, grid-template, grid-template-areas, a grid-row on a card,
+    // a :has() selector) are not read here.
     expect(p.widths).toEqual([1148, 1708])
     expect(allRules(DOG).filter((r) => /^@container\b/.test(norm(r.sel))).map((r) => norm(r.sel))).toEqual([PAIR, TRIPLE])
     const rowColumns = allRules(DOG)
@@ -254,10 +257,10 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     expect([decl(INDEX, '.ui-btn').padding, decl(INDEX, '.ui-btn').gap]).toEqual(['0 16px', '8px'])
     const projectRow = 360 + 8 + 139
     expect(projectRow).toBe(507)
-    // From W 1148: card 1 at the measure beside card 2 at a 512px body. In
-    // the app (the 240px sidebar, this column's padding, the 10px gutter the
-    // column keeps for its scrollbar) a 1414 window is exactly that width,
-    // and a 1280 window stacks.
+    // From W 1148: card 1 at the measure beside card 2 at a 512px body. With
+    // the 240px sidebar, this column's padding and the 10px gutter Chromium
+    // keeps for its scrollbar, a 1414 window is exactly that width (Electron 33
+    // drew 11px where it was measured: 1415 there), and a 1280 window stacks.
     expect(card(measure)).toBe(602)
     expect(card(512)).toBe(538)
     expect(minWidth(PAIR)).toBe(card(measure) + seam + card(512))
