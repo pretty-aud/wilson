@@ -241,7 +241,7 @@ No automated test covers the two-factor path end to end: re-run the first three 
 
 - No project: card **1 Project and references** reads *None chosen* and *What goes to the AI: what is listed here, the project’s
   title and description, and what you write in step 2.*; `Uploads (0)` with **Choose file**, which Tab reaches; **Core files only**
-  off, *Core files come from a project: choose one above.* `[BLOCKING]`
+  off, *Core files come from a project: choose one.* `[BLOCKING]`
 - **Choose a project** → **Add references** (*From <project>, and your notes*) → an item, a file and a note → **Done** → listed in
   groups; the meter *Less than 1% of what D.O.G. can read for one deck* (or *About N% …*); two or more give **Remove all
   references**, with Undo. `[BLOCKING]`

@@ -3826,9 +3826,12 @@ a card 2 of 538 or more, equal halves from W 1212; from W 1708 card 1 takes two
 thirds in two columns, the project [507 to 576] and what the deck reads
 [576], 24px apart, and card 2 the last third. So Generate is in view at a
 1280x800 window with six references listed, and the slide preview keeps C4's
-width (the preview probe's check at 1280 and 1440). Card 1's hint ends
-*"choose what else goes."* (was *"…choose what else below."*), since beside
-the project "below" was false. `dogCss.test.js` pins the widths and the
+width (the preview probe's check at 1280 and 1440, run from a copy with its
+stale first wait replaced: `scripts/dog-preview-probe.mjs` itself stops
+before measuring, OUTSTANDING DG5-01). Card 1's hint ends *"choose what else
+goes."* (was *"…choose what else below."*) and Core files only's no-project
+sentence *"Core files come from a project: choose one."* (was *"…choose one
+above."*), since beside the project a direction was false. `dogCss.test.js` pins the widths and the
 arithmetic that gives them; `enterKey.render.test.jsx` pins the wrapper.
 Walkthrough 89, its DG5 section, has the measurements before and after at
 1280, 1440, 1920 and 2560.

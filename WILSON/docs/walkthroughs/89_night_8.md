@@ -10,8 +10,9 @@ Your ask of 2026-10-30, with your picture of card 1 at a 2,000 px wide
 window: *"the redesign has a bit too much negative space. the entire right
 side is an empty card. lets do a pass to make sure it is visually
 appealing"*. Measured first at four window sizes, then designed (one design
-round on Fable, which took a second look at laptop sizes before anything was
-built), built, and reviewed twice on Fable.
+round on Fable; asked for a second look at laptop sizes once its first
+layout was on screen, it brought the side-by-side cards down to 1280),
+built, and reviewed twice on Fable.
 
 1. **From a 1280 window, the two cards sit side by side.** *1 Project and
    references* on the left, *2 Generate outline* on the right, the
@@ -30,11 +31,14 @@ built), built, and reviewed twice on Fable.
    read. Generate outline's box and its button now stop at that width too,
    where on a 2560 screen they ran 2,278 px across. This is what walkthrough
    84's Q4 (b) offered: you do not need to answer that question.
-4. **Two sentences lost the word "below"**, because what they pointed at
-   can now sit beside them. Card 1's hint now ends *choose what else goes.*;
-   the line above Uploads now reads *What goes to the AI: what is listed
-   here, the project's title and description, and what you write in step
-   2.* (Q1 below.)
+4. **Three sentences lost a direction word**, because what they pointed at
+   can now sit beside them. Card 1's hint now ends *choose what else goes.*
+   (was *choose what else below.*); the line above Uploads now reads *What
+   goes to the AI: what is listed here, the project's title and
+   description, and what you write in step 2.* (was *…with what you write
+   below.*); under Core files only, with no project, *Core files come from
+   a project: choose one.* (was *…choose one above.*; walkthrough 84's DG4
+   section, step 1, still quotes the old words). Q1 below.
 5. **Nothing else moves.** The same two cards with the same titles, folds
    and count; Tab visits everything in the same order; a screen reader
    hears exactly what it heard before. The output card is untouched.
@@ -54,7 +58,10 @@ With the dev fixtures' project (*Salt Hours*) and six references listed;
 At 1920 and 2560 the space left in each card is the same share in both
 cards, a margin rather than half a card. On a 2560 screen card 1 is also
 shorter (562 px tall with six references, was 722), so the output starts
-higher up.
+higher up. One new gap: when card 1 splits, the project's half ends under
+its description while the references run on beside it, so with six
+references the lower part of the left half is empty (383 px of it at 2560;
+more with many uploads). Q3 below.
 
 ### What to do
 
@@ -69,7 +76,7 @@ the window, or use your laptop and your wide monitor.
 | 3 | Widen the window to 2,000 px or more (your wide monitor, full screen) | Card 1 splits: the project on its left, the references on its right; Generate outline the last third of the row; no line of text runs longer than before |
 | 4 | Make the window narrower than about 1,270 px | The two cards one under the other, as before |
 | 5 | Fold card 1 by its chevron, side by side | Card 1 becomes its header bar with its count; card 2 stays open beside it |
-| 6 | Press Tab from the top of D.O.G. | The same order as before: card 1's header, *Choose a project*, New project, Choose file, Add references, Core files only, then card 2's header and its controls |
+| 6 | Press Tab from the top of D.O.G. | The same order as before: card 1's header, *Choose a project*, New project, Choose file, each listed reference's eye and ×, Add references, Core files only, Remove all references, then card 2's header and its controls |
 
 ### Pictures
 
@@ -94,19 +101,25 @@ the dev fixtures' tester (a made-up project and files). In the folder
   was checked in the desktop app's own browser engine (Electron 33) and in
   Chrome: nothing that floats over the page (menus, the rewrite box) moves.
 - The slide preview under the cards keeps exactly the width it had at 1280
-  and 1440 (its own pixel check).
+  and 1440, measured with its own pixel check (whose first step is out of
+  date since October; that is recorded for later, and it was run with that
+  step set aside).
 - D.O.G.'s tests: the order of everything in card 1, the folds, the count
   and the Tab order pass unchanged; new tests pin the widths and the
-  arithmetic behind each one; 17 deliberate breakages each turned a test
+  arithmetic behind each one; 21 deliberate breakages each turned a test
   red.
+- The first review found the third direction word (*above*) and five small
+  things in the tests and these notes, all corrected; the second review
+  checked those corrections.
 
 ### Questions
 
-- **Q1. The two sentences without "below".** (a) As built (Recommended):
-  *"The deck's project. Its title and description go with every deck;
-  choose what else goes."* and *"What goes to the AI: what is listed here,
-  the project's title and description, and what you write in step 2."*
-  (b) Other words: write them.
+- **Q1. The three sentences without a direction word.** (a) As built
+  (Recommended): *"The deck's project. Its title and description go with
+  every deck; choose what else goes."*, *"What goes to the AI: what is
+  listed here, the project's title and description, and what you write in
+  step 2."* and *"Core files come from a project: choose one."* (b) Other
+  words: write them.
 - **Q2. Side by side from a 1280 window.** At 1280 card 1 is a little
   narrower than its usual width, so the project's description takes three
   lines (two before) and the line *What goes to the AI…* two; in exchange
@@ -114,3 +127,7 @@ the dev fixtures' tester (a made-up project and files). In the folder
   1280 (Recommended). (b) Side by side only from about 1,414 px: at 1280
   the cards stack as before, and Generate is below the fold once
   references are listed.
+- **Q3. The empty lower left when card 1 splits.** (a) As built
+  (Recommended): the project's half ends under its description; the
+  references run on beside it. (b) On a very wide window, put Uploads under
+  the project's description too, so the two halves end nearer each other.

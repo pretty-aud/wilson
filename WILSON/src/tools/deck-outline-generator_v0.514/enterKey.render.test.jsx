@@ -1424,7 +1424,7 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     withProject([CORE()[2], CORE()[3]])
     const d = await openDog({ upload: false })
     expect(coreIsOff()).toBe(true)
-    expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
+    expect(coreSaid().textContent).toBe('Core files come from a project: choose one.')
     await chooseProject(d)
     expect(coreIsOff()).toBe(true)
     expect(coreSaid().textContent).toBe('This project has no Core files D.O.G. can read.')
@@ -1551,7 +1551,7 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
       await act(async () => { setHeldSession(null) })
     }
     // CONTROL: the hold over, the box and the note say why it is off again.
-    expect(coreSaid().textContent).toBe('Core files come from a project: choose one above.')
+    expect(coreSaid().textContent).toBe('Core files come from a project: choose one.')
     expect(document.querySelector('#dog-card1-body').textContent).toContain('Choose a project to reference')
   })
 

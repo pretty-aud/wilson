@@ -195,10 +195,13 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     expect(p.foot).toEqual({ flex: '1' })
   })
 
-  it('the main column is a named inline-size container and keeps C4\'s 8px padding; the row is one grid column, the cards 8px apart, each its own height', () => {
+  it('the main column is a named inline-size container and keeps C4\'s 8px padding, and nothing else new; the row is one grid column, the cards 8px apart, each its own height', () => {
     const p = pins(DOG)
     expect(p.container).toBe('dog-main / inline-size')
     expect(p.padding).toBe('8px')
+    // Review round 1, finding 3: the container and nothing else new. A grid
+    // here would hand its rows the scroll column's height (the design's trap).
+    expect(decl(DOG, '.dog-main')).toEqual({ padding: '8px', 'background-color': 'var(--color-paper)', container: 'dog-main / inline-size' })
     expect(p.row).toEqual({ '--dog-measure': '576px', display: 'grid', 'grid-template-columns': '1fr', gap: '8px', 'align-items': 'start' })
   })
 
@@ -218,9 +221,14 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     expect([measure, pad, border, seam, gutter]).toEqual([576, 12, 1, 8, 24])
     const card = (body) => body + 2 * pad + 2 * border
     // The project row on one line: the dropdown's 360px, 8px, New project's
-    // 139px as measured.
+    // 139px. jsdom lays nothing out, so the 139 is Chromium's (139.09 at
+    // every width, DG5's probe); what it was measured from is pinned here
+    // instead (review round 1, finding 2): the button's variant, glyph and
+    // words, and the kit button's padding and gap.
     expect(JSX).toContain('<div className="flex items-center gap-2">')
     expect(JSX).toContain('<div className="relative flex-1" style={{ maxWidth: \'360px\' }}>')
+    expect(JSX).toMatch(/<Button variant="secondary" onClick=\{\(\) => setShowNewProjectModal\(true\)\}>\s*<Plus aria-hidden="true" \/>\s*New project\s*<\/Button>/)
+    expect([decl(INDEX, '.ui-btn').padding, decl(INDEX, '.ui-btn').gap]).toEqual(['0 16px', '8px'])
     const projectRow = 360 + 8 + 139
     expect(projectRow).toBe(507)
     // From W 1000: card 1 from the project row's card up to the measure's,

@@ -355,7 +355,7 @@ describe('DG4: Core files only, beside Add references', () => {
   })
 
   const OFF = [
-    ['no project chosen', { projectChosen: false, core: { state: 'no-project', count: 0, legacy: 0 } }, 'Core files come from a project: choose one above.'],
+    ['no project chosen', { projectChosen: false, core: { state: 'no-project', count: 0, legacy: 0 } }, 'Core files come from a project: choose one.'],
     ['the project still being listed', { core: { state: 'listing', count: 0, legacy: 0 } }, 'Looking for the project’s Core files…'],
     ['its files could not be listed', { core: { state: 'failed', count: 0, legacy: 0 } }, 'The project’s files could not be listed.'],
     ['no Core file D.O.G. can read', { core: { state: 'none', count: 0, legacy: 0 } }, 'This project has no Core files D.O.G. can read.'],
@@ -415,7 +415,7 @@ describe('DG4: Core files only, beside Add references', () => {
     cleanup()
     const gone = mount({ projectChosen: false, refs: fakeRefs([], { coreOnly: true, core: { state: 'no-project', count: 0, legacy: 0 }, chosen: new Set(['note:n1']) }) })
     expect(off()).toBe(false)
-    expect(said(gone).textContent).toBe('Core files come from a project: choose one above. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
+    expect(said(gone).textContent).toBe('Core files come from a project: choose one. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
   })
 
   it('the count of what is set aside leaves out a chosen file that is listed anyway, as one of the Core files', () => {
