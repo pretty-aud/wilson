@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import AnswerLink from '../../components/AnswerLink';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import Editor from '@monaco-editor/react';
 /* Monaco takes its size as a NUMBER, and `TYPE.body` IS a number: `tokens.js`
@@ -5234,6 +5235,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 table({ node, ...props }) {
                   return <div className="lesson-table"><table {...props} /></div>;
                 },
+                // D3: on the web a link in a lesson opens in a new tab, and
+                // WILSON's tab stays (AnswerLink; the desktop's window guard
+                // decides there, unchanged).
+                a: AnswerLink,
               }}>
                 {(() => {
                   let content = selectedLesson.content || '';

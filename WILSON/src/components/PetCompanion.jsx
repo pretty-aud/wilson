@@ -8,6 +8,7 @@ import {
   Wrench, MessageCircle, Undo2
 } from 'lucide-react'
 import { PetSprite, EggSprite, DreamCloud, PET_BREEDS } from './sprites/index'
+import AnswerLink from './AnswerLink'
 
 export default function PetCompanion({
   petData, companionOpen, onCompanionToggle,
@@ -115,6 +116,9 @@ export default function PetCompanion({
   }
 
   const mdComponents = {
+    // D3: on the web a link in an answer opens in a new tab, and WILSON's tab
+    // stays (AnswerLink; the desktop's window guard decides there, unchanged).
+    a: AnswerLink,
     code({ node, inline, className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || '')
       return !inline && match ? (

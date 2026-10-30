@@ -88,7 +88,7 @@ export class Journal {
     return this.#serial(async () => { await this.#append('start', row.viewing_id, row); await this.#chmod(); });
   }
 
-  /** The viewing ended (60 s idle, five minutes of activity, or the gateway stopping). */
+  /** The viewing ended (a minute after its last request or response, or the outside door closing or the gateway stopping). */
   end(row) {
     return this.#serial(() => this.#append('end', row.viewing_id, { ...row, incomplete: row.incomplete === true }));
   }
