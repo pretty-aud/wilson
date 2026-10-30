@@ -640,7 +640,8 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (
     expect(headButton('Project and references').getAttribute('aria-controls')).toBe('dog-card1-body')
     expect(card1.querySelector('select.dog-project-select')).not.toBe(null)
     // DG5: no direction, since the references sit beside the project on a
-    // very wide window (walkthrough 89 asks her); the old words are gone.
+    // very wide window (her answer to walkthrough 89's Q1: as built); the old
+    // words are gone.
     expect(card1.textContent).toContain('The deck’s project. Its title and description go with every deck; choose what else goes.')
     expect(card1.textContent).not.toContain('choose what else below')
     expect(within(card1).getByRole('button', { name: 'New project' })).toBeTruthy()

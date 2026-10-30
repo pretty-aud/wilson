@@ -3817,24 +3817,26 @@ named size container (`container: dog-main / inline-size`; measured in
 Electron 33's Chromium 130 and in Chrome 152, it moves no fixed descendant and
 makes no stacking context), and the row lays out by its content width W (the
 window less the 240px sidebar, the column's 16px of padding and the 10px
-scrollbar): under W 1000 (windows 1024 to 1265) the cards stack as DG4 left
-them, card 2's box and Generate its full width; from W 1000 (a 1280 window)
-they sit side by side, card 1 growing from 533px (the project row on one
-line) to 602 (its measure) before card 2, no narrower than 459, takes the
-rest, and card 2's children keep the measure; from W 1148 card 1 is 602 beside
-a card 2 of 538 or more, equal halves from W 1212; from W 1708 card 1 takes two
-thirds in two columns, the project [507 to 576] and what the deck reads
-[576], 24px apart, and card 2 the last third. So Generate is in view at a
-1280x800 window with six references listed, and the slide preview keeps C4's
-width (the preview probe's check at 1280 and 1440, run from a copy with its
-stale first wait replaced: `scripts/dog-preview-probe.mjs` itself stops
-before measuring, OUTSTANDING DG5-01). Card 1's hint ends *"choose what else
+scrollbar): under W 1148 (windows up to about 1,413) the cards stack as DG4
+left them, card 2's box and Generate its full width; from W 1148 (a 1414
+window; her answer to walkthrough 89's Q2 of 2026-10-30, *"Side by side from
+about 1,414 only"*, which retired the design follow-up's pair from W 1000)
+they sit side by side, card 1 at 602 (its measure) beside a card 2 of 538 or
+more, equal halves from W 1212, card 2's children keeping the measure; from
+W 1708 card 1 takes two thirds in two columns, the project [507 to 576] and
+what the deck reads [576], 24px apart, and card 2 the last third. So
+Generate is in view from a 1414 window with six references listed (at 1280
+it is below the fold once references are listed, as before DG5), and the
+slide preview keeps C4's width (`scripts/dog-preview-probe.mjs --check` at
+1280 and 1440; its stale first wait was replaced by the controller,
+OUTSTANDING DG5-01 closed). Card 1's hint ends *"choose what else
 goes."* (was *"…choose what else below."*) and Core files only's no-project
 sentence *"Core files come from a project: choose one."* (was *"…choose one
 above."*), since beside the project a direction was false. `dogCss.test.js` pins the widths and the
 arithmetic that gives them; `enterKey.render.test.jsx` pins the wrapper.
 Walkthrough 89, its DG5 section, has the measurements before and after at
-1280, 1440, 1920 and 2560.
+1280, 1440, 1920 and 2560, and her three answers (the words and the split as
+built; the side-by-side cards from a 1414 window).
 
 ### 13.2 O.T.T.E.R.
 

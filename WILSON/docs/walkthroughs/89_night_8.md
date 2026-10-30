@@ -14,12 +14,19 @@ round on Fable; asked for a second look at laptop sizes once its first
 layout was on screen, it brought the side-by-side cards down to 1280),
 built, and reviewed twice on Fable.
 
-1. **From a 1280 window, the two cards sit side by side.** *1 Project and
-   references* on the left, *2 Generate outline* on the right, the
-   generated output below both, as wide as it was. So **Generate is on
-   screen without scrolling**, even with many references listed. In a
-   window narrower than about 1,270 px the two cards stay one under the
-   other, exactly as before.
+**Your answers of 2026-10-30** (asked in the controller's chat): Q1 as
+built, Q2 *side by side from about 1,414 only*, Q3 as built. Q2 is now
+built: the two cards sit side by side from a window about 1,414 px wide and
+stack below that, as before. The lines and the 1280 pictures below say what
+you see now.
+
+1. **From a window about 1,414 px wide, the two cards sit side by side**
+   (your Q2). *1 Project and references* on the left, *2 Generate outline*
+   on the right, the generated output below both, as wide as it was. So
+   **Generate is on screen without scrolling** there, even with many
+   references listed. In a narrower window (a 1280 or 1366 laptop screen)
+   the two cards stay one under the other, exactly as before, and Generate
+   is below the fold once references are listed.
 2. **On a very wide window card 1 splits in two.** From about 1,974 px
    wide (your 2,000 px window is one): the project on the left (the
    dropdown, New project, its description) and what the deck reads on the
@@ -50,13 +57,15 @@ With the dev fixtures' project (*Salt Hours*) and six references listed;
 
 | Window | Card 1 empty, before | Card 1 empty, now | Generate on screen, before | now |
 |---|---|---|---|---|
-| 1280 × 800 | 42% | none | no | yes |
+| 1280 × 800 | 42% | 42% (stacked: your Q2) | no | no |
 | 1440 × 900 | 50% | none | no | yes |
 | 1920 × 1080 | 65% | 28% | no | yes |
 | 2560 × 1440 | 75% | 22% | yes | yes |
 
-At 1920 and 2560 the space left in each card is the same share in both
-cards, a margin rather than half a card. On a 2560 screen card 1 is also
+At 1414 × 900 the cards sit side by side (nothing empty in card 1,
+Generate on screen); at 1366 and 1400 they stack. At 1920 and 2560 the
+space left in each card is the same share in both cards, a margin rather
+than half a card. On a 2560 screen card 1 is also
 shorter (562 px tall with six references, was 722), so the output starts
 higher up. One new gap: when card 1 splits, the project's half ends under
 its description while the references run on beside it, so with six
@@ -71,10 +80,10 @@ the window, or use your laptop and your wide monitor.
 
 | # | Do | You should see |
 |---|---|---|
-| 1 | Open D.O.G. in a window about 1280 px wide (a laptop screen) | Two cards side by side, **1 PROJECT AND REFERENCES** on the left and **2 GENERATE OUTLINE** on the right, the generated output below both |
-| 2 | Choose a project and list six references (**Add references**, tick, **Done**) | Card 1 grows downwards; **Generate full deck outline** stays on screen, top right |
-| 3 | Widen the window to 2,000 px or more (your wide monitor, full screen) | Card 1 splits: the project on its left, the references on its right; Generate outline the last third of the row; no line of text runs longer than before |
-| 4 | Make the window narrower than about 1,270 px | The two cards one under the other, as before |
+| 1 | Open D.O.G. in a window about 1280 px wide (a laptop screen) | The two cards one under the other, as before; Generate outline's box and button across its card |
+| 2 | Widen the window to about 1,414 px or more | The two cards side by side, **1 PROJECT AND REFERENCES** on the left and **2 GENERATE OUTLINE** on the right, the generated output below both |
+| 3 | Choose a project and list six references (**Add references**, tick, **Done**) | Card 1 grows downwards; **Generate full deck outline** stays on screen, top right |
+| 4 | Widen the window to 2,000 px or more (your wide monitor, full screen) | Card 1 splits: the project on its left, the references on its right; Generate outline the last third of the row; no line of text runs longer than before |
 | 5 | Fold card 1 by its chevron, side by side | Card 1 becomes its header bar with its count; card 2 stays open beside it |
 | 6 | Press Tab from the top of D.O.G. | The same order as before: card 1's header, *Choose a project*, New project, Choose file, each listed reference's eye and ×, Add references, Core files only, Remove all references, then card 2's header and its controls |
 
@@ -92,6 +101,9 @@ the dev fixtures' tester (a made-up project and files). In the folder
 - `po-dg5-before-03-single-page-…` and `po-dg5-after-03-single-page-…` —
   the same, with Generate outline switched to Single page.
 
+The "after" pictures at 1280 show the cards stacked (your Q2, retaken on
+2026-10-30); at the other three sizes they are side by side.
+
 ### How it was checked
 
 - Measured in Chromium before and after at the four sizes above, and at
@@ -101,9 +113,8 @@ the dev fixtures' tester (a made-up project and files). In the folder
   was checked in the desktop app's own browser engine (Electron 33) and in
   Chrome: nothing that floats over the page (menus, the rewrite box) moves.
 - The slide preview under the cards keeps exactly the width it had at 1280
-  and 1440, measured with its own pixel check (whose first step is out of
-  date since October; that is recorded for later, and it was run with that
-  step set aside).
+  and 1440, measured with its own pixel check (its out-of-date first step
+  has since been mended by the controller).
 - D.O.G.'s tests: the order of everything in card 1, the folds, the count
   and the Tab order pass unchanged; new tests pin the widths and the
   arithmetic behind each one; 21 deliberate breakages each turned a test
@@ -113,6 +124,11 @@ the dev fixtures' tester (a made-up project and files). In the folder
   checked those corrections and found nothing more in the app, only two
   small slips in wording (a number in these notes and a test's comment),
   corrected.
+- After your answers: the side-by-side cards moved up to a 1,414 px window.
+  Measured before and after at 1280, 1366, 1400, 1414, 1440 and 1920; the
+  tests now say that nothing sits side by side below that width, and 23
+  deliberate breakages each turned a test red; two more reviews on Fable
+  looked at the change.
 
 ### Questions
 
@@ -121,15 +137,17 @@ the dev fixtures' tester (a made-up project and files). In the folder
   every deck; choose what else goes."*, *"What goes to the AI: what is
   listed here, the project's title and description, and what you write in
   step 2."* and *"Core files come from a project: choose one."* (b) Other
-  words: write them.
+  words: write them. **Answered 2026-10-30: (a), as built.**
 - **Q2. Side by side from a 1280 window.** At 1280 card 1 is a little
   narrower than its usual width, so the project's description takes three
   lines (two before) and the line *What goes to the AI…* two; in exchange
   both cards are full and Generate is on screen. (a) Keep side by side from
   1280 (Recommended). (b) Side by side only from about 1,414 px: at 1280
   the cards stack as before, and Generate is below the fold once
-  references are listed.
+  references are listed. **Answered 2026-10-30: (b), side by side from
+  about 1,414 only; built the same day (the top of this section).**
 - **Q3. The empty lower left when card 1 splits.** (a) As built
   (Recommended): the project's half ends under its description; the
   references run on beside it. (b) On a very wide window, put Uploads under
   the project's description too, so the two halves end nearer each other.
+  **Answered 2026-10-30: (a), as built.**
