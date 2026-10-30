@@ -3031,7 +3031,12 @@ D.O.G.'s two input cards share one row on a wide window, card 1 in two
 columns on a very wide one (her ask of 2026-10-30; the session log's DG5
 row). What DG5 met outside its list and did not fix:
 
-- **DG5-01 · `scripts/dog-preview-probe.mjs` stops before it measures
+- **DG5-01 · ~~CLOSED by the controller (2026-10-30, the same hour): the one
+  wait is card 1 itself (`.dog-card-project`). PROVEN on the controller's
+  worktree at `e43e891a` with the fixtures on 5301: the probe as committed
+  exited on `TimeoutError` before measuring; with that line changed it ran
+  every step and passed C4 at both sizes and both mounts.~~
+  `scripts/dog-preview-probe.mjs` stops before it measures
   anything.** MEASURED on DG5's branch (2026-10-30, Chromium, the dev
   fixtures on 5301): `node scripts/dog-preview-probe.mjs 5301 --check`
   waits up to 20 s for a control reading *Generate Page Outline*, which

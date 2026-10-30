@@ -253,7 +253,9 @@ async function run(browser, W, H) {
   const page = await browser.newPage({ viewport: { width: W, height: H } });
   page.on('pageerror', (e) => console.error(`  pageerror: ${e.message}`));
   await page.goto(`${BASE}/dog`, { waitUntil: 'networkidle' });
-  await page.getByText('Generate Page Outline').first().waitFor({ timeout: 20000 });
+  // DG5-01 (2026-10-30): D.O.G. has opened on Full deck since DG1b, so the button reads
+  // "Generate full deck outline"; wait for card 1 itself, which every mode shows.
+  await page.locator('.dog-card-project').first().waitFor({ timeout: 20000 });
 
   // Paste the deck into Import/Export History and import it.
   await clickText(page, 'Import/export history');
