@@ -3378,6 +3378,28 @@ export function supabaseAdapter() {
           folderRow = data && data.id ? data : null;
         } catch { /* the tree is a convenience here, not a precondition */ }
       }
+      // M1-L6 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now"): a
+      // financial file with no folder of its own — an invoice or a receipt
+      // added from the budget, whose container is the project — takes the
+      // project's INVOICES category folder (folderPaths.js's
+      // FOLDER_CATEGORIES; its path is its slug), where 0041 means invoice
+      // files to sit and where the migration files the desktop's (her ruling
+      // of 2026-10-29). Read as the entity folder is, best-effort: with no
+      // such folder, or a read that fails, the file sits at the top as
+      // before. The folder ROW is a name every project reader sees (0041);
+      // the file stays gated by is_financial and its INVOICES key. A Legal
+      // file never gets here as money (refused above, both together).
+      if (scope.financial && !scope.folderId && !folderRow) {
+        try {
+          const { data } = await client
+            .from('folders').select('id, path')
+            .eq('project_id', projectId)
+            .eq('kind', 'category')
+            .eq('path', 'INVOICES')
+            .maybeSingle();
+          folderRow = data && data.id ? data : null;
+        } catch { /* the tree is a convenience here, not a precondition */ }
+      }
       const folderId = legal ? null : (scope.folderId || folderRow?.id || null);
 
       const entity   = legal ? LEGAL_SEGMENT : scope.financial ? 'INVOICES' : container.seg;
