@@ -58,6 +58,7 @@
 import { COLUMN_ALLOWLIST } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
 import { isLegalFile, writableTags } from '../../tools/rabbit_v0.1.0/fileTags'
 import { toIsoDate } from '../../tools/rabbit_v0.1.0/dates'
+import { FOLDER_CATEGORIES } from '../../tools/rabbit_v0.1.0/folderPaths'
 
 const isRow = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
 const named = (v) => v != null && v !== ''
@@ -470,7 +471,9 @@ export function desktopFolderOfFile(file, folders) {
 // desktop keeps in the project's INVOICES directory and whose row names no
 // folder — is filed in the INVOICES folder in the cloud, where 0041 means
 // invoice files to sit. Every other file keeps the desktop's own rule.
-export const INVOICES_FOLDER_PATH = 'INVOICES'
+// The planner's own spelling (its FOLDER_CATEGORIES row; a category's path
+// is its slug), as the cloud's upload reads it (M1-L6's review round 1).
+export const INVOICES_FOLDER_PATH = FOLDER_CATEGORIES.find(c => c.entityType === 'invoice').slug
 
 /** The bundle's INVOICES category folder (folderPaths.js's FOLDER_CATEGORIES), or null. */
 export function invoicesFolderOf(folders) {

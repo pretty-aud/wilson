@@ -3159,8 +3159,10 @@ where the cloud locks `LEGAL`; before round 1 it put every body under a
 row in the folder the desktop shows it in, and a Legal file in none (its
 LEGAL node has no row, as the cloud's own upload files it); since Audrey's
 ruling of 2026-10-29, an invoice or a receipt the desktop shows at the top
-goes into INVOICES, where 0041 means invoice files to sit. The cloud's own
-invoice upload still names no folder (`docs/OUTSTANDING.md` M1-L6).
+goes into INVOICES, where 0041 means invoice files to sit. Since her ruling
+of 2026-10-30 the cloud's own upload files an invoice or a receipt with no
+folder of its own there too (`uploadFile`; `docs/OUTSTANDING.md` M1-L6,
+closed).
 
 **What review round 2 added (0088 §5c, §9b).** `trg_file_events_money` flags
 every `file_events` row at INSERT by 0074's `file_event_is_financial`,
@@ -5037,7 +5039,14 @@ of a session — this section is limits by design, that file is faults.
   `phase_id`/`asset_id`/`task_id` before them, say what it is ABOUT. They agree
   by construction because `uploadFile` derives the folder from the container
   entity — one writer. A task attachment legitimately lives in its asset's
-  folder, which is why the task does not move it.
+  folder, which is why the task does not move it. An invoice or a receipt
+  with no folder of its own (today the budget's uploads, whose container is
+  the project) takes the project's INVOICES category folder, read by its
+  kind and path (the planner's spelling, `INVOICES_PLANNED`) and made under
+  the project's root where the tree lacks it; a failure is said in the
+  console and files it at the top (Audrey's ruling of 2026-10-30, M1-L6;
+  `invoiceUploadFolder.test.js`). Local Server mode's own upload files none
+  (`docs/OUTSTANDING.md` M1-L7).
 - **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
   must not delete the file ROW: the blob stays in the bucket and the row is the
   only thing that knows where it is.
@@ -5880,8 +5889,8 @@ of a session — this section is limits by design, that file is faults.
   sit at the project's top, as on the desktop; an invoice or a receipt there
   goes into INVOICES (Audrey's ruling of 2026-10-29, walkthrough 84's M1 Q1),
   said apart from the files filed as on the desktop (`INVOICES_FILED`). An
-  invoice added in the cloud itself still lands at the top
-  (`docs/OUTSTANDING.md` M1-L6).
+  invoice added in the cloud itself goes there too since 2026-10-30
+  (`uploadFile`; `docs/OUTSTANDING.md` M1-L6, closed).
 - **A folder whose place in the cloud a namesake holds** (another row's
   folder at its path) is not carried; its files sit at the project's top there.
   A second run never moves a row already in the cloud.

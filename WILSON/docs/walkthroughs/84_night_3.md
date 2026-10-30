@@ -200,10 +200,14 @@ archive it on the Scenes tab.
   **Your answer, 2026-10-29: (b).** Built afterwards: an invoice or a receipt
   the desktop shows at the project's top goes into the INVOICES folder in the
   cloud (the project's own, or the cloud's where the desktop has none); every
-  other file keeps the place you see it in on this computer. One difference
-  remains: an invoice added later in the cloud, from the budget page, still
-  lands at the top, because the cloud's own upload names no folder (written
-  down for you to place, OUTSTANDING M1-L6).
+  other file keeps the place you see it in on this computer. **Your second
+  answer, 2026-10-30, "Yes, M1 fixes it now":** an invoice or a receipt added
+  later in the cloud, from the budget page, goes into the INVOICES folder too.
+  To see it: in the browser, attach an invoice to a budget line, then open
+  the Files tab; it sits inside INVOICES. Invoices added before then stay
+  where they are. In a project kept on this computer, not yet moved to the
+  cloud, an invoice you add still sits at the top; that is written down for
+  you to decide (OUTSTANDING M1-L7).
 - **Q2.** No night of the plan carries an asset's version history or the
   files the desktop keeps with an asset, scene, shot, level or experience
   (FileManager's), and none carries the company's rate cards, team members
