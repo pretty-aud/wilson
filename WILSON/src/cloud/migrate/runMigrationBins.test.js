@@ -1231,7 +1231,8 @@ describe('a project with no bins is as it was', () => {
 // (electron/main.cjs's POST: documents, visualAssets, files_dir, a folder on
 // this computer, its own workspace id), each comment the project_id the
 // desktop stamps (rabbitSubentityRoutes), each file a disk name and no
-// folder_id (projectFileStream.cjs writes none), no workspace on any row,
+// folder_id (projectFileStream.cjs writes one only for an invoice or a
+// receipt since M1-L7, and these are older rows), no workspace on any row,
 // the desktop's archive (archived_by null: it has no people). A key date keeps
 // the fixtures' `name` beside its title, as an older build's row may.
 const DESKTOP_WS = '00000000-0000-0000-0000-000000000001'

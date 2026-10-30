@@ -159,6 +159,15 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     const streamCjs = read('../../electron/projectFileStream.cjs')
     expect(streamCjs).toContain("const POST_ROUTE = '/api/rabbit/projects/:projectId/files';")
     expect(streamCjs).toContain('expressApp.post(POST_ROUTE, (req, res) => {')
+    // M1-L7 (review rounds 1 and 2): the routes' INVOICES hook, built from
+    // this planner and its one row writer — the one production wiring of the
+    // rule — as a live option of THIS mount (not a comment, not another
+    // call's). invoicesFolderHook over main.cjs's own planner and writer, and
+    // the folder DELETE's SET NULL, are replayed in projectFileStream.test.js.
+    const mountAt = mainCjs.indexOf("require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {")
+    const mountEnd = mainCjs.indexOf('\n    });', mountAt)
+    const liveMount = mainCjs.slice(mountAt, mountEnd).split(/\r?\n/).filter(l => !l.trim().startsWith('//')).join('\n')
+    expect(liveMount).toContain("invoicesFolderFor: require('./projectFileStream.cjs').invoicesFolderHook({ planProjectFolderList, addFolderRow }),")
   })
 })
 
