@@ -24,7 +24,7 @@ import path from 'node:path'
 import express from 'express'
 
 const require = createRequire(import.meta.url)
-const { mountProjectFileStream, invoicesFolderOfBundle, parseScope, parseSize, parseDuration, parseIsoDate } = require('../../../../electron/projectFileStream.cjs')
+const { mountProjectFileStream, invoicesFolderOfBundle, invoicesFolderHook, parseScope, parseSize, parseDuration, parseIsoDate } = require('../../../../electron/projectFileStream.cjs')
 const { randomUUID } = require('node:crypto')
 
 const PID = 'p-stream-1'
@@ -328,6 +328,26 @@ describe('invoicesFolderOfBundle — the three answers, as the cloud\'s uploadFi
   })
 })
 
+describe('invoicesFolderHook — the hook main.cjs builds from its planner and its row writer (review round 1)', () => {
+  // The renderer's planner stands in for main.cjs's planProjectFolderList:
+  // the same rows, the two category lists pinned equal by folderParity.test.js.
+  const hook = invoicesFolderHook({ planProjectFolderList: planProjectFolders, addFolderRow })
+
+  it('finds the planner\'s INVOICES row in the bundle, or makes it under the root', () => {
+    const filed = { project: { title: 'Salt Hours' }, folders: [ROOT, { ...INVOICES_ROW }] }
+    expect(hook(filed, 'p1')).toMatchObject({ id: 'f-invoices' })
+    const lacking = { project: { title: 'Salt Hours' }, folders: [ROOT] }
+    expect(hook(lacking, 'p1')).toMatchObject({ id: 'made-INVOICES', parent_id: 'f-root', path: 'INVOICES', entity_type: 'invoice' })
+  })
+
+  it('CONTROL: a planner that plans no INVOICES category gives no folder, and makes none', () => {
+    const noInvoices = invoicesFolderHook({ planProjectFolderList: (p) => planProjectFolders(p).filter(f => f.entityType !== 'invoice'), addFolderRow })
+    const bundle = { project: {}, folders: [ROOT] }
+    expect(noInvoices(bundle, 'p1')).toBeNull()
+    expect(bundle.folders).toHaveLength(1)
+  })
+})
+
 describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
   const P_FILED = 'p-invoices-filed'
   const P_NO_INVOICES = 'p-invoices-missing'
@@ -353,10 +373,10 @@ describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
       resolveProjectInvoicesDir: () => invoicesDir,
       resolveProjectLegalDir: () => legalDir,
       uuidv4: randomUUID,
-      // As main.cjs wires it, but for one project whose hook throws.
+      // As main.cjs wires it (invoicesFolderHook), but for one project whose hook throws.
       invoicesFolderFor: (bundle, projectId) => {
         if (projectId === P_HOOK_FAILS) throw new Error('the bundle\'s folders could not be read')
-        return invoicesFolderOfBundle(bundle, projectId, { planned: PLANNED, addFolderRow })
+        return invoicesFolderHook({ planProjectFolderList: planProjectFolders, addFolderRow })(bundle, projectId)
       },
       log: (line) => logged2.push(line),
     })

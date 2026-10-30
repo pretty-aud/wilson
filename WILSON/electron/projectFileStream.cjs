@@ -40,7 +40,12 @@
 // where the tree lacks it, or null where the project has no tree (left to the
 // planner). Both transports write it on the row as `folder_id`; a hook that
 // fails is said in the log, without the file's name, and the file still lands,
-// at the top as before.
+// at the top as before. The cloud files money in INVOICES only when it has no
+// folder of its own (a named folder, or a scene's, shot's, level's or
+// experience's); these routes record no folder and none of those links for
+// any upload, so here every financial upload has none of its own (review
+// round 1: the same rule over what each backend records). The host builds
+// the hook from its planner and its row writer (invoicesFolderHook).
 // =============================================================================
 'use strict';
 
@@ -98,6 +103,21 @@ function invoicesFolderOfBundle(bundle, projectId, { planned, addFolderRow } = {
   if (!(bundle.folders || []).some((f) => !!f && f.path === '')) return null;
   addFolderRow(bundle, projectId, planned);
   return (bundle.folders || []).find(isInvoices) || null;
+}
+
+/**
+ * M1-L7: the host's hook for both routes, built from its planner
+ * (`planProjectFolderList(project)`: the project's planned folders, the root
+ * and the categories) and its one row writer (`addFolderRow`) — the planner's
+ * INVOICES category row is the one found or made (invoicesFolderOfBundle).
+ * Lifted out of main.cjs so the wiring is tested, not only measured (review
+ * round 1).
+ */
+function invoicesFolderHook({ planProjectFolderList, addFolderRow } = {}) {
+  return (bundle, projectId) => invoicesFolderOfBundle(bundle, projectId, {
+    planned: planProjectFolderList(bundle && bundle.project).find((f) => f.kind === 'category' && f.entityType === 'invoice'),
+    addFolderRow,
+  });
 }
 
 function mountProjectFileStream(expressApp, {
@@ -334,4 +354,4 @@ function mountProjectFileStream(expressApp, {
   });
 }
 
-module.exports = { mountProjectFileStream, invoicesFolderOfBundle, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE, POST_ROUTE };
+module.exports = { mountProjectFileStream, invoicesFolderOfBundle, invoicesFolderHook, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE, POST_ROUTE };

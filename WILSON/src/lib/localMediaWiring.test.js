@@ -159,6 +159,14 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     const streamCjs = read('../../electron/projectFileStream.cjs')
     expect(streamCjs).toContain("const POST_ROUTE = '/api/rabbit/projects/:projectId/files';")
     expect(streamCjs).toContain('expressApp.post(POST_ROUTE, (req, res) => {')
+    // M1-L7 (review round 1): the routes' INVOICES hook, built from this
+    // planner and its one row writer — the one production wiring of the rule
+    // (invoicesFolderHook is tested in projectFileStream.test.js).
+    expect(mainCjs).toContain("invoicesFolderFor: require('./projectFileStream.cjs').invoicesFolderHook({ planProjectFolderList, addFolderRow }),")
+    expect(mainCjs).toMatch(/function planProjectFolderList\(project\)/)
+    expect(mainCjs).toMatch(/function addFolderRow\(bundle, projectId, planned\)/)
+    // …and a folder's delete lets its files' folder_id go, 0043's SET NULL.
+    expect(mainCjs).toContain('if (f && f.folder_id && doomed.has(f.folder_id)) f.folder_id = null;')
   })
 })
 
