@@ -202,15 +202,33 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     expect(p.padding).toBe('8px')
     // Review round 1, finding 3: the container and nothing else new. A grid
     // here would hand its rows the scroll column's height (the design's trap).
-    expect(decl(DOG, '.dog-main')).toEqual({ padding: '8px', 'background-color': 'var(--color-paper)', container: 'dog-main / inline-size' })
+    // The follow-up's review round 1, finding 1: the scrollbar's gutter kept,
+    // or a size query on this scroll column is answered before the scrollbar
+    // takes its share (measured: a 1404 window got the pair and a sideways
+    // scrollbar).
+    expect(decl(DOG, '.dog-main')).toEqual({ padding: '8px', 'background-color': 'var(--color-paper)', container: 'dog-main / inline-size', 'scrollbar-gutter': 'stable' })
     expect(p.row).toEqual({ '--dog-measure': '576px', display: 'grid', 'grid-template-columns': '1fr', gap: '8px', 'align-items': 'start' })
   })
 
   it('the pair and the triple, each from the width its arithmetic gives, and nothing side by side under the pair\'s width', () => {
     const p = pins(DOG)
     // Her answer to walkthrough 89's Q2 (2026-10-30): "Side by side from
-    // about 1,414 only". The design follow-up's W 1000 rule is gone.
+    // about 1,414 only". The design follow-up's W 1000 rule is gone, and
+    // nothing else lays the row out (the follow-up's review round 1, finding
+    // 5): every container query in the sheet is one of the column's two, and
+    // every rule whose subject is the row sets its columns only in the stack,
+    // the pair or the triple.
     expect(p.widths).toEqual([1148, 1708])
+    expect(allRules(DOG).filter((r) => /^@container\b/.test(norm(r.sel))).map((r) => norm(r.sel))).toEqual([PAIR, TRIPLE])
+    const rowColumns = allRules(DOG)
+      .filter((r) => splitTop(r.sel).some((s) => /\.dog-inputs$/.test(norm(s))))
+      .flatMap((r) => decls(r.body).filter(([prop]) => prop === 'grid-template-columns')
+        .map(([, v]) => `${norm(r.parents[r.parents.length - 1] || '')} ${splitTop(r.sel).map(norm).join(', ')}: ${v}`))
+    expect(rowColumns).toEqual([
+      '@layer components .dog-inputs: 1fr',
+      `${PAIR} .dog-inputs: minmax(602px, 1fr) minmax(538px, 1fr)`,
+      `${TRIPLE} .dog-inputs: 2fr 1fr`,
+    ])
     expect(p.pair).toBe('minmax(602px, 1fr) minmax(538px, 1fr)')
     expect(p.triple).toBe('2fr 1fr')
     expect(p.split).toEqual({ display: 'grid', 'grid-template-columns': 'minmax(507px, var(--dog-measure)) var(--dog-measure)', 'column-gap': '24px', 'align-items': 'start' })
@@ -237,8 +255,9 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     const projectRow = 360 + 8 + 139
     expect(projectRow).toBe(507)
     // From W 1148: card 1 at the measure beside card 2 at a 512px body. In
-    // the app (the 240px sidebar, this column's padding, a 10px scrollbar) a
-    // 1414 window is exactly that width, and a 1280 window stacks.
+    // the app (the 240px sidebar, this column's padding, the 10px gutter the
+    // column keeps for its scrollbar) a 1414 window is exactly that width,
+    // and a 1280 window stacks.
     expect(card(measure)).toBe(602)
     expect(card(512)).toBe(538)
     expect(minWidth(PAIR)).toBe(card(measure) + seam + card(512))
@@ -254,7 +273,7 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
 
   it('CONTROL: the sheet as DG4 left it (one column on card 1, no container, no row) fails every DG5 pin above', () => {
     const before = DOG
-      .replace(/\n\s*\/\* DG5: a named size container[\s\S]*?container: dog-main \/ inline-size;/, '')
+      .replace(/\n\s*\/\* DG5: a named size container[\s\S]*?scrollbar-gutter: stable;/, '')
       .replace(/\/\* ═══ THE INPUTS ROW — DG5[\s\S]*?\.dog-card-project > \.dog-card-body > \.dog-refs \{ margin-top: 0; \}\s*\}/, '')
       .replace('.dog-card-project .dog-project-details,', '.dog-card-project { --dog-refs-measure: 576px; }\n  .dog-card-project .dog-project-details,')
       .replaceAll('var(--dog-measure)', 'var(--dog-refs-measure)')

@@ -87,6 +87,16 @@
        33.4.11 (Chromium 130) and in Chrome 152: a container moves no fixed
        descendant and makes no stacking context; the padding is C4's. */
     container: dog-main / inline-size;
+    /* DG5's follow-up, review round 1 (finding 1, MEASURED with real
+       scrollbars in Chromium 147 and in Electron 33): a size query on this
+       scroll column was answered by its width before the scrollbar took its
+       share, so at a 1404 window the pair (W 1148) was laid into a 1138px
+       column and a sideways scrollbar appeared, and the triple began at a
+       1964 window with card 1's references 6px into its padding. Keeping
+       the scrollbar's gutter, as O.T.T.E.R.'s scroll views do, makes the
+       query see the width the cards get: the pair from a 1414 window, the
+       triple from 1974, nothing sideways. */
+    scrollbar-gutter: stable;
   }
   .dog-main > * + * { margin-top: 8px; }
 
@@ -98,15 +108,17 @@
      left 42, 50, 65 and 75 percent of the card empty across at 1280, 1440,
      1920 and 2560, and card 2's box and Generate ran the card's whole width
      (998 to 2,278px). The design round (one, on Fable) chose a row: the two
-     input cards side by side once both fit at the measure, and card 1 in
-     two columns once it holds both at the measure, so the next step and the
-     references take the width instead of paper, Generate is in view with
-     any number of references, and nothing stretches past the measure. A
-     container query never matches its own container, and a grid on
-     .dog-main would hand its rows the scroll column's height, so the grid is
-     `.dog-inputs`, a plain wrapper round the two cards. W is .dog-main's
-     content width: the window less the 240px sidebar, this column's 16px of
-     padding and the scrollbar (10px in the app; a 1414 window is W 1148).
+     input cards side by side once card 1 fits at its measure beside a card 2
+     whose every line is one line, and card 1 in two columns once it holds
+     both at the measure, so the next step and the references take the width
+     instead of paper, Generate is in view with any number of references,
+     and nothing stretches past the measure. A container query never matches
+     its own container, and a grid on .dog-main would hand its rows the
+     scroll column's height, so the grid is `.dog-inputs`, a plain wrapper
+     round the two cards. W is .dog-main's content width: the window less
+     the 240px sidebar, this column's 16px of padding and the scrollbar's
+     gutter, kept even before the scrollbar shows (10px in the app; a 1414
+     window is W 1148).
        stack   W < 1148 (windows up to about 1,413): DG4's cards, one under
                the other, 8px apart, card 2's box and Generate its full width.
        pair    W >= 1148 = 602 + 8 + 538: card 1 at the measure (576 + 2 x
