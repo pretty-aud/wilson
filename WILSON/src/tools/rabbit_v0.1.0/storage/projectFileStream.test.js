@@ -328,23 +328,114 @@ describe('invoicesFolderOfBundle — the three answers, as the cloud\'s uploadFi
   })
 })
 
-describe('invoicesFolderHook — the hook main.cjs builds from its planner and its row writer (review round 1)', () => {
-  // The renderer's planner stands in for main.cjs's planProjectFolderList:
-  // the same rows, the two category lists pinned equal by folderParity.test.js.
-  const hook = invoicesFolderHook({ planProjectFolderList: planProjectFolders, addFolderRow })
+// ── main.cjs's own functions, lifted by brace matching (as
+// desktopShotRefiling.test.js lifts them): the planner and the one row
+// writer the hook is built from, and the folder DELETE route. Review round 2:
+// the renderer's planner was a stand-in pinned only on kind, slug and path,
+// while the hook keys on the planned row's entityType.
+const MAIN_CJS = fs.readFileSync(new URL('../../../../electron/main.cjs', import.meta.url), 'utf-8')
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`)
+  if (start < 0) throw new Error(`main.cjs no longer defines ${name}()`)
+  let pd = 0
+  let i = source.indexOf('(', start)
+  for (; i < source.length; i++) {
+    if (source[i] === '(') pd++
+    else if (source[i] === ')') { pd--; if (pd === 0) break }
+  }
+  const open = source.indexOf('{', i)
+  let depth = 0
+  for (let j = open; j < source.length; j++) {
+    if (source[j] === '{') depth++
+    else if (source[j] === '}') { depth--; if (depth === 0) return source.slice(start, j + 1) }
+  }
+  throw new Error(`unbalanced braces extracting ${name}()`)
+}
+function extractArrayLiteral(source, name) {
+  const open = source.indexOf('[', source.indexOf(`const ${name} = [`))
+  let depth = 0
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === '[') depth++
+    else if (source[i] === ']') { depth--; if (depth === 0) return source.slice(open, i + 1) }
+  }
+  throw new Error(`cannot extract ${name}`)
+}
+/** Lift a whole call (`expressApp.delete('<route>', …)`) by paren matching. */
+function extractCall(source, marker) {
+  const start = source.indexOf(marker)
+  if (start < 0) throw new Error(`main.cjs no longer has ${marker}`)
+  let depth = 0
+  for (let i = source.indexOf('(', start); i < source.length; i++) {
+    if (source[i] === '(') depth++
+    else if (source[i] === ')') { depth--; if (depth === 0) return source.slice(start, i + 1) + ';' }
+  }
+  throw new Error(`unbalanced parens extracting ${marker}`)
+}
+/** main.cjs's planProjectFolderList and addFolderRow, with a counting uuidv4. */
+function mainFolderFunctions() {
+  let seq = 0
+  // eslint-disable-next-line no-new-func
+  return new Function('uuidv4', `
+    ${extractFunction(MAIN_CJS, 'fileSlugify')}
+    const FOLDER_CATEGORIES = ${extractArrayLiteral(MAIN_CJS, 'FOLDER_CATEGORIES')};
+    ${extractFunction(MAIN_CJS, 'slugOrFallback')}
+    ${extractFunction(MAIN_CJS, 'planProjectFolderList')}
+    ${extractFunction(MAIN_CJS, 'addFolderRow')}
+    return { planProjectFolderList, addFolderRow };`)(() => `uuid-${++seq}`)
+}
 
-  it('finds the planner\'s INVOICES row in the bundle, or makes it under the root', () => {
+describe('invoicesFolderHook built from main.cjs\'s own planner and row writer (review rounds 1 and 2)', () => {
+  const main = mainFolderFunctions()
+  const hook = invoicesFolderHook(main)
+
+  it('finds the planner\'s INVOICES row in the bundle, or makes it under the root with the writer\'s full row', () => {
     const filed = { project: { title: 'Salt Hours' }, folders: [ROOT, { ...INVOICES_ROW }] }
     expect(hook(filed, 'p1')).toMatchObject({ id: 'f-invoices' })
     const lacking = { project: { title: 'Salt Hours' }, folders: [ROOT] }
-    expect(hook(lacking, 'p1')).toMatchObject({ id: 'made-INVOICES', parent_id: 'f-root', path: 'INVOICES', entity_type: 'invoice' })
+    const made = hook(lacking, 'p1')
+    expect(made).toMatchObject({ id: 'uuid-1', project_id: 'p1', parent_id: 'f-root', kind: 'category', entity_type: 'invoice', slug: 'INVOICES', label: null, path: 'INVOICES', asset_id: null, scene_id: null, shot_id: null, level_id: null, experience_id: null })
+    expect(lacking.folders).toContain(made)
+    // The planner's row carries the entityType the hook keys on.
+    expect(main.planProjectFolderList({}).find(f => f.path === 'INVOICES')).toMatchObject({ kind: 'category', entityType: 'invoice', parentPath: '' })
   })
 
   it('CONTROL: a planner that plans no INVOICES category gives no folder, and makes none', () => {
-    const noInvoices = invoicesFolderHook({ planProjectFolderList: (p) => planProjectFolders(p).filter(f => f.entityType !== 'invoice'), addFolderRow })
+    const noInvoices = invoicesFolderHook({ planProjectFolderList: (p) => main.planProjectFolderList(p).filter(f => f.entityType !== 'invoice'), addFolderRow: main.addFolderRow })
     const bundle = { project: {}, folders: [ROOT] }
     expect(noInvoices(bundle, 'p1')).toBeNull()
     expect(bundle.folders).toHaveLength(1)
+  })
+})
+
+describe('main.cjs\'s folder DELETE lets its files\' folder_id go, as 0043\'s SET NULL does in the cloud (review rounds 1 and 2)', () => {
+  const ROUTE_DELETE = '/api/rabbit/projects/:projectId/folders/:id'
+  function deleteFolder(bundle, folderId) {
+    const routes = new Map()
+    const writes = []
+    // eslint-disable-next-line no-new-func
+    new Function('expressApp', 'readRabbitBundle', 'writeRabbitBundle', 'rabbitNotFound',
+      extractCall(MAIN_CJS, `expressApp.delete('${ROUTE_DELETE}'`),
+    )({ delete: (p, h) => routes.set(p, h) }, () => bundle, (_id, b) => writes.push(structuredClone(b)), (res, what = 'project') => res.status(404).json({ error: `${what} not found` }))
+    const res = { code: 200, body: null, status(c) { this.code = c; return this }, json(b) { this.body = b; return this } }
+    routes.get(ROUTE_DELETE)({ params: { projectId: 'p1', id: folderId } }, res)
+    return { res, written: writes.at(-1) }
+  }
+
+  it('an invoice in the removed folder or anywhere below it keeps no id; one in a sibling keeps its own', () => {
+    const bundle = {
+      project: { id: 'p1' },
+      folders: [ROOT, { id: 'a', kind: 'category', path: 'INVOICES', parent_id: 'f-root' }, { id: 'a1', kind: 'custom', path: 'INVOICES/x', parent_id: 'a' }, { id: 'a1a', kind: 'custom', path: 'INVOICES/x/y', parent_id: 'a1' }, { id: 'b', kind: 'category', path: 'ASSETS', parent_id: 'f-root' }],
+      files: [{ id: 'in-a', folder_id: 'a', is_financial: true }, { id: 'in-a1a', folder_id: 'a1a', is_financial: true }, { id: 'in-b', folder_id: 'b' }, { id: 'loose' }],
+    }
+    const { res, written } = deleteFolder(bundle, 'a')
+    expect(res.body).toEqual({ ok: true, removed: 3 })
+    expect(written.folders.map(f => f.id)).toEqual(['f-root', 'b'])
+    const byId = Object.fromEntries(written.files.map(f => [f.id, f]))
+    expect(byId['in-a'].folder_id).toBeNull()
+    expect(byId['in-a1a'].folder_id).toBeNull()
+    // CONTROL: a file in a folder that stays keeps its id; one with none stays without.
+    expect(byId['in-b'].folder_id).toBe('b')
+    expect(byId.loose).not.toHaveProperty('folder_id')
   })
 })
 
