@@ -3130,7 +3130,8 @@ a Legal upload by someone without the money gate before a byte moves, and
 refuses Legal + financial together. `fileTags.tagSettable` never lets anyone
 tick Legal (or Finance); the file window shows it as a locked fact. On the
 **Local Server** (no roles) a Legal upload goes into a real `LEGAL` folder
-beside `INVOICES`, the row's tag is the fact, and the PATCH routes
+beside `INVOICES` (an invoice or a receipt is filed in the INVOICES folder
+row since M1-L7, 2026-10-30), the row's tag is the fact, and the PATCH routes
 (`electron/projectFilePatch.cjs`) refuse adding or removing it or making the
 file core — the UI says once that this backend cannot enforce who sees the
 folder and that it can be locked on the NAS.
@@ -5045,8 +5046,11 @@ of a session — this section is limits by design, that file is faults.
   kind and path (the planner's spelling, `INVOICES_PLANNED`) and made under
   the project's root where the tree lacks it; a failure is said in the
   console and files it at the top (Audrey's ruling of 2026-10-30, M1-L6;
-  `invoiceUploadFolder.test.js`). Local Server mode's own upload files none
-  (`docs/OUTSTANDING.md` M1-L7).
+  `invoiceUploadFolder.test.js`). Local Server mode's two upload routes file
+  it there too since her ruling of the same day (`electron/projectFileStream.cjs`:
+  the base64 POST and the streamed PUT write the INVOICES row on a financial
+  row as `folder_id`, through `invoicesFolderOfBundle` with main.cjs's planner
+  row and its one row writer; `docs/OUTSTANDING.md` M1-L7, closed).
 - **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
   must not delete the file ROW: the blob stays in the bucket and the row is the
   only thing that knows where it is.
