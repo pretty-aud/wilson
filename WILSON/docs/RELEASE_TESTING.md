@@ -237,10 +237,10 @@ No automated test covers the two-factor path end to end: re-run the first three 
   older than 24 hours, across every company of this environment?* and answers *Deleted N file(s) across M companies.*, with a
   `blob.purged` row in Audit. **On the beta before 2026-11-09** (OUTSTANDING FX12-01; walkthrough 76 part C). `[BLOCKING]`
 
-## §E. D.O.G. (25 min · walkthroughs 75, 76, 77, 80, 81, 84)
+## §E. D.O.G. (25 min · walkthroughs 75, 76, 77, 80, 81, 84, 89)
 
-- No project: card **1 Project and references** reads *None chosen* and *What goes to the AI: what is listed here and the project’s
-  title and description, with what you write below.*; `Uploads (0)` with **Choose file**, which Tab reaches; **Core files only**
+- No project: card **1 Project and references** reads *None chosen* and *What goes to the AI: what is listed here, the project’s
+  title and description, and what you write in step 2.*; `Uploads (0)` with **Choose file**, which Tab reaches; **Core files only**
   off, *Core files come from a project: choose one above.* `[BLOCKING]`
 - **Choose a project** → **Add references** (*From <project>, and your notes*) → an item, a file and a note → **Done** → listed in
   groups; the meter *Less than 1% of what D.O.G. can read for one deck* (or *About N% …*); two or more give **Remove all

@@ -3023,6 +3023,25 @@ and did not fix:
   recorded (`PLAN_TO_1_0.md` §5, rule 8); the fix shape above applies the
   day a shipped build is given a DSN.
 
+## DG5 (2026-10-30, night 8 of `docs/sessions/PLAN_TO_1_0.md`)
+
+D.O.G.'s two input cards share one row on a wide window, card 1 in two
+columns on a very wide one (her ask of 2026-10-30; the session log's DG5
+row). What DG5 met outside its list and did not fix:
+
+- **DG5-01 · `scripts/dog-preview-probe.mjs` stops before it measures
+  anything.** MEASURED on DG5's branch (2026-10-30, Chromium, the dev
+  fixtures on 5301): `node scripts/dog-preview-probe.mjs 5301 --check`
+  waits up to 20 s for a control reading *Generate Page Outline*, which
+  D.O.G. no longer shows when it opens, and exits on `TimeoutError` with
+  nothing measured. D.O.G. has opened on Full deck since DG1b (`9d707f9f`,
+  2026-10-17: her Q21), where the button reads *Generate full deck
+  outline*, so the probe has been stale since then, not since DG5. A
+  scratch copy with that one wait replaced by card 1 (`.dog-card-project`)
+  runs every step and passes its check (C4: the preview box matches the pin
+  at 1280 and 1440, at both mounts) on DG5's layout. Fix: that one line.
+  Owner: the controller (a script under `scripts/`, outside DG5's list).
+
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
 What R1 (night 2: R.A.B.B.I.T. robustness) met and did not fix, and what its
