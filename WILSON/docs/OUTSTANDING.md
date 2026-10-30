@@ -3153,12 +3153,16 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   give the three tables the `ours` test and their phase links the key dates'
   check. Owner: M2 (it reworks those inserts for the budgets).
 - **M1-L6 · ~~CLOSED by M1 (2026-10-30), her ruling "Yes, M1 fixes it now
-  (Recommended)": a financial upload with no folder of its own takes the
-  project's INVOICES category folder, read by its kind and path,
-  best-effort (`uploadFile`; `invoiceUploadFolder.test.js`, five failing
-  controls). MEASURED on wilson-dev, rolled back: such a row lands, financial,
-  filed and stamped with its workspace; invoices added before stay where they
-  are (none at the top on wilson-dev).~~ An invoice added in the cloud lands at
+  (Recommended)": in the cloud a financial upload with no folder of its own
+  takes the project's INVOICES category folder, read by its kind and path
+  (the planner's own spelling) and, where the project's tree lacks it, made
+  under the project's root (review round 1); a read or a make that fails is
+  said in the console and files it at the top (`uploadFile`;
+  `invoiceUploadFolder.test.js`, thirteen failing controls over the change
+  and round 1's corrections). MEASURED on wilson-dev, rolled back: such a row
+  lands, financial, filed and stamped with its workspace; invoices added
+  before stay where they are (none at the top on wilson-dev). The desktop's
+  own upload is M1-L7.~~ An invoice added in the cloud lands at
   the top of the Files tree, while a moved one goes into INVOICES.** Audrey's ruling of 2026-10-29
   (walkthrough 84, M1's Q1, "b") files the invoices and receipts the
   migration carries in the INVOICES folder, where 0041 means invoice files to
@@ -3169,6 +3173,21 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   code, not clicked. Fix shape: in `uploadFile`, a financial upload with no
   folder of its own takes the project's INVOICES category folder, read as the
   entity folders are. Owner: for her to place.
+- **M1-L7 · On the desktop, an invoice added there still sits at the top of
+  the Files tree.** Review round 1 of M1-L6 (2026-10-30), outside its
+  question. The desktop's two upload routes (`electron/projectFileStream.cjs`,
+  the POST and the streamed PUT) write `is_financial` and the INVOICES
+  directory but no `folder_id`, and the Files tree (`fileTree.js`) places a
+  file by `folder_id`, else its entity, else the top: in the desktop build an
+  invoice added from the budget sits at the top beside the INVOICES folder the
+  desktop's planner makes (`electron/main.cjs`), while the cloud now files it
+  inside. Her parity rule (2026-08-10, quoted in that file: "all
+  functionality should be the same in both versions of the app") would ask
+  for the same; her question named the cloud. The migration files such an
+  invoice in INVOICES either way (her ruling of 2026-10-29). INFERRED from the
+  code. Fix shape: in both routes, a financial upload with no folder takes
+  the bundle's INVOICES category row (`kind === 'category'`, the planner's
+  path). Owner: for her to place.
 
 ## Post-overhaul M2 (`po/m2-migration-part-2`) — left open (2026-10-28)
 

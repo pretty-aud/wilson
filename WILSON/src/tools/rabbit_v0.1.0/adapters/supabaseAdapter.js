@@ -50,6 +50,12 @@ import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClie
 import {
   planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
 } from '../folderPaths';
+// M1-L6: the INVOICES category folder exactly as the planner plans it (its
+// FOLDER_CATEGORIES row; the path is the slug), so the upload's lookup, the
+// row it makes where one is missing and the migration's own reading of the
+// tree (migrationRows.js INVOICES_FOLDER_PATH) are one spelling (review
+// round 1).
+const INVOICES_PLANNED = planProjectFolders({}).find(f => f.kind === 'category' && f.entityType === 'invoice');
 // Post-overhaul S4c: a shot's folder sits in its scene's, and the one-time
 // re-filing of a project's older shot folders (the pure rule lives there).
 import {
@@ -3389,16 +3395,34 @@ export function supabaseAdapter() {
       // before. The folder ROW is a name every project reader sees (0041);
       // the file stays gated by is_financial and its INVOICES key. A Legal
       // file never gets here as money (refused above, both together).
+      // Review round 1: a project whose tree lacks the INVOICES row (the
+      // planner's one insert failed, and nothing retries it) has it made
+      // here, under the project's root, as ensureProjectFolders makes it; a
+      // project with no tree at all is left to that planner. A read or a make
+      // that fails is said in the console, never swallowed, and the upload
+      // still goes on.
       if (scope.financial && !scope.folderId && !folderRow) {
         try {
-          const { data } = await client
+          const { data, error } = await client
             .from('folders').select('id, path')
             .eq('project_id', projectId)
             .eq('kind', 'category')
-            .eq('path', 'INVOICES')
+            .eq('path', INVOICES_PLANNED.path)
             .maybeSingle();
-          folderRow = data && data.id ? data : null;
-        } catch { /* the tree is a convenience here, not a precondition */ }
+          if (error) {
+            console.warn(`[supabase] the INVOICES folder could not be read, so the file sits at the project's top: ${error.message || error}`);
+          } else if (data && data.id) {
+            folderRow = data;
+          } else {
+            const byPath = await foldersByPath(client, projectId);
+            if (byPath.has('')) {
+              folderRow = (await insertFolderIfMissing(client, projectId, INVOICES_PLANNED, byPath))
+                || byPath.get(INVOICES_PLANNED.path) || null;
+            }
+          }
+        } catch (err) {
+          console.warn(`[supabase] the INVOICES folder could not be read or made, so the file sits at the project's top: ${err?.message || err}`);
+        }
       }
       const folderId = legal ? null : (scope.folderId || folderRow?.id || null);
 

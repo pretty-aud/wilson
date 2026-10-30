@@ -5040,9 +5040,13 @@ of a session — this section is limits by design, that file is faults.
   by construction because `uploadFile` derives the folder from the container
   entity — one writer. A task attachment legitimately lives in its asset's
   folder, which is why the task does not move it. An invoice or a receipt
-  with no folder of its own (its container is the project) takes the
-  project's INVOICES category folder, read by its kind and path, best-effort
-  (Audrey's ruling of 2026-10-30, M1-L6; `invoiceUploadFolder.test.js`).
+  with no folder of its own (today the budget's uploads, whose container is
+  the project) takes the project's INVOICES category folder, read by its
+  kind and path (the planner's spelling, `INVOICES_PLANNED`) and made under
+  the project's root where the tree lacks it; a failure is said in the
+  console and files it at the top (Audrey's ruling of 2026-10-30, M1-L6;
+  `invoiceUploadFolder.test.js`). The desktop's own upload files none
+  (`docs/OUTSTANDING.md` M1-L7).
 - **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
   must not delete the file ROW: the blob stays in the bucket and the row is the
   only thing that knows where it is.
