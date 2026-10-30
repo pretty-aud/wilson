@@ -144,7 +144,9 @@ the company the projects go to. Part 1 of two (part 2 is night 4).
    tree in the browser is the desktop's: ASSETS with a folder per asset,
    SCENES, SHOTS, INVOICES, and each file in the folder you saw it in on this
    computer (an asset's file in the asset's folder). A file at the project's
-   top stays at the top, as do invoices (see Q1). A file linked to a task,
+   top stays at the top; since your answer to Q1, an invoice or a receipt
+   there goes into the INVOICES folder instead, and the report says so: *2
+   invoices and receipts filed in the INVOICES folder…*. A file linked to a task,
    asset or phase you deleted here arrives without that link, counted: *N
    links of a file to a row removed on this computer… let go*. A file whose
    folder could not go up in a run waits with it, and the next run brings
@@ -195,6 +197,13 @@ archive it on the Scenes tab.
   folder for them; an invoice's file is kept in INVOICES on disk). Should the
   migration file invoices in the INVOICES folder instead? (a) Leave them at
   the top, as the desktop shows them (as built). (b) INVOICES.
+  **Your answer, 2026-10-29: (b).** Built afterwards: an invoice or a receipt
+  the desktop shows at the project's top goes into the INVOICES folder in the
+  cloud (the project's own, or the cloud's where the desktop has none); every
+  other file keeps the place you see it in on this computer. One difference
+  remains: an invoice added later in the cloud, from the budget page, still
+  lands at the top, because the cloud's own upload names no folder (written
+  down for you to place, OUTSTANDING M1-L6).
 - **Q2.** No night of the plan carries an asset's version history or the
   files the desktop keeps with an asset, scene, shot, level or experience
   (FileManager's), and none carries the company's rate cards, team members

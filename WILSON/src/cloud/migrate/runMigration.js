@@ -57,7 +57,7 @@ import {
 import {
   projectRowForCloud, projectLeftAtHome, milestoneRowForCloud, COMMENT_TARGETS, commentRowForCloud,
   isArchived, shotListRowForCloud, shotListItemRowForCloud, editRowForCloud, listLabel, itemsInListOrder,
-  editsParentsFirst, foldersParentsFirst, folderRowForCloud, folderDecision, cloudFolderIndex, desktopFolderOfFile,
+  editsParentsFirst, foldersParentsFirst, folderRowForCloud, folderDecision, cloudFolderIndex, desktopFolderOfFile, cloudHomeOfFile, invoicesFolderOf, INVOICES_FOLDER_PATH,
   budgetVersionRowForCloud, budgetLineRowForCloud, budgetActualRowForCloud, expenseRowForCloud, rateOverrideRowForCloud,
   levelRowForCloud, taskLinkRowForCloud, receiptFileIds, isLegacyAttachment, isMemberRate, phasesParentsFirst, carriedRecordOf, LINE_PCTS,
   peopleMapOf, projectMemberRowForCloud, rateCardRowForCloud, rateCardEntryRowForCloud, taskTemplateRowForCloud,
@@ -139,6 +139,9 @@ export const ITEMS_ON_GONE_ROWS = (n) => `${plural(n, 'item')} of a shot list on
 export const FOLDERS_OF_GONE_ROWS = (n) => `${plural(n, 'folder')} of a row removed on this computer, or in the cloud's trash, not carried`
 export const FOLDERS_TAKEN = (n) => `${plural(n, 'folder')} not carried: the cloud has another row's folder in ${n === 1 ? 'its' : 'their'} place, so ${n === 1 ? 'its' : 'their'} files sit at the project's top there`
 export const FILES_PLACED = (n) => `${plural(n, 'file')} filed in ${n === 1 ? 'its folder' : 'their folders'}, as on this computer`
+// Her ruling of 2026-10-29 (walkthrough 84, M1's Q1): the invoices and
+// receipts the desktop shows at the project's top go into INVOICES.
+export const INVOICES_FILED = (n) => `${n} ${n === 1 ? 'invoice or receipt' : 'invoices and receipts'} filed in the INVOICES folder (on this computer ${n === 1 ? 'it sits' : 'they sit'} at the project's top)`
 export const ARCHIVED_AGAIN = (labels) => `Archived on this computer, so archived in the cloud once carried: ${labels.join(', ')} (a workspace admin or the project's manager can; anyone else, only a list or edit nobody has saved or built on)`
 export const LIVE_IN_CLOUD = (n) => `${n} ${n === 1 ? 'shot list or edit' : 'shot lists or edits'} archived on this computer ${n === 1 ? 'is' : 'are'} live in the cloud: a run archives only what it carries (archive ${n === 1 ? 'it' : 'them'} on the Scenes tab)`
 export const SHOT_LIST_NAME_TAKEN = (label) => `a shot list called "${label}" is already in the cloud under another id (made there since), so this one was not carried: rename it on this computer and run again`
@@ -651,7 +654,7 @@ function makeReport() {
     rateOverrides: { total: 0, inserted: 0, skipped: 0, failed: 0, taken: 0 },
     // `receiptsOpen` (review round 1): receipts an earlier build carried as
     // ordinary files, said on every run (RECEIPTS_LEFT_OPEN).
-    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 0 },
+    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, invoicesFiled: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 0 },
     // BC3 (B9): the bins' part. `binFiles.leftBehind` counts the clips whose
     // root nobody named (listed in `clipsLeftBehind`, never dropped);
     // `posters` counts the pictures (uploaded only while the switch is on).
@@ -1304,14 +1307,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     const folderOf = new Map()
     const failed = new Set()
     const folders = (bundle.folders ?? []).filter(isObj)
-    if (!folders.length) return { cloudOf: folderOf, failed }
+    if (!folders.length) return { cloudOf: folderOf, failed, invoicesCloudId: null }
     const have = await listCloud('folders', 'project_id', projectId, FOLDER_READ)
     if (have.error) {
       report.errors.push({ scope: 'folders', projectId, message: `could not read the project's folders in the cloud, so none was carried, nor any file filed in one (run again): ${have.error.message || have.error}` })
       report.folders.total += folders.length
       report.folders.failed += folders.length
       for (const f of folders) failed.add(f.id)
-      return { cloudOf: folderOf, failed }
+      // Not known either: the cloud's own INVOICES folder (her ruling of
+      // 2026-10-29), so money that would go there waits too.
+      return { cloudOf: folderOf, failed, invoicesCloudId: null, invoicesUnread: true }
     }
     let cloud = cloudFolderIndex(have.rows)
     const decided = new Map()
@@ -1360,17 +1365,27 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     report.folders.taken += counts.taken
     if (counts.gone) note(`  ${FOLDERS_OF_GONE_ROWS(counts.gone)}`)
     if (counts.taken) note(`  ${FOLDERS_TAKEN(counts.taken)}`)
-    return { cloudOf: folderOf, failed }
+    // Her ruling of 2026-10-29: the INVOICES folder in the cloud, for money
+    // the desktop shows at the top — the bundle's own INVOICES row as it
+    // landed, or, where the bundle has none, this project's INVOICES category
+    // folder the cloud holds.
+    const inv = invoicesFolderOf(folders)
+    const theirs = cloud.byPath.get(INVOICES_FOLDER_PATH)
+    const invoicesCloudId = inv ? (folderOf.get(inv.id) ?? null) : (theirs && theirs.kind === 'category' ? theirs.id : null)
+    return { cloudOf: folderOf, failed, invoicesCloudId }
   }
   // A file's own links, the table of each (0000's phase, asset and task;
   // 0043's scene, shot, level and experience — the last two since M2, the
   // levels landing first; before, a file with either was refused, 23503).
   const FILE_LINKS = { phase_id: 'phases', asset_id: 'assets', task_id: 'tasks', scene_id: 'scenes', shot_id: 'shots', level_id: 'levels', experience_id: 'experiences' }
   // The cloud folder a desktop file is filed in, by the desktop's own rule
-  // (desktopFolderOfFile, fileTree.js's), or null (the project's top).
-  const cloudFolderOfFile = (file, bundle, folderOf) => {
-    const here = desktopFolderOfFile(file, bundle.folders)
-    return here ? (folderOf.get(here.id) ?? null) : null
+  // (desktopFolderOfFile, fileTree.js's) — and, by her ruling of 2026-10-29,
+  // money the desktop shows at the top in INVOICES (cloudHomeOfFile) — or
+  // null (the project's top). `folders`: carryFolders' answer.
+  const cloudFolderOfFile = (file, bundle, folders, money = false) => {
+    const home = cloudHomeOfFile(file, bundle.folders, money)
+    if (home) return folders.cloudOf.get(home.id) ?? null
+    return money && isObj(file) && !isLegalFile(file) ? (folders.invoicesCloudId ?? null) : null
   }
 
   // ── M2 (night 4): the second run's record ─────────────────────────────
@@ -2791,10 +2806,18 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
             })
           }
         }
-        toCarry = toCarry.filter(f => !folders.failed.has(desktopFolderOfFile(f, bundle.folders)?.id))
-        const placeable = toCarry.filter(f => cloudFolderOfFile(f, bundle, folders.cloudOf))
+        const moneyOf = (f) => f.is_financial === true || money.receipts.has(String(f.id))
+        toCarry = toCarry.filter((f) => {
+          const home = cloudHomeOfFile(f, bundle.folders, moneyOf(f))
+          return !folders.failed.has(home?.id) && !(!home && moneyOf(f) && !isLegalFile(f) && folders.invoicesUnread)
+        })
+        const placeable = toCarry.filter(f => desktopFolderOfFile(f, bundle.folders) && cloudFolderOfFile(f, bundle, folders))
         report.files.placed += placeable.length
         if (placeable.length) note(`  ${FILES_PLACED(placeable.length)}`)
+        // Her ruling of 2026-10-29: the money the desktop shows at the top, filed in INVOICES.
+        const invoiceable = toCarry.filter(f => !desktopFolderOfFile(f, bundle.folders) && moneyOf(f) && cloudFolderOfFile(f, bundle, folders, true))
+        report.files.invoicesFiled += invoiceable.length
+        if (invoiceable.length) note(`  ${INVOICES_FILED(invoiceable.length)}`)
         const gatedNow = toCarry.filter(f => f.is_financial !== true && money.receipts.has(String(f.id))).length
         report.files.receiptsGated += gatedNow
         if (gatedNow) note(`  ${RECEIPTS_GATED(gatedNow)}`)
@@ -3278,6 +3301,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // the folder the desktop shows it in (cloudFolderOfFile), and after the
     // scenes and shots, which a file's own links may name.
     let placed = 0
+    let invoicesFiled = 0
     let linksLetGo = 0
     let receiptsGated = 0
     let receiptsOpen = 0
@@ -3376,8 +3400,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           continue
         }
         // Its folder (review round 2): one that did not land in this run
-        // keeps the file with it, as a row the file is about does.
-        if (folders.failed.has(desktopFolderOfFile(f, bundle.folders)?.id)) {
+        // keeps the file with it, as a row the file is about does — the
+        // INVOICES folder for money at the top included (her ruling of
+        // 2026-10-29), or the cloud's, where its read failed.
+        const home = cloudHomeOfFile(f, bundle.folders, isMoney)
+        if (folders.failed.has(home?.id) || (!home && isMoney && !legal && folders.invoicesUnread)) {
           report.errors.push({ scope: 'file', projectId, id: f.id, message: `${f.name || f.id}: its folder is not in the cloud, so the file was not carried (a second run brings both)` })
           bumpFailed(report.files)
           continue
@@ -3418,7 +3445,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           storage_provider: 'supabase',
           storage_path:     objectPath,
           // M1: the folder in the cloud, never the desktop's own id.
-          folder_id:        cloudFolderOfFile(f, bundle, folders.cloudOf),
+          folder_id:        cloudFolderOfFile(f, bundle, folders, isMoney),
         }
         // M2: a receipt is money in the row as in its key (0038's row gate
         // and 0042's blob gate are set together, or either is a way in).
@@ -3433,7 +3460,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // see (another company's, a trashed one), never this run's to record.
         const r = await insertOrSkip('files', row)
         r.status === 'inserted' ? bumpInserted(report.files) : bumpSkipped(report.files)
-        if (r.status === 'inserted' && row.folder_id) placed++
+        if (r.status === 'inserted' && row.folder_id) {
+          if (desktopFolderOfFile(f, bundle.folders)) placed++
+          else invoicesFiled++
+        }
         if (r.status === 'inserted') linksLetGo += Object.entries(links).filter(([k]) => f[k] !== '').length
         if (r.status === 'inserted' && isMoney && f.is_financial !== true) receiptsGated++
         if (r.status === 'inserted') rc.add('files', f.id)
@@ -3444,6 +3474,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     report.files.placed += placed
     if (placed) note(`  ${FILES_PLACED(placed)}`)
+    report.files.invoicesFiled += invoicesFiled
+    if (invoicesFiled) note(`  ${INVOICES_FILED(invoicesFiled)}`)
     report.files.linksLetGo += linksLetGo
     if (linksLetGo) note(`  ${FILE_LINKS_LET_GO(linksLetGo)}`)
     report.files.receiptsGated += receiptsGated
