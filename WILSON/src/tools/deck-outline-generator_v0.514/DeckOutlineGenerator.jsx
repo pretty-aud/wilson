@@ -4147,6 +4147,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               reaching the references as the `uploads` prop. The fold is
               this card's (section1Collapsed); the header's count is the
               References card's, one number for what is listed. */}
+          {/* DG5 (Audrey, 2026-10-30: "the redesign has a bit too much
+              negative space. the entire right side is an empty card"): the
+              two input cards share one row on a wide window (dog.css, THE
+              INPUTS ROW). This wrapper only lays them out: no role, name,
+              id or tabindex, so the cards' order, folds, ids, the header
+              count, the Tab order and every name are as they were. The
+              banners stay above it and the output card below it. */}
+          <div className="dog-inputs">
           <Card pad={false} className="dog-card dog-card-project">
             <header
               className="ui-panel-head dog-card-head"
@@ -4189,8 +4197,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </label>
                 {/* DG1: choosing a project no longer sends its files (Q2); its
                     title and description always go (Q17). DG4: what else is
-                    chosen just below, in this card. */}
-                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else below.</p>
+                    chosen in this card. DG5: no "below", since on a very wide
+                    window the references sit beside the project (dog.css,
+                    THE INPUTS ROW); walkthrough 89 asks Audrey. */}
+                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
@@ -4506,6 +4516,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </div>
             )}
           </Card>
+          </div>
 
           {/* Output Section - Below Input */}
           <Card pad={false} className="dog-card dog-output">

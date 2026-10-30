@@ -235,7 +235,9 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
   it('the contract sentence no longer names uploads apart; its hover is as before', () => {
     const c = mount({ files: UPLOADS().slice(0, 1) })
     const contract = c.body().querySelector('.dog-refs-contract')
-    expect(contract.textContent).toBe('What goes to the AI: what is listed here and the project’s title and description, with what you write below.')
+    // DG5: "in step 2", not "below": the Generate outline card sits beside
+    // card 1 from a 1280 window (walkthrough 89 asks her).
+    expect(contract.textContent).toBe('What goes to the AI: what is listed here, the project’s title and description, and what you write in step 2.')
     expect(contract.getAttribute('title')).toBe('PDFs and pictures are placed in the AI\'s file store to be read. Your notes always travel in the request itself.')
   })
 

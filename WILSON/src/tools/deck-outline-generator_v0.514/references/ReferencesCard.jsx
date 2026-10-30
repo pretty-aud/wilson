@@ -317,10 +317,12 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
       {/* The sentence names everything that goes, so it is true; the
           meter beside it counts the same. PDFs and pictures are stored in
           the AI's file store to be read (the hover says so). DG2: the
-          uploads are listed here now, so they are not named apart. */}
+          uploads are listed here now, so they are not named apart. DG5:
+          "in step 2", not "below", since from a 1280 window the Generate
+          outline card sits beside this one (dog.css, THE INPUTS ROW). */}
       <p className="ui-field-hint dog-refs-contract"
         title="PDFs and pictures are placed in the AI's file store to be read. Your notes always travel in the request itself.">
-        What goes to the AI: what is listed here and the project&rsquo;s title and description, with what you write below.
+        What goes to the AI: what is listed here, the project&rsquo;s title and description, and what you write in step 2.
       </p>
 
       {/* DG2 (Audrey, 2026-10-26: "Uploads (n) is the first group, with

@@ -639,7 +639,10 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (
     expect(document.getElementById('dog-card1-title').textContent).toBe('Project and references')
     expect(headButton('Project and references').getAttribute('aria-controls')).toBe('dog-card1-body')
     expect(card1.querySelector('select.dog-project-select')).not.toBe(null)
-    expect(card1.textContent).toContain('The deck’s project. Its title and description go with every deck; choose what else below.')
+    // DG5: no direction, since the references sit beside the project on a
+    // very wide window (walkthrough 89 asks her); the old words are gone.
+    expect(card1.textContent).toContain('The deck’s project. Its title and description go with every deck; choose what else goes.')
+    expect(card1.textContent).not.toContain('choose what else below')
     expect(within(card1).getByRole('button', { name: 'New project' })).toBeTruthy()
     expect(refsBody().parentElement).toBe(card1)
     const projectPart = card1.querySelector('select.dog-project-select').closest('#dog-card1-body > *')
@@ -1617,5 +1620,44 @@ describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
     await chooseProject(d)
     const names = stopNames(d)
     expect(names.slice(names.indexOf('Add references'), names.indexOf('Generate outline') + 1)).toEqual(['Add references', 'Core files only', 'Generate outline'])
+  })
+})
+
+// DG5 (Audrey, 2026-10-30, verbatim: "the redesign has a bit too much negative
+// space. the entire right side is an empty card. lets do a pass to make sure
+// it is visually appealing"): the two input cards share one row on a wide
+// window (dog.css, THE INPUTS ROW; dogCss.test.js pins its widths). jsdom lays
+// nothing out, so this pins what the row must not change: its wrapper is a
+// plain box (a class and nothing else), the two cards are its children in
+// their order, and the output card stays below it in the column. The DG4
+// cases above (card 1's order, the fold, the count, the eleven Tab stops) run
+// unchanged on the wrapped cards.
+describe('DG5 on the rendered D.O.G.: the two input cards share a plain wrapper, and nothing a person or a screen reader meets moves', () => {
+  // A box no one meets: one attribute, its class.
+  const plain = (el) => [...el.attributes].map((a) => a.name).join(' ') === 'class' && el.className === 'dog-inputs'
+
+  it('the column holds the wrapper, then the output card; the wrapper holds card 1 then card 2, and a class and nothing else', async () => {
+    const d = await openDog({ upload: false })
+    const main = d.q('.dog-main')
+    const kids = [...main.children]
+    const row = main.querySelector(':scope > .dog-inputs')
+    expect(row).not.toBe(null)
+    expect(plain(row)).toBe(true)
+    expect([...row.children].map((c) => (c.matches('.dog-card.dog-card-project') ? 1 : c.matches('.dog-card.dog-s2') ? 2 : c.className))).toEqual([1, 2])
+    expect(kids.indexOf(row)).toBeLessThan(kids.indexOf(main.querySelector(':scope > .dog-output')))
+    expect(main.querySelectorAll('.dog-inputs')).toHaveLength(1)
+    expect(main.querySelectorAll(':scope > .dog-card-project, :scope > .dog-s2')).toHaveLength(0)
+  })
+
+  it('CONTROL: the check refuses a wrapper a person or a screen reader could meet (a role, a name, an id, a Tab stop)', () => {
+    for (const [name, value] of [['role', 'group'], ['aria-label', 'Inputs'], ['id', 'dog-inputs'], ['tabindex', '-1']]) {
+      const el = document.createElement('div')
+      el.className = 'dog-inputs'
+      el.setAttribute(name, value)
+      expect(plain(el), name).toBe(false)
+    }
+    const ok = document.createElement('div')
+    ok.className = 'dog-inputs'
+    expect(plain(ok)).toBe(true)
   })
 })
