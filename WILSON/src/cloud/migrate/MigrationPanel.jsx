@@ -39,7 +39,7 @@ import { usePermissions } from '../../permissions'
 import {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE, INVOICES_LEFT_BEHIND,
   PROJECT_FOLDER_STAYS, KEY_DATES_TRASHED, COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS,
-  FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
+  FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, INVOICES_FILED, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, removedWords, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS,
   RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
@@ -386,6 +386,7 @@ function CarriedLines({ r }) {
     ['receipts-left-open', r.files?.receiptsOpen, RECEIPTS_LEFT_OPEN],
     ['record-not-kept', r.recordKept === false ? 1 : 0, () => RECORD_NOT_KEPT('the desktop did not take it')],
     ['files-placed', r.files?.placed, FILES_PLACED],
+    ['invoices-filed', r.files?.invoicesFiled, INVOICES_FILED],
     ['receipts-gated', r.files?.receiptsGated, RECEIPTS_GATED],
     ['line-pcts-left-out', r.budgetLines?.pctsLeftOut, LINE_PCTS_LEFT_OUT],
     ['actuals-taken', r.budgetActuals?.taken, ACTUALS_TAKEN],

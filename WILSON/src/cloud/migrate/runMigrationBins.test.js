@@ -499,7 +499,7 @@ vi.mock('tus-js-client', () => ({
 
 const {
   runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, PROJECT_FOLDER_STAYS, ARCHIVED_AGAIN,
-  KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
+  KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, INVOICES_FILED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   KEY_DATES_PHASE_LET_GO, FILE_LINKS_LET_GO, EDITS_CHAIN_TAKEN, STATUS_NOT_IN_CLOUD, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, TASK_LINKS_ON_GONE_TASKS, ROW_LINKS_LET_GO, removedWords,
   PROJECT_NOT_OURS, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN, RECEIPTS_LEFT_OPEN,
@@ -1403,10 +1403,13 @@ function roundTripMissing() {
   }
   return out
 }
-// The files the desktop files in no folder: the two invoices and the
-// schedule at the project's top, and the Legal file (in LEGAL, which has no
-// row): `null` in the cloud, as the cloud's own upload files them.
-const AT_THE_TOP = new Set([fileId(30), fileId(31), fileId(32), fileId(33)])
+// The files the desktop files in no folder: the schedule at the project's
+// top and the Legal file (in LEGAL, which has no row): `null` in the cloud,
+// as the cloud's own upload files them. The two invoices sit at the top on
+// the desktop too, but go into INVOICES in the cloud (her ruling of
+// 2026-10-29, walkthrough 84's M1 Q1): the fixtures' own folder for them.
+const AT_THE_TOP = new Set([fileId(32), fileId(33)])
+const IN_INVOICES = new Set([fileId(30), fileId(31)])
 function fileId(n) { return FILES.find(f => f.id.endsWith(String(n).padStart(12, '0'))).id }
 const rpcsCalled = (name) => fake.state.rpcs.filter(([fn]) => fn === name).map(([, args]) => args)
 
@@ -1458,10 +1461,13 @@ describe('M1: the round trip on the fixtures — key dates, comments, shot lists
     expect(report.folders).toMatchObject({ total: allFolders.length, inserted: allFolders.length, failed: 0, orphans: 0, taken: 0 })
     // Files: each filed where the desktop shows it — its asset's, its
     // scene's, its shot's, its level's or its experience's folder (the
-    // fixtures' own folder_id) — and the four at the project's top in none.
+    // fixtures' own folder_id) — the two invoices in INVOICES (her ruling),
+    // and the two at the project's top in none.
     for (const f of ALL_FILES) expect(ins('files').find(r => r.id === f.id)?.folder_id, f.name).toBe(AT_THE_TOP.has(f.id) ? null : f.folder_id)
-    expect(report.files).toMatchObject({ total: ALL_FILES.length, inserted: ALL_FILES.length, failed: 0, placed: ALL_FILES.length - AT_THE_TOP.size })
-    expect(lines).toContain(`  ${FILES_PLACED(ALL_FILES.length - AT_THE_TOP.size)}`)
+    const asOnTheDesktop = ALL_FILES.length - AT_THE_TOP.size - IN_INVOICES.size
+    expect(report.files).toMatchObject({ total: ALL_FILES.length, inserted: ALL_FILES.length, failed: 0, placed: asOnTheDesktop, invoicesFiled: IN_INVOICES.size })
+    expect(lines).toContain(`  ${FILES_PLACED(asOnTheDesktop)}`)
+    expect(lines).toContain(`  ${INVOICES_FILED(IN_INVOICES.size)}`)
   })
 
   it('writes the tables in an order every key allows: key dates after phases, comments after their rows, lists after shots, items and edits after lists, folders after their rows, files after folders, bins after files', async () => {
@@ -1772,7 +1778,8 @@ describe('M1: what the dry run promises', () => {
     expect(dry.shotListItems).toEqual({ total: 29, inserted: 29, skipped: 0, failed: 0, orphans: 0 })
     expect(dry.edits).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0, archived: 1, taken: 0, orphans: 0 })
     expect(dry.folders).toMatchObject({ total: FOLDERS.length + GAME_FOLDERS.length, inserted: FOLDERS.length + GAME_FOLDERS.length, skipped: 0, failed: 0 })
-    expect(dry.files.placed).toBe(ALL_FILES.length - AT_THE_TOP.size)
+    expect(dry.files.placed).toBe(ALL_FILES.length - AT_THE_TOP.size - IN_INVOICES.size)
+    expect(dry.files.invoicesFiled).toBe(IN_INVOICES.size)
     expect(lines).toContain(`  ${ARCHIVED_AGAIN(['"Pickups assembly · v3"', '"Pickups · v1"'])}`)
     expect(lines).toContain('  "Shot list 1 · v1" will be the active shot list in the cloud, if none is active there')
     expect(lines).toContain('  2 shot lists with 29 items and 3 edits')
@@ -2182,6 +2189,54 @@ describe('M1: what moving the files after the folders asks', () => {
     expect(ins('folders').map(f => f.id)).toContain(sc4Folder.id)
     expect(ins('files').find(f => f.id === fileId(28))).toMatchObject({ scene_id: sc4, folder_id: sc4Folder.id })
     expect(ins('shots').filter(s => sc4Shots.includes(s.id)).map(s => s.scene_id)).toEqual(sc4Shots.map(() => sc4))
+  })
+
+  it('her ruling of 2026-10-29: an invoice the desktop shows at the top goes into INVOICES — the bundle\'s own, else the cloud\'s; with neither it stays at the top; with the folders unread it waits', async () => {
+    expect(INVOICES_FILED(2)).toBe('2 invoices and receipts filed in the INVOICES folder (on this computer they sit at the project\'s top)')
+    const invoicesRow = FOLDERS.find(f => f.path === 'INVOICES')
+    expect(invoicesRow).toMatchObject({ kind: 'category' })
+    // The bundle without its INVOICES row (a fresh one each time: a run
+    // writes its record into the bundle, M2); the cloud holds this project's own.
+    const fresh = () => { const x = desktopFixtures(); x.folders = x.folders.filter(f => f.id !== invoicesRow.id); return x }
+    serve([fresh()])
+    fake.state.lists.folders = [{ ...omit(invoicesRow, ['workspace_id', 'created_by', 'updated_by']), id: 'cloud-invoices', parent_id: null }]
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
+    for (const id of IN_INVOICES) expect(ins('files').find(f => f.id === id).folder_id).toBe('cloud-invoices')
+    expect(report.files.invoicesFiled).toBe(IN_INVOICES.size)
+    // CONTROL: no INVOICES folder anywhere: the invoices stay at the top, counted nowhere.
+    Object.assign(fake.state, { inserts: {}, lists: {}, log: [], uploads: [], rpcs: [] })
+    serve([fresh()])
+    const bare = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const id of IN_INVOICES) expect(ins('files').find(f => f.id === id).folder_id).toBeNull()
+    expect(bare.files.invoicesFiled).toBe(0)
+    expect(bare.errors).toEqual([])
+    // The folders unread: the cloud's INVOICES folder is not known, so the invoices wait (a second run files them).
+    Object.assign(fake.state, { inserts: {}, lists: {}, log: [], uploads: [], rpcs: [] })
+    serve([fresh()])
+    fake.state.listErrorFor = { folders: { message: 'read refused' } }
+    const blind = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const id of IN_INVOICES) expect(ins('files').find(f => f.id === id)).toBeUndefined()
+    expect(blind.errors.filter(e => e.scope === 'file' && IN_INVOICES.has(e.id)).map(e => e.message)).toEqual([...IN_INVOICES].map(() => expect.stringMatching(/its folder is not in the cloud, so the file was not carried/)))
+    // The schedule, not money, stays at the top whatever happens to INVOICES.
+    expect(ins('files').find(f => f.id === fileId(32)).folder_id).toBeNull()
+  })
+
+  it('her ruling of 2026-10-29: an invoice whose INVOICES folder the cloud refused in this run waits with it, never filed at the top for good; a second run files it there', async () => {
+    const invoicesRow = FOLDERS.find(f => f.path === 'INVOICES')
+    serve([desktopFixtures()])
+    fake.state.failWith = (table, row) => (table === 'folders' && row.id === invoicesRow.id ? { code: '42501', message: 'refused' } : null)
+    const r1 = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    for (const id of IN_INVOICES) expect(ins('files').find(f => f.id === id)).toBeUndefined()
+    expect(r1.errors.filter(e => e.scope === 'file' && IN_INVOICES.has(e.id))).toHaveLength(IN_INVOICES.size)
+    expect(fake.state.uploads.some(u => [...IN_INVOICES].some(id => u.path.includes(id)))).toBe(false)
+    // CONTROL: the other files are not held by it.
+    expect(ins('files').find(f => f.id === fileId(32)).folder_id).toBeNull()
+    fake.state.failWith = null
+    const r2 = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    expect(r2.errors).toEqual([])
+    for (const id of IN_INVOICES) expect(ins('files').find(f => f.id === id).folder_id).toBe(invoicesRow.id)
+    expect(r2.files.invoicesFiled).toBe(IN_INVOICES.size)
   })
 
   it('a file filed in a folder that did not land waits with it, its body unmoved; a second run brings both, each file in its folder (review round 2)', async () => {
