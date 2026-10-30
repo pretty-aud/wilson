@@ -1340,7 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul M1, a second follow-up (2026-10-30; `po/m1-invoice-uploads` into `feat/post-overhaul-edit-versioning`) — her ruling relayed by the controller, *"Yes, M1 fixes it now (Recommended)"*: an invoice or a receipt added in the cloud with no folder of its own goes into the project's INVOICES folder (`uploadFile`), measured on wilson-dev (rolled back); two review rounds; no migration, no SQL | nothing | M1-L6. |
+| Post-overhaul M1, a second follow-up (2026-10-30; `po/m1-invoice-uploads` into `feat/post-overhaul-edit-versioning`) — her ruling relayed by the controller, *"Yes, M1 fixes it now (Recommended)"*: an invoice or a receipt added in the cloud with no folder of its own goes into the project's INVOICES folder (`uploadFile`; made under the root where a project's tree lacks it), measured on wilson-dev (rolled back); two review rounds, both on Fable; no migration, no SQL | M1-L7 (Local Server mode's own upload; review round 1) | M1-L6. |
 | Post-overhaul M1, a follow-up (2026-10-29; `po/m1-invoices-folder` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 84's M1 Q1, *"1. b"*: the invoices and receipts the desktop shows at the project's top go into the INVOICES folder in the cloud (the project's own, else the cloud's; one that did not land keeps them waiting), said apart from the files filed as on the desktop; her answers to Q2 and Q3 were her rulings of 2026-10-28 already (built by M3 and M2); no migration, no SQL | M1-L6 (the cloud's own invoice upload names no folder; measured from the code) | nothing. |
 | Post-overhaul D3 (2026-10-29; `po/d3-bridge-sender-gate` into `feat/post-overhaul-edit-versioning`) — the sign-in bridge answers WILSON's page only, and an answer's link opens a new tab on the web (`docs/sessions/PLAN_TO_1_0.md` night 7; her *"Q2. b"* of 2026-10-29; `docs/design/RECONNECT_DESIGN.md` §14): measured first on a development build of the tip and on the web, one Fable design round, built: every one of the 50 channels the preload bridges is registered through one gate (`electron/ipcGate.cjs`; `ipcMain` in `main.cjs` is the gate, the updater is handed it), which asks D1's rule first and answers any other sender `null` at once, logging the channel and the scheme once; one anchor component for the pet's and O.T.T.E.R.'s answers opens a web link in a new tab on the web; build review round 1 (Fable) found the preload handing a dropped file's place to any page that held it, the link leaving `javascript:` to react-markdown and the source check's blind spots, round 2 (Fable) an answer's link to WILSON's own address reloading WILSON in place, each corrected and measured | D3-01 (with a Sentry DSN, Sentry's own listeners and preload answer any page) | **D2-01** (closed by her ruling in words, *"Q1. a"*: the clips left behind stay listed by name), **D2-02** (closed by measurement: on the build the main window showing another page, another window holding the preload and a frame holding it are each answered `null` for the token, the session and every channel, where the tip handed them all three, and a dropped file's place reaches WILSON's page alone; WILSON's page gets everything it did), **D2-06** (closed by measurement: on the web the pet's and an O.T.T.E.R. lesson's web links open a new tab whose opener is cut and WILSON's tab stays, where the tip replaced it). Comment markers: 4 → 4. |
 | Post-overhaul GWF (2026-10-29; `po/gwf-gateway-viewing-row-flake` into `feat/post-overhaul-edit-versioning`) — M3's side session for the gateway's CI flake (`doorsOutside.test.mjs`'s "a play and a scrub make one viewing …", seven times on GitHub's runner): the race measured on Windows and made certain by a control, then fixed in the gateway (a viewing counts each chunk before it is passed on; a response's end only marks activity), the flaky test also checking that both ranges arrived whole; then, at Audrey's answer *one line per play*, D7's one row per play built (a response the door has not finished holds its row open, however long; no five-minute row; `GATEWAY_DESIGN.md` §6 changed in place, with its GWF entry); no migration, nothing outside `gateway/` but this file, the design and the hand-off | **None.** *A response open longer than the idle minute is counted only up to its viewing's close* (MEASURED), written with the first record (`5128e020`), went the same day with D7's one row per play | **The CI-flake thread** of *The gateway's tests fail under the full suite's load on Windows …*, closed by its dated line (the entry stays for the Windows time-outs and the journal's EPERM). Comment markers: 4 → 4. |
@@ -3158,11 +3158,13 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   (the planner's own spelling) and, where the project's tree lacks it, made
   under the project's root (review round 1); a read or a make that fails is
   said in the console and files it at the top (`uploadFile`;
-  `invoiceUploadFolder.test.js`, thirteen failing controls over the change
-  and round 1's corrections). MEASURED on wilson-dev, rolled back: such a row
-  lands, financial, filed and stamped with its workspace; invoices added
-  before stay where they are (none at the top on wilson-dev). The desktop's
-  own upload is M1-L7.~~ An invoice added in the cloud lands at
+  `invoiceUploadFolder.test.js`, twelve failing controls over the change and
+  its two review rounds, both on Fable). MEASURED on wilson-dev, rolled back:
+  such a row lands, financial, filed and stamped with its workspace; and the
+  make, an INVOICES category row under the root of a project that lacked one
+  with an invoice filed in it, lands too; invoices added before stay where
+  they are (none at the top on wilson-dev). Local Server mode's own upload is
+  M1-L7.~~ An invoice added in the cloud lands at
   the top of the Files tree, while a moved one goes into INVOICES.** Audrey's ruling of 2026-10-29
   (walkthrough 84, M1's Q1, "b") files the invoices and receipts the
   migration carries in the INVOICES folder, where 0041 means invoice files to
@@ -3173,19 +3175,22 @@ list while taking the inventory of the bundle (the handbook's §3.1 table).
   code, not clicked. Fix shape: in `uploadFile`, a financial upload with no
   folder of its own takes the project's INVOICES category folder, read as the
   entity folders are. Owner: for her to place.
-- **M1-L7 · On the desktop, an invoice added there still sits at the top of
-  the Files tree.** Review round 1 of M1-L6 (2026-10-30), outside its
-  question. The desktop's two upload routes (`electron/projectFileStream.cjs`,
-  the POST and the streamed PUT) write `is_financial` and the INVOICES
-  directory but no `folder_id`, and the Files tree (`fileTree.js`) places a
-  file by `folder_id`, else its entity, else the top: in the desktop build an
-  invoice added from the budget sits at the top beside the INVOICES folder the
-  desktop's planner makes (`electron/main.cjs`), while the cloud now files it
-  inside. Her parity rule (2026-08-10, quoted in that file: "all
+- **M1-L7 · In Local Server mode (a project kept on the desktop), an invoice
+  added there still sits at the top of the Files tree.** Review round 1 of
+  M1-L6 (2026-10-30), outside its question. The desktop's two upload routes
+  (`electron/projectFileStream.cjs`, the POST and the streamed PUT) write
+  `is_financial` and the INVOICES directory but no `folder_id`, and the Files
+  tree (`fileTree.js`) places a file by `folder_id`, else its entity, else the
+  top: in Local Server mode an invoice added from the budget sits at the top
+  beside the INVOICES folder the desktop's planner makes
+  (`electron/main.cjs`), while the cloud now files it inside. The desktop
+  signed in to the cloud uploads through the cloud's adapter
+  (`RabbitProvider.jsx`'s adapter mode), so it files it in INVOICES (review
+  round 2); and the migration files a Local Server invoice there when the
+  project moves. Her parity rule (2026-08-10, quoted in that file: "all
   functionality should be the same in both versions of the app") would ask
-  for the same; her question named the cloud. The migration files such an
-  invoice in INVOICES either way (her ruling of 2026-10-29). INFERRED from the
-  code. Fix shape: in both routes, a financial upload with no folder takes
+  for the same; her question named the cloud. INFERRED from the code. Fix
+  shape: in both routes, a financial upload with no folder takes
   the bundle's INVOICES category row (`kind === 'category'`, the planner's
   path). Owner: for her to place.
 

@@ -63,18 +63,23 @@ function fakeProvider(name) {
  * category folder (`invoices`, null for none), the scene's folder (`scene`),
  * the project's tree for a paged list (`tree`: the root alone by default),
  * a read that answers an error (`foldersError`) or throws (`foldersThrow`),
- * a folder insert that is refused (`makeError`). Records the files inserted,
- * the folders made and every one-row folder read's filters.
+ * a folder insert that is refused (`makeError`), the tree a list reads once
+ * a folder insert has been tried (`treeAfterMake`: a teammate's row). As
+ * supabase-js does, `.single()` with no row answers an error (PGRST116) and
+ * `.maybeSingle()` answers null (review round 2). Records the files
+ * inserted, the folders made and every one-row folder read's filters.
  */
-function makeClient({ invoices = 'folder-invoices', scene = 'folder-s1', tree = [ROOT_ROW], foldersError = null, foldersThrow = false, makeError = null } = {}) {
+function makeClient({ invoices = 'folder-invoices', scene = 'folder-s1', tree = [ROOT_ROW], treeAfterMake = null, foldersError = null, foldersThrow = false, makeError = null } = {}) {
   const inserts = []
   const folderReads = []
   const foldersMade = []
+  let makeTried = false
   const table = (name) => {
     let op = 'select'
     let payload = null
     let cols = '*'
     let one = false
+    let strict = false
     const filters = {}
     const b = {
       select: (c) => { if (op === 'select') cols = c ?? '*'; return b },
@@ -82,7 +87,7 @@ function makeClient({ invoices = 'folder-invoices', scene = 'folder-s1', tree = 
       order: () => b,
       range: () => b,
       eq: (k, v) => { filters[k] = v; return b },
-      single: () => { one = true; return b },
+      single: () => { one = true; strict = true; return b },
       maybeSingle: () => { one = true; return b },
       insert: (row) => { op = 'insert'; payload = row; return b },
       update: (row) => { op = 'update'; payload = row; return b },
@@ -90,6 +95,7 @@ function makeClient({ invoices = 'folder-invoices', scene = 'folder-s1', tree = 
         let result
         if (op === 'insert' && name === 'folders') {
           foldersMade.push(payload)
+          makeTried = true
           result = makeError ? { data: null, error: makeError } : { data: { id: 'folder-made', ...payload }, error: null }
         } else if (op === 'insert') {
           inserts.push({ table: name, row: payload })
@@ -100,14 +106,17 @@ function makeClient({ invoices = 'folder-invoices', scene = 'folder-s1', tree = 
           result = { data: { is_private: false }, error: null }
         } else if (name === 'folders' && !one) {
           // The tree, paged by path (listFoldersWith): this project's rows.
-          result = { data: filters.project_id === PID ? tree.map(r => ({ ...r })) : [], error: null }
+          const rows = makeTried && treeAfterMake ? treeAfterMake : tree
+          result = { data: filters.project_id === PID ? rows.map(r => ({ ...r })) : [], error: null }
         } else if (name === 'folders') {
           folderReads.push({ ...filters })
           if (foldersThrow) return Promise.reject(new Error('network down')).then(resolve, reject)
+          let row = null
+          if (filters.project_id === PID && filters.kind === 'category' && filters.path === INVOICES.path) row = invoices ? { id: invoices, path: INVOICES.path } : null
+          else if (filters.project_id === PID && filters.scene_id === 's1') row = scene ? { id: scene, path: 'SCENES/sc01' } : null
           if (foldersError) result = { data: null, error: foldersError }
-          else if (filters.project_id === PID && filters.kind === 'category' && filters.path === INVOICES.path) result = { data: invoices ? { id: invoices, path: INVOICES.path } : null, error: null }
-          else if (filters.project_id === PID && filters.scene_id === 's1') result = { data: scene ? { id: scene, path: 'SCENES/sc01' } : null, error: null }
-          else result = { data: null, error: null }
+          else if (!row && strict) result = { data: null, error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' } }
+          else result = { data: row, error: null }
         } else {
           result = { data: [], error: null }
         }
@@ -221,11 +230,24 @@ describe('M1-L6: a financial upload with no folder of its own takes the project\
     expect(fileRow(bare).folder_id).toBeNull()
   })
 
-  it('an INVOICES row a teammate made between the read and the make is used, never made twice', async () => {
+  it('an INVOICES row the one-row read missed but the tree holds (made a moment before) is used, never made twice', async () => {
     const theirs = { id: 'folder-theirs', project_id: PID, kind: 'category', path: INVOICES.path, parent_id: ROOT_ROW.id }
     const client = await upload({ financial: true }, { invoices: null, tree: [ROOT_ROW, theirs] })
     expect(client.foldersMade).toEqual([])
     expect(fileRow(client).folder_id).toBe('folder-theirs')
+  })
+
+  it('an INVOICES row a teammate made between this upload\'s list and its make (the insert meets 23505) is read again and used, nothing said (review round 2)', async () => {
+    const theirs = { id: 'folder-theirs', project_id: PID, kind: 'category', path: INVOICES.path, parent_id: ROOT_ROW.id }
+    warn.mockClear()
+    const client = await upload({ financial: true }, {
+      invoices: null,
+      makeError: { code: '23505', message: 'duplicate key value violates unique constraint "folders_project_path_uniq"' },
+      treeAfterMake: [ROOT_ROW, theirs],
+    })
+    expect(client.foldersMade).toHaveLength(1)
+    expect(fileRow(client).folder_id).toBe('folder-theirs')
+    expect(warn.mock.calls.some(c => /INVOICES folder/.test(String(c[0])))).toBe(false)
   })
 
   it('a read that answers an error, one that throws, or a make that is refused: said in the console, the invoice at the top, the upload not refused (review round 1)', async () => {

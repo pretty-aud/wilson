@@ -5045,7 +5045,7 @@ of a session — this section is limits by design, that file is faults.
   kind and path (the planner's spelling, `INVOICES_PLANNED`) and made under
   the project's root where the tree lacks it; a failure is said in the
   console and files it at the top (Audrey's ruling of 2026-10-30, M1-L6;
-  `invoiceUploadFolder.test.js`). The desktop's own upload files none
+  `invoiceUploadFolder.test.js`). Local Server mode's own upload files none
   (`docs/OUTSTANDING.md` M1-L7).
 - **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
   must not delete the file ROW: the blob stays in the bucket and the row is the
