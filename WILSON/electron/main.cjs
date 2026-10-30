@@ -3149,6 +3149,13 @@ function startLocalServer(distPath) {
         }
       }
       bundle.folders = bundle.folders.filter(f => !doomed.has(f.id));
+      // M1-L7's review round 1: the files' folder_id is let go, as 0043's
+      // ON DELETE SET NULL lets the cloud's go — since M1-L7 an invoice or a
+      // receipt carries one here too, and an id no row holds would point
+      // nowhere for good once the planner makes the row again with a new id.
+      for (const f of bundle.files || []) {
+        if (f && f.folder_id && doomed.has(f.folder_id)) f.folder_id = null;
+      }
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true, removed: doomed.size });
     });
@@ -4711,6 +4718,13 @@ function startLocalServer(distPath) {
     require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
       resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
+      // OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30): an invoice or a
+      // receipt goes into the project's INVOICES category folder, as the
+      // cloud's uploadFile files it — this planner's own row for it (its path
+      // is the category's slug), found in the bundle or made under the root
+      // by the one row writer, addFolderRow (invoicesFolderHook and
+      // invoicesFolderOfBundle say how). The route writes the bundle.
+      invoicesFolderFor: require('./projectFileStream.cjs').invoicesFolderHook({ planProjectFolderList, addFolderRow }),
       log: (line) => console.info(line),
     });
 

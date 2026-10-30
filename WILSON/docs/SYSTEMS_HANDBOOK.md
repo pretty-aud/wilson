@@ -421,7 +421,7 @@ stores and their record together.
 | `comments` | M1 | `comments`, after the rows they hang on, through the cloud's columns (no `project_id`, which the desktop stamps; no `author_user_id`, a claim the file cannot prove). One on a row removed on this computer, or not this project's in the cloud, is not carried; one on a kind the cloud's comments cannot name stays, named. |
 | `shotLists`, `shotListItems`, `edits` | M1 | `shot_lists`, `shot_list_items`, `edits`, after the scenes and shots. A list or edit arrives live (0084 refuses one inserted archived) and is archived after through `archive_shot_list()` / `archive_edit()`; edits each after the edit they continue. An edit whose place in the list's one chain (0084: one root per list, one child per edit) another edit holds — one made in the cloud since, or a second chain an older version kept on this computer — is not carried, with every edit continuing it, counted and named: an edit cannot be moved. Each edit holds its place as it lands, so the dry run says what the real run will do. |
 | `folders` | M1 | `folders`, parents first, matched where the cloud holds the folder (by id, by its row, or at its path). Since M2 a level's and an experience's go up after their rows, kept only to this project's (`folders_level_id_fkey` takes any project's level — measured). |
-| `files` | the runner; M1 files each one | `files` and its body in `rabbit-files`; since M1 each row filed in the folder the desktop shows it in (its entity's: the desktop writes no `folder_id`), a Legal file in none, and an invoice or a receipt the desktop shows at the top in INVOICES (Audrey's ruling of 2026-10-29: the project's own INVOICES folder, else the cloud's; one that did not land keeps the file waiting). A file's phase, asset, task, scene, shot and (M2) level and experience links are plain foreign keys, kept only to this project's rows: a file whose row did not land in this run, or could not be checked, fails with it before its body moves (a second run brings both); a link to a row removed on this computer, in the cloud's trash, or not this project's, is let go, counted and named (the dry run counts those the bundle shows); a cleared picker's `''` is no link. A file whose folder did not land in this run waits with it (review round 2: filed at the top meanwhile, it stayed there, a second run skipping it). A scene or shot skipped while the read of the cloud's rows failed is not known to be this project's, so no folder, file or shot links to it in that run: a shot on such a scene waits (0040's `ON DELETE CASCADE` would take it with another project's scene). M2: money — an invoice, or a receipt an expense or an actual names, whatever its own flag — goes under `INVOICES` with `is_financial` (§12.9, residual 3), or stays with the budget when the money gate is closed. Review round 1: a file whose id another project holds is said, never recorded; a receipt an earlier build carried as an ordinary file is said on every run while it stays open (`RECEIPTS_LEFT_OPEN`), kept apart in the record (`receipts_open`, review round 2: removed there, it is never brought back) — it stays open in the cloud until one is moved (OUTSTANDING M2-L4). |
+| `files` | the runner; M1 files each one | `files` and its body in `rabbit-files`; since M1 each row filed in the folder the desktop shows it in (its entity's: the desktop writes `folder_id` only for an invoice or a receipt, its INVOICES folder, since M1-L7), a Legal file in none, and an invoice or a receipt the desktop shows at the top in INVOICES (Audrey's ruling of 2026-10-29: the project's own INVOICES folder, else the cloud's; one that did not land keeps the file waiting). A file's phase, asset, task, scene, shot and (M2) level and experience links are plain foreign keys, kept only to this project's rows: a file whose row did not land in this run, or could not be checked, fails with it before its body moves (a second run brings both); a link to a row removed on this computer, in the cloud's trash, or not this project's, is let go, counted and named (the dry run counts those the bundle shows); a cleared picker's `''` is no link. A file whose folder did not land in this run waits with it (review round 2: filed at the top meanwhile, it stayed there, a second run skipping it). A scene or shot skipped while the read of the cloud's rows failed is not known to be this project's, so no folder, file or shot links to it in that run: a shot on such a scene waits (0040's `ON DELETE CASCADE` would take it with another project's scene). M2: money — an invoice, or a receipt an expense or an actual names, whatever its own flag — goes under `INVOICES` with `is_financial` (§12.9, residual 3), or stays with the budget when the money gate is closed. Review round 1: a file whose id another project holds is said, never recorded; a receipt an earlier build carried as an ordinary file is said on every run while it stays open (`RECEIPTS_LEFT_OPEN`), kept apart in the record (`receipts_open`, review round 2: removed there, it is never brought back) — it stays open in the cloud until one is moved (OUTSTANDING M2-L4). |
 | `budgetVersions`, `budgetLines`, `budgetActuals`, `expenses`, `projectRateOverrides` | M2 | The five 0037 tables, after the files, behind the money gate (`can_access_project_money`: a workspace admin or the project's manager; only a `true` counts — for a member with no seat it answers NULL, measured). The person who inserts a project is its manager (`fn_projects_auto_staff`, measured); for a project already there and not theirs, the budget, its receipts and its pointers stay on this computer, one sentence (`MONEY_GATE_LEFT`), never a failed project (each row would be refused, 42501 — measured); the panel then offers no archive, which would clear the only copy (review round 1). A question the cloud did not answer is an error, said as one. Versions after the shot lists (their key, 0084, holds a version to this project's list: one not landed is let go, one that failed keeps the version with it); a nameless one gets a name (NOT NULL, 23502), a kind outside bid, actual, final the default; not who locked it. Lines: a section header's null numbers take the defaults (23502, measured, in the fixtures; the desktop's add writes 0); a line's own percentage the column cannot hold — below zero, past NUMERIC(7,3)'s room, no number — goes up empty, so the project's applies, said (`LINE_PCTS_LEFT_OUT`; it refused the line and its actuals on every run, review round 1); a line priced for one of this computer's team members goes up without the person (0037: on the cloud a workspace member's user id), counted as a later run's. Actuals after their lines, each only on a line of this project in the cloud (the key is single-column: any project's line — measured), waiting where the line's owner could not be read; one whose line and period the cloud holds under another id, and a rate whose role it holds, are counted, never errors (`ACTUALS_TAKEN`, `RATES_TAKEN`); a source outside manual, timecard, expense the default (the desktop writes manual); an invoice attached by a path on this computer left out with its name, counted. Expenses: the add's `''` day goes up as none (22007, measured), each list an array of ids. Rates: a role's goes up; a team member's stays for a later run. Then `budget_active_version_id` and `open_budget_version_id` by UPDATE, each only to a version the cloud holds as this project's — carried now or by an earlier run (the lock's key is single-column and takes any project's version — measured) — only where the cloud's is empty, and once (the record's `pointers`); an open version's set-aside rows, carried live, are set aside again through 0090's `set_aside_schedule_rows()`, each of this project's rows live in the cloud (one an earlier build carried among them), once (`set_aside`). |
 | `scenes`, `shots`, `bins`, `binFiles`, `binRoots`, `shotTakes` | the runner (BC3) | `scenes`, `shots`, `bins`, `bin_files` under the footage location each root was named as (the roots are the question), `shot_takes`. A scene's or shot's picture stays (a file on this computer). |
 | `taskItems` | the runner (FX2) | `task_items`; since M2 a task's levels and experiences too (task_items' keys hold each to this project's row, 23503 — measured). |
@@ -3130,7 +3130,8 @@ a Legal upload by someone without the money gate before a byte moves, and
 refuses Legal + financial together. `fileTags.tagSettable` never lets anyone
 tick Legal (or Finance); the file window shows it as a locked fact. On the
 **Local Server** (no roles) a Legal upload goes into a real `LEGAL` folder
-beside `INVOICES`, the row's tag is the fact, and the PATCH routes
+beside `INVOICES` (an invoice or a receipt is filed in the INVOICES folder
+row since M1-L7, 2026-10-30), the row's tag is the fact, and the PATCH routes
 (`electron/projectFilePatch.cjs`) refuse adding or removing it or making the
 file core — the UI says once that this backend cannot enforce who sees the
 folder and that it can be locked on the NAS.
@@ -3699,7 +3700,9 @@ its press clicks, `UPLOAD_ACCEPT`; in DG2 it was a `<label>` round the input)
 while under `UPLOAD_LIMIT` (20). No Preview on an upload.
 Then the *Choose a project…* note, Items, Files, Notes, the meter and Add
 references. The contract sentence reads *"What goes to the AI: what is listed
-here and the project's title and description, with what you write below."*;
+here, the project's title and description, and what you write in step 2."*
+(DG5; until the Generate outline card moved beside card 1 it ended *"…with
+what you write below."*);
 the header's count is the uploads and the references, one number; *Remove all
 references* (was *Remove all*) removes the chosen references only. A control
 in the card that takes itself away, pressed from the keyboard, moves focus on:
@@ -3760,13 +3763,15 @@ description), then the references in her DG2 order under the contract line
 is that lower part (`.dog-refs`), with no card, header or fold of its own; its
 `ReferencesCount` is the header's number (*None chosen* / *N chosen*, the
 meter's warning when folded). The Generate outline card is step 2 (its ids
-keep `card3`). The card is one column 576px wide (`--dog-refs-measure` on
-`.dog-card-project`): the contract line, its longest line, measured 571.28px
-in Chromium at 1280, 1440 and 2560, and no house measure was within a few
-pixels (66ch is 700px at the meter's 16px). The meter in the card is that
-fixed width, never a share of the card (it was the card's whole width:
-998px at 1280, 2278px at 2560); the track is 8px, was 6px; the window's
-footer meter keeps `flex: 1`. **Place visual** (was *Use visual assets*, its
+keep `card3`). The card's column is 576px wide (`--dog-measure`, declared once
+on `.dog-inputs` since DG5 for both input cards; DG4 declared it as
+`--dog-refs-measure` on `.dog-card-project`): the contract line, its longest
+line, measured 571.28px in Chromium at 1280, 1440 and 2560, and no house
+measure was within a few pixels (66ch is 700px at the meter's 16px). The
+meter in the card is that fixed width, never a share of the card (it was the
+card's whole width: 998px at 1280, 2278px at 2560); the track is 8px, was
+6px; the window's footer meter keeps `flex: 1`. Where the card sits on a
+wide window, and when it splits in two, is DG5's (below). **Place visual** (was *Use visual assets*, its
 subtitle gone, its meaning on the hover) is the one placement box:
 `placementFrom` places the uploads' pictures and videos and the listed
 references' alike, and a listed reference's video is read only then;
@@ -3802,6 +3807,34 @@ deck). While a sign-in is held at an offline launch (S2), card 1 keeps S2's
 one offline sentence and no New project, DG2's *Choose a project…* note is
 not shown, and the box is off and says nothing of its own (`offline`).
 Walkthrough 84, its DG4 section.
+
+**D.O.G.'s inputs row (post-overhaul DG5, 2026-10-30; her ask verbatim in
+`docs/sessions/briefs/po-dg5-card1-layout.md`).** Cards 1 and 2 sit in
+`div.dog-inputs`, a wrapper with a class and nothing else (no role, name, id
+or Tab stop, so the folds, the ids, the header count, the Tab order and every
+name are DG4's), between the banners and the output card. `.dog-main` is a
+named size container (`container: dog-main / inline-size`; measured in
+Electron 33's Chromium 130 and in Chrome 152, it moves no fixed descendant and
+makes no stacking context), and the row lays out by its content width W (the
+window less the 240px sidebar, the column's 16px of padding and the 10px
+scrollbar): under W 1000 (windows 1024 to 1265) the cards stack as DG4 left
+them, card 2's box and Generate its full width; from W 1000 (a 1280 window)
+they sit side by side, card 1 growing from 533px (the project row on one
+line) to 602 (its measure) before card 2, no narrower than 459, takes the
+rest, and card 2's children keep the measure; from W 1148 card 1 is 602 beside
+a card 2 of 538 or more, equal halves from W 1212; from W 1708 card 1 takes two
+thirds in two columns, the project [507 to 576] and what the deck reads
+[576], 24px apart, and card 2 the last third. So Generate is in view at a
+1280x800 window with six references listed, and the slide preview keeps C4's
+width (the preview probe's check at 1280 and 1440, run from a copy with its
+stale first wait replaced: `scripts/dog-preview-probe.mjs` itself stops
+before measuring, OUTSTANDING DG5-01). Card 1's hint ends *"choose what else
+goes."* (was *"…choose what else below."*) and Core files only's no-project
+sentence *"Core files come from a project: choose one."* (was *"…choose one
+above."*), since beside the project a direction was false. `dogCss.test.js` pins the widths and the
+arithmetic that gives them; `enterKey.render.test.jsx` pins the wrapper.
+Walkthrough 89, its DG5 section, has the measurements before and after at
+1280, 1440, 1920 and 2560.
 
 ### 13.2 O.T.T.E.R.
 
@@ -5045,8 +5078,11 @@ of a session — this section is limits by design, that file is faults.
   kind and path (the planner's spelling, `INVOICES_PLANNED`) and made under
   the project's root where the tree lacks it; a failure is said in the
   console and files it at the top (Audrey's ruling of 2026-10-30, M1-L6;
-  `invoiceUploadFolder.test.js`). Local Server mode's own upload files none
-  (`docs/OUTSTANDING.md` M1-L7).
+  `invoiceUploadFolder.test.js`). Local Server mode's two upload routes file
+  it there too since her ruling of the same day (`electron/projectFileStream.cjs`:
+  the base64 POST and the streamed PUT write the INVOICES row on a financial
+  row as `folder_id`, through `invoicesFolderOfBundle` with main.cjs's planner
+  row and its one row writer; `docs/OUTSTANDING.md` M1-L7, closed).
 - **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
   must not delete the file ROW: the blob stays in the bucket and the row is the
   only thing that knows where it is.

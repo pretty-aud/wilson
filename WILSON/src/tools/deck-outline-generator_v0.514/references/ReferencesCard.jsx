@@ -229,10 +229,13 @@ export const CORE_TITLE = 'The deck reads the project’s files marked Core in R
  * ticked, where the window's choices went. A legacy project on the Local
  * Server counts an older attachment as Core unless it was marked Ref
  * (referenceModel.legacyPoolFiles), so a ticked box says so there.
+ * DG5 (review round 1, finding 1): "choose one", no longer "choose one
+ * above", since on a very wide window this sentence sits at the foot of the
+ * references column and the dropdown is in the project column beside it.
  */
 export function coreLine({ projectChosen, core, coreOnly, setAside = 0 }) {
   const said = [];
-  if (!projectChosen) said.push('Core files come from a project: choose one above.');
+  if (!projectChosen) said.push('Core files come from a project: choose one.');
   else if (core?.state === 'listing') said.push('Looking for the project’s Core files…');
   else if (core?.state === 'failed') said.push('The project’s files could not be listed.');
   else if (core?.state === 'none') said.push('This project has no Core files D.O.G. can read.');
@@ -317,10 +320,12 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
       {/* The sentence names everything that goes, so it is true; the
           meter beside it counts the same. PDFs and pictures are stored in
           the AI's file store to be read (the hover says so). DG2: the
-          uploads are listed here now, so they are not named apart. */}
+          uploads are listed here now, so they are not named apart. DG5:
+          "in step 2", not "below", since from a 1280 window the Generate
+          outline card sits beside this one (dog.css, THE INPUTS ROW). */}
       <p className="ui-field-hint dog-refs-contract"
         title="PDFs and pictures are placed in the AI's file store to be read. Your notes always travel in the request itself.">
-        What goes to the AI: what is listed here and the project&rsquo;s title and description, with what you write below.
+        What goes to the AI: what is listed here, the project&rsquo;s title and description, and what you write in step 2.
       </p>
 
       {/* DG2 (Audrey, 2026-10-26: "Uploads (n) is the first group, with
