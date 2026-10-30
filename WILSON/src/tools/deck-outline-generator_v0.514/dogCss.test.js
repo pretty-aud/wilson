@@ -222,9 +222,11 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     const card = (body) => body + 2 * pad + 2 * border
     // The project row on one line: the dropdown's 360px, 8px, New project's
     // 139px. jsdom lays nothing out, so the 139 is Chromium's (139.09 at
-    // every width, DG5's probe); what it was measured from is pinned here
-    // instead (review round 1, finding 2): the button's variant, glyph and
-    // words, and the kit button's padding and gap.
+    // every width, DG5's probe). Part of what it was measured from is pinned
+    // here (review round 1, finding 2): the button's variant, glyph and
+    // words, and the kit button's padding and gap. The rest is not (review
+    // round 2, finding 1): the glyph's size token, the button's type step
+    // and weight, its border. A change there needs the probe again.
     expect(JSX).toContain('<div className="flex items-center gap-2">')
     expect(JSX).toContain('<div className="relative flex-1" style={{ maxWidth: \'360px\' }}>')
     expect(JSX).toMatch(/<Button variant="secondary" onClick=\{\(\) => setShowNewProjectModal\(true\)\}>\s*<Plus aria-hidden="true" \/>\s*New project\s*<\/Button>/)

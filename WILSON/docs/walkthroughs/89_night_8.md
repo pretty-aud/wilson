@@ -60,8 +60,8 @@ cards, a margin rather than half a card. On a 2560 screen card 1 is also
 shorter (562 px tall with six references, was 722), so the output starts
 higher up. One new gap: when card 1 splits, the project's half ends under
 its description while the references run on beside it, so with six
-references the lower part of the left half is empty (383 px of it at 2560;
-more with many uploads). Q3 below.
+references the lower part of the left half is empty (about 360 px of it at
+2560; more with many uploads). Q3 below.
 
 ### What to do
 
@@ -108,9 +108,11 @@ the dev fixtures' tester (a made-up project and files). In the folder
   and the Tab order pass unchanged; new tests pin the widths and the
   arithmetic behind each one; 21 deliberate breakages each turned a test
   red.
-- The first review found the third direction word (*above*) and five small
-  things in the tests and these notes, all corrected; the second review
-  checked those corrections.
+- The first review found the third direction word (*above*) and six small
+  slips in the tests and these notes, all corrected. The second review
+  checked those corrections and found nothing more in the app, only two
+  small slips in wording (a number in these notes and a test's comment),
+  corrected.
 
 ### Questions
 
