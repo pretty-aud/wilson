@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul DG5 (2026-10-30, night 8; `po/dg5-card1-layout` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-30, verbatim *"the redesign has a bit too much negative space. the entire right side is an empty card. lets do a pass to make sure it is visually appealing"*: D.O.G.'s two input cards share one row from a 1280 window (a plain `div.dog-inputs`; `.dog-main` a size container), card 1 in two columns from about 1,974, nothing past the 576px measure; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/50/65/75 percent, then none/none/28/22; Generate in view from 1280 with six references listed); three direction words taken out of card 1's sentences; one Fable design round with a follow-up on laptop sizes; two review rounds, both on Fable; no migration, no SQL | DG5-01 (the preview probe's stale first wait), DG5-02 (an ultrawide window: about 44 percent of each card empty again) | nothing |
 | Post-overhaul M1, a third follow-up (2026-10-30; `po/m1-desktop-invoice-uploads` into `feat/post-overhaul-edit-versioning`) — her ruling relayed by the controller, *"Yes, M1 fixes it now (Recommended)"* on M1-L7: the desktop's two upload routes (the base64 POST and the streamed PUT) file an invoice or a receipt in the project's INVOICES folder, as the cloud does; measured in the desktop app driven off-screen (a scratch profile, no sign-in), with the commit before as its control; the folder delete lets its files' folder_id go (0043's SET NULL); two review rounds, both on Fable; no migration, no SQL | nothing | M1-L7. |
 | Post-overhaul M1, a second follow-up (2026-10-30; `po/m1-invoice-uploads` into `feat/post-overhaul-edit-versioning`) — her ruling relayed by the controller, *"Yes, M1 fixes it now (Recommended)"*: an invoice or a receipt added in the cloud with no folder of its own goes into the project's INVOICES folder (`uploadFile`; made under the root where a project's tree lacks it), measured on wilson-dev (rolled back); two review rounds, both on Fable; no migration, no SQL | M1-L7 (Local Server mode's own upload; review round 1) | M1-L6. |
 | Post-overhaul M1, a follow-up (2026-10-29; `po/m1-invoices-folder` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 84's M1 Q1, *"1. b"*: the invoices and receipts the desktop shows at the project's top go into the INVOICES folder in the cloud (the project's own, else the cloud's; one that did not land keeps them waiting), said apart from the files filed as on the desktop; her answers to Q2 and Q3 were her rulings of 2026-10-28 already (built by M3 and M2); no migration, no SQL | M1-L6 (the cloud's own invoice upload names no folder; measured from the code) | nothing. |
@@ -3023,6 +3024,36 @@ and did not fix:
   channels are live on a development run of the desktop alone. Stays
   recorded (`PLAN_TO_1_0.md` §5, rule 8); the fix shape above applies the
   day a shipped build is given a DSN.
+
+## DG5 (2026-10-30, night 8 of `docs/sessions/PLAN_TO_1_0.md`)
+
+D.O.G.'s two input cards share one row on a wide window, card 1 in two
+columns on a very wide one (her ask of 2026-10-30; the session log's DG5
+row). What DG5 met outside its list and did not fix:
+
+- **DG5-01 · `scripts/dog-preview-probe.mjs` stops before it measures
+  anything.** MEASURED on DG5's branch (2026-10-30, Chromium, the dev
+  fixtures on 5301): `node scripts/dog-preview-probe.mjs 5301 --check`
+  waits up to 20 s for a control reading *Generate Page Outline*, which
+  D.O.G. no longer shows when it opens, and exits on `TimeoutError` with
+  nothing measured. D.O.G. has opened on Full deck since DG1b (`9d707f9f`,
+  2026-10-17: her Q21), where the button reads *Generate full deck
+  outline*, so the probe has been stale since then, not since DG5. A
+  scratch copy with that one wait replaced by card 1 (`.dog-card-project`)
+  runs every step and passes its check (C4: the preview box matches the pin
+  at 1280 and 1440, at both mounts) on DG5's layout. Fix: that one line.
+  Owner: the controller (a script under `scripts/`, outside DG5's list).
+- **DG5-02 · On an ultrawide window each card is about 44 percent empty
+  across again.** MEASURED by DG5's review round 1 at 3440x1440 (Chromium
+  on 5301, the fixtures; the main column 3,200px): card 1 is 2,117px wide
+  around its 1,176px of two columns, card 2 1,059px around its 576, so 44
+  percent of each card is empty across, about what DG4's card 1 left at
+  1280. DG5's row has no cap past 2560 (the brief's range is 1280 to 2560;
+  the design round let the margin grow with the window, as the output
+  card's does). Would settle it: her word on windows wider than 2560. Fix
+  shape: a cap on `.dog-inputs` past some width, which leaves the row's
+  right edge short of the full-width output card below it (the design
+  round's sketch of hypothesis (b)). Owner: Audrey (1.1).
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

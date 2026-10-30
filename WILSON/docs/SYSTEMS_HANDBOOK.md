@@ -3700,7 +3700,9 @@ its press clicks, `UPLOAD_ACCEPT`; in DG2 it was a `<label>` round the input)
 while under `UPLOAD_LIMIT` (20). No Preview on an upload.
 Then the *Choose a project…* note, Items, Files, Notes, the meter and Add
 references. The contract sentence reads *"What goes to the AI: what is listed
-here and the project's title and description, with what you write below."*;
+here, the project's title and description, and what you write in step 2."*
+(DG5; until the Generate outline card moved beside card 1 it ended *"…with
+what you write below."*);
 the header's count is the uploads and the references, one number; *Remove all
 references* (was *Remove all*) removes the chosen references only. A control
 in the card that takes itself away, pressed from the keyboard, moves focus on:
@@ -3761,13 +3763,15 @@ description), then the references in her DG2 order under the contract line
 is that lower part (`.dog-refs`), with no card, header or fold of its own; its
 `ReferencesCount` is the header's number (*None chosen* / *N chosen*, the
 meter's warning when folded). The Generate outline card is step 2 (its ids
-keep `card3`). The card is one column 576px wide (`--dog-refs-measure` on
-`.dog-card-project`): the contract line, its longest line, measured 571.28px
-in Chromium at 1280, 1440 and 2560, and no house measure was within a few
-pixels (66ch is 700px at the meter's 16px). The meter in the card is that
-fixed width, never a share of the card (it was the card's whole width:
-998px at 1280, 2278px at 2560); the track is 8px, was 6px; the window's
-footer meter keeps `flex: 1`. **Place visual** (was *Use visual assets*, its
+keep `card3`). The card's column is 576px wide (`--dog-measure`, declared once
+on `.dog-inputs` since DG5 for both input cards; DG4 declared it as
+`--dog-refs-measure` on `.dog-card-project`): the contract line, its longest
+line, measured 571.28px in Chromium at 1280, 1440 and 2560, and no house
+measure was within a few pixels (66ch is 700px at the meter's 16px). The
+meter in the card is that fixed width, never a share of the card (it was the
+card's whole width: 998px at 1280, 2278px at 2560); the track is 8px, was
+6px; the window's footer meter keeps `flex: 1`. Where the card sits on a
+wide window, and when it splits in two, is DG5's (below). **Place visual** (was *Use visual assets*, its
 subtitle gone, its meaning on the hover) is the one placement box:
 `placementFrom` places the uploads' pictures and videos and the listed
 references' alike, and a listed reference's video is read only then;
@@ -3803,6 +3807,34 @@ deck). While a sign-in is held at an offline launch (S2), card 1 keeps S2's
 one offline sentence and no New project, DG2's *Choose a project…* note is
 not shown, and the box is off and says nothing of its own (`offline`).
 Walkthrough 84, its DG4 section.
+
+**D.O.G.'s inputs row (post-overhaul DG5, 2026-10-30; her ask verbatim in
+`docs/sessions/briefs/po-dg5-card1-layout.md`).** Cards 1 and 2 sit in
+`div.dog-inputs`, a wrapper with a class and nothing else (no role, name, id
+or Tab stop, so the folds, the ids, the header count, the Tab order and every
+name are DG4's), between the banners and the output card. `.dog-main` is a
+named size container (`container: dog-main / inline-size`; measured in
+Electron 33's Chromium 130 and in Chrome 152, it moves no fixed descendant and
+makes no stacking context), and the row lays out by its content width W (the
+window less the 240px sidebar, the column's 16px of padding and the 10px
+scrollbar): under W 1000 (windows 1024 to 1265) the cards stack as DG4 left
+them, card 2's box and Generate its full width; from W 1000 (a 1280 window)
+they sit side by side, card 1 growing from 533px (the project row on one
+line) to 602 (its measure) before card 2, no narrower than 459, takes the
+rest, and card 2's children keep the measure; from W 1148 card 1 is 602 beside
+a card 2 of 538 or more, equal halves from W 1212; from W 1708 card 1 takes two
+thirds in two columns, the project [507 to 576] and what the deck reads
+[576], 24px apart, and card 2 the last third. So Generate is in view at a
+1280x800 window with six references listed, and the slide preview keeps C4's
+width (the preview probe's check at 1280 and 1440, run from a copy with its
+stale first wait replaced: `scripts/dog-preview-probe.mjs` itself stops
+before measuring, OUTSTANDING DG5-01). Card 1's hint ends *"choose what else
+goes."* (was *"…choose what else below."*) and Core files only's no-project
+sentence *"Core files come from a project: choose one."* (was *"…choose one
+above."*), since beside the project a direction was false. `dogCss.test.js` pins the widths and the
+arithmetic that gives them; `enterKey.render.test.jsx` pins the wrapper.
+Walkthrough 89, its DG5 section, has the measurements before and after at
+1280, 1440, 1920 and 2560.
 
 ### 13.2 O.T.T.E.R.
 

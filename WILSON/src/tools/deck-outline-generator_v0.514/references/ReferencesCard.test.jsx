@@ -235,7 +235,9 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
   it('the contract sentence no longer names uploads apart; its hover is as before', () => {
     const c = mount({ files: UPLOADS().slice(0, 1) })
     const contract = c.body().querySelector('.dog-refs-contract')
-    expect(contract.textContent).toBe('What goes to the AI: what is listed here and the project’s title and description, with what you write below.')
+    // DG5: "in step 2", not "below": the Generate outline card sits beside
+    // card 1 from a 1280 window (walkthrough 89 asks her).
+    expect(contract.textContent).toBe('What goes to the AI: what is listed here, the project’s title and description, and what you write in step 2.')
     expect(contract.getAttribute('title')).toBe('PDFs and pictures are placed in the AI\'s file store to be read. Your notes always travel in the request itself.')
   })
 
@@ -353,7 +355,7 @@ describe('DG4: Core files only, beside Add references', () => {
   })
 
   const OFF = [
-    ['no project chosen', { projectChosen: false, core: { state: 'no-project', count: 0, legacy: 0 } }, 'Core files come from a project: choose one above.'],
+    ['no project chosen', { projectChosen: false, core: { state: 'no-project', count: 0, legacy: 0 } }, 'Core files come from a project: choose one.'],
     ['the project still being listed', { core: { state: 'listing', count: 0, legacy: 0 } }, 'Looking for the project’s Core files…'],
     ['its files could not be listed', { core: { state: 'failed', count: 0, legacy: 0 } }, 'The project’s files could not be listed.'],
     ['no Core file D.O.G. can read', { core: { state: 'none', count: 0, legacy: 0 } }, 'This project has no Core files D.O.G. can read.'],
@@ -413,7 +415,7 @@ describe('DG4: Core files only, beside Add references', () => {
     cleanup()
     const gone = mount({ projectChosen: false, refs: fakeRefs([], { coreOnly: true, core: { state: 'no-project', count: 0, legacy: 0 }, chosen: new Set(['note:n1']) }) })
     expect(off()).toBe(false)
-    expect(said(gone).textContent).toBe('Core files come from a project: choose one above. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
+    expect(said(gone).textContent).toBe('Core files come from a project: choose one. Your 1 chosen reference is set aside while this is ticked; it comes back when you clear it.')
   })
 
   it('the count of what is set aside leaves out a chosen file that is listed anyway, as one of the Core files', () => {
