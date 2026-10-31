@@ -81,10 +81,12 @@ const MILESTONE_SCHEDULE = ['date', 'phase_id']
 // F2's third follow-up (her answer to walkthrough 91's F2 Q6, 2026-10-31,
 // "Yes, F2 builds it next (Recommended)"): a version keeps each expense's
 // estimate as it was bid, so the Expenses tab can show where the bid was
-// beside what she expects to spend now. The title rides along to name one
-// removed since. Not part of the schedule: an expense edit is no unsaved
-// change, and an open writes no expense back (the expenses are the
-// project's; a version records them).
+// beside what she expects to spend now — written at each save, and again
+// when the budget goes active (her option: the locked bid "freezes each
+// expense's estimate"; the provider's keepExpensesInBid). The title rides
+// along to name one removed since. Not part of the schedule: an expense
+// edit is no unsaved change, and an open writes no expense back (the
+// expenses are the project's; a version records them).
 const EXPENSE_FIELDS = ['id', 'title', 'estimated_cost']
 const DATE_FIELDS = new Set(['start_date', 'end_date', 'date'])
 
@@ -223,6 +225,11 @@ export function scheduleSpan({ tasks = [], phases = [], milestones = [] }) {
 
 const totalBidDaysOf = (tasks) => (tasks || []).reduce((s, t) => s + num(t?.bid_days), 0)
 
+/** F2's third follow-up: the expense rows as a version keeps them (EXPENSE_FIELDS), at a save or at the lock. */
+export function expenseRowsForVersion(expenses) {
+  return (expenses || []).filter(e => e && e.id != null).map(e => pick(e, EXPENSE_FIELDS))
+}
+
 /**
  * The live rows as a version's snapshot (the shape every new or re-saved
  * version carries from S5 on). `previous` is the snapshot of the version
@@ -275,7 +282,7 @@ export function snapshotFromLive({
     spanDays: span ? span.spanDays : null,
     span: span ? { start: span.start, end: span.end } : null,
     shot_list: shotList ? { id: shotList.id, title: shotList.title, version: shotList.version } : null,
-    ...(Array.isArray(expenses) ? { expenses: expenses.filter(e => e && e.id != null).map(e => pick(e, EXPENSE_FIELDS)) } : {}),
+    ...(Array.isArray(expenses) ? { expenses: expenseRowsForVersion(expenses) } : {}),
     delta: null,
   }
   snap.delta = previous ? versionDelta(previous, snap, previousName) : null
@@ -341,7 +348,9 @@ export function readVersion(version) {
     phases: [],
     milestones: [],
     roleRates: s.roleRates || {},
-    expenses: null,
+    // The lock writes the expenses into an older version too (F2's third
+    // follow-up, review round 1).
+    expenses: Array.isArray(s.expenses) ? s.expenses : null,
     delta: null,
     savedAt: s.lockedAt || null,
   }

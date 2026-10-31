@@ -704,7 +704,9 @@
   .rb-budget-exp-notbid { display: block; white-space: normal; font-size: var(--text-caption); color: var(--color-ink-3); }
   .rb-budget-exp-row:hover .rb-budget-exp-notbid,
   .rb-budget-exp-row[data-ticked="true"] .rb-budget-exp-notbid { color: var(--color-ink-2); }
+  .rb-budget-exp-bidrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
   .rb-budget-exp-bidnote { margin: 0; font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-2); }
+  .rb-budget-exp-bidnote[data-error="true"] { flex-basis: 100%; color: var(--color-danger); }
 
   /* The bulk-action bar overlays the header right of the checkbox column,
      where it always did. The kit has no bulk bar: this is the lane's, in the

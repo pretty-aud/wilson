@@ -853,7 +853,7 @@ describe('surface 2b', () => {
     it('the bid kept its expenses: each row\'s bid, how far expected moved, the tiles and the bid\'s own fee', () => {
       const { container } = render(tab(hook(), at15, true, { budgetVersions: [version()] }))
       expect(read(container)).toEqual([
-        ['Bid total', '$21,200', '$24,380 with the $3,180 agency fee'],
+        ['Selected bid', '$21,200', '$24,380 with the $3,180 agency fee'],
         ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'],
         ['Actual total', '$20,944', null],
         ['Expected vs bid', '+$60', 'expected now against the bid'],
@@ -870,12 +870,23 @@ describe('surface 2b', () => {
       expect(rows[0].querySelector('.rb-budget-exp-vsbid').getAttribute('data-tone')).toBe('zero')
       // A row's own variance stays actual against expected (the timber: −$340).
       expect([...rows[1].querySelectorAll('td[data-numeric="true"]')][5].textContent).toBe('-$340')
-      // The removed one is in the Bid total, said.
-      expect(note(container)).toBe('The bid also holds “Drone day”, removed since: $500 of the Bid total.')
+      // Which bid, and what its totals hold that no row shows (review round
+      // 1): the one added since (in Expected now) and the one removed since
+      // (in the bid) — +$60 is +$300 − $500 + $260.
+      expect(note(container)).toBe('The bid is “Bid v2” as last saved; setting the budget active keeps the expenses as they are then. '
+        + 'Not in it: “Untitled”, added since ($260). It also holds “Drone day”, removed since ($500).')
       // Every expense, whatever the search, as the tiles always were.
       fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: 'Compass' } })
       expect(read(container).slice(0, 2).map((t) => t[1])).toEqual(['$21,200', '$21,260'])
       expect(container.querySelector('.ui-table.rb-budget-exp').getAttribute('style')).toBeNull()
+    })
+
+    it('locked, the tile is the locked bid and the sentence says so; no action offered', () => {
+      const keep = vi.fn(async () => {})
+      const { container } = render(tab(hook(), { ...at15, budget_active: true, budget_active_version_id: 'v2' }, true, { budgetVersions: [version()], keepExpensesInBid: keep }))
+      expect(read(container)[0]).toEqual(['Locked bid', '$21,200', '$24,380 with the $3,180 agency fee'])
+      expect(note(container)).toBe('The bid is “Bid v2”, the locked bid. Not in it: “Untitled”, added since ($260). It also holds “Drone day”, removed since ($500).')
+      expect(screen.queryByRole('button', { name: /today’s estimates/ })).toBeNull()
     })
 
     it('the fee each hint holds is its own: the bid\'s as it was bid, the project\'s now; off, no hint', () => {
@@ -886,39 +897,47 @@ describe('surface 2b', () => {
         return out
       }
       expect(tiles(at15, version({}, { agencyPct: 10 }))).toEqual([
-        ['Bid total', '$21,200', '$23,320 with the $2,120 agency fee'], ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee']])
+        ['Selected bid', '$21,200', '$23,320 with the $2,120 agency fee'], ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee']])
       // CONTROL: both fees off, no hints; the figures are the costs either way.
-      expect(tiles(PROJECT, version({}, { agencyEnabled: false }))).toEqual([['Bid total', '$21,200', null], ['Expected now', '$21,260', null]])
+      expect(tiles(PROJECT, version({}, { agencyEnabled: false }))).toEqual([['Selected bid', '$21,200', null], ['Expected now', '$21,260', null]])
       // The project's margin and contingency are no part of either.
       expect(tiles({ ...at15, budget_margin_pct: 5, budget_contingency_pct: 10 }, version())[1]).toEqual(['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'])
     })
 
-    it('a bid saved before a version kept its expenses: "—" and why, in words; locked, what still holds', () => {
-      const { container, rerender } = render(tab(hook(), at15, true, { budgetVersions: [OLD] }))
+    it('a bid saved before a version kept its expenses: "—" and why, in words; locked, today\'s estimates can be kept as its bid', async () => {
+      const keep = vi.fn(async () => {})
+      const { container, rerender } = render(tab(hook(), at15, true, { budgetVersions: [OLD], keepExpensesInBid: keep }))
       expect(read(container).map((t) => t.slice(0, 3))).toEqual([
-        ['Bid total', '—', 'this bid kept no expenses'], ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'],
+        ['Selected bid', '—', 'this bid kept no expenses'], ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'],
         ['Actual total', '$20,944', null], ['Expected vs bid', '—', null], ['Actual vs expected', '-$316', 'actual against expected now'], ['Expenses', '3', null]])
       expect(rowsOf(container).map(cells)).toEqual([['—', '$16,800'], ['—', '$4,200'], ['—', '$260']])
       expect(container.querySelector('.rb-budget-exp-vsbid')).toBeNull()
-      expect(note(container)).toBe('“Bid v1” was saved before a bid kept its expenses, so they have no bid figure. Save a new version to keep them.')
-      rerender(tab(hook(), { ...at15, budget_active: true, budget_active_version_id: 'v1' }, true, { budgetVersions: [OLD] }))
-      expect(note(container)).toBe('“Bid v1”, the locked bid, was saved before a bid kept its expenses, so they have no bid figure. A bid saved from now on keeps them.')
+      expect(note(container)).toBe('“Bid v1” was saved before a bid kept its expenses, so they have no bid figure yet. Saving a new version keeps them, and so does setting the budget active.')
+      // CONTROL: while bidding, no action — saving or the lock keeps them.
+      expect(screen.queryByRole('button', { name: /today’s estimates/ })).toBeNull()
+      rerender(tab(hook(), { ...at15, budget_active: true, budget_active_version_id: 'v1' }, true, { budgetVersions: [OLD], keepExpensesInBid: keep }))
+      expect(read(container)[0]).toEqual(['Locked bid', '—', 'this bid kept no expenses'])
+      expect(note(container)).toBe('“Bid v1”, the locked bid, was set active before a bid kept its expenses, so they have no bid figure in this production.')
+      // Locked: saving cannot reach it (review round 1), so the one way, said
+      // as what it is: today's estimates kept as its bid.
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Keep today’s estimates as its bid' })) })
+      expect(keep).toHaveBeenCalledWith('v1')
       // No version at all.
       rerender(tab(hook(), at15, true, { budgetVersions: [] }))
-      expect(read(container)[0]).toEqual(['Bid total', '—', 'no bid selected'])
+      expect(read(container)[0]).toEqual(['Selected bid', '—', 'none selected'])
       expect(note(container)).toBe('No bid version is selected, so the expenses have no bid figure.')
     })
 
-    it('CONTROL: only the SELECTED version gives the bid; another that kept its expenses does not', () => {
+    it('CONTROL: only the SELECTED version gives the bid; the OPEN one, or another that kept its expenses, does not', () => {
       const other = version({ id: 'v3', name: 'Bid v3', is_active: false, created_at: '2026-09-20T17:00:00Z' })
-      const { container } = render(tab(hook(), at15, true, { budgetVersions: [other, OLD] }))
+      const { container } = render(tab(hook(), { ...at15, open_budget_version_id: 'v3' }, true, { budgetVersions: [other, OLD] }))
       expect(read(container)[0][1]).toBe('—')
       expect(rowsOf(container).map((r) => cells(r)[0])).toEqual(['—', '—', '—'])
       cleanup()
       // Selected, it does.
       const { container: c2 } = render(tab(hook(), at15, true, { budgetVersions: [{ ...other, is_active: true }, { ...OLD, is_active: false }] }))
       expect(read(c2)[0][1]).toBe('$21,200')
-      expect(note(c2)).toBe('The bid also holds “Drone day”, removed since: $500 of the Bid total.')
+      expect(note(c2)).toMatch(/^The bid is “Bid v3” as last saved;/)
     })
 
     it('grouped, a group\'s header says its bid; a group with nothing in the bid, a dash', () => {

@@ -2043,16 +2043,44 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const expectedWithFee = useMemo(() => lineMoney(totalEstimated, null, settings), [totalEstimated, settings])
   const movedFromBid = totalEstimated - bid.bidTotal
   const bidLocked = !!selectedBid && project?.budget_active === true && project?.budget_active_version_id === selectedBid.id
-  // What the Bid column cannot show, in words (the brief's "—", said).
+  // Which bid the Bid column is, and what it cannot show, in words (the
+  // brief's "—", said; review round 1: the expenses added since are in the
+  // totals, so they are named too, and a bid locked before a version kept its
+  // expenses gets no hint that saving cannot carry out).
+  const addedSince = bid.kept ? expenses.filter(e => bid.bidOf(e.id) == null) : []
+  const estimateOf = (rows) => formatMoney(rows.reduce((s, r) => s + (Number(r.estimated_cost) || 0), 0), currency)
+  const named = (rows, since) => (rows.length === 1 ? `“${rows[0].title || 'Untitled'}”, ${since}` : `${rows.length} expenses ${since}`)
   const bidNote = !selectedBid
     ? 'No bid version is selected, so the expenses have no bid figure.'
     : !bid.kept
       ? (bidLocked
-        ? `“${selectedBid.name}”, the locked bid, was saved before a bid kept its expenses, so they have no bid figure. A bid saved from now on keeps them.`
-        : `“${selectedBid.name}” was saved before a bid kept its expenses, so they have no bid figure. Save a new version to keep them.`)
-      : bid.removed.length
-        ? `The bid also holds ${bid.removed.length === 1 ? `“${bid.removed[0].title || 'Untitled'}”, removed` : `${bid.removed.length} expenses removed`} since: ${formatMoney(bid.removed.reduce((s, r) => s + (Number(r.estimated_cost) || 0), 0), currency)} of the Bid total.`
-        : null
+        ? `“${selectedBid.name}”, the locked bid, was set active before a bid kept its expenses, so they have no bid figure in this production.`
+        : `“${selectedBid.name}” was saved before a bid kept its expenses, so they have no bid figure yet. Saving a new version keeps them, and so does setting the budget active.`)
+      : [
+        bidLocked
+          ? `The bid is “${selectedBid.name}”, the locked bid.`
+          : `The bid is “${selectedBid.name}” as last saved; setting the budget active keeps the expenses as they are then.`,
+        addedSince.length ? `Not in it: ${named(addedSince, 'added since')} (${estimateOf(addedSince)}).` : null,
+        bid.removed.length ? `It also holds ${named(bid.removed, 'removed since')} (${estimateOf(bid.removed)}).` : null,
+      ].filter(Boolean).join(' ')
+  // A bid locked before a version kept its expenses: today's estimates can
+  // be kept as its bid, said as what they are (the provider's
+  // keepExpensesInBid, one undo step).
+  const canKeepToday = bidLocked && !bid.kept && typeof ctx?.keepExpensesInBid === 'function'
+  const [keeping, setKeeping] = useState(false)
+  const [keepError, setKeepError] = useState(null)
+  async function keepTodayAsBid() {
+    const step = ctx?.runWithUndoToast || ((run) => run())
+    setKeeping(true)
+    setKeepError(null)
+    try {
+      await step(() => ctx.keepExpensesInBid(selectedBid.id), `Kept today’s estimates as the bid of “${selectedBid.name}”`)
+    } catch (err) {
+      setKeepError(err?.message || String(err))
+    } finally {
+      setKeeping(false)
+    }
+  }
 
   // ── Handlers ──
   function handleCreate() { setEditingId(null); setShowPopup(true) }
@@ -2266,10 +2294,10 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
       {/* Summary tiles: the kit Stat, through the tab's BigTile (R3-10). */}
       <div className="rb-budget-stats">
         <BigTile
-          label="Bid total"
+          label={bidLocked ? 'Locked bid' : 'Selected bid'}
           value={bid.kept ? formatMoney(bid.bidTotal, currency) : '—'}
           hint={!bid.kept
-            ? (selectedBid ? 'this bid kept no expenses' : 'no bid selected')
+            ? (selectedBid ? 'this bid kept no expenses' : 'none selected')
             : bid.settings.agencyEnabled
               ? `${formatMoney(bidWithFee.bidTotal, currency)} with the ${formatMoney(bidWithFee.agencyFee, currency)} agency fee`
               : undefined}
@@ -2298,7 +2326,17 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
         />
         <BigTile label="Expenses" value={expenses.length} />
       </div>
-      {bidNote && <p className="rb-budget-exp-bidnote">{bidNote}</p>}
+      {bidNote && (
+        <div className="rb-budget-exp-bidrow">
+          <p className="rb-budget-exp-bidnote">{bidNote}</p>
+          {canKeepToday && (
+            <Button size="sm" loading={keeping} onClick={keepTodayAsBid}>
+              Keep today’s estimates as its bid
+            </Button>
+          )}
+          {keepError && <p className="rb-budget-exp-bidnote" data-error="true" role="alert">{keepError}</p>}
+        </div>
+      )}
 
       {/* The toolbar: the kit Toolbar, the same eleven controls in the same
           order at the 28px height (C1; the Hick's hotspot's regrouping and

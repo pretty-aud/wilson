@@ -113,7 +113,7 @@ import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // for the snapshot, the open plan and "which version is selected".
 import {
   snapshotFromLive, planOpen, readVersion, selectedVersionOf, sortVersionsNewest, previousVersionOf,
-  versionDiff, liveItemsOnly,
+  versionDiff, liveItemsOnly, expenseRowsForVersion,
 } from './budgetVersionModel';
 // Post-overhaul S5b (0090): rows the open version does not hold are SET
 // ASIDE — kept whole, hidden everywhere, brought back by a version that holds
@@ -7394,13 +7394,19 @@ export function RabbitProvider({ children }) {
    * kept at the moment of the save — the Expenses tab's list is its own hook's
    * (useExpenses), never the bundle's (loadProjectBundle.test.js says why),
    * and the Timeline saves too. null where this storage keeps no expenses.
-   * A read that fails stops the save, said: a bid saved without them would
-   * show no bid figure for any expense.
+   * A read that fails stops the save, said as the expenses' (review round
+   * 1: the storage's own words alone, "Failed to fetch", named nothing): a
+   * bid saved without them would show no bid figure for any expense.
    */
   async function expensesForSnapshot(pid) {
     const a = adapterRef.current;
     if (typeof a?.listExpenses !== 'function') return null;
-    const list = await a.listExpenses(pid);
+    let list;
+    try {
+      list = await a.listExpenses(pid);
+    } catch (err) {
+      throw new Error(`the expenses could not be read (${err?.message || err})`);
+    }
     return Array.isArray(list) ? list : [];
   }
 
@@ -7865,6 +7871,11 @@ export function RabbitProvider({ children }) {
       const m = mutationsRef.current;
       const landed = landedSince();
       try {
+        // F2's third follow-up (review round 1): the bid freezes each
+        // expense's estimate as it is when the budget goes into production.
+        // First, so a read that fails changes nothing.
+        await m.keepExpensesInBid(id);
+        still();
         let plan = null;
         if (readVersion(v).hasTimeline) {
           plan = await loadVersionIntoLive(v, opts, still);
@@ -8311,6 +8322,13 @@ export function RabbitProvider({ children }) {
   const openBudgetVersionStep = useMemo(() => trackVersionStep(openBudgetVersion), [trackVersionStep, openBudgetVersion]);
   const activateBudgetStep = useMemo(() => trackVersionStep(activateBudget), [trackVersionStep, activateBudget]);
   const resetToBiddingStep = useMemo(() => trackVersionStep(resetToBidding), [trackVersionStep, resetToBidding]);
+  // F2's third follow-up (review round 1): the Expenses tab's "Keep today's
+  // estimates as its bid", for a bid locked before a version kept its
+  // expenses — in the undo queue, as every version write is.
+  const keepExpensesInBidStep = useMemo(() => trackVersionStep((id) => inHistoryQueue(async () => {
+    refuseWhileReplaying();
+    return mutationsRef.current.keepExpensesInBid(id);
+  })), [trackVersionStep]);
 
   /** locked_at / locked_by on the version itself (F12.2), with its undo. */
   const stampBudgetVersionLock = useCallback(async (id, on) => {
@@ -8325,6 +8343,36 @@ export function RabbitProvider({ children }) {
       undoOps: [() => patchBudgetVersionRow(id, before)],
       redoOps: [() => patchBudgetVersionRow(id, patch)],
     }, visit);
+  }, [patchBudgetVersionRow]);
+
+  /**
+   * F2's third follow-up, review round 1 (finding 1): her chosen option —
+   * "the locked bid copy also freezes each expense's estimate", the bid being
+   * "the locked estimate when entering production". The expenses as they are
+   * kept at this moment, written into the version's snapshot (its `expenses`
+   * only: the schedule stays as saved), with its undo. Set budget active runs
+   * it as part of the lock's one step; on its own, it is the Expenses tab's
+   * "Keep today's estimates as its bid" for a bid locked before a version
+   * kept its expenses. Nothing is written when they are already so, or where
+   * the storage keeps no expenses.
+   */
+  const keepExpensesInBid = useCallback(async (id) => {
+    const still = compositeGuard();
+    const visit = projectVisitRef.current;
+    const v = requireBudgetVersion(id);
+    const list = await expensesForSnapshot(activeProjectIdRef.current);
+    still();
+    if (list == null) return null;
+    const before = v.snapshot ?? {};
+    const expenses = expenseRowsForVersion(list);
+    if (JSON.stringify(before.expenses ?? null) === JSON.stringify(expenses)) return null;
+    const snapshot = { ...before, expenses };
+    await patchBudgetVersionRow(id, { snapshot });
+    pushHistory({
+      undoOps: [() => patchBudgetVersionRow(id, { snapshot: before })],
+      redoOps: [() => patchBudgetVersionRow(id, { snapshot })],
+    }, visit);
+    return snapshot;
   }, [patchBudgetVersionRow]);
 
   // ── Mutations ref refresh ───────────────────────────────
@@ -8443,6 +8491,7 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.resetToBidding             = resetToBidding;
   mutationsRef.current.setProjectBudgetFields     = setProjectBudgetFields;
   mutationsRef.current.stampBudgetVersionLock     = stampBudgetVersionLock;
+  mutationsRef.current.keepExpensesInBid          = keepExpensesInBid;
   // S5b (0090): set aside / bring back, a version's row on its own (the
   // last step of its delete, and that step's redo), the versions re-read.
   mutationsRef.current.setAsideRows               = setAsideRows;
@@ -8861,6 +8910,7 @@ export function RabbitProvider({ children }) {
     openBudgetVersion: openBudgetVersionStep,
     activateBudget: activateBudgetStep,
     resetToBidding: resetToBiddingStep,
+    keepExpensesInBid: keepExpensesInBidStep,
     versionStep,
     rateOverridesEpoch,
     // S5b (0090): the rows the open version does not hold (set aside: out of
@@ -8941,7 +8991,7 @@ export function RabbitProvider({ children }) {
     listTrashedMilestones, restoreMilestone,
     selectBudgetVersionQueued, renameBudgetVersionQueued, updateBudgetVersionSummaryQueued, deleteBudgetVersionStep,
     saveBudgetVersionStep, createBudgetVersionStep, openBudgetVersionStep, activateBudgetStep, resetToBiddingStep,
-    versionStep, rateOverridesEpoch,
+    keepExpensesInBidStep, versionStep, rateOverridesEpoch,
     deleteTaskVerb, deleteTasksVerb, deletePhaseVerb, deleteMilestoneVerb,
     removalPlanForCb, previewOpenCb, previewDeleteCb, runWithUndoToast,
     ensureProjectFoldersFor, ensureEntityFolderFor,
