@@ -4865,9 +4865,10 @@ saved bid version's totals are made by), one `round2`, and rate resolution as
 two of them a scan of the Budget's files for the three shapes the old copies
 took (the inheritance rule inline, a settings read with a default of its own,
 a second `round2`) and its control; a copy spelt another way passes the scan,
-so the surfaces' render tests pin their figures too. Before Session 24 those rules were duplicated inline across
-four view files with no test at any layer; until F2 the views kept their
-copies, which came apart (OUTSTANDING REV-02, closed).
+so the surfaces' render tests pin their figures too. Before Session 24 those
+rules were duplicated inline across four view files with no test at any
+layer; until F2 the views kept their copies, which came apart (OUTSTANDING
+REV-02, closed).
 
 **Vitest** — **43 files, 909 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE

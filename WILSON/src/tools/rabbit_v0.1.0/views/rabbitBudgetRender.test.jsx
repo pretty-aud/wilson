@@ -622,6 +622,27 @@ describe('surface 2a', () => {
       expect(foot[5].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
     })
 
+    // F2 review round 2 (finding 1): the switch writes the one default when it
+    // turns the fee on with none stored — on the cloud a stored 0, the one
+    // route by which a cloud project gets the 20% today (OUTSTANDING F2-04,
+    // which records that it also puts 20 over a typed 0). A percentage stored
+    // is left alone; switching off writes the switch alone.
+    it('F2: the agency switch writes the one default, 20%, when it turns the fee on with none stored — and nothing over a percentage', () => {
+      const switched = (over) => {
+        const ctx = makeCtx({ ...base, ...BIDDING, ...over })
+        const { container } = render(tab(ctx))
+        fireEvent.click(container.querySelector('button[role="switch"]'))
+        cleanup()
+        return ctx.updateProject.mock.calls
+      }
+      expect(switched({ budget_agency_enabled: false, budget_agency_pct: undefined }))
+        .toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+      expect(switched({ budget_agency_enabled: false, budget_agency_pct: 0 }))
+        .toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+      expect(switched({ budget_agency_enabled: false, budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: true }]])
+      expect(switched({ budget_agency_enabled: true, budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: false }]])
+    })
+
     // F2: the Topsheet's crew fee is the one module's. With the fee on and no
     // percentage typed it is 20%, as the waterfall above it charges; the old
     // copy charged the crew 0% (Agency "—", Bid $4,500) under a waterfall
@@ -774,6 +795,20 @@ describe('surface 2b', () => {
     expect(ths[2].getAttribute('aria-sort')).toBe('ascending')
     expect(titles(container)).toEqual(['Untitled', 'Set timber and paint', 'Camera package hire'])
     expect(inlineColours(container)).toEqual([])
+  })
+
+  // F2 review round 2 (finding 2): an expense with no percentage of its own
+  // takes the project's (budgetMath's lineMoney), each on its estimate; its
+  // own wins. Every test above had the project at 0%, so an Expenses tab
+  // that dropped the project's default passed them all.
+  it('F2: an expense with no percentage of its own takes the project\'s, on its estimate', () => {
+    const { container } = render(tab(hook(), { ...PROJECT, budget_margin_pct: 2, budget_contingency_pct: 10 }))
+    const numeric = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].slice(0, 3).map((td) => td.textContent)
+    expect(rowsOf(container).map(numeric)).toEqual([
+      ['$16,800', '+$336', '+$1,680'],
+      ['$4,200', '+$210', '+$420'],
+      ['$260', '+$5', '+$26'],
+    ])
   })
 
   it('a row: the kit Row\'s one hover and one selection, a 28px checkbox that keeps its focus, Edit and Delete in the kit HoverActions (R3-23, R3-38, R3-40, R3-24)', () => {
@@ -1739,11 +1774,17 @@ describe('surface 4', () => {
       const before = rabbit.current
       rabbit.current = { getAdapter: () => adapter, project, adapterMode: 'fixtures', adapterStatus: { online: true } }
       try {
-        function Wired() { return <TalentTab budgetHook={useBudgetLines()} project={project} currency="USD" /> }
-        const { container } = render(<Wired />)
+        function Wired() { return <TalentTab budgetHook={useBudgetLines()} project={rabbit.current.project} currency="USD" /> }
+        const { container, rerender } = render(<Wired />)
         await waitFor(() => expect(lineRow(container, 'Mara (lead)')).toBeTruthy())
         expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$900', '$12,150', '—', '-$12,150'])
         expect(container.querySelector('.rb-talent-stats .rb-talent-stat .ui-stat-value').textContent).toBe('$12,150')
+        // Review round 2 (finding 2): a percentage typed afterwards reaches the
+        // line computations (10% with the agent's 15%: $11,250), so their
+        // settings follow the project, not only its id.
+        rabbit.current = { ...rabbit.current, project: { ...project, budget_agency_pct: 10 } }
+        rerender(<Wired />)
+        expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$900', '$11,250', '—', '-$11,250'])
       } finally {
         rabbit.current = before
       }

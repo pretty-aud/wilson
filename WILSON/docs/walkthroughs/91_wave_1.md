@@ -2,9 +2,10 @@
 
 One file for the wave (`docs/sessions/PLAN_WEEK_2026-11-04.md`;
 `docs/sessions/PLAN_TO_1_0.md` §5, rule 3), one section per session: **F1**
-(the operator console's company list, and a type check in CI) and **F2**
-(the budget's money rules in one place). Each section stands on its own;
-answer its questions by their numbers.
+(the operator console's company list, and a type check in CI), **F2** (the
+budget's money rules in one place) and **F3** (the desktop's project file;
+its section comes with its merge). Each section stands on its own; answer its
+questions by their numbers.
 
 ## F1 — The operator console's company list, and a type check in CI
 
@@ -31,17 +32,19 @@ controller deploys the function to dev and staging, on your go.
 
 ## F2 — The budget's money rules in one place
 
-Your ruling of 2026-10-31, in this session's question box, on the agency fee
-when it is switched on and nobody has typed a percentage: *"20%"*. Measured
-first on the test project (*Salt Hours*) with the fee on and no percentage
-typed, and with 10% typed; built; measured again the same way; reviewed twice
-(on Opus: Fable's weekly allowance was used up).
+Your ruling of 2026-10-31 on the agency fee when it is switched on and nobody
+has typed a percentage, given twice: in this session's question box, *"20%"*,
+and to the controller, *"20 percent"*. Measured first on the test project
+(*Salt Hours*) with the fee on and no percentage typed, and with 10% typed;
+built; measured again the same way; reviewed twice on Opus (the Fable
+allowance was used up; your choice for F1, *"Use Opus for both"*).
 
 1. **Every Budget page charges the same agency fee.** With the fee switched
    on and no percentage typed, the Summary charged 20% while the Crew tab,
-   the Topsheet and the client estimate charged 0%. Now every page charges
-   20%, your ruling. A typed percentage is used as typed, as before; a typed
-   0 too, with one exception that was there before: switching the fee off and
+   the Talent tab, the Topsheet and the client estimate charged 0%. Now every
+   page charges 20%, your ruling, so those four pages' figures go up (the
+   table below). A typed percentage is used as typed, as before; a typed 0
+   too, with one exception that was there before: switching the fee off and
    on again on the Summary page puts 20% back in its place.
 2. **Margin and contingency are worked out on the cost, never on a fee.**
    The Crew tab worked them out on the cost plus the agency fee; the Talent
@@ -54,8 +57,9 @@ typed, and with 10% typed; built; measured again the same way; reviewed twice
    *Bid total*, the cost with the fee in it).
 3. **Everything else is as it was.** The Summary's figures, every saved bid
    version, what each page adds into its own Bid total, and every page's
-   layout. Money is still shown in whole dollars, and no figure on screen
-   moved for rounding: behind the screen each line's amounts are now worked
+   layout. Money is still shown in whole dollars, and on the test project no
+   figure moved for rounding (elsewhere a total can move by a dollar at
+   most): behind the screen each line's amounts are now worked
    out to the cent, as the Summary's margin and contingency already were (the
    Summary's agency fee stays rounded to the dollar, the way every saved bid
    version's was made).
@@ -104,7 +108,7 @@ typed, unless the Summary's switch filled in 20%: Q1), so the default does
 not show there; what you will see is the smaller contingency and margin on a
 budget with a fee (points 1 to 3).
 
-### Seen while measuring, written down, not changed
+### Seen while measuring and reviewing, written down, not changed
 
 - **The Crew tab prices a role nobody holds yet below the Summary**
   (`docs/OUTSTANDING.md` F2-01). The Crew tab uses the rate card's rate
@@ -128,6 +132,10 @@ budget with a fee (points 1 to 3).
 - **The Crew and Talent tabs' Bid total is the cost plus the fees**
   (F2-05): margin and contingency stand beside it and are not added in, so a
   row reads Subtotal $18,720, Contingency +$1,872, Bid total $21,528.
+- **On a Crew row for a role nobody holds yet, a margin or an amount you type
+  is not kept** (F2-06, found by reading, not tried): the row's boxes open,
+  but what is saved is filed under no one, so the row keeps showing the
+  project's figures. On the test project every crew row is such a row.
 
 ### Questions
 
