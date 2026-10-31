@@ -803,6 +803,101 @@ jobs:
         run: node scripts/local-server-lock-harness.mjs
 
   # ---------------------------------------------------------------------------
+  # deno-check — every Edge Function type-checked (F1, OUTSTANDING REV-01).
+  #
+  # Nothing type-checks a function before it runs: a deploy bundles without a
+  # check, and no other job here loads the files in Deno. P8's commit 9bff662a
+  # moved PAGE into _shared/teardownCollect.ts and operator-workspaces never
+  # imported it; the console's Companies tab answered a bare 500 on the beta
+  # from 2026-10-28 (ReferenceError) and nothing said so. `deno check` names
+  # that as TS2304 before a deploy can.
+  #
+  # Deno 2.1.4 is the Deno inside supabase/edge-runtime v1.77.1, the image the
+  # pinned CLI (2.119.0, above) runs; the hosted runtime is Deno 2.1 too. To
+  # move it: change the number with the CLI's pin, push, read this job first.
+  # No import map: every function imports supabase-js by its esm.sh URL, so the
+  # check reads esm.sh at run time as a deploy does; --no-config and
+  # DENO_NO_PACKAGE_JSON keep the web app's package.json out of the resolution.
+  # Only the files in this repo are reported, not esm.sh's own types.
+  #
+  # Full logs need repo admin; annotations are public. Each distinct error is
+  # one annotation at its first line with its other lines listed, nine at
+  # most, then one with them all (GitHub keeps ten errors a step).
+  # Pinned to ubuntu-24.04 as the other four.
+  # ---------------------------------------------------------------------------
+  deno-check:
+    name: Edge Functions type check (deno check)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check every supabase/functions/*/index.ts
+        env:
+          NO_COLOR: '1'
+          DENO_NO_PACKAGE_JSON: '1'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          FILES=(supabase/functions/*/index.ts)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error title=deno check::no supabase/functions/*/index.ts to check"
+            exit 1
+          fi
+          deno --version
+          echo "Checking ${#FILES[@]} functions:"
+          printf '  %s\n' "${FILES[@]}"
+          STATUS=0
+          deno check --no-config "${FILES[@]}" > /tmp/deno-check.log 2>&1 || STATUS=$?
+          cat /tmp/deno-check.log
+          if [ "${STATUS}" -ne 0 ]; then
+            awk -v root="file://${GITHUB_WORKSPACE}/" '
+              function enc(s) { gsub(/%/, "%25", s); gsub(/\r/, "%0D", s); gsub(/\n/, "%0A", s); return s }
+              { sub(/\r$/, "") }
+              /TS[0-9]+ \[ERROR\]: / {
+                s = substr($0, match($0, /TS[0-9]+ \[ERROR\]: /))
+                code = substr(s, 1, index(s, " ") - 1)
+                msg = s; sub(/^TS[0-9]+ \[ERROR\]: /, "", msg)
+                pending = 1; seen++; next
+              }
+              pending && /^ +at file:\/\/.*:[0-9]+:[0-9]+$/ {
+                loc = $0; sub(/^ +at /, "", loc)
+                col = loc; sub(/^.*:/, "", col)
+                rest = loc; sub(/:[0-9]+$/, "", rest)
+                ln = rest; sub(/^.*:/, "", ln)
+                file = rest; sub(/:[0-9]+$/, "", file)
+                if (index(file, root) == 1) file = substr(file, length(root) + 1)
+                key = file SUBSEP code SUBSEP msg
+                if (!(key in lines)) { order[++groups] = key; first[key] = ln; firstcol[key] = col; lines[key] = ln }
+                else lines[key] = lines[key] ", " ln
+                pending = 0; placed++; next
+              }
+              /^error: / { other[++others] = $0 }
+              END {
+                for (i = 1; i <= groups && i <= 9; i++) {
+                  split(order[i], k, SUBSEP)
+                  printf "::error file=%s,line=%s,col=%s,title=deno check %s::%s %s (line %s)\n", k[1], first[order[i]], firstcol[order[i]], k[2], k[2], enc(k[3]), lines[order[i]]
+                }
+                if (groups > 9) {
+                  all = ""
+                  for (i = 1; i <= groups; i++) { split(order[i], k, SUBSEP); all = all k[1] " " k[2] " " k[3] " (line " lines[order[i]] ")\n" }
+                  printf "::error title=deno check all %d::%s\n", groups, enc(all)
+                }
+                if (seen != placed) printf "::error title=deno check::%d errors, %d of them placed; the rest are in the log\n", seen, placed
+                if (seen == 0) for (i = 1; i <= others && i <= 5; i++) printf "::error title=deno check::%s\n", enc(other[i])
+              }
+            ' /tmp/deno-check.log
+          fi
+          exit "${STATUS}"
+
+  # ---------------------------------------------------------------------------
   # e2e-auth — Playwright auth flows against wilson-dev (Session 4).
   #
   # Reuses the DEV_* secrets from issue-session-smoke: the Vite dev server is
