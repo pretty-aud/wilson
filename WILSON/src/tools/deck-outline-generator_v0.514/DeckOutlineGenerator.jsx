@@ -4147,13 +4147,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               reaching the references as the `uploads` prop. The fold is
               this card's (section1Collapsed); the header's count is the
               References card's, one number for what is listed. */}
-          {/* DG5 (Audrey, 2026-10-30: "the redesign has a bit too much
-              negative space. the entire right side is an empty card"): the
-              two input cards share one row on a wide window (dog.css, THE
-              INPUTS ROW). This wrapper only lays them out: no role, name,
-              id or tabindex, so the cards' order, folds, ids, the header
-              count, the Tab order and every name are as they were. The
-              banners stay above it and the output card below it. */}
+          {/* DG5's wrapper; since DG6 (Audrey, 2026-10-31: "i want to keep
+              the 1 and 2 cards stacked not side by side") it holds the two
+              input cards stacked at one capped width, card 1 in two columns
+              on a wide window (dog.css, THE INPUTS STACK). It only lays them
+              out: no role, name, id or tabindex, so the cards' order, folds,
+              ids, the header count, the Tab order and every name are as they
+              were. The banners stay above it and the output card below it,
+              both the column's full width. */}
           <div className="dog-inputs">
           <Card pad={false} className="dog-card dog-card-project">
             <header
@@ -4197,9 +4198,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </label>
                 {/* DG1: choosing a project no longer sends its files (Q2); its
                     title and description always go (Q17). DG4: what else is
-                    chosen in this card. DG5: no "below", since on a very wide
+                    chosen in this card. DG5: no "below", since on a wide
                     window the references sit beside the project (dog.css,
-                    THE INPUTS ROW); her answer to walkthrough 89's Q1: as built. */}
+                    THE INPUTS STACK: from a 1468 window since DG6); her
+                    answer to walkthrough 89's Q1: as built. */}
                 <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>

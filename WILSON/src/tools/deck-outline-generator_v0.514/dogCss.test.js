@@ -131,43 +131,76 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
 // Card 1's column is 576px, the meter in it that fixed width, the track 8px
 // in the card and the window alike; the window's footer meter keeps flex: 1.
 //
-// DG5 (Audrey, 2026-10-30, verbatim, with a picture of card 1 at a 2,000px
-// window): "the redesign has a bit too much negative space. the entire right
-// side is an empty card. lets do a pass to make sure it is visually
-// appealing". Measured before (Chromium, the dev fixtures): that one column
-// left 42, 50, 65 and 75 percent of card 1 empty across at 1280, 1440, 1920
-// and 2560, and card 2's box and Generate ran the card's whole width. The
-// design round's row (dog.css, THE INPUTS ROW): .dog-main a named container,
-// the two cards in .dog-inputs, stacked under W 1148, side by side from W 1148
-// (a 1414 window in the app: her answer to walkthrough 89's Q2, "Side by side
-// from about 1,414 only"), card 1 in two columns from W 1708. DG4's pins hold
-// on the measure's new home, `--dog-measure` on the row, declared once for
-// both cards.
+// DG5 (Audrey, 2026-10-30, with a picture of card 1 at a 2,000px window):
+// "the redesign has a bit too much negative space. the entire right side is
+// an empty card". DG5 set the two cards side by side from a 1414 window and
+// card 1 in two columns from 1974, the measure on the wrapper for both.
+//
+// DG6 (Audrey, 2026-10-31, verbatim, with a picture of DG5's two cards side by
+// side at a 2,000px window): "this looks objectively bad. please do a pass to
+// make it more appealing for the top two cards. leave the output card how it
+// is dont touch it. i want to keep the 1 and 2 cards stacked not side by
+// side". Measured stacked with nothing else done (Chromium, the dev
+// fixtures): card 1's one column left 42, 50, 64 and 74 percent of the card
+// empty across at 1280, 1440, 1920 and 2560, and card 2's box and Generate
+// ran 988 to 2,268px. The design round's stack (dog.css, THE INPUTS STACK):
+// .dog-main a named container with its scrollbar's gutter (both kept), the
+// two cards in .dog-inputs, one under the other at every width, at one width
+// for both, capped: 602 under W 1202, 1202 from W 1202 (a 1468 window), where
+// card 1's body is two columns of the measure. DG4's pins hold on
+// `--dog-measure`, declared once on the wrapper for both cards.
 // =============================================================================
-describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', () => {
+describe('dog.css: the inputs stack (DG6), with DG4\'s measure and meter in it', () => {
   const INDEX = read('../../index.css')
   const JSX = read('./DeckOutlineGenerator.jsx')
-  const PAIR = '@container dog-main (min-width: 1148px)'
-  const TRIPLE = '@container dog-main (min-width: 1708px)'
+  const SPLIT = '@container dog-main (min-width: 1202px)'
   // The declarations of the rules for `sel` directly inside `parent` (an
   // at-rule's head) or, with no parent, inside no @container; the last wins.
   const decl = (css, sel, parent) => Object.fromEntries(allRules(css)
     .filter((r) => splitTop(r.sel).map(norm).includes(sel))
     .filter((r) => (parent ? norm(r.parents[r.parents.length - 1] || '') === parent : !r.parents.some((h) => /^@container/.test(h))))
     .flatMap((r) => decls(r.body)))
+  // A selector's last compound (what the rule styles), split at the
+  // combinators outside any parentheses.
+  const subject = (sel) => {
+    let depth = 0, cut = 0
+    for (let i = 0; i < sel.length; i++) {
+      const ch = sel[i]
+      if (ch === '(') depth++
+      else if (ch === ')') depth--
+      else if (depth === 0 && /[\s>+~]/.test(ch)) cut = i + 1
+    }
+    return sel.slice(cut)
+  }
+  const at = (r) => norm(r.parents[r.parents.length - 1] || '')
   const pins = (css) => ({
     container: decl(css, '.dog-main').container,
     padding: decl(css, '.dog-main').padding,
+    main: decl(css, '.dog-main'),
     row: decl(css, '.dog-inputs'),
-    // The widths the column's container queries start at, in source order.
-    widths: allRules(css).map((r) => norm(r.sel)).filter((h) => h.startsWith('@container dog-main')).map((h) => minWidth(h)),
-    pair: decl(css, '.dog-inputs', PAIR)['grid-template-columns'],
-    triple: decl(css, '.dog-inputs', TRIPLE)['grid-template-columns'],
-    split: decl(css, '.dog-card-project > .dog-card-body', TRIPLE),
-    level: decl(css, '.dog-card-project > .dog-card-body > .dog-refs', TRIPLE)['margin-top'],
-    // Card 2 keeps the measure beside card 1, and its full width stacked.
-    card2: decl(css, '.dog-s2 > .dog-card-body > *', PAIR)['max-width'],
-    card2Stacked: decl(css, '.dog-s2 > .dog-card-body > *')['max-width'],
+    cap: decl(css, '.dog-inputs', SPLIT),
+    // Every container query in the sheet, by its head.
+    queries: allRules(css).map((r) => norm(r.sel)).filter((h) => /^@container\b/.test(h)),
+    split: decl(css, '.dog-card-project > .dog-card-body', SPLIT),
+    level: decl(css, '.dog-card-project > .dog-card-body > .dog-refs', SPLIT)['margin-top'],
+    // Every declaration of every rule that names the wrapper anywhere in its
+    // selector (a descendant, a child, a :has(), another class on it): the
+    // ways DG5's review round 2 measured passing its row pin.
+    wrapper: allRules(css).flatMap((r) => splitTop(r.sel).map(norm)
+      .filter((s) => /\.dog-inputs(?![-\w])/.test(s))
+      .flatMap((s) => decls(r.body).map(([prop, v]) => `${at(r)} ${s} { ${prop}: ${v} }`))),
+    // A card placed, sized or floated by a rule of its own: the other way to
+    // set the two cards side by side, or to give one a width of its own.
+    placed: allRules(css).flatMap((r) => splitTop(r.sel).map(norm)
+      .filter((s) => /\.dog-(card|card-project|s2)(?![-\w])/.test(subject(s)))
+      .flatMap((s) => decls(r.body)
+        .filter(([prop]) => /^(grid-(row|column|area)(-start|-end)?|float|position|order|width|min-width|max-width|justify-self|place-self|margin-(left|right|inline.*))$/.test(prop))
+        .map(([prop, v]) => `${s} { ${prop}: ${v} }`))),
+    // Card 2's parts with a width of their own: stacked, the stack's width is
+    // theirs (DG5 capped them beside card 1).
+    card2: allRules(css).flatMap((r) => splitTop(r.sel).map(norm)
+      .filter((s) => /\.dog-s2(?![-\w])[^,]*\.dog-card-body/.test(s))
+      .flatMap((s) => decls(r.body).filter(([prop]) => /^(max-|min-)?width$/.test(prop)).map(([prop, v]) => `${s} { ${prop}: ${v} }`))),
     column: decl(css, '.dog-refs')['max-width'],
     details: decl(css, '.dog-card-project .dog-project-details')['max-width'],
     meter: decl(css, '.dog-refs .dog-refs-meter').width,
@@ -179,14 +212,46 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
       .map(([prop, v]) => `${norm(r.sel)} { ${prop}: ${v} }`)),
   })
   const px = (v) => Number(/^(\d+(?:\.\d+)?)px$/.exec(v || '')?.[1])
-  function minWidth(head) { return Number(/\(min-width: (\d+)px\)/.exec(head)[1]) }
+  const minWidth = (head) => Number(/\(min-width: (\d+)px\)/.exec(head)?.[1])
+  // The wrapper's rules as DG6 writes them, and nothing else.
+  const WRAPPER = [
+    '@layer components .dog-inputs { --dog-measure: 576px }',
+    '@layer components .dog-inputs { display: grid }',
+    '@layer components .dog-inputs { grid-template-columns: 1fr }',
+    '@layer components .dog-inputs { gap: 8px }',
+    '@layer components .dog-inputs { max-width: 602px }',
+    `${SPLIT} .dog-inputs { max-width: 1202px }`,
+  ]
+  // DG5's row as it was merged (7de8d9d6), for the controls below.
+  const DG5_ROW = `.dog-inputs {
+    --dog-measure: 576px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+  @container dog-main (min-width: 1148px) {
+    .dog-inputs { grid-template-columns: minmax(602px, 1fr) minmax(538px, 1fr); }
+    .dog-s2 > .dog-card-body > * { max-width: var(--dog-measure); }
+  }
+  @container dog-main (min-width: 1708px) {
+    .dog-inputs { grid-template-columns: 2fr 1fr; }
+    .dog-card-project > .dog-card-body {
+      display: grid;
+      grid-template-columns: minmax(507px, var(--dog-measure)) var(--dog-measure);
+      column-gap: 24px;
+      align-items: start;
+    }
+    .dog-card-project > .dog-card-body > .dog-refs { margin-top: 0; }
+  }`
+  const STACK = /\.dog-inputs \{\s*--dog-measure[\s\S]*?\.dog-card-project > \.dog-card-body > \.dog-refs \{ margin-top: 0; \}\s*\}/
 
-  it('the measure is one number, 576px, declared once, on the row; card 1\'s column, its description, its meter and, beside it, card 2\'s children keep to it; stacked, card 2 keeps its width', () => {
+  it('the measure is one number, 576px, declared once, on the wrapper; card 1\'s column, its description and its meter keep to it; card 2\'s parts have no width of their own', () => {
     const p = pins(DOG)
     expect(p.measures).toEqual(['.dog-inputs { --dog-measure: 576px }'])
-    for (const v of [p.column, p.details, p.meter, p.card2]) expect(v).toBe('var(--dog-measure)')
+    for (const v of [p.column, p.details, p.meter]) expect(v).toBe('var(--dog-measure)')
     expect(`${p.measures} ${p.meter}`).not.toMatch(/%|vw|fr\b/)
-    expect(p.card2Stacked).toBeUndefined()
+    expect(p.card2).toEqual([])
   })
 
   it('DG4\'s meter: the measure, a length and never a share of the card; the track 8px; the footer\'s meter still flexes', () => {
@@ -196,47 +261,36 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     expect(p.foot).toEqual({ flex: '1' })
   })
 
-  it('the main column is a named inline-size container and keeps C4\'s 8px padding, and nothing else new; the row is one grid column, the cards 8px apart, each its own height', () => {
+  it('the main column is a named inline-size container with C4\'s 8px padding and its scrollbar\'s gutter, and nothing else new; the wrapper is one grid column, the cards 8px apart, 602px at most', () => {
     const p = pins(DOG)
     expect(p.container).toBe('dog-main / inline-size')
     expect(p.padding).toBe('8px')
-    // Review round 1, finding 3: the container and nothing else new. A grid
-    // here would hand its rows the scroll column's height (the design's trap).
-    // The follow-up's review round 1, finding 1: the scrollbar's gutter kept,
-    // or a size query on this scroll column is answered before the scrollbar
-    // takes its share (measured: a 1404 window got the pair and a sideways
-    // scrollbar).
-    expect(decl(DOG, '.dog-main')).toEqual({ padding: '8px', 'background-color': 'var(--color-paper)', container: 'dog-main / inline-size', 'scrollbar-gutter': 'stable' })
-    expect(p.row).toEqual({ '--dog-measure': '576px', display: 'grid', 'grid-template-columns': '1fr', gap: '8px', 'align-items': 'start' })
+    // DG5 review round 1, finding 3: the container and nothing else new (a
+    // grid here would hand its rows the scroll column's height). DG5's
+    // follow-up, review round 1, finding 1: the scrollbar's gutter kept, or
+    // a size query on this scroll column is answered before the scrollbar
+    // takes its share (measured: the cards laid into a column 10px too
+    // narrow, and a sideways scrollbar).
+    expect(p.main).toEqual({ padding: '8px', 'background-color': 'var(--color-paper)', container: 'dog-main / inline-size', 'scrollbar-gutter': 'stable' })
+    expect(p.row).toEqual({ '--dog-measure': '576px', display: 'grid', 'grid-template-columns': '1fr', gap: '8px', 'max-width': '602px' })
   })
 
-  it('the pair and the triple, each from the width its arithmetic gives, and nothing side by side under the pair\'s width', () => {
+  it('stacked at every width: one container query, from W 1202, that widens the cap and splits card 1\'s body; nothing sets a card beside the other or gives one a width of its own', () => {
     const p = pins(DOG)
-    // Her answer to walkthrough 89's Q2 (2026-10-30): "Side by side from
-    // about 1,414 only". The design follow-up's W 1000 rule is gone, and
-    // nothing else lays the row out (the follow-up's review round 1, finding
-    // 5): every container query in the sheet is one of the column's two, and
-    // every rule whose selector ends in the row sets grid-template-columns only
-    // in the stack, the pair or the triple. Its reach (review round 2, finding
-    // 2): the row's other ways to set cards side by side (display: flex on it,
-    // grid-auto-flow, grid-template, grid-template-areas, a grid-row on a card,
-    // a :has() selector) are not read here.
-    expect(p.widths).toEqual([1148, 1708])
-    expect(allRules(DOG).filter((r) => /^@container\b/.test(norm(r.sel))).map((r) => norm(r.sel))).toEqual([PAIR, TRIPLE])
-    const rowColumns = allRules(DOG)
-      .filter((r) => splitTop(r.sel).some((s) => /\.dog-inputs$/.test(norm(s))))
-      .flatMap((r) => decls(r.body).filter(([prop]) => prop === 'grid-template-columns')
-        .map(([, v]) => `${norm(r.parents[r.parents.length - 1] || '')} ${splitTop(r.sel).map(norm).join(', ')}: ${v}`))
-    expect(rowColumns).toEqual([
-      '@layer components .dog-inputs: 1fr',
-      `${PAIR} .dog-inputs: minmax(602px, 1fr) minmax(538px, 1fr)`,
-      `${TRIPLE} .dog-inputs: 2fr 1fr`,
-    ])
-    expect(p.pair).toBe('minmax(602px, 1fr) minmax(538px, 1fr)')
-    expect(p.triple).toBe('2fr 1fr')
-    expect(p.split).toEqual({ display: 'grid', 'grid-template-columns': 'minmax(507px, var(--dog-measure)) var(--dog-measure)', 'column-gap': '24px', 'align-items': 'start' })
+    // Her words of 2026-10-31: "i want to keep the 1 and 2 cards stacked not
+    // side by side". DG5's pair (W 1148) and triple (W 1708) are gone, not
+    // left inert.
+    expect(p.queries).toEqual([SPLIT])
+    expect(p.wrapper).toEqual(WRAPPER)
+    expect(p.placed).toEqual([])
+    expect(p.cap).toEqual({ 'max-width': '1202px' })
+    expect(p.split).toEqual({ display: 'grid', 'grid-template-columns': 'var(--dog-measure) var(--dog-measure)', 'column-gap': '24px', 'align-items': 'start' })
     expect(p.level).toBe('0')
-    // The numbers each width rests on, read from the sheets.
+    expect(DOG).not.toMatch(/min-width: (1148|1708)px/)
+  })
+
+  it('the widths are the measure\'s arithmetic: 602 one column, 1202 two, and the split where the column holds 1202 (a 1468 window)', () => {
+    const p = pins(DOG)
     const measure = px(p.row['--dog-measure'])
     const pad = px(decl(DOG, '.dog-card-body').padding)
     const border = px(/^(\d+px) solid/.exec(decl(INDEX, '.ui-card').border || '')?.[1])
@@ -244,58 +298,83 @@ describe('dog.css: the inputs row (DG5), with DG4\'s measure and meter in it', (
     const gutter = px(p.split['column-gap'])
     expect([measure, pad, border, seam, gutter]).toEqual([576, 12, 1, 8, 24])
     const card = (body) => body + 2 * pad + 2 * border
-    // The project row on one line: the dropdown's 360px, 8px, New project's
-    // 139px. jsdom lays nothing out, so the 139 is Chromium's (139.09 at
-    // every width, DG5's probe). Part of what it was measured from is pinned
-    // here (review round 1, finding 2): the button's variant, glyph and
-    // words, and the kit button's padding and gap. The rest is not (review
-    // round 2, finding 1): the glyph's size token, the button's type step
-    // and weight, its border. A change there needs the probe again.
+    // One column: the card at the measure. Two: the measure twice, the gutter
+    // between. The cap is the card, and the query starts where the column
+    // holds the two-column card, so neither band has an empty card or a
+    // squeezed one.
+    expect(px(p.row['max-width'])).toBe(card(measure))
+    expect(card(measure)).toBe(602)
+    expect(px(p.cap['max-width'])).toBe(card(measure + gutter + measure))
+    expect(minWidth(SPLIT)).toBe(px(p.cap['max-width']))
+    expect(minWidth(SPLIT)).toBe(1202)
+    // W: the window less the 240px sidebar, this column's padding and the
+    // 10px gutter Chromium keeps for its scrollbar (11 in Electron 33 where
+    // DG5 measured it: a 1469 window there). 1280 and 1440 windows hold one
+    // column; 1468 and wider, two.
+    const app = (window) => window - 240 - 2 * px(p.padding) - 10
+    expect(app(1468)).toBe(minWidth(SPLIT))
+    for (const w of [1280, 1366, 1440, 1467]) expect(app(w)).toBeLessThan(minWidth(SPLIT))
+    for (const w of [1920, 2560, 3440]) expect(app(w)).toBeGreaterThanOrEqual(minWidth(SPLIT))
+    // The project row fits one column on one line: the dropdown's 360px, 8px
+    // and New project's 139px (Chromium's, 139.09 at every width: DG5's probe;
+    // jsdom lays nothing out). Pinned: the row's markup, the button's
+    // variant, glyph and words, the kit button's padding and gap. Not
+    // pinned (DG5 review round 2, finding 1): the glyph's size token, the
+    // type step and weight, the border; a change there needs the probe again.
     expect(JSX).toContain('<div className="flex items-center gap-2">')
     expect(JSX).toContain('<div className="relative flex-1" style={{ maxWidth: \'360px\' }}>')
     expect(JSX).toMatch(/<Button variant="secondary" onClick=\{\(\) => setShowNewProjectModal\(true\)\}>\s*<Plus aria-hidden="true" \/>\s*New project\s*<\/Button>/)
     expect([decl(INDEX, '.ui-btn').padding, decl(INDEX, '.ui-btn').gap]).toEqual(['0 16px', '8px'])
-    const projectRow = 360 + 8 + 139
-    expect(projectRow).toBe(507)
-    // From W 1148: card 1 at the measure beside card 2 at a 512px body. With
-    // the 240px sidebar, this column's padding and the 10px gutter Chromium
-    // keeps for its scrollbar, a 1414 window is exactly that width (Electron 33
-    // drew 11px where it was measured: 1415 there), and a 1280 window stacks.
-    expect(card(measure)).toBe(602)
-    expect(card(512)).toBe(538)
-    expect(minWidth(PAIR)).toBe(card(measure) + seam + card(512))
-    const app = (window) => window - 240 - 2 * px(p.padding) - 10
-    expect(app(1414)).toBe(minWidth(PAIR))
-    expect(app(1280)).toBeLessThan(minWidth(PAIR))
-    // Triple: card 1's body holds the project row and the references, 24px
-    // apart, and card 1 is two thirds of what the seam leaves:
-    // W = card x 3 / 2 + seam.
-    expect(minWidth(TRIPLE)).toBe(Math.ceil(card(projectRow + gutter + measure) * 3 / 2 + seam))
-    expect((minWidth(TRIPLE) - seam) / 3).toBeGreaterThanOrEqual(card(512))
+    expect(360 + 8 + 139).toBeLessThanOrEqual(measure)
   })
 
-  it('CONTROL: the sheet as DG4 left it (one column on card 1, no container, no row) fails every DG5 pin above', () => {
-    const before = DOG
-      .replace(/\n\s*\/\* DG5: a named size container[\s\S]*?scrollbar-gutter: stable;/, '')
-      .replace(/\/\* ═══ THE INPUTS ROW — DG5[\s\S]*?\.dog-card-project > \.dog-card-body > \.dog-refs \{ margin-top: 0; \}\s*\}/, '')
-      .replace('.dog-card-project .dog-project-details,', '.dog-card-project { --dog-refs-measure: 576px; }\n  .dog-card-project .dog-project-details,')
-      .replaceAll('var(--dog-measure)', 'var(--dog-refs-measure)')
+  it('CONTROL: the sheet as DG5 left it (the pair, card 2\'s cap, the triple) fails every DG6 pin', () => {
+    expect(DOG).toMatch(STACK)
+    const before = DOG.replace(STACK, DG5_ROW)
     expect(before).not.toBe(DOG)
     const p = pins(before)
-    expect(p.measures).toEqual(['.dog-card-project { --dog-refs-measure: 576px }'])
-    expect([p.container, p.pair, p.triple, p.level, p.card2]).toEqual([undefined, undefined, undefined, undefined, undefined])
-    expect(p.widths).toEqual([])
-    expect(p.row).toEqual({})
-    expect(p.meter).toBe('var(--dog-refs-measure)')
-    expect(p.track).toBe('8px')
-    expect(p.foot).toEqual({ flex: '1' })
+    expect(p.queries).toEqual(['@container dog-main (min-width: 1148px)', '@container dog-main (min-width: 1708px)'])
+    expect(p.wrapper).not.toEqual(WRAPPER)
+    expect(p.wrapper).toContain('@container dog-main (min-width: 1148px) .dog-inputs { grid-template-columns: minmax(602px, 1fr) minmax(538px, 1fr) }')
+    expect(p.row).not.toHaveProperty('max-width')
+    expect(p.cap).toEqual({})
+    expect(p.split).toEqual({})
+    expect(p.level).toBeUndefined()
+    expect(p.card2).toEqual(['.dog-s2 > .dog-card-body > * { max-width: var(--dog-measure) }'])
+  })
+
+  it('CONTROL: a cap that is a share or off its arithmetic, a third width, a wrapper or a card laid out another way, and card 2 capped again, are each caught', () => {
+    const swap = (from, to) => { const s = DOG.replace(from, to); expect(s).not.toBe(DOG); return pins(s) }
+    // The cap a share of the column, and the cap off the two-column card.
+    expect(swap('max-width: 602px;', 'max-width: 50%;').row['max-width']).toBe('50%')
+    const off = swap('.dog-inputs { max-width: 1202px; }', '.dog-inputs { max-width: 1200px; }')
+    expect(px(off.cap['max-width'])).not.toBe(minWidth(SPLIT))
+    // A third width: the triple back.
+    const third = swap('/* Two columns of the measure', '}\n  @container dog-main (min-width: 1708px) { .dog-inputs { grid-template-columns: 2fr 1fr; } }\n  @container dog-main (min-width: 1202px) {\n    /* Two columns of the measure')
+    expect(third.queries).not.toEqual([SPLIT])
+    expect(third.wrapper).not.toEqual(WRAPPER)
+    // Side by side another way: flex on the wrapper, a :has() on it, a card
+    // in the second column, a card's own width.
+    const ANCHOR = '.dog-main > * + * { margin-top: 8px; }'
+    for (const plant of [
+      '.dog-main .dog-inputs { display: flex; }',
+      '.dog-inputs:has(.dog-s2) { grid-auto-flow: column; }',
+      '.dog-inputs > * { grid-template-columns: inherit; }',
+    ]) expect(swap(ANCHOR, `${ANCHOR}\n  ${plant}`).wrapper, plant).not.toEqual(WRAPPER)
+    for (const plant of [
+      '.dog-card.dog-s2 { grid-column: 2; }',
+      '.dog-inputs > .dog-card-project { width: 50%; }',
+      '.dog-s2[data-full-deck=\'true\'] { float: right; }',
+    ]) expect(swap(ANCHOR, `${ANCHOR}\n  ${plant}`).placed, plant).not.toEqual([])
+    // Card 2's parts capped again, as DG5 had them beside card 1.
+    expect(swap(ANCHOR, `${ANCHOR}\n  .dog-s2 > .dog-card-body > * { max-width: var(--dog-measure); }`).card2).toHaveLength(1)
   })
 
   it('CONTROL: a meter that is a share of the card, a 6px track, or a second measure fails the pins', () => {
     const bad = DOG
       .replace('.dog-refs .dog-refs-meter { width: var(--dog-measure); max-width: 100%; }', '.dog-refs .dog-refs-meter { width: 100%; }')
       .replace(/(\.dog-refs-meter-track \{[^}]*?height: )8px/, '$16px')
-      .replace('.dog-s2 > .dog-card-body > * { max-width: var(--dog-measure); }', '.dog-s2 > .dog-card-body > * { --dog-measure: 576px; max-width: var(--dog-measure); }')
+      .replace('.dog-refs > * + * { margin-top: 16px; }', '.dog-refs > * + * { margin-top: 16px; }\n  .dog-s2 { --dog-measure: 600px; }')
     expect(bad).not.toBe(DOG)
     const p = pins(bad)
     expect(p.meter).toBe('100%')
