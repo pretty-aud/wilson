@@ -795,6 +795,10 @@ describe('surface 2b', () => {
     // Figures right-aligned, their headers with them; the words left.
     expect(ths.filter((th) => th.getAttribute('data-numeric') === 'true').map((th) => th.textContent))
       .toEqual(['Bid', 'Expected', 'Margin', 'Conting.', 'Actual', 'vs expected', 'Files'])
+    // Twelve columns: the kit's compact cells, so 1280 holds them (measured
+    // in Chromium: 1228px of table, the title 204px at 1280).
+    expect(table.getAttribute('data-compact')).toBe('true')
+    expect(ths[7].style.width).toBe('var(--rb-budget-exp-col-vs)')
     // The tab's default order, newest first; an untitled expense says so.
     expect(titles(container)).toEqual(['Camera package hire', 'Set timber and paint', 'Untitled'])
     const rows = rowsOf(container)

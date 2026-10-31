@@ -2166,7 +2166,8 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
               actual against expected). */}
           {moved != null && (
             <span className="rb-budget-var rb-budget-exp-vsbid" data-tone={moved > 0 ? 'danger' : moved < 0 ? 'success' : 'zero'}>
-              <CurrencyDisplay value={moved} currency={currency} signed /> vs bid
+              <CurrencyDisplay value={moved} currency={currency} signed />{' '}
+              <span className="rb-budget-exp-vsbid-words">vs bid</span>
             </span>
           )}
         </Td>
@@ -2430,6 +2431,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
 
         <Table
           className="rb-budget-exp"
+          compact
           head={(
             <Row>
               <Th width="var(--rb-budget-exp-col-check)" className="rb-budget-exp-check-cell">
@@ -2454,7 +2456,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
               <Th width="var(--rb-budget-exp-col-money)" numeric>Margin</Th>
               <Th width="var(--rb-budget-exp-col-money)" numeric>Conting.</Th>
               <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'actual_cost' ? sortDir : null} onSort={() => sortBy('actual_cost')}>Actual</Th>
-              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'variance' ? sortDir : null} onSort={() => sortBy('variance')}>vs expected</Th>
+              <Th width="var(--rb-budget-exp-col-vs)" numeric sort={sortField === 'variance' ? sortDir : null} onSort={() => sortBy('variance')}>vs expected</Th>
               <Th width="var(--rb-budget-exp-col-date)" sort={sortField === 'purchase_date' ? sortDir : null} onSort={() => sortBy('purchase_date')}>Date</Th>
               <Th width="var(--rb-budget-exp-col-related)">Related</Th>
               <Th width="var(--rb-budget-exp-col-files)" numeric>Files</Th>
