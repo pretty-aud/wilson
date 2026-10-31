@@ -828,8 +828,11 @@ jobs:
   # `ReturnType<typeof createClient>`; OUTSTANDING F1-01). They are
   # counted per file and code, not fixed here. A count above its line fails
   # (a new error, PAGE's included); a count below it fails too, so the commit
-  # that fixes one lowers or deletes its line, and the list only shrinks. A
-  # session that touches one of those ten files moves KNOWN with it.
+  # that fixes one lowers or deletes its line, and the list only shrinks. The
+  # counts move with any module in the graph (rateLimit.ts types
+  # resolve-login's), so a session that touches anything under
+  # supabase/functions/ has KNOWN in its list; at a merge, KNOWN is what the
+  # merge commit's own run reads.
   #
   # Full logs need repo admin; annotations are public. Each distinct new error
   # is one annotation at its first line with its other lines listed, six at
@@ -884,13 +887,19 @@ jobs:
           printf '  %s\n' "${FILES[@]}"
           STATUS=0
           deno check --no-config "${FILES[@]}" > /tmp/deno-check.log 2>&1 || STATUS=$?
+          # The log quotes source lines; one starting `::` must not be read as
+          # a workflow command, so commands are off while it prints.
+          FENCE="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          echo "::stop-commands::${FENCE}"
           cat /tmp/deno-check.log
+          echo "::${FENCE}::"
           printf '%s\n' "${KNOWN}" > /tmp/deno-known.txt
           # The result is the comparison with KNOWN, not deno's exit alone: an
           # error deno reports that this cannot place, a count of deno's own
           # that disagrees, or a failure before any type check (an import
-          # esm.sh refused) fails too. The warning shows deno's own count, so
-          # every green run shows that cross-check was read.
+          # esm.sh refused) fails too. The warning shows deno's own count, so a
+          # green run shows that cross-check was read. Deno prints no count for
+          # a single error; more than one and no count fails.
           RESULT=0
           awk -v root="file://${GITHUB_WORKSPACE}/WILSON/supabase/functions/" -v status="${STATUS}" '
             function enc(s) { gsub(/%/, "%25", s); gsub(/\r/, "%0D", s); gsub(/\n/, "%0A", s); return s }
@@ -937,6 +946,7 @@ jobs:
               }
               if (seen != placed) { bad = 1; printf "::error title=deno check::%d errors and %d of them placed; read the log\n", seen, placed }
               if (found > 0 && found != seen) { bad = 1; printf "::error title=deno check::deno counted %d errors and %d were read; read the log\n", found, seen }
+              if (seen > 1 && found == 0) { bad = 1; printf "::error title=deno check::%d errors read and deno printed no count of its own; read the log\n", seen }
               n = 0; all = ""; nk = 0; gk = 0; klist = ""
               for (i = 1; i <= groups; i++) {
                 split(order[i], k, SUBSEP)
@@ -950,7 +960,7 @@ jobs:
               }
               if (n > 6) printf "::error title=deno check all %d new::%s\n", n, enc(all)
               if (lowered != "") { bad = 1; printf "::error title=deno check baseline::Fewer errors than KNOWN in rls.yml says. Lower or delete these lines in the same commit:%%0A%s\n", enc(lowered) }
-              if (gk > 0) printf "::warning title=deno check known::%d known errors in %d groups (OUTSTANDING F1-01; KNOWN in rls.yml), none of them new; deno counted %s%%0A%s\n", nk, gk, (found > 0 ? found : "nothing (no summary line read)"), enc(klist)
+              if (gk > 0) printf "::warning title=deno check known::%d known errors in %d groups (OUTSTANDING F1-01; KNOWN in rls.yml), none of them new; deno counted %s%%0A%s\n", nk, gk, (found > 0 ? found : (seen == 1 ? "1 (it prints no count for one)" : "nothing")), enc(klist)
               exit bad
             }
           ' /tmp/deno-known.txt /tmp/deno-check.log || RESULT=$?

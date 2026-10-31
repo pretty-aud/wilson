@@ -16,7 +16,10 @@ controller deploys the function to dev and staging, on your go.
    companies again** (on the beta, `/wilsonadmin`, signed in as the
    operator). Since 2026-10-28 it has shown an error instead of the list; by
    the code that error reads *"Network error — check your connection."*,
-   though your connection is fine. Nothing else on the console changes.
+   though your connection is fine. The same fix makes a company's teardown
+   keep its full record of abandoned uploads again (in the Audit tab); since
+   2026-10-28 that record held only the run's own and was marked cut short.
+   Nothing else on the console changes.
 2. **Nothing to answer.** Every push now type-checks every Edge Function, so a
    function that uses a name it never brought in (this one) turns CI red as
    soon as it is pushed (CI cannot stop a deploy by itself; the controller

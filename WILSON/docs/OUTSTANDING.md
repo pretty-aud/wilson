@@ -3108,15 +3108,16 @@ REV-01 fixed and a `deno check` of every Edge Function in CI (her ruling of
 not fix:
 
 - **F1-01 · 28 type errors in ten files (seven functions and the three
-  shared guards), held as the deno check's baseline.** MEASURED on GitHub's runner (run 41224374487 on
-  `d5e853cf`: Deno 2.1.4, `supabase-js@2.45.4`'s own types from esm.sh): 34
-  errors in 15 groups, six of them REV-01's. The other 28:
-  `_shared/adminGuard.ts`, `_shared/memberGuard.ts` and
+  shared guards), held as the deno check's baseline.** MEASURED on GitHub's
+  runner (run 41224374487 on `d5e853cf`: Deno 2.1.4, `supabase-js@2.45.4`'s
+  own types from esm.sh): 34 errors in 15 groups, six of them REV-01's. The
+  other 28: `_shared/adminGuard.ts`, `_shared/memberGuard.ts` and
   `_shared/operatorGuard.ts`, TS2322 each (the guard's
   `admin: ReturnType<typeof createClient>` is
   `SupabaseClient<unknown, never, GenericSchema>`, and the client it makes is
-  `SupabaseClient<any, "public", any>`); `resolve-login` TS2345 (the same
-  client passed on); `storage-gc` 17 (its queue rows' `id`, `object_path`
+  `SupabaseClient<any, "public", any>`); `resolve-login` TS2345 (its client
+  handed to `isRateLimited`, whose `Client` is the same alias,
+  `_shared/rateLimit.ts:36`); `storage-gc` 17 (its queue rows' `id`, `object_path`
   and `bucket_id` are `unknown`, passed to `.eq`, `.remove` and the
   presigner); `admin-set-active` TS2769 (a callback's row type);
   `admin-user-security` TS2352 (`User` asserted to `Record<string,
@@ -3129,16 +3130,24 @@ not fix:
   annotation. INFERRED by reading that none throws: each is a type the code
   does not lean on at run time (a thenable awaited, an array typed `{}`, an
   `unknown` passed where a string goes). The job fails on any count above
-  `KNOWN` and on any below it. Fix shape: one type for the service-role
-  client the three guards hand out (supabase-js's own `SupabaseClient`,
-  which defaults to `<any, "public", any>`), which should clear the guards'
-  and `resolve-login`'s and perhaps the rows' (INFERRED, not measured); the
-  rest by hand, each lowering its line. 🚨 Whoever touches one of the ten
-  files moves `KNOWN` in the same commit, or the job goes red on the fix: F8
-  (`_shared/` and its callers) and F7 (`storage-gc`'s and `ai-files`' reads)
-  both do, in one wave, so their briefs need the `KNOWN` block of `rls.yml`
-  in their lists, and their merges will meet on its adjacent lines (keep
-  both lowerings). Owner: for the controller to place.
+  `KNOWN` and on any below it. Fix shape (INFERRED, not measured; review
+  round 2's reading): `ReturnType<typeof createClient>` is written at ten
+  places in nine files (the three guards, `gatewayGuard.ts` twice,
+  `rateLimit.ts`, `aiFilesUpstream.ts`, `gatewayReachRun.ts`,
+  `gatewaySigning.ts`, `storage-read-urls`), and `gatewayGuard` has no error
+  because its client is made in a return position typed by the alias.
+  Retyping only the three guards' `admin` would move their errors to the 19
+  `isRateLimited` calls, not clear them. Either one exported client type
+  for all ten places in one commit (the guards', `resolve-login`'s and
+  probably `storage-gc`'s rows clear), or the alias kept and the client
+  typed where it is made, as `gatewayGuard` does (the rows stay `unknown`);
+  the rest by hand, each lowering its line. 🚨 The counts move with any
+  module in the graph, so a session that touches anything under
+  `supabase/functions/` needs the `KNOWN` block of `rls.yml` in its list:
+  F8 (`_shared/` and its callers) and F7 (`storage-gc`'s and `ai-files`'
+  reads), in one wave. At their merge neither branch's numbers need be
+  right (F8's type can clear what F7 edits): `KNOWN` is what the merge
+  commit's own run reads. Owner: for the controller to place.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
@@ -3621,7 +3630,11 @@ the way are recorded below. Nothing becomes a session unless she names it
   function still answers the list a bare 500 with no CORS headers, which the
   console shows as "Network error — check your connection." (INFERRED from
   `operatorApi.js:106-107`, as `index.ts:388-395` records for the same
-  crash).~~ The operator console's
+  crash). Teardown step 1d threw too (at `:662`, caught at `:674`): any
+  teardown run on dev or staging since 2026-10-28 wrote its WIL-7012
+  certificate with `truncated: true` and that run's own abandoned paths
+  only, or none when nothing was open, rather than skipping in silence
+  (by reading; review round 2).~~ The operator console's
   company list fails: `operator-workspaces` uses `PAGE`, which nothing
   defines or imports.**
   `supabase/functions/operator-workspaces/index.ts:230-237` (the `list`

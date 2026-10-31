@@ -1610,12 +1610,14 @@ file it did replay.
 REV-01's six, in ten files (seven functions and the three shared guards),
 none of which throw (`docs/OUTSTANDING.md` F1-01). `KNOWN` lists them as
 file, code and count: a count above its line fails the job, and so does a
-count below it, so **the commit that fixes one lowers or deletes its line**,
-and a session that touches one of those files has `KNOWN` in its list. Each new error is a public annotation at its
-first line; the known ones are one warning; when the module graph fails
-before any check (esm.sh refusing an import) the annotation says that and
-nothing is compared. To move Deno, move it with the CLI's pin and read this
-job first.
+count below it, so **the commit that fixes one lowers or deletes its line**.
+The counts move with any module in the graph, so a session that touches
+anything under `supabase/functions/` has `KNOWN` in its list, and at a merge
+`KNOWN` is what the merge commit's own run reads. Each new error is a public
+annotation at its first line; the known ones are one warning, which carries
+Deno's own count; when the module graph fails before any check (esm.sh
+refusing an import) the annotation says that and nothing is compared. To
+move Deno, move it with the CLI's pin and read this job first.
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
