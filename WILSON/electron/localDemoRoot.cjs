@@ -229,9 +229,9 @@ function makeLocalDemoRoot({
   function readJSON(file) {
     return readJson(file, null, fs);
   }
-  function writeJSON(file, data) {
+  function writeJSON(file, data, opts) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeJsonAtomic(file, data, { fs });
+    writeJsonAtomic(file, data, { fs, ...opts });
   }
   function savePointer() {
     writeJSON(pointerPath(), pointer);
@@ -374,7 +374,9 @@ function makeLocalDemoRoot({
       // is best-effort here (a read-only drive must still open).
       try {
         const layout = ensureLayout(info.folder);
-        writeJSON(layout.manifestPath, { ...info.manifest, last_opened_at: now(), last_opened_with: appVersion || null });
+        // F3: tried once (build review round 2): a read-only drive must not
+        // hold every launch for the writer's retries.
+        writeJSON(layout.manifestPath, { ...info.manifest, last_opened_at: now(), last_opened_with: appVersion || null }, { attempts: 1 });
       } catch (err) { log(`[local-demo] manifest not updated: ${err.message}`); }
       active = info.folder;
       log(`[local-demo] active: ${active}`);

@@ -244,15 +244,19 @@ lists, task items, table views, the slug, the folder rows) also runs on every
 write, so a kept bundle is always the one a read of its file would give; the
 half that asks the disk (`ensureProjectFolders`, the Legal settle) runs per
 load, the demo rebase on every read, and the project PATCH makes the five
-sub-folders itself. The kept texts are bounded (64 MiB, counted two bytes a
-character; a larger bundle is read from disk as before). **Every JSON file
+sub-folders itself. The kept texts are bounded (64 MiB in all, counted two
+bytes a character; a bundle over about 8 MB on disk is never kept, and is
+read from disk as before). **Every JSON file
 `main.cjs` and `localDemoRoot.cjs` write** goes through one writer
 (`writeJsonAtomic`): the text whole to `<file>.tmp`, renamed over the file,
-both steps retried while Windows holds a file; a crash leaves the previous
-file, never a torn one that reads back as nothing (which dropped the project
-from the list). `readJSON` keeps its shape. The six `<Slug>_DATABASES`
+both steps retried while Windows holds a file (a read's write-back, a mirror
+and an audit append try once); a crash of WILSON leaves the previous file,
+never a torn one that reads back as nothing (which dropped the project from
+the list). `readJSON` keeps its shape. The six `<Slug>_DATABASES`
 mirrors are written only when their text changes or a file is gone from the
-folder (a task edit writes project.json and tasks.json, not six). O.T.T.E.R.'s
+folder (an edit to a task's notes writes project.json and tasks.json; one to
+its name, status or dates timeline.json too; the first edit after a launch
+all six). O.T.T.E.R.'s
 `GET …/:slug/subjects` reads only; the writes (POST, PUT, DELETE, `/renumber`)
 keep the curriculum order it used to rewrite on every list. Measured on the
 fixtures' project (a development build): a task PATCH 22 → 17 disk calls and
@@ -5190,7 +5194,7 @@ of a session — this section is limits by design, that file is faults.
   Since F3 (2026-10-31) a request no longer reads the project's bundle or
   re-checks its sub-folders while the bundle is kept in memory (§3.1): one
   stat of the file instead. The path's folders are still checked on every
-  request, and a demo folder is still stat'ed by every root question (4 or 5
+  request, and a demo folder is still stat'ed by every root question (3 to 5
   times a request: OUTSTANDING F3-04).
 - **The kept project file's limits (F3).** A bundle in a demo folder on a
   NAS that another machine changes can be served stale while Windows caches
@@ -5212,8 +5216,9 @@ of a session — this section is limits by design, that file is faults.
   must not stall every request on the retries); a read-only bundle is kept
   reconciled in memory and written by the next save. A mirror deleted by
   hand returns at the next pass; one edited by hand, or written by another
-  machine, stays until what it mirrors changes. Past 64 MiB of projects the
-  list reads each from disk again, as before F3 (build review round 1).
+  machine, stays until what it mirrors changes. Past 64 MiB of kept projects
+  the list reads each from disk again, as before F3, and pays for the text
+  it keeps (build review rounds 1 and 2).
 - **"Root unknown because the read failed" is not a modelled state** —
   last-known-good stands in for it (a transient Supabase blip must not
   retarget a machine onto its local default; the split-storage failure is

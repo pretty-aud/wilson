@@ -45,13 +45,15 @@ run out). Nothing in how WILSON looks changes.
    the first read and only checks that nothing changed it on the disk; when
    something did (you edited it, or copied a folder over it), it reads it
    again.
-2. **A project can no longer drop out of the list after a crash.** Saving
-   used to write straight over the file, so a crash half-way left half a
-   file, which the app read as nothing, and the project vanished from the
-   Projects list. Now every save writes a whole new copy and swaps it in,
-   trying again for a moment while Windows (an antivirus or the indexer)
-   holds the file. The same for everything else the desktop saves: courses,
-   rate cards, team, settings, the demo folder's own files.
+2. **A project can no longer drop out of the list if WILSON crashes.**
+   Saving used to write straight over the file, so a crash half-way left
+   half a file, which the app read as nothing, and the project vanished from
+   the Projects list. Now every save writes a whole new copy and swaps it
+   in, trying again for a moment while Windows (an antivirus or the indexer)
+   holds the file. The same for everything else the desktop saves as these
+   files: courses, rate cards, team, settings, the demo folder's own files
+   (your saved sign-in is not one of them, and is written down for later). A
+   power cut in the middle of a save can still lose that save, as before.
 3. **Opening O.T.T.E.R. no longer rewrites your lessons.** Listing a course's
    subjects rewrote every subject file each time (at launch, and again for
    the quiz picker); now it only reads them. The order you see is the same:
@@ -59,8 +61,10 @@ run out). Nothing in how WILSON looks changes.
    file that cannot be read is listed by its name and never written over
    (before, it could be overwritten with a blank).
 4. **The readable copies in each project's `_DATABASES` folder** are written
-   only when what they hold changes: editing a task rewrites two of the six
-   files, not all six.
+   only when what they hold changes: editing a task's notes rewrites two of
+   the six files (three for its name, status or dates), where every edit
+   rewrote all six; the first edit after you open WILSON still rewrites all
+   six.
 5. **What it measured** (the test project in the desktop app, each request 15
    times, before → after):
 

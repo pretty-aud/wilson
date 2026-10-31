@@ -120,8 +120,9 @@ function keyOf(file) {
  *   read(file)                a fresh parse of the kept text while the stamp is
  *                             unchanged; null when nothing is kept or the file
  *                             changed (the entry is then dropped)
- *   keep(file, text, stamp?)  the text now on disk, with the stamp taken
- *                             before it was read, or a stat now; never throws
+ *   keep(file, text, stamp?)  the text now on disk (or a function making it),
+ *                             with the stamp taken before it was read, or a
+ *                             stat now; never throws
  *   forget(file)
  */
 function createKeptFiles({ fs: fsImpl = nodeFs, maxBytes = KEPT_BYTES } = {}) {
@@ -168,12 +169,20 @@ function createKeptFiles({ fs: fsImpl = nodeFs, maxBytes = KEPT_BYTES } = {}) {
     keep(file, text, given) {
       const key = keyOf(file);
       drop(key);
-      if (typeof text !== 'string') return false;
-      const size = text.length * 2;
-      if (size > maxBytes / 4) return false; // one old bundle with base64 decks must not evict every other
       const s = given === undefined ? stamp(file) : given;
       if (!s) return false;
-      entries.set(key, { stamp: s, text, bytes: size });
+      // One old bundle with base64 decks must not evict every other: a file
+      // over a quarter of the budget (about 8 MB on disk) is never kept, and
+      // `text` may be a function, called only when the file fits, so such a
+      // bundle pays no stringify per load for nothing (build review round 2,
+      // finding 2).
+      const onDisk = Number(String(s).split(':')[2]);
+      if (Number.isFinite(onDisk) && onDisk * 2 > maxBytes / 4) return false;
+      const made = typeof text === 'function' ? text() : text;
+      if (typeof made !== 'string') return false;
+      const size = made.length * 2;
+      if (size > maxBytes / 4) return false;
+      entries.set(key, { stamp: s, text: made, bytes: size });
       bytes += size;
       for (const old of entries.keys()) {
         if (bytes <= maxBytes) break;
@@ -199,9 +208,12 @@ function createKeptFiles({ fs: fsImpl = nodeFs, maxBytes = KEPT_BYTES } = {}) {
  * write that throws records nothing, so the next pass writes again; so each
  * is tried once, not held up by the retries (a mirror is derived, and a
  * folder she can only read must not cost every write 0.2 s: build review
- * round 1, finding 1).
+ * round 1, finding 1), and one that fails is logged and passed over, so a
+ * held file does not keep the others of the pass from being written (round 2,
+ * finding 3). The line names the file's own name (`tasks.json`) and the
+ * error's code, never its folder.
  */
-function createChangeOnlyWriter({ fs: fsImpl = nodeFs, write = writeTextAtomic } = {}) {
+function createChangeOnlyWriter({ fs: fsImpl = nodeFs, write = writeTextAtomic, log = () => {} } = {}) {
   const last = new Map(); // key → sha1 of the text this writer put there
   return {
     writerFor(dir) {
@@ -215,8 +227,14 @@ function createChangeOnlyWriter({ fs: fsImpl = nodeFs, write = writeTextAtomic }
         const text = JSON.stringify(data, null, 2);
         const digest = crypto.createHash('sha1').update(text).digest('hex');
         const key = keyOf(file);
-        if (last.get(key) === digest && present.has(nodePath.basename(String(file)).toLowerCase())) return false;
-        write(file, text, { fs: fsImpl, attempts: 1 });
+        const name = nodePath.basename(String(file));
+        if (last.get(key) === digest && present.has(name.toLowerCase())) return false;
+        try {
+          write(file, text, { fs: fsImpl, attempts: 1 });
+        } catch (err) {
+          log(`[wilson] a project's ${name} mirror was not written (${err?.code || 'error'}); the next save writes it`);
+          return false;
+        }
         last.set(key, digest);
         return true;
       };

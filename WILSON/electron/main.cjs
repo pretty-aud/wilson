@@ -890,7 +890,7 @@ function startLocalServer(distPath) {
       // renumber that fails to write another subject does not fail this
       // save, which has landed (build review round 1, finding 4); the next
       // write renumbers again.
-      try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }
+      try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.code || 'error'); }
       res.json({ slug: subSlug, ...req.body });
     });
 
@@ -935,7 +935,7 @@ function startLocalServer(distPath) {
       writeJSON(filePath, body);
       // F3: a changed title can change its place; a failed renumber does not
       // fail the save (as the POST's).
-      try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }
+      try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.code || 'error'); }
       res.json({ slug: req.params.sub, ...body });
     });
 
@@ -1536,7 +1536,7 @@ function startLocalServer(distPath) {
         // stall every read on a write that cannot land (build review round 1,
         // finding 1); the next write persists it.
         if (rebaseGoneFolderRoot(kept, projectId)) {
-          try { rabbitBundles.keep(bundleFile, writeJSON(bundleFile, kept, { attempts: 1 })); } catch { rabbitBundles.keep(bundleFile, JSON.stringify(kept)); }
+          try { rabbitBundles.keep(bundleFile, writeJSON(bundleFile, kept, { attempts: 1 })); } catch { rabbitBundles.keep(bundleFile, () => JSON.stringify(kept)); }
         }
         return kept;
       }
@@ -1566,7 +1566,9 @@ function startLocalServer(distPath) {
             console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
           }
           // Settled only when every labelled row was decided — a body found
-          // nowhere (its drive unplugged) is asked about again next read.
+          // nowhere (its drive unplugged) is asked about again at the next
+          // load (F3: the next launch, or a change to the file by someone
+          // else; a read that finds the bundle kept runs no settle).
           if (settled.settled) {
             bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: bundle.legalLabelsStripped || [] };
             dirty = true;
@@ -1584,12 +1586,13 @@ function startLocalServer(distPath) {
       // with that stamp (the file is unchanged, so it still matches): on a
       // folder she can only read, every read re-loading and failing the write
       // stalled the window about 0.23 s (build review round 1, finding 1).
-      // The reconcile is deterministic, so the next disk load, or the next
-      // write, persists the same bundle.
+      // The reconcile's ids are derived from the project, so the next write
+      // persists the same rows (its times are this load's). The text is made
+      // only for a bundle small enough to keep (round 2, finding 2).
       if (dirty) {
-        try { rabbitBundles.keep(bundleFile, writeJSON(rabbitBundlePath(projectId), bundle, { attempts: 1 })); } catch { rabbitBundles.keep(bundleFile, JSON.stringify(bundle), stamp); }
+        try { rabbitBundles.keep(bundleFile, writeJSON(rabbitBundlePath(projectId), bundle, { attempts: 1 })); } catch { rabbitBundles.keep(bundleFile, () => JSON.stringify(bundle), stamp); }
       } else {
-        rabbitBundles.keep(bundleFile, JSON.stringify(bundle), stamp);
+        rabbitBundles.keep(bundleFile, () => JSON.stringify(bundle), stamp);
       }
       // D21 (review R1 local#4): the persist above is a raw writeJSON — no
       // mirror — so a legacy project that was only ever READ never got
@@ -1637,9 +1640,9 @@ function startLocalServer(distPath) {
       // again; for those only the two sibling arrays are ensured. Either way
       // the change is persisted by the read's dirty write, so it happens once.
       // Guarded: the backfill computes before it mutates, so a throw leaves
-      // the bundle as it was and the next read tries again. Its ids are
+      // the bundle as it was and the next load tries again. Its ids are
       // derived from the project (review R1, addendum H), so if the read's
-      // dirty write fails, the next read mints the SAME list and items and a
+      // dirty write fails, a later load mints the SAME list and items and a
       // renderer holding the first answer is not left with a 404.
       //
       // Then the prune (addendum H): an item whose scene or shot is gone —
@@ -1658,7 +1661,7 @@ function startLocalServer(distPath) {
       } catch (e) { console.error('shot list backfill failed:', e.message); }
       // FX2 (0096's twin): a bundle from before a task's items gains them
       // from each task's single fields (deterministic ids, so a failed
-      // write-back mints the same rows next read); dangling items go, as the
+      // write-back mints the same rows at a later load); dangling items go, as the
       // cloud's CASCADE drops them. VW1m (2026-10-16): a field set with no
       // item for it gains that item and a read never reorders; the five
       // single fields are only the older builds' copy (each kind's first
@@ -1742,7 +1745,9 @@ function startLocalServer(distPath) {
       } catch { /* leave the stored root alone */ }
       return false;
     }
-    function writeRabbitBundle(projectId, bundle, { touch = true } = {}) {
+    // F3: `attempts` reaches the writer — the download and stream audit
+    // appends try once (build review round 2, finding 1).
+    function writeRabbitBundle(projectId, bundle, { touch = true, attempts } = {}) {
       // touch:false is for persists that only append audit data (the S33
       // 'downloaded' event): a READ must not stamp project.updated_at —
       // the project list sorts by it, so every download would bump the
@@ -1756,10 +1761,10 @@ function startLocalServer(distPath) {
       // leaves, but for what only a read used to repair.
       const reconciled = reconcileRabbitBundle(bundle, projectId);
       if (reconciled.rowsAdded) {
-        try { materializeFolderDirs(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }
+        try { materializeFolderDirs(bundle); } catch (e) { console.error('folder reconcile failed:', e.code || 'error'); }
       }
       const bundleFile = rabbitBundlePath(projectId);
-      rabbitBundles.keep(bundleFile, writeJSON(bundleFile, bundle));
+      rabbitBundles.keep(bundleFile, writeJSON(bundleFile, bundle, attempts ? { attempts } : undefined));
       // Mirror split databases to user-visible project folder
       if (touch) mirrorProjectDatabases(projectId, bundle);
     }
@@ -2160,10 +2165,11 @@ function startLocalServer(distPath) {
 
     // F3: each mirror file is written only when its text differs from what
     // this process last wrote there, or it is no longer in the folder (one
-    // listing per pass): a task edit rewrites project.json (its updated_at)
-    // and tasks.json, not all six. The first write per project after a launch
-    // writes all six, so a stale mirror is refreshed once per launch.
-    const databaseMirrors = createChangeOnlyWriter();
+    // listing per pass): an edit to a task's notes rewrites project.json (its
+    // updated_at) and tasks.json, one to its name, status or dates
+    // timeline.json too, not all six. The first write per project after a
+    // launch writes all six, so a stale mirror is refreshed once per launch.
+    const databaseMirrors = createChangeOnlyWriter({ log: (line) => console.error(line) });
     function mirrorProjectDatabases(projectId, bundle) {
       const root = resolveProjectFolder(bundle);
       if (!root) return;
@@ -2586,8 +2592,9 @@ function startLocalServer(distPath) {
       // F3 (build review round 1, finding 3): a new project holds no label
       // from S4a's period, so its one-time Legal clean-up is settled at birth.
       // The first read settled it before; a read that finds the bundle kept
-      // runs no clean-up, which would wait for the next launch and then
-      // treat the Legal files added this session as S4a's.
+      // runs no clean-up, which would wait for the next launch, where a
+      // Legal file whose body she had moved by hand meanwhile would lose its
+      // label for good (legalFiling.cjs's R2-BEH-01).
       bundle.legalLabelsSettled = { at: now, stripped: [] };
       // Create the project folder on disk if a root is configured
       // (Session 34: workspace root outranks the machine default).
@@ -2736,7 +2743,7 @@ function startLocalServer(distPath) {
       // that finds the bundle kept no longer does. After the write, whose
       // reconcile names a title that slugifies to nothing (build review
       // round 1, finding 2: before it, bare _DATABASES and _FILES were made).
-      try { ensureProjectFolders(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }
+      try { ensureProjectFolders(bundle); } catch (e) { console.error('project sub-folders not made:', e.code || 'error'); }
       res.json(bundle.project);
     });
 
@@ -3766,7 +3773,9 @@ function startLocalServer(distPath) {
           old_path:         file.storage_path,
           size_bytes:       file.size_bytes ?? null,
         });
-        writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+        // F3: an audit append, tried once (a folder she can only read must
+        // not hold every download 0.2 s on the retries).
+        writeRabbitBundle(req.params.projectId, bundle, { touch: false, attempts: 1 });
       } catch (e) {
         console.warn('download not logged:', e?.message || e);
       }
@@ -4247,7 +4256,7 @@ function startLocalServer(distPath) {
             old_path:         `${mf.folder_path || ''}${mf.stored_name}`,
             size_bytes:       mf.size_bytes ?? null,
           });
-          writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+          writeRabbitBundle(req.params.projectId, bundle, { touch: false, attempts: 1 }); // F3: an audit append, tried once
         } catch (e) {
           console.warn('managed read not logged:', e?.message || e);
         }

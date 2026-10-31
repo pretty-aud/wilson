@@ -231,6 +231,19 @@ describe('createKeptFiles — the text last read or written, while the file is u
     const big = path.join(dir, 'big.json')
     expect(kept.keep(big, writeJsonAtomic(big, { pad: 'z'.repeat(600) }))).toBe(false) // 1,200+ bytes > 4000 / 4
   })
+  it('a file too big to keep is never turned into text: its size on disk is checked first (round 2, finding 2)', () => {
+    const kept = createKeptFiles({ maxBytes: 4000 })
+    const big = path.join(dir, 'big.json')
+    writeJsonAtomic(big, { pad: 'z'.repeat(600) })
+    let made = 0
+    expect(kept.keep(big, () => { made += 1; return '{}' })).toBe(false)
+    expect(made).toBe(0)
+    const small = path.join(dir, 'small.json')
+    writeJsonAtomic(small, { v: 1 })
+    expect(kept.keep(small, () => { made += 1; return '{"v":1}' })).toBe(true)
+    expect(made).toBe(1)
+    expect(kept.read(small)).toEqual({ v: 1 })
+  })
 })
 
 // ── 3. Mirrors written only when they change ─────────────────────────────────
@@ -302,6 +315,14 @@ describe('mirrorProjectDatabases (main.cjs, lifted) — six files, each written 
       () => dir, (s) => s, path, c.fs, createChangeOnlyWriter({ fs: c.fs }), { error: () => {} })
     mirror('p1', bundleOf())
     expect(budgetTries).toBe(1)
+  })
+  it('one mirror held by another program does not keep the other five of the pass from being written; the line names the file, not its folder (round 2, finding 3)', () => {
+    const lines = []
+    const c = countingFs({ renameSync: (real, ...a) => { if (String(a[1]).endsWith('project.json')) throw locked('EBUSY'); return real(...a) } })
+    const mirror = lift(createChangeOnlyWriter({ fs: c.fs, log: (l) => lines.push(l) }), c.fs)
+    mirror('p1', bundleOf())
+    expect(realFs.readdirSync(db()).filter((n) => n.endsWith('.json')).sort()).toEqual(['budget.json', 'scenes.json', 'tasks.json', 'team.json', 'timeline.json'])
+    expect(lines).toEqual(["[wilson] a project's project.json mirror was not written (EBUSY); the next save writes it"])
   })
   it('FAILING CONTROL: a writer that always writes (the tip) rewrites all six for the same bundle', () => {
     const c = countingFs()
@@ -467,6 +488,26 @@ describe('readRabbitBundle / writeRabbitBundle (main.cjs, lifted) — kept in me
     expect(readJson(io.file()).project.folder_root).toBe(path.join(demo, 'projects', 'Salt-Hours'))
     expect(io.spies.events).toEqual(['relinked'])
   })
+  it('the same on a folder she can only read: the write tried once, the rebased bundle kept, the next read a hit that tries no write (round 2, finding 4)', () => {
+    const demo = path.join(dir, 'demo')
+    const outside = path.join(dir, 'outside', 'Salt-Hours')
+    realFs.mkdirSync(outside, { recursive: true })
+    let readOnly = false
+    const io = liftBundleIO({ demoRoot: demo, fsPlant: { writeFileSync: (real, ...a) => { if (readOnly) throw locked('EPERM'); return real(...a) } } })
+    io.put({ ...CURRENT(), project: { ...CURRENT().project, folder_root: outside } })
+    io.readRabbitBundle('p1')
+    realFs.rmSync(path.join(dir, 'outside'), { recursive: true, force: true })
+    readOnly = true
+    io.c.reset()
+    expect(io.readRabbitBundle('p1').project.folder_root).toBe(path.join(demo, 'projects', 'Salt-Hours'))
+    expect(io.c.counts.writeFileSync).toBe(1)
+    expect(readJson(io.file()).project.folder_root).toBe(outside)
+    io.c.reset()
+    expect(io.readRabbitBundle('p1').project.folder_root).toBe(path.join(demo, 'projects', 'Salt-Hours'))
+    expect(io.c.counts.writeFileSync).toBeUndefined()
+    expect(io.c.counts.readFileSync).toBeUndefined()
+    expect(io.spies.events).toEqual(['relinked'])
+  })
 })
 
 // ── 5. The subjects GET reads; the writes keep the order ─────────────────────
@@ -588,7 +629,7 @@ describe('the subjects GET (main.cjs, lifted) reads only; the writes keep the or
     expect(readJson(path.join(s.subjDir, 'arrays-and-lists.json')).title).toBe('Arrays and lists')
     realFs.rmSync(path.join(dir, 'software'), { recursive: true, force: true })
     const unguarded = extractRouteBody(MAIN, "expressApp.post('/api/software/:slug/subjects',")
-      .replace("try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }", 'renumberSubjects(req.params.slug);')
+      .replace("try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.code || 'error'); }", 'renumberSubjects(req.params.slug);')
     const t = liftSubjects({ postSource: unguarded, fsPlant: { renameSync: refuseOthers } })
     t.seed()
     expect(() => t.call('post', { slug: 'arrays-and-lists', title: 'Arrays and lists', skill_level: 'beginner', sections: [] })).toThrow(/EIO/)
@@ -606,7 +647,7 @@ describe('the subjects GET (main.cjs, lifted) reads only; the writes keep the or
     const [was, now] = run()
     expect(now).toBeLessThan(was)
     const unguarded = extractRouteBody(MAIN, "expressApp.put('/api/software/:slug/subjects/:sub',")
-      .replace("try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }", '')
+      .replace("try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.code || 'error'); }", '')
     const [was2, now2] = run(unguarded)
     expect(now2).toBe(was2)
   })
@@ -658,7 +699,7 @@ describe('main.cjs — the project PATCH, the writers, the body limit', () => {
     expect(replay(PATCH)).toEqual(['written', path.join(dir, 'NAS', 'Salt-Hours')])
   })
   it('FAILING CONTROL: the PATCH without that call makes none', () => {
-    expect(replay(PATCH.replace("try { ensureProjectFolders(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }", ''))).toEqual(['written'])
+    expect(replay(PATCH.replace("try { ensureProjectFolders(bundle); } catch (e) { console.error('project sub-folders not made:', e.code || 'error'); }", ''))).toEqual(['written'])
   })
   it('a new project is created with its Legal clean-up settled, before its first write (round 1, finding 3)', () => {
     const post = extractRouteBody(MAIN, "expressApp.post('/api/rabbit/projects',")
@@ -673,9 +714,16 @@ describe('main.cjs — the project PATCH, the writers, the body limit', () => {
     expect(extractFunction(MAIN, 'writeJSON')).toMatch(/return writeJsonAtomic\(filePath, data, opts\);/)
     expect(extractFunction(MAIN, 'archiveLocalRabbitData')).toMatch(/writeJsonAtomic\(archivePath, snapshot, \{ fs, durable: true \}\)/)
   })
-  it('localDemoRoot.cjs writes its pointer and manifest through the same writer', () => {
+  it('localDemoRoot.cjs writes its pointer and manifest through the same writer; the best-effort manifest at launch tries once (round 2)', () => {
     expect(DEMO).not.toMatch(/writeFileSync\(/)
-    expect(DEMO).toMatch(/writeJsonAtomic\(file, data, \{ fs \}\)/)
+    expect(DEMO).toMatch(/writeJsonAtomic\(file, data, \{ fs, \.\.\.opts \}\)/)
+    expect(DEMO).toMatch(/writeJSON\(layout\.manifestPath, \{ \.\.\.info\.manifest, last_opened_at: now\(\), last_opened_with: appVersion \|\| null \}, \{ attempts: 1 \}\);/)
+  })
+  it('the download and stream audit appends try once; writeRabbitBundle hands its attempts to the writer (round 2, finding 1)', () => {
+    const FILE_READS = realFs.readFileSync(new URL('../../electron/fileReads.cjs', import.meta.url), 'utf-8')
+    expect(MAIN.split('{ touch: false, attempts: 1 }').length - 1).toBe(2)
+    expect(FILE_READS.split('{ touch: false, attempts: 1 }').length - 1).toBe(1)
+    expect(extractFunction(MAIN, 'writeRabbitBundle')).toMatch(/writeJSON\(bundleFile, bundle, attempts \? \{ attempts \} : undefined\)/)
   })
   it('the subjects GET neither writes nor renumbers', () => {
     const get = extractRouteBody(MAIN, "expressApp.get('/api/software/:slug/subjects',")
