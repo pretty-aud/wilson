@@ -204,8 +204,8 @@ built, and reviewed twice on Opus.
    the fee on the crew and the expenses. The Talent line still holds its own
    fees, as before, so nothing is counted twice. The Topsheet's expenses
    row now carries the fee too, so its expenses bid ($24,449) is more than
-   the Expenses tab shows ($21,260): the Expenses tab has no fee column
-   (written down, F2-07).
+   the Expenses tab showed ($21,260): the Expenses tab had no fee (written
+   down, F2-07; since Q5 its *Bid total* shows it, below).
 
 | On the test project (15% typed) | Before | After |
 |---|---|---|
@@ -237,6 +237,8 @@ or you type the percentage you want. *(Recommended: nothing changes on a
 budget without you seeing it.)*
 (b) Find them and set them to 20% (a change to the stored data, for a later
 session; a typed 0 cannot be told apart, so those would change too).
+**Answered 2026-10-31, to the controller: (a), *"Leave them
+(Recommended)"*.** Nothing to build.
 
 **Q5. The Topsheet's expenses row and the client estimate now add the agency
 fee to the expenses, but the Expenses tab shows no fee at all ($21,260
@@ -245,6 +247,34 @@ tab show it?**
 (a) Yes: show the fee on the Expenses tab, so the pages agree.
 *(Recommended: one figure for what the expenses are bid at.)*
 (b) No: the Expenses tab shows what the expenses cost, before any fee.
+**Answered 2026-10-31, to the controller: (a), *"Yes, show it
+(Recommended)"*.** Built the same day:
+
+With the agency fee on, the Expenses tab has a fifth figure at the top,
+**Bid total**, beside *Estimated total*: what the expenses are bid at with
+the fee, and under it the fee itself. On the test project it reads $24,449,
+*with the $3,189 agency fee* (it showed only the $21,260 estimate), the
+same as the Topsheet's expenses row. It counts every expense, whatever you
+search for, as the other figures there do. With the fee off it does not
+show.
+Each expense's own figures, the *Variance* (−$316, which now says *against
+the estimate, before the fee* while the fee is on) and the over and under
+budget labels stay what the expenses cost against their estimate; the
+Topsheet's variance for the expenses is against the bid with the fee
+(−$3,505), as on the Crew and Talent tabs. **Look at:** Budget → Expenses on
+*Salt Hours*.
+
+**Q6. On the Expenses tab, should *Variance* compare what the expenses cost
+with their estimate, or with the bid?** The second review of the Q5 build
+raised it; it is your call. With the fee on, the Expenses tab's Variance is
+the cost against the estimate (−$316 on the test project), and says so
+under it. The Crew and Talent tabs, and the Topsheet's expenses row, compare
+with the bid, fee included (−$3,505 for the expenses).
+(a) Against the estimate, as now: it tells you whether the expenses cost
+more than you expected. *(Recommended: the fee is not money spent, so
+against the bid the expenses always look under by the fee, $3,189 here.)*
+(b) Against the bid, as on the other tabs: every page's Variance measured
+the same way.
 
 ## F3 — The desktop's project file: kept in memory, saved whole
 

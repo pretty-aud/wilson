@@ -100,7 +100,8 @@
 
   /* The day tiles: one kit Stat each (R3-10), on the raised paper with one
      hairline as B2's Tasks tiles are, in one row at the 24px gutter. They
-     share the row evenly (the Expenses, Crew and Talent tabs' four as well)
+     share the row evenly (the Crew and Talent tabs' four as well, and the
+     Expenses tab's four or, with the agency fee on, five)
      and wrap under 120px. One class over `.ui-stat`, whose `min-width: 0`
      this sheet may load before. */
   .rb-budget-stats,
