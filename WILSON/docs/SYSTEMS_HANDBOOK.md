@@ -1591,6 +1591,7 @@ not push-to-`main`, where branch protection makes it redundant.
 | **issue-session smoke** | `scripts/probes/issue-session.sh` against real `wilson-dev` | That ES256 tokens validate in-function. The local stack issues HS256, so **only a hosted probe can catch this regression** |
 | **Vitest** | `npm test` | Renderer pure-function modules; no secrets |
 | **Playwright auth** | `npx playwright test` against `wilson-dev` | The auth, invite and reset flows end to end |
+| **Edge Functions type check** | `deno check --no-config` over every `supabase/functions/*/index.ts` with Deno 2.1.4 (the Deno inside `supabase/edge-runtime` v1.77.1, which the pinned CLI 2.119.0 runs), compared with the baseline `KNOWN` in the step (F1) | That every function's names and imports resolve and that no type error is added beyond the 28 counted ones, on every push. Nothing else type-checks a function: a deploy bundles without a check, so REV-01's unimported `PAGE` reached the beta as a bare 500. The job does not gate a deploy, which runs from a checkout |
 
 The coverage gate runs **before** Postgres boots and fails fast; its allowlist
 currently names **39 tables** (counted from `rls.yml`, 2026-08-04 — it read
@@ -1604,6 +1605,19 @@ added.** The allowlist failing is loud; the replay list failing is **silent** �
 S17 recorded suites 33–38 failing invisibly for exactly that reason, with the
 annotation cheerfully reporting "replay produced no ERROR lines" for every
 file it did replay.
+
+**The type check's baseline (F1).** Its first run found 28 errors besides
+REV-01's six, in ten files (seven functions and the three shared guards),
+none of which throw (`docs/OUTSTANDING.md` F1-01). `KNOWN` lists them as
+file, code and count: a count above its line fails the job, and so does a
+count below it, so **the commit that fixes one lowers or deletes its line**.
+The counts move with any module in the graph, so a session that touches
+anything under `supabase/functions/` has `KNOWN` in its list, and at a merge
+`KNOWN` is what the merge commit's own run reads. Each new error is a public
+annotation at its first line; the known ones are one warning, which carries
+Deno's own count; when the module graph fails before any check (esm.sh
+refusing an import) the annotation says that and nothing is compared. To
+move Deno, move it with the CLI's pin and read this job first.
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
@@ -6548,6 +6562,30 @@ documentation and starts being wrong answers.
   DG6 review round 1, measured). Her walkthrough 89 Q3 kept Uploads with the
   references, and CSS cannot fill the gap without separating them;
   walkthrough 90's Q1 asks her whether two columns stay.
+
+**The Edge Functions' type check (F1, 2026-10-31; §7.1)**
+
+- **It checks types; it runs nothing.** A name or an import that does not
+  resolve fails it (REV-01's `PAGE`, TS2304), as does a new type error. A
+  function that passes can still fail on a value at run time: a secret
+  unset, a row of another shape.
+- **28 errors stay, counted, not fixed** (`docs/OUTSTANDING.md` F1-01). The
+  three guards type their client as `ReturnType<typeof createClient>`,
+  which is `SupabaseClient<unknown, never, GenericSchema>`, and hand it the
+  client they make, `SupabaseClient<any, "public", any>`; a row read through
+  it holds `unknown` values where the code passes them on as ids and paths
+  (`storage-gc`'s queue rows, 17 of the 28).
+  The count is per file and code, so one fixed and one new of the same code
+  in the same file, in one commit, pass unseen; and when a count goes over,
+  every error of that code in that file is annotated as new, the old with
+  the one that is.
+- **It reads esm.sh on every run.** There is no import map and no lockfile:
+  `supabase-js@2.45.4` and its types come from esm.sh as a deploy's do. If
+  esm.sh is down the job is red with the import named; if esm.sh rebuilds
+  that version's types, counts can move with no change here, and the
+  annotation names which.
+- **Only what an `index.ts` imports is checked.** A `_shared/` module no
+  function imports is not.
 
 ## Appendix A — Glossary
 
