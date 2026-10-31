@@ -3896,7 +3896,7 @@ page cap, a reference gone, a video placed only) wraps to its own line under
 the name (DG6's follow-up, review round 1: beside a Core badge it had left
 the name about 10px of a 428px tile). Her answer to the one question the
 second design round left (a section with one control on a very wide window):
-*"Keep it"*, given on the sketch and again on the built pictures (review
+*"Keep it (Recommended)"*, given on the sketch and again on the built pictures (review
 round 1 found the built numbers larger than the sketch's 15 to 62): with
 nothing chosen card 1 is 42 to 74 percent empty on the right from 1280 to
 2560, none beside it. Card 2 is unchanged inside: its box
@@ -6661,17 +6661,21 @@ documentation and starts being wrong answers.
   1 percent to 1920 and 41 at 2560, where three items take three of the five
   tiles a row holds (measured, Chromium). Asked in plain words, with the
   stretched controls and the side-by-side sections as the other options, she
-  chose *"Keep it"* (2026-10-31), on the design round's sketch and again on
-  the built pictures and numbers.
-- **With references listed, Generate needs a scroll below a 1440-tall
-  window.** Card 1's titled sections stack their content under each title,
-  so with six references it is 763px tall at 1280 and 1440 and 669 from
-  1920: Generate's top is at y 1,173 at 1280x800 and 1440x900 and 1,079 at
-  1920x1080, 35px under the fold, in view at 2560x1440. Her walkthrough 90
+  chose *"Keep it (Recommended)"* (2026-10-31), on the design round's
+  sketch and again on the built pictures and numbers (shown at 1280 and
+  2560; 3440's 81 percent is by measurement).
+- **With references listed, Generate needs a scroll in windows shorter than
+  about 1,450px.** Card 1's titled sections stack their content under each
+  title, so with six references it is 763px tall at 1280 and 1440 and 669
+  from 1920: Generate's top is at y 1,173 at 1280x800 and 1440x900 and
+  1,079 at 1920x1080, where its button ends 35px under the fold; in view at
+  2560x1440. Her walkthrough 90
   Q1's option said Generate would drop below the window on a 1920 monitor
   once references are listed. With nothing chosen card 1 is 528px tall (424
-  before the sections), so at 1440x900 Generate opens at y 938, just under
-  the fold (review round 1, measured).
+  before the sections: the three titles about 56px, the 32px section spacing
+  about 48), so at 1440x900 Generate opens at y 938, just under the fold, and
+  about 74px would bring it wholly on screen (review rounds 1 and 2,
+  measured).
 
 **The Edge Functions' type check (F1, 2026-10-31; §7.1)**
 

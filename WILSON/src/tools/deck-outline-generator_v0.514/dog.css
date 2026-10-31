@@ -165,12 +165,16 @@
      keeps the tile's width: beside a Core badge and a PDF warning a 428px
      tile had left the name about 10px (DG6's follow-up, review round 1,
      finding 3, MEASURED at 2560 and 3440). Preview and Remove stay on the
-     name's line. */
-  .dog-card-project .dog-refs-row { flex-wrap: wrap; row-gap: 0; }
+     name's line. The tile's lines keep to its top (align-content), so when
+     a status makes one tile of a shelf row taller, its neighbours' names
+     stay on the same line as its name, not centred lower (review round 2,
+     finding 1, MEASURED: 12 to 25px apart without it). The status starts
+     under the name: the glyph and the row's 8px gap in. */
+  .dog-card-project .dog-refs-row { flex-wrap: wrap; row-gap: 0; align-content: flex-start; }
   .dog-card-project .dog-refs-row > :is(.dog-refs-warn, .dog-refs-gone, .dog-refs-sub) {
     order: 1;
     flex-basis: 100%;
-    padding: 0 0 8px 22px;
+    padding: 0 0 8px calc(var(--icon-sm) + 8px);
   }
   /* A control's own sentence, and a list's own button, 8px under it. */
   .dog-sec > .dog-refs-core-said,

@@ -18,7 +18,8 @@ and reviewed twice on Fable.
 **What you said next, the same day, and what it changed.**
 
 - Your answers to this walkthrough's first two questions (asked in the
-  controller's chat): Q1 *One column always*, Q2 *Full card width*.
+  controller's chat): Q1 *One column always*, Q2 *Full card width
+  (Recommended)*.
 - Then, to the session, with a picture of the beta: *"we need to fix this
   layout. i really dont like that there is a open space/gap to right and
   also project select needs to go above the add references and below the
@@ -29,12 +30,14 @@ and reviewed twice on Fable.
   it would be a lot easier if they were easily visibly divided in the card
   to tell that each is a different function."*
 - A second design round (on Opus this time) asked you one question, on a
-  very wide screen a section holding only one button: you chose **Keep it**.
+  very wide screen a section holding only one button: you chose **Keep it
+  (Recommended)**.
   Once built (each title's buttons under it), D.O.G. opening with nothing
   chosen left more of card 1 empty on the right than that sketch showed
   (about 40 percent on a laptop, about 75 on your 2560 screen, against the
-  sketch's 15 to 60); asked again with the built pictures, you chose
-  **Keep it** again.
+  sketch's 15 to 60; measured, 42 at 1280, 50 at 1440, 64 at 1920 and 74
+  at 2560); asked again with the built pictures, you chose **Keep it
+  (Recommended)** again.
 - On its sketch you said: *"remove the dividing lines. the titles themselves
   are enough to separate"*, and that each title's text and buttons should
   sit under it, not in a column to its right.
@@ -61,8 +64,9 @@ All of that is built. The lines and the pictures below say what you see now.
    there) sits on its own line under the name, so the name stays readable.
 5. **One section's single button stays its normal size** (your *Keep it*):
    with nothing chosen, Project, Uploads and the bar end where they end, so
-   the right side of those rows is empty until you add things (about 40
-   percent of card 1 on a laptop, about 75 on your 2560 screen).
+   the right side of those rows is empty (42 to 50 percent of card 1 on a
+   laptop, 74 on your 2560 screen); as you add references and uploads the
+   tile rows fill, while the project row and the bar keep their size.
 6. **Generate outline's box and button run the card's full width** (your
    Q2).
 7. **The project dropdown is wider**: it runs beside New project to the end
@@ -93,11 +97,13 @@ At 2560 the 41 percent is the right of the tile rows: three items fill three
 of the five tiles a row can hold there; a dozen uploads fill it. With
 nothing chosen card 1 is 42 to 74 percent empty on the right from 1280 to
 2560 (your *Keep it*, given twice). With nothing chosen card 1 is also taller
-than before (528 px, was 424: three titles, their sentences and the space
-between sections), so on a 1440 × 900 laptop Generate opens just below the
-window too (it was in view). Card 1 is 763 px tall with six references on a
-laptop and 669 from 1920, so Generate needs a short scroll below a 1440-tall
-window once references are listed; card 2 itself is unchanged inside.
+than before (528 px, was 424: the three new titles, about 56 px, and the
+wider space between sections, about 48), so on a 1440 × 900 laptop Generate
+opens just below the window too (it was in view). Card 1 is 763 px tall
+with six references on a laptop and 669 from 1920, so on screens shorter
+than about 1,450 px Generate needs a short scroll once references are listed
+(at 1920 × 1080 its button ends 35 px below the window); card 2 itself is
+unchanged inside.
 
 ### What to do
 
@@ -137,7 +143,41 @@ with your later words, `her-card1-gap-to-right-2026-10-31.webp`):
 
 ### How it was checked
 
-FOLLOW-UP-CHECKS
+- Measured in Chromium before and after at the four sizes above, folded
+  and in Single page too, and at 760, 860 and 3440 px: each card's width
+  and height, how much of it is empty, and where Generate sits. Nothing
+  scrolls sideways at any size, with real scrollbars included; the
+  generated output keeps its place and width.
+- The slide preview under the cards keeps exactly the width it had, by
+  its own pixel check at 1280 and 1440.
+- Focus: removing a reference or an upload from the keyboard moves to the
+  next one in the same section, then to that section's own button (Add
+  references, Choose file), never off the page; resizing the window keeps
+  focus where it was. A screen reader hears the three titles as headings
+  under card 1's.
+- D.O.G.'s tests: rewritten for the new order and sections, with the order
+  before and after written in them; new tests pin the full width, the
+  titles, the space between sections, that no line divides them, and every
+  other part of the layout. Seventy-one deliberate breakages across the
+  steps each turned a test red. The whole suite passes.
+- A second design round (on Opus), then two reviews (on Opus). The first
+  found that the empty space with nothing chosen was larger than the sketch
+  you had answered on (so you were asked again, with the built pictures),
+  that a long file name in a narrow tile could shrink to a letter beside a
+  warning (the warning now sits on its own line under the name), and ways
+  the tests could miss a line or a gap; all taken. The second found that
+  the warning's line made the names in one row of tiles sit at different
+  heights (fixed: they line up), more ways round the tests (closed), and a
+  few words in these notes; it found nothing else wrong on the screen.
+- Recorded for you, not changed (OUTSTANDING DG6-02): References has no
+  one-line sentence under its title as Project and Uploads have; the line
+  *What goes to the AI…* and its bar have no title; Project shows three
+  lines of words before its dropdown; the tiles' thin underlines can read
+  as one line across a row. Each is yours to decide.
+- Two things outside this work were recorded, not changed: the checker
+  that scans D.O.G.'s code for type sizes reads part of the file wrongly
+  (a code comment briefly hid code from it; reworded), and D.O.G.'s Help
+  still lists the uploads before the references.
 
 ### Questions
 
@@ -146,10 +186,10 @@ FOLLOW-UP-CHECKS
   built, and then reshaped by your later words (the top of this section).**
 - **Q2. Generate outline's box and button on a wide window.** (a) As wide as
   the card. (b) One column's width. (c) Card 2 in two columns. **Answered
-  2026-10-31: (a), "Full card width"; built: they run the card's full width
+  2026-10-31: (a), "Full card width (Recommended)"; built: they run the card's full width
   at every size.**
 - **On a very wide screen, a section holding only one button** (asked in
   the session, twice: on the sketch, then on the built pictures).
-  **Answered 2026-10-31: "Keep it", both times.**
+  **Answered 2026-10-31: "Keep it (Recommended)", both times.**
 
 No question is open.
