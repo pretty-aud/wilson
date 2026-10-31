@@ -24,6 +24,7 @@ import { Toolbar } from '../../../ui/Toolbar'
 import { Button } from '../../../ui/Button'
 import { Dialog } from '../../../ui/Dialog'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { AGENCY_DEFAULT_PCT } from '../../../components/Budget/budgetMath'
 import { useHeldOffline } from '../../../cloud/auth/heldSession'
 import { offlineSentence } from '../../../cloud/ConnectionLostBanner'
 import { PERSONA_LIST } from '../intake/personas'
@@ -155,7 +156,9 @@ export default function IntakeWizardView() {
 
 
 // ─── New Project Form ───
-function NewProjectForm({ createProject, onCreated, onCancel }) {
+// Exported for its render test (rabbitBudgetRender.test.jsx: the agency
+// fee's one default, F2).
+export function NewProjectForm({ createProject, onCreated, onCancel }) {
   const tm = useTeamMembers()
   const [draft, setDraft] = useState({
     title: '',
@@ -208,7 +211,10 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
       if (draft.budget_margin_pct) payload.budget_margin_pct = Number(draft.budget_margin_pct) || 0
       if (draft.budget_contingency_pct) payload.budget_contingency_pct = Number(draft.budget_contingency_pct) || 0
       payload.budget_agency_enabled = draft.budget_agency_enabled
+      // The fee ticked with nothing typed is the one default, written (her
+      // answer to walkthrough 91's F2 Q1): left out, the cloud stores 0.
       if (draft.budget_agency_pct) payload.budget_agency_pct = Number(draft.budget_agency_pct) || 0
+      else if (draft.budget_agency_enabled) payload.budget_agency_pct = AGENCY_DEFAULT_PCT
       if (draft.notes.trim()) payload.notes = draft.notes.trim()
       if (files.length > 0) payload.files = files
       payload.status = 'draft'
@@ -367,7 +373,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                     </label>
                     {draft.budget_agency_enabled && (
                       <input type="number" value={draft.budget_agency_pct} onChange={e => patch('budget_agency_pct', e.target.value)}
-                        placeholder="20" min="0" max="100" step="0.5"
+                        placeholder={String(AGENCY_DEFAULT_PCT)} min="0" max="100" step="0.5"
                         className="ui-input w-20" data-size="sm" data-surface="dark" />
                     )}
                   </div>
@@ -527,7 +533,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                     {draft.budget_total && <ConfirmRow label="Total" value={Number(draft.budget_total).toLocaleString()} />}
                     {draft.budget_margin_pct && <ConfirmRow label="Margin" value={`${draft.budget_margin_pct}%`} />}
                     {draft.budget_contingency_pct && <ConfirmRow label="Contingency" value={`${draft.budget_contingency_pct}%`} />}
-                    {draft.budget_agency_enabled && <ConfirmRow label="Agency fee" value={draft.budget_agency_pct ? `${draft.budget_agency_pct}%` : 'Enabled'} />}
+                    {draft.budget_agency_enabled && <ConfirmRow label="Agency fee" value={`${draft.budget_agency_pct || AGENCY_DEFAULT_PCT}%`} />}
                   </div>
                 )}
                 {/* Details */}

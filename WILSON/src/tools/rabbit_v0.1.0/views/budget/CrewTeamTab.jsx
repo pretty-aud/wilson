@@ -149,21 +149,6 @@ export default function CrewTeamTab({
     setOpenPopover({ memberId, colIdx, x: rect.left, y: rect.top, h: rect.height })
   }
 
-  const rateMap = useMemo(() => {
-    const map = {}
-    for (const e of (rateCard?.entries || [])) {
-      if (!e.role_slug) continue
-      const rate = Number(e.wage || e.day_rate || 0)
-      if (rate > 0 && !map[e.role_slug]) map[e.role_slug] = rate
-    }
-    if (roleRates) {
-      for (const [slug, rate] of Object.entries(roleRates)) {
-        if (!map[slug]) map[slug] = rate
-      }
-    }
-    return map
-  }, [rateCard?.entries, roleRates])
-
   const bidDaysByRole = useMemo(() => {
     const map = {}
     for (const t of (tasks || [])) {
@@ -223,7 +208,11 @@ export default function CrewTeamTab({
       const entry = (rateCard?.entries || []).find(e => e.role_slug === slug)
       const dept = entry?.department || 'Unassigned'
       if (!byDept[dept]) byDept[dept] = []
-      const rate = rateMap[slug] || 0
+      // The Summary's rate for the role (BudgetView's buildRoleRates: the
+      // card's day rate with its burden and overhead, a project's own rate
+      // over it) — her answer to walkthrough 91's F2 Q2, "Full rate, $624";
+      // the card's rate before them (`wage`) priced it 20% lower.
+      const rate = Number(roleRates?.[slug]) || 0
       const subtotal = rate * days
       // A role nobody holds yet has no line: the project's percentages.
       const u = lineMoney(subtotal, null, settings)
@@ -259,7 +248,7 @@ export default function CrewTeamTab({
     }
     totals.variance = totals.actualTotal - totals.bidTotal
     return { departmentGroups: groups, grandTotals: totals }
-  }, [teamMembers, rateCard?.entries, bidDaysByRole, rateMap, settings, lines, actualsByLine])
+  }, [teamMembers, rateCard?.entries, bidDaysByRole, roleRates, settings, lines, actualsByLine])
 
   const ensureLine = useCallback(async (memberId) => {
     const existing = (lines || []).find(l => l.team_member_id === memberId && l.sheet === 'crew')
