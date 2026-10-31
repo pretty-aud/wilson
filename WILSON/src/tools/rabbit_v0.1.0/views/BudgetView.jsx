@@ -2027,9 +2027,10 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
   const totalVariance  = totalActual - totalEstimated
   // What the expenses are bid at with the project's agency fee: the
-  // Topsheet's and the client estimate's figure, budgetMath's (her answer to
-  // walkthrough 91's F2 Q5). The variance and the over/under status stay the
-  // cost against its estimate.
+  // Topsheet's figure, budgetMath's (her answer to walkthrough 91's F2 Q5);
+  // the client estimate's Agency fee line holds this fee with the crew's. The
+  // variance and the over/under status stay the cost against its estimate,
+  // which the Variance tile says while the fee is on.
   const totalBid = useMemo(() => lineMoney(totalEstimated, null, settings), [totalEstimated, settings])
 
   // ── Handlers ──
@@ -2226,6 +2227,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
           value={totalEstimated > 0 || totalActual > 0
             ? formatMoney(totalVariance, currency, { sign: 'exceptZero' })
             : '—'}
+          hint={settings.agencyEnabled ? 'against the estimate, before the fee' : undefined}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
         <BigTile label="Expenses" value={expenses.length} />

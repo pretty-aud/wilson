@@ -3301,7 +3301,7 @@ met outside its list and did not fix:
   MEASURED in Chromium on the fixtures at 15%: no fee shown → *Bid total
   $24,449, with the $3,189 agency fee*, equal to the Topsheet's expenses
   bid. The tab's variance and over/under labels stay the cost against its
-  estimate (−$316).~~ The Expenses tab shows no agency fee, where the Topsheet's
+  estimate (−$316). Commit `e8bd5d2d`.~~ The Expenses tab shows no agency fee, where the Topsheet's
   expenses row and the client estimate now carry it.** MEASURED in Chromium
   on the fixtures at 15% (F2's follow-up, review round 1, finding 1): the
   Topsheet's *All expenses* bid $24,449 and variance −$3,505 (its fee
@@ -3317,7 +3317,7 @@ met outside its list and did not fix:
   finding 5): nothing changed stored data; switching the fee off and on
   gives one its 20, and typing a percentage gives it that percentage.
   Walkthrough 91's F2 Q4 asks her. Owner: Audrey.
-- **F2-09 · Four older things seen in F2's follow-up review, not changed.**
+- **F2-09 · Five older things seen in F2's follow-up review, not changed.**
   (a) The client estimate names a crew line by its role's code
   (*production_designer*, *dop*: `ClientViewTab.jsx`'s `crewByDept`, the
   task's position or the slug), MEASURED on the fixtures; (b) the project

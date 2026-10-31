@@ -817,26 +817,44 @@ describe('surface 2b', () => {
 
   // F2, her answer to walkthrough 91's F2 Q5 (2026-10-31), "Yes, show it
   // (Recommended)": the Expenses tab shows what the expenses are bid at with
-  // the project's agency fee — the Topsheet's and the client estimate's
-  // figure (budgetMath's lineMoney on the estimates). Each expense's cost,
-  // the cost variance and the over/under status stay the cost's. The old copy
-  // showed no fee: $21,260 here against the Topsheet's $24,449.
+  // the project's agency fee — the Topsheet's figure (budgetMath's lineMoney
+  // on the estimates). Each expense's cost, the cost variance and the
+  // over/under status stay the cost's, and the Variance tile says so while
+  // the fee is on. The old copy showed no fee: $21,260 here against the
+  // Topsheet's $24,449.
   it('F2: with the agency fee on, a Bid total tile — the estimates plus the fee, the Topsheet\'s figure', () => {
+    const read = (container) => [...container.querySelectorAll('.rb-budget-stats .ui-stat')].map((s) => [
+      s.querySelector('.ui-stat-label').textContent, s.querySelector('.ui-stat-value').textContent, s.querySelector('.ui-stat-delta')?.textContent ?? null])
     const tiles = (project) => {
       const { container } = render(tab(hook(), project))
-      const out = [...container.querySelectorAll('.rb-budget-stats .ui-stat')].map((s) => [
-        s.querySelector('.ui-stat-label').textContent, s.querySelector('.ui-stat-value').textContent, s.querySelector('.ui-stat-delta')?.textContent ?? null])
+      const out = read(container)
       cleanup()
       return out
     }
-    expect(tiles({ ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 15 })).toEqual([
+    const at15 = { ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 15 }
+    expect(tiles(at15)).toEqual([
       ['Estimated total', '$21,260', null], ['Bid total', '$24,449', 'with the $3,189 agency fee'],
-      ['Actual total', '$20,944', null], ['Variance', '-$316', null], ['Expenses', '3', null],
+      ['Actual total', '$20,944', null], ['Variance', '-$316', 'against the estimate, before the fee'], ['Expenses', '3', null],
     ])
-    // The fee on with none typed: the one default, 20%.
+    // The fee on with none typed: the one default, 20%; a typed 0 is 0.
     expect(tiles({ ...PROJECT, budget_agency_enabled: true })[1]).toEqual(['Bid total', '$25,512', 'with the $4,252 agency fee'])
-    // CONTROL: the fee off, no such tile.
+    expect(tiles({ ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 0 })[1]).toEqual(['Bid total', '$21,260', 'with the $0 agency fee'])
+    // Margin and contingency are not part of the bid here, as on the Topsheet.
+    expect(tiles({ ...at15, budget_margin_pct: 5, budget_contingency_pct: 10 })[1]).toEqual(['Bid total', '$24,449', 'with the $3,189 agency fee'])
+    // CONTROL: the fee off, no such tile and no hint under Variance.
     expect(tiles(PROJECT).map((x) => x[0])).toEqual(['Estimated total', 'Actual total', 'Variance', 'Expenses'])
+    expect(tiles(PROJECT)[2]).toEqual(['Variance', '-$316', null])
+    // Every expense, whatever the search (the other tiles' rule and the
+    // Topsheet's); a row's own variance stays its cost against its estimate;
+    // a percentage typed afterwards moves the tile.
+    const { container, rerender } = render(tab(hook(), at15))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: 'Compass' } })
+    expect(read(container)[1]).toEqual(['Bid total', '$24,449', 'with the $3,189 agency fee'])
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: '' } })
+    const camera = rowsOf(container).find((r) => r.textContent.includes('Camera package hire'))
+    expect([...camera.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent).slice(3, 5)).toEqual(['$16,800', '$0'])
+    rerender(tab(hook(), { ...at15, budget_agency_pct: 10 }))
+    expect(read(container)[1]).toEqual(['Bid total', '$23,386', 'with the $2,126 agency fee'])
   })
 
   // F2 review round 2 (finding 2): an expense with no percentage of its own
