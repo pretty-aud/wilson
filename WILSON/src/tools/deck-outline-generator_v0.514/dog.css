@@ -82,22 +82,18 @@
   .dog-main {
     padding: 8px;
     background-color: var(--color-paper);
-    /* DG5: a named size container, so the inputs stack (below) lays out by
-       this column's own width, whatever the sidebar. Measured in Electron
-       33.4.11 (Chromium 130) and in Chrome 152: a container moves no fixed
-       descendant and makes no stacking context; the padding is C4's. DG6
-       keeps it: only this column knows W, where the stack widens. */
-    container: dog-main / inline-size;
     /* DG5's follow-up, review round 1 (finding 1, MEASURED with real
        scrollbars in Chromium 147 and in Electron 33): a size query on this
        scroll column was answered by its width before the scrollbar took its
-       share, so DG5's side-by-side cards were laid into a column 10px too
-       narrow and a sideways scrollbar appeared. Keeping the scrollbar's
-       gutter, as O.T.T.E.R.'s scroll views do, makes the query see the width
-       the cards get, so nothing scrolls sideways (DG6: the stack widens from
-       a 1468 window, not 1458). Its cost (review round 2, MEASURED): when the
-       column does not scroll, the kept gutter shows as a wider right margin,
-       18px against the left's 8. */
+       share, and a sideways scrollbar appeared. The scrollbar's gutter is
+       kept, as O.T.T.E.R.'s scroll views keep theirs. DG6's follow-up (her
+       walkthrough 90 Q1, "One column always") removed the last size query
+       and the column's container with it; the gutter stays so the output
+       card below (C4's preview) is one width whether or not the column
+       scrolls, as a fold or a short page turns its scrollbar on and off.
+       Its cost (DG5 review round 2, MEASURED): when the column does not
+       scroll, the kept gutter shows as a wider right margin, 18px against
+       the left's 8. */
     scrollbar-gutter: stable;
   }
   .dog-main > * + * { margin-top: 8px; }
@@ -116,46 +112,22 @@
      one width for both cards, capped, so each card ends where its content
      ends (Common Region): the wrapper `.dog-inputs`, a plain box round the
      two cards, is the cap, at the output card's left edge; the output card
-     is outside it and keeps the column's full width (C4's preview). W is
-     .dog-main's content width: the window less the 240px sidebar, this
-     column's 16px of padding and the scrollbar's gutter (10px in Chromium,
-     measured with real scrollbars: one column at a 1467 window, two at 1468;
-     11 in Electron 33 on the computer DG5 measured it on, so a 1469 window
-     there by arithmetic, not measured by DG6).
-       W < 1202   (windows up to 1,467): the stack 602 wide = the measure 576
-                  + 2 x 12 padding + 2 x 1 border. Card 1 one column, as DG4
-                  built it; card 2's box and Generate 576.
-       W >= 1202  (a 1468 window in Chromium): the stack 1202 wide =
-                  576 + 24 + 576 + 2 x 12 + 2 x 1, card 1's body in two
-                  columns of the measure 24px apart, the project, then what
-                  the deck reads (her walkthrough 89 Q3: Uploads stay with the
-                  references); card 2 one column, its box and Generate 1,176.
-     Past 2560 nothing changes: beside the stack is the page's paper, not
-     card (OUTSTANDING DG5-02, closed). Folded, a card is its 34px bar at
-     the stack's width. */
+     is outside it and keeps the column's full width (C4's preview).
+     The stack is 602 wide at every width = the measure 576 + 2 x 12 padding
+     + 2 x 1 border: card 1 one column, as DG4 built it; card 2's box and
+     Generate the card's content width, 576. Her answers to walkthrough 90
+     (2026-10-31, verbatim): Q1 "One column always" (DG6 had split card 1
+     into two 576 columns, the stack 1,202 wide, from a 1468 window; that
+     rule is gone, and the main column's size container with it), Q2 "Full
+     card width" (the box and Generate span the card). On a wide window
+     beside the stack is the page's paper, not card (OUTSTANDING DG5-02,
+     closed). Folded, a card is its 34px bar at the stack's width. */
   .dog-inputs {
     --dog-measure: 576px;
     display: grid;
     grid-template-columns: 1fr;
     gap: 8px;
     max-width: 602px;
-  }
-  @container dog-main (min-width: 1202px) {
-    .dog-inputs { max-width: 1202px; }
-    /* Two columns of the measure, 24px apart: the rhythm's largest step, so
-       they read as two halves of one card, not two cards (Proximity). The
-       project row fills the first column (the dropdown takes what New
-       project leaves: DG6 review round 1, finding 4), so with no project the
-       halves are the gutter apart, not 93px. */
-    .dog-card-project > .dog-card-body {
-      display: grid;
-      grid-template-columns: var(--dog-measure) var(--dog-measure);
-      column-gap: 24px;
-      align-items: start;
-    }
-    /* The body's 16px owl spaces a stack; side by side the two columns
-       start level ("Choose a project" beside the contract line). */
-    .dog-card-project > .dog-card-body > .dog-refs { margin-top: 0; }
   }
 
   /* ═══ THE "DECK OUTLINE" BAR — post-overhaul S2a (Audrey's C1, C7) ══════
@@ -601,9 +573,8 @@
      rhythm inside the references is the card body's 16px.
      DG5: the measure is `--dog-measure`, declared once on `.dog-inputs`
      (THE INPUTS STACK since DG6, above) for both cards; it was
-     `--dog-refs-measure` on this card. From W 1202 the project and the
-     references are two such columns side by side, each with its own left
-     edge. */
+     `--dog-refs-measure` on this card. One column at every width since
+     DG6's follow-up (her walkthrough 90 Q1). */
   .dog-card-project .dog-project-details,
   .dog-refs { max-width: var(--dog-measure); }
   .dog-refs > * + * { margin-top: 16px; }

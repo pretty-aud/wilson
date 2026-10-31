@@ -4149,8 +4149,9 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               References card's, one number for what is listed. */}
           {/* DG5's wrapper; since DG6 (Audrey, 2026-10-31: "i want to keep
               the 1 and 2 cards stacked not side by side") it holds the two
-              input cards stacked at one capped width, card 1 in two columns
-              on a wide window (dog.css, THE INPUTS STACK). It only lays them
+              input cards stacked at one capped width, each one column at
+              every width since her walkthrough 90 Q1 (dog.css, THE INPUTS
+              STACK). It only lays them
               out: no role, name, id or tabindex, so the cards' order, folds,
               ids, the header count, the Tab order and every name are as they
               were. The banners stay above it and the output card below it,
@@ -4198,17 +4199,17 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </label>
                 {/* DG1: choosing a project no longer sends its files (Q2); its
                     title and description always go (Q17). DG4: what else is
-                    chosen in this card. DG5: no "below", since on a wide
-                    window the references sit beside the project (dog.css,
-                    THE INPUTS STACK, from a 1468 window since DG6); her
-                    answer to walkthrough 89's Q1: as built. */}
+                    chosen in this card. DG5 took "below" out while the
+                    references could sit beside the project; her answer to
+                    walkthrough 89's Q1 kept these words, and they hold with
+                    the references below again (DG6's follow-up). */}
                 <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
                 {/* DG6 (review round 1, finding 4): the dropdown takes the
                     row's width beside New project, so the row ends at the
-                    column's edge, level with the description below it and,
-                    in two columns, 24px from the references. Its old 360px
-                    cap left the row 69px short and, with no project chosen,
-                    a 93px hole before the references (her screenshot). */}
+                    column's edge, level with the description below it. Its
+                    old 360px cap left the row 69px short (and, while card 1
+                    had two columns, a 93px hole before the references with
+                    no project chosen, her screenshot's). */}
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <select

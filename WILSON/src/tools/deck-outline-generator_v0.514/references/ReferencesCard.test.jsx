@@ -240,12 +240,6 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     // width again, and "step 2" names it by its numeral.
     expect(contract.textContent).toBe('What goes to the AI: what is listed here, the project’s title and description, and what you write in step 2.')
     expect(contract.getAttribute('title')).toBe('PDFs and pictures are placed in the AI\'s file store to be read. Your notes always travel in the request itself.')
-    // DG6: the sentence heads this part, then Uploads, so from a 1468 window
-    // it tops the references' column level with "Choose a project" (dog.css,
-    // THE INPUTS STACK; the rendered D.O.G. pins the whole card,
-    // enterKey.render.test.jsx).
-    expect(c.body().firstElementChild).toBe(contract)
-    expect(contract.nextElementSibling.matches('.dog-refs-uploads')).toBe(true)
   })
 
   // DG4: the number is card 1's header's (ReferencesCount, which D.O.G. draws
