@@ -815,6 +815,30 @@ describe('surface 2b', () => {
     expect(inlineColours(container)).toEqual([])
   })
 
+  // F2, her answer to walkthrough 91's F2 Q5 (2026-10-31), "Yes, show it
+  // (Recommended)": the Expenses tab shows what the expenses are bid at with
+  // the project's agency fee — the Topsheet's and the client estimate's
+  // figure (budgetMath's lineMoney on the estimates). Each expense's cost,
+  // the cost variance and the over/under status stay the cost's. The old copy
+  // showed no fee: $21,260 here against the Topsheet's $24,449.
+  it('F2: with the agency fee on, a Bid total tile — the estimates plus the fee, the Topsheet\'s figure', () => {
+    const tiles = (project) => {
+      const { container } = render(tab(hook(), project))
+      const out = [...container.querySelectorAll('.rb-budget-stats .ui-stat')].map((s) => [
+        s.querySelector('.ui-stat-label').textContent, s.querySelector('.ui-stat-value').textContent, s.querySelector('.ui-stat-delta')?.textContent ?? null])
+      cleanup()
+      return out
+    }
+    expect(tiles({ ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 15 })).toEqual([
+      ['Estimated total', '$21,260', null], ['Bid total', '$24,449', 'with the $3,189 agency fee'],
+      ['Actual total', '$20,944', null], ['Variance', '-$316', null], ['Expenses', '3', null],
+    ])
+    // The fee on with none typed: the one default, 20%.
+    expect(tiles({ ...PROJECT, budget_agency_enabled: true })[1]).toEqual(['Bid total', '$25,512', 'with the $4,252 agency fee'])
+    // CONTROL: the fee off, no such tile.
+    expect(tiles(PROJECT).map((x) => x[0])).toEqual(['Estimated total', 'Actual total', 'Variance', 'Expenses'])
+  })
+
   // F2 review round 2 (finding 2): an expense with no percentage of its own
   // takes the project's (budgetMath's lineMoney), each on its estimate; its
   // own wins. Every test above had the project at 0%, so an Expenses tab

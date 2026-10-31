@@ -2026,6 +2026,11 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const totalEstimated = useMemo(() => expenses.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0), [expenses])
   const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
   const totalVariance  = totalActual - totalEstimated
+  // What the expenses are bid at with the project's agency fee: the
+  // Topsheet's and the client estimate's figure, budgetMath's (her answer to
+  // walkthrough 91's F2 Q5). The variance and the over/under status stay the
+  // cost against its estimate.
+  const totalBid = useMemo(() => lineMoney(totalEstimated, null, settings), [totalEstimated, settings])
 
   // ── Handlers ──
   function handleCreate() { setEditingId(null); setShowPopup(true) }
@@ -2208,6 +2213,13 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
       {/* Summary tiles: the kit Stat, through the tab's BigTile (R3-10). */}
       <div className="rb-budget-stats">
         <BigTile label="Estimated total" value={formatMoney(totalEstimated, currency)} />
+        {settings.agencyEnabled && (
+          <BigTile
+            label="Bid total"
+            value={formatMoney(totalBid.bidTotal, currency)}
+            hint={`with the ${formatMoney(totalBid.agencyFee, currency)} agency fee`}
+          />
+        )}
         <BigTile label="Actual total" value={totalActual > 0 ? formatMoney(totalActual, currency) : '—'} />
         <BigTile
           label="Variance"
