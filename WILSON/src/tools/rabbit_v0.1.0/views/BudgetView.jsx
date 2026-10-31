@@ -786,9 +786,11 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPen
               checked={agencyEnabled}
               onChange={() => {
                 if (!agencyEnabled) {
-                  updateProjectField('budget_agency_enabled', true)
+                  // One write, the switch and the default together: two
+                  // writes' replies could land the other way round on the
+                  // cloud (each is the whole row) and show 0% until a reload.
                   const fill = agencyPctOnSwitchOn(project?.budget_agency_pct)
-                  if (fill != null) updateProjectField('budget_agency_pct', fill)
+                  ctx?.updateProject?.(project.id, fill != null ? { budget_agency_enabled: true, budget_agency_pct: fill } : { budget_agency_enabled: true })
                 } else {
                   updateProjectField('budget_agency_enabled', false)
                 }

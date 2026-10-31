@@ -795,11 +795,10 @@ export function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMon
             <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>Agency fee</span>
             {/* Switched on with nothing stored, it fills in the one default,
                 as the Budget Summary's switch does (her answer to
-                walkthrough 91's F2 Q1). */}
+                walkthrough 91's F2 Q1), in the same one write. */}
             <SettingsToggle label="Agency fees" checked={project.budget_agency_enabled} onChange={v => {
-              update('budget_agency_enabled', v)
               const fill = v ? agencyPctOnSwitchOn(project.budget_agency_pct) : null
-              if (fill != null) update('budget_agency_pct', fill)
+              ctx?.updateProject?.(project.id, fill != null ? { budget_agency_enabled: v, budget_agency_pct: fill } : { budget_agency_enabled: v })
             }} />
           </div>
           {/* ── Actuals columns ── */}

@@ -1340,7 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul F2, a follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 questions, relayed by the controller, verbatim: Q1 *"Yes, fill in 20% (Recommended)"*, Q2 *"Full rate, $624 (Recommended)"*, Q3 *"Yes, its own line"*: switching the agency fee on anywhere with nothing typed fills in 20% (`agencyPctOnSwitchOn` for the Summary's and the settings' switches, the new-project form, the move to the cloud); the Crew tab prices a role nobody holds at the Summary's rate (the production designer $520 → $624, the crew $76,810 → $92,172); the client estimate's own *Agency fee* line on the crew and the expenses ($17,015, total $141,995 → $159,010) and the Topsheet's expenses fee ($3,189); measured on the fixtures before and after; tests red first; two review rounds, both on Opus (her F1 ruling); no migration, no SQL | nothing | F2-01, F2-03, F2-04 (closed by measurement). Comment markers: 4 → 4. |
+| Post-overhaul F2, a follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 questions, relayed by the controller, verbatim: Q1 *"Yes, fill in 20% (Recommended)"*, Q2 *"Full rate, $624 (Recommended)"*, Q3 *"Yes, its own line"*: switching the agency fee on anywhere with nothing typed fills in 20% (`agencyPctOnSwitchOn` for the Summary's and the settings' switches, the new-project form, the move to the cloud); the Crew tab prices a role nobody holds at the Summary's rate (the production designer $520 → $624, the crew $76,810 → $92,172); the client estimate's own *Agency fee* line on the crew and the expenses ($17,015, total $141,995 → $159,010) and the Topsheet's expenses fee ($3,189); measured on the fixtures before and after; tests red first; two review rounds, both on Opus (her F1 ruling); no migration, no SQL | F2-07 (the Expenses tab shows no fee), F2-08 (cloud projects already at 0), F2-09 (four older things seen in review) | F2-01, F2-03, F2-04 (closed by measurement). Comment markers: 4 → 4. |
 | Post-overhaul F3 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f3-desktop-project-file` into `feat/post-overhaul-edit-versioning`) — the code review's REV-06 and REV-07 (desktop-build C1, A6, C2): the desktop's project bundle kept in memory, keyed by its path and a stat stamp, reconciled once per disk load and on every write; one atomic JSON writer (`electron/jsonFile.cjs`, lifted from `rendererStorage.cjs`) for every JSON write in `main.cjs` and `localDemoRoot.cjs`; the subjects GET read-only, the writes keeping the order; the `_DATABASES` mirrors written only when they change; the 50 MB body limit kept; measured before and after on the fixtures' project (a task PATCH 22 → 17 disk calls and 379 KB → 0 read; a cached thumbnail 18 → 12, 5.0 → 3.7 ms; a six-subject list 19 → 10, nothing written); one design round and two review rounds on Opus 5.5 (her ruling "Use Opus for reviews (Recommended)" of 2026-10-31: Fable refused for usage credits); no migration, no SQL; comment markers 4 → 4 | F3-01 to F3-08 | REV-06, REV-07 |
 | Post-overhaul F2 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — REV-02 with her ruling of 2026-10-31 in the session's question box on the agency fee switched on with no percentage typed, verbatim *"20%"*: `budgetMath.js` the one money module every Budget surface calls (`projectBudgetSettings` and `bidTotals` moved in, `taskBaseCost` and `lineMoney` added, one `round2`, `AGENCY_DEFAULT_PCT`); margin and contingency on the base on the Crew and Talent tabs and the client estimate; the fourteen inline copies of the inheritance rule and the eleven settings reads with a default of their own gone; measured on the fixtures before and after with the fee on and none typed and with 10% typed (the Crew tab's agency 0% → 20%; with 10% typed its contingency +$8,449 → +$7,681, the Talent tab's +$1,538 → +$1,230, the client estimate's $12,881 → $12,573; the Summary unchanged); tests red first; two review rounds, both on Opus (the Fable call refused for the account's credits; her ruling for F1, *"Use Opus for both (Recommended)"*, relayed by the controller); the Expenses tab's two unread totals removed (review round 1); no migration, no SQL | F2-01 (the Crew tab's rate for a role nobody holds), F2-02 (the Topsheet's crew rows), F2-03 (the client estimate's agency fee, the Topsheet's expenses), F2-04 (the cloud's 0 for a percentage nobody typed), F2-05 (the tabs' Bid total), F2-06 (what is typed on a Crew row for a role nobody holds) | REV-02 (closed by measurement on the fixtures). Comment markers: 4 → 4. |
 | Post-overhaul F1 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f1-operator-console-list` into `feat/post-overhaul-edit-versioning`) — REV-01 by her ruling of 2026-10-31, verbatim *"Record it, fix at the release steps"*: `PAGE` imported in `operator-workspaces` (the console's company list and teardown step 1d); a `deno check` of every Edge Function in `rls.yml` with Deno 2.1.4 (the Deno inside the pinned CLI's edge runtime), red on the unfixed file and green on the fix on GitHub's runner, the 28 errors its first run found beside REV-01's six held as a counted baseline; a pin in `teardownCollect.test.js`, red first; two review rounds, both on Opus (the account's Fable credits were out; her choice, *"Use Opus for both (Recommended)"*); no deploy (the controller's, on her go), no migration, no SQL | F1-01 (28 type errors in ten files, seven functions and the three shared guards, none of which throws; the check's baseline) | REV-01 (closed by measurement on GitHub's runner). Comment markers: 4 → 4. |
@@ -3217,7 +3217,9 @@ met outside its list and did not fix:
   stored 0, 0 → 20; the move, `runMigrationBins.test.js`. Both switches keep
   reading a stored 0 as none typed (on the cloud an untyped 0 cannot be told
   from a typed one), so switching off and on puts 20 over a typed 0, as the
-  Summary's switch always did.~~ The cloud stores 0 for an agency percentage
+  Summary's switch always did; each writes the switch and the default in one
+  update (review round 1, finding 6). Cloud projects already holding 0:
+  F2-08.~~ The cloud stores 0 for an agency percentage
   nobody typed, so her 20% reaches a cloud project only through the
   Summary's switch.** MEASURED
   by reading: 0036 makes `budget_agency_pct` `NOT NULL DEFAULT 0`. Three
@@ -3255,6 +3257,29 @@ met outside its list and did not fix:
   what was typed never shows. On the fixtures every crew figure sits on such
   a row. Older than F2. Fix shape: these rows' buttons and period cells
   disabled, or a line keyed by `role_slug`. Owner: none named.
+- **F2-07 · The Expenses tab shows no agency fee, where the Topsheet's
+  expenses row and the client estimate now carry it.** MEASURED in Chromium
+  on the fixtures at 15% (F2's follow-up, review round 1, finding 1): the
+  Topsheet's *All expenses* bid $24,449 and variance −$3,505 (its fee
+  $3,189), the Expenses tab's estimated $21,260 and variance −$316, with no
+  fee column (it never had one). Fix shape: a fee column or a line on the
+  Expenses tab, or the Topsheet's expenses without it; her call. Owner:
+  Audrey.
+- **F2-08 · Cloud projects made before F2's follow-up with the fee on and no
+  percentage typed hold 0 and charge no fee.** INFERRED by reading (round 1,
+  finding 5): nothing changed stored data; switching the fee off and on, or
+  typing a percentage, gives one its 20. Walkthrough 91's F2 Q4 asks her.
+  Owner: Audrey.
+- **F2-09 · Four older things seen in F2's follow-up review, not changed.**
+  (a) The client estimate names a crew line by its role's code
+  (*production_designer*, *dop*: `ClientViewTab.jsx`'s `crewByDept`, the
+  task's position or the slug), MEASURED on the fixtures; (b) the project
+  settings' budget fields take edits while the budget is locked, where the
+  Summary's switch is disabled (INFERRED); (c) two members holding the same
+  role each get all its bid days on the Crew tab (INFERRED); (d) the
+  fixtures' internal rate card holds an annual wage (61,000) in the `wage`
+  field the Crew tab reads as a day rate (`src/dev/fixtures/data/money.js`,
+  INFERRED). Owner: none named.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

@@ -623,6 +623,14 @@ describe('surface 2a', () => {
       expect(foot.map((td) => td.textContent)).toEqual(['Grand total', '$300', '$60', '$360', '$450', '+$90'])
       expect(foot.slice(1).every((td) => td.getAttribute('data-numeric') === 'true')).toBe(true)
       expect(foot[5].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
+      // The expenses' own row, not only the foot (follow-up review round 1).
+      const expRow = () => [...container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
+      expect([...expRow().querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$60', '$360', '$450', '+$90'])
+      // CONTROL: the fee off, no fee on the expenses and no Agency column.
+      cleanup()
+      const off = render(summary({ budget_agency_enabled: false }))
+      const offRow = [...off.container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
+      expect([...offRow.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$300', '$450', '+$150'])
     })
 
     // F2 review round 2 (finding 1): the switch writes the one default when it
@@ -638,10 +646,12 @@ describe('surface 2a', () => {
         cleanup()
         return ctx.updateProject.mock.calls
       }
+      // One write, the switch and the default together (follow-up review
+      // round 1, finding 6: two writes' replies can land the other way round).
       expect(switched({ budget_agency_enabled: false, budget_agency_pct: undefined }))
-        .toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+        .toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
       expect(switched({ budget_agency_enabled: false, budget_agency_pct: 0 }))
-        .toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+        .toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
       expect(switched({ budget_agency_enabled: false, budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: true }]])
       expect(switched({ budget_agency_enabled: true, budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: false }]])
     })
@@ -1879,6 +1889,18 @@ describe('the client estimate', () => {
     const off = fee({ budget_agency_enabled: false, budget_agency_pct: 20 })
     expect(off.container.textContent).not.toContain('Agency fee')
     expect(off.container.querySelector('tfoot').textContent).toBe('Total$13,453')
+    cleanup()
+    // The printed estimate carries the line and the total with it
+    // (follow-up review round 1: no print test had the line).
+    let html = ''
+    const win = { document: { write: (s) => { html += s }, close: vi.fn() }, focus: vi.fn(), print: vi.fn(), close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(win)
+    fee({ budget_agency_pct: 20 })
+    fireEvent.click(screen.getByRole('button', { name: 'Print / export' }))
+    open.mockRestore()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    expect([...doc.querySelectorAll('tbody tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent]).slice(-2))
+      .toEqual([['Agency fee', '$1,950'], ['Total', '$15,403']])
   })
 
   it('says Client view, Estimated budget, Production fee and the signature lines in sentence case (Q2)', () => {
@@ -2141,8 +2163,8 @@ describe('the agency fee switched on anywhere fills in the one default (F2, Q1)'
       cleanup()
       return ctx.updateProject.mock.calls
     }
-    expect(switched({})).toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
-    expect(switched({ budget_agency_pct: 0 })).toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+    expect(switched({})).toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
+    expect(switched({ budget_agency_pct: 0 })).toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
     expect(switched({ budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: true }]])
     expect(switched({ budget_agency_enabled: true })).toEqual([['p1', { budget_agency_enabled: false }]])
   })
@@ -2167,6 +2189,12 @@ describe('the agency fee switched on anywhere fills in the one default (F2, Q1)'
     expect(none.confirm).toContain('Agency fee20%')
     const zero = await created('0')
     expect(zero.payload).toMatchObject({ budget_agency_enabled: true, budget_agency_pct: 0 })
+    expect(zero.confirm).toContain('Agency fee0%')
+    // A typed percentage is what is saved and what the check says
+    // (follow-up review round 1: a "20%" whatever was typed passed).
+    const fifteen = await created('15')
+    expect(fifteen.payload).toMatchObject({ budget_agency_enabled: true, budget_agency_pct: 15 })
+    expect(fifteen.confirm).toContain('Agency fee15%')
     // CONTROL: the fee not ticked writes no percentage.
     const createProject = vi.fn(async () => ({ id: 'new' }))
     const { container } = render(<NewProjectForm createProject={createProject} onCreated={vi.fn()} onCancel={vi.fn()} />)

@@ -1633,21 +1633,6 @@ describe('M1: the cloud\'s refusals the runner meets no more (measured on wilson
     expect(report.projects).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0 })
   })
 
-  // F2's follow-up (her answer to walkthrough 91's F2 Q1; OUTSTANDING F2-04):
-  // a desktop project with the fee switched on and no percentage typed reads
-  // 20% on every Budget surface; the move keeps it at 20 where the cloud's
-  // column default would make it 0. A typed 0 goes up as 0; with the fee off
-  // nothing is filled in (the default applies, and switching it on fills 20).
-  it('F2: a desktop project with the agency fee on and no percentage typed goes up at 20%, as every surface read it', () => {
-    const p = { ...desktopFixtures().project, budget_agency_enabled: true }
-    delete p.budget_agency_pct
-    expect(projectRowForCloud(p, WS).budget_agency_pct).toBe(20)
-    expect(projectRowForCloud({ ...p, budget_agency_pct: '' }, WS).budget_agency_pct).toBe(20)
-    expect(projectRowForCloud({ ...p, budget_agency_pct: 0 }, WS).budget_agency_pct).toBe(0)
-    expect(projectRowForCloud({ ...p, budget_agency_pct: 15 }, WS).budget_agency_pct).toBe(15)
-    expect(projectRowForCloud({ ...p, budget_agency_enabled: false }, WS)).not.toHaveProperty('budget_agency_pct')
-  })
-
   it('a day picked in the project\'s settings (stored as that day\'s midnight in UTC) goes up as that day, whatever the clock\'s zone; R.A.B.B.I.T.\'s later date wins over D.O.G.\'s first one (review round 2)', async () => {
     // Postgres keeps the literal day of such a string (measured on wilson-dev):
     // both of these, read as an instant, fall on another day in New York or in UTC.
@@ -1778,6 +1763,24 @@ describe('M1: the cloud\'s refusals the runner meets no more (measured on wilson
     expect(report.milestones.failed).toBe(0)
     expect(ins('milestones').map(m => m.title)).toEqual(MILESTONES.map(m => m.title))
     expect(ins('milestones').some(m => 'name' in m)).toBe(false)
+  })
+})
+
+// F2's follow-up (her answer to walkthrough 91's F2 Q1; OUTSTANDING F2-04): a
+// desktop project with the fee switched on and no percentage typed reads 20%
+// on every Budget surface; the move keeps it at 20 where the cloud's column
+// default would make it 0. A typed 0 goes up as 0; with the fee off nothing is
+// filled in (the default applies, and switching it on fills 20). Read from
+// the code, not measured on wilson-dev.
+describe('F2: the agency fee\'s one default on the move', () => {
+  it('a desktop project with the agency fee on and no percentage typed goes up at 20%, as every surface read it', () => {
+    const p = { ...desktopFixtures().project, budget_agency_enabled: true }
+    delete p.budget_agency_pct
+    expect(projectRowForCloud(p, WS).budget_agency_pct).toBe(20)
+    expect(projectRowForCloud({ ...p, budget_agency_pct: '' }, WS).budget_agency_pct).toBe(20)
+    expect(projectRowForCloud({ ...p, budget_agency_pct: 0 }, WS).budget_agency_pct).toBe(0)
+    expect(projectRowForCloud({ ...p, budget_agency_pct: 15 }, WS).budget_agency_pct).toBe(15)
+    expect(projectRowForCloud({ ...p, budget_agency_enabled: false }, WS)).not.toHaveProperty('budget_agency_pct')
   })
 })
 

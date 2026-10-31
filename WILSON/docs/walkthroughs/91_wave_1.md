@@ -45,7 +45,8 @@ allowance was used up; your choice for F1, *"Use Opus for both"*).
    page charges 20%, your ruling, so those four pages' figures go up (the
    table below). A typed percentage is used as typed, as before; a typed 0
    too, with one exception that was there before: switching the fee off and
-   on again on the Summary page puts 20% back in its place.
+   on again on the Summary page (and, since your Q1 answer, in the project's
+   settings) puts 20% back in its place.
 2. **Margin and contingency are worked out on the cost, never on a fee.**
    The Crew tab worked them out on the cost plus the agency fee; the Talent
    tab on the cost plus the agency fee and the agent's fee; the client
@@ -67,7 +68,9 @@ allowance was used up; your choice for F1, *"Use Opus for both"*).
 ### What it measured
 
 The test project has a 10% contingency, no margin, the agency fee on, and a
-15% agent's fee on each talent line. Figures as each page shows them.
+15% agent's fee on each talent line. Figures as each page showed them before
+your three answers were built (the Crew tab's and the client estimate's have
+moved since: *Built on your three answers*, below).
 
 | Page and figure | Fee on, no % typed: before | after | 10% typed: before | after |
 |---|---|---|---|---|
@@ -182,16 +185,26 @@ built, and reviewed twice on Opus.
    fee 20%* (it said *Enabled*). The project's settings switch does the same
    as the Summary's: switched on with nothing there, the box reads 20. A
    project moved from this computer to the cloud keeps its 20%. A
-   percentage you typed is left as it is.
+   percentage you typed is left as it is, except a typed 0: switching the
+   fee off and on again, on the Summary or in the settings, puts 20% in its
+   place (on the cloud a 0 nobody typed looks the same as a typed one).
+   Projects already on the cloud with the fee on at 0% stay at 0% until you
+   switch the fee off and on, or type a percentage: nothing was changed
+   behind your back (Q4).
 2. **The Crew tab prices a role nobody holds at the full rate** (Q2), the
    Summary's: the production designer $624 a day (it was $520), and so for
-   every role. The crew now costs $92,172 on the Crew tab, the same as the
-   Summary's base cost, where it was $76,810.
+   every role; a project's own rate for a role now counts there too, as on
+   the Summary. The crew now costs $92,172 on the Crew tab, the same as the
+   Summary's base cost, where it was $76,810. A person who holds a role and
+   has a rate of their own on the card is still priced at that rate before
+   burden and overhead on the Crew tab (Q2 was about roles nobody holds).
 3. **The client estimate shows the agency fee as a line of its own** (Q3),
    after Contingency and the Production fee, with no percentage shown. It is
    the fee on the crew and the expenses. The Talent line still holds its own
    fees, as before, so nothing is counted twice. The Topsheet's expenses
-   row now carries the fee too.
+   row now carries the fee too, so its expenses bid ($24,449) is more than
+   the Expenses tab shows ($21,260): the Expenses tab has no fee column
+   (written down, F2-07).
 
 | On the test project (15% typed) | Before | After |
 |---|---|---|
@@ -214,6 +227,15 @@ production designer's rate $624 and the grand total's subtotal $92,172;
 Client view, the *Agency fee* line $17,015 and the total $159,010; Intake →
 New project, tick the agency fee, leave the box empty, Review and create:
 *Agency fee 20%*.
+
+**Q4. Projects already on the cloud with the agency fee switched on and no
+percentage typed hold 0%, and still charge no fee. Should they be changed
+to 20%?**
+(a) Leave them: on any of them, switching the fee off and on fills in 20%,
+or you type the percentage you want. *(Recommended: nothing changes on a
+budget without you seeing it.)*
+(b) Find them and set them to 20% (a change to the stored data, for a later
+session; a typed 0 cannot be told apart, so those would change too).
 
 ## F3 — The desktop's project file: kept in memory, saved whole
 
