@@ -3701,8 +3701,10 @@ while under `UPLOAD_LIMIT` (20). No Preview on an upload.
 Then the *Choose a project…* note, Items, Files, Notes, the meter and Add
 references. The contract sentence reads *"What goes to the AI: what is listed
 here, the project's title and description, and what you write in step 2."*
-(DG5; until the Generate outline card moved beside card 1 it ended *"…with
-what you write below."*);
+(DG5, her walkthrough 89 Q1; until the Generate outline card moved beside
+card 1 it ended *"…with what you write below."*, and since DG6 put it below
+card 1 again "step 2" names it by its numeral); it heads the references'
+part, before Uploads, so in card 1's two columns it tops the right one;
 the header's count is the uploads and the references, one number; *Remove all
 references* (was *Remove all*) removes the chosen references only. A control
 in the card that takes itself away, pressed from the keyboard, moves focus on:
@@ -3770,8 +3772,8 @@ line, measured 571.28px in Chromium at 1280, 1440 and 2560, and no house
 measure was within a few pixels (66ch is 700px at the meter's 16px). The
 meter in the card is that fixed width, never a share of the card (it was the
 card's whole width: 998px at 1280, 2278px at 2560); the track is 8px, was
-6px; the window's footer meter keeps `flex: 1`. Where the card sits on a
-wide window, and when it splits in two, is DG5's (below). **Place visual** (was *Use visual assets*, its
+6px; the window's footer meter keeps `flex: 1`. How wide the card is, and
+when it splits in two, is DG6's (below). **Place visual** (was *Use visual assets*, its
 subtitle gone, its meaning on the hover) is the one placement box:
 `placementFrom` places the uploads' pictures and videos and the listed
 references' alike, and a listed reference's video is read only then;
@@ -3808,40 +3810,46 @@ one offline sentence and no New project, DG2's *Choose a project…* note is
 not shown, and the box is off and says nothing of its own (`offline`).
 Walkthrough 84, its DG4 section.
 
-**D.O.G.'s inputs row (post-overhaul DG5, 2026-10-30; her ask verbatim in
-`docs/sessions/briefs/po-dg5-card1-layout.md`).** Cards 1 and 2 sit in
-`div.dog-inputs`, a wrapper with a class and nothing else (no role, name, id
-or Tab stop, so the folds, the ids, the header count, the Tab order and every
-name are DG4's), between the banners and the output card. `.dog-main` is a
-named size container (`container: dog-main / inline-size`; measured in
-Electron 33's Chromium 130 and in Chrome 152, it moves no fixed descendant and
-makes no stacking context), and the row lays out by its content width W (the
-window less the 240px sidebar, the column's 16px of padding and the 10px
-scrollbar, whose gutter the column keeps: `scrollbar-gutter: stable`, since
-DG5's follow-up measured a size query on this scroll column answered before
-its scrollbar took its share, the pair laid into a 1138px column at a 1404
-window with a sideways scrollbar; when the column does not scroll the kept
-gutter shows as an 18px right margin against the left's 8): under W 1148 (windows up to about 1,413) the cards stack as DG4
-left them, card 2's box and Generate its full width; from W 1148 (a 1414
-window; her answer to walkthrough 89's Q2 of 2026-10-30, *"Side by side from
-about 1,414 only"*, which retired the design follow-up's pair from W 1000)
-they sit side by side, card 1 at 602 (its measure) beside a card 2 of 538 or
-more, equal halves from W 1212, card 2's children keeping the measure; from
-W 1708 card 1 takes two thirds in two columns, the project [507 to 576] and
-what the deck reads [576], 24px apart, and card 2 the last third. So
-Generate is in view from a 1414 window with six references listed (1415 in
-Electron 33 here, whose scrollbar is 11px; at 1280x800 it is below the fold,
-as before DG5), and the
-slide preview keeps C4's width (`scripts/dog-preview-probe.mjs --check` at
-1280 and 1440; its stale first wait was replaced by the controller,
-OUTSTANDING DG5-01 closed). Card 1's hint ends *"choose what else
-goes."* (was *"…choose what else below."*) and Core files only's no-project
-sentence *"Core files come from a project: choose one."* (was *"…choose one
-above."*), since beside the project a direction was false. `dogCss.test.js` pins the widths and the
-arithmetic that gives them; `enterKey.render.test.jsx` pins the wrapper.
-Walkthrough 89, its DG5 section, has the measurements before and after at
-1280, 1440, 1920 and 2560, and her three answers (the words and the split as
-built; the side-by-side cards from a 1414 window).
+**D.O.G.'s inputs stack (post-overhaul DG6, 2026-10-31; her ask verbatim in
+`docs/sessions/briefs/po-dg6-cards-stacked.md`; DG5's row before it,
+2026-10-30, walkthrough 89).** Cards 1 and 2 sit one under the other at
+every width in `div.dog-inputs`, DG5's wrapper with a class and nothing else
+(no role, name, id or Tab stop, so the folds, the ids, the header count, the
+Tab order and every name are DG4's), between the banners and the output
+card. The wrapper is the two cards' one width, capped so each card ends
+where its content ends: 602px (the 576px measure, 12px of padding a side,
+the 1px border) while card 1 is one column, 1,202px (576 + 24 + 576 and the
+same edges) once card 1's body is two columns of the measure, the project
+then what the deck reads, 24px apart and level at the top. Card 2 is one
+column at that width (its box and Generate 576 or 1,176). Past 2560 nothing
+grows: beside the stack is the page's paper (OUTSTANDING DG5-02 closed);
+the banners and the output card keep the column's full width, so the slide
+preview keeps C4's width (`scripts/dog-preview-probe.mjs --check` at 1280
+and 1440). The width switches by `.dog-main`'s content width W, the one
+`@container dog-main` rule: `.dog-main` is a named size container
+(`container: dog-main / inline-size`; measured by DG5 in Electron 33's
+Chromium 130 and in Chrome 152, it moves no fixed descendant and makes no
+stacking context), and W is the window less the 240px sidebar, the column's
+16px of padding and the 10px scrollbar, whose gutter the column keeps
+(`scrollbar-gutter: stable`, since DG5's follow-up measured a size query on
+this scroll column answered before its scrollbar took its share, with a
+sideways scrollbar; when the column does not scroll the kept gutter shows as
+an 18px right margin against the left's 8). Under W 1202 (windows up to
+1,467) the stack is 602; from W 1202 (a 1468 window; 1469 in Electron 33 by
+its 11px scrollbar) it is 1,202. DG5's pair (side by side from a 1414
+window), card 2's cap beside it and its triple (from 1974) are gone. With
+six references Generate is below the fold at 1280x800 and 1440x900 and in
+view from a 1920x1080 window, where the two columns take card 1 from 722px
+to 562. Card 1's three sentences are her walkthrough 89 Q1's: the hint ends
+*"choose what else goes."* and Core files only's no-project sentence reads
+*"Core files come from a project: choose one."*, since in two columns the
+references sit beside the project and a direction would be false.
+`dogCss.test.js` pins the widths, the one rule and the arithmetic that gives
+them, and that nothing sets a card beside the other; `enterKey.render.test.jsx`
+pins the wrapper and card 1's body as two parts with the contract line
+heading the second. Walkthrough 90, its DG6 section, has the measurements
+before and after at 1280, 1440, 1920 and 2560 and her two questions (the two
+columns, card 2's box on a wide window).
 
 ### 13.2 O.T.T.E.R.
 
@@ -6511,6 +6519,25 @@ documentation and starts being wrong answers.
 - **Her rulings of 2026-10-29:** *"Q2. b"* (this lock, before 1.0) and
   *"Q1. a"* (the migration report keeps naming the clips left behind:
   OUTSTANDING D2-01 closed in words).
+
+**D.O.G.'s two input cards stop at their content's width (DG6, 2026-10-31; §13.1, the inputs stack)**
+
+- **Beside the stack is paper, by design.** The two cards are 602px wide
+  under a 1468 window and 1,202 from it, at the column's left edge, and
+  never wider; the output card below keeps the column's full width. So on a
+  1440 window 572px of the column beside the cards is the page's
+  background, and on a 2560 one 1,092px (measured, Chromium). Her words
+  (*"i want to keep the 1 and 2 cards stacked not side by side"*) rule out
+  using that width for card 2.
+- **With references listed, Generate needs a scroll on a laptop window.**
+  Stacked, card 1 is 722px tall with six references at 1280 and 1440, so
+  Generate's top is at y 1,132 (measured at 1280x800 and 1440x900);
+  from a 1468 window card 1's two columns bring it into a 1080-tall window
+  (y 972 at 1920x1080).
+- **In two columns the project's half ends first.** The project's column ends
+  under its description while the references run on (about 360px with six
+  references at 1920 and 2560); her walkthrough 89 Q3 kept Uploads with the
+  references, and CSS cannot fill the gap without separating them.
 
 ## Appendix A — Glossary
 
