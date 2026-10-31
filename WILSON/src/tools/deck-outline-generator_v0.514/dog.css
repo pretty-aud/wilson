@@ -145,7 +145,8 @@
   .dog-sec > .dog-sec-desc + * { margin-top: 12px; }
   .dog-sec-desc { max-width: var(--dog-measure); }
   /* Project: the field, and the chosen project's description beside it
-     when both fit at the measure (a 1628px card and up), else under it. */
+     when both fit at the measure (576 + 24 + 576: a 1,176px body, a 1468
+     window in Chromium, and up), else under it. */
   .dog-project-pair { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 24px; }
   .dog-project-field { flex: 0 1 var(--dog-measure); min-width: 0; }
   .dog-card-project .dog-project-details { flex: 0 1 var(--dog-measure); min-width: 0; margin-top: 0; }
@@ -157,6 +158,19 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 416px), 1fr));
     column-gap: 32px;
+  }
+  /* In a tile a row's status (a PDF over the provider's page cap, a
+     reference no longer there, a video placed only) takes its own line under
+     the name, aligned with it (the 14px glyph and the 8px gap), so the name
+     keeps the tile's width: beside a Core badge and a PDF warning a 428px
+     tile had left the name about 10px (DG6's follow-up, review round 1,
+     finding 3, MEASURED at 2560 and 3440). Preview and Remove stay on the
+     name's line. */
+  .dog-card-project .dog-refs-row { flex-wrap: wrap; row-gap: 0; }
+  .dog-card-project .dog-refs-row > :is(.dog-refs-warn, .dog-refs-gone, .dog-refs-sub) {
+    order: 1;
+    flex-basis: 100%;
+    padding: 0 0 8px 22px;
   }
   /* A control's own sentence, and a list's own button, 8px under it. */
   .dog-sec > .dog-refs-core-said,

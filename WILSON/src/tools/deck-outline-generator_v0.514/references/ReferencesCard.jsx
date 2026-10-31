@@ -152,8 +152,10 @@ export const uploadSize = (bytes) => `(${(bytes / 1024).toFixed(1)} KB)`;
 
 /**
  * Where keyboard focus goes when a control in the card takes itself away (DG2
- * review round 1, finding 1): a row's Remove goes to the next row's Remove,
- * else the previous row's, else Add references; Remove all references and the
+ * review round 1, finding 1): a row's Remove goes to the next Remove in its own
+ * section, else the previous one's, else its section's way to add (Choose file
+ * for an upload, Add references for a reference: DG6's follow-up), else the
+ * other's; Remove all references and the
  * notice's Undo and Dismiss (round 2, finding 1) go to Add references. Never
  * to <body>, where D.O.G.'s Enter would start a deck with
  * whatever is left. Only keyboard focus moves (`:focus-visible`, decided when
@@ -270,7 +272,8 @@ export function coreLine({ projectChosen, core, coreOnly, setAside = 0 }) {
  * @param {{ files: Array<{id, file: File, type: string}>, busy: boolean,
  *           add: (e) => void, remove: (id) => void }} props.uploads
  *        D.O.G.'s uploads (DG2): its `uploadedFiles`, `isFileLoading`,
- *        `handleFileUpload` and `removeFile`, drawn here as the first group
+ *        `handleFileUpload` and `removeFile`, drawn here as the Uploads
+ *        section, after the references (DG6's follow-up)
  * @param {boolean} [props.offline] a sign-in held at an offline launch (S2):
  *        card 1 says so in its one sentence, so Core files only is off and
  *        says nothing of its own
@@ -282,8 +285,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   const uploadFiles = uploads?.files || [];
   // Choose file goes at the 20th upload. Pressed from the keyboard, it took
   // focus to the page with it, and the next Enter there made a deck (DG3,
-  // MEASURED); so focus goes to the upload it added, that row's Remove, just
-  // above where it was. Only when its last press found it holding keyboard
+  // MEASURED); so focus goes to the upload it added, that row's Remove, the
+  // last tile of the shelf above where it was (since DG6's follow-up the tile
+  // can sit a few columns to the right). Only when its last press found it holding keyboard
   // focus (`:focus-visible`, as focusAfterRemove reads it): a click that gave
   // it focus leaves focus as before, while a click on it with the keyboard's
   // ring still on it (a picker closed unused, a file refused) counts as the

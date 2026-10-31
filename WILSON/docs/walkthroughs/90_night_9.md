@@ -30,6 +30,11 @@ and reviewed twice on Fable.
   to tell that each is a different function."*
 - A second design round (on Opus this time) asked you one question, on a
   very wide screen a section holding only one button: you chose **Keep it**.
+  Once built (each title's buttons under it), D.O.G. opening with nothing
+  chosen left more of card 1 empty on the right than that sketch showed
+  (about 40 percent on a laptop, about 75 on your 2560 screen, against the
+  sketch's 15 to 60); asked again with the built pictures, you chose
+  **Keep it** again.
 - On its sketch you said: *"remove the dividing lines. the titles themselves
   are enough to separate"*, and that each title's text and buttons should
   sit under it, not in a column to its right.
@@ -52,19 +57,23 @@ All of that is built. The lines and the pictures below say what you see now.
 4. **Lists use the width.** Your references and uploads sit side by side in
    rows of tiles: two across on a laptop, three on a 1920 monitor, up to
    five on your 2560 screen. Each tile keeps its eye and × close to its
-   name.
+   name; a tile's warning (a PDF too long for the AI, a reference no longer
+   there) sits on its own line under the name, so the name stays readable.
 5. **One section's single button stays its normal size** (your *Keep it*):
    with nothing chosen, Project, Uploads and the bar end where they end, so
-   on your wide screen the right side of those rows is empty until you add
-   things.
+   the right side of those rows is empty until you add things (about 40
+   percent of card 1 on a laptop, about 75 on your 2560 screen).
 6. **Generate outline's box and button run the card's full width** (your
    Q2).
 7. **The project dropdown is wider**: it runs beside New project to the end
-   of its field, level with the description under it.
+   of its field. The chosen project's description sits beside the field
+   from a window about 1,468 px wide, and under it on a laptop, where the
+   two end at the same edge.
 8. **The output card is untouched**, and so is every name a screen reader
-   hears. Tab visits the same things, with one move you asked for: Choose
-   file now comes after Add references and Core files only (it was right
-   after New project). A screen reader also hears the three section titles
+   hears. Tab visits the same things in your new order: your references'
+   eye and ×, Add references and Core files only come before the uploads'
+   × and Choose file (Choose file was right after New project, and the
+   uploads before the references). A screen reader also hears the three section titles
    as headings. The three sentences you chose on night 8 (Q1 of walkthrough
    89) are word for word as they were.
 
@@ -83,7 +92,10 @@ With the dev fixtures' project (*Salt Hours*) and six references listed;
 At 2560 the 41 percent is the right of the tile rows: three items fill three
 of the five tiles a row can hold there; a dozen uploads fill it. With
 nothing chosen card 1 is 42 to 74 percent empty on the right from 1280 to
-2560 (your *Keep it*). Card 1 is 763 px tall with six references on a
+2560 (your *Keep it*, given twice). With nothing chosen card 1 is also taller
+than before (528 px, was 424: three titles, their sentences and the space
+between sections), so on a 1440 × 900 laptop Generate opens just below the
+window too (it was in view). Card 1 is 763 px tall with six references on a
 laptop and 669 from 1920, so Generate needs a short scroll below a 1440-tall
 window once references are listed; card 2 itself is unchanged inside.
 
@@ -137,6 +149,7 @@ FOLLOW-UP-CHECKS
   2026-10-31: (a), "Full card width"; built: they run the card's full width
   at every size.**
 - **On a very wide screen, a section holding only one button** (asked in
-  the session). **Answered 2026-10-31: "Keep it".**
+  the session, twice: on the sketch, then on the built pictures).
+  **Answered 2026-10-31: "Keep it", both times.**
 
 No question is open.
