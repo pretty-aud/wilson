@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul F3 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f3-desktop-project-file` into `feat/post-overhaul-edit-versioning`) — the code review's REV-06 and REV-07 (desktop-build C1, A6, C2): the desktop's project bundle kept in memory, keyed by its path and a stat stamp, reconciled once per disk load and on every write; one atomic JSON writer (`electron/jsonFile.cjs`, lifted from `rendererStorage.cjs`) for every JSON write in `main.cjs` and `localDemoRoot.cjs`; the subjects GET read-only, the writes keeping the order; the `_DATABASES` mirrors written only when they change; the 50 MB body limit kept; measured before and after on the fixtures' project (a task PATCH 22 → 17 disk calls and 379 KB → 0 read; a cached thumbnail 18 → 12, 5.0 → 3.7 ms; a six-subject list 19 → 10, nothing written); one design round and two review rounds on Opus 5.5 (her ruling "Use Opus for reviews (Recommended)" of 2026-10-31: Fable refused for usage credits); no migration, no SQL; comment markers 4 → 4 | F3-01 to F3-08 | REV-06, REV-07 |
 | Post-overhaul F2 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — REV-02 with her ruling of 2026-10-31 in the session's question box on the agency fee switched on with no percentage typed, verbatim *"20%"*: `budgetMath.js` the one money module every Budget surface calls (`projectBudgetSettings` and `bidTotals` moved in, `taskBaseCost` and `lineMoney` added, one `round2`, `AGENCY_DEFAULT_PCT`); margin and contingency on the base on the Crew and Talent tabs and the client estimate; the fourteen inline copies of the inheritance rule and the eleven settings reads with a default of their own gone; measured on the fixtures before and after with the fee on and none typed and with 10% typed (the Crew tab's agency 0% → 20%; with 10% typed its contingency +$8,449 → +$7,681, the Talent tab's +$1,538 → +$1,230, the client estimate's $12,881 → $12,573; the Summary unchanged); tests red first; two review rounds, both on Opus (the Fable call refused for the account's credits; her ruling for F1, *"Use Opus for both (Recommended)"*, relayed by the controller); the Expenses tab's two unread totals removed (review round 1); no migration, no SQL | F2-01 (the Crew tab's rate for a role nobody holds), F2-02 (the Topsheet's crew rows), F2-03 (the client estimate's agency fee, the Topsheet's expenses), F2-04 (the cloud's 0 for a percentage nobody typed), F2-05 (the tabs' Bid total), F2-06 (what is typed on a Crew row for a role nobody holds) | REV-02 (closed by measurement on the fixtures). Comment markers: 4 → 4. |
 | Post-overhaul F1 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f1-operator-console-list` into `feat/post-overhaul-edit-versioning`) — REV-01 by her ruling of 2026-10-31, verbatim *"Record it, fix at the release steps"*: `PAGE` imported in `operator-workspaces` (the console's company list and teardown step 1d); a `deno check` of every Edge Function in `rls.yml` with Deno 2.1.4 (the Deno inside the pinned CLI's edge runtime), red on the unfixed file and green on the fix on GitHub's runner, the 28 errors its first run found beside REV-01's six held as a counted baseline; a pin in `teardownCollect.test.js`, red first; two review rounds, both on Opus (the account's Fable credits were out; her choice, *"Use Opus for both (Recommended)"*); no deploy (the controller's, on her go), no migration, no SQL | F1-01 (28 type errors in ten files, seven functions and the three shared guards, none of which throws; the check's baseline) | REV-01 (closed by measurement on GitHub's runner). Comment markers: 4 → 4. |
 | Post-overhaul DG6 (2026-10-31, night 9; `po/dg6-cards-stacked` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-31, verbatim *"this looks objectively bad. please do a pass to make it more appealing for the top two cards. leave the output card how it is dont touch it. i want to keep the 1 and 2 cards stacked not side by side"*: D.O.G.'s two input cards stacked at every width at one capped width, 602px under a 1468 window and 1,202 from it, card 1 in two columns of the 576px measure there; DG5's pair, card 2's cap and the triple removed; the project dropdown's inline 360px cap removed (review round 1, finding 4: with no project the halves were 93px apart); the output card untouched; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/2/28/22 percent before, 2/2/1/1 now; card 2 1/2/28/23 before, its box stretched at 1280, 2/2/1/1 now); one Fable design round with the design-direction and laws-of-UX skills; two review rounds, both on Fable; no migration, no SQL | DG6-01 (the type sweep's scanner reads `DeckOutlineGenerator.jsx`'s backticks inverted from line 2635) | DG5-02 (closed by measurement at 3440x1440) |
@@ -3790,6 +3791,15 @@ the way are recorded below. Nothing becomes a session unless she names it
   (`:2753-2757`): with her six courses and 49 subjects, 49 rewrites per load,
   through REV-07's in-place writer. MEASURED by reading. Fix shape: the GET
   read-only (the order is set by the writes). Owner: Audrey.
+  **Closed by F3 (wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`,
+  `po/f3-desktop-project-file`), MEASURED:** the GET reads only; POST, PUT,
+  DELETE and `/renumber` keep the curriculum order (what the GET showed),
+  writing only a subject whose number changed and never over a file that
+  could not be read (the old renumber wrote `{ subject_order }` over one); one
+  total order for every list. A GET of a course holding the fixtures' six
+  subjects, on a development build: 19 disk calls, 18,171 bytes read and
+  18,171 written, 4.4 ms before; 10 calls, 18,171 read, nothing written,
+  2.5 ms after.
 - **REV-07 · The project file's writer is not atomic.** `electron/main.cjs:245`
   (`writeJSON`: `writeFileSync` in place, no retry) writes every bundle,
   mirror, setting and pet; `readJSON` (`:242`) swallows a parse error, so a
@@ -3799,3 +3809,85 @@ the way are recorded below. Nothing becomes a session unless she names it
   torn-file outcome INFERRED. Fix shape: one `writeJsonAtomic` lifted from
   `rendererStorage.cjs` for every JSON write in `main.cjs` and
   `localDemoRoot.cjs`. Owner: Audrey.
+  **Closed by F3 (`po/f3-desktop-project-file`), MEASURED:** every JSON write
+  in `main.cjs` and `localDemoRoot.cjs` is `writeJsonAtomic`
+  (`electron/jsonFile.cjs`: the text whole to `<file>.tmp`, renamed over the
+  file, both retried on EPERM/EBUSY/EACCES, five tries — but a read's
+  write-back, a `_DATABASES` mirror, the download and stream audit appends
+  and the demo manifest at launch try once, so a folder she can only read
+  does not hold them on the retries); `readJSON` keeps its shape. A crash of
+  WILSON planted half-way through a write leaves the previous
+  `project.json` readable (the in-place writer, the test's control, leaves one
+  that reads as nothing). The bundle is kept in memory too (path and a stat
+  stamp; reconciled once per disk load and on every write), and the mirrors
+  written only when they change. On the fixtures' project (379,320 bytes) with
+  a folder on disk, before → after: a task PATCH 22 → 17 disk calls, 379,288 →
+  0 bytes read, 647,659 → 471,975 written, 9.8 → 10.0 ms (each write now a
+  temporary file and a rename: 0.86–0.92 ms against 0.51–0.54 in place for
+  the 379 KB bundle, three runs of 200 on this machine; review round 2's runs
+  gave 1.1–1.2 against 0.6); a cached
+  thumbnail 18 → 12 calls, the bundle no longer read, 5.0 → 3.7 ms; the
+  project list 14 → 8, 4.2 → 3.1 ms. The rest, and what is left, under F3
+  below.
+
+## F3 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+Found while keeping the desktop's project file in memory; outside the brief's
+list (`PLAN_TO_1_0.md` §5, rule 1), so recorded and left.
+
+- **F3-01 · In a demo folder every cached thumbnail answers 500.** MEASURED
+  (a development build, the fixtures' project in a scratch demo folder): the
+  asset thumbnail GET answered 500 fifteen times in fifteen, on the tip and on
+  F3's build alike; on a userData root, 200. The thumbnail cache is under
+  `<folder>/.wilson/rabbit-data/thumbnails`, and the six thumbnail GETs in
+  `electron/main.cjs` (managed files, assets, and the scene/shot/level/
+  experience loop) call `res.sendFile(thumbPath)` without
+  `{ dotfiles: 'allow' }`, which every other `sendFile` passes for this reason:
+  `send` refuses the dot-folder (a 404 handed to `next`), and
+  `localServerErrorHandler` answers 500. Fix shape: `{ dotfiles: 'allow' }` on
+  the six, or F9's one `sendMedia`. Owner: F9 (wave 3), or 1.1.
+- **F3-02 · `petKnowledge.js` says the subjects GET is a write.**
+  `src/tools/otter_v0.3.1/petKnowledge.js:36` and `:477-478` (the index is built
+  once per time-to-live because "on the local backend `GET /:slug/subjects` is a
+  WRITE"): since F3 it reads only. A renderer comment, which F3 may not touch.
+  Owner: F6 or 1.1.
+- **F3-03 · The saved sign-in is written in place.** `session.enc`
+  (`main.cjs`, the `wilson:session-save` handler's
+  `fs.writeFileSync(getSessionPath(), encrypted)`)
+  is sealed bytes, not JSON, so outside the brief; a write torn by a crash
+  leaves a file `safeStorage` cannot open, and she signs in again. Fix shape:
+  `writeTextAtomic`'s temporary file and rename, for bytes. Owner: 1.1.
+- **F3-04 · The demo folder's root questions stat the folder on every
+  question.** MEASURED: 4 `statSync` of the open folder per project list, 5 per
+  task PATCH, and one `realpathSync.native`, against none on a userData root;
+  on a NAS-hosted demo folder each is a round trip. Left as they are: review
+  round 2's M6 makes every question re-check that the folder is still there,
+  and a per-turn memo fails `src/lib/localDemoBoundary.test.js:111-121` (F3's
+  design round, finding 2). Fix shape: a presence check scoped to one request
+  (a middleware after `express.json`). Owner: 1.1.
+- **F3-05 · Two copies of the retried write.** `electron/rendererStorage.cjs`
+  keeps its own `withRetry` and `writeKept`, which `jsonFile.cjs` lifted: the
+  kept storage reads its `.tmp` first, a different contract, so the design
+  round left it alone. Owner: F9 (wave 3).
+- **F3-06 · A title that slugifies to nothing puts the project at the root.**
+  INFERRED by reading (F3's design round, note 12): for 東京, Проект or 🎬,
+  `fileSlugify` gives `""`, so the project POST makes its folder at
+  `path.join(rootDir, '')`, the configured root itself, and a PATCH to such a
+  title leaves `<oldSlug>_FILES` behind. Since F3 the bundle's slug is repaired
+  to `Untitled-Project` in the write (before, by the next read); where the
+  folder was made is not, and the POST makes the project's sub-folders before
+  that write, so such a title gets a bare `_DATABASES` and `_FILES` at the
+  root itself (F3's build review round 2; the PATCH's twin was moved after
+  its write in round 1). Owner: 1.1.
+- **F3-07 · The list and the thumbnails still parse each kept bundle.** Each
+  project in the list and each thumbnail GET parses the whole kept text (about
+  0.5 ms for the fixtures' 379 KB) to read `bundle.project` or one row; the
+  review's C1 suggested a project-only read and a `?keys=` projection. Not
+  built: route bodies, beyond the brief. Owner: none.
+- **F3-08 · Two loose ends of the subject routes.** The DELETE's renumber is
+  not guarded as the POST's and the PUT's now are (F3's build review round
+  1), so a renumber that cannot write another subject answers 500 after the
+  delete has landed (before F3 too). `POST …/subjects/reorder` has no caller
+  in the renderer; since the list reads the stored order, an order it sets
+  now stands until the next subject write renumbers. INFERRED by reading
+  (round 2's notes). Owner: none.

@@ -3863,7 +3863,11 @@ describe('M3: the archive keeps its promise (electron/main.cjs, archiveLocalRabb
     write('team-members/m1.json', { id: 'm1', name: 'Mara' })
     write('task-templates/t1.json', { id: 't1', name: 'Build' })
     write('cloud-migration/ws1.json', { cloudMigration: { ws1: { carried: { rate_cards: ['rc1'] } } } })
-    const out = archive(dir, fs, path)
+    // F3: the writer is passed in as fs and path are — the main process's one
+    // JSON writer (electron/jsonFile.cjs), the archive synced before the stores go.
+    const { createRequire } = await import('node:module')
+    const { writeJsonAtomic } = createRequire(import.meta.url)('../../../electron/jsonFile.cjs')
+    const out = archive(dir, fs, path, writeJsonAtomic)
     expect(out.ok).toBe(true)
     expect(out.projectCount).toBe(1)
     expect(out.storeCounts).toEqual({ 'rate-cards': 1, 'team-members': 1, 'task-templates': 1, 'cloud-migration': 1 })

@@ -50,8 +50,8 @@ function replay(head, params, bundle, extraNames = [], extraValues = []) {
 describe('the project PATCH — the OPEN bid version must be this project\'s (0089\'s FK, desktop)', () => {
   const patchRoute = (bundle) => replay(
     "expressApp.patch('/api/rabbit/projects/:id',", { id: PID }, bundle,
-    ['folderRootRefusal', 'fileSlugify', 'path', 'fs', 'resolveConfiguredRootDir', 'ensureProjectFolderRows', 'materializeFolderDirs'],
-    [() => ({ error: 'no' }), (s) => String(s), path, { existsSync: () => false, renameSync: () => { throw new Error('no disk') } }, () => null, () => false, () => {}],
+    ['folderRootRefusal', 'fileSlugify', 'path', 'fs', 'resolveConfiguredRootDir', 'ensureProjectFolderRows', 'materializeFolderDirs', 'ensureProjectFolders'],
+    [() => ({ error: 'no' }), (s) => String(s), path, { existsSync: () => false, renameSync: () => { throw new Error('no disk') } }, () => null, () => false, () => {}, () => {}],
   )
   const seeded = () => ({
     project: { id: PID, title: 'P', open_budget_version_id: null },
