@@ -844,6 +844,11 @@ describe('surface 2b', () => {
     // CONTROL: the fee off, no such tile and no hint under Variance.
     expect(tiles(PROJECT).map((x) => x[0])).toEqual(['Estimated total', 'Actual total', 'Variance', 'Expenses'])
     expect(tiles(PROJECT)[2]).toEqual(['Variance', '-$316', null])
+    // No expenses: no variance, so nothing under it to explain.
+    const { container: none } = render(tab(hook({ expenses: [] }), at15))
+    expect(read(none).slice(1, 4)).toEqual([
+      ['Bid total', '$0', 'with the $0 agency fee'], ['Actual total', '—', null], ['Variance', '—', null]])
+    cleanup()
     // Every expense, whatever the search (the other tiles' rule and the
     // Topsheet's); a row's own variance stays its cost against its estimate;
     // a percentage typed afterwards moves the tile.

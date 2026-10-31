@@ -2227,7 +2227,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
           value={totalEstimated > 0 || totalActual > 0
             ? formatMoney(totalVariance, currency, { sign: 'exceptZero' })
             : '—'}
-          hint={settings.agencyEnabled ? 'against the estimate, before the fee' : undefined}
+          hint={settings.agencyEnabled && (totalEstimated > 0 || totalActual > 0) ? 'against the estimate, before the fee' : undefined}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
         <BigTile label="Expenses" value={expenses.length} />
@@ -3157,8 +3157,9 @@ function Card({ title, children, rule = true }) {
   )
 }
 
-// Kept for the Expenses tab's four tiles: a thin wrapper over the kit Stat,
-// so every tile on the Budget is the kit's (R3-10). `tone` keeps its words.
+// Kept for the Expenses tab's tiles (four, five with the agency fee on): a
+// thin wrapper over the kit Stat, so every tile on the Budget is the kit's
+// (R3-10). `tone` keeps its words.
 function BigTile({ label, value, hint, tone = 'neutral' }) {
   return (
     <Stat

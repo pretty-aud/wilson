@@ -264,6 +264,18 @@ Topsheet's variance for the expenses is against the bid with the fee
 (−$3,505), as on the Crew and Talent tabs. **Look at:** Budget → Expenses on
 *Salt Hours*.
 
+**Q6. On the Expenses tab, should *Variance* compare what the expenses cost
+with their estimate, or with the bid?** The second review of the Q5 build
+raised it; it is your call. With the fee on, the Expenses tab's Variance is
+the cost against the estimate (−$316 on the test project), and says so
+under it. The Crew and Talent tabs, and the Topsheet's expenses row, compare
+with the bid, fee included (−$3,505 for the expenses).
+(a) Against the estimate, as now: it tells you whether the expenses cost
+more than you expected. *(Recommended: the fee is not money spent, so
+against the bid the expenses always look under by the fee, $3,189 here.)*
+(b) Against the bid, as on the other tabs: every page's Variance measured
+the same way.
+
 ## F3 — The desktop's project file: kept in memory, saved whole
 
 From the code review of 2026-10-31 (its REV-06 and REV-07). Measured on the
