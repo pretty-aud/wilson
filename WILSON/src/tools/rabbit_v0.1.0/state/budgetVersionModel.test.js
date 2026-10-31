@@ -106,6 +106,8 @@ describe('a version\'s expenses (F2\'s third follow-up)', () => {
     expect(readVersion({ snapshot: live() }).expenses).toBeNull()
     expect(readVersion(saved([])).expenses).toEqual([])
     expect(readVersion({ snapshot: { grandTotal: 100 } }).expenses).toBeNull()
+    // The lock writes them into an older version too (review round 1).
+    expect(readVersion({ snapshot: { grandTotal: 100, expenses: [{ id: 'e1', estimated_cost: 5 }] } }).expenses).toEqual([{ id: 'e1', estimated_cost: 5 }])
   })
 
   it('expensesAgainstBid: each one\'s bid, the bid\'s total with those removed since, and the bid\'s own fee', () => {
