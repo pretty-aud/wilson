@@ -235,11 +235,17 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
   it('the contract sentence no longer names uploads apart; its hover is as before', () => {
     const c = mount({ files: UPLOADS().slice(0, 1) })
     const contract = c.body().querySelector('.dog-refs-contract')
-    // DG5: "in step 2", not "below": the Generate outline card sits beside
-    // card 1 from a window of about 1,414px (her answer to walkthrough 89's
-    // Q1: as built).
+    // DG5: "in step 2", not "below" (her answer to walkthrough 89's Q1: as
+    // built); since DG6 the Generate outline card is below card 1 at every
+    // width again, and "step 2" names it by its numeral.
     expect(contract.textContent).toBe('What goes to the AI: what is listed here, the project’s title and description, and what you write in step 2.')
     expect(contract.getAttribute('title')).toBe('PDFs and pictures are placed in the AI\'s file store to be read. Your notes always travel in the request itself.')
+    // DG6: the sentence heads this part, then Uploads, so from a 1468 window
+    // it tops the references' column level with "Choose a project" (dog.css,
+    // THE INPUTS STACK; the rendered D.O.G. pins the whole card,
+    // enterKey.render.test.jsx).
+    expect(c.body().firstElementChild).toBe(contract)
+    expect(contract.nextElementSibling.matches('.dog-refs-uploads')).toBe(true)
   })
 
   // DG4: the number is card 1's header's (ReferencesCount, which D.O.G. draws

@@ -82,84 +82,74 @@
   .dog-main {
     padding: 8px;
     background-color: var(--color-paper);
-    /* DG5: a named size container, so the inputs row (below) lays out by
+    /* DG5: a named size container, so the inputs stack (below) lays out by
        this column's own width, whatever the sidebar. Measured in Electron
        33.4.11 (Chromium 130) and in Chrome 152: a container moves no fixed
-       descendant and makes no stacking context; the padding is C4's. */
+       descendant and makes no stacking context; the padding is C4's. DG6
+       keeps it: only this column knows W, where the stack widens. */
     container: dog-main / inline-size;
     /* DG5's follow-up, review round 1 (finding 1, MEASURED with real
        scrollbars in Chromium 147 and in Electron 33): a size query on this
        scroll column was answered by its width before the scrollbar took its
-       share, so at a 1404 window the pair (W 1148) was laid into a 1138px
-       column and a sideways scrollbar appeared, and the triple began at a
-       1964 window with card 1's references 6px into its padding. Keeping
-       the scrollbar's gutter, as O.T.T.E.R.'s scroll views do, makes the
-       query see the width the cards get: the pair from a 1414 window, the
-       triple from 1974, nothing sideways. Its cost (review round 2,
-       MEASURED): when the column does not scroll, the kept gutter shows as
-       a wider right margin, 18px against the left's 8. */
+       share, so DG5's side-by-side cards were laid into a column 10px too
+       narrow and a sideways scrollbar appeared. Keeping the scrollbar's
+       gutter, as O.T.T.E.R.'s scroll views do, makes the query see the width
+       the cards get, so nothing scrolls sideways (DG6: the stack widens from
+       a 1468 window, not 1458). Its cost (review round 2, MEASURED): when the
+       column does not scroll, the kept gutter shows as a wider right margin,
+       18px against the left's 8. */
     scrollbar-gutter: stable;
   }
   .dog-main > * + * { margin-top: 8px; }
 
-  /* ═══ THE INPUTS ROW — DG5 ══════════════════════════════════════════════
-     Audrey, 2026-10-30, with a picture of card 1 at a 2,000px window: "the
-     redesign has a bit too much negative space. the entire right side is an
-     empty card. lets do a pass to make sure it is visually appealing".
-     Measured before (Chromium, the dev fixtures): card 1's one 576px column
-     left 42, 50, 65 and 75 percent of the card empty across at 1280, 1440,
-     1920 and 2560, and card 2's box and Generate ran the card's whole width
-     (998 to 2,278px). The design round (one, on Fable) chose a row: the two
-     input cards side by side once card 1 fits at its measure beside a card 2
-     whose every line is one line, and card 1 in two columns once it holds
-     both at the measure, so the next step and the references take the width
-     instead of paper, Generate is in view with any number of references,
-     and nothing stretches past the measure. A container query never matches
-     its own container, and a grid on .dog-main would hand its rows the
-     scroll column's height, so the grid is `.dog-inputs`, a plain wrapper
-     round the two cards. W is .dog-main's content width: the window less
-     the 240px sidebar, this column's 16px of padding and the scrollbar's
-     gutter, kept even before the scrollbar shows (10px in Chromium, where a
-     1414 window is W 1148; 11px in Electron 33 on the computer it was
-     measured on, where the pair starts at a 1415 window).
-       stack   W < 1148 (windows up to about 1,413): DG4's cards, one under
-               the other, 8px apart, card 2's box and Generate its full width.
-       pair    W >= 1148 = 602 + 8 + 538: card 1 at the measure (576 + 2 x
-               12 padding + 2 x 1 border = 602) beside card 2, no narrower
-               than 538 (a 512px body: each line of it one line); an fr
-               track never goes under its minimum, so the one rule gives 602
-               and the rest up to W 1211, equal halves from 1212. Her answer
-               to walkthrough 89's Q2 (2026-10-30), verbatim: "Side by side
-               from about 1,414 only". The design's follow-up had brought the
-               pair down to W 1000 (a 1280 window), card 1 from 533px; that
-               rule is gone, so a 1280 window stacks as DG4 left it.
-       triple  W >= 1708: card 1 in two columns, the project [507 to 576]
-               then what the deck reads [576], 24px apart (507 = the
-               project row: the dropdown 360 + 8 + New project 139), so its
-               body needs 1107 and the card 1133 = 2(W - 8)/3; card 2 the
-               last third (567 and up), every line of it one line.
-     The output card stays below, the column's full width (C4's preview);
-     the banners stay above. Folded, a card is its 34px bar in its cell. */
+  /* ═══ THE INPUTS STACK — DG6 ════════════════════════════════════════════
+     Audrey, 2026-10-31, with a 2,000px-wide picture of DG5's two cards side
+     by side: "this looks objectively bad. please do a pass to make it
+     more appealing for the top two cards. leave the output card how it is
+     dont touch it. i want to keep the 1 and 2 cards stacked not side by
+     side". Her words withdraw DG5's pair (side by side from a 1414 window)
+     and its triple (card 2 the last third from 1974). Measured stacked with
+     nothing else done (Chromium, the dev fixtures): card 1's one 576px
+     column left 42, 50, 64 and 74 percent of the card empty across at 1280,
+     1440, 1920 and 2560, and card 2's box and Generate ran 988 to 2,268px.
+     The design round (one, on Fable; its hand-off po-dg6-2026-10-31) chose
+     one width for both cards, capped, so each card ends where its content
+     ends (Common Region): the wrapper `.dog-inputs`, a plain box round the
+     two cards, is the cap, at the output card's left edge; the output card
+     is outside it and keeps the column's full width (C4's preview). W is
+     .dog-main's content width: the window less the 240px sidebar, this
+     column's 16px of padding and the scrollbar's gutter (10px in Chromium,
+     measured with real scrollbars: one column at a 1467 window, two at 1468;
+     11 in Electron 33 on the computer DG5 measured it on, so a 1469 window
+     there by arithmetic, not measured by DG6).
+       W < 1202   (windows up to 1,467): the stack 602 wide = the measure 576
+                  + 2 x 12 padding + 2 x 1 border. Card 1 one column, as DG4
+                  built it; card 2's box and Generate 576.
+       W >= 1202  (a 1468 window in Chromium): the stack 1202 wide =
+                  576 + 24 + 576 + 2 x 12 + 2 x 1, card 1's body in two
+                  columns of the measure 24px apart, the project, then what
+                  the deck reads (her walkthrough 89 Q3: Uploads stay with the
+                  references); card 2 one column, its box and Generate 1,176.
+     Past 2560 nothing changes: beside the stack is the page's paper, not
+     card (OUTSTANDING DG5-02, closed). Folded, a card is its 34px bar at
+     the stack's width. */
   .dog-inputs {
     --dog-measure: 576px;
     display: grid;
     grid-template-columns: 1fr;
     gap: 8px;
-    align-items: start;
+    max-width: 602px;
   }
-  @container dog-main (min-width: 1148px) {
-    .dog-inputs { grid-template-columns: minmax(602px, 1fr) minmax(538px, 1fr); }
-    /* Beside card 1, card 2 keeps the measure too (DG4's reason, extended):
-       its box a line of about 87 characters, not 150 to 340, and Generate
-       one reach under the box it sends, never a 2,278px bar. Stacked, it
-       keeps its full width as DG4 left it. */
-    .dog-s2 > .dog-card-body > * { max-width: var(--dog-measure); }
-  }
-  @container dog-main (min-width: 1708px) {
-    .dog-inputs { grid-template-columns: 2fr 1fr; }
+  @container dog-main (min-width: 1202px) {
+    .dog-inputs { max-width: 1202px; }
+    /* Two columns of the measure, 24px apart: the rhythm's largest step, so
+       they read as two halves of one card, not two cards (Proximity). The
+       project row fills the first column (the dropdown takes what New
+       project leaves: DG6 review round 1, finding 4), so with no project the
+       halves are the gutter apart, not 93px. */
     .dog-card-project > .dog-card-body {
       display: grid;
-      grid-template-columns: minmax(507px, var(--dog-measure)) var(--dog-measure);
+      grid-template-columns: var(--dog-measure) var(--dog-measure);
       column-gap: 24px;
       align-items: start;
     }
@@ -610,9 +600,10 @@
      file, the meter and Add references share the column's left edge. The
      rhythm inside the references is the card body's 16px.
      DG5: the measure is `--dog-measure`, declared once on `.dog-inputs`
-     (THE INPUTS ROW, above) for both cards; it was `--dog-refs-measure` on
-     this card. In the triple the project and the references are two such
-     columns side by side, each with its own left edge. */
+     (THE INPUTS STACK since DG6, above) for both cards; it was
+     `--dog-refs-measure` on this card. From W 1202 the project and the
+     references are two such columns side by side, each with its own left
+     edge. */
   .dog-card-project .dog-project-details,
   .dog-refs { max-width: var(--dog-measure); }
   .dog-refs > * + * { margin-top: 16px; }

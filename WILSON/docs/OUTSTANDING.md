@@ -1340,6 +1340,8 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul DG6 (2026-10-31, night 9; `po/dg6-cards-stacked` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-31, verbatim *"this looks objectively bad. please do a pass to make it more appealing for the top two cards. leave the output card how it is dont touch it. i want to keep the 1 and 2 cards stacked not side by side"*: D.O.G.'s two input cards stacked at every width at one capped width, 602px under a 1468 window and 1,202 from it, card 1 in two columns of the 576px measure there; DG5's pair, card 2's cap and the triple removed; the project dropdown's inline 360px cap removed (review round 1, finding 4: with no project the halves were 93px apart); the output card untouched; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/2/28/22 percent before, 2/2/1/1 now; card 2 1/2/28/23 before, its box stretched at 1280, 2/2/1/1 now); one Fable design round with the design-direction and laws-of-UX skills; two review rounds, both on Fable; no migration, no SQL | DG6-01 (the type sweep's scanner reads `DeckOutlineGenerator.jsx`'s backticks inverted from line 2635) | DG5-02 (closed by measurement at 3440x1440) |
+| Post-overhaul REV (2026-10-31; the controller's read-only code review at her ask, no branch, no code change) — five surveys of the code's areas for redundancies, near-duplicates and inefficiencies, 123 findings, in `docs/reviews/CODE_REVIEW_2026-10-31.md` with the five surveys beside it; seven correctness defects found along the way are REV-01 to REV-07 below; her ruling on REV-01, verbatim: "Record it, fix at the release steps" | | |
 | Post-overhaul DG5, a follow-up (2026-10-30; `po/dg5-pair-from-1414` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 89's Q2, relayed by the controller, verbatim *"Side by side from about 1,414 only"* (Q1 and Q3 as built): D.O.G.'s two input cards sit side by side from W 1148 (a 1414 window) and stack below it as DG4 left them, card 2 full width there; the design follow-up's W 1000 rule removed; the column keeps its scrollbar's gutter (review round 1, MEASURED with real scrollbars in Chromium 147 and Electron 33: a size query on the scroll column was answered before its scrollbar, so the pair applied at a 1404 window with a sideways scrollbar, and DG5's triple 10px early); measured before and after at 1280, 1366, 1400, 1414, 1440 and 1920; two review rounds, both on Fable; no migration, no SQL | nothing | nothing |
 | Post-overhaul DG5 (2026-10-30, night 8; `po/dg5-card1-layout` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-30, verbatim *"the redesign has a bit too much negative space. the entire right side is an empty card. lets do a pass to make sure it is visually appealing"*: D.O.G.'s two input cards share one row from a 1280 window (a plain `div.dog-inputs`; `.dog-main` a size container), card 1 in two columns from about 1,974, nothing past the 576px measure; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/50/65/75 percent, then none/none/28/22; Generate in view from 1280 with six references listed); three direction words taken out of card 1's sentences; one Fable design round with a follow-up on laptop sizes; two review rounds, both on Fable; no migration, no SQL | DG5-01 (the preview probe's stale first wait), DG5-02 (an ultrawide window: about 44 percent of each card empty again) | nothing |
 | Post-overhaul M1, a third follow-up (2026-10-30; `po/m1-desktop-invoice-uploads` into `feat/post-overhaul-edit-versioning`) — her ruling relayed by the controller, *"Yes, M1 fixes it now (Recommended)"* on M1-L7: the desktop's two upload routes (the base64 POST and the streamed PUT) file an invoice or a receipt in the project's INVOICES folder, as the cloud does; measured in the desktop app driven off-screen (a scratch profile, no sign-in), with the commit before as its control; the folder delete lets its files' folder_id go (0043's SET NULL); two review rounds, both on Fable; no migration, no SQL | nothing | M1-L7. |
@@ -3049,7 +3051,14 @@ row). What DG5 met outside its list and did not fix:
   runs every step and passes its check (C4: the preview box matches the pin
   at 1280 and 1440, at both mounts) on DG5's layout. Fix: that one line.
   Owner: the controller (a script under `scripts/`, outside DG5's list).
-- **DG5-02 · On an ultrawide window each card is about 44 percent empty
+- **DG5-02 · ~~CLOSED by DG6 (2026-10-31, night 9): her ask of that day
+  stacked the two cards and DG6 capped them, both one width, 602px under a
+  1468 window and 1,202 from it, so nothing grows past 2560. MEASURED on
+  `po/dg6-cards-stacked` at 3440x1440 (Chromium on 5301, the fixtures; the
+  main column 3,174px): both cards 1,202px wide and 1 percent empty across
+  (their own padding and border), with no project and with six references;
+  the 1,972px to their right is the page's paper, outside any border; the
+  output card keeps the column's full 3,174.~~ On an ultrawide window each card is about 44 percent empty
   across again.** MEASURED by DG5's review round 1 at 3440x1440 (Chromium
   on 5301, the fixtures; the main column 3,200px): card 1 is 2,117px wide
   around its 1,176px of two columns, card 2 1,059px around its 576, so 44
@@ -3060,6 +3069,36 @@ row). What DG5 met outside its list and did not fix:
   shape: a cap on `.dog-inputs` past some width, which leaves the row's
   right edge short of the full-width output card below it (the design
   round's sketch of hypothesis (b)). Owner: Audrey (1.1).
+
+## DG6 (2026-10-31, night 9 of `docs/sessions/PLAN_TO_1_0.md`)
+
+D.O.G.'s two input cards stacked at every width at one capped width, card 1
+in two columns from a 1468 window (her ask of 2026-10-31; the session log's
+DG6 row). What DG6 met outside its list and did not fix:
+
+- **DG6-01 · The type sweep's scanner reads `DeckOutlineGenerator.jsx`'s
+  backticks inverted from line 2635 on, so a comment's wording can hide
+  code from it.** MEASURED on `po/dg6-cards-stacked` (2026-10-31):
+  `protectedRanges` (`scripts/ui-source-regions.mjs`) steps over strings
+  and comments but not regular-expression literals, and `/^```/` at
+  `DeckOutlineGenerator.jsx` 2635 holds three backticks, so from there it
+  takes each comment's backtick for a template literal's start and the
+  next for its end. A template that holds a `{` and then `word: value;`
+  with no brace between is judged embedded CSS and protected: on the branch
+  after review round 1, eleven protected spans of over 1,000 characters
+  open at a backtick between lines 2635 and 5180 (1,072 to 21,952 characters each, prose and
+  code alike; 106,583 of the file's 289,417 characters, 37 percent, are
+  protected in all, DG6 review round 2's measurement); eleven were there
+  before DG6 too, and DG6's first wording of one comment (*"THE INPUTS STACK: from a
+  1468 window since DG6);"*) made a twelfth, 4147 to 4306, and the file fell
+  to 558 of 957 code sites seen; `src/ui/typeScale.test.js` (*"sees the
+  code in every file it reads"*) failed on it. DG6 reworded the comment
+  (`cc8c720e`). Any later comment or string of that shape in this file can
+  do it again, and the sweep's checks of what it protects are blind to
+  the same spans. Fix shape: let the scanner step over a regular-expression
+  literal (a `/` where an expression starts), or blank comments before it
+  judges templates. Owner: the controller (a script under `scripts/`,
+  outside DG6's list).
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
@@ -3516,3 +3555,87 @@ outside its scope, or built to a limit, and did not fix. The design is
   experiences, key dates (`milestones`), the budget tables, expenses, folders, task templates, shot lists, edits, bins and their
   clips are not among them, while the Company card's *Workspace takeout* reads as the whole company's. Would settle it: a takeout
   of a project that holds a scene and a budget. Owner: none named; 1.1 unless she says otherwise.
+
+## Post-overhaul REV (the controller's read-only code review, 2026-10-31) — recorded
+
+Her ask of 2026-10-31, verbatim: *"review the overall code. DO NOT MAKE CHANGES.
+review the overall code. is there any existing redundancies. is there any
+functions or systems that are almost duplicates of each other. is there
+anywhere we can make things more efficient."* The review is
+`docs/reviews/CODE_REVIEW_2026-10-31.md` (the five surveys beside it in
+`docs/reviews/code-review-2026-10-31/`). Its redundancy and efficiency
+findings live there, not here; the seven correctness defects it found along
+the way are recorded below. Nothing becomes a session unless she names it
+(`PLAN_TO_1_0.md` §5, rule 8).
+
+- **REV-01 · The operator console's company list fails: `operator-workspaces`
+  uses `PAGE`, which nothing defines or imports.**
+  `supabase/functions/operator-workspaces/index.ts:230-237` (the `list`
+  action) and `:655-667` (teardown step 1d) read `PAGE`; the import at `:73-76`
+  takes the buckets and the two collectors from `_shared/teardownCollect.ts`,
+  not `PAGE`, which P8's commit `9bff662a` (2026-10-28) moved there (`:50`).
+  That commit is in the version deployed to staging (`3b471707`) and to dev,
+  so the console's Companies tab has failed on the beta since 2026-10-28
+  (`ReferenceError` at run time: the list answers a bare 500; teardown step
+  1d is caught at `:674` and silently skips the abandoned-upload record). CI
+  has no `deno check`; `deno` is not on the controller's machine. MEASURED by
+  reading, not run. Her ruling of 2026-10-31, verbatim: *"Record it, fix at
+  the release steps"*. Fix shape: `PAGE` added to the import, and a
+  `deno check` of every function in CI with a failing control. Owner: the
+  release steps, before `PRODUCTION_RUNBOOK.md` (g) 11; the controller then
+  deploys the function to dev and staging on her go.
+- **REV-02 · The budget's money rules disagree.** The agency percentage
+  defaults to 20 when never set in
+  `src/tools/rabbit_v0.1.0/state/budgetVersionModel.js:189` and to 0 in
+  `views/budget/CrewTeamTab.jsx:123`, `src/components/Budget/useBudgetLines.js:228`
+  and `views/BudgetView.jsx:890`; the Crew tab applies margin and contingency
+  to the base plus the agency fee (`CrewTeamTab.jsx:197-200`) while
+  `bidTotals` (`budgetVersionModel.js:206`) and the tested rules in
+  `src/components/Budget/budgetMath.js` apply them to the base, which handbook
+  §17 states as the rule. The tested rules (`effectivePct`,
+  `applyMarginAndContingency`, `profit`) have no product caller. MEASURED by
+  reading, not run. Fix shape: one money module every Budget surface calls,
+  the agency default decided once. Owner: Audrey (1.0 or 1.1, her call).
+- **REV-03 · O.T.T.E.R.'s Validator reads the FIRST text block of a reply.**
+  `src/tools/otter_v0.3.1/Validator.jsx:36` returns
+  `content.find(b => b.type === 'text')` before its `pause_turn` check, so a
+  web search that says "Let me check…" before searching hands that sentence
+  to the JSON parser. The house rule is `textFromMessage` (the last block);
+  `src/cloud/textFromMessage.test.js` scans only for `content[0].text`, so
+  `.find(...)` passes it. MEASURED by reading. Fix shape: the Validator calls
+  O.T.T.E.R.'s own wrapper (`Otter.jsx:1196-1252`) and the guard test learns
+  the `.find` shape. Owner: Audrey.
+- **REV-04 · D.O.G.'s editable prompt boxes change nothing that is sent.** The
+  single-page and full-deck instruction boxes write state whose only readers
+  are their textareas (`DeckOutlineGenerator.jsx:517-518` → `:4999`, `:5034`);
+  what the model receives is inline text at `:1283-1400`, `:1580-1665` and
+  `:1896-2062`, and `prompts/*.js` with `rules.js` (475 lines) never reach it,
+  though `src/data/dogHelpContent.jsx:395-451` says they do. The theme prompt
+  box is live (`:649`). MEASURED by reading for the two instruction boxes; the
+  survey (`docs/reviews/code-review-2026-10-31/dog-otter.md` B1) says the same
+  of the three export-schema editors. Fix shape: one prompt builder composed
+  from the drawer's values with today's sent text as the byte-identical
+  default, or the dead editors removed. Owner: Audrey.
+- **REV-05 · Forgot password can silently send nothing.**
+  `src/cloud/auth/ForgotPasswordWizard.jsx:50` resolves the username with no
+  company; `supabase/functions/resolve-login/index.ts` takes a username and a
+  company and answers a miss when a bare username exists in two companies, and
+  the wizard then shows its uniform "sent" screen. The wizard's body MEASURED
+  by reading; the two-company miss INFERRED (would settle it: one username in
+  two companies on wilson-dev, Forgot password, no mail). Owner: Audrey.
+- **REV-06 · Listing a course's subjects on the Local Server rewrites every
+  subject file.** `electron/main.cjs:796-821` (`renumberSubjects`: `writeJSON`
+  per subject) runs on the GET at `:824-830`; O.T.T.E.R.'s warm-up calls it
+  per course at launch (`Otter.jsx:682-700`) and again for the quiz picker
+  (`:2753-2757`): with her six courses and 49 subjects, 49 rewrites per load,
+  through REV-07's in-place writer. MEASURED by reading. Fix shape: the GET
+  read-only (the order is set by the writes). Owner: Audrey.
+- **REV-07 · The project file's writer is not atomic.** `electron/main.cjs:245`
+  (`writeJSON`: `writeFileSync` in place, no retry) writes every bundle,
+  mirror, setting and pet; `readJSON` (`:242`) swallows a parse error, so a
+  torn `project.json` reads back as nothing and the project drops out of the
+  list (`:2314`). `electron/rendererStorage.cjs:182` already has the
+  temp-file-then-rename, retried form. The writers MEASURED by reading; the
+  torn-file outcome INFERRED. Fix shape: one `writeJsonAtomic` lifted from
+  `rendererStorage.cjs` for every JSON write in `main.cjs` and
+  `localDemoRoot.cjs`. Owner: Audrey.
