@@ -151,7 +151,16 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
 // declared once on the wrapper for both cards. Review round 1 (finding 1,
 // MEASURED: six layout changes passed the first pins) made the layout one
 // census: every layout declaration on the wrapper, the main column's
-// children, the cards and their parts, pinned whole.
+// children, the cards and their parts, pinned whole. Review round 2
+// (finding 1, MEASURED: 17 more changes passed) added the cards' bodies by
+// their ids, the project dropdown by its classes and the logical size
+// properties, and pins the dropdown's and the cards' markup whole. What a
+// source pin still cannot see (round 2's list, recorded in the hand-off):
+// padding, margins, transforms and zoom on these boxes; paths to the main
+// column's children other than `.dog-main >`; another sheet reaching them;
+// a class on the wrapper's elements other than the ones pinned here (the
+// main column's own classes are PageSurface.test.jsx's). The pictures and
+// the probe are the check on those.
 // =============================================================================
 describe('dog.css: the inputs stack (DG6), with DG4\'s measure and meter in it', () => {
   const INDEX = read('../../index.css')
@@ -164,10 +173,24 @@ describe('dog.css: the inputs stack (DG6), with DG4\'s measure and meter in it',
     .filter((r) => (parent ? norm(r.parents[r.parents.length - 1] || '') === parent : !r.parents.some((h) => /^@container/.test(h))))
     .flatMap((r) => decls(r.body)))
   const at = (r) => norm(r.parents[r.parents.length - 1] || '')
-  // What lays a box out: its display, place, size, flow and the gaps in it.
-  const LAYOUT = /^(display|position|float|order|inset|gap|row-gap|column-gap|columns|column-count|column-width|(min-|max-)?width|flex(-[a-z]+)?|grid(-[a-z]+)*|justify-[a-z]+|align-[a-z]+|place-[a-z]+)$/
-  // The two cards and their parts, by their classes anywhere in a selector.
-  const PARTS = /\.dog-(card|card-project|s2|card-body|refs|project-details|mode|checks|field-row|context-prompt|page-request|generate)(?![-\w])/
+  // What lays a box out: its display, place, size (and its logical names),
+  // flow and the gaps in it.
+  const LAYOUT = /^(display|position|float|order|inset|gap|row-gap|column-gap|columns|column-count|column-width|(min-|max-)?(width|inline-size|block-size)|flex(-[a-z]+)?|grid(-[a-z]+)*|justify-[a-z]+|align-[a-z]+|place-[a-z]+)$/
+  // The two cards and their parts, by their classes or ids anywhere in a
+  // selector.
+  const PARTS = /\.dog-(card|card-project|s2|card-body|refs|project-details|mode|checks|field-row|context-prompt|page-request|generate|project-select|select)(?![-\w])|#dog-(card1-body|card3-body|project)(?![-\w])/
+  // An element's opening tag in the JSX, from `start`, braces skipped (an
+  // arrow's `>` is inside one): P1-50's reader below, for one tag.
+  const openTag = (src, start) => {
+    let depth = 0
+    for (let i = start; i < src.length; i++) {
+      if (src[i] === '{') depth++
+      else if (src[i] === '}') depth--
+      else if (src[i] === '>' && depth === 0) return src.slice(start, i + 1)
+    }
+    return ''
+  }
+  const tagOf = (src, marker) => { const at = src.indexOf(marker); return at < 0 ? '' : openTag(src, src.lastIndexOf('<', at)) }
   const pins = (css) => ({
     container: decl(css, '.dog-main').container,
     padding: decl(css, '.dog-main').padding,
@@ -324,6 +347,15 @@ describe('dog.css: the inputs stack (DG6), with DG4\'s measure and meter in it',
     // project chosen, a 93px hole before the references in two columns).
     expect(JSX).toMatch(/<div className="flex items-center gap-2">\s*<div className="relative flex-1">\s*<select\s+id="dog-project"/)
     expect(JSX).not.toMatch(/maxWidth: '360px'/)
+    // Review round 2, finding 1: the cap back by another spelling (a class or
+    // a style on the select itself, a width on a card) is caught too; the
+    // census reads `.dog-project-select` and `#dog-project` in the sheet.
+    const select = tagOf(JSX, 'id="dog-project"')
+    expect(select.startsWith('<select')).toBe(true)
+    expect(/className="([^"]*)"/.exec(select)?.[1]).toBe('ui-input dog-select dog-project-select')
+    expect(select).not.toMatch(/\bstyle=/)
+    expect(tagOf(JSX, 'className="dog-card dog-card-project"')).toBe('<Card pad={false} className="dog-card dog-card-project">')
+    expect(tagOf(JSX, 'className="dog-card dog-s2"')).toBe('<Card pad={false} className="dog-card dog-s2">')
   })
 
   it('CONTROL: the sheet as DG5 left it (the pair, card 2\'s cap, the triple) fails every DG6 pin', () => {
@@ -373,7 +405,29 @@ describe('dog.css: the inputs stack (DG6), with DG4\'s measure and meter in it',
       '.dog-context-prompt, .dog-generate { max-width: var(--dog-measure); }',
       '.dog-refs { width: 400px; }',
       '.dog-s2 > .dog-card-body > * { max-width: var(--dog-measure); }',
+      // Review round 2 (K1, K2, K3c, K10): card 1's body by its id, the
+      // dropdown capped by its class, the cap and a width by their logical
+      // names.
+      '#dog-card1-body { display: grid; grid-template-columns: 1fr 1fr; }',
+      '.dog-project-select { max-width: 360px; }',
+      '.dog-main .dog-inputs { max-inline-size: none; }',
+      '.dog-refs { inline-size: 400px; }',
     ]) expect(swap(ANCHOR, `${ANCHOR}\n  ${plant}`).layout, plant).not.toEqual(LAYOUT_NOW)
+    // The dropdown's and the cards' markup: a cap or a width by a class or a
+    // style is caught by the tag readers above (review round 2, K12 to K14).
+    const tags = (jsx) => [tagOf(jsx, 'id="dog-project"'), tagOf(jsx, 'className="dog-card dog-card-project"'), tagOf(jsx, 'className="dog-card dog-s2"')]
+    const now = tags(JSX)
+    for (const [from, to] of [
+      ['className="ui-input dog-select dog-project-select"', 'className="ui-input dog-select dog-project-select max-w-sm"'],
+      ['id="dog-project"', 'id="dog-project" style={{ maxWidth: 360 }}'],
+      ['className="dog-card dog-s2"', 'className="dog-card dog-s2 w-1/2"'],
+    ]) {
+      const bad = JSX.replace(from, to)
+      expect(bad, from).not.toBe(JSX)
+      const t = tags(bad)
+      const caught = /className="([^"]*)"/.exec(t[0])?.[1] !== 'ui-input dog-select dog-project-select' || /\bstyle=/.test(t[0]) || t[1] !== now[1] || t[2] !== now[2]
+      expect(caught, to).toBe(true)
+    }
   })
 
   it('CONTROL: a meter that is a share of the card, a 6px track, or a second measure fails the pins', () => {

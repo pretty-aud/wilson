@@ -107,7 +107,31 @@ the dev fixtures' tester (a made-up project and files). In the folder
 
 ### How it was checked
 
-REVIEW-RESULTS
+- Measured in Chromium before and after at the four sizes above, folded
+  and in Single page too, and at 760, 860, 1467, 1468 and 3440 px: each
+  card's width and height, how much of it is empty, the gap between card
+  1's two columns, and where Generate sits. With real scrollbars the cards
+  stay one column at 1,467 px and open into two at 1,468; nothing scrolls
+  sideways at any size, zoomed to 125 or 150 percent included.
+- Focus stays where it was when the window is resized across 1,468 px
+  (on Add references, and in the text box), and Tab reads card 1's left
+  column, then its right.
+- The slide preview under the cards keeps exactly the width it had, by
+  its own pixel check at 1280 and 1440.
+- D.O.G.'s tests: the order of everything in card 1, the folds, the count
+  and the Tab order pass unchanged; new tests pin the two widths, the one
+  place the layout changes and the arithmetic behind each, and refuse every
+  way found of setting the cards side by side again; 32 deliberate
+  breakages each turned a test red. The whole suite passes.
+- The first review (on Fable) found ways the tests could miss a change,
+  the gap with no project chosen (the dropdown, fixed then), and a few
+  numbers to give you in the questions below; all taken. The second review
+  found more ways round the tests (the ones that mattered closed), that the
+  "after" pictures had been taken before the dropdown change (retaken),
+  and one miscount in a note; it found nothing wrong on the screen.
+- One thing outside this work was recorded, not changed: the checker that
+  scans D.O.G.'s code for type sizes reads part of the file wrongly, so one
+  sentence of a code comment briefly hid code from it (reworded).
 
 ### Questions
 

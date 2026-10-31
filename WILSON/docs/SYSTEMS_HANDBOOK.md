@@ -3848,7 +3848,11 @@ to 562. Card 1's three sentences are her walkthrough 89 Q1's: the hint ends
 *"Core files come from a project: choose one."*, since in two columns the
 references sit beside the project and a direction would be false.
 `dogCss.test.js` pins the widths, the one rule and the arithmetic that gives
-them, and that nothing sets a card beside the other; `enterKey.render.test.jsx`
+them, and that nothing sets a card beside the other, by one census of every
+layout declaration on the wrapper, the main column's children, the cards
+and their parts (by class or id), with the dropdown's and the cards' markup
+read whole (a source pin: padding, margins and transforms on these boxes,
+and other sheets, are the pictures' and the probe's to catch); `enterKey.render.test.jsx`
 pins the wrapper and card 1's body as two parts with the contract line
 heading the second. Walkthrough 90, its DG6 section, has the measurements
 before and after at 1280, 1440, 1920 and 2560 and her two questions (the two

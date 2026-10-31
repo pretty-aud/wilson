@@ -3087,8 +3087,10 @@ DG6 row). What DG6 met outside its list and did not fix:
   with no brace between is judged embedded CSS and protected: on the branch
   after review round 1, eleven protected spans of over 1,000 characters
   open at a backtick between lines 2635 and 5180 (1,072 to 21,952 characters each, prose and
-  code alike), and DG6's first wording of one comment (*"THE INPUTS STACK: from a
-  1468 window since DG6);"*) made a ninth, 4147 to 4306, and the file fell
+  code alike; 106,583 of the file's 289,417 characters, 37 percent, are
+  protected in all, DG6 review round 2's measurement); eleven were there
+  before DG6 too, and DG6's first wording of one comment (*"THE INPUTS STACK: from a
+  1468 window since DG6);"*) made a twelfth, 4147 to 4306, and the file fell
   to 558 of 957 code sites seen; `src/ui/typeScale.test.js` (*"sees the
   code in every file it reads"*) failed on it. DG6 reworded the comment
   (`cc8c720e`). Any later comment or string of that shape in this file can
