@@ -12,6 +12,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { projectBudgetSettings, lineMoney } from './budgetMath'
 
 // ── Sheets that budget lines belong to ──
 export const BUDGET_SHEETS = {
@@ -225,10 +226,12 @@ export function useBudgetLines() {
   }, [actuals])
 
   // ── Computed: line subtotals and bid totals ──────────────
+  // The project's settings and each line's fees are budgetMath's (F2): the
+  // project's agency fee (crew + talent + expenses unless the line opts out,
+  // 20% when switched on with none typed) and a talent line's own
+  // representation fee stack additively on the subtotal.
+  const settings = useMemo(() => projectBudgetSettings(project), [project])
   const lineComputations = useMemo(() => {
-    const agencyPct    = Number(project?.budget_agency_pct ?? 0) / 100
-    const agencyOn     = project?.budget_agency_enabled === true
-
     const map = {}
     for (const line of lines) {
       if (line.is_section_header) continue
@@ -242,19 +245,7 @@ export function useBudgetLines() {
         ? cost * (line.is_na_days ? 1 : days) * (line.is_na_qty ? 1 : qty)
         : rate * days * qty
 
-      // Agency fee — global project agency fee and per-row talent rep fee
-      // are separate concerns and apply additively.
-      let agencyFee = 0
-      // Global project agency fee (applies to crew + talent + expenses unless opted out)
-      if (agencyOn && !line.agency_opt_out) {
-        agencyFee += subtotal * agencyPct
-      }
-      // Per-row talent agent representation fee (in addition to global)
-      if (line.sheet === 'talent' && line.talent_agency_fee_pct != null) {
-        agencyFee += subtotal * (Number(line.talent_agency_fee_pct) / 100)
-      }
-
-      const bidTotal = subtotal + agencyFee
+      const { agencyFee, bidTotal } = lineMoney(subtotal, line, settings)
 
       // Actual total from actuals
       const lineActuals = actualsByLine[line.id] || []
@@ -265,7 +256,7 @@ export function useBudgetLines() {
       map[line.id] = { subtotal, agencyFee, bidTotal, actualTotal, variance }
     }
     return map
-  }, [lines, actualsByLine, project?.budget_agency_pct, project?.budget_agency_enabled])
+  }, [lines, actualsByLine, settings])
 
   // ── Computed: lines grouped by sheet + department ────────
   const linesBySheet = useMemo(() => {

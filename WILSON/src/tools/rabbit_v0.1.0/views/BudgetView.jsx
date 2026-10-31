@@ -49,7 +49,7 @@ import { useExpenses } from '../../../components/Expenses/useExpenses'
 import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudgetLines'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
-import { buildRoleRates } from '../../../components/Budget/budgetMath'
+import { buildRoleRates, projectBudgetSettings, bidTotals, lineMoney, AGENCY_DEFAULT_PCT } from '../../../components/Budget/budgetMath'
 import CurrencyDisplay, { formatMoney, formatTenths } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
@@ -76,7 +76,7 @@ import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 // and the model's arithmetic for the page's totals.
 import { BidVersionsBlock, ratesPendingFrom } from './budget/BidVersions'
 import VersionQuestions, { basedOnWords } from './budget/VersionQuestions'
-import { bidTotals, projectBudgetSettings, readVersion } from '../state/budgetVersionModel'
+import { readVersion } from '../state/budgetVersionModel'
 import { resetToastWords } from '../state/versionWords'
 import { showDate } from '../dates'
 import './rabbitBudget.css'
@@ -611,7 +611,7 @@ const bySortOrder = (a, b) => a.sortOrder - b.sortOrder
 // and then reloaded the project, which wiped Undo). This file calls no
 // adapter for a version, writes no lock field itself and never reloads the
 // project after a version write; rabbitBudgetRender.test.jsx pins all three.
-// The page's figures are the model's arithmetic (bidTotals), the one a
+// The page's figures are budgetMath's arithmetic (bidTotals), the one a
 // version's saved totals are made by, so the waterfall's overall total and a
 // version's cannot drift apart (F7).
 function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPending = null, missingRolesCount, rateCardName, budgetHook, rateCard, teamMembers, expensesHook }) {
@@ -787,7 +787,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPen
               onChange={() => {
                 if (!agencyEnabled) {
                   updateProjectField('budget_agency_enabled', true)
-                  if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', 20)
+                  if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', AGENCY_DEFAULT_PCT)
                 } else {
                   updateProjectField('budget_agency_enabled', false)
                 }
@@ -889,8 +889,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPen
 // ─── Topsheet rollup — grouped by Crew/Team, Talent, Expenses ──
 function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateCard, teamMembers, expensesHook }) {
   const { lines, lineComputations } = budgetHook
-  const agencyEnabled = project?.budget_agency_enabled === true
-  const agencyPct = Number(project?.budget_agency_pct ?? 0) / 100
+  // The crew's agency fee is budgetMath's (F2), the Crew tab's: on the
+  // member's subtotal, 20% when switched on with none typed.
+  const settings = useMemo(() => projectBudgetSettings(project), [project])
+  const { agencyEnabled } = settings
 
   // ── Crew/Team: derived from team members + rate card + tasks ──
   const crewData = useMemo(() => {
@@ -921,10 +923,11 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
       const dept = m.department || 'Uncategorized'
       if (!deptMap[dept]) deptMap[dept] = { department: dept, subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 }
       const sub = rate * days
-      const agency = agencyEnabled ? sub * agencyPct : 0
+      const memberLine = lines.find(l => l.team_member_id === m.id && l.sheet === 'crew')
+      const { agencyFee, bidTotal } = lineMoney(sub, memberLine, settings)
       deptMap[dept].subtotal += sub
-      deptMap[dept].agencyFee += agency
-      deptMap[dept].bidTotal += sub + agency
+      deptMap[dept].agencyFee += agencyFee
+      deptMap[dept].bidTotal += bidTotal
     }
     // Actuals from crew budget lines
     for (const line of lines.filter(l => l.sheet === 'crew' && !l.is_section_header)) {
@@ -939,7 +942,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
       bidTotal: acc.bidTotal + d.bidTotal, actualTotal: acc.actualTotal + d.actualTotal,
     }), { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 })
     return { departments, total }
-  }, [teamMembers, rateCard?.entries, roleRates, tasks, lines, lineComputations, agencyEnabled, agencyPct])
+  }, [teamMembers, rateCard?.entries, roleRates, tasks, lines, lineComputations, settings])
 
   // ── Talent: from budget lines (grouped by talent_type) ──
   const talentData = useMemo(() => {
@@ -1782,9 +1785,12 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
 
   const SAVED_VIEWS_KEY = `rabbit_expense_saved_views_${project?.id || ''}`
 
-  // Project-level defaults for margin & contingency
-  const defaultMarginPct = Number(project?.budget_margin_pct ?? 0) || 0
-  const defaultContPct   = Number(project?.budget_contingency_pct ?? 0) || 0
+  // Project-level defaults for margin & contingency, and an expense's:
+  // budgetMath (F2), each on its estimated cost.
+  const settings = useMemo(() => projectBudgetSettings(project), [project])
+  const defaultMarginPct = settings.marginPct
+  const defaultContPct   = settings.contingencyPct
+  const moneyOf = (exp) => lineMoney(Number(exp.estimated_cost) || 0, exp, settings)
 
   const [showPopup, setShowPopup]         = useState(false)
   const [editingId, setEditingId]         = useState(null)
@@ -2021,16 +2027,6 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const totalEstimated = useMemo(() => expenses.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0), [expenses])
   const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
   const totalVariance  = totalActual - totalEstimated
-  const totalMargin = useMemo(() => expenses.reduce((s, e) => {
-    const est = Number(e.estimated_cost) || 0
-    const pct = e.margin_pct != null ? Number(e.margin_pct) : defaultMarginPct
-    return s + est * pct / 100
-  }, 0), [expenses, defaultMarginPct])
-  const totalCont = useMemo(() => expenses.reduce((s, e) => {
-    const est = Number(e.estimated_cost) || 0
-    const pct = e.contingency_pct != null ? Number(e.contingency_pct) : defaultContPct
-    return s + est * pct / 100
-  }, 0), [expenses, defaultContPct])
 
   // ── Handlers ──
   function handleCreate() { setEditingId(null); setShowPopup(true) }
@@ -2093,10 +2089,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
     const taskCount  = exp.task_ids?.length || 0
     const fileCount  = exp.file_ids?.length || 0
     const isChecked = expSelected.has(exp.id)
-    const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
-    const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
-    const mAmt = est * mPct / 100
-    const cAmt = est * cPct / 100
+    const { marginAmt: mAmt, contingencyAmt: cAmt } = moneyOf(exp)
     return (
       <Row
         key={exp.id}
@@ -2503,8 +2496,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
         const exp = expenses.find(e => e.id === mcPopover.expId)
         if (!exp) return null
         const est = Number(exp.estimated_cost) || 0
-        const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
-        const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
+        const { marginPct: mPct, contingencyPct: cPct } = moneyOf(exp)
         return (
           <MarginContPopover
             // One editor per expense, as Crew's and Talent's are keyed per
