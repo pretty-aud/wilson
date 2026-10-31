@@ -4200,7 +4200,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     title and description always go (Q17). DG4: what else is
                     chosen in this card. DG5: no "below", since on a wide
                     window the references sit beside the project (dog.css,
-                    THE INPUTS STACK: from a 1468 window since DG6); her
+                    THE INPUTS STACK, from a 1468 window since DG6); her
                     answer to walkthrough 89's Q1: as built. */}
                 <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
                 <div className="flex items-center gap-2">
