@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul F1 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f1-operator-console-list` into `feat/post-overhaul-edit-versioning`) — REV-01 by her ruling of 2026-10-31, verbatim *"Record it, fix at the release steps"*: `PAGE` imported in `operator-workspaces` (the console's company list and teardown step 1d); a `deno check` of every Edge Function in `rls.yml` with Deno 2.1.4 (the Deno inside the pinned CLI's edge runtime), red on the unfixed file and green on the fix on GitHub's runner, the 28 errors its first run found beside REV-01's six held as a counted baseline; a pin in `teardownCollect.test.js`, red first; two review rounds, both on Fable; no deploy (the controller's, on her go), no migration, no SQL | F1-01 (28 type errors in nine of the functions' files, none of which throws; the check's baseline) | REV-01 (closed by measurement on GitHub's runner). Comment markers: 4 → 4. |
 | Post-overhaul DG6 (2026-10-31, night 9; `po/dg6-cards-stacked` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-31, verbatim *"this looks objectively bad. please do a pass to make it more appealing for the top two cards. leave the output card how it is dont touch it. i want to keep the 1 and 2 cards stacked not side by side"*: D.O.G.'s two input cards stacked at every width at one capped width, 602px under a 1468 window and 1,202 from it, card 1 in two columns of the 576px measure there; DG5's pair, card 2's cap and the triple removed; the project dropdown's inline 360px cap removed (review round 1, finding 4: with no project the halves were 93px apart); the output card untouched; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/2/28/22 percent before, 2/2/1/1 now; card 2 1/2/28/23 before, its box stretched at 1280, 2/2/1/1 now); one Fable design round with the design-direction and laws-of-UX skills; two review rounds, both on Fable; no migration, no SQL | DG6-01 (the type sweep's scanner reads `DeckOutlineGenerator.jsx`'s backticks inverted from line 2635) | DG5-02 (closed by measurement at 3440x1440) |
 | Post-overhaul REV (2026-10-31; the controller's read-only code review at her ask, no branch, no code change) — five surveys of the code's areas for redundancies, near-duplicates and inefficiencies, 123 findings, in `docs/reviews/CODE_REVIEW_2026-10-31.md` with the five surveys beside it; seven correctness defects found along the way are REV-01 to REV-07 below; her ruling on REV-01, verbatim: "Record it, fix at the release steps" | | |
 | Post-overhaul DG5, a follow-up (2026-10-30; `po/dg5-pair-from-1414` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 89's Q2, relayed by the controller, verbatim *"Side by side from about 1,414 only"* (Q1 and Q3 as built): D.O.G.'s two input cards sit side by side from W 1148 (a 1414 window) and stack below it as DG4 left them, card 2 full width there; the design follow-up's W 1000 rule removed; the column keeps its scrollbar's gutter (review round 1, MEASURED with real scrollbars in Chromium 147 and Electron 33: a size query on the scroll column was answered before its scrollbar, so the pair applied at a 1404 window with a sideways scrollbar, and DG5's triple 10px early); measured before and after at 1280, 1366, 1400, 1414, 1440 and 1920; two review rounds, both on Fable; no migration, no SQL | nothing | nothing |
@@ -3100,6 +3101,41 @@ DG6 row). What DG6 met outside its list and did not fix:
   judges templates. Owner: the controller (a script under `scripts/`,
   outside DG6's list).
 
+## F1 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`)
+
+REV-01 fixed and a `deno check` of every Edge Function in CI (her ruling of
+2026-10-31; the session log's F1 row). What F1 met outside its list and did
+not fix:
+
+- **F1-01 · 28 type errors in nine of the functions' files, held as the deno
+  check's baseline.** MEASURED on GitHub's runner (run 41224374487 on
+  `d5e853cf`: Deno 2.1.4, `supabase-js@2.45.4`'s own types from esm.sh): 34
+  errors in 15 groups, six of them REV-01's. The other 28:
+  `_shared/adminGuard.ts`, `_shared/memberGuard.ts` and
+  `_shared/operatorGuard.ts`, TS2322 each (the guard's
+  `admin: ReturnType<typeof createClient>` is
+  `SupabaseClient<unknown, never, GenericSchema>`, and the client it makes is
+  `SupabaseClient<any, "public", any>`); `resolve-login` TS2345 (the same
+  client passed on); `storage-gc` 17 (its queue rows' `id`, `object_path`
+  and `bucket_id` are `unknown`, passed to `.eq`, `.remove` and the
+  presigner); `admin-set-active` TS2769 (a callback's row type);
+  `admin-user-security` TS2352 (`User` asserted to `Record<string,
+  unknown>`); `ai-files` TS2739 (a query builder, a thenable, where a
+  `Promise` is declared); `operator-ai-keys` TS2352 (a select string built at
+  run time, which the typed parser reads as an error) and TS2769 (an
+  `unknown` passed to `.eq`); `operator-workspaces` `:236-237` TS2488 and
+  TS2339 (the list's page typed `{}`). Each is a line of `KNOWN` in
+  `.github/workflows/rls.yml` and is listed in every run's warning
+  annotation. INFERRED by reading that none throws: each is a type the code
+  does not lean on at run time (a thenable awaited, an array typed `{}`, an
+  `unknown` passed where a string goes). The job fails on any count above
+  `KNOWN` and on any below it. Fix shape: one type for the service-role
+  client the three guards hand out (supabase-js's own `SupabaseClient`,
+  which defaults to `<any, "public", any>`), which should clear the guards'
+  and `resolve-login`'s and perhaps the rows' (INFERRED, not measured); the
+  rest by hand, each lowering its line. Owner: for the controller to place
+  (`_shared/` is F8's in wave 2).
+
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
 What R1 (night 2: R.A.B.B.I.T. robustness) met and did not fix, and what its
@@ -3568,8 +3604,19 @@ findings live there, not here; the seven correctness defects it found along
 the way are recorded below. Nothing becomes a session unless she names it
 (`PLAN_TO_1_0.md` §5, rule 8).
 
-- **REV-01 · The operator console's company list fails: `operator-workspaces`
-  uses `PAGE`, which nothing defines or imports.**
+- **REV-01 · ~~CLOSED by F1 (2026-10-31; `ef652296`), her ruling "Record it,
+  fix at the release steps": `PAGE` added to the import from
+  `_shared/teardownCollect.ts`, nothing else in the function changed.
+  MEASURED on GitHub's runner by CI's new `deno check` (Deno 2.1.4): on
+  `8b4eac85`, the file as it was, run 41224857857 red on TS2304 "Cannot find
+  name 'PAGE'" at `:230`, `:233`, `:237`, `:655`, `:662` and `:667` and on
+  nothing else new; on `ef652296` run 41224959673 green. The pin in
+  `src/cloud/teardownCollect.test.js` (every name `index.ts` uses from
+  `teardownCollect.ts` is in its import) red before, green after. The deploy
+  to dev and staging is the controller's, on her go: until it lands the
+  beta's Companies tab still answers a bare 500.~~ The operator console's
+  company list fails: `operator-workspaces` uses `PAGE`, which nothing
+  defines or imports.**
   `supabase/functions/operator-workspaces/index.ts:230-237` (the `list`
   action) and `:655-667` (teardown step 1d) read `PAGE`; the import at `:73-76`
   takes the buckets and the two collectors from `_shared/teardownCollect.ts`,
