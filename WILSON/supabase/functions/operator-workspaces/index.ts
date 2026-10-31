@@ -71,7 +71,7 @@ import {
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { generatePassword } from '../_shared/adminGuard.ts'
 import {
-  BUCKET, THUMBNAIL_BUCKET, AVATAR_BUCKET,
+  BUCKET, THUMBNAIL_BUCKET, AVATAR_BUCKET, PAGE,
   collectAvatarPaths, collectBlobPaths,
 } from '../_shared/teardownCollect.ts'
 

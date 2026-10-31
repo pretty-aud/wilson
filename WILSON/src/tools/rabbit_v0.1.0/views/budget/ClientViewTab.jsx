@@ -28,6 +28,7 @@ import { Eye, Printer } from 'lucide-react'
 import { Table, Th, Td, Row } from '../../../../ui/Table'
 import { Button } from '../../../../ui/Button'
 import { FONT_SANS, FONT_MONO, TYPE, LEADING, TRACKING, WEIGHT, INK_LIGHT, RULE_LIGHT } from '../../../../ui/tokens.js'
+import { projectBudgetSettings, applyMarginAndContingency } from '../../../../components/Budget/budgetMath'
 import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
 import '../rabbitBudget.css'
 
@@ -122,8 +123,7 @@ export function estimateDocument({ title, code, date, rows, total, currency, fac
 export default function ClientViewTab({ budget, budgetHook, project, tasks, roleRates, expensesHook, currency }) {
   const printRef = useRef(null)
 
-  const markupPct      = Number(project?.budget_margin_pct ?? 0)
-  const contingencyPct = Number(project?.budget_contingency_pct ?? 0)
+  const { marginPct: markupPct, contingencyPct } = projectBudgetSettings(project)
 
   // Build department-level estimates from tasks + rate card (crew/team costs)
   const crewByDept = useMemo(() => {
@@ -149,12 +149,16 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
     return expenses.reduce((s, e) => s + Number(e.estimated_cost || 0), 0)
   }, [expensesHook?.expenses])
 
-  // Build budget-line estimates from talent lines (budgetHook)
-  const talentTotal = useMemo(() => {
-    if (!budgetHook?.lines || !budgetHook?.lineComputations) return 0
-    return budgetHook.lines
-      .filter(l => l.sheet === 'talent' && !l.is_section_header)
-      .reduce((s, l) => s + (budgetHook.lineComputations[l.id]?.bidTotal || 0), 0)
+  // Build budget-line estimates from talent lines (budgetHook): the line as
+  // the client is charged it (its fees in), and its base without them.
+  const { talentTotal, talentBase } = useMemo(() => {
+    if (!budgetHook?.lines || !budgetHook?.lineComputations) return { talentTotal: 0, talentBase: 0 }
+    const talent = budgetHook.lines.filter(l => l.sheet === 'talent' && !l.is_section_header)
+    const comp = (l) => budgetHook.lineComputations[l.id]
+    return {
+      talentTotal: talent.reduce((s, l) => s + (comp(l)?.bidTotal || 0), 0),
+      talentBase: talent.reduce((s, l) => s + (comp(l)?.subtotal || 0), 0),
+    }
   }, [budgetHook?.lines, budgetHook?.lineComputations])
 
   // Combine into clean client-facing line items
@@ -184,10 +188,12 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
     return items
   }, [crewByDept, talentTotal, expenseTotal])
 
-  // Calculate totals — contingency is a FLAT line item, not shown as %
+  // Calculate totals — contingency is a FLAT line item, not shown as %.
+  // Both it and the markup are budgetMath's (F2), on the BASE: the crew, the
+  // talent without its fees, the expenses — never on the talent's fees.
   const subtotalBeforeExtras = clientLineItems.reduce((s, r) => s + r.estimate, 0)
-  const contingencyAmt = subtotalBeforeExtras * (contingencyPct / 100)
-  const markupAmt      = subtotalBeforeExtras * (markupPct / 100)
+  const base = Object.values(crewByDept).reduce((s, r) => s + r.estimate, 0) + talentBase + expenseTotal
+  const { marginAmt: markupAmt, contingencyAmt } = applyMarginAndContingency(base, markupPct, contingencyPct)
   const grandTotal     = subtotalBeforeExtras + contingencyAmt + markupAmt
 
   // ONE list for the preview and the print: the line items, then contingency

@@ -1545,12 +1545,18 @@ describe('rule 9 — readRabbitBundle backfills a legacy bundle once and persist
     let ids = 0
     let failures = failWrites
     // eslint-disable-next-line no-new-func
+    // F3: the read's bundle-only steps are reconcileRabbitBundle's and the
+    // demo rebase rebaseGoneFolderRoot's, lifted with it; the kept bundles are
+    // the real module's, which never keeps a file that is not on disk (this
+    // test's disk is a Map), so every read here is a disk load, as before.
     const read = new Function(
       'rabbitBundlePath', 'readJSON', 'writeJSON', 'fileSlugify', 'localDemoRootDir', 'isPathInside', 'fs', 'path',
       'localDemoProjectsDir', 'rabbitLogFileEvent', 'ensureProjectFolders', 'ensureProjectFolderRows',
       'materializeFolderDirs', 'uuidv4', 'backfillShotListsOnRead', 'ensureShotListKeys',
-      'pruneDanglingShotListItems', 'mirrorProjectDatabases',
-      `${extractFunction(MAIN_CJS, 'readRabbitBundle')}
+      'pruneDanglingShotListItems', 'mirrorProjectDatabases', 'rabbitBundles',
+      `${extractFunction(MAIN_CJS, 'reconcileRabbitBundle')}
+       ${extractFunction(MAIN_CJS, 'rebaseGoneFolderRoot')}
+       ${extractFunction(MAIN_CJS, 'readRabbitBundle')}
        return readRabbitBundle;`,
     )(
       (id) => `/fake/${id}/project.json`,
@@ -1564,6 +1570,7 @@ describe('rule 9 — readRabbitBundle backfills a legacy bundle once and persist
       () => `rid-${++ids}`, backfillShotListsOnRead, ensureShotListKeys,
       pruneDanglingShotListItems,
       (projectId, bundle) => { mirrors.push({ projectId, shotLists: structuredClone(bundle.shotLists) }) },
+      require('../../../../electron/jsonFile.cjs').createKeptFiles(),
     )
     return { read, diskWrites, files, mirrors }
   }

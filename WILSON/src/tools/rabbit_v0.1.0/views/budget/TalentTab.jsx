@@ -19,6 +19,7 @@ import { Fragment, useState, useMemo, useRef, useEffect, useCallback } from 'rea
 import { createPortal } from 'react-dom'
 import { Star, Plus, Trash2, RotateCcw, Paperclip, ChevronRight, ChevronDown } from 'lucide-react'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
+import { projectBudgetSettings, lineMoney } from '../../../../components/Budget/budgetMath'
 import { useRabbit } from '../../state/RabbitProvider'
 import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
 import {
@@ -189,9 +190,13 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   const columnCount  = Number(project?.budget_actual_column_count ?? 20)
   const projectStart = project?.start_date || project?.created_at
 
-  // Project-level defaults for margin & contingency
-  const defaultMarginPct = Number(project?.budget_margin_pct ?? 0) || 0
-  const defaultContPct   = Number(project?.budget_contingency_pct ?? 0) || 0
+  // Project-level defaults for margin & contingency, and a line's: budgetMath
+  // (F2), each on the line's subtotal — never on its bid total, which holds
+  // the agency and the agent's fees (the hook's line computations).
+  const settings = useMemo(() => projectBudgetSettings(project), [project])
+  const defaultMarginPct = settings.marginPct
+  const defaultContPct   = settings.contingencyPct
+  const moneyOf = (line) => lineMoney(lineComputations[line.id]?.subtotal || 0, line, settings)
 
   // Popover state: { lineId, colIdx, x, y, h }
   const [openPopover, setOpenPopover] = useState(null)
@@ -214,14 +219,12 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     for (const line of allTalent) {
       const comp = lineComputations[line.id]
       if (comp) { bid += comp.bidTotal; sub += comp.subtotal; actual += comp.actualTotal }
-      const mPct = line.margin_pct != null ? Number(line.margin_pct) : defaultMarginPct
-      const cPct = line.contingency_pct != null ? Number(line.contingency_pct) : defaultContPct
-      const bt = comp?.bidTotal || 0
-      marginT += bt * mPct / 100
-      contT   += bt * cPct / 100
+      const { marginAmt, contingencyAmt } = lineMoney(comp?.subtotal || 0, line, settings)
+      marginT += marginAmt
+      contT   += contingencyAmt
     }
     return { subtotal: sub, bid, actual, variance: actual - bid, marginTotal: marginT, contTotal: contT }
-  }, [allTalent, lineComputations, defaultMarginPct, defaultContPct])
+  }, [allTalent, lineComputations, settings])
 
   async function handleAddTalent() {
     const existing = allTalent.length
@@ -312,10 +315,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     const comp = lineComputations[line.id] || {}
     const lineActuals = actualsByLine?.[line.id] || []
     const isExpanded = expandedRows.has(line.id)
-    const mPct = line.margin_pct != null ? Number(line.margin_pct) : defaultMarginPct
-    const cPct = line.contingency_pct != null ? Number(line.contingency_pct) : defaultContPct
-    const mAmt = (comp.bidTotal || 0) * mPct / 100
-    const cAmt = (comp.bidTotal || 0) * cPct / 100
+    const { marginAmt: mAmt, contingencyAmt: cAmt } = moneyOf(line)
     return (
       <Fragment key={line.id}>
         <Row>
@@ -557,10 +557,10 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
         <MarginContPopover
           key={mcPopover.lineId}
           anchor={mcPopover}
-          amountLabel="Bid total"
-          baseAmount={lineComputations[mcLine.id]?.bidTotal || 0}
-          marginPct={mcLine.margin_pct != null ? Number(mcLine.margin_pct) : defaultMarginPct}
-          contPct={mcLine.contingency_pct != null ? Number(mcLine.contingency_pct) : defaultContPct}
+          amountLabel="Subtotal"
+          baseAmount={lineComputations[mcLine.id]?.subtotal || 0}
+          marginPct={moneyOf(mcLine).marginPct}
+          contPct={moneyOf(mcLine).contingencyPct}
           defaultMargin={defaultMarginPct}
           defaultCont={defaultContPct}
           currency={currency}

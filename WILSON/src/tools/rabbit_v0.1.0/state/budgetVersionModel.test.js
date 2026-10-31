@@ -7,12 +7,11 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  bidTotals, projectBudgetSettings, scheduleSpan, snapshotFromLive, readVersion,
+  scheduleSpan, snapshotFromLive, readVersion,
   varianceAgainst, versionDelta, versionDiff, planOpen, planIsEmpty,
   sortVersionsNewest, selectedVersionOf, previousVersionOf, deltaWords, SNAPSHOT_KIND,
   knownIdsOf, liveItemsOnly,
 } from './budgetVersionModel'
-import { selectProjectBudgetRollup } from './selectors'
 
 const project = {
   id: 'p1', budget_margin_pct: 10, budget_contingency_pct: 5,
@@ -30,37 +29,8 @@ const tasks = [
 const milestones = [{ id: 'm1', title: 'Lock', date: '2026-10-01', phase_id: 'ph1', color: '#0f0' }]
 const live = () => snapshotFromLive({ tasks, phases, milestones, project, roleRates, savedAt: '2026-10-05T10:00:00.000Z', savedBy: 'u1' })
 
-describe('bidTotals — the Budget screen\'s arithmetic, once (F7)', () => {
-  it('overall = before-agency + the agency fee on the BASE; margin and contingency on the base, never compounded', () => {
-    const t = bidTotals({ tasks, roleRates, ...projectBudgetSettings(project) })
-    // base = 2 × 500 + 1.5 × 800 = 2200
-    expect(t.baseCost).toBe(2200)
-    expect(t.marginAmt).toBe(220)
-    expect(t.contingencyAmt).toBe(110)
-    expect(t.beforeAgency).toBe(2530)
-    expect(t.agencyAmt).toBe(330)
-    expect(t.overall).toBe(2860)
-  })
-  it('CONTROL: with the agency fee off, overall IS the before-agency total', () => {
-    const t = bidTotals({ tasks, roleRates, ...projectBudgetSettings({ ...project, budget_agency_enabled: false }) })
-    expect(t.overall).toBe(t.beforeAgency)
-    expect(t.agencyAmt).toBe(0)
-  })
-  it('rounds as BudgetView does: margin and contingency to cents, the fee to the whole unit', () => {
-    const t = bidTotals({ tasks: [{ bid_days: 1, assigned_role_slug: 'x' }], roleRates: { x: 333.333 }, marginPct: 10, contingencyPct: 0, agencyEnabled: true, agencyPct: 15 })
-    expect(t.marginAmt).toBe(33.33)
-    expect(t.beforeAgency).toBe(366.66)
-    expect(t.agencyAmt).toBe(50)
-  })
-  it('its base is the selectors\' rollup total, unknown roles and zero days included', () => {
-    const odd = [...tasks, { id: 't3', bid_days: 3, assigned_role_slug: 'nobody' }, { id: 't4', bid_days: 0, assigned_role_slug: 'editor' }]
-    expect(bidTotals({ tasks: odd, roleRates }).baseCost).toBe(selectProjectBudgetRollup({ tasks: odd, roleRates }).total)
-  })
-  it('the agency fee defaults to 20% when the project never set it (BudgetView\'s reading)', () => {
-    expect(projectBudgetSettings({ budget_agency_enabled: true }).agencyPct).toBe(20)
-    expect(projectBudgetSettings({}).agencyEnabled).toBe(false)
-  })
-})
+// bidTotals and projectBudgetSettings moved to budgetMath.js with their tests
+// (post-overhaul F2): budgetMath.test.js.
 
 describe('snapshotFromLive — what a version carries (F1, F6, F7, F8)', () => {
   it('carries phases (sub-phases with their parent), task dates, key dates, rates, settings, both totals, bid days and span', () => {

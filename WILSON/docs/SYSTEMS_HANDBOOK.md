@@ -229,6 +229,41 @@ roughly 144 endpoints at runtime.
 | Thumbnails | `…/assets/:id/thumbnail`, and the same for scenes/shots/levels/experiences | RABBIT galleries |
 | Workspace-scoped stores | `…/workspaces/:id/rate-cards`, `…/team-members`, `…/task-templates` (+ entry/dept-default routes) | Rate Card, Team, Templates |
 
+**The project file, kept in memory, written whole (F3, 2026-10-31;
+OUTSTANDING REV-06, REV-07).** Each R.A.B.B.I.T. project on this server is
+one JSON bundle (`rabbit-data/projects/<id>/project.json`). `readRabbitBundle`
+keeps its text in memory (`electron/jsonFile.cjs`, `createKeptFiles`), keyed by
+the file's path and valid while a stat of it gives the same volume, file id,
+size and modification time — main is the only writer (the single-instance
+lock), and a hand edit, a copy over the file or a restore changes one of them.
+A read that finds it kept costs that stat and a parse: no disk read, no
+reconcile; every caller still gets its own object, as a disk read gave (callers
+mutate what they read). The reconcile runs once per disk load, in full; its
+bundle-only half (`reconcileRabbitBundle`: the old-bundle migrations, the shot
+lists, task items, table views, the slug, the folder rows) also runs on every
+write, so a kept bundle is always the one a read of its file would give; the
+half that asks the disk (`ensureProjectFolders`, the Legal settle) runs per
+load, the demo rebase on every read, and the project PATCH makes the five
+sub-folders itself. The kept texts are bounded (64 MiB in all, counted two
+bytes a character; a bundle over about 8 MB on disk is never kept, and is
+read from disk as before). **Every JSON file
+`main.cjs` and `localDemoRoot.cjs` write** goes through one writer
+(`writeJsonAtomic`): the text whole to `<file>.tmp`, renamed over the file,
+both steps retried while Windows holds a file (a read's write-back, a mirror
+and an audit append try once); a crash of WILSON leaves the previous file,
+never a torn one that reads back as nothing (which dropped the project from
+the list). `readJSON` keeps its shape. The six `<Slug>_DATABASES`
+mirrors are written only when their text changes or a file is gone from the
+folder (an edit to a task's notes writes project.json and tasks.json; one to
+its name, status or dates timeline.json too; the first edit after a launch
+all six). O.T.T.E.R.'s
+`GET …/:slug/subjects` reads only; the writes (POST, PUT, DELETE, `/renumber`)
+keep the curriculum order it used to rewrite on every list. Measured on the
+fixtures' project (a development build): a task PATCH 22 → 17 disk calls and
+379 KB → 0 read; a cached thumbnail 18 → 12 calls, 5.0 → 3.7 ms; the project
+list 14 → 8; a six-subject list 19 → 10, nothing written. The 50 MB body
+limit stays (older projects carry base64 deck attachments).
+
 > **There is no `/api/auth/*` family, and that is deliberate.** Session 15
 > deleted `/api/auth/session`, `/api/auth/verify` and `/api/auth/change`
 > together with their hardcoded constants and the orphaned
@@ -1591,6 +1626,7 @@ not push-to-`main`, where branch protection makes it redundant.
 | **issue-session smoke** | `scripts/probes/issue-session.sh` against real `wilson-dev` | That ES256 tokens validate in-function. The local stack issues HS256, so **only a hosted probe can catch this regression** |
 | **Vitest** | `npm test` | Renderer pure-function modules; no secrets |
 | **Playwright auth** | `npx playwright test` against `wilson-dev` | The auth, invite and reset flows end to end |
+| **Edge Functions type check** | `deno check --no-config` over every `supabase/functions/*/index.ts` with Deno 2.1.4 (the Deno inside `supabase/edge-runtime` v1.77.1, which the pinned CLI 2.119.0 runs), compared with the baseline `KNOWN` in the step (F1) | That every function's names and imports resolve and that no type error is added beyond the 28 counted ones, on every push. Nothing else type-checks a function: a deploy bundles without a check, so REV-01's unimported `PAGE` reached the beta as a bare 500. The job does not gate a deploy, which runs from a checkout |
 
 The coverage gate runs **before** Postgres boots and fails fast; its allowlist
 currently names **39 tables** (counted from `rls.yml`, 2026-08-04 — it read
@@ -1604,6 +1640,19 @@ added.** The allowlist failing is loud; the replay list failing is **silent** �
 S17 recorded suites 33–38 failing invisibly for exactly that reason, with the
 annotation cheerfully reporting "replay produced no ERROR lines" for every
 file it did replay.
+
+**The type check's baseline (F1).** Its first run found 28 errors besides
+REV-01's six, in ten files (seven functions and the three shared guards),
+none of which throw (`docs/OUTSTANDING.md` F1-01). `KNOWN` lists them as
+file, code and count: a count above its line fails the job, and so does a
+count below it, so **the commit that fixes one lowers or deletes its line**.
+The counts move with any module in the graph, so a session that touches
+anything under `supabase/functions/` has `KNOWN` in its list, and at a merge
+`KNOWN` is what the merge commit's own run reads. Each new error is a public
+annotation at its first line; the known ones are one warning, which carries
+Deno's own count; when the module graph fails before any check (esm.sh
+refusing an import) the annotation says that and nothing is compared. To
+move Deno, move it with the CLI's pin and read this job first.
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
@@ -4227,8 +4276,10 @@ empty breakdown, and reported "Intake complete".
 
 **Budget and rate cards**: a line's subtotal is `rate × days × qty` (or
 `cost × days × qty` on the travel sheet); an agency fee may be added from a
-project-wide percentage and, on the talent sheet, a per-row representation
-percentage — the two **stack additively**. Rate cards are **workspace-scoped**,
+project-wide percentage (20% when it is switched on with none typed) and, on
+the talent sheet, a per-row representation percentage — the two **stack
+additively** on the subtotal, and margin and contingency are on the subtotal
+too (`budgetMath.js`, §15). Rate cards are **workspace-scoped**,
 with a `general` and an `internal` card auto-created per workspace; an entry's
 total is `wage + burden + overhead`, each of which may be a row-level percent or
 fixed amount or fall back to a department default. Access is
@@ -4836,13 +4887,23 @@ lockdown).
 > policy is not free: check what else has to read those rows.**
 
 **Money arithmetic** — `src/components/Budget/budgetMath.js` is the single
-definition of the rules that decide what a production is bid at: the
-project-default **fallback** (NULL inherits; an explicit `0` does not), margin
-and contingency applied **independently to the base** rather than compounded,
-and rate resolution as *project override → workspace rate card → blank*. Pinned
-by 24 vitest cases, which were proven by breaking the source three ways. Before
-Session 24 those rules were duplicated inline across four view files with no
-test at any layer.
+definition of the rules that decide what a production is bid at, and since F2
+(2026-10-31) the one every Budget surface calls: the project's settings read
+once (`projectBudgetSettings`; the agency fee 20% when it is switched on with
+none typed, `AGENCY_DEFAULT_PCT`, her ruling of that day), the project-default
+**fallback** (NULL inherits; an explicit `0` does not), margin and contingency
+applied **independently to the base** rather than compounded and never to a
+fee, a line's agency and representation fees on the base beside them
+(`lineMoney`), the task-based bid (`taskBaseCost`, `bidTotals`, which every
+saved bid version's totals are made by), one `round2`, and rate resolution as
+*project override → workspace rate card → blank*. Pinned by 41 vitest cases,
+two of them a scan of the Budget's files for the three shapes the old copies
+took (the inheritance rule inline, a settings read with a default of its own,
+a second `round2`) and its control; a copy spelt another way passes the scan,
+so the surfaces' render tests pin their figures too. Before Session 24 those
+rules were duplicated inline across four view files with no test at any
+layer; until F2 the views kept their copies, which came apart (OUTSTANDING
+REV-02, closed).
 
 **Vitest** — **43 files, 909 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
@@ -5142,6 +5203,34 @@ of a session — this section is limits by design, that file is faults.
 - **The drive feeds the same synchronous fs calls every root always has**, so
   a NAS that dies after passing its configuration-time probe can stall the
   main process for the SMB timeout. Async resolution is S40/S42-scale work.
+  Since F3 (2026-10-31) a request no longer reads the project's bundle or
+  re-checks its sub-folders while the bundle is kept in memory (§3.1): one
+  stat of the file instead. The path's folders are still checked on every
+  request, and a demo folder is still stat'ed by every root question (3 to 5
+  times a request: OUTSTANDING F3-04).
+- **The kept project file's limits (F3).** A bundle in a demo folder on a
+  NAS that another machine changes can be served stale while Windows caches
+  the share's file times (about 10 s); two machines writing one demo folder
+  was already last-writer-wins. On FAT, whose times step in 2 s, a hand edit
+  of the same size within 2 s of the app's own write is not seen until the
+  next write. The bundle is not synced to the disk before its rename: after
+  a power cut the rename can land before the text, leaving a file of zeros
+  where the in-place write could leave a torn one (the migration's archive is
+  synced, because the live stores are removed after it). Replacing a file
+  needs every other program that holds it open to allow a delete (one that
+  does not makes the write fail where writing in place succeeded), and the
+  new file takes the folder's attributes and permissions, not the old
+  file's. A `<file>.tmp` left by a rename Windows refused holds the newer
+  text until the next write replaces it; nothing reads it, but in a
+  `_DATABASES` folder or beside a demo folder's `wilson-demo.json` she can
+  see it, and two machines writing one NAS demo folder share the name. A
+  read's write-back and a mirror are tried once (a folder she can only read
+  must not stall every request on the retries); a read-only bundle is kept
+  reconciled in memory and written by the next save. A mirror deleted by
+  hand returns at the next pass; one edited by hand, or written by another
+  machine, stays until what it mirrors changes. Past 64 MiB of kept projects
+  the list reads each from disk again, as before F3, and pays for the text
+  it keeps (build review rounds 1 and 2).
 - **"Root unknown because the read failed" is not a modelled state** —
   last-known-good stands in for it (a transient Supabase blip must not
   retarget a machine onto its local default; the split-storage failure is
@@ -5484,8 +5573,24 @@ of a session — this section is limits by design, that file is faults.
 - **Margin and contingency are each applied to the BASE, never compounded**,
   and per-line percentages are a **fallback**: `NULL` inherits the project
   default, an explicit `0` does not. Both rules live in `budgetMath.js` under
-  test. `NOT NULL DEFAULT 0` on `budget_lines.margin_pct` would silently pin
+  test, and every Budget surface calls them (F2, 2026-10-31: until then the
+  Crew and Talent tabs charged margin and contingency on the base plus the
+  fees, and the client estimate on a total holding the talent's fees).
+  `NOT NULL DEFAULT 0` on `budget_lines.margin_pct` would silently pin
   every line at 0% — a migration post-condition now refuses that.
+- **The agency fee switched on with no percentage typed is 20%, on every
+  surface** (her ruling of 2026-10-31, `AGENCY_DEFAULT_PCT`; until F2 the
+  Summary read 20 and the Crew tab, the Topsheet and the line computations
+  0). A typed `0` is a real value. The cloud's column stores 0 for a
+  percentage nobody typed (0036: `NOT NULL DEFAULT 0`), so on the cloud the
+  20 is met only where the Budget Summary's switch writes it (it reads a
+  stored 0 as none typed, and so also puts 20 over a typed 0 when the fee is
+  switched off and on); the intake and the project settings' toggle leave 0,
+  and a desktop project moved to the cloud arrives at 0 (OUTSTANDING F2-04).
+- **A tab's Bid total is its subtotal plus the fees**; the margin and
+  contingency it shows stand beside it, not in it (`lineMoney`'s
+  `bidTotal`; OUTSTANDING F2-05). The Summary's overall total is the one
+  that adds them.
 - **A rate edited inside a project must never reach the rate card.**
   `rate_cards` / `rate_card_entries` are workspace-wide;
   `project_rate_overrides` is the project-scoped layer, resolving
@@ -6548,6 +6653,30 @@ documentation and starts being wrong answers.
   DG6 review round 1, measured). Her walkthrough 89 Q3 kept Uploads with the
   references, and CSS cannot fill the gap without separating them;
   walkthrough 90's Q1 asks her whether two columns stay.
+
+**The Edge Functions' type check (F1, 2026-10-31; §7.1)**
+
+- **It checks types; it runs nothing.** A name or an import that does not
+  resolve fails it (REV-01's `PAGE`, TS2304), as does a new type error. A
+  function that passes can still fail on a value at run time: a secret
+  unset, a row of another shape.
+- **28 errors stay, counted, not fixed** (`docs/OUTSTANDING.md` F1-01). The
+  three guards type their client as `ReturnType<typeof createClient>`,
+  which is `SupabaseClient<unknown, never, GenericSchema>`, and hand it the
+  client they make, `SupabaseClient<any, "public", any>`; a row read through
+  it holds `unknown` values where the code passes them on as ids and paths
+  (`storage-gc`'s queue rows, 17 of the 28).
+  The count is per file and code, so one fixed and one new of the same code
+  in the same file, in one commit, pass unseen; and when a count goes over,
+  every error of that code in that file is annotated as new, the old with
+  the one that is.
+- **It reads esm.sh on every run.** There is no import map and no lockfile:
+  `supabase-js@2.45.4` and its types come from esm.sh as a deploy's do. If
+  esm.sh is down the job is red with the import named; if esm.sh rebuilds
+  that version's types, counts can move with no change here, and the
+  annotation names which.
+- **Only what an `index.ts` imports is checked.** A `_shared/` module no
+  function imports is not.
 
 ## Appendix A — Glossary
 

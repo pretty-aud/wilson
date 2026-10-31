@@ -474,10 +474,11 @@ describe('timeline.json lists each task\'s asset_ids', () => {
   const mirror = (bundle) => {
     const files = {}
     // eslint-disable-next-line no-new-func
-    const fn = new Function('resolveProjectFolder', 'fileSlugify', 'path', 'fs', 'writeJSON', 'console',
+    // F3: the mirror writes through one change-only writer per pass.
+    const fn = new Function('resolveProjectFolder', 'fileSlugify', 'path', 'fs', 'databaseMirrors', 'console',
       `${extractFunction(MAIN_CJS, 'mirrorProjectDatabases')}\nreturn mirrorProjectDatabases;`)(
       () => '/root', (s) => s, { join: (...p) => p.join('/') }, { existsSync: () => true, mkdirSync: () => {} },
-      (file, data) => { files[file.split('/').pop()] = data }, { error: (...a) => { throw new Error(a.join(' ')) } })
+      { writerFor: () => (file, data) => { files[file.split('/').pop()] = data } }, { error: (...a) => { throw new Error(a.join(' ')) } })
     fn(PID, bundle)
     return files
   }
@@ -518,8 +519,12 @@ describe('main.cjs wires the module in everywhere a task\'s items can change', (
     // VW1m (2026-10-16), her Q-M2: and it never removes a task.
     expect(body).not.toMatch(/bundle\.tasks\s*=|rabbitRemoveFrom\(bundle\.tasks/)
   })
-  it('every read reconciles, the empty bundle has the key, the readable mirror carries the live items, the routes are mounted', () => {
-    expect(extractFunction(MAIN_CJS, 'readRabbitBundle')).toMatch(/rabbitTaskItems\.reconcileTaskItemsOnRead\(bundle, \{ projectId \}\)/)
+  it('every load and every write reconciles, the empty bundle has the key, the readable mirror carries the live items, the routes are mounted', () => {
+    // F3: the reconcile is reconcileRabbitBundle's, run by every disk load and
+    // every write (a read that finds the bundle kept was reconciled by them).
+    expect(extractFunction(MAIN_CJS, 'reconcileRabbitBundle')).toMatch(/rabbitTaskItems\.reconcileTaskItemsOnRead\(bundle, \{ projectId \}\)/)
+    expect(extractFunction(MAIN_CJS, 'readRabbitBundle')).toMatch(/reconcileRabbitBundle\(bundle, projectId\)/)
+    expect(extractFunction(MAIN_CJS, 'writeRabbitBundle')).toMatch(/reconcileRabbitBundle\(bundle, projectId\)/)
     expect(extractFunction(MAIN_CJS, 'emptyBundle')).toMatch(/taskItems:\s*\[\]/)
     expect(MAIN_CJS).toMatch(/taskItems:\s*liveItems/)
     expect(MAIN_CJS).toMatch(/rabbitTaskItems\.mountRabbitTaskItems\(expressApp,/)
