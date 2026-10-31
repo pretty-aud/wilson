@@ -1609,13 +1609,19 @@ describe('surface 4', () => {
     // with the line's own percentages. The old copy opened it on the bid
     // total, the fees in it ("Bid total $10,350 × 10%", +$1,035).
     it('F2: the margin & contingency box works on the line\'s subtotal, with its own percentages', () => {
-      const { container } = render(tab())
-      fireEvent.click(lineRow(container, 'Mara (lead)').querySelectorAll('button.rb-talent-mc')[1])
+      // The line's own margin, 5%, over the project's 0% (the plant that
+      // read the project's passed while the line had none of its own).
+      const h = hook()
+      h.lines[0] = { ...h.lines[0], margin_pct: 5 }
+      const { container } = render(tab(h))
+      const wells = lineRow(container, 'Mara (lead)').querySelectorAll('button.rb-talent-mc')
+      expect([...wells].map((w) => w.textContent)).toEqual(['+$450', '+$900'])
+      fireEvent.click(wells[1])
       const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
-      expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('0')
+      expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('5')
       expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('10')
       expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => [a.textContent, a.getAttribute('title')]))
-        .toEqual([['+$0', 'Subtotal $9,000 × 0%'], ['+$900', 'Subtotal $9,000 × 10%']])
+        .toEqual([['+$450', 'Subtotal $9,000 × 5%'], ['+$900', 'Subtotal $9,000 × 10%']])
     })
 
     it('a period cell opens the lane\'s popover in <body>, closed by Escape and an outside press (R3-33, R3-32)', () => {
