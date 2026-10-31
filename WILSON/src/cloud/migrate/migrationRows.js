@@ -59,6 +59,7 @@ import { COLUMN_ALLOWLIST } from '../../tools/rabbit_v0.1.0/adapters/supabaseAda
 import { isLegalFile, writableTags } from '../../tools/rabbit_v0.1.0/fileTags'
 import { toIsoDate } from '../../tools/rabbit_v0.1.0/dates'
 import { FOLDER_CATEGORIES } from '../../tools/rabbit_v0.1.0/folderPaths'
+import { AGENCY_DEFAULT_PCT } from '../../components/Budget/budgetMath'
 
 const isRow = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
 const named = (v) => v != null && v !== ''
@@ -213,6 +214,11 @@ export function projectRowForCloud(project, workspaceId, people = null) {
     const n = Number(row.budget_actual_column_count)
     if (!(Number.isInteger(n) && n >= 1 && n <= 104)) delete row.budget_actual_column_count
   }
+  // F2 (her answer to walkthrough 91's F2 Q1): the agency fee switched on
+  // with no percentage ever typed reads 20% on every Budget surface; left
+  // out, the column's default would make it 0 on the cloud. A value typed
+  // but refused above stays left out (projectValuesLeftOut names it).
+  if (row.budget_agency_enabled === true && (p.budget_agency_pct == null || p.budget_agency_pct === '')) row.budget_agency_pct = AGENCY_DEFAULT_PCT
   dropNulls(row, PROJECT_DEFAULTED)
   if (!named(row.title)) row.title = 'Untitled Project'
   row.workspace_id = workspaceId

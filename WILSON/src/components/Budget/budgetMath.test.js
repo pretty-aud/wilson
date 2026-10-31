@@ -32,6 +32,7 @@ import {
   taskBaseCost,
   bidTotals,
   lineMoney,
+  agencyPctOnSwitchOn,
 } from './budgetMath'
 import { selectProjectBudgetRollup } from '../../tools/rabbit_v0.1.0/state/selectors'
 
@@ -235,6 +236,19 @@ describe('projectBudgetSettings — the project\'s settings, read once for every
     expect(projectBudgetSettings(null)).toEqual({ marginPct: 0, contingencyPct: 0, agencyEnabled: false, agencyPct: 20 })
     expect(projectBudgetSettings({ budget_margin_pct: 12, budget_contingency_pct: '5', budget_agency_enabled: 'yes' }))
       .toMatchObject({ marginPct: 12, contingencyPct: 5, agencyEnabled: false })
+  })
+})
+
+// Her answer to walkthrough 91's F2 Q1 (2026-10-31): "Switching the fee on
+// anywhere with nothing typed fills in 20%". The Summary's switch, the
+// project settings' switch and the new-project form ask this one rule.
+describe('agencyPctOnSwitchOn — what switching the fee on writes (F2, Q1)', () => {
+  it('fills in the one default when nothing is stored — unset, empty, or the cloud\'s 0 for "never typed"', () => {
+    for (const stored of [undefined, null, '', 0, '0']) expect(agencyPctOnSwitchOn(stored), String(stored)).toBe(20)
+  })
+  it('CONTROL: a percentage stored is left as it is (nothing to write)', () => {
+    expect(agencyPctOnSwitchOn(10)).toBeNull()
+    expect(agencyPctOnSwitchOn('12.5')).toBeNull()
   })
 })
 

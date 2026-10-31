@@ -152,8 +152,10 @@ export const uploadSize = (bytes) => `(${(bytes / 1024).toFixed(1)} KB)`;
 
 /**
  * Where keyboard focus goes when a control in the card takes itself away (DG2
- * review round 1, finding 1): a row's Remove goes to the next row's Remove,
- * else the previous row's, else Add references; Remove all references and the
+ * review round 1, finding 1): a row's Remove goes to the next Remove in its own
+ * section, else the previous one's, else its section's way to add (Choose file
+ * for an upload, Add references for a reference: DG6's follow-up), else the
+ * other's; Remove all references and the
  * notice's Undo and Dismiss (round 2, finding 1) go to Add references. Never
  * to <body>, where D.O.G.'s Enter would start a deck with
  * whatever is left. Only keyboard focus moves (`:focus-visible`, decided when
@@ -178,9 +180,18 @@ export function focusAfterRemove(button) {
   // Add references off and the 20th upload taking Choose file away, the
   // notice's Undo and Dismiss found nothing; a row's Remove is what is left.
   if (!button.classList.contains('dog-refs-remove')) return add === button ? null : (add || body.querySelector('.dog-refs-remove'));
-  const all = [...body.querySelectorAll('.dog-refs-remove')];
-  const i = all.indexOf(button);
-  return all[i + 1] || all[i - 1] || add || null;
+  // DG6's follow-up: References and Uploads are two sections, Uploads after
+  // the references, so a row's Remove looks in its own section first, then
+  // to its own section's way to add (Choose file for an upload, Add
+  // references for a reference), then to the other's: removing the last
+  // reference from the keyboard never lands a section away, on an upload.
+  const section = button.closest('.dog-sec') || body;
+  const own = [...section.querySelectorAll('.dog-refs-remove')];
+  const i = own.indexOf(button);
+  const ownAdd = button.closest('.dog-refs-uploads')
+    ? body.querySelector('.dog-refs-uploads button.dog-upload')
+    : body.querySelector('.dog-refs-actions .ui-btn:not(:disabled)');
+  return own[i + 1] || own[i - 1] || ownAdd || add || null;
 }
 
 /** Press a control that takes itself away, keeping keyboard focus in the list. */
@@ -261,7 +272,8 @@ export function coreLine({ projectChosen, core, coreOnly, setAside = 0 }) {
  * @param {{ files: Array<{id, file: File, type: string}>, busy: boolean,
  *           add: (e) => void, remove: (id) => void }} props.uploads
  *        D.O.G.'s uploads (DG2): its `uploadedFiles`, `isFileLoading`,
- *        `handleFileUpload` and `removeFile`, drawn here as the first group
+ *        `handleFileUpload` and `removeFile`, drawn here as the Uploads
+ *        section, after the references (DG6's follow-up)
  * @param {boolean} [props.offline] a sign-in held at an offline launch (S2):
  *        card 1 says so in its one sentence, so Core files only is off and
  *        says nothing of its own
@@ -273,8 +285,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   const uploadFiles = uploads?.files || [];
   // Choose file goes at the 20th upload. Pressed from the keyboard, it took
   // focus to the page with it, and the next Enter there made a deck (DG3,
-  // MEASURED); so focus goes to the upload it added, that row's Remove, just
-  // above where it was. Only when its last press found it holding keyboard
+  // MEASURED); so focus goes to the upload it added, that row's Remove, the
+  // last tile of the shelf above where it was (since DG6's follow-up the tile
+  // can sit a few columns to the right). Only when its last press found it holding keyboard
   // focus (`:focus-visible`, as focusAfterRemove reads it): a click that gave
   // it focus leaves focus as before, while a click on it with the keyboard's
   // ring still on it (a picker closed unused, a file refused) counts as the
@@ -303,48 +316,132 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   const setAside = coreOnly ? [...(refs.chosen || [])].filter(k => !refs.listedKeys?.has(k)).length : 0;
   const coreSaid = offline && !coreOnly ? '' : coreLine({ projectChosen, core: refs.core, coreOnly, setAside });
 
+  // DG6's follow-up (Audrey, 2026-10-31, verbatim in dog.css, CARD 1's
+  // SECTIONS: "project select needs to go above the add references and below
+  // the references should be the upload option"; "we need a title or
+  // something for each function"): this part is two titled sections, then
+  // the line of what goes to the AI with its meter. References first (the
+  // notice, the no-project sentence, Items, Files, Notes, Add references with
+  // Core files only beside it, and Core's sentence), then Uploads (its rows
+  // and Choose file), then the contract line and the meter, which count all
+  // three. Each title is an h3 under the card's h2, so a screen reader's
+  // heading list reads the card as it looks.
   return (
     <div className="dog-refs">
-      {refs.notice && (
-        <p className="dog-details-note dog-refs-notice" role="status">
-          {refs.notice}
-          {/* Both take the notice, and themselves, away: from the
-              keyboard, focus goes to Add references, never the page
-              (review round 2, finding 1). */}
-          {refs.undoable && (
-            <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.undoRemoveAll)}>Undo</button>
-          )}
-          <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.clearNotice)}>Dismiss</button>
-        </p>
-      )}
-      {/* The sentence names everything that goes, so it is true; the
-          meter beside it counts the same. PDFs and pictures are stored in
-          the AI's file store to be read (the hover says so). DG2: the
-          uploads are listed here now, so they are not named apart. DG5:
-          "in step 2", not "below" (her answer to walkthrough 89's Q1: as
-          built); since DG6 the Generate outline card is below this one at
-          every width again, and "step 2" names it by its numeral. DG6: this
-          sentence stays at this part's head (under a notice, when there is
-          one), before Uploads, so from a 1468 window it heads the
-          references' column level with "Choose a project" (dog.css, THE
-          INPUTS STACK). */}
-      <p className="ui-field-hint dog-refs-contract"
-        title="PDFs and pictures are placed in the AI's file store to be read. Your notes always travel in the request itself.">
-        What goes to the AI: what is listed here, the project&rsquo;s title and description, and what you write in step 2.
-      </p>
+      <div className="dog-sec dog-sec-refs">
+        <h3 className="dog-sec-title">References</h3>
+        {refs.notice && (
+          <p className="dog-details-note dog-refs-notice" role="status">
+            {refs.notice}
+            {/* Both take the notice, and themselves, away: from the
+                keyboard, focus goes to Add references, never the page
+                (review round 2, finding 1). */}
+            {refs.undoable && (
+              <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.undoRemoveAll)}>Undo</button>
+            )}
+            <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.clearNotice)}>Dismiss</button>
+          </p>
+        )}
 
-      {/* DG2 (Audrey, 2026-10-26: "Uploads (n) is the first group, with
-          its Choose file button"; "each upload is a row with its glyph,
-          name, size and Remove"). Always drawn, so the card is never
-          empty. No Preview: an upload is the person's own file, in
-          memory, and the eye opens a chosen reference's read. Choose file
-          is a kit button (DG3, OUTSTANDING DG2-01: it was a <label> round
-          the hidden input, which Tab never reached): Tab stops on it,
-          Enter and Space press it, a screen reader hears "Choose file",
-          and its press clicks the input, which stays hidden. */}
-      <div ref={uploadsGroup} className="dog-refs-group dog-refs-uploads" role="group" aria-label="Uploads">
-        <p className="ui-field-label dog-refs-group-label">{`Uploads (${uploadFiles.length})`}</p>
-        <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
+        {/* A project is needed for items and files, not for uploads (DG2).
+            Not while a sign-in is held offline (DG4 review round 2, finding
+            2: S2's one sentence is card 1's only words then, and notes are a
+            cloud read the hold refuses). */}
+        {!projectChosen && !offline && (
+          <p className="dog-details-note">
+            Choose a project to reference its items and files. Your notes can be referenced without one.
+          </p>
+        )}
+
+        {GROUPS.map(g => {
+          const list = rows.filter(g.test);
+          if (!list.length) return null;
+          return (
+            <div key={g.id} className="dog-refs-group" role="group" aria-label={g.label}>
+              <p className="ui-field-label dog-refs-group-label">{`${g.label} (${list.length})`}</p>
+              <ul className="dog-refs-rows">
+                {list.map(s => {
+                  const Glyph = s.kind === 'file' ? fileGlyph(s.dogType) : KIND_GLYPH[s.kind];
+                  const gone = refs.unavailable.has(s.key);
+                  const label = rowLabel(s);
+                  const warn = s.kind === 'file' ? sizeWarning(s.dogType, s.size, refs.pdfPages?.get(s.id) || null) : null;
+                  return (
+                    <li key={s.key} className="dog-refs-row" data-unavailable={gone || undefined}>
+                      <Glyph className="dog-file-icon" aria-hidden="true" />
+                      <span className="dog-refs-name" title={s.trail ? `${s.trail} › ${label}` : label}>{label}</span>
+                      {s.isCore && <Badge className="dog-refs-core">Core</Badge>}
+                      {!gone && s.dogType === 'video' && <span className="dog-refs-sub">placed only, not read</span>}
+                      {gone && <span className="dog-refs-gone">No longer available; it will not be sent</span>}
+                      {!gone && warn && <span className="dog-refs-warn">{warn}</span>}
+                      <IconButton size="sm" icon={Eye} title={`Preview ${s.name}`} disabled={gone}
+                        onClick={() => onPreview?.(s)} />
+                      {!coreOnly && (
+                        <IconButton size="sm" icon={X} title={`Remove ${s.name}`} className="dog-refs-remove"
+                          onClick={(e) => removing(e, () => refs.untick([s.key]))} />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+
+        {/* DG4: the two ways to say what the deck reads, side by side
+            (proximity; Fitts: one short reach from Add references). */}
+        <div className="dog-refs-actions">
+          <Button variant="secondary" onClick={onAdd} disabled={coreOnly}>
+            <Plus aria-hidden="true" />
+            Add references
+          </Button>
+          {/* Off is `aria-disabled`, never `disabled` (review rounds 1 and 2,
+              finding 1, MEASURED in Chromium): a clear, or a list at Generate
+              that finds no Core file or fails, turned the box off under the
+              keyboard's focus, which Chromium then dropped on <body>, where
+              D.O.G.'s next Enter makes a deck. Off, it keeps focus and stays a
+              Tab stop that says why it is off (its sentence); a press does
+              nothing. */}
+          <span className="dog-check-row">
+            <button
+              type="button"
+              onClick={() => {
+                if (coreOff) return;
+                if (!coreOnly) refs.loadPool?.();
+                refs.setCoreOnly?.(!coreOnly);
+              }}
+              className="dog-check" data-checked={coreOnly} role="checkbox" aria-checked={coreOnly} aria-label="Core files only"
+              aria-describedby={coreSaid ? 'dog-refs-core-said' : undefined}
+              aria-disabled={coreOff || undefined}
+              title={CORE_TITLE}
+            >
+              {coreOnly && <Check className="dog-check-glyph" aria-hidden="true" />}
+            </button>
+            <span className="dog-check-label" title={CORE_TITLE}>Core files only</span>
+          </span>
+          {/* The chosen references only, with its Undo; an upload goes by
+              its own Remove (DG2). Named so, beside Add references, since
+              the card now lists uploads it leaves (review round 1, finding
+              3). Off with Core files only: the rows are not chosen ones. */}
+          {!coreOnly && rows.length > 1 && (
+            <Button variant="ghost" title="Removes the chosen items, files and notes. Your uploads stay."
+              onClick={(e) => removing(e, refs.removeAll)}>Remove all references</Button>
+          )}
+        </div>
+        {coreSaid && <p id="dog-refs-core-said" className="dog-details-note dog-refs-core-said">{coreSaid}</p>}
+      </div>
+
+      {/* DG2 (Audrey, 2026-10-26: "each upload is a row with its glyph,
+          name, size and Remove"); since DG6's follow-up its own section,
+          after the references (her words of 2026-10-31). Always drawn, so
+          the card is never without a way to add. No Preview: an upload is
+          the person's own file, in memory, and the eye opens a chosen
+          reference's read. Choose file is a kit button (DG3, OUTSTANDING
+          DG2-01): Tab stops on it, Enter and Space press it, a screen reader
+          hears "Choose file", and its press clicks the input, which stays
+          hidden. */}
+      <div ref={uploadsGroup} className="dog-sec dog-refs-group dog-refs-uploads" role="group" aria-label="Uploads">
+        <h3 className="dog-sec-title">{`Uploads (${uploadFiles.length})`}</h3>
+        <p className="ui-field-hint dog-sec-desc">Source material for generating slide content (max 20 files)</p>
         {uploadFiles.length > 0 && (
           <ul className="dog-refs-rows">
             {uploadFiles.map(f => {
@@ -365,15 +462,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
         )}
         {uploadFiles.length < UPLOAD_LIMIT && (
           <>
-            <input
-              ref={fileInput}
-              type="file"
-              className="hidden"
-              accept={UPLOAD_ACCEPT}
-              onChange={uploads?.add}
-            />
             {/* Named by its words; the kinds in brackets are its
-                description, so they are still heard. */}
+                description, so they are still heard. The hidden input it
+                clicks follows it (DG6's follow-up), so the button is the
+                rows' or the sentence's next sibling and sits 8 or 12px
+                under them (dog.css, CARD 1's SECTIONS). */}
             <Button variant="secondary" className="dog-upload" aria-label="Choose file" aria-describedby="dog-upload-hint"
               onClick={(e) => { keyboardChoose.current = keyboardHeld(e.currentTarget); fileInput.current?.click(); }}>
               {uploads?.busy ? (
@@ -384,9 +477,16 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               <span>Choose file</span>
               <span className="dog-upload-hint" id="dog-upload-hint">(PDF, MD, TXT, images)</span>
             </Button>
+            <input
+              ref={fileInput}
+              type="file"
+              className="hidden"
+              accept={UPLOAD_ACCEPT}
+              onChange={uploads?.add}
+            />
           </>
         )}
-        {/* The upload's own refusal or read failure, beside Choose file
+        {/* The upload's own refusal or read failure, under Choose file
             (review round 1, finding 2). A new node per refusal
             (`errorKey`), so the same words twice are announced twice
             (review round 2, finding 3). */}
@@ -395,94 +495,20 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
         )}
       </div>
 
-      {/* Under the uploads: a project is needed for items and files, not
-          for uploads (DG2). Not while a sign-in is held offline (DG4 review
-          round 2, finding 2: S2's one sentence is card 1's only words then,
-          and notes are a cloud read the hold refuses). */}
-      {!projectChosen && !offline && (
-        <p className="dog-details-note">
-          Choose a project to reference its items and files. Your notes can be referenced without one.
+      {/* The sentence names everything that goes, so it is true; the meter
+          under it counts the same: the project, the references and the
+          uploads, so it closes the card (DG6's follow-up), the last thing
+          before step 2, whose words it names. PDFs and pictures are stored
+          in the AI's file store to be read (the hover says so). DG5: "in step
+          2", not "below" (her answer to walkthrough 89's Q1: as built). */}
+      <div className="dog-sec dog-sec-foot">
+        <p className="ui-field-hint dog-refs-contract"
+          title="PDFs and pictures are placed in the AI's file store to be read. Your notes always travel in the request itself.">
+          What goes to the AI: what is listed here, the project&rsquo;s title and description, and what you write in step 2.
         </p>
-      )}
-
-      {GROUPS.map(g => {
-        const list = rows.filter(g.test);
-        if (!list.length) return null;
-        return (
-          <div key={g.id} className="dog-refs-group" role="group" aria-label={g.label}>
-            <p className="ui-field-label dog-refs-group-label">{`${g.label} (${list.length})`}</p>
-            <ul className="dog-refs-rows">
-              {list.map(s => {
-                const Glyph = s.kind === 'file' ? fileGlyph(s.dogType) : KIND_GLYPH[s.kind];
-                const gone = refs.unavailable.has(s.key);
-                const label = rowLabel(s);
-                const warn = s.kind === 'file' ? sizeWarning(s.dogType, s.size, refs.pdfPages?.get(s.id) || null) : null;
-                return (
-                  <li key={s.key} className="dog-refs-row" data-unavailable={gone || undefined}>
-                    <Glyph className="dog-file-icon" aria-hidden="true" />
-                    <span className="dog-refs-name" title={s.trail ? `${s.trail} › ${label}` : label}>{label}</span>
-                    {s.isCore && <Badge className="dog-refs-core">Core</Badge>}
-                    {!gone && s.dogType === 'video' && <span className="dog-refs-sub">placed only, not read</span>}
-                    {gone && <span className="dog-refs-gone">No longer available; it will not be sent</span>}
-                    {!gone && warn && <span className="dog-refs-warn">{warn}</span>}
-                    <IconButton size="sm" icon={Eye} title={`Preview ${s.name}`} disabled={gone}
-                      onClick={() => onPreview?.(s)} />
-                    {!coreOnly && (
-                      <IconButton size="sm" icon={X} title={`Remove ${s.name}`} className="dog-refs-remove"
-                        onClick={(e) => removing(e, () => refs.untick([s.key]))} />
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        );
-      })}
-
-      <ReferencesMeter tokens={refs.chosenTokens + extraTokens} uncounted={refs.chosenUncounted + extraUncounted}
-        bytes={refs.chosenBytes} />
-
-      {/* DG4: the two ways to say what the deck reads, side by side
-          (proximity; Fitts: one short reach from Add references). */}
-      <div className="dog-refs-actions">
-        <Button variant="secondary" onClick={onAdd} disabled={coreOnly}>
-          <Plus aria-hidden="true" />
-          Add references
-        </Button>
-        {/* Off is `aria-disabled`, never `disabled` (review rounds 1 and 2,
-            finding 1, MEASURED in Chromium): a clear, or a list at Generate
-            that finds no Core file or fails, turned the box off under the
-            keyboard's focus, which Chromium then dropped on <body>, where
-            D.O.G.'s next Enter makes a deck. Off, it keeps focus and stays a
-            Tab stop that says why it is off (its sentence); a press does
-            nothing. */}
-        <span className="dog-check-row">
-          <button
-            type="button"
-            onClick={() => {
-              if (coreOff) return;
-              if (!coreOnly) refs.loadPool?.();
-              refs.setCoreOnly?.(!coreOnly);
-            }}
-            className="dog-check" data-checked={coreOnly} role="checkbox" aria-checked={coreOnly} aria-label="Core files only"
-            aria-describedby={coreSaid ? 'dog-refs-core-said' : undefined}
-            aria-disabled={coreOff || undefined}
-            title={CORE_TITLE}
-          >
-            {coreOnly && <Check className="dog-check-glyph" aria-hidden="true" />}
-          </button>
-          <span className="dog-check-label" title={CORE_TITLE}>Core files only</span>
-        </span>
-        {/* The chosen references only, with its Undo; an upload goes by
-            its own Remove (DG2). Named so, beside Add references, since
-            the card now lists uploads it leaves (review round 1, finding
-            3). Off with Core files only: the rows are not chosen ones. */}
-        {!coreOnly && rows.length > 1 && (
-          <Button variant="ghost" title="Removes the chosen items, files and notes. Your uploads stay."
-            onClick={(e) => removing(e, refs.removeAll)}>Remove all references</Button>
-        )}
+        <ReferencesMeter tokens={refs.chosenTokens + extraTokens} uncounted={refs.chosenUncounted + extraUncounted}
+          bytes={refs.chosenBytes} />
       </div>
-      {coreSaid && <p id="dog-refs-core-said" className="dog-details-note dog-refs-core-said">{coreSaid}</p>}
     </div>
   );
 }

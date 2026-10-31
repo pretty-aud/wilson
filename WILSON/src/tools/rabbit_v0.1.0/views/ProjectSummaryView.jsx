@@ -35,6 +35,7 @@ import GatedAction from '../../../permissions/GatedAction'
 import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import { formatMoney } from '../components/CurrencyDisplay'
+import { AGENCY_DEFAULT_PCT, agencyPctOnSwitchOn } from '../../../components/Budget/budgetMath'
 // ProjectFilesTable, RelinkDialog and FileAuditDrawer left this view with the
 // two file sections (post-overhaul S4a, E1): the Files tab draws them now.
 
@@ -645,7 +646,9 @@ const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'NZD']
 const ACTUALS_MODE_OPTIONS = ['fortnightly', 'weekly', 'count']
 
 
-function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = false }) {
+// Exported for its render test (rabbitBudgetRender.test.jsx: the agency
+// switch's one default, F2).
+export function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = false }) {
   const update = useCallback((field, value) => {
     ctx?.updateProject?.(project.id, { [field]: value })
   }, [ctx, project?.id])
@@ -785,12 +788,20 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
               <SettingsNumberInput value={project.budget_contingency_pct ?? ''} onChange={v => update('budget_contingency_pct', v === '' ? 0 : Number(v))} placeholder="0" />
             </SettingsField>
             <SettingsField label="Agency %">
-              <SettingsNumberInput value={project.budget_agency_pct ?? ''} onChange={v => update('budget_agency_pct', v === '' ? 0 : Number(v))} placeholder="20" />
+              <SettingsNumberInput value={project.budget_agency_pct ?? ''} onChange={v => update('budget_agency_pct', v === '' ? 0 : Number(v))} placeholder={String(AGENCY_DEFAULT_PCT)} />
             </SettingsField>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5 rounded-control" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
             <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>Agency fee</span>
-            <SettingsToggle label="Agency fees" checked={project.budget_agency_enabled} onChange={v => update('budget_agency_enabled', v)} />
+            {/* Switched on with nothing stored, it fills in the one default,
+                as the Budget Summary's switch does (her answer to
+                walkthrough 91's F2 Q1), in the same one write; and like that
+                switch it is disabled while the budget is locked, so it never
+                puts a fee on a budget in production. */}
+            <SettingsToggle label="Agency fees" checked={project.budget_agency_enabled} disabled={project.budget_active === true} onChange={v => {
+              const fill = v ? agencyPctOnSwitchOn(project.budget_agency_pct) : null
+              ctx?.updateProject?.(project.id, fill != null ? { budget_agency_enabled: v, budget_agency_pct: fill } : { budget_agency_enabled: v })
+            }} />
           </div>
           {/* ── Actuals columns ── */}
           <div style={{ borderTop: '1px solid var(--color-rule)' }} />
@@ -1084,8 +1095,8 @@ function SettingsField({ label, hint, children }) {
 // The kit's Switch (plan §4; review R34 keeps the pill as the one switch
 // shape). Same click, same onChange(!checked); it now has a name, which the
 // hand-rolled one never did (V1-05 counted it among the unnamed controls).
-function SettingsToggle({ checked, onChange, label }) {
-  return <Switch checked={checked} onChange={onChange} aria-label={label} title={label} />
+function SettingsToggle({ checked, onChange, label, disabled = false }) {
+  return <Switch checked={checked} onChange={onChange} aria-label={label} title={label} disabled={disabled} />
 }
 
 /* One size (B1 restyle). The `lg` variant set the project title at Body 600

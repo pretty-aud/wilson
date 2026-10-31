@@ -617,9 +617,25 @@ describe('surface 2a', () => {
       expect(table).not.toBeNull()
       expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Category', 'Subtotal', 'Agency', 'Bid', 'Actual', 'Variance'])
       const foot = [...table.querySelectorAll('tfoot td')]
-      expect(foot.map((td) => td.textContent)).toEqual(['Grand total', '$300', '$0', '$300', '$450', '+$150'])
+      // F2's follow-up (her answer to Q3; OUTSTANDING F2-03): the expenses
+      // carry the project's agency fee, 20% of $300 (the old copy: $0, bid
+      // $300, variance +$150).
+      expect(foot.map((td) => td.textContent)).toEqual(['Grand total', '$300', '$60', '$360', '$450', '+$90'])
       expect(foot.slice(1).every((td) => td.getAttribute('data-numeric') === 'true')).toBe(true)
       expect(foot[5].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
+      // The expenses' own row, not only the foot (follow-up review round 1).
+      const expRow = () => [...container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
+      expect([...expRow().querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$60', '$360', '$450', '+$90'])
+      // The project's own percentage, 15% of $300 (round 2: only 20 was run).
+      cleanup()
+      const at15 = render(summary({ budget_agency_pct: 15 }))
+      const row15 = [...at15.container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
+      expect([...row15.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$45', '$345', '$450', '+$105'])
+      // CONTROL: the fee off, no fee on the expenses and no Agency column.
+      cleanup()
+      const off = render(summary({ budget_agency_enabled: false }))
+      const offRow = [...off.container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
+      expect([...offRow.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$300', '$450', '+$150'])
     })
 
     // F2 review round 2 (finding 1): the switch writes the one default when it
@@ -635,10 +651,12 @@ describe('surface 2a', () => {
         cleanup()
         return ctx.updateProject.mock.calls
       }
+      // One write, the switch and the default together (follow-up review
+      // round 1, finding 6: two writes' replies can land the other way round).
       expect(switched({ budget_agency_enabled: false, budget_agency_pct: undefined }))
-        .toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+        .toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
       expect(switched({ budget_agency_enabled: false, budget_agency_pct: 0 }))
-        .toEqual([['p1', { budget_agency_enabled: true }], ['p1', { budget_agency_pct: 20 }]])
+        .toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
       expect(switched({ budget_agency_enabled: false, budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: true }]])
       expect(switched({ budget_agency_enabled: true, budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: false }]])
     })
@@ -1520,6 +1538,8 @@ describe('surface 4', () => {
       const withRole = {
         tasks: [{ assigned_role_slug: 'anim', bid_days: 4 }, { assigned_role_slug: 'comp', bid_days: 5 }],
         rateCard: { entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }, { role_slug: 'comp', role_label: 'Compositor', department: 'VFX', day_rate: 300 }] },
+        // The Summary's rates, which BudgetView hands every tab (buildRoleRates).
+        roleRates: { anim: 500, comp: 300 },
       }
       const roleRow = (root) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Compositor'))
       const none = render(tab(hook(), { ...withRole, project: { ...PROJECT, budget_agency_enabled: true } }))
@@ -1527,6 +1547,23 @@ describe('surface 4', () => {
       cleanup()
       const ten = render(tab(hook(), { ...withRole, project: { ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 10 } }))
       expect(numerics(roleRow(ten.container))).toEqual(['$300', '5.0', '$1,500', '—', '+$75', '$1,650', '—', '-$1,650'])
+    })
+
+    // F2's follow-up, her answer to Q2 (2026-10-31): "Full rate, $624" — a
+    // role nobody holds is priced at the Summary's rate (the card's day rate
+    // with its burden and overhead, a project's own rate over it), never the
+    // card's rate before them (useRateCard's `wage`). The old copy read the
+    // wage: $300 here, where the Summary reads $360.
+    it('F2: a role nobody holds yet is priced at the Summary\'s rate, the full one with burden and overhead', () => {
+      const entries = [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }, { role_slug: 'comp', role_label: 'Compositor', department: 'VFX', wage: 300, day_rate: 360 }]
+      const props = { tasks: [{ assigned_role_slug: 'anim', bid_days: 4 }, { assigned_role_slug: 'comp', bid_days: 5 }], rateCard: { entries } }
+      const roleRow = (root) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Compositor'))
+      const full = render(tab(hook(), { ...props, roleRates: { anim: 500, comp: 360 } }))
+      expect(numerics(roleRow(full.container)).slice(0, 3)).toEqual(['$360', '5.0', '$1,800'])
+      cleanup()
+      // A project's own rate for the role wins, as on the Summary.
+      const over = render(tab(hook(), { ...props, roleRates: { anim: 500, comp: 400 } }))
+      expect(numerics(roleRow(over.container)).slice(0, 3)).toEqual(['$400', '5.0', '$2,000'])
     })
 
     it('W9: Reset M/C asks on the kit Dialog in <body>; Cancel keeps the values, Reset clears them through the hook', async () => {
@@ -1836,6 +1873,48 @@ describe('the client estimate', () => {
     expect(container.querySelector('.rb-client-sheet')).toBeTruthy()
     for (const el of container.querySelectorAll('[style]')) expect(el.getAttribute('style')).not.toMatch(/color|background/)
   })
+  // F2's follow-up, her answer to Q3 (2026-10-31): "Yes, its own line" — the
+  // project's agency fee on the crew and the expenses is an "Agency fee" line,
+  // shown as contingency is (no percentage). The talent line keeps its fees,
+  // so nothing is counted twice: 20% of 9000 (editor and Camera) + 750
+  // (expenses) = 1950, and the talent's $2,000 as it was. The old copy had no
+  // such line: the total $13,453.
+  it('F2: with the agency fee on, its own line — on the crew and the expenses; the talent line keeps its fees', () => {
+    const fee = (over) => render(<ClientViewTab {...props} project={{ ...props.project, budget_agency_enabled: true, ...over }} />)
+    for (const typed of [{ budget_agency_pct: 20 }, {}]) {
+      const { container } = fee(typed)
+      const table = container.querySelector('table.ui-table')
+      const rows = [...table.querySelectorAll('tbody tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent])
+      expect(rows).toEqual([['editor', '$5,000'], ['Camera', '$4,000'], ['Talent', '$2,000'], ['Expenses / travel', '$750'],
+        ['Contingency', '$568'], ['Production fee', '$1,135'], ['Agency fee', '$1,950']])
+      expect(table.querySelector('tfoot').textContent).toBe('Total$15,403')
+      cleanup()
+    }
+    // The project's own percentage, not a 20 written in (follow-up review
+    // round 2: every case above was 20%): 15% of 9750 = 1462.5.
+    const fifteen = fee({ budget_agency_pct: 15 })
+    expect([...fifteen.container.querySelectorAll('table.ui-table tbody tr')].slice(-1).map((r) => [r.cells[0].textContent, r.cells[1].textContent]))
+      .toEqual([['Agency fee', '$1,463']])
+    expect(fifteen.container.querySelector('tfoot').textContent).toBe('Total$14,915')
+    cleanup()
+    // CONTROL: the fee off, no line, the total as before.
+    const off = fee({ budget_agency_enabled: false, budget_agency_pct: 20 })
+    expect(off.container.textContent).not.toContain('Agency fee')
+    expect(off.container.querySelector('tfoot').textContent).toBe('Total$13,453')
+    cleanup()
+    // The printed estimate carries the line and the total with it
+    // (follow-up review round 1: no print test had the line).
+    let html = ''
+    const win = { document: { write: (s) => { html += s }, close: vi.fn() }, focus: vi.fn(), print: vi.fn(), close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(win)
+    fee({ budget_agency_pct: 20 })
+    fireEvent.click(screen.getByRole('button', { name: 'Print / export' }))
+    open.mockRestore()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    expect([...doc.querySelectorAll('tbody tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent]).slice(-2))
+      .toEqual([['Agency fee', '$1,950'], ['Total', '$15,403']])
+  })
+
   it('says Client view, Estimated budget, Production fee and the signature lines in sentence case (Q2)', () => {
     const { container } = render(<ClientViewTab {...props} />)
     const text = container.textContent
@@ -2072,5 +2151,78 @@ describe('V2: the Budget items B5b left for the second visual pass', () => {
     await act(async () => { finish([]) })
     expect(open.hasAttribute('aria-busy')).toBe(false)
     expect(open.querySelector('.ui-spinner')).toBeNull()
+  })
+})
+
+/* ── F2's follow-up: the fee switched on anywhere fills in 20% (her Q1) ──── */
+// Her answer to walkthrough 91's F2 Q1 (2026-10-31): "Switching the fee on
+// anywhere with nothing typed fills in 20%". The Budget Summary's switch did
+// (its pin is the Summary's); the project settings' switch and the
+// new-project form wrote no percentage, so a cloud project held 0
+// (OUTSTANDING F2-04). The old copies: no `budget_agency_pct` written.
+describe('the agency fee switched on anywhere fills in the one default (F2, Q1)', () => {
+  afterEach(() => {
+    cleanup()
+    _resetOverlaysForTests()
+  })
+
+  it('the project settings\' switch: 20% when nothing (or the cloud\'s 0) is stored, nothing over a percentage, the switch alone when off', async () => {
+    const { ProjectSettingsPanel } = await import('./ProjectSummaryView')
+    const switched = (over) => {
+      const ctx = { updateProject: vi.fn() }
+      render(<ProjectSettingsPanel project={{ id: 'p1', title: 'x', budget_agency_enabled: false, ...over }} ctx={ctx} teamMembers={[]} canSeeMoney />)
+      fireEvent.click(screen.getByRole('switch', { name: 'Agency fees' }))
+      cleanup()
+      return ctx.updateProject.mock.calls
+    }
+    expect(switched({})).toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
+    expect(switched({ budget_agency_pct: 0 })).toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
+    expect(switched({ budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: true }]])
+    expect(switched({ budget_agency_enabled: true })).toEqual([['p1', { budget_agency_enabled: false }]])
+    // Follow-up review round 2 (finding 2): under the lock ("Budget active —
+    // in production") the switch is disabled, as the Summary's is, so it
+    // writes nothing — it could put 20% on a locked budget.
+    const ctx = { updateProject: vi.fn() }
+    render(<ProjectSettingsPanel project={{ id: 'p1', title: 'x', budget_agency_enabled: false, budget_active: true }} ctx={ctx} teamMembers={[]} canSeeMoney />)
+    const locked = screen.getByRole('switch', { name: 'Agency fees' })
+    expect(locked.disabled).toBe(true)
+    fireEvent.click(locked)
+    expect(ctx.updateProject).not.toHaveBeenCalled()
+  })
+
+  it('the new-project form: the fee ticked with nothing typed creates the project at 20%, and says so before it is made; a typed 0 is kept', async () => {
+    const { NewProjectForm } = await import('./IntakeWizardView')
+    const created = async (typed) => {
+      const createProject = vi.fn(async () => ({ id: 'new' }))
+      const { container } = render(<NewProjectForm createProject={createProject} onCreated={vi.fn()} onCancel={vi.fn()} />)
+      fireEvent.change(container.querySelector('input[type="text"]'), { target: { value: 'Fee test' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Enable' }))
+      const pct = container.querySelector('input[type="number"][placeholder="20"]')
+      if (typed != null) fireEvent.change(pct, { target: { value: typed } })
+      fireEvent.click(screen.getByRole('button', { name: 'Review and create' }))
+      const confirm = screen.getByRole('dialog').textContent
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Confirm and create' })) })
+      cleanup()
+      return { payload: createProject.mock.calls[0][0], confirm }
+    }
+    const none = await created(null)
+    expect(none.payload).toMatchObject({ budget_agency_enabled: true, budget_agency_pct: 20 })
+    expect(none.confirm).toContain('Agency fee20%')
+    const zero = await created('0')
+    expect(zero.payload).toMatchObject({ budget_agency_enabled: true, budget_agency_pct: 0 })
+    expect(zero.confirm).toContain('Agency fee0%')
+    // A typed percentage is what is saved and what the check says
+    // (follow-up review round 1: a "20%" whatever was typed passed).
+    const fifteen = await created('15')
+    expect(fifteen.payload).toMatchObject({ budget_agency_enabled: true, budget_agency_pct: 15 })
+    expect(fifteen.confirm).toContain('Agency fee15%')
+    // CONTROL: the fee not ticked writes no percentage.
+    const createProject = vi.fn(async () => ({ id: 'new' }))
+    const { container } = render(<NewProjectForm createProject={createProject} onCreated={vi.fn()} onCancel={vi.fn()} />)
+    fireEvent.change(container.querySelector('input[type="text"]'), { target: { value: 'Fee test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review and create' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Confirm and create' })) })
+    expect(createProject.mock.calls[0][0]).not.toHaveProperty('budget_agency_pct')
+    expect(createProject.mock.calls[0][0].budget_agency_enabled).toBe(false)
   })
 })

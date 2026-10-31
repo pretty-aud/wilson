@@ -95,6 +95,20 @@ export function projectBudgetSettings(project) {
   }
 }
 
+/**
+ * What switching the agency fee on writes: the one default when nothing is
+ * stored — unset, empty, or 0, which on the cloud is what "never typed" is
+ * stored as (0036) and cannot be told from a typed 0 — and null (nothing to
+ * write) over a percentage. Her answer to walkthrough 91's F2 Q1
+ * (2026-10-31): "Switching the fee on anywhere with nothing typed fills in
+ * 20%". The Budget Summary's switch and the project settings' switch ask
+ * it; the new-project form, which can tell a typed 0 from an empty box,
+ * fills in AGENCY_DEFAULT_PCT only when the box is empty.
+ */
+export function agencyPctOnSwitchOn(storedPct) {
+  return firstNumber(storedPct) ? null : AGENCY_DEFAULT_PCT
+}
+
 // ── The task-based bid ──────────────────────────────────────────
 //
 // base = Σ bid_days × the role's day rate. A task with no role is costed as
