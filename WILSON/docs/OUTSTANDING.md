@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul F2, a third follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 91's F2 Q6, relayed by the controller: a question back (verbatim in the walkthrough), then *"Yes, F2 builds it next (Recommended)"*: a bid version keeps each expense's estimate, at each save and as they are when the budget goes active; the Expenses tab shows the selected bid's figure, what is expected now and what was spent, with *Expected vs bid* and *Actual vs expected*, a sentence naming the bid, and for a budget active from before, *Keep today's estimates as its bid*; the table on the kit's compact cells (1280 holds it); measured before and after in Chromium on the fixtures (Locked bid $20,960, Expected now $21,260, +$300); 12 tests red on `1a36d9ad`'s source, 32 plants each killed; review round 1 on Opus (1 High — the bid froze at the last save, not at the lock: the lock writes them now; 3 Medium; 3 Low), round 2 on Opus (1 Medium — the lock wrote the whole snapshot from this window's copy: only the expenses now, on the stored one, its undo leaving a later save; 5 Low); no migration, no SQL | F2-11, F2-12, F2-13 | F2-10 (closed by measurement). Comment markers: 4 → 4. |
 | Post-overhaul F2, a second follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 Q4 and Q5, relayed by the controller, verbatim *"Leave them (Recommended)"* and *"Yes, show it (Recommended)"*: the Expenses tab's *Bid total* tile with the agency fee on (budgetMath's `lineMoney`; $24,449 with the $3,189 fee on the fixtures, the Topsheet's figure), nothing built for Q4; measured before and after; a test red first, eleven plants each killed; review round 1 on Opus (her F1 ruling: 1 Medium, the test's missing cases, pinned; 3 Low, the Variance tile now saying *against the estimate, before the fee*, a comment, this row; 4 Notes), round 2 on Opus (no wrong figure in 32 measured cases; the Variance's basis hers, Q6; the hint under an empty Variance removed; a comment); no migration, no SQL | F2-10 (her Q6) | F2-07 (closed by measurement), F2-08 (closed by her answer). Comment markers: 4 → 4. |
 | Post-overhaul F2, a follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 questions, relayed by the controller, verbatim: Q1 *"Yes, fill in 20% (Recommended)"*, Q2 *"Full rate, $624 (Recommended)"*, Q3 *"Yes, its own line"*: switching the agency fee on anywhere with nothing typed fills in 20% (`agencyPctOnSwitchOn` for the Summary's and the settings' switches, the new-project form, the move to the cloud); the Crew tab prices a role nobody holds at the Summary's rate (the production designer $520 → $624, the crew $76,810 → $92,172); the client estimate's own *Agency fee* line on the crew and the expenses ($17,015, total $141,995 → $159,010) and the Topsheet's expenses fee ($3,189); measured on the fixtures before and after; tests red first; two review rounds, both on Opus (her F1 ruling); no migration, no SQL | F2-07 (the Expenses tab shows no fee), F2-08 (cloud projects already at 0), F2-09 (four older things seen in review) | F2-01, F2-03, F2-04 (closed by measurement). Comment markers: 4 → 4. |
 | Post-overhaul DG6, a follow-up (2026-10-31; `po/dg6-one-column` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 90, relayed by the controller, verbatim *"One column always"* (Q1) and *"Full card width (Recommended)"* (Q2); then her words to the session with a picture of the beta, verbatim *"i really dont like that there is a open space/gap to right and also project select needs to go above the add references and below the references should be the upload option ... we need a title or something for each function in the project and references card"*; her answer *"Keep it (Recommended)"* to the second design round's one question, given again on the built pictures; and *"remove the dividing lines. the titles themselves are enough to separate"*: D.O.G.'s two input cards run the column's full width (DG5's wrapper, DG6's cap, its two columns from a 1468 window, their `@container` rule and the main column's size container removed; the gutter kept for the output card's width); card 1 titled sections, Project, References, Uploads, then the contract line and the meter, 32px apart and no line, rows in shelves of 416px or more; Choose file after Core files only in the Tab order; `focusAfterRemove` within a section; the output card untouched; measured before and after at 1280, 1440, 1920 and 2560 (no paper beside the cards at any width; card 1 1 percent empty with six references to 1920, 41 at 2560, 42 to 74 with nothing chosen, her ruling, given on the design round's sketch and again on the built pictures); one design round and two review rounds, all on Opus (Fable's week at 100 percent); no migration, no SQL | DG6-02 (card 1's sections: four matters of her taste), DG6-03 (Help's step 1 in the old order) | nothing |
@@ -3332,8 +3333,19 @@ met outside its list and did not fix:
   (`src/dev/fixtures/data/money.js`, INFERRED); (e) the client estimate's
   Agency fee line does not read a crew line's `agency_opt_out`, which the
   Crew tab honours and no screen sets (INFERRED, round 2). Owner: none named.
-- **F2-10 · The Expenses tab's Variance is against the estimate; the Crew
-  and Talent tabs' and the Topsheet's are against the bid.** MEASURED on the
+- **F2-10 · ~~CLOSED by F2's third follow-up (2026-10-31), her answer to
+  walkthrough 91's F2 Q6 — a question back, then "Yes, F2 builds it next
+  (Recommended)": a bid version keeps each expense's estimate; the Expenses
+  tab shows the selected bid's figure (Bid), what is expected now and what
+  was spent, with both differences, each saying what it compares
+  (*Expected vs bid*, *Actual vs expected*); the lock writes the expenses
+  in as they are then. MEASURED in Chromium on the fixtures at 15%:
+  Locked bid $20,960, Expected now $21,260, Expected vs bid +$300, Actual
+  vs expected −$316; the timber $3,900 bid, $4,200 expected (+$300 vs
+  bid). Commits `9ebfdeb1`, `419139cc`, `ca70ad5e`, `6b1a4216`, `b5971874`
+  and review round 2's.~~ The Expenses tab's
+  Variance is against the estimate; the Crew and Talent tabs' and the
+  Topsheet's are against the bid.** MEASURED on the
   fixtures at 15% (F2's second follow-up, both review rounds): the Expenses
   tab −$316 beside its *Bid total* $24,449, the Topsheet's *All expenses*
   −$3,505; while the fee is on the tile says *against the estimate, before
@@ -3342,6 +3354,33 @@ met outside its list and did not fix:
   Topsheet shows "—"; each tile rounds on its own ($100 + $15 = $116 on a
   $100.45 estimate), as the Topsheet does. Fix shape: none until her answer
   to walkthrough 91's F2 Q6. Owner: Audrey.
+- **F2-11 · Changing an expense while bidding is no unsaved change to the
+  open bid version.** MEASURED by review round 1 of F2's third follow-up
+  (Playwright on the fixtures): `versionDiff` compares the schedule, the
+  rates and the percentages only, so after an expense change alone Save
+  stays grey and the Expenses tab's *Bid* is the version as last saved. The
+  lock writes the expenses in as they are then (`keepExpensesInBid`, the
+  round's fix), so the locked bid is never stale; an open writes no expense
+  back (they are the project's). Said in walkthrough 91. Fix shape, if
+  wanted: the expenses in `versionDiff` where the Summary and the Timeline
+  know them (an older version opened would then read unsaved until saved).
+  Owner: none named.
+- **F2-12 · The Expenses tab's undo and redo change the screen only.**
+  INFERRED by reading (review round 1, finding 7): `useExpenses`' undo and
+  redo (`useExpenses.js`) set the list on screen and write nothing, so the
+  stored expenses — what a save or the lock keeps in a bid — stay as before
+  the undo until the list is read again. Older than F2. Fix shape: undo and
+  redo through the adapter, as the provider's are. Owner: none named.
+- **F2-13 · The Topsheet's *Bid* for the expenses is today's, the
+  Expenses tab's is the locked bid.** MEASURED (round 1, finding 2): on the
+  fixtures the Topsheet's *All expenses* Bid is $24,449 (today's estimates
+  with today's fee, as its crew and talent rows are today's), the Expenses
+  tab's *Locked bid* $20,960 ($24,104 with the bid's fee); the Q5 figure
+  stays on the tab under *Expected now*. Round 2 (finding 4, MEASURED): so
+  are the Crew and Talent tabs' *Bid total* (today's, with the fee), and
+  the Summary's banner names the locked bid with its overall total, which
+  has never held the expenses. "Bid" is several figures on one page. Said
+  in walkthrough 91. Owner: none named.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

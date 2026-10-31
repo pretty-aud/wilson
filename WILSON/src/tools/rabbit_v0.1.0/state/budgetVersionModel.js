@@ -19,6 +19,7 @@
 //   readVersion       any version, old shape or new, as the screen reads it
 //   versionDiff       live against a version: isDirty and the Δ fields
 //   planOpen          the writes that load a version into the live rows
+//   expensesAgainstBid  the expenses against the bid's (F2's third follow-up)
 //
 // 🚨 logged_days is NEVER part of a snapshot (logged time is the truth; a
 // version carries bid days), and nothing here ever writes it.
@@ -77,6 +78,16 @@ const PHASE_FIELDS = ['id', 'name', 'parent_phase_id', 'start_date', 'end_date',
 const PHASE_SCHEDULE = ['parent_phase_id', 'start_date', 'end_date']
 const MILESTONE_FIELDS = ['id', 'title', 'date', 'color', 'description', 'phase_id']
 const MILESTONE_SCHEDULE = ['date', 'phase_id']
+// F2's third follow-up (her answer to walkthrough 91's F2 Q6, 2026-10-31,
+// "Yes, F2 builds it next (Recommended)"): a version keeps each expense's
+// estimate as it was bid, so the Expenses tab can show where the bid was
+// beside what she expects to spend now — written at each save, and again
+// when the budget goes active (her option: the locked bid "freezes each
+// expense's estimate"; the provider's keepExpensesInBid). The title rides
+// along to name one removed since. Not part of the schedule: an expense
+// edit is no unsaved change, and an open writes no expense back (the
+// expenses are the project's; a version records them).
+const EXPENSE_FIELDS = ['id', 'title', 'estimated_cost']
 const DATE_FIELDS = new Set(['start_date', 'end_date', 'date'])
 
 const num = (v, fallback = 0) => {
@@ -89,6 +100,7 @@ function norm(field, v) {
   if (v === undefined || v === '') return null
   if (DATE_FIELDS.has(field)) return v == null ? null : (toIsoDate(v) ?? null)
   if (field === 'bid_days' || field === 'sort_order') return v == null ? null : num(v, null)
+  if (field === 'estimated_cost') return num(v)
   return v
 }
 
@@ -213,6 +225,11 @@ export function scheduleSpan({ tasks = [], phases = [], milestones = [] }) {
 
 const totalBidDaysOf = (tasks) => (tasks || []).reduce((s, t) => s + num(t?.bid_days), 0)
 
+/** F2's third follow-up: the expense rows as a version keeps them (EXPENSE_FIELDS), at a save or at the lock. */
+export function expenseRowsForVersion(expenses) {
+  return (expenses || []).filter(e => e && e.id != null).map(e => pick(e, EXPENSE_FIELDS))
+}
+
 /**
  * The live rows as a version's snapshot (the shape every new or re-saved
  * version carries from S5 on). `previous` is the snapshot of the version
@@ -227,9 +244,14 @@ const totalBidDaysOf = (tasks) => (tasks || []).reduce((s, t) => s + num(t?.bid_
  * those in the older shape (their own single fields), which an open never
  * removes by. The single fields are taken from the rows as given: the
  * provider passes the older apps' copy in them.
+ *
+ * F2's third follow-up: `expenses` — the project's expense rows, read where
+ * they are kept — gives the version its `expenses` (EXPENSE_FIELDS each);
+ * null keeps none, the shape of a version saved before.
  */
 export function snapshotFromLive({
   tasks = [], items = null, itemsUnknown = null, phases = [], milestones = [], project = null, roleRates = {},
+  expenses = null,
   shotList = null, savedAt = new Date().toISOString(), savedBy = null,
   previous = null, previousName = null,
 }) {
@@ -260,6 +282,7 @@ export function snapshotFromLive({
     spanDays: span ? span.spanDays : null,
     span: span ? { start: span.start, end: span.end } : null,
     shot_list: shotList ? { id: shotList.id, title: shotList.title, version: shotList.version } : null,
+    ...(Array.isArray(expenses) ? { expenses: expenseRowsForVersion(expenses) } : {}),
     delta: null,
   }
   snap.delta = previous ? versionDelta(previous, snap, previousName) : null
@@ -298,6 +321,10 @@ export function readVersion(version) {
       phases: Array.isArray(s.phases) ? s.phases : [],
       milestones: Array.isArray(s.milestones) ? s.milestones : [],
       roleRates: s.roleRates || {},
+      // F2's third follow-up: null for a version saved before one kept them;
+      // expensesKeptAt when the lock (or the tab's button) wrote them, not a save.
+      expenses: Array.isArray(s.expenses) ? s.expenses : null,
+      expensesKeptAt: s.expenses_kept_at || null,
       delta: s.delta || null,
       savedAt: s.saved_at || null,
     }
@@ -323,8 +350,44 @@ export function readVersion(version) {
     phases: [],
     milestones: [],
     roleRates: s.roleRates || {},
+    // The lock writes the expenses into an older version too (F2's third
+    // follow-up, review round 1).
+    expenses: Array.isArray(s.expenses) ? s.expenses : null,
+    expensesKeptAt: s.expenses_kept_at || null,
     delta: null,
     savedAt: s.lockedAt || null,
+  }
+}
+
+/**
+ * F2's third follow-up: the expenses against a bid version (the SELECTED
+ * one, the variance's baseline) — her "i want a way to see what im expected
+ * to spend but i need to see where the bid was at".
+ *   kept        the version holds its expenses (false: none selected, or
+ *               saved before a version kept them — no bid figure at all)
+ *   bidOf(id)   the estimate the expense was bid at; null when it is not in
+ *               the bid (added since)
+ *   bidTotal    every expense the bid holds, those removed since included
+ *   removed     the bid's expenses no longer on the list
+ *   settings    the bid's own agency fee (agencyEnabled, agencyPct): the fee
+ *               it was bid with
+ *   keptAt      when the lock (or the tab's button) kept them; null: the
+ *               version's save did (savedAt)
+ * Every figure is a cost, before the fee: an estimate against an estimate.
+ */
+export function expensesAgainstBid(expenses, version) {
+  const read = version ? readVersion(version) : null
+  const rows = read?.expenses || null
+  const bids = new Map((rows || []).filter(r => r && r.id != null).map(r => [String(r.id), num(r.estimated_cost)]))
+  const live = new Set((expenses || []).filter(e => e && e.id != null).map(e => String(e.id)))
+  return {
+    kept: !!rows,
+    bidOf: (id) => (rows && bids.has(String(id)) ? bids.get(String(id)) : null),
+    bidTotal: round2([...bids.values()].reduce((s, v) => s + v, 0)),
+    removed: (rows || []).filter(r => r && r.id != null && !live.has(String(r.id))),
+    settings: { agencyEnabled: read?.agencyEnabled === true, agencyPct: num(read?.agencyPct) },
+    keptAt: read?.expensesKeptAt || null,
+    savedAt: read?.savedAt || null,
   }
 }
 
