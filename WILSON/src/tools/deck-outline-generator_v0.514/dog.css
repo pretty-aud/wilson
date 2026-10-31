@@ -103,8 +103,8 @@
   .dog-main > * + * { margin-top: 8px; }
 
   /* ═══ THE INPUTS STACK — DG6 ════════════════════════════════════════════
-     Audrey, 2026-10-31, with a picture of DG5's two cards side by side at a
-     2,000px window: "this looks objectively bad. please do a pass to make it
+     Audrey, 2026-10-31, with a 2,000px-wide picture of DG5's two cards side
+     by side: "this looks objectively bad. please do a pass to make it
      more appealing for the top two cards. leave the output card how it is
      dont touch it. i want to keep the 1 and 2 cards stacked not side by
      side". Her words withdraw DG5's pair (side by side from a 1414 window)
@@ -118,12 +118,14 @@
      two cards, is the cap, at the output card's left edge; the output card
      is outside it and keeps the column's full width (C4's preview). W is
      .dog-main's content width: the window less the 240px sidebar, this
-     column's 16px of padding and the scrollbar's gutter (10px in Chromium;
-     11 in Electron 33 on the computer DG5 measured it on).
+     column's 16px of padding and the scrollbar's gutter (10px in Chromium,
+     measured with real scrollbars: one column at a 1467 window, two at 1468;
+     11 in Electron 33 on the computer DG5 measured it on, so a 1469 window
+     there by arithmetic, not measured by DG6).
        W < 1202   (windows up to 1,467): the stack 602 wide = the measure 576
                   + 2 x 12 padding + 2 x 1 border. Card 1 one column, as DG4
                   built it; card 2's box and Generate 576.
-       W >= 1202  (a 1468 window; 1469 in Electron 33): the stack 1202 wide =
+       W >= 1202  (a 1468 window in Chromium): the stack 1202 wide =
                   576 + 24 + 576 + 2 x 12 + 2 x 1, card 1's body in two
                   columns of the measure 24px apart, the project, then what
                   the deck reads (her walkthrough 89 Q3: Uploads stay with the
@@ -142,8 +144,9 @@
     .dog-inputs { max-width: 1202px; }
     /* Two columns of the measure, 24px apart: the rhythm's largest step, so
        they read as two halves of one card, not two cards (Proximity). The
-       project row's 507 (the dropdown 360 + 8 + New project 139) sits
-       ragged in the first column; a chosen project's description fills it. */
+       project row fills the first column (the dropdown takes what New
+       project leaves: DG6 review round 1, finding 4), so with no project the
+       halves are the gutter apart, not 93px. */
     .dog-card-project > .dog-card-body {
       display: grid;
       grid-template-columns: var(--dog-measure) var(--dog-measure);

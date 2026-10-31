@@ -3820,7 +3820,10 @@ card. The wrapper is the two cards' one width, capped so each card ends
 where its content ends: 602px (the 576px measure, 12px of padding a side,
 the 1px border) while card 1 is one column, 1,202px (576 + 24 + 576 and the
 same edges) once card 1's body is two columns of the measure, the project
-then what the deck reads, 24px apart and level at the top. Card 2 is one
+then what the deck reads, 24px apart and level at the top. The project
+dropdown takes the row beside New project (its inline 360px cap went in
+DG6's review round 1), so the row ends at the column's edge and, with no
+project chosen, the two columns are the gutter apart. Card 2 is one
 column at that width (its box and Generate 576 or 1,176). Past 2560 nothing
 grows: beside the stack is the page's paper (OUTSTANDING DG5-02 closed);
 the banners and the output card keep the column's full width, so the slide
@@ -6535,9 +6538,12 @@ documentation and starts being wrong answers.
   from a 1468 window card 1's two columns bring it into a 1080-tall window
   (y 972 at 1920x1080).
 - **In two columns the project's half ends first.** The project's column ends
-  under its description while the references run on (about 360px with six
-  references at 1920 and 2560); her walkthrough 89 Q3 kept Uploads with the
-  references, and CSS cannot fill the gap without separating them.
+  under its description while the references run on: about 360px with six
+  references at 1920 and 2560, about 900px with twenty (card 1 then 1,106px
+  tall, 82 percent of its left half empty, Generate below a 1080 fold;
+  DG6 review round 1, measured). Her walkthrough 89 Q3 kept Uploads with the
+  references, and CSS cannot fill the gap without separating them;
+  walkthrough 90's Q1 asks her whether two columns stay.
 
 ## Appendix A — Glossary
 

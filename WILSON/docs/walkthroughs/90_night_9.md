@@ -25,7 +25,7 @@ and reviewed twice on Fable.
    the whole width with half of each card empty, the space beside them is
    now the page, not the inside of a card.
 3. **On a wider window card 1 opens into two columns.** From a window about
-   1,468 px wide (a 1920 monitor, your 2,000 px window, a 2560 screen): both
+   1,468 px wide (a 1920 monitor, your wide monitor, a 2560 screen): both
    cards are 1,202 px wide; card 1 has the project on the left (the
    dropdown, New project, its description) and what the deck reads on the
    right (the line *What goes to the AI…*, Uploads, your references, the
@@ -37,7 +37,12 @@ and reviewed twice on Fable.
    card; the output card keeps the full width, as it always did. (This also
    settles the note from night 8 that on an ultrawide screen each card was
    about 44 percent empty again.)
-5. **The output card is untouched**, and so is everything a person meets in
+5. **The project dropdown is wider.** It now runs to the end of its column
+   beside New project, so the row lines up with the description under it;
+   with no project chosen there is no longer a hole between the two halves
+   of card 1 (the gap in your picture, 93 px, is now the 24 px between the
+   columns).
+6. **The output card is untouched**, and so is everything a person meets in
    the two cards: the same titles, folds and count; Tab visits everything in
    the same order (in the two columns, the left column top to bottom, then
    the right); a screen reader hears exactly what it heard before. The three
@@ -62,10 +67,9 @@ was already below. On a 1920 or wider screen card 1 is shorter than a
 single column would be (562 px tall with six references, not 722), so
 Generate is in view there. Card 1 in two columns keeps one gap from
 night 8: the project's half ends under its description while the references
-run on beside it (about 360 px of it with six references; your answer to
-walkthrough 89's Q3 kept Uploads with the references). With no project
-chosen, New project ends 93 px short of the references' column; choosing a
-project closes that to 24, its description filling the column.
+run on beside it (about 360 px of it with six references, about 900 px
+with twenty; your answer to walkthrough 89's Q3 kept Uploads with the
+references). Q1 below.
 
 ### What to do
 
@@ -110,15 +114,21 @@ REVIEW-RESULTS
 - **Q1. Card 1 in two columns on a wide window.** (a) As built
   (Recommended): from about 1,468 px the project on the left and what the
   deck reads on the right, both cards 1,202 px wide; Generate is on screen
-  on a 1920 × 1080 monitor with references listed. (b) One column at every
+  on a 1920 × 1080 monitor with six references listed. The cost: the more
+  references you list, the more of the left half is empty under the
+  project's description (about 360 px with six; with twenty, card 1 is
+  about 1,100 px tall and about 900 px of its left half is empty, and
+  Generate is below the window at 1920 × 1080 too). (b) One column at every
   size: both cards 602 px wide everywhere; card 1 is taller (722 px with six
-  references, no empty space under the project), and Generate is below the
-  window on a 1920 × 1080 monitor once references are listed.
+  references), with no empty space under the project at any count, and
+  Generate is below the window on a 1920 × 1080 monitor once references are
+  listed.
 - **Q2. Generate outline's box and button on a wide window.** (a) As built
-  (Recommended): as wide as the card, 1,176 px, about 190 px wider than the
-  box you type into on a 1280 laptop today, the button under the box it
-  sends. (b) One column's width, 576 px, at the left, the right half of
+  (Recommended): as wide as the card, 1,176 px, the button under the box it
+  sends; a line of the box then holds about 190 characters (about 90 at one
+  column's width, as on a laptop), and the orange button runs the card's
+  width. (b) One column's width, 576 px, at the left, the right half of
   card 2 empty. (c) Card 2 in two columns like card 1: the switch and the
-  two checkboxes on the left, the box and Generate on the right, the card
-  about 240 px tall instead of 307 (a small change to the page's markup;
-  nothing a person or a screen reader meets would change order).
+  two checkboxes on the left, the box and Generate on the right at 576 px,
+  the card about 240 px tall instead of 307 (a small change to the page's
+  markup; nothing a person or a screen reader meets would change order).

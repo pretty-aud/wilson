@@ -1340,7 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul DG6 (2026-10-31, night 9; `po/dg6-cards-stacked` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-31, verbatim *"this looks objectively bad. please do a pass to make it more appealing for the top two cards. leave the output card how it is dont touch it. i want to keep the 1 and 2 cards stacked not side by side"*: D.O.G.'s two input cards stacked at every width at one capped width, 602px under a 1468 window and 1,202 from it, card 1 in two columns of the 576px measure there; DG5's pair, card 2's cap and the triple removed; the output card untouched; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/2/28/22 percent before, 2/2/1/1 now; card 2 2/2/1/1); one Fable design round with the design-direction and laws-of-UX skills; two review rounds, both on Fable; no migration, no SQL | DG6-ADDED | DG5-02 (closed by measurement at 3440x1440) |
+| Post-overhaul DG6 (2026-10-31, night 9; `po/dg6-cards-stacked` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-31, verbatim *"this looks objectively bad. please do a pass to make it more appealing for the top two cards. leave the output card how it is dont touch it. i want to keep the 1 and 2 cards stacked not side by side"*: D.O.G.'s two input cards stacked at every width at one capped width, 602px under a 1468 window and 1,202 from it, card 1 in two columns of the 576px measure there; DG5's pair, card 2's cap and the triple removed; the project dropdown's inline 360px cap removed (review round 1, finding 4: with no project the halves were 93px apart); the output card untouched; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/2/28/22 percent before, 2/2/1/1 now; card 2 1/2/28/23 before, its box stretched at 1280, 2/2/1/1 now); one Fable design round with the design-direction and laws-of-UX skills; two review rounds, both on Fable; no migration, no SQL | DG6-01 (the type sweep's scanner reads `DeckOutlineGenerator.jsx`'s backticks inverted from line 2635) | DG5-02 (closed by measurement at 3440x1440) |
 | Post-overhaul DG5, a follow-up (2026-10-30; `po/dg5-pair-from-1414` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 89's Q2, relayed by the controller, verbatim *"Side by side from about 1,414 only"* (Q1 and Q3 as built): D.O.G.'s two input cards sit side by side from W 1148 (a 1414 window) and stack below it as DG4 left them, card 2 full width there; the design follow-up's W 1000 rule removed; the column keeps its scrollbar's gutter (review round 1, MEASURED with real scrollbars in Chromium 147 and Electron 33: a size query on the scroll column was answered before its scrollbar, so the pair applied at a 1404 window with a sideways scrollbar, and DG5's triple 10px early); measured before and after at 1280, 1366, 1400, 1414, 1440 and 1920; two review rounds, both on Fable; no migration, no SQL | nothing | nothing |
 | Post-overhaul DG5 (2026-10-30, night 8; `po/dg5-card1-layout` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-30, verbatim *"the redesign has a bit too much negative space. the entire right side is an empty card. lets do a pass to make sure it is visually appealing"*: D.O.G.'s two input cards share one row from a 1280 window (a plain `div.dog-inputs`; `.dog-main` a size container), card 1 in two columns from about 1,974, nothing past the 576px measure; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/50/65/75 percent, then none/none/28/22; Generate in view from 1280 with six references listed); three direction words taken out of card 1's sentences; one Fable design round with a follow-up on laptop sizes; two review rounds, both on Fable; no migration, no SQL | DG5-01 (the preview probe's stale first wait), DG5-02 (an ultrawide window: about 44 percent of each card empty again) | nothing |
 | Post-overhaul M1, a third follow-up (2026-10-30; `po/m1-desktop-invoice-uploads` into `feat/post-overhaul-edit-versioning`) — her ruling relayed by the controller, *"Yes, M1 fixes it now (Recommended)"* on M1-L7: the desktop's two upload routes (the base64 POST and the streamed PUT) file an invoice or a receipt in the project's INVOICES folder, as the cloud does; measured in the desktop app driven off-screen (a scratch profile, no sign-in), with the commit before as its control; the folder delete lets its files' folder_id go (0043's SET NULL); two review rounds, both on Fable; no migration, no SQL | nothing | M1-L7. |
@@ -3068,6 +3068,34 @@ row). What DG5 met outside its list and did not fix:
   shape: a cap on `.dog-inputs` past some width, which leaves the row's
   right edge short of the full-width output card below it (the design
   round's sketch of hypothesis (b)). Owner: Audrey (1.1).
+
+## DG6 (2026-10-31, night 9 of `docs/sessions/PLAN_TO_1_0.md`)
+
+D.O.G.'s two input cards stacked at every width at one capped width, card 1
+in two columns from a 1468 window (her ask of 2026-10-31; the session log's
+DG6 row). What DG6 met outside its list and did not fix:
+
+- **DG6-01 · The type sweep's scanner reads `DeckOutlineGenerator.jsx`'s
+  backticks inverted from line 2635 on, so a comment's wording can hide
+  code from it.** MEASURED on `po/dg6-cards-stacked` (2026-10-31):
+  `protectedRanges` (`scripts/ui-source-regions.mjs`) steps over strings
+  and comments but not regular-expression literals, and `/^```/` at
+  `DeckOutlineGenerator.jsx` 2635 holds three backticks, so from there it
+  takes each comment's backtick for a template literal's start and the
+  next for its end. A template that holds a `{` and then `word: value;`
+  with no brace between is judged embedded CSS and protected: on the branch
+  after review round 1, eleven protected spans of over 1,000 characters
+  open at a backtick between lines 2635 and 5180 (1,072 to 21,952 characters each, prose and
+  code alike), and DG6's first wording of one comment (*"THE INPUTS STACK: from a
+  1468 window since DG6);"*) made a ninth, 4147 to 4306, and the file fell
+  to 558 of 957 code sites seen; `src/ui/typeScale.test.js` (*"sees the
+  code in every file it reads"*) failed on it. DG6 reworded the comment
+  (`cc8c720e`). Any later comment or string of that shape in this file can
+  do it again, and the sweep's checks of what it protects are blind to
+  the same spans. Fix shape: let the scanner step over a regular-expression
+  literal (a `/` where an expression starts), or blank comments before it
+  judges templates. Owner: the controller (a script under `scripts/`,
+  outside DG6's list).
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

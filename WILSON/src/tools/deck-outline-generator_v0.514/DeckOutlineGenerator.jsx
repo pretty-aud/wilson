@@ -4203,8 +4203,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     THE INPUTS STACK, from a 1468 window since DG6); her
                     answer to walkthrough 89's Q1: as built. */}
                 <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
+                {/* DG6 (review round 1, finding 4): the dropdown takes the
+                    row's width beside New project, so the row ends at the
+                    column's edge, level with the description below it and,
+                    in two columns, 24px from the references. Its old 360px
+                    cap left the row 69px short and, with no project chosen,
+                    a 93px hole before the references (her screenshot). */}
                 <div className="flex items-center gap-2">
-                  <div className="relative flex-1" style={{ maxWidth: '360px' }}>
+                  <div className="relative flex-1">
                     <select
                       id="dog-project"
                       value={selectedProjectId}
