@@ -21,6 +21,7 @@ import { Fragment, useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Users, RotateCcw, Paperclip } from 'lucide-react'
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
+import { projectBudgetSettings, lineMoney } from '../../../../components/Budget/budgetMath'
 import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
 import { useRabbit } from '../../state/RabbitProvider'
 import CurrencyDisplay, { formatMoney, formatTenths } from '../../components/CurrencyDisplay'
@@ -119,15 +120,18 @@ export default function CrewTeamTab({
 }) {
   const { lines, actualsByLine, addLine, updateLine, upsertActual, deleteActual } = budgetHook || {}
 
-  const agencyEnabled = project?.budget_agency_enabled === true
-  const agencyPct     = Number(project?.budget_agency_pct ?? 0)
+  // The project's margin, contingency and agency fee, and every row's money:
+  // budgetMath (F2) — margin and contingency on the row's subtotal, the fee
+  // on it beside them, 20% when switched on with none typed.
+  const settings      = useMemo(() => projectBudgetSettings(project), [project])
+  const { agencyEnabled, agencyPct } = settings
   const columnMode    = project?.budget_actual_column_mode || 'fortnightly'
   const columnCount   = Number(project?.budget_actual_column_count ?? 20)
   const projectStart  = project?.start_date || project?.created_at
 
   // Project-level defaults for margin & contingency
-  const defaultMarginPct = Number(project?.budget_margin_pct ?? 0) || 0
-  const defaultContPct   = Number(project?.budget_contingency_pct ?? 0) || 0
+  const defaultMarginPct = settings.marginPct
+  const defaultContPct   = settings.contingencyPct
 
   // Popover state: { memberId, colIdx, x, y, h }
   const [openPopover, setOpenPopover] = useState(null)
@@ -187,17 +191,14 @@ export default function CrewTeamTab({
 
       const bidDays = roleSlug ? Number(bidDaysByRole[roleSlug] || 0) : 0
       const subtotal = rate * bidDays
-      const agencyFee = (agencyEnabled && subtotal > 0) ? subtotal * (agencyPct / 100) : 0
-      const bidTotal = subtotal + agencyFee
 
       const memberLine = (lines || []).find(l => l.team_member_id === m.id && l.sheet === 'crew')
       const memberActuals = memberLine ? (actualsByLine?.[memberLine.id] || []) : []
       const actualTotal = memberActuals.reduce((sum, a) => sum + (Number(a.value) || 0), 0)
 
-      const marginPct = memberLine?.margin_pct != null ? Number(memberLine.margin_pct) : defaultMarginPct
-      const contPct   = memberLine?.contingency_pct != null ? Number(memberLine.contingency_pct) : defaultContPct
-      const marginAmt = bidTotal * marginPct / 100
-      const contAmt   = bidTotal * contPct / 100
+      const {
+        agencyFee, bidTotal, marginPct, contingencyPct: contPct, marginAmt, contingencyAmt: contAmt,
+      } = lineMoney(subtotal, memberLine, settings)
 
       // Every member in the project team gets a row — even if they
       // have no bid days or actuals yet (the row shows zero values).
@@ -224,15 +225,15 @@ export default function CrewTeamTab({
       if (!byDept[dept]) byDept[dept] = []
       const rate = rateMap[slug] || 0
       const subtotal = rate * days
-      const agencyFee = (agencyEnabled && subtotal > 0) ? subtotal * (agencyPct / 100) : 0
-      const uBidTotal = subtotal + agencyFee
+      // A role nobody holds yet has no line: the project's percentages.
+      const u = lineMoney(subtotal, null, settings)
       byDept[dept].push({
         id: `unassigned-${slug}`, name: entry?.role_label || slug,
         title: '(unassigned)', department: dept, employmentType: 'freelancer',
-        roleSlug: slug, rate, bidDays: days, subtotal, agencyFee,
-        bidTotal: uBidTotal, actualTotal: 0, variance: -uBidTotal,
-        marginPct: defaultMarginPct, contPct: defaultContPct,
-        marginAmt: uBidTotal * defaultMarginPct / 100, contAmt: uBidTotal * defaultContPct / 100,
+        roleSlug: slug, rate, bidDays: days, subtotal, agencyFee: u.agencyFee,
+        bidTotal: u.bidTotal, actualTotal: 0, variance: -u.bidTotal,
+        marginPct: u.marginPct, contPct: u.contingencyPct,
+        marginAmt: u.marginAmt, contAmt: u.contingencyAmt,
         lineId: null, actuals: [],
       })
     }
@@ -258,7 +259,7 @@ export default function CrewTeamTab({
     }
     totals.variance = totals.actualTotal - totals.bidTotal
     return { departmentGroups: groups, grandTotals: totals }
-  }, [teamMembers, rateCard?.entries, bidDaysByRole, rateMap, agencyEnabled, agencyPct, lines, actualsByLine, defaultMarginPct, defaultContPct])
+  }, [teamMembers, rateCard?.entries, bidDaysByRole, rateMap, settings, lines, actualsByLine])
 
   const ensureLine = useCallback(async (memberId) => {
     const existing = (lines || []).find(l => l.team_member_id === memberId && l.sheet === 'crew')
@@ -613,8 +614,8 @@ export default function CrewTeamTab({
         <MarginContPopover
           key={mcPopover.memberId}
           anchor={mcPopover}
-          amountLabel="Bid total"
-          baseAmount={mcRow.bidTotal}
+          amountLabel="Subtotal"
+          baseAmount={mcRow.subtotal}
           marginPct={mcRow.marginPct}
           contPct={mcRow.contPct}
           defaultMargin={defaultMarginPct}

@@ -12,11 +12,10 @@
 // questions all read one answer:
 //
 //   snapshotFromLive  the live rows as a version's snapshot (F1 phases, task
-//                     dates and key dates; F6 the span; F7 the totals; F8 the
-//                     automatic line against the version before it)
-//   bidTotals         the Budget screen's arithmetic, once: the overall total
-//                     WITH the agency fee when it is on, the before-agency
-//                     total beside it (F7)
+//                     dates and key dates; F6 the span; F7 the totals — the
+//                     Budget screen's own arithmetic, budgetMath.js's bidTotals,
+//                     since F2; F8 the automatic line against the version
+//                     before it)
 //   readVersion       any version, old shape or new, as the screen reads it
 //   versionDiff       live against a version: isDirty and the Δ fields
 //   planOpen          the writes that load a version into the live rows
@@ -27,6 +26,7 @@
 // =============================================================================
 
 import { calendarDaysBetween, toIsoDate } from '../dates'
+import { bidTotals, projectBudgetSettings, round2 } from '../../../components/Budget/budgetMath'
 
 export const SNAPSHOT_KIND = 'bid'
 
@@ -63,10 +63,10 @@ const TASK_SCHEDULE = [
 // fields above, which then hold the older apps' copy (each kind's first item
 // in the order added) so a build that reads only those still finds one. The
 // kinds and their fields are taskItemsModel's ITEM_KINDS and KIND_FIELD,
-// said again here because this file imports dates.js and nothing else
-// (src/dev/devFixtures.test.js pins that: the fixtures build their bids with
-// it). A task row saved without `items` is the older shape: a version saved
-// before this change, or by a backend that keeps no items.
+// said again here because this file imports dates.js and budgetMath.js and
+// nothing else (src/dev/devFixtures.test.js pins that: the fixtures build
+// their bids with it). A task row saved without `items` is the older shape:
+// a version saved before this change, or by a backend that keeps no items.
 const ITEM_FIELD = { asset: 'asset_id', scene: 'scene_id', shot: 'shot_id', level: 'level_id', experience: 'experience_id' }
 const ITEM_KINDS = Object.keys(ITEM_FIELD)
 const TASK_LINK_FIELDS = new Set(Object.values(ITEM_FIELD))
@@ -79,7 +79,6 @@ const MILESTONE_FIELDS = ['id', 'title', 'date', 'color', 'description', 'phase_
 const MILESTONE_SCHEDULE = ['date', 'phase_id']
 const DATE_FIELDS = new Set(['start_date', 'end_date', 'date'])
 
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
 const num = (v, fallback = 0) => {
   const n = Number(v)
   return Number.isFinite(n) ? n : fallback
@@ -182,41 +181,9 @@ function taskLinksChanged(saved, live, known = null) {
   return LEGACY_LINKS.some(f => norm(f, saved?.[f]) !== norm(f, live?.[f]))
 }
 
-/**
- * The project's budget settings, read exactly as BudgetView reads them (the
- * agency fee defaults to 20% when it has never been set).
- */
-export function projectBudgetSettings(project) {
-  return {
-    marginPct: Number(project?.budget_margin_pct ?? 0) || 0,
-    contingencyPct: Number(project?.budget_contingency_pct ?? 0) || 0,
-    agencyEnabled: project?.budget_agency_enabled === true,
-    agencyPct: Number(project?.budget_agency_pct ?? 20),
-  }
-}
-
-/**
- * The Budget's own arithmetic (BudgetView's waterfall, the selectors' rollup):
- * base = Σ bid_days × the role's day rate; margin and contingency each on the
- * BASE, rounded to cents (0037: never compounded); the before-agency total
- * rounded to cents; the agency fee on the BASE, rounded to the whole unit;
- * overall = before-agency + the fee when it is on (F7: "the total with the
- * agency % is ... the overall total").
- */
-export function bidTotals({ tasks, roleRates = {}, marginPct = 0, contingencyPct = 0, agencyEnabled = false, agencyPct = 0 }) {
-  let baseCost = 0
-  for (const t of tasks || []) {
-    if (!t?.bid_days) continue
-    const role = t.assigned_role_slug || 'unassigned'
-    const rate = roleRates[role] ?? 0
-    baseCost += Number(t.bid_days) * Number(rate)
-  }
-  const marginAmt = round2(baseCost * (num(marginPct) / 100))
-  const contingencyAmt = round2(baseCost * (num(contingencyPct) / 100))
-  const beforeAgency = round2(baseCost + marginAmt + contingencyAmt)
-  const agencyAmt = agencyEnabled ? Math.round(baseCost * (num(agencyPct) / 100)) : 0
-  return { baseCost, marginAmt, contingencyAmt, agencyAmt, beforeAgency, overall: beforeAgency + agencyAmt }
-}
+// The project's settings (projectBudgetSettings) and the Budget's arithmetic
+// (bidTotals) were here until F2; they are budgetMath.js's, with every other
+// money rule, so a saved version's totals and the screen's are one module's.
 
 /**
  * The calendar span the schedule covers: from its earliest date (a task's or

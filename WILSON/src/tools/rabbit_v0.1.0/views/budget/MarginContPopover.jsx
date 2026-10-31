@@ -9,10 +9,11 @@
 // to it next. Its props are theirs, generalised:
 //
 //   anchor        the rect the caller stores ({ x, y, h }) — BudgetPopover's
-//   baseAmount    what the percentages are OF (an expense's estimated cost,
-//                 a line's bid total)
-//   amountLabel   what `baseAmount` is called ("Estimated cost", "Bid"): the
-//                 figures' tooltip says what they were worked out on
+//   baseAmount    what the percentages are OF: the BASE (an expense's
+//                 estimated cost, a line's subtotal), never the base plus a
+//                 fee (F2; the amounts are budgetMath's)
+//   amountLabel   what `baseAmount` is called ("Estimated cost", "Subtotal"):
+//                 the figures' tooltip says what they were worked out on
 //   marginPct, contPct            the line's values, already defaulted
 //   defaultMargin, defaultCont    the project's, for the placeholders and
 //                                 the Default button
@@ -28,6 +29,7 @@
 import { useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { Button } from '../../../../ui'
+import { applyMarginAndContingency } from '../../../../components/Budget/budgetMath'
 import { formatMoney } from '../../components/CurrencyDisplay'
 import BudgetPopover from './BudgetPopover'
 import '../rabbitBudget.css'
@@ -50,8 +52,7 @@ export default function MarginContPopover({
   const base = Number(baseAmount) || 0
   const mPct = Number(margin) || 0
   const cPct = Number(cont) || 0
-  const marginAmt = base * mPct / 100
-  const contAmt   = base * cPct / 100
+  const { marginAmt, contingencyAmt: contAmt } = applyMarginAndContingency(base, mPct, cPct)
   // "Estimated cost $3,000 × 10%": how the figure beside the field is made.
   const workedOn = (pct) => `${amountLabel} ${formatMoney(base, currency)} × ${pct}%`
 

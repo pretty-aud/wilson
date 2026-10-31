@@ -199,4 +199,20 @@ describe('the wiring is real: index.ts calls the moved collectors exactly as bef
     // Step 2c removes `thumbs` (posters included) BEFORE the CASCADE, as the ordering pins in uploadReservation.test.js hold.
     expect(ops.indexOf('storage.from(THUMBNAIL_BUCKET).remove(batch)')).toBeLessThan(ops.indexOf(".from('workspaces')\n      .delete()".replace('\n', ops.includes('\r\n') ? '\r\n' : '\n')))
   })
+  // OUTSTANDING REV-01 (F1): P8 moved PAGE here and the import never took it,
+  // so the list action and teardown step 1d threw ReferenceError at run time
+  // and nothing ran the file to see it. CI's deno check covers every function;
+  // this pin holds the same line for `npm test`, where there is no Deno.
+  it('🚨 every name index.ts uses from teardownCollect.ts is in its import (REV-01: PAGE was used and never imported)', () => {
+    const shared = readFileSync(join(__dirname, '..', '..', 'supabase', 'functions', '_shared', 'teardownCollect.ts'), 'utf8')
+    const exported = [...shared.matchAll(/^export (?:const|async function|function) (\w+)/gm)].map((m) => m[1])
+    const importLine = ops.match(/import \{([^}]*)\} from '\.\.\/_shared\/teardownCollect\.ts'/)
+    const imported = importLine[1].split(',').map((s) => s.trim()).filter(Boolean)
+    // The code without its comments (which name listFolder, AVATAR_MAX and
+    // PAGE in prose) and without the import itself; `://` is left alone.
+    const code = ops.replace(importLine[0], '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+    const used = exported.filter((name) => new RegExp(`\\b${name}\\b`).test(code))
+    expect(used).toContain('PAGE')
+    expect(used.filter((name) => !imported.includes(name))).toEqual([])
+  })
 })
