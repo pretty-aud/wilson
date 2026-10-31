@@ -1624,18 +1624,32 @@ describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
   })
 })
 
-// DG5 (Audrey, 2026-10-30, verbatim: "the redesign has a bit too much negative
-// space. the entire right side is an empty card. lets do a pass to make sure
-// it is visually appealing"): the two input cards share one row on a wide
-// window (dog.css, THE INPUTS ROW; dogCss.test.js pins its widths). jsdom lays
-// nothing out, so this pins what the row must not change: its wrapper is a
-// plain box (a class and nothing else), the two cards are its children in
-// their order, and the output card stays below it in the column. The DG4
-// cases above (card 1's order, the fold, the count, the eleven Tab stops) run
-// unchanged on the wrapped cards.
-describe('DG5 on the rendered D.O.G.: the two input cards share a plain wrapper, and nothing a person or a screen reader meets moves', () => {
+// DG5 (Audrey, 2026-10-30) put the two input cards in a plain wrapper,
+// `div.dog-inputs`, to lay them side by side on a wide window. DG6 (Audrey,
+// 2026-10-31, verbatim: "i want to keep the 1 and 2 cards stacked not side by
+// side") keeps the wrapper as the stack's one width (dog.css, THE INPUTS
+// STACK; dogCss.test.js pins its widths) and, from a 1468 window, sets card 1's
+// body in two columns of the measure. jsdom lays nothing out, so this pins
+// what the stack rests on: the wrapper is a plain box (a class and nothing
+// else) holding card 1 then card 2, the output card after it in the column;
+// card 1's body is exactly two parts, the project then what the deck reads,
+// so the two columns are those two and nothing wraps into a cell of its own;
+// the contract line heads the references' part, before Uploads, so in the
+// two columns it sits level with "Choose a project" and Tab still reads the
+// left column, then the right. The DG4 cases above (card 1's order, the fold,
+// the count, the eleven Tab stops) run unchanged on the stacked cards.
+describe('DG6 on the rendered D.O.G.: the two input cards stacked in a plain wrapper, card 1\'s body two parts, and nothing a person or a screen reader meets moves', () => {
   // A box no one meets: one attribute, its class.
   const plain = (el) => [...el.attributes].map((a) => a.name).join(' ') === 'class' && el.className === 'dog-inputs'
+  // Card 1's body, part by part, as the two columns take them.
+  const parts = (body) => [...body.children].map((c) => (c.matches('.dog-refs') ? 'refs' : c.querySelector(':scope select.dog-project-select') ? 'project' : c.className || c.tagName))
+  // The references' part up to Uploads: the contract line first (a notice
+  // above it while one shows).
+  const head = (refs) => {
+    const kids = [...refs.children]
+    const up = kids.findIndex((k) => k.matches('.dog-refs-uploads'))
+    return kids.slice(0, up + 1).map((k) => (k.matches('.dog-refs-contract') ? 'contract' : k.matches('.dog-refs-uploads') ? 'uploads' : k.matches('.dog-refs-notice') ? 'notice' : k.className))
+  }
 
   it('the column holds the wrapper, then the output card; the wrapper holds card 1 then card 2, and a class and nothing else', async () => {
     const d = await openDog({ upload: false })
@@ -1648,9 +1662,24 @@ describe('DG5 on the rendered D.O.G.: the two input cards share a plain wrapper,
     expect(kids.indexOf(row)).toBeLessThan(kids.indexOf(main.querySelector(':scope > .dog-output')))
     expect(main.querySelectorAll('.dog-inputs')).toHaveLength(1)
     expect(main.querySelectorAll(':scope > .dog-card-project, :scope > .dog-s2')).toHaveLength(0)
+    // The output card is not the wrapper's: it keeps the column's width.
+    expect(main.querySelector('.dog-inputs .dog-output')).toBe(null)
   })
 
-  it('CONTROL: the check refuses a wrapper a person or a screen reader could meet (a role, a name, an id, a Tab stop)', () => {
+  it('card 1\'s body is two parts, the project then the references, with no project and with one; the contract line heads the references, before Uploads', async () => {
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    const body = d.q('#dog-card1-body')
+    expect(parts(body)).toEqual(['project', 'refs'])
+    expect(head(refsBody())).toEqual(['contract', 'uploads'])
+    await chooseProject(d)
+    // The description joins the project's part, never a part of its own.
+    expect(body.querySelector('.dog-project-details').textContent).toContain('A made-up project.')
+    expect(parts(body)).toEqual(['project', 'refs'])
+    expect(head(refsBody())).toEqual(['contract', 'uploads'])
+  })
+
+  it('CONTROL: the checks refuse a wrapper a person or a screen reader could meet, a third part in card 1\'s body, and Uploads above the contract line', () => {
     for (const [name, value] of [['role', 'group'], ['aria-label', 'Inputs'], ['id', 'dog-inputs'], ['tabindex', '-1']]) {
       const el = document.createElement('div')
       el.className = 'dog-inputs'
@@ -1660,5 +1689,21 @@ describe('DG5 on the rendered D.O.G.: the two input cards share a plain wrapper,
     const ok = document.createElement('div')
     ok.className = 'dog-inputs'
     expect(plain(ok)).toBe(true)
+    // Card 1's body as built, then with a third part (the description
+    // lifted out of the project's part), then with the parts swapped.
+    const body = document.createElement('div')
+    body.innerHTML = '<div><select class="dog-project-select"></select></div><div class="dog-refs"><p class="dog-refs-contract"></p><div class="dog-refs-uploads"></div></div>'
+    expect(parts(body)).toEqual(['project', 'refs'])
+    const third = body.cloneNode(true)
+    third.insertBefore(Object.assign(document.createElement('div'), { className: 'dog-project-details' }), third.lastChild)
+    expect(parts(third)).not.toEqual(['project', 'refs'])
+    const swapped = body.cloneNode(true)
+    swapped.append(swapped.firstChild)
+    expect(parts(swapped)).not.toEqual(['project', 'refs'])
+    // The references' part with Uploads moved above the contract line.
+    const refs = body.querySelector('.dog-refs').cloneNode(true)
+    expect(head(refs)).toEqual(['contract', 'uploads'])
+    refs.prepend(refs.querySelector('.dog-refs-uploads'))
+    expect(head(refs)).not.toEqual(['contract', 'uploads'])
   })
 })
