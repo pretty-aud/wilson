@@ -19,6 +19,10 @@
 // /api/fetch-raw passthrough route.
 
 import { importCsv } from './csvImporter'
+import { hasLocalServer } from '../../../lib/localData'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../../lib/localServerFetch.js'
 
 // Extract the spreadsheet ID and (optional) GID from any Google
 // Sheets URL we recognize. Returns null if we can't make sense
@@ -52,7 +56,7 @@ export function parseGoogleSheetUrl(url) {
   return { id, gid, isPub }
 }
 
-export function buildCsvExportUrl({ id, gid, isPub }) {
+function buildCsvExportUrl({ id, gid, isPub }) {
   if (isPub) {
     return `https://docs.google.com/spreadsheets/d/e/${id}/pub?output=csv&single=true&gid=${gid}`
   }
@@ -73,9 +77,21 @@ export async function importGoogleSheet(url, defaultCurrency = 'USD') {
 
   const exportUrl = buildCsvExportUrl(parsed)
 
+  // Session 12: the CSV fetch is proxied by the local Express server (a
+  // browser can't fetch cross-origin) — surface the real reason on the web.
+  if (!hasLocalServer()) {
+    return {
+      rows: [],
+      columns: {},
+      unmapped: [],
+      totalRows: 0,
+      errors: ['Google Sheets import runs in the desktop app only. Download the sheet as CSV and import the file instead.'],
+    }
+  }
+
   let csvText
   try {
-    const res = await fetch('/api/fetch-raw', {
+    const res = await localFetch('/api/fetch-raw', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: exportUrl }),

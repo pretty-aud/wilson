@@ -59,7 +59,12 @@ export const AGENT_SKILL_REGISTRY = {
   },
   rabbit: {
     label: rabbitAgentPrompt.displayName,
-    description: 'Project breakdown, scheduling, and budget operations.',
+    // Session 17 (§6 #56): honest copy. The prompt and tool schema below are
+    // real and editable, but nothing executes them — the agent surface is
+    // hard-gated to the O.T.T.E.R. page (App.jsx:60-65), so the RABBIT
+    // prompt can never reach the model and handleAgentAction has no case for
+    // any RABBIT action. Wiring it is post-1.0; advertising it is not.
+    description: 'Planned — prompt and schema only; not executable yet.',
     systemPrompt: rabbitAgentPrompt.systemPrompt,
     toolSchema:   rabbitAgentPrompt.toolSchema,
     skills: [

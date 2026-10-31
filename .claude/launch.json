@@ -1,0 +1,73 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wilson-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5203
+    },
+    {
+      "name": "wilson-operator-console",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:admin"
+      ],
+      "port": 5203
+    },
+    {
+      "_comment": "Serves the built bundle from dist/. Use this rather than wilson-dev when measuring network behaviour: `vite` dev serves every module unbundled, which fills the browser's 250-entry resource-timing buffer before the app has finished booting and makes any later request invisible. Run `npm run build` first.",
+      "name": "wilson-preview-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview"
+      ],
+      "port": 4173
+    },
+    {
+      "_comment": "V1: the SIGN-IN screens, without editing .env.local. Vite ranks a variable already in the process environment above .env files, so this sets VITE_DEV_AUTOLOGIN to a value the app ignores (App.jsx signs in only on the exact string tester) and the auth screens render while .env.local still says tester. Port 5246; the signed-in server stays on 5245.",
+      "name": "v1-auth",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_AUTOLOGIN=off&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/quirky-dewdney-93d080/WILSON --port 5246 --strictPort"
+      ],
+      "port": 5246
+    },
+    {
+      "_comment": "A session's own dev server (docs/sessions/PLAN_TO_1_0.md section 5, rule 2: three fixed entries, session-a/b/c on 5301-5303, and no entry per session). dg2-worktree's recipe: the dev fixtures' tester, no .env.local needed (the four VITE_ variables are set in the process environment), the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made. It serves WILSON/ of the worktree this file is in (the path is relative to the worktree root). Port 5301, strict: a busy port fails rather than moving.",
+      "name": "session-a",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite WILSON --port 5301 --strictPort"
+      ],
+      "port": 5301
+    },
+    {
+      "_comment": "A session's own dev server (docs/sessions/PLAN_TO_1_0.md section 5, rule 2: three fixed entries, session-a/b/c on 5301-5303, and no entry per session). dg2-worktree's recipe: the dev fixtures' tester, no .env.local needed (the four VITE_ variables are set in the process environment), the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made. It serves WILSON/ of the worktree this file is in (the path is relative to the worktree root). Port 5302, strict: a busy port fails rather than moving.",
+      "name": "session-b",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite WILSON --port 5302 --strictPort"
+      ],
+      "port": 5302
+    },
+    {
+      "_comment": "A session's own dev server (docs/sessions/PLAN_TO_1_0.md section 5, rule 2: three fixed entries, session-a/b/c on 5301-5303, and no entry per session). dg2-worktree's recipe: the dev fixtures' tester, no .env.local needed (the four VITE_ variables are set in the process environment), the Supabase pair a placeholder on a closed local port, so nothing real is reached and no AI call can be made. It serves WILSON/ of the worktree this file is in (the path is relative to the worktree root). Port 5303, strict: a busy port fails rather than moving.",
+      "name": "session-c",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite WILSON --port 5303 --strictPort"
+      ],
+      "port": 5303
+    }
+  ]
+}

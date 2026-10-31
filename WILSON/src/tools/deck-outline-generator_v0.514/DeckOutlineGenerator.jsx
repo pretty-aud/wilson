@@ -1,6 +1,18 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
+import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { useHeldOffline } from '../../cloud/auth/heldSession';
+import { offlineSentence } from '../../cloud/ConnectionLostBanner';
+import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
+import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
+import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments';
+import { callAI } from '../../cloud/aiProxy';
+import { textFromMessage } from '../../cloud/anthropicStream';
+import { uploadAIFile, deleteAIFiles, holdAIFiles, FILES_BETA } from '../../cloud/aiFiles';
+import { createAIFileCache, ownerOf, liveOwners, retryWithLiveFiles } from './aiFileCache';
+import { modelFor, tuningFor } from '../../lib/activeModel';
+import ModelPicker from '../../components/settings/ModelPicker';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -12,9 +24,42 @@ import { parseSlideContent, correctGeometryIconOrder, parsePlacedAssets } from '
 import { saveFileToFolder, deriveDeckTitle, exportHistory, exportVisHistory } from './export';
 import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
+import './dog.css';
 import HistoryModal from './modals/HistoryModal';
+import { enterIsDogs, enterStarts, deckContextWritten, ASK_FOR_CONTEXT } from './enterGenerates';
+import { useReferences } from './references/useReferences';
+import ReferencesCard, { useReferencePreview, ReferencePreviewDialog, ReferencesCount } from './references/ReferencesCard';
+import ReferencesPicker from './references/ReferencesPicker';
+import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } from './references/referenceModel';
 
-export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// What a deck reads (post-overhaul DG1, 2026-10-16).
+//
+// Until DG1, choosing a project downloaded up to 20 of its attachments on the
+// spot (Track C's C3 effect) and sent them with every generation. Audrey's
+// ruling (docs/design/DOG_REFERENCES_QUESTIONS.md, Q2): "choosing the project
+// should select what files and items he user can choose from to make a deck".
+// So choosing a project sends only its title and description (Q17), and the
+// person ticks the items, files and notes the deck reads in the References
+// card (./references/). Their bodies are read when a deck is generated, never
+// when they are chosen: resolveSources() below, through useReferences.
+//
+// The legacy arrays' default-TRUE Core polarity and the stored rows' strict
+// one (MASTER_PLAN §6 #31 trap (b)) moved with the readers, to
+// references/referenceModel.js, unchanged.
+
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test
+// that mounts D.O.G. alone): the R.A.B.B.I.T. views' helper. FX13 says why
+// Enter generated nothing there (the stack is the kit's polite live region).
+function useOptionalToast() {
+  try { return useToast(); } catch { return null; }
+}
+
+// Place visual's hover (DG4: Audrey's note 2 took its subtitle, "to place
+// media in the deck", away; the meaning stays on the hover).
+const PLACE_VISUAL_TITLE = 'Places the pictures and videos from your uploads and references in the slides.';
+
+export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -24,11 +69,33 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   const [uploadedFiles, setUploadedFiles] = useState([]); // Array of {file, content, type}
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isFileLoading, setIsFileLoading] = useState(false);
-  const [fullDeckMode, setFullDeckMode] = useState(false);
+  // Why the last upload was refused or could not be read. Said under Choose
+  // file in References, where the person is (DG2 review round 1, finding 2:
+  // in the banner at the top of the page it was out of sight once a dozen
+  // uploads pushed Choose file down). Cleared by the next upload and by a
+  // generation starting, as the banner was (review round 2, finding 2). Each
+  // refusal is a new one (`n`), so the same words twice are said twice: the
+  // clear at an upload's start and its refusal fall in one batch and would
+  // otherwise net to no change (review round 2, finding 3).
+  const [uploadErrorState, setUploadErrorState] = useState(null);
+  const uploadErrorN = useRef(0);
+  const setUploadError = useCallback((text) => {
+    setUploadErrorState(text ? { text, n: ++uploadErrorN.current } : null);
+  }, []);
+  // Audrey's Q21 (2026-10-17): D.O.G. opens on Full deck. App keeps every
+  // page mounted, so the side then stays where it is put until WILSON closes,
+  // as the uploads do; the one exception is the Alt toggle below, which hears
+  // Alt on every page (kept by her ruling of 2026-10-26, FX13). With Full deck
+  // on and no page yet, D.O.G.'s Enter key (enterGenerates.js says where it is
+  // D.O.G.'s) generates the deck whenever its button is enabled and the deck
+  // context box has words; with the box empty it asks for them (FX13).
+  const [fullDeckMode, setFullDeckMode] = useState(true);
 
-  // Visual Asset Placement State
-  const [useUploadedAssets, setUseUploadedAssets] = useState(false);
-  const [useProjectAssets, setUseProjectAssets] = useState(false);
+  // Visual Asset Placement State. DG4 (Audrey, 2026-10-28): one box, "Place
+  // visual" (was "Use visual assets"), for the uploads' media and the chosen
+  // references' alike; "Use project assets" is gone with its flag, since a
+  // reference is read because it is listed (placementFrom says the rest).
+  const [placeVisual, setPlaceVisual] = useState(false);
   
   // Section 2 State
   const [selectedLayout, setSelectedLayout] = useState('');
@@ -72,26 +139,44 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   // Settings Menu State
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts'); // 'prompts' or 'format'
-  // showNavMenu and onToggleNavMenu are now received as props from App.jsx
-
-  // Open settings panel when triggered from container nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setShowSettingsMenu(true);
-    }
-  }, [openSettingsTrigger]);
+  // Opened by the gear at the right end of the "Deck outline" bar. The WILSON
+  // nav strip's "Tool settings" item and the counter it bumped are gone
+  // (post-overhaul S2a, Audrey's C6), and with them the two nav props nothing
+  // here ever read.
 
   // Project Integration State — projects come from the unified
   // RabbitProvider store (same source as the Projects page and
   // RABBIT itself). Local state only owns the new-project modal
   // form fields and the currently-selected project id.
   const rabbitCtx = useRabbit();
+  // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the
+  // cloud adapter — card 1 says so in one sentence and offers no New project.
+  const projectsHeldOffline = useHeldOffline() && rabbitCtx?.adapterMode === 'supabase';
   const projectsIndex = rabbitCtx?.projectsIndex || {};
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
   const updateUnifiedProject = rabbitCtx?.updateProject;
+  // Session 12: cloud projects carried no documents/visualAssets, so the
+  // attachment affordances degraded visibly rather than losing files silently
+  // at the adapter. C3 gave them a real home (public.files + rabbit-files,
+  // migration 0075), so the degraded copy is gone — and with it the
+  // `cloudProjects` flag that gated it: nothing on this surface differs
+  // between cloud and Local Server any more, only between a backend that can
+  // store files and one that cannot (`canStoreFiles`, below).
+  const adapterMode = rabbitCtx?.adapterMode;
+  // 🚨 STABLE, AND THAT MATTERS. RabbitProvider's context VALUE is a useMemo
+  // over a long dependency list, so it takes a new identity whenever the
+  // bundle or the projects index changes — many times a session. `getAdapter`
+  // is its own `useCallback(..., [])` and never changes, so an effect that
+  // downloads file bodies can depend on THIS and not on the whole context.
+  // Depending on `rabbitCtx` would re-run that effect on every provider
+  // render and re-download every attachment each time.
+  const getAdapter = rabbitCtx?.getAdapter;
+  // 🚨 §6 #31 trap (f): the MODE, never `typeof adapter.uploadFile`. Google
+  // Drive's uploadFile is `readOnly('uploadFile')` — a function that throws —
+  // so a typeof check reads as "this backend can store files" for the one
+  // backend that cannot.
+  const canStoreFiles = adapterSupportsWrites(adapterMode);
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -123,101 +208,87 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     return projects.find(p => p.id === selectedProjectId) || null;
   }, [selectedProjectId, projects]);
 
-  // Convert project files to DOG-compatible format for injection into generation.
-  // Each file carries `isCore`: files marked core are the ones that define
-  // the project concept itself; the rest are reference / supporting context.
-  // Default is true so existing projects keep working — explicit opt-out only.
-  const projectFiles = useMemo(() => {
-    if (!selectedProject) return [];
-    const files = [];
-    // Add project documents
-    (selectedProject.documents || []).forEach(doc => {
-      if (!doc.content) return;
-      const isCore = doc.isCore !== false;
-      const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
-      const base64Data = doc.content.includes(',') ? doc.content.split(',')[1] : doc.content;
-      if (doc.type?.startsWith('image/')) {
-        files.push({
-          id: `proj-${doc.id}`,
-          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
-          content: base64Data,
-          type: 'image',
-          mediaType: doc.type,
-          isCore,
-        });
-      } else if (doc.type === 'application/pdf' || doc.name?.endsWith('.pdf')) {
-        files.push({
-          id: `proj-${doc.id}`,
-          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
-          content: base64Data,
-          type: 'pdf',
-          mediaType: 'application/pdf',
-          isCore,
-        });
-      } else {
-        // Text-based files — decode base64 to text if needed
-        let textContent = base64Data;
-        try { textContent = atob(base64Data); } catch { /* already text */ }
-        files.push({
-          id: `proj-${doc.id}`,
-          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
-          content: textContent,
-          type: 'text',
-          mediaType: 'text/plain',
-          isCore,
-        });
-      }
-    });
-    // Add project visual assets
-    (selectedProject.visualAssets || []).forEach(asset => {
-      if (!asset.content) return;
-      const isCore = asset.isCore !== false;
-      const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
-      const base64Data = asset.content.includes(',') ? asset.content.split(',')[1] : asset.content;
-      const isVideo = asset.type?.startsWith('video/') || asset.name?.match(/\.(mp4|mov|webm|avi|mkv)$/i);
-      files.push({
-        id: `proj-${asset.id}`,
-        file: { name: `${labelPrefix} ${asset.name}`, size: asset.size || 0 },
-        content: base64Data,
-        type: isVideo ? 'video' : 'image',
-        mediaType: asset.type || (isVideo ? 'video/mp4' : 'image/png'),
-        isCore,
-      });
-    });
-    return files;
-  }, [selectedProject]);
+  // ── References (DG1): what the deck reads besides the uploads ────────────
+  //
+  // The chosen items, files and notes and the picker's pool live in
+  // useReferences (./references/). Choosing a project sends nothing on its
+  // own (Audrey's Q2); bodies are read only when a deck is generated, by
+  // resolveSources below. The C3 effect that downloaded up to 20 attachments
+  // the moment a project was chosen, and recorded a download for each, is
+  // gone with the automatic set it fed.
+  const refs = useReferences({ getAdapter, adapterMode, projectId: selectedProjectId, project: selectedProject });
+  const resolveReferences = refs.resolveForGeneration;
+  const adoptUploadedFiles = refs.adoptUploadedFiles;
+  const [showRefsPicker, setShowRefsPicker] = useState(false);
+  // One reference's preview, opened from the card; drawn after </main>
+  // with D.O.G.'s other windows.
+  const refPreview = useReferencePreview(refs);
+  // DG4: Core files only can be ticked only when the project has Core files
+  // D.O.G. can read, so the project is listed when it is chosen: the list the
+  // window makes each time it opens (lists, never a file's body; on the Local
+  // Server the project's bundle). Choosing a project still sends nothing (Q2).
+  // Back on D.O.G. it is listed again only when what the box shows depends on
+  // it (review round 1, finding 5: a list on every return was the whole pool):
+  // ticked, its rows follow the list; off for want of Core files or a list,
+  // files marked Core in R.A.B.B.I.T. meanwhile turn it on.
+  const onDogPage = currentPage === 'dog';
+  useEffect(() => {
+    if (selectedProjectId) refs.loadPool();
+  }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wasOnDogPage = useRef(onDogPage);
+  useEffect(() => {
+    const back = onDogPage && !wasOnDogPage.current;
+    wasOnDogPage.current = onDogPage;
+    if (back && selectedProjectId && (refs.coreOnly || refs.core?.state !== 'ready')) refs.loadPool();
+  }, [onDogPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The New project window's own upload state (C3): its busy line and its
+  // failure line sit under the project. The failure is its own state, so
+  // nothing else can overwrite it (C3 review round 2).
+  const [storedFilesBusy, setStoredFilesBusy] = useState(false);
+  const [storedFilesError, setStoredFilesError] = useState('');
+  // The reference pictures and videos read at the last generation: "Place
+  // visual" places them, and the placed-asset export writes them, as the
+  // project's media were before.
+  const [referenceMedia, setReferenceMedia] = useState([]);
+  // What was chosen and could not be read at the last generation: not sent,
+  // and said (amber, beside the theme generator's message).
+  const [refsWarning, setRefsWarning] = useState('');
 
-  // Combined files: uploaded + project (for use in generation)
-  const allFiles = useMemo(() => {
-    return [...uploadedFiles, ...projectFiles];
-  }, [uploadedFiles, projectFiles]);
+  /**
+   * The media the slides may place (Audrey's Q14: "allow using images/videos
+   * from a project or uploaded in the outline like before"). DG4 (her note 2
+   * of 2026-10-28): one box, "Place visual", places the uploads' pictures and
+   * videos and those among the listed references alike, and nothing without
+   * it. A reference is listed only if ticked (her Q19, "Only the ones you
+   * tick") or, with Core files only, marked Core; nothing else is placed or
+   * sent to the AI.
+   */
+  const placementFrom = useCallback((refMedia) => {
+    if (!placeVisual) return [];
+    return [...uploadedFiles, ...refMedia].filter(f => f.type === 'image' || f.type === 'video');
+  }, [placeVisual, uploadedFiles]);
 
   // Visual assets eligible for placement into deck frames
-  const placementAssets = useMemo(() => {
-    const assets = [];
-    if (useUploadedAssets) {
-      assets.push(...uploadedFiles.filter(f => f.type === 'image' || f.type === 'video'));
-    }
-    if (useProjectAssets) {
-      assets.push(...projectFiles.filter(f => f.type === 'image' || f.type === 'video'));
-    }
-    return assets;
-  }, [useUploadedAssets, useProjectAssets, uploadedFiles, projectFiles]);
+  const placementAssets = useMemo(() => placementFrom(referenceMedia), [placementFrom, referenceMedia]);
 
   const assetPlacementActive = placementAssets.length > 0;
 
-  // Project description context for injection into prompts.
-  // Includes an explicit CORE / REFERENCE file split so the model
-  // knows which sources actually define the project concept and which
-  // are supporting context only.
-  const projectContext = useMemo(() => {
+  /**
+   * PROJECT CONTEXT for one generation: the project's title and description,
+   * always (Q17), and the FILE ROLES split over the project files actually
+   * sent, so the model knows which define the project concept and which are
+   * supporting context only. CORE is each file's own mark: D.O.G. reads it,
+   * R.A.B.B.I.T.'s Files table sets it (Q15).
+   */
+  const projectContextFor = useCallback((refFiles) => {
     if (!selectedProject) return '';
     const parts = [];
     if (selectedProject.title) parts.push(`Project: ${selectedProject.title}`);
     if (selectedProject.description) parts.push(`Description: ${selectedProject.description}`);
 
-    const coreNames = projectFiles.filter(f => f.isCore).map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, ''));
-    const refNames  = projectFiles.filter(f => !f.isCore).map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, ''));
+    const projectFiles = (refFiles || []).filter(f => f.source === 'stored' || f.source === 'legacy');
+    const coreNames = projectFiles.filter(f => f.isCore).map(f => bareAssetName(f.file.name));
+    const refNames  = projectFiles.filter(f => !f.isCore).map(f => bareAssetName(f.file.name));
 
     if (coreNames.length > 0 || refNames.length > 0) {
       parts.push('');
@@ -237,26 +308,72 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     }
 
     return parts.length > 0 ? parts.join('\n') : '';
-  }, [selectedProject, projectFiles]);
+  }, [selectedProject]);
 
-  // Flip a project file's CORE / REFERENCE flag and persist it
-  // through the unified project store. The flag lives directly on
-  // the file row in `documents[]` / `visualAssets[]` — the rest of
-  // the row is left untouched.
-  const toggleProjectFileCore = useCallback(async (category, fileId) => {
-    if (!selectedProject || !updateUnifiedProject) return;
-    const list = Array.isArray(selectedProject[category]) ? selectedProject[category] : [];
-    const next = list.map(f => {
-      if (f.id !== fileId) return f;
-      const current = f.isCore !== false; // default true
-      return { ...f, isCore: !current };
-    });
-    try {
-      await updateUnifiedProject(selectedProject.id, { [category]: next });
-    } catch (err) {
-      console.error('[DOG] toggle core flag failed:', err);
+  /**
+   * Everything one generation reads: the uploads, then the listed references
+   * (the chosen ones, or with Core files only the project's Core files), read
+   * NOW (a fresh list, so an item edited or a file gated since it was chosen
+   * is current). Videos are read only when "Place visual" may place them:
+   * they are never sent to the AI. A reference that cannot be read is left
+   * out and named in the amber line; the rest go.
+   */
+  const resolveSources = useCallback(async () => {
+    const { files: refFiles, referencesSource, notesSource, unreadable } = await resolveReferences({ includeVideo: placeVisual });
+    // Each entry names the file and why ("brief.pdf (could not be read)").
+    setRefsWarning(unreadable.length ? `Not sent: ${unreadable.join(', ')}.` : '');
+    const media = refFiles.filter(f => f.type === 'image' || f.type === 'video');
+    setReferenceMedia(media);
+    const files = [
+      ...uploadedFiles, ...refFiles,
+      ...(referencesSource ? [referencesSource] : []),
+      ...(notesSource ? [notesSource] : []),
+    ];
+    // References chosen and nothing of them readable, and no upload: stop.
+    // Uploads alone behave as before DG1 (a video upload is placed, the
+    // deck generates), as "leave that how it was" asks.
+    const refsReadable = refFiles.some(f => f.type !== 'video') || !!referencesSource || !!notesSource;
+    if (!uploadedFiles.length && !refsReadable) {
+      // Everything chosen turned out unreadable: the project's text alone
+      // does not start a deck (design §4), so say so instead.
+      throw Object.assign(new Error('nothing readable'), { code: 'DOG_NOTHING_READABLE' });
     }
-  }, [selectedProject, updateUnifiedProject]);
+    return {
+      files,
+      placement: placementFrom(media),
+      projectContext: projectContextFor(refFiles),
+    };
+  }, [resolveReferences, placeVisual, uploadedFiles, placementFrom, projectContextFor]);
+
+  // An uploaded PDF's pages, counted once from its body in memory: the meter
+  // counts a PDF by its pages, never its bytes (design review round 1, HIGH).
+  const [uploadPdfPages, setUploadPdfPages] = useState(() => new Map());
+  // Each upload is counted ONCE: an id is marked when its count starts, so a
+  // result landing (which changes uploadPdfPages) never restarts the others
+  // (code review round 1, finding 3). A late result for a removed upload is
+  // harmless: nothing reads its id.
+  const pdfCounting = useRef(new Set());
+  useEffect(() => {
+    for (const f of uploadedFiles) {
+      if (f.type !== 'pdf' || pdfCounting.current.has(f.id)) continue;
+      pdfCounting.current.add(f.id);
+      countPdfPages(f.content).then(n => setUploadPdfPages(m => new Map(m).set(f.id, n)));
+    }
+  }, [uploadedFiles]);
+
+  // What else goes with the references, for the meter: the uploads, the deck
+  // text, the page request and the project's own words. An uploaded PDF whose
+  // pages cannot be told is not guessed; the meter says how many there are.
+  const { baseTokens, baseUncounted } = useMemo(() => {
+    let tokens = textTokens(systemPrompt) + textTokens(pagePrompt)
+      + textTokens(`${selectedProject?.title || ''} ${selectedProject?.description || ''}`);
+    let uncounted = 0;
+    for (const f of uploadedFiles) {
+      const t = uploadTokens(f, uploadPdfPages.get(f.id) || null);
+      if (t == null) uncounted++; else tokens += t;
+    }
+    return { baseTokens: tokens, baseUncounted: uncounted };
+  }, [uploadedFiles, uploadPdfPages, systemPrompt, pagePrompt, selectedProject]);
 
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
@@ -280,6 +397,12 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
           content: reader.result,
           type: file.type,
           size: file.size,
+          // C3: the ORIGINAL File, kept beside the data URL. A backend with a
+          // file store takes the File through adapter.uploadFile; only a
+          // backend without one falls back to the base64 array. Re-deriving a
+          // File from the data URL would work and would also silently change
+          // the bytes' name and type, which the storage path is built from.
+          raw: file,
         });
         reader.readAsDataURL(file);
       });
@@ -296,28 +419,97 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   // Handle creating a new project from the modal — writes through
   // the unified RabbitProvider so the same record shows up in the
   // Projects page and RABBIT itself, not just inside DOG.
+  /**
+   * Create a project from the modal, with whatever the two pickers hold.
+   *
+   * 🚨 CREATE FIRST, THEN UPLOAD, on every backend that has a file store.
+   * S15's finding was that createProject discarded droppedAttachments
+   * entirely, so this modal lost every file in cloud mode with no error at
+   * all; S15 made it refuse. C3 makes it WORK instead — but only by writing
+   * the files where they belong, which needs the project's id, which only
+   * exists after the create returns. Passing the arrays would still be
+   * refused by ATTACHMENTS_MSG in cloud mode, and that refusal stays: it is
+   * what catches a caller nobody migrated.
+   *
+   * A create that succeeds and an upload that fails is NOT silent: the
+   * project exists (correctly — it was created), and the failure is surfaced
+   * on the panel rather than swallowed into a console line, because the files
+   * are the reason the person opened this modal.
+   */
   const handleCreateProjectFromModal = useCallback(async () => {
     if (!newProjectTitle.trim() || !createUnifiedProject) return;
+    const pending = [...newProjectDocuments, ...newProjectAssets];
     try {
       const created = await createUnifiedProject({
         title:        newProjectTitle.trim(),
         description:  newProjectDescription.trim(),
         startDate:    newProjectStartDate,
         endDate:      newProjectEndDate,
-        documents:    newProjectDocuments,
-        visualAssets: newProjectAssets,
+        // Only when there is nowhere better. Drive has no store and no create
+        // either, so in practice this arm is the legacy path for a backend
+        // that grows one later — it is not dead, it is the honest fallback.
+        ...(canStoreFiles ? {} : {
+          documents:    newProjectDocuments,
+          visualAssets: newProjectAssets,
+        }),
         status:       'active',
       });
+      // 🚨 SELECTED IMMEDIATELY — round 2 reversed round 1 here, because
+      // round 1 traded a message race for two worse things. Selecting AFTER
+      // the uploads meant an upload rejection skipped the selection entirely:
+      // the project existed, the modal closed, the pickers were cleared, and
+      // D.O.G. still pointed at whatever was selected before — so the person
+      // could neither see the project they had just made nor retry the files.
+      // And the error itself became invisible, because the panel that renders
+      // it is inside `{selectedProject && …}`, which was exactly the case that
+      // had not been selected.
+      //
+      // The race round 1 was avoiding is closed properly instead: the failure
+      // goes to `storedFilesError`, which the fetch effect never writes.
       if (created?.id) setSelectedProjectId(created.id);
+
+      if (created?.id && canStoreFiles && pending.length > 0) {
+        const adapter = getAdapter?.();
+        if (adapter?.uploadFile) {
+          setStoredFilesBusy(true);
+          // DG1: the files added here were added for this deck, so they start
+          // ticked in References (the design's §9 item 2).
+          const uploadedRows = [];
+          for (const f of pending) {
+            if (!f.raw) continue;
+            const row = await adapter.uploadFile(created.id, {
+              // Total by construction — see deckAttachments.documentKindFor.
+              // `detectDocumentKind(name) || null` here would write NULL for a
+              // PDF whose name matches no heuristic, and the row would then
+              // not be a deck attachment at all: uploaded, listed, and absent
+              // from generation. Measured on `legacy.pdf` by this bundle's
+              // round-trip diff.
+              documentKind: documentKindFor(f.type, f.name, detectDocumentKind),
+              // 🚨 R1, §6 #31 trap (b): CORE, not false. This modal's legacy
+              // writer never set `isCore`, and D.O.G. reads a missing flag as
+              // CORE — so `false` here quietly demoted every file attached at
+              // project creation from "a primary source of truth" to
+              // "supporting reference material only". See
+              // deckAttachments.NEW_ATTACHMENT_IS_CORE.
+              isCoreDefiner: NEW_ATTACHMENT_IS_CORE,
+            }, f.raw);
+            if (row && row.id) uploadedRows.push(row);
+          }
+          adoptUploadedFiles(uploadedRows);
+        }
+      }
+      // Only cleared once everything that needed them has succeeded: the
+      // pickers hold the only copy of what the person chose, so clearing them
+      // on failure would make the retry impossible.
+      resetNewProjectModal();
     } catch (err) {
       console.error('[DOG] createProject failed:', err);
+      setStoredFilesError(`Project attachments could not be saved: ${err?.message || err}`);
+      setShowNewProjectModal(false);
     } finally {
-      resetNewProjectModal();
+      setStoredFilesBusy(false);
     }
-  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal]);
-
-  // API Key — provided by container via props
-  const anthropicApiKey = apiKey || '';
+  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal, canStoreFiles, getAdapter, adoptUploadedFiles]);
 
   // Editable System Prompts
   const [singlePageSystemPrompt, setSinglePageSystemPrompt] = useState(DEFAULT_SINGLE_PAGE_SYSTEM);
@@ -356,6 +548,11 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   const [themeIndex, setThemeIndex] = useState(0); // current index in theme list
   const [enableThemeGen, setEnableThemeGen] = useState(true); // checkbox: AI generation vs presets
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
+  // The theme generator had a spinner and no failure state, so every way it
+  // could fail looked exactly like success-with-no-themes. Rendered in <main>
+  // beside the deck error — a message set into state nothing reads is the same
+  // silence wearing a hat.
+  const [themeError, setThemeError] = useState('');
   const [deckVisualDesc, setDeckVisualDesc] = useState(''); // generated deck visual description
   const [includeVisInExport, setIncludeVisInExport] = useState(false); // export checkbox for VIS format
   const [themeColorPrompt, setThemeColorPrompt] = useState(DEFAULT_THEME_COLOR_PROMPT);
@@ -425,7 +622,8 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     if (isGeneratingThemeRef.current) return null;
     isGeneratingThemeRef.current = true;
     setIsGeneratingTheme(true);
-    
+    setThemeError('');
+
     try {
       const historyToUse = overrideHistory || history;
       const contextSnippet = (systemPrompt || '').substring(0, 800);
@@ -445,24 +643,14 @@ ${textSnippets ? `Content excerpt:\n${textSnippets}` : ''}
 Generate 3 color themes for this deck.`;
 
       console.log('Theme gen: calling Haiku API...');
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 500,
-          system: themeColorPrompt,
-          messages: [{ role: 'user', content: userMsg }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.themes'),
+        max_tokens: 500,
+        system: themeColorPrompt,
+        messages: [{ role: 'user', content: userMsg }],
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('Theme gen API error:', response.status, errText);
-        throw new Error(`API ${response.status}`);
-      }
-      const data = await response.json();
-      const text = data.content.map(i => i.text || '').join('').trim();
+      const text = textFromMessage(data).trim();
       console.log('Theme gen response:', text.substring(0, 200));
       const jsonStart = text.indexOf('[');
       const jsonEnd = text.lastIndexOf(']');
@@ -486,15 +674,27 @@ Generate 3 color themes for this deck.`;
           return validThemes;
         }
       }
+      // Reached the model, got a reply, but nothing usable came out of it —
+      // every theme was missing its `colors` array or had the wrong count.
+      // That is a failure, and it used to be indistinguishable from success.
+      setThemeError('The colour theme generator replied, but none of the themes it suggested were usable. Your deck is fine — the preset colours are still applied. Try the refresh button to run it again.');
       return null;
     } catch (err) {
       console.error('Theme generation error:', err);
+      // Returns null rather than rethrowing, deliberately: generateFullDeck
+      // awaits this and falls back to a preset theme on null. Throwing here
+      // would abort a deck that had already generated successfully.
+      setThemeError(
+        err?.status === 546
+          ? 'The colour theme generator was cut off before it finished. Your deck is fine — the preset colours are still applied.'
+          : `Could not generate colour themes: ${err?.message || 'the request failed'}. Your deck is fine — the preset colours are still applied.`
+      );
       return null;
     } finally {
       isGeneratingThemeRef.current = false;
       setIsGeneratingTheme(false);
     }
-  }, [systemPrompt, history, uploadedFiles, themeColorPrompt, anthropicApiKey]);
+  }, [systemPrompt, history, uploadedFiles, themeColorPrompt]);
 
   // Cycle to previous/next theme in allThemes list
   const cycleTheme = useCallback((direction) => {
@@ -533,9 +733,23 @@ Generate 3 color themes for this deck.`;
   }, [activeTabId]);
 
   // Check if we have any file content for API calls
-  const hasFileContent = useMemo(() => {
-    return uploadedFiles.length > 0 || allFiles.length > 0;
-  }, [uploadedFiles, allFiles]);
+  // Q13 ("Both still apply"): out of sight in Single page, the full deck
+  // context still shapes each page, so the page box says so. DG4: the theme
+  // generator is on screen in both modes now (beside Place visual), so the
+  // line names the context alone, and is not drawn without one.
+  const appliedFromFullDeck = useMemo(() => {
+    const ctx = systemPrompt.trim().replace(/\s+/g, ' ');
+    if (!ctx) return '';
+    return `Also applied here, from Full deck: your context (\u201C${ctx.length > 60 ? `${ctx.slice(0, 60).trimEnd()}\u2026` : ctx}\u201D).`;
+  }, [systemPrompt]);
+
+  // A deck needs a source: an upload, or a chosen reference that can still be
+  // read. DG1: references alone are enough ("pull from files, from databases,
+  // and from notes"); before, only a file could start a deck.
+  const hasFileContent = useMemo(() => (
+    uploadedFiles.length > 0
+    || refs.chosenList.some(s => !refs.unavailable.has(s.key) && s.dogType !== 'video')
+  ), [uploadedFiles, refs.chosenList, refs.unavailable]);
 
   const handleFileUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -543,13 +757,14 @@ Generate 3 color themes for this deck.`;
     
     // Check max files limit
     if (uploadedFiles.length >= 20) {
-      setError('Maximum 20 files allowed');
+      setUploadError('Maximum 20 files allowed');
       return;
     }
 
     setIsFileLoading(true);
     setError('');
-    
+    setUploadError('');
+
     // Valid file types - documents, images, and videos
     const isDocument = file.type === 'application/pdf' ||
       file.type === 'text/markdown' ||
@@ -566,7 +781,7 @@ Generate 3 color themes for this deck.`;
       file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i);
 
     if (!isDocument && !isImage && !isVideo) {
-      setError('Please upload a PDF, Markdown, Text, Image, or Video file');
+      setUploadError('Please upload a PDF, Markdown, Text, Image, or Video file');
       setIsFileLoading(false);
       return;
     }
@@ -587,7 +802,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading PDF file');
+          setUploadError('Error reading PDF file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -605,7 +820,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading video file');
+          setUploadError('Error reading video file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -623,7 +838,7 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading image file');
+          setUploadError('Error reading image file');
           setIsFileLoading(false);
         };
         reader.readAsDataURL(file);
@@ -639,19 +854,19 @@ Generate 3 color themes for this deck.`;
           setIsFileLoading(false);
         };
         reader.onerror = () => {
-          setError('Error reading file');
+          setUploadError('Error reading file');
           setIsFileLoading(false);
         };
         reader.readAsText(file);
       }
     } catch (err) {
-      setError('Error processing file');
+      setUploadError('Error processing file');
       setIsFileLoading(false);
     }
     
     // Reset the input so the same file can be uploaded again if removed
     e.target.value = '';
-  }, [uploadedFiles.length]);
+  }, [uploadedFiles.length, setUploadError]);
 
   const removeFile = useCallback((fileId) => {
     setUploadedFiles(prev => prev.filter(f => f.id !== fileId));
@@ -842,7 +1057,9 @@ ${contentBody}
     if (!assets || assets.length === 0) return { instructions: '', assetList: '', rules: '' };
 
     const assetList = assets.map((f, i) => {
-      const cleanName = (f.file?.name || '').replace(/^\[Project\]\s*/, '');
+      // DG1: the bare name, whatever D.O.G.'s label ([Project], [Project · CORE],
+      // [Project · REF]); the visualizer and the export find a file by it.
+      const cleanName = bareAssetName(f.file?.name);
       return `${i + 1}. ${cleanName} (${f.type})`;
     }).join('\n');
 
@@ -873,14 +1090,191 @@ ${alreadyPlacedContext}`;
     return { instructions, assetList, rules };
   }, []);
 
+  // ── Source documents go to Anthropic once, then travel as file_id ──────────
+  // Measured 2026-08-11: inlining documents as base64 is what killed the deck.
+  // A real deck carries ~232k input tokens of source material, and ai-proxy's
+  // Edge worker was being killed (HTTP 546) parsing and re-serialising that
+  // body before the request ever reached Anthropic. `effort` and `max_tokens`
+  // cannot reach an input-side failure — the body itself had to get smaller.
+  //
+  // Uploading does NOT reduce input tokens: the document is still billed as
+  // input on every call that references it. What it bounds is the body WILSON
+  // relays, which is the thing that was failing.
+  //
+  // Cached per file so a re-generation, and every call of the continuation
+  // loop, reuse the same id instead of re-uploading. Keyed on a content
+  // fingerprint rather than the record's `id` because project documents and
+  // picker uploads mint ids differently, and the source list is rebuilt
+  // on every render — an identity-keyed cache would miss constantly.
+  //
+  // FX12 (OUTSTANDING DG1-03): the cache knows whose each id is and when it
+  // was uploaded (./aiFileCache.js). An id no upload or chosen reference
+  // owns any more is deleted from the AI's store; everything is deleted
+  // when the app closes or the person signs out (holdAIFiles); an id past
+  // its TTL is uploaded again rather than referenced. NEVER deleted after a
+  // generation: the next "Regenerate" reuses it.
+  const aiFileIdCache = useRef(null);
+  if (!aiFileIdCache.current) aiFileIdCache.current = createAIFileCache();
+
+  /** Delete ids from the AI's store, best-effort: its expiry and the sweep catch a miss. */
+  const letGoOfAIFiles = useCallback((ids) => {
+    if (!ids?.length) return;
+    deleteAIFiles(ids).catch((err) => {
+      console.warn(`[DOG] could not let go of ${ids.length} AI file(s):`, err?.code || err?.message || err);
+    });
+  }, []);
+
+  // The app closing and a sign-out take everything this screen holds.
+  useEffect(() => holdAIFiles(() => aiFileIdCache.current.takeAll()), []);
+
+  // A file removed from the picker, a reference untaken, the References set
+  // cleared (or set aside by choosing another project): the ids nothing owns
+  // are let go of. Never while a generation runs (its calls may still
+  // reference them): the effect runs again when it ends. DG4: the owners are
+  // what is LISTED, so a Core file sent with Core files only is kept for the
+  // next Regenerate, and let go of when the box is cleared, as the set the
+  // box set aside was when it was ticked.
+  const generationBusy = isGenerating || isRegenerating;
+  useEffect(() => {
+    if (generationBusy) return;
+    letGoOfAIFiles(aiFileIdCache.current.release(liveOwners(uploadedFiles, refs.listedKeys)));
+  }, [generationBusy, uploadedFiles, refs.listedKeys, letGoOfAIFiles]);
+
+  const fileFingerprint = useCallback((fileData) => {
+    const c = String(fileData.content || '');
+    // Length plus both ends. Cheap (no hashing megabytes) and collision-proof
+    // for real documents — two different files would have to match in size AND
+    // first 48 AND last 48 characters.
+    return `${fileData.type}:${fileData.mediaType || ''}:${c.length}:${c.slice(0, 48)}:${c.slice(-48)}`;
+  }, []);
+
+  const ensureAIFileId = useCallback(async (fileData) => {
+    // DG1: the references text is rebuilt every generation and opens with a
+    // fixed header, so a fingerprint of its ends could match an edited
+    // block: it is never cached. FX12: it is still HELD (owner
+    // `generation`), so it is let go of once its generation has ended.
+    const key = fileData.source === 'references' ? null : fileFingerprint(fileData);
+    const owner = ownerOf(fileData);
+    if (key) {
+      const hit = aiFileIdCache.current.get(key, Date.now());
+      if (hit?.id) {
+        aiFileIdCache.current.addOwner(key, owner);
+        return hit.id;
+      }
+      // Past its TTL: uploaded again below, and the old id let go of.
+      if (hit?.expired) letGoOfAIFiles([hit.expired]);
+    }
+
+    // Text is read with readAsText, so its `content` is plain text; pdf/image
+    // are read with readAsDataURL and hold base64. Getting this backwards
+    // produces a file Anthropic accepts and cannot read, so it is explicit.
+    const isText = fileData.type === 'text';
+    const mediaType = fileData.mediaType || (isText ? 'text/plain' : 'application/octet-stream');
+    const data = isText
+      ? new Blob([String(fileData.content || '')], { type: mediaType })
+      : fileData.content;
+
+    const uploaded = await uploadAIFile({
+      data,
+      filename: fileData.file?.name || 'document',
+      mediaType,
+    });
+    const replaced = aiFileIdCache.current.set(key ?? `once:${uploaded.id}`, uploaded.id, owner, Date.now());
+    if (replaced) letGoOfAIFiles([replaced]);
+    return uploaded.id;
+  }, [fileFingerprint, letGoOfAIFiles]);
+
+  /**
+   * One AI call, and once more if the AI's store says a file the call
+   * references is gone (swept, expired, or deleted from another window): that
+   * file is uploaded again, every part that named the old id names the new
+   * one, and the call is repeated. Once per generation (`live.retried`); a
+   * second refusal reaches the person as any failure does.
+   * The store's answer is MEASURED (aiFileCache.deadFileIds); the rule is
+   * aiFileCache.retryWithLiveFiles.
+   */
+  const callWithLiveFiles = useCallback((call, live) => retryWithLiveFiles(call, live, {
+    reupload: ensureAIFileId,
+    forget: (id) => aiFileIdCache.current.forgetId(id),
+  }), [ensureAIFileId]);
+
+  /**
+   * The source documents, as content blocks plus whatever text stayed inline.
+   *
+   * ONE definition for all three generators — full deck, single page, and
+   * regenerate — because all three sent the same base64 payload and all three
+   * had the same HTTP 546 exposure. Fixing only the one Audrey reported would
+   * have left "Make a page" broken in exactly the same way, for the same
+   * reason, with the same unreadable error.
+   *
+   * Throws on upload failure; every caller catches and clears its own busy flag.
+   */
+  const buildSourceParts = useCallback(async (files) => {
+    // Text small enough to stay in the prompt does, so a normal deck sends
+    // byte-for-byte what it always did and its output cannot drift. Only text
+    // large enough to threaten the request body is diverted to an upload.
+    // This is a change of TRANSPORT, never a cap: nothing is truncated and no
+    // file is refused at any size.
+    const INLINE_TEXT_LIMIT = 256 * 1024;
+
+    const contentParts = [];
+    const inlineTextParts = [];
+    let usedFileRefs = false;
+    // FX12: which source each referenced id came from, so a call the store
+    // refuses for a gone file can upload that one again (callWithLiveFiles).
+    const fileSources = new Map();
+
+    for (const fileData of files) {
+      if (fileData.type === 'pdf' || fileData.type === 'image') {
+        const fileId = await ensureAIFileId(fileData);
+        fileSources.set(fileId, fileData);
+        usedFileRefs = true;
+        contentParts.push({
+          // The block type must match the file's MIME type — a PDF sent as an
+          // `image` block is a 400 that names neither the file nor why.
+          type: fileData.type === 'pdf' ? 'document' : 'image',
+          source: { type: 'file', file_id: fileId },
+        });
+      } else if (fileData.type === 'text') {
+        const body = String(fileData.content || '');
+        // The notes travel in the request itself, never in the AI's file
+        // store, which keeps what it is given (DG1): sendsInline says so.
+        if (!sendsInline(fileData, INLINE_TEXT_LIMIT)) {
+          const fileId = await ensureAIFileId(fileData);
+          fileSources.set(fileId, fileData);
+          usedFileRefs = true;
+          contentParts.push({ type: 'document', source: { type: 'file', file_id: fileId } });
+        } else {
+          inlineTextParts.push(`--- ${fileData.file?.name || 'document'} ---\n${body}`);
+        }
+      }
+      // `video` is deliberately not sent to the model — videos are placement
+      // assets, and that was true before this change too.
+    }
+
+    return { contentParts, textContents: inlineTextParts.join('\n\n'), usedFileRefs, fileSources };
+  }, [ensureAIFileId]);
+
+  /** Turn an upload failure into something true and readable. */
+  const sourceUploadMessage = useCallback((err) => (
+    err?.code === 'DOG_NOTHING_READABLE'
+      ? 'Nothing you chose could be read, so nothing was generated. Remove what is greyed in References, choose something else, or upload a document.'
+      : err?.code === 'DOG_LIST_FAILED'
+      ? 'The project could not be listed just now, so nothing was generated and nothing you chose was dropped. Try again.'
+      : err?.status === 546
+      ? 'WILSON could not pass your source documents through to the AI. This is a limit in WILSON’s AI relay, not in your work.'
+      : `Could not prepare your source documents: ${err?.message || 'the upload failed'}`
+  ), []);
+
   const generatePageOutline = useCallback(async () => {
     if (!hasFileContent || !pagePrompt || !selectedLayout) {
-      setError('Please upload a document, select a layout, and enter a page request');
+      setError('Please upload a document or choose a reference, select a layout, and enter a page request');
       return;
     }
 
     setIsGenerating(true);
     setError('');
+    setUploadError('');
 
     const layoutInfo = SLIDE_LAYOUTS.find(l => l.id === selectedLayout);
     
@@ -1005,42 +1399,22 @@ RULES:
 28. COMPONENT GEOMETRY: Every slide MUST end with ▸ COMPONENT GEOMETRY containing a JSON code block. Canvas is 720×405pt. Use 36pt left/right margins, 30pt top, 35pt bottom, 15pt gutters. Calculate x/y/width/height for every text area and asset frame based on your LAYOUT STRUCTURE. Include "type", "description", "x", "y", "width", "height" for each frame. Image/video/infograph/timeline frames also need "aspect_ratio". Use background_image type (0,0,720,405) for [Image Background] assets.
 Generate the outline now:`;
     
-    // Build message content array with all files (uploaded + project)
-    const contentParts = [];
-
-    // Add all files (uploaded + project)
-    allFiles.forEach((fileData, index) => {
-      if (fileData.type === 'pdf') {
-        contentParts.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileData.content
-          }
-        });
-      } else if (fileData.type === 'image') {
-        contentParts.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: fileData.mediaType,
-            data: fileData.content
-          }
-        });
-      } else {
-        // Text content - will be included in the text prompt
-      }
-    });
-
-    // Collect all text content (uploaded + project)
-    const textContents = allFiles
-      .filter(f => f.type === 'text')
-      .map(f => `--- ${f.file.name} ---\n${f.content}`)
-      .join('\n\n');
+    // Source documents travel as file_id references — see buildSourceParts.
+    // Same exposure as the full deck: this path sent the same base64 payload.
+    // DG1: the uploads plus the chosen references, read now (resolveSources).
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
+    try {
+      ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
+    } catch (err) {
+      console.error('Source document upload failed:', err);
+      setError(sourceUploadMessage(err));
+      setIsGenerating(false);
+      return;
+    }
 
     // Build the text prompt
-    const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
+    const fileDescriptions = srcFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
 
     // Include existing deck pages for cohesion context
     const existingPages = history.length > 0
@@ -1054,10 +1428,10 @@ Generate the outline now:`;
       : '';
 
     // Build asset placement context if active
-    const placementPrompt = assetPlacementActive ? buildAssetPlacementPrompt(placementAssets) : { instructions: '', rules: '' };
+    const placementPrompt = srcPlacement.length > 0 ? buildAssetPlacementPrompt(srcPlacement) : { instructions: '', rules: '' };
 
     // Build already-placed context from existing history
-    const alreadyPlacedList = assetPlacementActive && history.length > 0
+    const alreadyPlacedList = srcPlacement.length > 0 && history.length > 0
       ? history.map(h => {
           const p = parseSlideContent(h.output || h.content || '');
           const placed = parsePlacedAssets(p.placedAssets);
@@ -1075,7 +1449,7 @@ IMPORTANT: You MUST use the exact format specified below. Do NOT use markdown # 
 ${projectContext ? `PROJECT CONTEXT:\n${projectContext}\n\n` : ''}${systemPrompt ? `DECK CONTEXT & GUIDELINES:\n${systemPrompt}\n\n` : ''}${existingPages}UPLOADED FILES:
 ${fileDescriptions}
 
-${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${allFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${placementPrompt.instructions}${alreadyPlacedText}SELECTED SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
+${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${srcFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${placementPrompt.instructions}${alreadyPlacedText}SELECTED SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
 
 USER REQUEST: ${pagePrompt}
 
@@ -1086,31 +1460,21 @@ ${outputInstructions}${placementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: singlePageSystemPrompt,
-          messages: messages
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('API request failed');
-      }
-
-      const data = await response.json();
-      const output = data.content
-        .filter(item => item.type === 'text')
-        .map(item => item.text)
-        .join('\n');
+      // FX12: once more, with the file uploaded again, if the store says a
+      // file this call references is gone (callWithLiveFiles).
+      const data = await callWithLiveFiles(() => callAI({
+        model: modelFor('dog.pageOutline'),
+        // Required on every request that REFERENCES a file_id, not just the
+        // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
+        ...(usedFileRefs ? { betas: FILES_BETA } : {}),
+        max_tokens: 4096,
+        system: singlePageSystemPrompt,
+        messages: messages,
+        tool: 'dog',
+      }), { contentParts, fileSources, retried: false });
+      // The reply's words through textFromMessage (anthropicStream.js), never
+      // a walk of the content blocks (DG1; the S30 rule).
+      const output = textFromMessage(data);
 
       // Parse output into pages
       const pages = parseOutputToPages(output);
@@ -1180,7 +1544,7 @@ ${outputInstructions}${placementPrompt.rules}`;
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [hasFileContent, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Regenerate page with revisions
   const regeneratePage = useCallback(async () => {
@@ -1191,6 +1555,7 @@ ${outputInstructions}${placementPrompt.rules}`;
 
     setIsRegenerating(true);
     setError('');
+    setUploadError('');
 
     // Push previous content onto undo stack (up to 8 entries)
     setPreviousContent(prev => {
@@ -1300,39 +1665,22 @@ RULES:
 Generate the revised outline now:`;
     
     // Build message content array with all files (uploaded + project)
-    const contentParts = [];
-
-    // Add all files (uploaded + project)
-    allFiles.forEach((fileData) => {
-      if (fileData.type === 'pdf') {
-        contentParts.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileData.content
-          }
-        });
-      } else if (fileData.type === 'image') {
-        contentParts.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: fileData.mediaType,
-            data: fileData.content
-          }
-        });
-      }
-    });
-
-    // Collect all text content (uploaded + project)
-    const textContents = allFiles
-      .filter(f => f.type === 'text')
-      .map(f => `--- ${f.file.name} ---\n${f.content}`)
-      .join('\n\n');
+    // Source documents travel as file_id references — see buildSourceParts.
+    // Same exposure as the full deck: this path sent the same base64 payload.
+    // DG1: the uploads plus the chosen references, read now (resolveSources).
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
+    try {
+      ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
+    } catch (err) {
+      console.error('Source document upload failed:', err);
+      setError(sourceUploadMessage(err));
+      setIsRegenerating(false);
+      return;
+    }
 
     // Build the text prompt
-    const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
+    const fileDescriptions = srcFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
 
     // Include existing deck pages for cohesion context
     const existingPagesRegen = history.length > 0
@@ -1347,7 +1695,7 @@ Generate the revised outline now:`;
       : '';
 
     // Build asset placement context for regeneration
-    const regenAlreadyPlaced = assetPlacementActive
+    const regenAlreadyPlaced = srcPlacement.length > 0
       ? history.filter(h => h.id !== activeTab.id).map(h => {
           const p = parseSlideContent(h.output || h.content || '');
           return parsePlacedAssets(p.placedAssets).map(a => `${a.filename} (Slide #${h.pageNum})`);
@@ -1356,8 +1704,8 @@ Generate the revised outline now:`;
     const regenAlreadyPlacedText = regenAlreadyPlaced.length > 0
       ? `\nALREADY PLACED ON OTHER SLIDES (do not reuse unless user requests):\n${regenAlreadyPlaced.join('\n')}\n`
       : '';
-    const regenPlacementPrompt = assetPlacementActive
-      ? buildAssetPlacementPrompt(placementAssets, regenAlreadyPlacedText)
+    const regenPlacementPrompt = srcPlacement.length > 0
+      ? buildAssetPlacementPrompt(srcPlacement, regenAlreadyPlacedText)
       : { instructions: '', rules: '' };
 
     const textPrompt = `You are a presentation deck outline generator. Revise this slide outline based on the user's request.
@@ -1367,7 +1715,7 @@ IMPORTANT: You MUST use the exact format specified below. Do NOT use markdown # 
 ${projectContext ? `PROJECT CONTEXT:\n${projectContext}\n\n` : ''}${systemPrompt ? `DECK CONTEXT & GUIDELINES:\n${systemPrompt}\n\n` : ''}${existingPagesRegen}UPLOADED FILES:
 ${fileDescriptions}
 
-${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${allFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${regenPlacementPrompt.instructions}TARGET SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
+${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${srcFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${regenPlacementPrompt.instructions}TARGET SLIDE LAYOUT: ${layoutInfo.name} (${layoutInfo.description})
 
 ${outputInstructions}${regenPlacementPrompt.rules}`;
 
@@ -1376,31 +1724,21 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: singlePageSystemPrompt,
-          messages: messages
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('API request failed');
-      }
-
-      const data = await response.json();
-      const output = data.content
-        .filter(item => item.type === 'text')
-        .map(item => item.text)
-        .join('\n');
+      // FX12: once more, with the file uploaded again, if the store says a
+      // file this call references is gone (callWithLiveFiles).
+      const data = await callWithLiveFiles(() => callAI({
+        model: modelFor('dog.regeneratePage'),
+        // Required on every request that REFERENCES a file_id, not just the
+        // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
+        ...(usedFileRefs ? { betas: FILES_BETA } : {}),
+        max_tokens: 4096,
+        system: singlePageSystemPrompt,
+        messages: messages,
+        tool: 'dog',
+      }), { contentParts, fileSources, retried: false });
+      // The reply's words through textFromMessage (anthropicStream.js), never
+      // a walk of the content blocks (DG1; the S30 rule).
+      const output = textFromMessage(data);
 
       // Parse the output to extract the new content
       const pages = parseOutputToPages(output);
@@ -1445,7 +1783,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     } finally {
       setIsRegenerating(false);
     }
-  }, [activeTab, hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [activeTab, hasFileContent, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Undo regeneration
   const undoRegeneration = useCallback(() => {
@@ -1537,17 +1875,24 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     });
   }, [activeTab, redoContent]);
 
+
   const generateFullDeck = useCallback(async () => {
     console.log('generateFullDeck called', { hasFileContent, uploadedFiles: uploadedFiles.length });
     
     if (!hasFileContent) {
-      setError('Please upload a document first');
+      setError('Please upload a document or choose a reference first');
       return;
     }
 
     setIsGenerating(true);
     setError('');
-    
+    setUploadError('');
+    // generateAIThemes clears this itself when it runs, which covers every case
+    // except the one that matters here: a rerun with the Theme Generator
+    // checkbox OFF never calls it, and last run's amber banner would sit there
+    // describing a failure that is no longer happening.
+    setThemeError('');
+
     const outputInstructions = `Generate a complete deck outline with multiple slides.
 
 CRITICAL: Output ONLY the structured format below. No explanations, no commentary, no "Based on..." or "Here is..." text.
@@ -1716,44 +2061,25 @@ RULES:
 31. COMPONENT GEOMETRY: Every slide MUST end with ▸ COMPONENT GEOMETRY containing a JSON code block. Canvas is 720×405pt. Use 36pt left/right margins, 30pt top, 35pt bottom, 15pt gutters. Calculate x/y/width/height for every text area and asset frame based on your LAYOUT STRUCTURE. Include "type", "description", "x", "y", "width", "height" for each frame. Image/video/infograph/timeline frames also need "aspect_ratio". Use background_image type (0,0,720,405) for [Image Background] assets.
 Generate the complete deck now:`;
     
-    // Build message content array with all files (uploaded + project)
-    const contentParts = [];
-
-    // Add all files (uploaded + project)
-    allFiles.forEach((fileData, index) => {
-      if (fileData.type === 'pdf') {
-        contentParts.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileData.content
-          }
-        });
-      } else if (fileData.type === 'image') {
-        contentParts.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: fileData.mediaType,
-            data: fileData.content
-          }
-        });
-      }
-    });
-
-    // Collect all text content (uploaded + project)
-    const textContents = allFiles
-      .filter(f => f.type === 'text')
-      .map(f => `--- ${f.file.name} ---\n${f.content}`)
-      .join('\n\n');
+    // Source documents travel as file_id references — see buildSourceParts.
+    // DG1: the uploads plus the chosen references, read now (resolveSources).
+    let contentParts, textContents, usedFileRefs, fileSources, srcFiles, srcPlacement, projectContext;
+    try {
+      ({ files: srcFiles, placement: srcPlacement, projectContext } = await resolveSources());
+      ({ contentParts, textContents, usedFileRefs, fileSources } = await buildSourceParts(srcFiles));
+    } catch (err) {
+      console.error('Source document upload failed:', err);
+      setError(sourceUploadMessage(err));
+      setIsGenerating(false);
+      return;
+    }
 
     // Build the text prompt
-    const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
+    const fileDescriptions = srcFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
 
     // Build asset placement context for full deck
-    const fullDeckPlacementPrompt = assetPlacementActive
-      ? buildAssetPlacementPrompt(placementAssets)
+    const fullDeckPlacementPrompt = srcPlacement.length > 0
+      ? buildAssetPlacementPrompt(srcPlacement)
       : { instructions: '', rules: '' };
 
     const textPrompt = `You are a presentation deck outline generator. Create a complete deck outline with multiple slides based on the project documentation.
@@ -1763,49 +2089,68 @@ IMPORTANT: You MUST use the exact format specified below. Do NOT use markdown # 
 ${projectContext ? `PROJECT CONTEXT:\n${projectContext}\n\n` : ''}${systemPrompt ? `DECK CONTEXT & GUIDELINES:\n${systemPrompt}\n\n` : ''}UPLOADED FILES:
 ${fileDescriptions}
 
-${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${allFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${fullDeckPlacementPrompt.instructions}${outputInstructions}${fullDeckPlacementPrompt.rules}`;
+${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => f.type === 'pdf') ? 'The PDF document(s) above contain project details.\n\n' : ''}${srcFiles.some(f => f.type === 'image') ? 'The image(s) above are visual references for the project.\n\n' : ''}${fullDeckPlacementPrompt.instructions}${outputInstructions}${fullDeckPlacementPrompt.rules}`;
 
     contentParts.push({ type: 'text', text: textPrompt });
 
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      // Initial API call with high token limit for large decks
+      // ── Do NOT lower this to dodge the 546. It is the wrong stage ─────────
+      // MEASURED 2026-08-11 from app_events (WIL-6001/6002) on staging:
+      //
+      //   2026-08-02  S19 probe deck   input  14513  -> succeeded x5
+      //   2026-08-03  a REAL deck      input 232275  -> succeeded, once
+      //   2026-08-10  Audrey's deck            —     -> NO ROW AT ALL
+      //   2026-08-11  Audrey's deck            —     -> NO ROW AT ALL
+      //
+      // ai-proxy calls logUsage on the upstream-error path AND from the
+      // stream's cancel(), so a worker killed DURING generation still leaves a
+      // WIL-6002 row. Audrey's failures leave none. The worker therefore dies
+      // before `fetch(ANTHROPIC_URL)` returns — while it is doing `req.json()`
+      // on a multi-megabyte body and `JSON.stringify()`ing it back out.
+      //
+      // That is input-side, and `max_tokens` governs OUTPUT. Shrinking it
+      // cannot help, and it hurts twice over: more continuations, each
+      // resending the whole ~232k-token payload (~$0.70 a call), and each one
+      // another chance to trip the same worker limit. This was tried on
+      // 2026-08-11 and reverted for exactly that reason.
+      //
+      // Also note the deadline this was reasoned against is not real: the
+      // response is an SSE stream whose first byte arrives at once, so the
+      // ~150s "must emit a response" rule is satisfied immediately and only
+      // the 400s wall clock governs (see ai-proxy/index.ts, header).
       let fullOutput = '';
       let currentMessages = messages;
       let continuationAttempts = 0;
       const MAX_CONTINUATIONS = 3; // Allow up to 3 continuation calls
+      // FX12: ONE re-upload per generation, shared by every call of the loop.
+      // The continuation messages hold the same content parts, so a file
+      // uploaded again is referenced by every later call too.
+      const liveFiles = { contentParts, fileSources, retried: false };
 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicApiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 16384,
-            system: fullDeckSystemPrompt,
-            messages: currentMessages
-          })
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('API Error:', response.status, errorText);
-          throw new Error(`API request failed: ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await callWithLiveFiles(() => callAI({
+          model: modelFor('dog.fullDeck'),
+          // Caps how hard the model thinks. Measured, not guessed — the
+          // rationale and the numbers are on the REGISTRY entry. Without it
+          // this call runs ~138s against ai-proxy's ~150s Edge deadline.
+          ...tuningFor('dog.fullDeck'),
+          // Anthropic requires the Files beta on every request that REFERENCES
+          // a file_id, not just on the upload. ai-proxy forwards `betas`
+          // verbatim into the anthropic-beta header (it has always had that
+          // passthrough), so nothing about ai-proxy changes for this to work.
+          // Sent only when a file block is actually present — an unnecessary
+          // beta header is a needless difference between requests.
+          ...(usedFileRefs ? { betas: FILES_BETA } : {}),
+          max_tokens: 16384,
+          system: fullDeckSystemPrompt,
+          messages: currentMessages,
+          tool: 'dog',
+        }), liveFiles);
         console.log(`API Response (attempt ${continuationAttempts}):`, data);
 
-        const chunkOutput = data.content
-          .filter(item => item.type === 'text')
-          .map(item => item.text)
-          .join('\n');
+        const chunkOutput = textFromMessage(data);
 
         fullOutput += chunkOutput;
 
@@ -1813,10 +2158,37 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         if (data.stop_reason === 'max_tokens') {
           console.log(`[WILSON] Output truncated at attempt ${continuationAttempts}, continuing...`);
           continuationAttempts++;
+
+          // ── Two ways this continuation is a 400, both now reachable ───────
+          // Smaller per-call budgets make this loop ROUTINE rather than rare,
+          // so both guards below are load-bearing, not hardening. Neither
+          // failure would arrive as itself: the API rejects the request we
+          // build, and the user sees "try again" for a malformed retry.
+          //
+          // 1. Empty assistant turn. `chunkOutput` keeps only `type: 'text'`
+          //    blocks, so a response that spent its whole budget thinking and
+          //    emitted no text leaves fullOutput ''. An assistant turn with
+          //    empty content is a 400 ("text content blocks must be
+          //    non-empty"). Bail with something true instead.
+          // 2. Trailing whitespace. Blocks are joined with '\n', so fullOutput
+          //    routinely ends in a newline, and a final assistant turn that
+          //    ends in whitespace is also a 400.
+          const carryOver = fullOutput.trimEnd();
+          if (!carryOver) {
+            const bail = new Error(
+              'The AI spent its whole response budget thinking and did not write any slides. Nothing was lost — run the generation again.'
+            );
+            // Marks a message written FOR Audrey, so the catch below can show
+            // it verbatim instead of replacing it with "please try again".
+            // Raw JS errors carry no such flag and stay behind the generic.
+            bail.userFacing = true;
+            throw bail;
+          }
+
           // Build continuation messages: original user message + assistant partial response + user continuation request
           currentMessages = [
             ...messages,
-            { role: 'assistant', content: fullOutput },
+            { role: 'assistant', content: carryOver },
             { role: 'user', content: 'Continue generating the remaining slides from exactly where you left off. Do not repeat any slides already generated. Continue with the same format.' }
           ];
         } else {
@@ -1875,12 +2247,26 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       }
       
     } catch (err) {
-      setError('Error generating full deck outline. Please try again.');
+      // 546 is the Supabase Edge Runtime killing the worker for exceeding its
+      // resource ceiling — not an Anthropic error, so ai-proxy has no upstream
+      // message to forward. On 2026-08-10 that reached Audrey as a bare "please
+      // try again", which invited the one action guaranteed to fail identically.
+      //
+      // Checked here on STATUS as well as in aiProxy.js's FRIENDLY map on code:
+      // the Edge runtime does not reliably send a JSON body, so `code` is only
+      // `http_546` when it sends nothing parseable. The status is always right.
+      if (err?.status === 546) {
+        setError('WILSON could not pass your source documents through to the AI — the request was stopped before it got there. This is a limit in WILSON’s AI relay, not in your deck. Generating with fewer documents attached will get through in the meantime.');
+      } else if (err?.userFacing) {
+        setError(err.message);
+      } else {
+        setError('Error generating full deck outline. Please try again.');
+      }
       console.error(err);
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [hasFileContent, uploadedFiles, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   const copyToClipboard = useCallback(() => {
     if (!activeTab) return;
@@ -1955,7 +2341,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     formal: 'Formal',
     extend: 'Extend',
     shorten: 'Shorten',
-    editor: 'Editor Pass',
+    editor: 'Editor pass',
   };
 
   // Handle right-click on textarea
@@ -2772,6 +3158,11 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     const handler = (e) => {
       // Only handle arrow keys
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      // A control that already used the key keeps it: the kit's Tabs (History,
+      // Settings) move focus on Left / Right and mark the key handled, and
+      // this handler used to switch the page behind the dialog as well
+      // (A2 review round 1).
+      if (e.defaultPrevented) return;
       // Don't handle if no tabs are open
       if (openTabs.length === 0) return;
       // Don't handle if user is typing in an input, textarea, or contenteditable
@@ -2816,26 +3207,64 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     return () => document.removeEventListener('keyup', handler);
   }, []);
 
+  // FX13 (Audrey, 2026-10-26: "Enter needs text in the box"): an Enter that
+  // would have started a full deck with the deck context box empty starts
+  // nothing; the box gets focus (the Generate outline card, 2 since DG4,
+  // opens first if it is folded) and the
+  // toast stack says why, one such toast at a time. The box is brought to the
+  // middle of the page: focus alone left it on the bottom edge, under the
+  // toast (measured at 1280x800 and 1440x900).
+  const deckContextRef = useRef(null);
+  const askToastId = useRef(null);
+  const toast = useOptionalToast();
+  const askForDeckContext = useCallback(() => {
+    setSection2Collapsed(false);
+    setTimeout(() => {
+      const box = deckContextRef.current;
+      if (!box) return;
+      box.focus({ preventScroll: true });
+      box.scrollIntoView?.({ block: 'center' });
+    }, 0);
+    if (!toast) return;
+    if (askToastId.current != null) toast.dismiss(askToastId.current);
+    askToastId.current = toast.push(ASK_FOR_CONTEXT);
+  }, [toast]);
+  // The note has no timer (review round 2, finding 1); it goes when it stops
+  // being true: words in the box, Single page, a deck started from the
+  // button, another page on screen, or D.O.G. itself gone.
+  useEffect(() => {
+    if (askToastId.current == null || !toast) return;
+    if (fullDeckMode && !deckContextWritten(systemPrompt) && !isGenerating && currentPage === 'dog') return;
+    toast.dismiss(askToastId.current);
+    askToastId.current = null;
+  }, [toast, fullDeckMode, systemPrompt, isGenerating, currentPage]);
+  useEffect(() => () => { if (askToastId.current != null) toast?.dismiss(askToastId.current); }, [toast]);
+
   // Global Enter key — triggers generation when outliner is empty and user is not in a text field
   useEffect(() => {
     const handler = (e) => {
-      if (e.key !== 'Enter') return;
+      // Post-overhaul S2a (Audrey's C12: Enter presses whatever has focus):
+      // the key is D.O.G.'s only on D.O.G.'s page, unmodified, not in a text
+      // field, not under a window (a drawer, a dialog, a kit overlay) and not
+      // on a control Enter presses by itself — D.O.G.'s own option toggles
+      // excepted, as before (since FX13 the Full deck switch is not: Enter
+      // moves it). Whether another listener cancelled it first is
+      // deliberately NOT asked (review round 2, B-R2-01). enterGenerates.js
+      // says why, and what Enter starts (`enterStarts`); its test drives it
+      // with real elements.
+      if (!enterIsDogs(e, { onDogPage: currentPage === 'dog' })) return;
       if (history.length > 0) return; // only when outliner is empty
-      if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
-      const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
       if (isGenerating || !hasFileContent) return;
 
       e.preventDefault();
-      if (fullDeckMode) {
-        generateFullDeck();
-      } else if (pagePrompt && selectedLayout) {
-        generatePageOutline();
-      }
+      const starts = enterStarts({ fullDeckMode, deckContext: systemPrompt, pageReady: !!(pagePrompt && selectedLayout) });
+      if (starts === 'full deck') generateFullDeck();
+      else if (starts === 'single page') generatePageOutline();
+      else if (starts === 'ask') askForDeckContext();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline]);
+  }, [currentPage, history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline, systemPrompt, askForDeckContext]);
 
   // Save undo checkpoint on textarea change (debounced grouping)
   const handleTextareaChange = useCallback((e) => {
@@ -2923,26 +3352,20 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
       }
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1000,
-          system: rewritePrompts[mode],
-          messages: [{ role: 'user', content: userContent }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.rewrite'),
+        max_tokens: 1000,
+        system: rewritePrompts[mode],
+        messages: [{ role: 'user', content: userContent }],
+        tool: 'dog',
       });
-
-      if (!response.ok) throw new Error(`API ${response.status}`);
-      const data = await response.json();
-      const rewrittenText = data.content.map(i => i.text || '').join('').trim();
+      const rewrittenText = textFromMessage(data).trim();
       setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
     } catch (err) {
       console.error('Rewrite error:', err);
       setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
     }
-  }, [contextMenu, activeTab, systemPrompt, uploadedFiles, anthropicApiKey, closeContextMenu]);
+  }, [contextMenu, activeTab, systemPrompt, uploadedFiles, closeContextMenu]);
 
   // Redo rewrite with same mode
   const handleRewriteRedo = useCallback(() => {
@@ -3006,26 +3429,20 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
           if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
         }
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1000,
-            system: rewritePrompts[mode],
-            messages: [{ role: 'user', content: userContent }]
-          })
+        const data = await callAI({
+          model: modelFor('dog.rewriteRedo'),
+          max_tokens: 1000,
+          system: rewritePrompts[mode],
+          messages: [{ role: 'user', content: userContent }],
+          tool: 'dog',
         });
-
-        if (!response.ok) throw new Error(`API ${response.status}`);
-        const data = await response.json();
-        const rewrittenText = data.content.map(i => i.text || '').join('').trim();
+        const rewrittenText = textFromMessage(data).trim();
         setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
       } catch (err) {
         setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
       }
     })();
-  }, [rewritePreview.mode, contextMenu, activeTab, systemPrompt, uploadedFiles, anthropicApiKey]);
+  }, [rewritePreview.mode, contextMenu, activeTab, systemPrompt, uploadedFiles]);
 
   // Replace selected text with rewrite - preserve formatting, bullets, bold, line breaks
   const handleRewriteReplace = useCallback(() => {
@@ -3313,30 +3730,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       const combinedSystem = `${imgPromptApiSystem}\n\n${modelSpecificPrompt}\n\n${imgPromptSharedSystem}`;
 
       // 5. API call
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 8192,
-          system: combinedSystem,
-          messages: [{ role: 'user', content: userMessage }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.imagePrompts'),
+        max_tokens: 8192,
+        system: combinedSystem,
+        messages: [{ role: 'user', content: userMessage }],
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('Image prompt API error:', response.status, errText);
-        throw new Error(`API error ${response.status}`);
-      }
-
-      const data = await response.json();
-      const rawOutput = data.content.map(i => i.text || '').join('').trim();
+      const rawOutput = textFromMessage(data).trim();
 
       // 6. Parse output lines
       const promptLines = rawOutput.split('\n').filter(l => l.trim().startsWith('SLIDE #'));
@@ -3388,7 +3789,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
     } finally {
       setIsGeneratingImgPrompts(false);
     }
-  }, [systemPrompt, deckVisualDesc, imgPromptModel, imgPromptSharedSystem, imgPromptMidjourneySystem, imgPromptFluxSystem, imgPromptNanoBananaSystem, imgPromptChatGPTSystem, imgPromptApiSystem, anthropicApiKey, uploadedFiles, assetPlacementActive, exportDirHandle]);
+  }, [systemPrompt, deckVisualDesc, imgPromptModel, imgPromptSharedSystem, imgPromptMidjourneySystem, imgPromptFluxSystem, imgPromptNanoBananaSystem, imgPromptChatGPTSystem, imgPromptApiSystem, uploadedFiles, assetPlacementActive, exportDirHandle]);
 
   // Export folder picker
   const pickExportFolder = useCallback(async () => {
@@ -3539,7 +3940,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
           if (placedFiles.has(fname)) continue;
           const fileData = placementAssets.find(f => {
             const name = f.file?.name || '';
-            const cleanName = name.replace(/^\[Project\]\s*/, '');
+            const cleanName = bareAssetName(name);
             return cleanName.toLowerCase() === fname.toLowerCase() || name.toLowerCase() === fname.toLowerCase();
           });
           if (fileData) placedFiles.set(fname, fileData);
@@ -3551,7 +3952,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         if (placedFiles.has(pa.filename)) return;
         const fileData = placementAssets.find(f => {
           const name = f.file?.name || '';
-          const cleanName = name.replace(/^\[Project\]\s*/, '');
+          const cleanName = bareAssetName(name);
           return cleanName === pa.filename || name === pa.filename;
         });
         if (fileData) placedFiles.set(pa.filename, fileData);
@@ -3601,24 +4002,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
     try {
       const titles = history.map(h => h.title).join(', ');
       const context = (systemPrompt || '').substring(0, 400);
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 200,
-          system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
-          messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.visualDesc'),
+        max_tokens: 200,
+        system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
+        messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }],
+        tool: 'dog',
       });
-      if (!response.ok) return;
-      const data = await response.json();
-      const desc = data.content.map(i => i.text || '').join('').trim();
+      const desc = textFromMessage(data).trim();
       setDeckVisualDesc(desc);
     } catch (err) {
       console.error('Deck desc generation error:', err);
     }
-  }, [history, systemPrompt, anthropicApiKey]);
+  }, [history, systemPrompt]);
 
   // Auto-generate visual desc when enableThemeGen is on and we generate themes for first time
   useEffect(() => {
@@ -3628,809 +4024,696 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
   }, [enableThemeGen, generatedThemes, deckVisualDesc, history, generateDeckVisualDesc]);
 
   return (
-    <div className="h-full bg-stone-900 text-stone-300 font-sans flex flex-col overflow-hidden" style={{ flex: 1 }}>
-      {/* Global Scrollbar Styles */}
-      <style>{`
-        /* Custom scrollbar for the entire app */
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-          background: #1c1917;
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #57534e;
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #f97316;
-        }
-        /* Firefox scrollbar */
-        * {
-          scrollbar-width: thin;
-          scrollbar-color: #57534e #1c1917;
-        }
-        /* Settings panel specific scrollbar */
-        .settings-scrollbar::-webkit-scrollbar-thumb {
-          background: #78716c;
-        }
-        .settings-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #f97316;
-        }
-      `}</style>
-      
+    <div className="dog-root h-full flex flex-col overflow-hidden" style={{ flex: 1 }}>
+      {/* The scrollbar stylesheet that used to be injected here (a global
+          `::-webkit-scrollbar` plus a universal `* { scrollbar-color }`) now
+          lives in src/index.css as `.wilson-dark-scroll`, applied by App.jsx
+          on its root and on each tool page (UI overhaul F1, review F19). */}
+
       {/* Header and nav strip are now managed by App.jsx container */}
 
-      <div className="flex-1 flex min-h-0">
-        {/* Left Sidebar - Deck Outline */}
-        <aside className="w-56 flex-shrink-0 bg-stone-800 border-r-2 border-stone-700 flex flex-col min-h-0">
-          <div className="bg-stone-700 text-orange-400 px-2 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <Layers className="w-3 h-3 text-orange-400" />
-              <span className="font-bold uppercase text-xs tracking-wide">Deck Outline</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={undoHistoryDelete}
-                disabled={historyUndoStack.length === 0}
-                className={`p-0.5 rounded transition-colors ${historyUndoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
-                title="Undo delete"
-              >
-                <Undo2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={redoHistoryDelete}
-                disabled={historyRedoStack.length === 0}
-                className={`p-0.5 rounded transition-colors ${historyRedoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
-                title="Redo delete"
-              >
-                <Redo2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setShowHistoryModal(true)}
-                className="p-0.5 hover:bg-stone-600 rounded transition-colors"
-                title="Import/Export History"
-              >
-                <FolderUp className="w-4 h-4 text-stone-400" />
-              </button>
-              {history.length > 0 ? (
-                <button
-                  onClick={clearHistory}
-                  className="p-0.5 hover:bg-stone-600 rounded transition-colors"
-                  title="Clear history"
-                >
-                  <Trash2 className="w-4 h-4 text-stone-400" />
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="p-0.5 rounded transition-colors text-stone-600 cursor-not-allowed"
-                  title="Clear history"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto">
-            {sortedHistory.length === 0 ? (
-              <div className="p-2 text-center text-stone-500 text-xs">
-                <div className="w-10 h-10 mx-auto mb-2 bg-stone-700 rounded-full flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-stone-500" />
-                </div>
-                <p>No pages yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-stone-700">
-                {sortedHistory.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`relative group ${openTabs.some(t => t.id === item.id) ? 'bg-stone-700/50' : ''}`}
-                  >
-                    <button
-                      onClick={() => openFromHistory(item)}
-                      className="w-full p-2 text-left hover:bg-stone-700 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[10px] font-mono text-orange-400 font-bold">#{item.pageNum}</span>
-                        <span className="text-[10px] text-stone-500 group-hover:opacity-0 transition-opacity">{item.timestamp}</span>
-                      </div>
-                      <p className="text-xs font-medium text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
-                        {item.title}
-                      </p>
-                      <p className="text-[10px] text-stone-500 mt-0.5">{item.layout}</p>
-                    </button>
-                    {/* Delete button - appears on hover */}
-                    <button
-                      onClick={(e) => removeHistoryItem(item.id, e)}
-                      className="absolute top-2 right-2 p-1 bg-stone-600 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Remove from outline"
-                    >
-                      <X className="w-3 h-3 text-stone-300" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
+      {/* ── The "Deck outline" bar (post-overhaul S2a; Audrey's C1) ──
+          It was the sidebar Panel's header: 32px tall and 240px wide, the one
+          D.O.G. bar that stopped short of the window's right edge. It now runs
+          the full width under the app's 4px band, at the tab strips' 36px +
+          hairline (not the kit Toolbar's 44), so its gear sits where
+          O.T.T.E.R.'s and R.A.B.B.I.T.'s do: left, "Deck outline" and the four
+          history controls with their handlers unchanged; right, Help then
+          Settings (C7: "settings at the right end"). The history controls are
+          a group named by the visible label; Help and Settings are not part of
+          it. Measured by scripts/tool-strip-probe.mjs; the preview box by
+          scripts/dog-preview-probe.mjs --check (C4), unchanged. */}
+      <div className="dog-outline-bar">
+        <div className="dog-outline-group" role="group" aria-labelledby="dog-outline-label">
+          <span id="dog-outline-label" className="dog-toolbar-label dog-outline-label">Deck outline</span>
+          <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
+          <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
+          <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
+          <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
+        </div>
+        <div className="dog-outline-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="D.O.G. settings" onClick={() => setShowSettingsMenu(true)} />
+        </div>
+      </div>
 
-        {/* Main Content */}
-        <main className="flex-1 min-h-0 p-4 space-y-4 overflow-y-auto bg-stone-900">
-          {error && (
-            <div className="p-3 bg-red-900/50 border-2 border-red-600 rounded-sm text-red-300 font-medium text-sm">
-              {error}
+      <div className="flex-1 flex min-h-0">
+        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller),
+            with no header since S2a: its title and its four controls are the
+            bar above. It keeps md (240) this bundle — the width was chosen to
+            fit that header, which has gone (walkthrough 47, Q64, is Audrey's
+            call) — and the main column's 8px padding with it (C4, dog.css
+            `.dog-main`). Named for a screen reader by the bar's label. */}
+        <Panel
+          width="md"
+          className="dog-sidebar"
+          aria-labelledby="dog-outline-label"
+        >
+          {sortedHistory.length === 0 ? (
+            <EmptyState icon={FileText} title="No pages yet" compact className="dog-sidebar-empty" />
+          ) : (
+            <div className="dog-history">
+              {sortedHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className="dog-history-row" data-open={openTabs.some(t => t.id === item.id)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openFromHistory(item)}
+                    className="dog-history-open"
+                  >
+                    <span className="dog-history-meta">
+                      <span className="dog-history-num">#{item.pageNum}</span>
+                      <span className="dog-history-time">{item.timestamp}</span>
+                    </span>
+                    <span className="dog-history-title">{item.title}</span>
+                    <span className="dog-history-layout">{item.layout}</span>
+                  </button>
+                  {/* Delete — revealed on hover (and now on keyboard focus) */}
+                  <IconButton
+                    size="sm"
+                    icon={X}
+                    title="Remove from outline"
+                    danger
+                    className="dog-history-remove"
+                    onClick={(e) => removeHistoryItem(item.id, e)}
+                  />
+                </div>
+              ))}
             </div>
           )}
+        </Panel>
 
-          {/* Section 1: Document & Context Input */}
-          <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div 
-              className="bg-stone-700 text-orange-400 px-3 py-2 border-b-2 border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
-              onClick={() => setSection1Collapsed(!section1Collapsed)}
+        {/* Main Content */}
+        <main className="dog-main flex-1 min-h-0 overflow-y-auto" hidden={currentPage !== 'dog'}>
+          {error && (
+            <Banner tone="danger">{error}</Banner>
+          )}
+
+          {/* Amber, not red: the deck itself survived and the preset colours
+              are applied, so this is a partial failure and should not read as
+              a dead generation. Dismissable because it is non-blocking. */}
+          {themeError && (
+            <Banner
+              tone="warning"
+              action={<IconButton size="sm" icon={X} title="Dismiss theme generator message" onClick={() => setThemeError('')} />}
             >
-              <h2 className="font-bold uppercase tracking-wide flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-xs">1</span>
-                  Project Documentation & Deck Context
-                </div>
-                {section1Collapsed ? (
-                  <ChevronRight className="w-5 h-5 text-orange-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-orange-400" />
-                )}
+              {themeError}
+            </Banner>
+          )}
+
+          {/* DG1: chosen references that could not be read at the last
+              generation. Amber like the theme message beside it: the deck
+              was made, without them. */}
+          {refsWarning && (
+            <Banner
+              tone="warning"
+              action={<IconButton size="sm" icon={X} title="Dismiss the references message" onClick={() => setRefsWarning('')} />}
+            >
+              {refsWarning}
+            </Banner>
+          )}
+
+          {/* Section 1, "1 Project and references" (DG4, Audrey 2026-10-28:
+              "lets consolidates cards 1 (project) and 2 (References) into
+              one card"): the project first, then what the deck reads
+              (./references/, ReferencesCard), in her order under the
+              contract line: Uploads, Items, Files, Notes, the meter, Add
+              references, with Core files only beside it. The deck context
+              box moved to the Generate outline card in DG1; the uploads
+              joined References in DG2, their state and handlers here
+              (uploadedFiles, isFileLoading, handleFileUpload, removeFile),
+              reaching the references as the `uploads` prop. The fold is
+              this card's (section1Collapsed); the header's count is the
+              References card's, one number for what is listed. */}
+          {/* DG5's wrapper; since DG6 (Audrey, 2026-10-31: "i want to keep
+              the 1 and 2 cards stacked not side by side") it holds the two
+              input cards stacked at one capped width, card 1 in two columns
+              on a wide window (dog.css, THE INPUTS STACK). It only lays them
+              out: no role, name, id or tabindex, so the cards' order, folds,
+              ids, the header count, the Tab order and every name are as they
+              were. The banners stay above it and the output card below it,
+              both the column's full width. */}
+          <div className="dog-inputs">
+          <Card pad={false} className="dog-card dog-card-project">
+            <header
+              className="ui-panel-head dog-card-head"
+              data-collapsible="true"
+              data-collapsed={section1Collapsed}
+              onClick={() => setSection1Collapsed(c => !c)}
+            >
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
+                <span className="dog-step">1</span>
+                <span id="dog-card1-title">Project and references</span>
               </h2>
-            </div>
+              <div className="ui-panel-actions">
+                <ReferencesCount refs={refs} uploads={uploadedFiles.length} extraTokens={baseTokens} extraUncounted={baseUncounted} />
+                {/* FX14 (FX13-01): the fold from the keyboard. A real button,
+                    named by the heading's words, the chevron its glyph. It
+                    has no handler of its own: Enter and Space click it, and
+                    the click reaches the bar's one handler above, as a
+                    pointer's does (one fold per press, never two). Enter on
+                    it is the button's, not "Enter generates"
+                    (enterGenerates.js leaves a focused button to itself). */}
+                <IconButton
+                  size="sm"
+                  icon={section1Collapsed ? ChevronRight : ChevronDown}
+                  aria-labelledby="dog-card1-title"
+                  aria-expanded={!section1Collapsed}
+                  aria-controls={section1Collapsed ? undefined : 'dog-card1-body'}
+                />
+              </div>
+            </header>
 
             {!section1Collapsed && (
-            <div className="p-4 space-y-3">
-              {/* Project Selection */}
+            <div className="dog-card-body" id="dog-card1-body">
+              {/* Project Selection. DG3 (Audrey, 2026-10-27: "Choose a
+                  project"): the label says what the dropdown does, and names
+                  it (FX15's htmlFor). DG4: the card's title is "1 Project and
+                  references"; the dropdown sits above what it scopes. */}
               <div>
-                <label className="block text-xs font-bold text-orange-400 mb-0.5 uppercase tracking-wide">
-                  Project
+                <label className="ui-field-label dog-field-label" htmlFor="dog-project">
+                  Choose a project
                 </label>
-                <p className="text-[10px] text-stone-500 mb-1.5">Link a project to include its documents and assets in generation</p>
+                {/* DG1: choosing a project no longer sends its files (Q2); its
+                    title and description always go (Q17). DG4: what else is
+                    chosen in this card. DG5: no "below", since on a wide
+                    window the references sit beside the project (dog.css,
+                    THE INPUTS STACK, from a 1468 window since DG6); her
+                    answer to walkthrough 89's Q1: as built. */}
+                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
+                {/* DG6 (review round 1, finding 4): the dropdown takes the
+                    row's width beside New project, so the row ends at the
+                    column's edge, level with the description below it and,
+                    in two columns, 24px from the references. Its old 360px
+                    cap left the row 69px short and, with no project chosen,
+                    a 93px hole before the references (her screenshot). */}
                 <div className="flex items-center gap-2">
-                  <div className="relative flex-1" style={{ maxWidth: '360px' }}>
+                  <div className="relative flex-1">
                     <select
+                      id="dog-project"
                       value={selectedProjectId}
                       onChange={(e) => { setSelectedProjectId(e.target.value); refreshProjects(); }}
                       onFocus={refreshProjects}
-                      className={`w-full px-3 py-1.5 text-xs bg-stone-900 border-2 border-stone-600 rounded-sm focus:outline-none focus:border-orange-500 transition-colors appearance-none cursor-pointer font-medium ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
+                      className="ui-input dog-select dog-project-select" data-size="md" data-surface="dark" data-empty={!selectedProjectId}
                     >
-                      <option value="" className="text-orange-400">No project selected</option>
+                      <option value="">No project selected</option>
                       {projects.map(p => (
-                        <option key={p.id} value={p.id} className="text-stone-300">{p.title}</option>
+                        <option key={p.id} value={p.id}>{p.title}</option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
+                    <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
-                  <button
-                    onClick={() => setShowNewProjectModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm text-xs font-medium text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-all"
-                  >
-                    <Plus className="w-3 h-3" />
-                    New Project
-                  </button>
+                  {!projectsHeldOffline && (
+                  <Button variant="secondary" onClick={() => setShowNewProjectModal(true)}>
+                    <Plus aria-hidden="true" />
+                    New project
+                  </Button>
+                  )}
                 </div>
-                {selectedProject && (
-                  <div className="mt-1.5 px-2 py-1.5 bg-stone-900/50 rounded-sm border border-stone-700">
+                {projectsHeldOffline && (
+                  <p className="ui-field-hint dog-field-hint">{offlineSentence('projects')}</p>
+                )}
+                {selectedProject && (selectedProject.description || storedFilesBusy || storedFilesError) && (
+                  <div className="dog-project-details">
                     {selectedProject.description && (
-                      <p className="text-[10px] text-stone-400 mb-0.5">{selectedProject.description}</p>
+                      <p className="dog-details-desc">{selectedProject.description}</p>
                     )}
-                    <p className="text-[10px] text-stone-500 mb-1.5">
-                      {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
-                      {' · '}
-                      {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
-                    </p>
-
-                    {/* CORE / REFERENCE classifier — tells the AI which files
-                        actually define the project concept vs. which are just
-                        supporting reference. Click a tag to flip it. */}
-                    {((selectedProject.documents || []).length + (selectedProject.visualAssets || []).length) > 0 && (
-                      <div className="border-t border-stone-700 pt-1.5">
-                        <p className="text-[9px] uppercase tracking-wider text-stone-500 mb-1">
-                          File roles · click to toggle
-                        </p>
-                        <div className="space-y-0.5">
-                          {(selectedProject.documents || []).map(doc => {
-                            const isCore = doc.isCore !== false;
-                            return (
-                              <div key={doc.id} className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleProjectFileCore('documents', doc.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
-                                  style={{
-                                    width: '52px',
-                                    backgroundColor: isCore ? '#ea580c' : '#44403c',
-                                    color: isCore ? '#fff7ed' : '#a8a29e',
-                                    border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
-                                  }}
-                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
-                                >
-                                  {isCore ? 'Core' : 'Ref'}
-                                </button>
-                                <span className="text-[10px] text-stone-400 truncate flex-1">{doc.name}</span>
-                              </div>
-                            );
-                          })}
-                          {(selectedProject.visualAssets || []).map(asset => {
-                            const isCore = asset.isCore !== false;
-                            return (
-                              <div key={asset.id} className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
-                                  style={{
-                                    width: '52px',
-                                    backgroundColor: isCore ? '#ea580c' : '#44403c',
-                                    color: isCore ? '#fff7ed' : '#a8a29e',
-                                    border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
-                                  }}
-                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
-                                >
-                                  {isCore ? 'Core' : 'Ref'}
-                                </button>
-                                <span className="text-[10px] text-stone-400 truncate flex-1">{asset.name}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                    {/* The New project window's files: saving, or why they
+                        were not saved (C3: the one place that failure is said). */}
+                    {storedFilesBusy && (
+                      <p className="dog-details-note">Saving the new project&rsquo;s files&hellip;</p>
+                    )}
+                    {storedFilesError && (
+                      <p className="dog-details-note" data-tone="danger" role="alert">
+                        {storedFilesError}
+                      </p>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* File Upload and Full Deck Toggle Row */}
-              <div className="flex items-start gap-8">
-                {/* File Upload - Multiple files support */}
-                <div className="flex-1">
-                  <label className="block text-xs font-bold text-orange-400 mb-0.5 uppercase tracking-wide">
-                    Upload Documents
-                  </label>
-                  <p className="text-[10px] text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
-                  
-                  {uploadedFiles.length === 0 ? (
-                    <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm cursor-pointer hover:border-orange-500 hover:bg-stone-600 transition-all">
-                      {isFileLoading ? (
-                        <Loader2 className="w-4 h-4 text-orange-500 animate-spin" />
-                      ) : (
-                        <Upload className="w-4 h-4 text-orange-400" />
-                      )}
-                      <span className="text-xs font-medium text-orange-400">Choose file</span>
-                      <span className="text-[10px] text-stone-500">(PDF, MD, TXT, Images)</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
-                  ) : (
-                    <div className="flex gap-2">
-                      {/* Grid: up to 4 columns of 5 rows */}
-                      {Array.from({ length: Math.ceil(uploadedFiles.length / 5) }, (_, colIdx) => (
-                        <div key={colIdx} className="flex flex-col gap-1.5">
-                          {uploadedFiles.slice(colIdx * 5, colIdx * 5 + 5).map((fileData, index) => {
-                            const globalIndex = colIdx * 5 + index;
-                            const isLast = globalIndex === uploadedFiles.length - 1;
-                            return (
-                              <div key={fileData.id} className="flex items-center gap-2 px-2 py-1.5 bg-stone-700 rounded-sm border border-stone-600 w-72 h-8">
-                                {fileData.type === 'image' ? (
-                                  <Image className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                                ) : (
-                                  <FileText className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                                )}
-                                <span className="text-xs font-medium text-stone-300 flex-1 truncate">{fileData.file.name}</span>
-                                <span className="text-[10px] text-stone-500 flex-shrink-0">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
-                                <button
-                                  onClick={() => removeFile(fileData.id)}
-                                  className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors flex-shrink-0"
-                                >
-                                  <X className="w-3 h-3 text-stone-400" />
-                                </button>
-                                {/* Add button on last file if under limit */}
-                                {isLast && uploadedFiles.length < 20 && (
-                                  <label className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors flex-shrink-0 cursor-pointer">
-                                    {isFileLoading ? (
-                                      <Loader2 className="w-3 h-3 text-orange-400 animate-spin" />
-                                    ) : (
-                                      <Plus className="w-3 h-3 text-orange-400" />
-                                    )}
-                                    <input
-                                      type="file"
-                                      className="hidden"
-                                      accept=".pdf,.md,.txt,text/plain,text/markdown,application/pdf,image/*,video/*"
-                                      onChange={handleFileUpload}
-                                    />
-                                  </label>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {/* What the deck reads (DG1; ./references/), the uploads its
+                  first group (DG2), Core files only beside Add references
+                  (DG4). */}
+              <ReferencesCard
+                refs={refs}
+                projectChosen={!!selectedProject}
+                extraTokens={baseTokens}
+                extraUncounted={baseUncounted}
+                onAdd={() => setShowRefsPicker(true)}
+                onPreview={refPreview.open}
+                uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
+                offline={projectsHeldOffline}
+              />
+            </div>
+            )}
+          </Card>
+
+          {/* Section 2 (it was 3 until DG4 merged the first two; its ids
+              keep "card3", which the tests and labels point at): one card
+              for a single page and a full deck (DG1, Audrey's brief): the
+              switch names both sides; Full deck shows the full deck box;
+              Single page shows the layout, the page number and the single
+              page box; the two checkboxes show in both. Every hint and
+              example is as it was. */}
+          <Card pad={false} className="dog-card dog-s2">
+            <header
+              className="ui-panel-head dog-card-head"
+              data-collapsible="true"
+              data-collapsed={section2Collapsed}
+              onClick={() => setSection2Collapsed(!section2Collapsed)}
+            >
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
+                <span className="dog-step">2</span>
+                <span id="dog-card3-title">Generate outline</span>
+              </h2>
+              <div className="ui-panel-actions">
+                {/* FX14 (FX13-01): as card 1's. */}
+                <IconButton
+                  size="sm"
+                  icon={section2Collapsed ? ChevronRight : ChevronDown}
+                  aria-labelledby="dog-card3-title"
+                  aria-expanded={!section2Collapsed}
+                  aria-controls={section2Collapsed ? undefined : 'dog-card3-body'}
+                />
+              </div>
+            </header>
+
+            {!section2Collapsed && (
+            <div className="dog-card-body" id="dog-card3-body">
+              {/* The switch. Its name is "Full deck" (checked) and nothing else,
+                  so a screen reader hears which side is on; the two words are
+                  pointer shortcuts to their side, hidden from it. Space and
+                  Enter work as on every switch, and Left and Right choose a
+                  side. Enter moves it and generates nothing (FX13, her
+                  "Enter moves the switch": enterGenerates.js); scripts find
+                  it by `dog-full-deck`. */}
+              <div className="dog-mode">
+                <span className="dog-mode-side" data-active={!fullDeckMode} aria-hidden="true"
+                  onClick={() => setFullDeckMode(false)}>Single page</span>
+                <span id="dog-mode-desc" hidden>Off is Single page.</span>
+                <Switch
+                  className="dog-full-deck"
+                  checked={fullDeckMode}
+                  aria-label="Full deck"
+                  aria-describedby="dog-mode-desc"
+                  onChange={setFullDeckMode}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowLeft') { e.preventDefault(); setFullDeckMode(false); }
+                    if (e.key === 'ArrowRight') { e.preventDefault(); setFullDeckMode(true); }
+                  }}
+                />
+                <span className="dog-mode-side" data-active={fullDeckMode} aria-hidden="true"
+                  onClick={() => setFullDeckMode(true)}>Full deck</span>
               </div>
 
-              {/* System Prompt with Full Deck Toggle aligned to title */}
-              <div>
-                <div className="flex items-center justify-between mb-0.5">
-                  <div className="flex items-center gap-3">
-                    <label className="block text-xs font-bold text-orange-400 uppercase tracking-wide">
+              {/* DG4 (Audrey, 2026-10-28, notes 2 and 3): the card's two
+                  checkboxes, together on one row in both modes. "Place
+                  visual" (was "Use visual assets", its subtitle gone; the
+                  hover says what it does) places media from the uploads and
+                  the listed references alike; "Use project assets" is gone.
+                  "Theme generator" sits to its right: a single page reads it
+                  too (generatePageOutline), so it shows on both sides. */}
+              <div className="dog-checks">
+                <span className="dog-check-row">
+                  <button
+                    onClick={() => setPlaceVisual(!placeVisual)}
+                    className="dog-check" data-checked={placeVisual} role="checkbox" aria-checked={placeVisual} aria-label="Place visual"
+                    title={PLACE_VISUAL_TITLE}
+                  >
+                    {placeVisual && <Check className="dog-check-glyph" aria-hidden="true" />}
+                  </button>
+                  <span className="dog-check-label" title={PLACE_VISUAL_TITLE}>Place visual</span>
+                </span>
+                <span className="dog-check-row">
+                  <button
+                    onClick={() => setEnableThemeGen(!enableThemeGen)}
+                    className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
+                  >
+                    {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
+                  </button>
+                  <span className="dog-check-label">Theme generator</span>
+                </span>
+              </div>
+
+              {fullDeckMode ? (
+                <>
+                  <div>
+                    <label className="ui-field-label dog-field-label" htmlFor="dog-deck-context">
                       Deck Context & Guidelines
                     </label>
-                    {/* Theme Generator Checkbox */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setEnableThemeGen(!enableThemeGen)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${enableThemeGen ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
-                      >
-                        {enableThemeGen && <Check className="w-2.5 h-2.5 text-orange-400" />}
-                      </button>
-                      <span className="text-[10px] text-stone-400 uppercase tracking-wide">Theme Generator</span>
-                    </div>
-                    {/* Use Uploaded Assets Checkbox */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${useUploadedAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
-                      >
-                        {useUploadedAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
-                      </button>
-                      <span className="text-[10px] text-stone-400 uppercase tracking-wide">Use Uploaded Assets</span>
-                    </div>
-                    {/* Use Project Assets Checkbox */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setUseProjectAssets(!useProjectAssets)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${useProjectAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
-                      >
-                        {useProjectAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
-                      </button>
-                      <span className="text-[10px] text-stone-400 uppercase tracking-wide">Use Project Assets</span>
-                    </div>
-                  </div>
-                  {/* Full Deck Toggle */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        const newMode = !fullDeckMode;
-                        setFullDeckMode(newMode);
-                        // Auto-collapse section 2 when enabling full deck, expand when disabling
-                        if (newMode) {
-                          setSection2Collapsed(true);
-                        } else {
-                          setSection2Collapsed(false);
+                    <p className="ui-field-hint dog-field-hint">
+                      Set the overall tone, style, and objectives for the deck
+                      <span className="dog-hint-emph"> • Include desired page count</span>
+                    </p>
+                    {/* FX13 review round 1: the ask moves focus here, so the
+                        box answers to its label ("Deck Context &
+                        Guidelines"), not to its example text. */}
+                    <textarea
+                      ref={deckContextRef}
+                      id="dog-deck-context"
+                      value={systemPrompt}
+                      onChange={(e) => setSystemPrompt(e.target.value)}
+                      onFocus={() => setSystemPromptFocused(true)}
+                      onBlur={() => setSystemPromptFocused(false)}
+                      onKeyDown={(e) => {
+                        // FX13: Enter in an empty box does nothing (her
+                        // "Enter needs text in the box"); Shift+Enter is a
+                        // new line, as before.
+                        if (e.key === 'Enter' && !e.shiftKey && fullDeckMode) {
+                          e.preventDefault();
+                          if (!isGenerating && hasFileContent && deckContextWritten(systemPrompt)) {
+                            generateFullDeck();
+                          }
                         }
                       }}
-                      className={`relative w-11 h-6 rounded-full transition-colors ${fullDeckMode ? 'bg-orange-500' : 'bg-stone-600'}`}
-                    >
-                      <span 
-                        className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${fullDeckMode ? 'left-6' : 'left-1'}`}
+                      placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
+                      className="ui-input dog-context-prompt" data-surface="dark" data-focused={systemPromptFocused}
+                    />
+                  </div>
+
+                  {/* DG3 (OUTSTANDING DG2-02): a press keeps focus where it
+                      is, so the box above does not blur under it, does not
+                      shrink from 160px to 80px, and the button does not move
+                      up before the release: the click lands. A pointer only;
+                      Enter and Space on the focused button are as before. */}
+                  <Button
+                    variant="primary"
+                    className="dog-generate"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={generateFullDeck}
+                    disabled={isGenerating || !hasFileContent}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                        Generating full deck...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles aria-hidden="true" />
+                        Generate full deck outline
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="dog-field-row">
+                    {/* Layout Dropdown */}
+                    <div>
+                      <label className="ui-field-label dog-field-label" htmlFor="dog-slide-layout">
+                        Slide Layout Type
+                      </label>
+                      <p className="ui-field-hint dog-field-hint">Choose how content will be arranged on the slide</p>
+                      <div className="dog-layout-select">
+                        <select
+                          id="dog-slide-layout"
+                          value={selectedLayout}
+                          onChange={(e) => setSelectedLayout(e.target.value)}
+                          className="ui-input dog-select" data-size="md" data-surface="dark" data-empty={!selectedLayout}
+                        >
+                          <option value="">Select layout...</option>
+                          {SLIDE_LAYOUTS.map((layout) => (
+                            <option key={layout.id} value={layout.id}>
+                              {layout.name}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="dog-select-chevron" aria-hidden="true" />
+                      </div>
+                      {selectedLayout && (
+                        <p className="ui-field-hint dog-layout-desc">
+                          {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Page Number */}
+                    <div>
+                      <label className="ui-field-label dog-field-label">
+                        Page #
+                      </label>
+                      <p className="ui-field-hint dog-field-hint">Single number or range (e.g. 3-7)</p>
+                      <input
+                        type="text"
+                        value={pageNumber}
+                        onChange={(e) => setPageNumber(e.target.value)}
+                        placeholder="5 or 1-10"
+                        className="ui-input dog-page-number" data-size="md" data-surface="dark"
                       />
-                    </button>
-                    <span className="text-xs font-bold text-orange-400 uppercase tracking-wide">Full Deck</span>
+                    </div>
                   </div>
-                </div>
-                <p className="text-[10px] text-stone-500 mb-1.5">
-                  Set the overall tone, style, and objectives for the deck
-                  {fullDeckMode && <span className="text-orange-400"> • Include desired page count</span>}
-                </p>
-                <textarea
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  onFocus={() => setSystemPromptFocused(true)}
-                  onBlur={() => setSystemPromptFocused(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && fullDeckMode) {
-                      e.preventDefault();
-                      if (!isGenerating && hasFileContent) {
-                        generateFullDeck();
-                      }
-                    }
-                  }}
-                  placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
-                  className={`w-full px-3 py-2 bg-stone-900 border-2 border-stone-600 rounded-sm text-stone-300 placeholder-stone-500 focus:outline-none focus:border-orange-500 resize-none text-sm transition-all duration-200 ${systemPromptFocused ? 'h-40' : 'h-20'}`}
-                />
-              </div>
 
-              {/* Generate Full Deck Button - Only visible in Full Deck Mode */}
-              {fullDeckMode && (
-                <button
-                  onClick={generateFullDeck}
-                  disabled={isGenerating || !hasFileContent}
-                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-bold text-stone-900 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-sm"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating Full Deck...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate Full Deck Outline
-                    </>
-                  )}
-                </button>
-              )}
-              {!anthropicApiKey && (
-                <p className="text-[10px] text-red-400 mt-1 text-center">API key required — set it in Settings (gear icon)</p>
-              )}
-            </div>
-            )}
-          </section>
-
-          {/* Section 2: Page Generation */}
-          <section className={`bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] ${fullDeckMode ? 'opacity-50' : ''}`}>
-            <div 
-              className={`bg-stone-700 px-3 py-2 border-b-2 border-stone-600 ${fullDeckMode ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-stone-600'} transition-colors`}
-              onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
-            >
-              <h2 className="font-bold uppercase tracking-wide flex items-center justify-between text-sm">
-                <div className={`flex items-center gap-2 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-xs ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
-                  Generate Page Outline
-                  {fullDeckMode && <span className="text-[10px] font-normal normal-case ml-2">(Disabled in Full Deck mode)</span>}
-                </div>
-                {(section2Collapsed || fullDeckMode) ? (
-                  <ChevronRight className={`w-5 h-5 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`} />
-                ) : (
-                  <ChevronDown className={`w-5 h-5 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`} />
-                )}
-              </h2>
-            </div>
-
-            {!section2Collapsed && !fullDeckMode && (
-            <div className="p-4 space-y-3">
-              <div className="flex gap-4">
-                {/* Layout Dropdown */}
-                <div>
-                  <label className={`block text-xs font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                    Slide Layout Type
-                  </label>
-                  <p className="text-[10px] text-stone-500 mb-1.5">Choose how content will be arranged on the slide</p>
-                  <div className="relative w-56">
-                    <select
-                      value={selectedLayout}
-                      onChange={(e) => setSelectedLayout(e.target.value)}
-                      disabled={fullDeckMode}
-                      className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm focus:outline-none appearance-none font-medium text-sm ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-orange-400 cursor-pointer focus:border-orange-500'}`}
-                    >
-                      <option value="" className="text-orange-400">Select layout...</option>
-                      {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id} className="text-stone-300">
-                          {layout.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
-                  </div>
-                  {selectedLayout && !fullDeckMode && (
-                    <p className="mt-1 text-[10px] text-stone-500 italic">
-                      {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
+                  {/* Page Request Prompt - Full Width */}
+                  <div>
+                    <label className="ui-field-label dog-field-label">
+                      Page Request
+                    </label>
+                    <p className="ui-field-hint dog-field-hint">
+                      Describe the specific content you want on this slide
                     </p>
-                  )}
-                </div>
+                    <textarea
+                      value={pagePrompt}
+                      onChange={(e) => setPagePrompt(e.target.value)}
+                      onFocus={() => setPagePromptFocused(true)}
+                      onBlur={() => setPagePromptFocused(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !fullDeckMode) {
+                          e.preventDefault();
+                          if (!isGenerating && hasFileContent && pagePrompt && selectedLayout) {
+                            generatePageOutline();
+                          }
+                        }
+                      }}
+                      placeholder="Example: I need a page listing all the main characters with summaries for each..."
+                      className="ui-input dog-page-request" data-surface="dark" data-focused={pagePromptFocused}
+                    />
+                    {/* Q13: the full deck context still shapes single pages;
+                        out of sight here, so said here (DG4: the theme
+                        generator is in sight, beside Place visual). */}
+                    {appliedFromFullDeck && <p className="dog-applied-line">{appliedFromFullDeck}</p>}
+                  </div>
 
-                {/* Page Number */}
-                <div>
-                  <label className={`block text-xs font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                    Page #
-                  </label>
-                  <p className="text-[10px] text-stone-500 mb-1.5">Single number or range (e.g. 3-7)</p>
-                  <input
-                    type="text"
-                    value={pageNumber}
-                    onChange={(e) => setPageNumber(e.target.value)}
-                    disabled={fullDeckMode}
-                    placeholder="5 or 1-10"
-                    className={`w-24 px-3 py-2 border-2 border-stone-600 rounded-sm placeholder-stone-500 focus:outline-none text-sm ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-stone-300 focus:border-orange-500'}`}
-                  />
-                </div>
-              </div>
-
-              {/* Page Request Prompt - Full Width */}
-              <div>
-                <label className={`block text-xs font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                  Page Request
-                </label>
-                <p className="text-[10px] text-stone-500 mb-1.5">
-                  Describe the specific content you want on this slide
-                </p>
-                <textarea
-                  value={pagePrompt}
-                  onChange={(e) => setPagePrompt(e.target.value)}
-                  onFocus={() => setPagePromptFocused(true)}
-                  onBlur={() => setPagePromptFocused(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !fullDeckMode) {
-                      e.preventDefault();
-                      if (!isGenerating && hasFileContent && pagePrompt && selectedLayout) {
-                        generatePageOutline();
-                      }
-                    }
-                  }}
-                  disabled={fullDeckMode}
-                  placeholder="Example: I need a page listing all the main characters with summaries for each..."
-                  className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm placeholder-stone-500 focus:outline-none resize-none text-sm transition-all duration-200 ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed h-24' : `bg-stone-900 text-stone-300 focus:border-orange-500 ${pagePromptFocused ? 'h-40' : 'h-24'}`}`}
-                />
-              </div>
-
-              {/* Generate Button */}
-              <button
-                onClick={generatePageOutline}
-                disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout || fullDeckMode}
-                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-bold text-stone-900 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-sm"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    Generate Page Outline
-                  </>
-                )}
-              </button>
-              {!anthropicApiKey && (
-                <p className="text-[10px] text-red-400 mt-1 text-center">API key required — set it in Settings (gear icon)</p>
+                  {/* Generate Button. DG3 (DG2-02): the page request box above
+                      grows from 96px to 160px while focused; a press keeps
+                      focus there, as on Generate full deck outline. */}
+                  <Button
+                    variant="primary"
+                    className="dog-generate"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={generatePageOutline}
+                    disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles aria-hidden="true" />
+                        Generate page outline
+                      </>
+                    )}
+                  </Button>
+                </>
               )}
             </div>
             )}
-          </section>
+          </Card>
+          </div>
 
           {/* Output Section - Below Input */}
-          <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b-2 border-stone-600">
-              <span className="font-bold uppercase text-xs tracking-wide">Generated Output</span>
+          <Card pad={false} className="dog-card dog-output">
+            <header className="ui-panel-head dog-card-head">
+              <h2 className="ui-panel-title dog-card-title">Generated output</h2>
               {activeTab && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={downloadMarkdown}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-xs font-medium text-white"
-                  >
-                    <Download className="w-3 h-3" />
+                <div className="ui-panel-actions">
+                  <Button variant="secondary" size="sm" onClick={downloadMarkdown}>
+                    <Download aria-hidden="true" />
                     Export .md
-                  </button>
-                  <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-xs font-medium text-white"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={copyToClipboard}>
                     {copied ? (
                       <>
-                        <Check className="w-3 h-3" />
+                        <Check aria-hidden="true" />
                         Copied!
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3 h-3" />
+                        <Copy aria-hidden="true" />
                         Copy
                       </>
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
-            </div>
-            
-            {/* Tabs Bar + View Toggle */}
+            </header>
+
+            {/* Tabs Bar + View Toggle — the kit's tab contract (.ui-tabs /
+                .ui-tab) worn by D.O.G.'s own markup, because each page tab is
+                CLOSABLE and the kit's Tabs has no close control yet (A1 kit
+                request A1-KR-1). The close button is now BESIDE the tab rather
+                than inside it (review D22: a button inside a button). */}
             {openTabs.length > 0 && (
-              <div className="bg-stone-800 px-2 pt-1 flex items-end justify-between border-b-2 border-stone-600">
-                {/* Page Tabs */}
-                <div className="flex items-end gap-1 flex-1 overflow-x-auto overflow-y-hidden">
+              <div className="dog-tabbar">
+                <div role="tablist" aria-label="Open pages" className="ui-tabs dog-page-tabs" data-surface="dark">
                   {[...openTabs].sort((a, b) => {
                     const numA = parseInt(a.pageNum) || 999;
                     const numB = parseInt(b.pageNum) || 999;
                     return numA - numB;
                   }).map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTabId(tab.id)}
-                      className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                        activeTabId === tab.id 
-                          ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-[2px] relative z-10' 
-                          : 'bg-stone-700 text-stone-400 hover:text-stone-300 border-2 border-stone-600 border-b-0 rounded-t-sm mb-0'
-                      }`}
-                    >
-                      <span className="font-mono">#{tab.pageNum}</span>
-                      <span className="max-w-[100px] truncate">{tab.title}</span>
+                    <span key={tab.id} className="dog-page-tab" role="presentation" data-active={activeTabId === tab.id}>
                       <button
-                        onClick={(e) => closeTab(tab.id, e)}
-                        className="ml-1 p-0.5 hover:bg-stone-600 rounded"
+                        type="button"
+                        role="tab"
+                        id={`dog-tab-${tab.id}`}
+                        aria-selected={activeTabId === tab.id}
+                        aria-controls="dog-output-panel"
+                        className="ui-tab"
+                        data-active={activeTabId === tab.id ? 'true' : undefined}
+                        data-surface="dark"
+                        onClick={() => setActiveTabId(tab.id)}
                       >
-                        <X className="w-3 h-3" />
+                        <span className="dog-tab-num">#{tab.pageNum}</span>
+                        <span className="dog-tab-title">{tab.title}</span>
                       </button>
-                    </button>
+                      <IconButton
+                        size="sm"
+                        icon={X}
+                        title={`Close page ${tab.pageNum}`}
+                        className="dog-tab-close"
+                        onClick={(e) => closeTab(tab.id, e)}
+                      />
+                    </span>
                   ))}
                 </div>
-                
+
                 {/* View Toggle */}
-                <div className="flex items-center gap-1 ml-2 flex-shrink-0 pb-1">
-                  <button
-                    onClick={() => setViewMode('text')}
-                    className={`p-1.5 rounded-sm transition-colors ${viewMode === 'text' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
-                    title="Text View"
-                  >
-                    <Code className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('visualizer')}
-                    className={`p-1.5 rounded-sm transition-colors ${viewMode === 'visualizer' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
-                    title="Layout Visualizer"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
+                <div className="dog-view-toggle">
+                  <IconButton size="sm" icon={Code} title="Text view" active={viewMode === 'text'} onClick={() => setViewMode('text')} />
+                  <IconButton size="sm" icon={Eye} title="Layout visualizer" active={viewMode === 'visualizer'} onClick={() => setViewMode('visualizer')} />
                 </div>
               </div>
             )}
-            
-            {/* Regenerate Bar */}
+
+            {/* Regenerate Bar — the kit's Toolbar (review D16: five controls at
+                three heights; every child is now the 28px sm control). The
+                field wears the kit's Input contract on D.O.G.'s own <input>
+                (the A1 / C3 precedent): the kit Input blurs on Enter and
+                reverts on Escape, and this field submits on Enter (C1). */}
             {activeTab && (
-              <div className="bg-stone-900 px-3 py-2 border-b-2 border-stone-600">
-                <div className="flex items-center gap-2">
-                  {/* Title */}
-                  <span className="text-[10px] text-orange-400 uppercase tracking-wide font-bold flex-shrink-0">Edit Output:</span>
-                  
-                  {/* Revision Prompt Input */}
-                  <input
-                    type="text"
-                    value={revisionPrompt}
-                    onChange={(e) => setRevisionPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !isRegenerating && hasFileContent) {
-                        regeneratePage();
-                      }
-                    }}
+              <Toolbar className="dog-toolbar dog-regen-bar">
+                <span className="dog-toolbar-label">Edit Output:</span>
+
+                <input
+                  type="text"
+                  value={revisionPrompt}
+                  onChange={(e) => setRevisionPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isRegenerating && hasFileContent) {
+                      regeneratePage();
+                    }
+                  }}
+                  disabled={isRegenerating}
+                  placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
+                  aria-label="Describe changes"
+                  className="ui-input dog-regen-input" data-size="sm" data-surface="dark"
+                />
+
+                <div className="dog-regen-layout">
+                  <Select
+                    size="sm"
+                    value={regenerateLayout}
+                    onChange={setRegenerateLayout}
                     disabled={isRegenerating}
-                    placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
-                    className="flex-1 px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-sm text-stone-300 text-xs placeholder-stone-500 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                    placeholder="Keep layout"
+                    options={SLIDE_LAYOUTS.map((layout) => ({ value: layout.id, label: layout.name }))}
+                    aria-label="Layout for the regenerated page"
+                    className="dog-select dog-regen-select"
                   />
-                  
-                  {/* Layout Dropdown */}
-                  <div className="relative flex-shrink-0">
-                    <select
-                      value={regenerateLayout}
-                      onChange={(e) => setRegenerateLayout(e.target.value)}
-                      disabled={isRegenerating}
-                      className="px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-sm text-stone-300 text-xs focus:outline-none focus:border-orange-500 appearance-none pr-6 cursor-pointer disabled:opacity-50"
-                      style={{ minWidth: '140px' }}
-                    >
-                      <option value="">Keep layout</option>
-                      {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id}>
-                          {layout.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-stone-500 pointer-events-none" />
-                  </div>
-                  
-                  {/* Regenerate Button */}
-                  <button
-                    onClick={regeneratePage}
-                    disabled={isRegenerating || !hasFileContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-sm font-bold text-white text-xs uppercase tracking-wide transition-colors flex-shrink-0"
-                  >
-                    {isRegenerating ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Regenerating...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3 h-3" />
-                        Regenerate Page
-                      </>
-                    )}
-                  </button>
-                  
-                  {/* Undo Button */}
-                  <button
-                    onClick={undoRegeneration}
-                    disabled={!(previousContent[activeTab.id]?.length > 0)}
-                    className={`p-1.5 rounded-sm transition-colors flex-shrink-0 ${
-                      previousContent[activeTab.id]?.length > 0
-                        ? 'bg-stone-700 hover:bg-stone-600 text-orange-400'
-                        : 'bg-stone-800 text-stone-600 cursor-not-allowed'
-                    }`}
-                    title={previousContent[activeTab.id]?.length > 0 ? `Undo regeneration (${previousContent[activeTab.id].length})` : 'No previous version'}
-                  >
-                    <Undo2 className="w-4 h-4" />
-                  </button>
-
-                  {/* Redo Button */}
-                  <button
-                    onClick={redoRegeneration}
-                    disabled={!(redoContent[activeTab.id]?.length > 0)}
-                    className={`p-1.5 rounded-sm transition-colors flex-shrink-0 ${
-                      redoContent[activeTab.id]?.length > 0
-                        ? 'bg-stone-700 hover:bg-stone-600 text-orange-400'
-                        : 'bg-stone-800 text-stone-600 cursor-not-allowed'
-                    }`}
-                    title={redoContent[activeTab.id]?.length > 0 ? `Redo regeneration (${redoContent[activeTab.id].length})` : 'No redo available'}
-                  >
-                    <Redo2 className="w-4 h-4" />
-                  </button>
+                  <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                 </div>
-              </div>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  Icon={RefreshCw}
+                  loading={isRegenerating}
+                  loadingLabel="Regenerating..."
+                  onClick={regeneratePage}
+                  disabled={!hasFileContent}
+                  className="dog-regen-go"
+                >
+                  Regenerate page
+                </Button>
+
+                <IconButton
+                  size="sm"
+                  Icon={Undo2}
+                  onClick={undoRegeneration}
+                  disabled={!(previousContent[activeTab.id]?.length > 0)}
+                  title={previousContent[activeTab.id]?.length > 0 ? `Undo regeneration (${previousContent[activeTab.id].length})` : 'No previous version'}
+                />
+                <IconButton
+                  size="sm"
+                  Icon={Redo2}
+                  onClick={redoRegeneration}
+                  disabled={!(redoContent[activeTab.id]?.length > 0)}
+                  title={redoContent[activeTab.id]?.length > 0 ? `Redo regeneration (${redoContent[activeTab.id].length})` : 'No redo available'}
+                />
+              </Toolbar>
             )}
 
-            {/* Formatting Toolbar */}
+            {/* Formatting Toolbar — the kit's Toolbar and IconButtons (review
+                D16: a 30px row of 22px buttons on its own fill, the icons in
+                the accent). The same five controls, the same two conditions. */}
             {activeTab && (
-              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 border-l-2 border-r-2 border-l-stone-600 border-r-stone-600 flex items-center gap-1">
-                {/* Undo / Redo */}
-                <button
+              <Toolbar className="dog-toolbar dog-format-bar">
+                <IconButton
+                  size="sm"
+                  Icon={Undo2}
                   onClick={handleTextUndo}
                   disabled={undoRedoCounts.undo === 0}
-                  className={`p-1 rounded transition-colors ${undoRedoCounts.undo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
                   title="Undo (text)"
-                >
-                  <Undo2 className="w-3.5 h-3.5" />
-                </button>
-                <button
+                />
+                <IconButton
+                  size="sm"
+                  Icon={Redo2}
                   onClick={handleTextRedo}
                   disabled={undoRedoCounts.redo === 0}
-                  className={`p-1 rounded transition-colors ${undoRedoCounts.redo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
                   title="Redo (text)"
-                >
-                  <Redo2 className="w-3.5 h-3.5" />
-                </button>
+                />
 
                 {/* Bold, Bullet, Numbered — only in markdown text view */}
                 {viewMode === 'text' && (
                   <>
-                    <div className="w-px h-4 bg-stone-600 mx-1" />
-
-                    {/* Bold */}
-                    <button
-                      onClick={handleToggleBold}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Bold"
-                    >
-                      <Bold className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Bullet List */}
-                    <button
-                      onClick={handleToggleBullet}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Toggle Bullet List"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Numbered List */}
-                    <button
-                      onClick={handleToggleNumbered}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Toggle Numbered List"
-                    >
-                      <ListOrdered className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="dog-toolbar-divider" aria-hidden="true" />
+                    <IconButton size="sm" Icon={Bold} onClick={handleToggleBold} title="Bold" />
+                    <IconButton size="sm" Icon={List} onClick={handleToggleBullet} title="Toggle bullet list" />
+                    <IconButton size="sm" Icon={ListOrdered} onClick={handleToggleNumbered} title="Toggle numbered list" />
                   </>
                 )}
-              </div>
+              </Toolbar>
             )}
 
             {/* Descriptor - shown in text edit mode between edit bar and content */}
             {activeTab && viewMode === 'text' && (
-              <div className="bg-stone-800 border-l-2 border-r-2 border-stone-600 px-4 py-1.5">
-                <p className="text-[10px] text-stone-500 italic">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
+              <div className="dog-caption-row">
+                <p className="dog-caption">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
               </div>
             )}
             
-            <div ref={textareaContainerRef} className={`bg-stone-950 border-l-2 border-r-2 border-b-2 border-stone-600 relative ${openTabs.length === 0 ? 'border-t-2' : ''}`}>
+            <div
+              ref={textareaContainerRef}
+              id="dog-output-panel"
+              role={openTabs.length > 0 ? 'tabpanel' : undefined}
+              aria-labelledby={openTabs.length > 0 && activeTab ? `dog-tab-${activeTab.id}` : undefined}
+              className="dog-output-frame"
+            >
               {activeTab ? (
                 viewMode === 'text' ? (
                   <>
@@ -4440,7 +4723,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       onChange={handleTextareaChange}
                       onContextMenu={handleTextareaContextMenu}
                       onKeyDown={handleTextareaKeyDown}
-                      className="w-full min-h-[780px] p-4 font-mono text-sm whitespace-pre-wrap text-orange-400 bg-stone-950 leading-relaxed border-none outline-none resize-y"
+                      className="dog-editor w-full min-h-[780px] p-4 text-body whitespace-pre-wrap border-none resize-y"
                       style={{ minHeight: '780px' }}
                     />
                   </>
@@ -4460,17 +4743,21 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}
                     />
-                    <p className="text-[10px] text-stone-500 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
+                    {/* 🚨 C4: this caption sits INSIDE the preview's wrapper and its
+                        height is the pin's `wrapper.h` (751 + 30.84). Review
+                        D27 asked for roman, the Caption step and a 60ch
+                        measure; only roman is height-neutral. See
+                        `.dog-preview-caption`. */}
+                    <p className="dog-preview-caption">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
                   </div>
                 )
               ) : (
-                <div className="p-8 text-center text-stone-500 flex flex-col items-center justify-center bg-stone-950 min-h-[780px]">
-                  <div className="w-14 h-14 mb-3 bg-stone-900 rounded-full flex items-center justify-center border-2 border-dashed border-stone-700">
-                    <FileText className="w-7 h-7 text-stone-600" />
-                  </div>
-                  <p className="font-medium text-sm text-stone-500">No output yet</p>
-                  <p className="text-xs mt-1 text-stone-600">Generated page outlines will appear here</p>
-                </div>
+                <EmptyState
+                  icon={FileText}
+                  title="No output yet"
+                  body="Generated page outlines will appear here"
+                  className="dog-output-empty"
+                />
               )}
               {/* Rewrite Preview — floats above both text and visualizer views */}
               {rewritePreview.visible && (() => {
@@ -4479,58 +4766,77 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 const relX = Math.max(8, Math.min(contextMenu.x - rect.left, rect.width - 428));
                 const relY = Math.max(8, Math.min(contextMenu.y - rect.top + 10, rect.height - 320));
                 return (
+                  /* A floating surface (review D5): the kit's float tokens —
+                     paper-raised, the hairline, 6px, the one shadow — at the
+                     same 420 x 310 box and the same anchor arithmetic above.
+                     The kit has no Popover (kit request A2-KR-1). */
                   <div
-                    className="absolute z-[80] bg-stone-800 border-2 border-orange-500/40 rounded-sm shadow-2xl w-[420px] max-h-[310px] flex flex-col"
+                    className="dog-rewrite"
                     style={{ left: relX, top: relY }}
                   >
                     {/* Original text being replaced */}
-                    <div className="px-3 pt-2 pb-1 flex-shrink-0 border-b border-stone-700">
-                      <span className="text-[9px] text-stone-500 uppercase tracking-wide font-bold">Replacing</span>
-                      <div className="mt-1 max-h-[60px] overflow-y-auto">
-                        <p className="text-[11px] text-stone-400 font-mono whitespace-pre-wrap leading-relaxed">{contextMenu.selectedText}</p>
+                    <div className="dog-rewrite-part dog-rewrite-orig">
+                      <span className="dog-rewrite-label">Replacing</span>
+                      <div className="dog-rewrite-orig-scroll">
+                        <p className="dog-rewrite-text" data-role="original">{contextMenu.selectedText}</p>
                       </div>
                     </div>
 
                     {/* Generated rewrite */}
-                    <div className="px-3 pt-2 pb-2 flex-1 min-h-0 overflow-y-auto">
-                      <span className="text-[9px] text-orange-400 uppercase tracking-wide font-bold">Rewritten</span>
-                      <div className="mt-1">
+                    <div className="dog-rewrite-part dog-rewrite-new">
+                      <span className="dog-rewrite-label">Rewritten</span>
+                      <div className="dog-rewrite-body">
                         {rewritePreview.isLoading ? (
-                          <div className="flex items-center gap-2 py-4 justify-center">
-                            <Loader2 className="w-4 h-4 text-orange-400 animate-spin" />
-                            <span className="text-xs text-stone-400">Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
+                          <div className="dog-rewrite-loading">
+                            <Spinner size="md" aria-hidden="true" />
+                            <span>Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
                           </div>
                         ) : (
-                          <p className="text-[11px] text-orange-400 font-mono whitespace-pre-wrap leading-relaxed">{rewritePreview.text}</p>
+                          <p className="dog-rewrite-text" data-role="rewrite">{rewritePreview.text}</p>
                         )}
                       </div>
                     </div>
 
                     {/* Compact action bar */}
-                    <div className="px-3 py-1.5 border-t border-stone-700 flex items-center justify-end gap-1.5 flex-shrink-0">
-                      <button onClick={handleRewriteCancel} className="p-1.5 hover:bg-stone-700 rounded-sm transition-colors" title="Cancel">
-                        <X className="w-3.5 h-3.5 text-stone-500 hover:text-stone-300" />
-                      </button>
-                      <button onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} className="p-1.5 hover:bg-stone-700 disabled:opacity-50 rounded-sm transition-colors" title="Regenerate">
-                        <RefreshCw className={`w-3.5 h-3.5 ${rewritePreview.isLoading ? 'animate-spin text-orange-400' : 'text-stone-500 hover:text-orange-400'}`} />
-                      </button>
-                      <button
+                    <div className="dog-rewrite-actions">
+                      <IconButton size="sm" Icon={X} onClick={handleRewriteCancel} title="Cancel" />
+                      <IconButton size="sm" onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} title="Regenerate">
+                        <RefreshCw className="dog-rewrite-regen-icon" data-loading={rewritePreview.isLoading} aria-hidden="true" />
+                      </IconButton>
+                      <Button
+                        variant="primary"
+                        size="sm"
                         onClick={handleRewriteReplace}
                         disabled={rewritePreview.isLoading || !rewritePreview.text || rewritePreview.text.startsWith('Error:')}
-                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm text-white font-bold text-[11px] transition-colors"
                       >
                         Replace
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 );
               })()}
             </div>
-          </section>
+          </Card>
         </main>
       </div>
       
       {/* History Modal */}
+      {/* DG1: the references window and one reference's preview, mounted
+          with D.O.G.'s other windows, outside the scrolling column. */}
+      {showRefsPicker && (
+        <ReferencesPicker
+          refs={refs}
+          projectTitle={selectedProject?.title || ''}
+          extraTokens={baseTokens}
+          extraUncounted={baseUncounted}
+          localServer={adapterMode === 'local_server'}
+          onClose={() => setShowRefsPicker(false)}
+        />
+      )}
+      {refPreview.preview && (
+        <ReferencePreviewDialog preview={refPreview.preview} onClose={refPreview.close} />
+      )}
+
       <HistoryModal
         isOpen={showHistoryModal}
         onClose={() => setShowHistoryModal(false)}
@@ -4566,355 +4872,338 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         onExportAll={handleExportAll}
       />
       
-      {/* Settings Slide-Out Panel */}
-      {showSettingsMenu && (
-        <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/50 transition-opacity"
-            onClick={() => setShowSettingsMenu(false)}
-          />
-          {/* Slide-out Panel */}
-          <div
-            className="absolute top-0 right-0 h-full bg-stone-800 border-l-2 border-stone-600 shadow-2xl flex flex-col animate-slide-in-right"
-            style={{
-              width: '40%',
-              minWidth: '400px',
-              paddingTop: window.electronAPI ? '32px' : '0px',
-              animation: 'slideInRight 0.3s ease-out'
-            }}
-          >
-            {/* Panel Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Settings</span>
-              </div>
-              <button 
-                onClick={() => setShowSettingsMenu(false)}
-                className="p-1 hover:bg-stone-600 rounded transition-colors"
-              >
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-            
-            {/* Tabs */}
-            <div className="flex border-b-2 border-stone-600 flex-shrink-0">
-              <button
-                onClick={() => setSettingsTab('prompts')}
-                className={`flex-1 py-2 px-4 text-sm font-medium transition-colors ${
-                  settingsTab === 'prompts' 
-                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
-                    : 'bg-stone-700 text-stone-400 hover:text-stone-300'
-                }`}
-              >
-                System Prompts
-              </button>
-              <button
-                onClick={() => setSettingsTab('format')}
-                className={`flex-1 py-2 px-4 text-sm font-medium transition-colors ${
-                  settingsTab === 'format' 
-                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
-                    : 'bg-stone-700 text-stone-400 hover:text-stone-300'
-                }`}
-              >
-                Output Format
-              </button>
-            </div>
+      {/* Settings Slide-Out Panel — the kit's Drawer, its first caller (plan
+          §4; F2's hand-off §8 left it waiting for this one). It was an
+          absolute panel inside its own fixed overlay: a black/50 backdrop,
+          the heaviest shadow, a hand-set 32px paddingTop under Electron's title
+          bar, and its entrance declared three times (review D24: a dead
+          `animate-slide-in-right`, an inline `slideInRight 0.3s` and a
+          third copy of the keyframes injected below it). The Drawer owns
+          the title-bar offset, the one entrance, the backdrop (opt-in; this
+          panel had one, and a click on it still closes) and Escape.
 
-            {/* Lock Switch Bar */}
-            {(
-            <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-2">
-                {settingsTab === 'prompts' ? (
-                  promptsTabLocked ? (
-                    <Lock className="w-4 h-4 text-stone-500" />
-                  ) : (
-                    <Unlock className="w-4 h-4 text-orange-400" />
-                  )
-                ) : (
-                  formatTabLocked ? (
-                    <Lock className="w-4 h-4 text-stone-500" />
-                  ) : (
-                    <Unlock className="w-4 h-4 text-orange-400" />
-                  )
-                )}
-                <span className={`text-xs font-bold uppercase tracking-wide ${
-                  (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)
-                    ? 'text-stone-500'
-                    : 'text-orange-400'
-                }`}>
-                  {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Locked' : 'Unlocked'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] uppercase tracking-wide ${
-                  (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)
-                    ? 'text-stone-500'
-                    : 'text-stone-400'
-                }`}>
-                  {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Read Only' : 'Editable'}
-                </span>
-                <button
-                  onClick={() => {
-                    if (settingsTab === 'prompts') {
-                      setPromptsTabLocked(!promptsTabLocked);
-                    } else {
-                      setFormatTabLocked(!formatTabLocked);
-                    }
-                  }}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
-                    (settingsTab === 'prompts' ? !promptsTabLocked : !formatTabLocked)
-                      ? 'bg-orange-500'
-                      : 'bg-stone-600'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${
-                      (settingsTab === 'prompts' ? !promptsTabLocked : !formatTabLocked)
-                        ? 'left-6'
-                        : 'left-1'
-                    }`}
+          Its width is NOT the kit's: 40% of the window, never under 400px,
+          as it was — sixteen prompt editors at the kit's widest (300) is a
+          different panel (C1). Kit request A2-KR-2. The header wears the
+          kit's drawer head with the Settings icon and A1's ink-2 title, one
+          treatment with the other five panel headers (review D4, A1-KR-3). */}
+      <Drawer
+        open={showSettingsMenu}
+        onClose={() => setShowSettingsMenu(false)}
+        backdrop
+        side="right"
+        width="lg"
+        label="Settings"
+        className="dog-settings-drawer"
+        title={(
+          <>
+            <Settings className="dog-head-icon" aria-hidden="true" />
+            Settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={() => setShowSettingsMenu(false)} />}
+        footer={(
+          <div className="dog-settings-foot">
+            <p className="dog-settings-foot-note">
+              Changes are applied immediately. Use "Reset to default" to restore original settings.
+            </p>
+            <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          </div>
+        )}
+      >
+            {/* Tabs — the kit's Tabs (review D21: a dark grey fill and a
+                2px orange underline with a -4px overlap). */}
+            <Tabs
+              items={[{ id: 'prompts', label: 'System prompts' }, { id: 'format', label: 'Output format' }]}
+              value={settingsTab}
+              onChange={setSettingsTab}
+              label="Settings sections"
+              panelId="dog-settings-panel"
+              className="dog-settings-tabs"
+            />
+
+            {/* Lock Switch Bar — the kit's Toolbar and Switch (the last
+                hand-rolled switch on the tool: a 44 x 24 pill with a grey
+                knob in both states, review D26). "Editable" is the switch's
+                name and its state is the switch's; the words beside it are
+                unchanged. */}
+            <Toolbar
+              className="dog-toolbar dog-lock-bar"
+              data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}
+              right={(
+                <>
+                  <span className="dog-lock-mode">
+                    {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Read Only' : 'Editable'}
+                  </span>
+                  <Switch
+                    checked={!(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)}
+                    onChange={() => {
+                      if (settingsTab === 'prompts') {
+                        setPromptsTabLocked(!promptsTabLocked);
+                      } else {
+                        setFormatTabLocked(!formatTabLocked);
+                      }
+                    }}
+                    aria-label="Editable"
                   />
-                </button>
-              </div>
-            </div>
-            )}
-            
-            {/* Tab Content */}
-            <div className={`flex-1 overflow-y-auto settings-scrollbar ${
-              (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'opacity-50' : ''
-            }`}>
+                </>
+              )}
+            >
+              {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? (
+                <Lock className="dog-lock-icon" aria-hidden="true" />
+              ) : (
+                <Unlock className="dog-lock-icon" aria-hidden="true" />
+              )}
+              <span className="dog-lock-label">
+                {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Locked' : 'Unlocked'}
+              </span>
+            </Toolbar>
+
+            {/* Tab Content — the lock is the disabled token now (ink at 52
+                percent, not-allowed), where it was the whole panel at
+                opacity 50% (the walk measured 39 lines of it at 1.77:1). */}
+            <div
+              id="dog-settings-panel"
+              role="tabpanel"
+              className="dog-settings-body wilson-dark-scroll"
+              data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}
+            >
               {settingsTab === 'prompts' ? (
                 <>
                   {/* Page Generation Prompts Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Page Generation Prompts</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">Page Generation Prompts</span>
                   </div>
                   
                   {/* Single Page System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
-                        <p className="text-[10px] text-stone-500">Core instruction sent as system message for single page generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.sp_sys} aria-controls={settingsCollapsed.sp_sys ? undefined : 'dog-set-sp_sys'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as system message for single page generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_sys ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_sys} />
                     </button>
                     {!settingsCollapsed.sp_sys && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-sp_sys">
+                        <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
+                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Single Page Instructions */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - Generation Rules</span>
-                        <p className="text-[10px] text-stone-500">Formatting rules and constraints for single page output</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.sp_rules} aria-controls={settingsCollapsed.sp_rules ? undefined : 'dog-set-sp_rules'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page - Generation Rules</span>
+                        <p className="dog-acc-desc">Formatting rules and constraints for single page output</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_rules ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_rules} />
                     </button>
                     {!settingsCollapsed.sp_rules && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-sp_rules">
+                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - API System Message</span>
-                        <p className="text-[10px] text-stone-500">Core instruction sent as system message for full deck generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.fd_sys} aria-controls={settingsCollapsed.fd_sys ? undefined : 'dog-set-fd_sys'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as system message for full deck generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_sys ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_sys} />
                     </button>
                     {!settingsCollapsed.fd_sys && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-fd_sys">
+                        <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
+                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck Instructions */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - Generation Rules</span>
-                        <p className="text-[10px] text-stone-500">Formatting rules and constraints for full deck output</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.fd_rules} aria-controls={settingsCollapsed.fd_rules ? undefined : 'dog-set-fd_rules'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck - Generation Rules</span>
+                        <p className="dog-acc-desc">Formatting rules and constraints for full deck output</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_rules ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_rules} />
                     </button>
                     {!settingsCollapsed.fd_rules && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-fd_rules">
+                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Visual Assets System Prompt Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Visual Assets System Prompt</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">Visual Assets System Prompt</span>
                   </div>
 
                   {/* Theme Color Generation Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Theme Color Generation</span>
-                        <p className="text-[10px] text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.theme_prompt} aria-controls={settingsCollapsed.theme_prompt ? undefined : 'dog-set-theme_prompt'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Theme Color Generation</span>
+                        <p className="dog-acc-desc">System prompt sent to Haiku for AI theme color generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.theme_prompt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.theme_prompt} />
                     </button>
                     {!settingsCollapsed.theme_prompt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-theme_prompt">
+                        <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
+                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Shared Image Prompt Rules (All Models) */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Shared Rules (All Models)</span>
-                        <p className="text-[10px] text-stone-500">Common formatting and structure rules applied to all image generation models</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_shared} aria-controls={settingsCollapsed.img_shared ? undefined : 'dog-set-img_shared'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Shared Rules (All Models)</span>
+                        <p className="dog-acc-desc">Common formatting and structure rules applied to all image generation models</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_shared ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_shared} />
                     </button>
                     {!settingsCollapsed.img_shared && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_shared">
+                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Midjourney System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Midjourney Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for Midjourney v6</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_midjourney} aria-controls={settingsCollapsed.img_midjourney ? undefined : 'dog-set-img_midjourney'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Midjourney Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Midjourney v6</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_midjourney ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_midjourney} />
                     </button>
                     {!settingsCollapsed.img_midjourney && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_midjourney">
+                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Flux System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Flux Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for Flux</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_flux} aria-controls={settingsCollapsed.img_flux ? undefined : 'dog-set-img_flux'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Flux Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Flux</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_flux ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_flux} />
                     </button>
                     {!settingsCollapsed.img_flux && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_flux">
+                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Nano Banana System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Nano Banana Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for Nano Banana</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_nanobanana} aria-controls={settingsCollapsed.img_nanobanana ? undefined : 'dog-set-img_nanobanana'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Nano Banana Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Nano Banana</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_nanobanana ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_nanobanana} />
                     </button>
                     {!settingsCollapsed.img_nanobanana && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_nanobanana">
+                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Chat GPT / DALL-E System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Chat GPT / DALL-E Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_chatgpt} aria-controls={settingsCollapsed.img_chatgpt ? undefined : 'dog-set-img_chatgpt'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Chat GPT / DALL-E Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for ChatGPT / DALL-E 3</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_chatgpt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_chatgpt} />
                     </button>
                     {!settingsCollapsed.img_chatgpt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_chatgpt">
+                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Image Prompt - API System Message */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
-                        <p className="text-[10px] text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_api_sys} aria-controls={settingsCollapsed.img_api_sys ? undefined : 'dog-set-img_api_sys'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Image Prompt - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as the API system message for image prompt generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_api_sys ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_api_sys} />
                     </button>
                     {!settingsCollapsed.img_api_sys && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_api_sys">
+                        <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
+                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* AI Rewrite Prompts Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">AI Rewrite Prompts</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">AI Rewrite Prompts</span>
                   </div>
                   
                   {Object.entries(REWRITE_LABELS).map(([mode, label]) => {
                     const collapseKey = `rw_${mode}`;
                     return (
-                      <div key={mode} className="border-b border-stone-700 overflow-hidden">
-                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                          <div className="text-left">
-                            <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{label}</span>
-                            <p className="text-[10px] text-stone-500">Rewrite prompt for "{label}" mode</p>
+                      <div key={mode} className="dog-acc">
+                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head" aria-expanded={!settingsCollapsed[collapseKey]} aria-controls={settingsCollapsed[collapseKey] ? undefined : `dog-set-${collapseKey}`}>
+                          <div className="dog-acc-text">
+                            <span className="dog-acc-label">{label}</span>
+                            <p className="dog-acc-desc">Rewrite prompt for "{label}" mode</p>
                           </div>
-                          <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed[collapseKey] ? '' : 'rotate-90'}`} />
+                          <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed[collapseKey]} />
                         </button>
                         {!settingsCollapsed[collapseKey] && (
-                          <div className="px-3 pb-3 pt-2">
+                          <div className="dog-acc-body" id={`dog-set-${collapseKey}`}>
                             <textarea
                               value={rewritePrompts[mode]}
                               onChange={(e) => setRewritePrompts(prev => ({ ...prev, [mode]: e.target.value }))}
                               disabled={promptsTabLocked}
-                              className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-y settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`}
+                              className="ui-input dog-acc-textarea h-32 resize-y wilson-dark-scroll" data-surface="dark"
                             />
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => setRewritePrompts(prev => ({ ...prev, [mode]: DEFAULT_REWRITE_PROMPTS[mode] }))}
                               disabled={promptsTabLocked}
-                              className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
+                              className="dog-acc-reset"
                             >
                               Reset to default
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -4924,68 +5213,68 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               ) : (
                 <>
                   {/* Single Page Output Format */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Markdown structure for individual slide exports</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.sp_fmt} aria-controls={settingsCollapsed.sp_fmt ? undefined : 'dog-set-sp_fmt'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for individual slide exports</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_fmt} />
                     </button>
                     {!settingsCollapsed.sp_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-[10px] ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-sp_fmt">
+                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck Output Format */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Markdown structure for complete deck exports</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.fd_fmt} aria-controls={settingsCollapsed.fd_fmt ? undefined : 'dog-set-fd_fmt'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for complete deck exports</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_fmt} />
                     </button>
                     {!settingsCollapsed.fd_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-96 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-[10px] ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-fd_fmt">
+                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-96 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Visual Deck Export Schema */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Visual Deck Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.vis_fmt} aria-controls={settingsCollapsed.vis_fmt ? undefined : 'dog-set-vis_fmt'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Visual Deck Export Schema</span>
+                        <p className="dog-acc-desc">Extended export format with theme colors and deck summary. This schema is read-only.</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.vis_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.vis_fmt} />
                     </button>
                     {!settingsCollapsed.vis_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-stone-400 text-xs font-mono focus:outline-none resize-none settings-scrollbar cursor-not-allowed" />
+                      <div className="dog-acc-body" id="dog-set-vis_fmt">
+                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" data-readonly="true" />
                       </div>
                     )}
                   </div>
 
                   {/* Image Prompt Export Schema */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Markdown structure for generated image prompts file</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_fmt} aria-controls={settingsCollapsed.img_fmt ? undefined : 'dog-set-img_fmt'}>
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Image Prompt Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for generated image prompts file</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_fmt} />
                     </button>
                     {!settingsCollapsed.img_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-[10px] ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body" id="dog-set-img_fmt">
+                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
@@ -4993,317 +5282,258 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               )}
             </div>
             
-            {/* Panel Footer */}
-            <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between">
-              <p className="text-[10px] text-stone-500 flex-1">
-                Changes are applied immediately. Use "Reset to default" to restore original settings.
-              </p>
-              <button
-                onClick={() => setShowHelpModal(true)}
-                className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-sm transition-colors"
-                title="Help & Documentation"
-              >
-                <HelpCircle className="w-4 h-4 text-orange-400" />
-              </button>
-            </div>
-          </div>
-          
-          {/* CSS Animation and Scrollbar Styles */}
-          <style>{`
-            @keyframes slideInRight {
-              from {
-                transform: translateX(100%);
-              }
-              to {
-                transform: translateX(0);
-              }
-            }
-          `}</style>
-        </div>
-      )}
-      
-      {/* Help Modal - Higher z-index to appear above settings panel */}
+      </Drawer>
+
+      {/* Help Modal — the kit's Dialog at the reading width (720). It was
+          850 x 82vh on its own black/70 backdrop at z-100 (review D5), with
+          a prose column about 100 characters wide (D27); at 720 with the
+          200px contents panel the column is about 65 characters, inside
+          D27's 72ch cap. It keeps its fixed height, so changing page does
+          not resize it, and its two columns scroll on their own. A Dialog
+          stacks over the settings Drawer it opens from (70 over 60), and the
+          Drawer stands down on Escape while a Dialog is open. */}
       {showHelpModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/70"
-            onClick={() => setShowHelpModal(false)}
-          />
-          {/* Modal */}
-          <div className="relative bg-stone-800 border-2 border-stone-600 rounded-sm shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
-            {/* Modal Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
-              </div>
-              <button
-                onClick={() => setShowHelpModal(false)}
-                className="p-1 hover:bg-stone-600 rounded transition-colors"
-              >
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
+        <Dialog
+          title="Help & documentation"
+          onClose={() => setShowHelpModal(false)}
+          dismissOnBackdrop
+          width="reading"
+          className="dog-help"
+        >
+          {/* Sidebar — Table of Contents. The active page is F2's selected
+              row: the signal tint and a 2px signal edge drawn inside the row,
+              where it was a 2px left border that pushed every label in. */}
+          <nav className="dog-help-side wilson-dark-scroll" aria-label="Help contents">
+            <div className="dog-help-list">
+              {DOG_HELP_SIDEBAR_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHelpPage(item.id)}
+                  className="dog-help-nav"
+                  data-active={helpPage === item.id}
+                  aria-current={helpPage === item.id ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-
-            {/* Modal Body — Sidebar + Content */}
-            <div className="flex-1 flex overflow-hidden">
-              {/* Sidebar — Table of Contents */}
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto settings-scrollbar py-2 flex flex-col">
-                <div className="flex-1">
-                {DOG_HELP_SIDEBAR_ITEMS.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => setHelpPage(item.id)}
-                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
-                      helpPage === item.id
-                        ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
-                        : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                </div>
-                <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-xs text-stone-500 font-mono">{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v?'}</span>
-                </div>
-              </nav>
-
-              {/* Content Area */}
-              <div className="flex-1 overflow-y-auto p-5 settings-scrollbar">
-
-              <DogHelpContent helpPage={helpPage} />
+            <div className="dog-help-version">
+              {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v?'}
             </div>
+          </nav>
 
+          {/* Content Area */}
+          <div className="dog-help-content wilson-dark-scroll">
+            <DogHelpContent helpPage={helpPage} />
           </div>
-        </div>
-        </div>
+        </Dialog>
       )}
 
-      {/* Right-Click Context Menu */}
+      {/* Right-Click Context Menu — the kit's Menu (header / divider / item /
+          hint on the one float surface; the kit's hover and viewport clamp).
+          It was a private stylesheet injected on every open: a 3px orange
+          left edge and an orange tint on hover, every item in the accent.
+          Same items, same order, same shortcuts shown. Every item is
+          `keepOpen` because every handler already closes the menu itself —
+          a rewrite with nothing selected returns early and leaves it open,
+          exactly as before — and the click stays inside it (the window
+          listener above closes it on any click that reaches the window). */}
       {contextMenu.visible && (
-        <div
-          className="fixed z-[70] bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl py-1 min-w-[180px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+        <Menu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          minWidth={180}
+          onClose={closeContextMenu}
           onClick={(e) => e.stopPropagation()}
-        >
-          <style>{`
-            .ctx-btn { border-left: 3px solid transparent; transition: all 0.1s ease; cursor: pointer; }
-            .ctx-btn:hover:not(:disabled) { border-left-color: #f97316; background: rgba(249,115,22,0.12); }
-            .ctx-btn:disabled { color: #57534e; cursor: default; }
-            .ctx-btn:disabled:hover { border-left-color: transparent; background: transparent; }
-          `}</style>
-          {/* Section 1: Edit — text view only */}
-          {contextMenu.source !== 'visualizer' && (
-            <>
-              <button onClick={() => handleClipboardAction('undo')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Undo2 className="w-3 h-3 flex-shrink-0" /> Undo <span className="ml-auto text-stone-600 text-[10px]">{modKey}Z</span>
-              </button>
-              <button onClick={() => handleClipboardAction('redo')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Redo2 className="w-3 h-3 flex-shrink-0" /> Redo <span className="ml-auto text-stone-600 text-[10px]">{shiftModKey}Z</span>
-              </button>
-
-              {/* Divider */}
-              <div className="border-t border-stone-600 my-1" />
-
-              {/* Section 2: Clipboard */}
-              <button onClick={() => handleClipboardAction('cut')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Scissors className="w-3 h-3 flex-shrink-0" /> Cut <span className="ml-auto text-stone-600 text-[10px]">{modKey}X</span>
-              </button>
-              <button onClick={() => handleClipboardAction('copy')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Copy className="w-3 h-3 flex-shrink-0" /> Copy <span className="ml-auto text-stone-600 text-[10px]">{modKey}C</span>
-              </button>
-              <button onClick={() => handleClipboardAction('paste')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <ClipboardList className="w-3 h-3 flex-shrink-0" /> Paste <span className="ml-auto text-stone-600 text-[10px]">{modKey}V</span>
-              </button>
-
-              {/* Divider */}
-              <div className="border-t border-stone-600 my-1" />
-            </>
-          )}
-
-          {/* AI Rewrite — shown in both views */}
-          <div className="px-3 py-1">
-            <span className="text-[9px] text-stone-500 uppercase tracking-wide font-bold">AI Rewrite</span>
-          </div>
-          {Object.entries(REWRITE_LABELS).map(([mode, label]) => (
-            <button
-              key={mode}
-              onClick={() => handleRewriteRequest(mode)}
-              className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2"
-            >
-              <Sparkles className="w-3 h-3 flex-shrink-0" />
-              {label}
-            </button>
-          ))}
-        </div>
+          className="dog-context-menu"
+          items={[
+            ...(contextMenu.source !== 'visualizer' ? [
+              // Section 1: Edit — text view only
+              { label: 'Undo', Icon: Undo2, hint: `${modKey}Z`, onClick: () => handleClipboardAction('undo'), keepOpen: true },
+              { label: 'Redo', Icon: Redo2, hint: `${shiftModKey}Z`, onClick: () => handleClipboardAction('redo'), keepOpen: true },
+              { divider: true },
+              // Section 2: Clipboard
+              { label: 'Cut', Icon: Scissors, hint: `${modKey}X`, onClick: () => handleClipboardAction('cut'), keepOpen: true },
+              { label: 'Copy', Icon: Copy, hint: `${modKey}C`, onClick: () => handleClipboardAction('copy'), keepOpen: true },
+              { label: 'Paste', Icon: ClipboardList, hint: `${modKey}V`, onClick: () => handleClipboardAction('paste'), keepOpen: true },
+              { divider: true },
+            ] : []),
+            // AI Rewrite — shown in both views
+            { header: 'AI Rewrite' },
+            ...Object.entries(REWRITE_LABELS).map(([mode, label]) => (
+              { label, Icon: Sparkles, onClick: () => handleRewriteRequest(mode), keepOpen: true }
+            )),
+          ]}
+        />
       )}
 
       {/* Footer bar is now managed by App.jsx container */}
 
-      {/* New Project Modal */}
+      {/* New Project Modal — the kit's Dialog (review D20: the one modal on
+          the tool written in inline style objects, with white on the signal at
+          13px (C6), light-orange ink, 2px frames, a focus ring of its own and ✕
+          glyphs). Same fields in the same order, the same validation, the
+          same close paths: Cancel, the backdrop, and now the named Close. */}
       {showNewProjectModal && (
-        <div
-          onClick={resetNewProjectModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl"
-            style={{ width: '520px', maxHeight: '85vh', padding: '24px', overflowY: 'auto' }}
-          >
-            <h3 className="text-sm font-bold uppercase tracking-widest text-orange-400 mb-4">Create New Project</h3>
-            <div className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Project Title</label>
-                <input
-                  type="text"
-                  value={newProjectTitle}
-                  onChange={(e) => setNewProjectTitle(e.target.value)}
-                  placeholder="Enter project title..."
-                  autoFocus
-                  className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Description</label>
-                <textarea
-                  value={newProjectDescription}
-                  onChange={(e) => setNewProjectDescription(e.target.value)}
-                  placeholder="Brief description of the project..."
-                  rows={3}
-                  className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
-                />
-              </div>
-
-              {/* Dates */}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Start Date</label>
-                  <input
-                    type="date"
-                    value={newProjectStartDate}
-                    onChange={(e) => setNewProjectStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">End Date</label>
-                  <input
-                    type="date"
-                    value={newProjectEndDate}
-                    onChange={(e) => setNewProjectEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
-                  />
-                </div>
-              </div>
-
-              {/* Documents Upload */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Documents</label>
-                <div
-                  onClick={() => document.getElementById('new-proj-docs-input')?.click()}
-                  className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
-                  style={{ backgroundColor: '#1c1917' }}
-                >
-                  <p className="text-[10px] text-stone-500">Click to upload documents (.pdf, .doc, .txt, .md, .csv)</p>
-                  <input
-                    id="new-proj-docs-input"
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
-                    onChange={(e) => { handleNewProjectFileUpload('documents', e.target.files); e.target.value = ''; }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-                {newProjectDocuments.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {newProjectDocuments.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
-                        <span className="text-[10px] text-stone-400 truncate flex-1 mr-2">{f.name}</span>
-                        <button
-                          onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
-                          className="text-[10px] text-stone-600 hover:text-red-500 transition-colors flex-shrink-0"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Visual Assets Upload */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Visual Assets</label>
-                <div
-                  onClick={() => document.getElementById('new-proj-assets-input')?.click()}
-                  className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
-                  style={{ backgroundColor: '#1c1917' }}
-                >
-                  <p className="text-[10px] text-stone-500">Click to upload images or videos</p>
-                  <input
-                    id="new-proj-assets-input"
-                    type="file"
-                    multiple
-                    accept="image/*,video/*"
-                    onChange={(e) => { handleNewProjectFileUpload('assets', e.target.files); e.target.value = ''; }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-                {newProjectAssets.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {newProjectAssets.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
-                        {f.type?.startsWith('image/') && (
-                          <img src={f.content} alt="" className="w-6 h-6 object-cover rounded-sm mr-2 flex-shrink-0" />
-                        )}
-                        <span className="text-[10px] text-stone-400 truncate flex-1 mr-2">{f.name}</span>
-                        <button
-                          onClick={() => setNewProjectAssets(prev => prev.filter(a => a.id !== f.id))}
-                          className="text-[10px] text-stone-600 hover:text-red-500 transition-colors flex-shrink-0"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3 mt-5">
-              <button
-                onClick={resetNewProjectModal}
-                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
-                style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
-              >
+        <Dialog
+          title="Create new project"
+          onClose={resetNewProjectModal}
+          dismissOnBackdrop
+          width="form"
+          className="dog-np"
+          footer={(
+            <>
+              <Button variant="secondary" onClick={resetNewProjectModal}>
                 Cancel
-              </button>
-              <button
-                onClick={handleCreateProjectFromModal}
-                disabled={!newProjectTitle.trim()}
-                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors disabled:opacity-40"
-                style={{ backgroundColor: '#ea580c', color: '#fff' }}
-              >
-                Create Project
-              </button>
+              </Button>
+              <Button variant="primary" onClick={handleCreateProjectFromModal} disabled={!newProjectTitle.trim()}>
+                Create project
+              </Button>
+            </>
+          )}
+        >
+          <div className="dog-np-body">
+            {/* Title */}
+            <div>
+              <label className="ui-field-label dog-np-label" id="dog-np-title-label">Project Title</label>
+              <input
+                id="dog-np-title"
+                aria-labelledby="dog-np-title-label"
+                type="text"
+                value={newProjectTitle}
+                onChange={(e) => setNewProjectTitle(e.target.value)}
+                placeholder="Enter project title..."
+                autoFocus
+                className="ui-input" data-size="md" data-surface="dark"
+              />
             </div>
+
+            {/* Description */}
+            <div>
+              <label className="ui-field-label dog-np-label" id="dog-np-description-label">Description</label>
+              <textarea
+                id="dog-np-description"
+                aria-labelledby="dog-np-description-label"
+                value={newProjectDescription}
+                onChange={(e) => setNewProjectDescription(e.target.value)}
+                placeholder="Brief description of the project..."
+                rows={3}
+                className="ui-input dog-np-textarea" data-surface="dark"
+              />
+            </div>
+
+            {/* Dates */}
+            <div className="dog-np-dates">
+              <div>
+                <label className="ui-field-label dog-np-label" id="dog-np-start-label">Start Date</label>
+                <input
+                  id="dog-np-start"
+                  aria-labelledby="dog-np-start-label"
+                  type="date"
+                  value={newProjectStartDate}
+                  onChange={(e) => setNewProjectStartDate(e.target.value)}
+                  className="ui-input dog-np-date" data-size="md" data-surface="dark"
+                />
+              </div>
+              <div>
+                <label className="ui-field-label dog-np-label" id="dog-np-end-label">End Date</label>
+                <input
+                  id="dog-np-end"
+                  aria-labelledby="dog-np-end-label"
+                  type="date"
+                  value={newProjectEndDate}
+                  onChange={(e) => setNewProjectEndDate(e.target.value)}
+                  className="ui-input dog-np-date" data-size="md" data-surface="dark"
+                />
+              </div>
+            </div>
+
+            {/* Documents Upload. C3: the pickers work on every backend with
+                a file store. Only a read-only backend (Drive) still degrades
+                to an explanation, and it degrades because it cannot store
+                anything at all — not because attachments have no home. */}
+            {!canStoreFiles ? (
+              <p className="dog-np-note">
+                This backend is read-only, so files cannot be attached here.
+                Switch to Supabase or Local Server in Settings to attach
+                project files.
+              </p>
+            ) : (<>
+            <div>
+              <span className="ui-field-label dog-np-label">Documents</span>
+              {/* The picker is the kit's secondary Button, as A1's upload is
+                  (review D30: three upload affordances, three looks). It was
+                  a clickable <div> the keyboard could not reach. */}
+              <Button variant="secondary" Icon={Upload} className="dog-np-upload"
+                onClick={() => document.getElementById('new-proj-docs-input')?.click()}
+              >
+                <span>Click to upload documents</span>
+                <span className="dog-upload-hint">(.pdf, .doc, .txt, .md, .csv)</span>
+              </Button>
+              <input
+                id="new-proj-docs-input"
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+                onChange={(e) => { handleNewProjectFileUpload('documents', e.target.files); e.target.value = ''; }}
+                className="hidden"
+              />
+              {newProjectDocuments.length > 0 && (
+                <div className="dog-np-files">
+                  {newProjectDocuments.map(f => (
+                    <div key={f.id} className="dog-np-file">
+                      <span className="dog-np-file-name">{f.name}</span>
+                      <IconButton
+                        size="sm"
+                        Icon={X}
+                        title={`Remove ${f.name}`}
+                        onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Visual Assets Upload */}
+            <div>
+              <span className="ui-field-label dog-np-label">Visual Assets</span>
+              <Button variant="secondary" Icon={Upload} className="dog-np-upload"
+                onClick={() => document.getElementById('new-proj-assets-input')?.click()}
+              >
+                Click to upload images or videos
+              </Button>
+              <input
+                id="new-proj-assets-input"
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                onChange={(e) => { handleNewProjectFileUpload('assets', e.target.files); e.target.value = ''; }}
+                className="hidden"
+              />
+              {newProjectAssets.length > 0 && (
+                <div className="dog-np-files">
+                  {newProjectAssets.map(f => (
+                    <div key={f.id} className="dog-np-file">
+                      {f.type?.startsWith('image/') && (
+                        <img src={f.content} alt="" className="dog-np-thumb" />
+                      )}
+                      <span className="dog-np-file-name">{f.name}</span>
+                      <IconButton
+                        size="sm"
+                        Icon={X}
+                        title={`Remove ${f.name}`}
+                        onClick={() => setNewProjectAssets(prev => prev.filter(a => a.id !== f.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            </>)}
           </div>
-        </div>
+        </Dialog>
       )}
 
     </div>

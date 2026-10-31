@@ -1,0 +1,93 @@
+/** @vitest-environment jsdom */
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { Trash2 } from 'lucide-react'
+import { Menu } from './Menu'
+import { overlayOpen, _resetOverlaysForTests } from './overlay'
+
+afterEach(cleanup)
+beforeEach(() => _resetOverlaysForTests())
+
+const items = (onRename, onDelete) => [
+  { header: 'Bin' },
+  { label: 'Rename', onClick: onRename, hint: 'F2' },
+  { divider: true },
+  { label: 'Delete', Icon: Trash2, onClick: onDelete, danger: true },
+  { label: 'Locked', disabled: true },
+  null,
+]
+
+describe('Menu', () => {
+  it('renders header, divider, items, hints and danger; registers as an open overlay', () => {
+    render(<Menu x={10} y={10} items={items(() => {}, () => {})} onClose={() => {}} />)
+    const menu = document.querySelector('.ui-menu')
+    expect(menu).not.toBeNull()
+    // A plain column of buttons, like the Bins menu it replaces: no menu
+    // roles until the arrow-key model exists (F2).
+    expect(menu.getAttribute('role')).toBeNull()
+    expect(overlayOpen()).toBe(true)
+    expect(screen.getByText('Bin').className).toContain('ui-menu-header')
+    expect(menu.querySelector('.ui-menu-divider')).not.toBeNull()
+    expect(screen.getByText('F2').className).toContain('ui-menu-hint')
+    const del = screen.getByRole('button', { name: 'Delete' })
+    expect(del.dataset.danger).toBe('true')
+    expect(del.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Locked' }).disabled).toBe(true)
+  })
+
+  it('an item runs its action and closes; Escape and an outside click close', () => {
+    const onRename = vi.fn()
+    const onClose = vi.fn()
+    render(<Menu x={10} y={10} items={items(onRename, () => {})} onClose={onClose} />)
+    fireEvent.click(screen.getByRole('button', { name: /Rename/ }))
+    expect(onRename).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(2)
+    fireEvent.mouseDown(document.body)
+    expect(onClose).toHaveBeenCalledTimes(3)
+  })
+
+  it('unregisters on unmount and clamps to the viewport', () => {
+    const { unmount } = render(<Menu x={5000} y={10} items={[{ label: 'A' }]} onClose={() => {}} minWidth={200} />)
+    const menu = document.querySelector('.ui-menu')
+    expect(parseInt(menu.style.left, 10)).toBeLessThanOrEqual(window.innerWidth - 200 - 12)
+    unmount()
+    expect(overlayOpen()).toBe(false)
+  })
+
+  /* A2 review rounds 1 and 2, measured at 1440x900: the menu has to be
+     placed from its RENDERED height. jsdom lays nothing out, so the height
+     is stubbed per test. */
+  const withHeight = (h, fn) => {
+    const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return h } })
+    try { fn() } finally { Object.defineProperty(HTMLElement.prototype, 'offsetHeight', d) }
+  }
+  const topOf = () => parseInt(document.querySelector('.ui-menu').style.top, 10)
+
+  it('a menu that would run past the bottom edge starts higher, by its own height', () => {
+    const vh = window.innerHeight
+    withHeight(200, () => {
+      render(<Menu x={10} y={vh - 20} items={[{ label: 'A' }, { label: 'B' }]} onClose={() => {}} />)
+      expect(topOf()).toBe(vh - 200 - 12)
+    })
+  })
+
+  it('a short menu that fits below the pointer stays at the pointer (the two-bin "Move to" in Bins)', () => {
+    const vh = window.innerHeight
+    withHeight(60, () => {
+      render(<Menu x={10} y={vh - 80} items={[{ label: 'A' }]} onClose={() => {}} />)
+      expect(topOf()).toBe(vh - 80)
+    })
+  })
+
+  it('a menu taller than the window takes the window and scrolls, from the top margin', () => {
+    const vh = window.innerHeight
+    withHeight(vh - 24, () => {
+      render(<Menu x={10} y={300} items={[{ label: 'A' }]} onClose={() => {}} />)
+      expect(topOf()).toBe(12)
+      expect(parseInt(document.querySelector('.ui-menu').style.maxHeight, 10)).toBe(vh - 24)
+    })
+  })
+})

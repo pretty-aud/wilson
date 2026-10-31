@@ -7,13 +7,15 @@
 // the views to consume in Session 3.
 
 // ─── Status taxonomy helpers ────────────────────────────────
-const TASK_DONE_STATES = new Set(['approved', 'final', 'omitted']);
+// "Done" has exactly ONE definition, in dependencyStatus.js (Phase 7, Track A
+// bundle A2, 2026-09-06). This file carried its own set of done states and
+// AssetStatusWarningModal carried a private isDone; they agreed by luck. The
+// old name is kept as an alias so every existing caller keeps working.
+import { isDone } from './dependencyStatus';
 const TASK_ACTIVE_STATES = new Set(['in_progress', 'pending_review', 'needs_revisions']);
 
-export function isTaskDone(task) {
-  return task && TASK_DONE_STATES.has(task.status);
-}
-export function isTaskActive(task) {
+export const isTaskDone = isDone;
+function isTaskActive(task) {
   return task && TASK_ACTIVE_STATES.has(task.status);
 }
 
@@ -21,11 +23,6 @@ export function isTaskActive(task) {
 export function selectAssetsByPhase(assets, phaseId) {
   if (!assets) return [];
   return assets.filter(a => a.phase_id === phaseId).sort(sortBySortOrder);
-}
-
-export function selectTasksByAsset(tasks, assetId) {
-  if (!tasks) return [];
-  return tasks.filter(t => t.asset_id === assetId);
 }
 
 function sortBySortOrder(a, b) {
@@ -38,9 +35,14 @@ function sortBySortOrder(a, b) {
 // of its tasks. The user-facing `asset.status` field is independent
 // (see schema.sql) so we can warn when the user marks an asset
 // "approved" while child tasks are still in flight.
-export function selectAssetDerivedStatus(tasks, assetId) {
-  const list = selectTasksByAsset(tasks, assetId);
-  if (list.length === 0) return 'not_started';
+//
+// FX2 (0096): over a list already chosen — the tasks ABOUT an asset (any of
+// their items), which the provider reads from the items (ctx's
+// selectAssetDerivedStatus). VW1m (2026-10-16): the raw selectTasksByAsset,
+// selectAssetDerivedStatus and selectAssetStatusWarning that read a task's
+// single asset_id (its main asset) are gone; nothing called them.
+export function assetStatusOfTasks(list) {
+  if (!Array.isArray(list) || list.length === 0) return 'not_started';
   if (list.every(isTaskDone)) {
     if (list.some(t => t.status === 'final')) return 'final';
     return 'approved';
@@ -52,14 +54,14 @@ export function selectAssetDerivedStatus(tasks, assetId) {
 }
 
 /**
- * Returns true when the asset's user-facing status is approved/final
- * but at least one task on the asset is not yet done.
+ * True when the asset's user-facing status is approved/final but at least
+ * one task about it is not yet done. FX2 (0096): over a list already chosen
+ * (the tasks about it: ctx's selectAssetStatusWarning).
  */
-export function selectAssetStatusWarning(asset, tasks) {
+export function assetWarningOfTasks(asset, list) {
   if (!asset) return false;
   if (!['approved', 'final'].includes(asset.status)) return false;
-  const list = selectTasksByAsset(tasks, asset.id);
-  return list.some(t => !isTaskDone(t));
+  return (Array.isArray(list) ? list : []).some(t => !isTaskDone(t));
 }
 
 // ─── Budget rollup ──────────────────────────────────────────
@@ -94,17 +96,10 @@ export function selectProjectBudgetRollup({
 // ─── Variance ───────────────────────────────────────────────
 //
 // `variance = logged_days - bid_days`. Positive = over budget,
-// negative = under, zero = on-target.
-export function selectVarianceForAsset(tasks, assetId) {
-  const list = selectTasksByAsset(tasks, assetId);
-  let bid = 0, logged = 0;
-  for (const t of list) {
-    bid    += Number(t.bid_days || 0);
-    logged += Number(t.logged_days || 0);
-  }
-  return { bid, logged, variance: logged - bid };
-}
-
+// negative = under, zero = on-target. VW1m (2026-10-16): the project's
+// only; an asset's (selectVarianceForAsset, by a task's main asset, called
+// by no screen) is gone — the Budget's By asset tab splits a task between
+// its assets.
 export function selectVarianceForProject(tasks) {
   let bid = 0, logged = 0;
   for (const t of tasks || []) {

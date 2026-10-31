@@ -1,0 +1,521 @@
+{
+  "refsOpensOn": "Full deck",
+  "refsCards": {
+    "cards": [
+      {
+        "title": "1Project documentation",
+        "collapsed": "false",
+        "note": null,
+        "top": 144,
+        "height": 298,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "The deck’s project. Its title and description go with every deck; choose what else in References."
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          }
+        ],
+        "hints": [
+          "The deck’s project. Its title and description go with every deck; choose what else in References.",
+          "Source material for generating slide content (max 20 files)"
+        ],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "f1c70000-0003-4000-8000-000000000001",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "2References",
+        "collapsed": "false",
+        "note": "None chosen",
+        "top": 450,
+        "height": 170,
+        "fields": [],
+        "hints": [
+          "What goes to the AI: your uploads, what is listed here, and the project’s title and description, with what you write below."
+        ],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": [
+          {
+            "words": "Add references",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "3Generate outline",
+        "collapsed": "false",
+        "note": null,
+        "top": 627,
+        "height": 312,
+        "fields": [
+          {
+            "label": "Deck Context & Guidelines",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "Set the overall tone, style, and objectives for the deck • Include desired page count"
+        ],
+        "placeholders": [
+          {
+            "tag": "textarea",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Use visual assets",
+            "checked": false,
+            "words": "Use visual assetsto place media in the deck"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          },
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
+          }
+        ],
+        "switches": [
+          {
+            "label": "",
+            "checked": true,
+            "width": 36
+          }
+        ],
+        "selects": [],
+        "buttons": [
+          {
+            "words": "Generate full deck outline",
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 947,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": {
+      "description": "A fourteen-minute short. Mara returns to the lighthouse her father kept, to close it for the last time, and finds the storm he wrote about in his log has not finished with either of them.",
+      "notes": [],
+      "roles": [],
+      "roleChips": []
+    },
+    "banners": []
+  },
+  "refsRail": [
+    "Assets15",
+    "Scenes6",
+    "Shots16",
+    "Tasks42",
+    "Phases5",
+    "Milestones3",
+    "Files32",
+    "Your notes4"
+  ],
+  "refsPreview": "The storm\n\nWhat D.O.G. sends for it · about 43 tokens\n\n[Scene] The storm\nScene number: 4\nStatus: In progress\nType: Int ext\nTime of day: Night\nDates: 2026-09-25 to 2026-09-27\nDescription: Rain on the glass. The log book entry.",
+  "refsChosen": [
+    "Scene · The storm",
+    "Notes from the animatic review"
+  ],
+  "refsMeter": "Less than 1% of what D.O.G. can read for one deck",
+  "refsFullDeck": {
+    "cards": [
+      {
+        "title": "1Project documentation",
+        "collapsed": "false",
+        "note": null,
+        "top": -480,
+        "height": 298,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "The deck’s project. Its title and description go with every deck; choose what else in References."
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          }
+        ],
+        "hints": [
+          "The deck’s project. Its title and description go with every deck; choose what else in References.",
+          "Source material for generating slide content (max 20 files)"
+        ],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "f1c70000-0003-4000-8000-000000000001",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "2References",
+        "collapsed": "false",
+        "note": "2 chosen",
+        "top": -174,
+        "height": 302,
+        "fields": [
+          {
+            "label": "Items (1)",
+            "hint": null
+          },
+          {
+            "label": "Notes (1)",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "What goes to the AI: your uploads, what is listed here, and the project’s title and description, with what you write below."
+        ],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": [
+          {
+            "words": "Add references",
+            "disabled": false
+          },
+          {
+            "words": "Remove all",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "3Generate outline",
+        "collapsed": "false",
+        "note": null,
+        "top": 136,
+        "height": 312,
+        "fields": [
+          {
+            "label": "Deck Context & Guidelines",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "Set the overall tone, style, and objectives for the deck • Include desired page count"
+        ],
+        "placeholders": [
+          {
+            "tag": "textarea",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Use visual assets",
+            "checked": false,
+            "words": "Use visual assetsto place media in the deck"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          },
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
+          }
+        ],
+        "switches": [
+          {
+            "label": "",
+            "checked": true,
+            "width": 36
+          }
+        ],
+        "selects": [],
+        "buttons": [
+          {
+            "words": "Generate full deck outline",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 456,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": {
+      "description": "A fourteen-minute short. Mara returns to the lighthouse her father kept, to close it for the last time, and finds the storm he wrote about in his log has not finished with either of them.",
+      "notes": [],
+      "roles": [],
+      "roleChips": []
+    },
+    "banners": []
+  },
+  "refsSinglePage": {
+    "cards": [
+      {
+        "title": "1Project documentation",
+        "collapsed": "false",
+        "note": null,
+        "top": -480,
+        "height": 298,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "The deck’s project. Its title and description go with every deck; choose what else in References."
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          }
+        ],
+        "hints": [
+          "The deck’s project. Its title and description go with every deck; choose what else in References.",
+          "Source material for generating slide content (max 20 files)"
+        ],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "f1c70000-0003-4000-8000-000000000001",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "2References",
+        "collapsed": "false",
+        "note": "2 chosen",
+        "top": -174,
+        "height": 302,
+        "fields": [
+          {
+            "label": "Items (1)",
+            "hint": null
+          },
+          {
+            "label": "Notes (1)",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "What goes to the AI: your uploads, what is listed here, and the project’s title and description, with what you write below."
+        ],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": [
+          {
+            "words": "Add references",
+            "disabled": false
+          },
+          {
+            "words": "Remove all",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "3Generate outline",
+        "collapsed": "false",
+        "note": null,
+        "top": 136,
+        "height": 456,
+        "fields": [
+          {
+            "label": "Slide Layout Type",
+            "hint": "Choose how content will be arranged on the slide"
+          },
+          {
+            "label": "Page #",
+            "hint": "Single number or range (e.g. 3-7)"
+          },
+          {
+            "label": "Page Request",
+            "hint": "Describe the specific content you want on this slide"
+          }
+        ],
+        "hints": [
+          "Choose how content will be arranged on the slide",
+          "Main title with subtitle, centered",
+          "Single number or range (e.g. 3-7)",
+          "Describe the specific content you want on this slide"
+        ],
+        "placeholders": [
+          {
+            "tag": "input",
+            "cls": "dog-page-number",
+            "placeholder": "5 or 1-10",
+            "disabled": false
+          },
+          {
+            "tag": "textarea",
+            "cls": "dog-page-request",
+            "placeholder": "Example: I need a page listing all the main characters with summaries for each...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Use visual assets",
+            "checked": false,
+            "words": "Use visual assetsto place media in the deck"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          }
+        ],
+        "switches": [
+          {
+            "label": "",
+            "checked": false,
+            "width": 36
+          }
+        ],
+        "selects": [
+          {
+            "cls": "dog-select",
+            "value": "title_slide",
+            "options": [
+              "Select layout...",
+              "Title slide",
+              "Section header",
+              "Title and body",
+              "Title and two columns",
+              "Title and three columns",
+              "Title and four columns",
+              "Title only",
+              "One column text",
+              "Main point",
+              "Section title and description",
+              "Caption",
+              "Big number",
+              "Blank",
+              "Section Header w/Gradient",
+              "Title Page w/Gradient"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "Generate page outline",
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 600,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": {
+      "description": "A fourteen-minute short. Mara returns to the lighthouse her father kept, to close it for the last time, and finds the storm he wrote about in his log has not finished with either of them.",
+      "notes": [],
+      "roles": [],
+      "roleChips": []
+    },
+    "banners": []
+  },
+  "refsApplied": "Also applied here, from Full deck: the theme generator (on; set it under Full deck).",
+  "refsNothingReadable": [
+    "Nothing you chose could be read, so nothing was generated. Remove what is greyed in References, choose something else, or upload a document.",
+    "Not sent: Salt_Hours_shooting_script_v4.pdf (could not be read), Salt_Hours_treatment.pdf (could not be read), Lookbook_v2.pdf (could not be read), Boards_clean_v2.pdf (could not be read), Lamp_room_plan_A2.pdf (could not be read), Compass_hero_weathered.jpg (could not be read).",
+    "No models have been approved for your account yet, so there is nothing to choose from. Every function still runs on its default. Ask your WILSON operator to approve one."
+  ]
+}

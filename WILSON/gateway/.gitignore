@@ -1,0 +1,3 @@
+# WiX extensions cache (wix extension add) and local build output
+.wix/
+out/

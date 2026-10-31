@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
 
 export const DEFAULT_DEPARTMENTS = [
   'CG Art',
@@ -27,8 +28,6 @@ export const DEFAULT_DEPARTMENTS = [
   'Operations',
 ]
 
-export const PRONOUN_OPTIONS = ['he', 'him', 'she', 'her', 'they', 'them']
-
 export const EMPLOYMENT_TYPES = [
   { value: 'fulltime',   label: 'Full-Time / Internal' },
   { value: 'freelancer', label: 'Freelancer' },
@@ -36,8 +35,13 @@ export const EMPLOYMENT_TYPES = [
 
 export function useTeamMembers() {
   const rabbit = useRabbit()
+  const perms = usePermissions()
   const getAdapter = rabbit?.getAdapter
-  const workspaceId = rabbit?.DEFAULT_WORKSPACE_ID
+  // Same trap as useRateCard — see the long note there.
+  // Gated on `ready` — see the long note in useRateCard.
+  const workspaceId = perms?.ready
+    ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
+    : null
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 
@@ -45,8 +49,13 @@ export function useTeamMembers() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // StrictMode-safe: the body must reset to true — setup → cleanup → setup
+  // reuses the same ref, and a cleanup-only effect strands it at false.
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── Load members on mount + on adapter mode change ──
   const loadMembers = useCallback(async () => {

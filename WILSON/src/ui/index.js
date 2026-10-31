@@ -1,0 +1,57 @@
+// =============================================================================
+// src/ui — WILSON's component kit (plan §4). One file plus one test per
+// component; import from the file or from here. index.test.js enumerates
+// every export so a component cannot be added without a caller being
+// looked for (plan §7, the grep audit: no exported kit component without a
+// caller).
+//
+// Foundation 1 (this file's first commit): tokens and the primitives
+// promoted from Bins' binUi.jsx plus Button, IconButton, Switch, Chip,
+// Badge, StatusBadge, StatusDot, Field, Dialog, Menu, Toast, Banner,
+// EmptyState, Loading, Spinner, Kbd. Foundation 2 adds the shell and data
+// primitives (PageHeader, SectionTitle, Card, Table, Toolbar, Tabs, Panel,
+// Drawer, Stat, HoverActions). There is no ShortcutBar (Q10, ruled).
+// Post-overhaul FX8 adds RowTitle (FX8-KR-1): a row's words and its
+// HoverActions right after them.
+// Post-overhaul VW1b adds Popover (VW1-KR-1): a non-modal floating card,
+// portalled out of a scroller that would clip it (the Tasks item picker).
+// =============================================================================
+
+export * from './tokens'
+export * from './contrast'
+export * from './overlay'
+export { PageHeader } from './PageHeader'
+export { Table, Th, Td, Row } from './Table'
+export { Toolbar } from './Toolbar'
+export { SectionTitle } from './SectionTitle'
+export { Card } from './Card'
+export { Tabs } from './Tabs'
+export { Panel } from './Panel'
+export { Drawer } from './Drawer'
+export { Stat } from './Stat'
+export { HoverActions } from './HoverActions'
+export { RowTitle } from './RowTitle'
+export { Button, BUTTON_VARIANTS, BUTTON_SIZES } from './Button'
+export { IconButton } from './IconButton'
+export { Switch } from './Switch'
+export { Chip } from './Chip'
+export { Badge } from './Badge'
+export { StatusDot, STATUS, STATUS_TONES, statusMeta, humanizeStatus } from './StatusDot'
+export { StatusBadge } from './StatusBadge'
+export { StatusBanner } from './StatusBanner'
+export { Field } from './Field'
+export { Input, useEscapeRevert } from './Input'
+export { TextArea } from './TextArea'
+export { Select } from './Select'
+export { CellSelect } from './CellSelect'
+export { Dialog, DIALOG_WIDTHS } from './Dialog'
+export { Menu } from './Menu'
+// Post-overhaul VW1b (VW1-KR-1): a non-modal floating card, portalled.
+export { Popover } from './Popover'
+export { MenuButton } from './MenuButton'
+export { Toast, ToastProvider, useToast, TOAST_TONES } from './Toast'
+export { Banner, BANNER_TONES } from './Banner'
+export { EmptyState } from './EmptyState'
+export { Loading } from './Loading'
+export { Spinner } from './Spinner'
+export { Kbd } from './Kbd'
