@@ -238,12 +238,21 @@ let workspaceRootDir = null;
 // readers that live there) and read by the rabbit:open-path IPC.
 let rabbitFileLocator = null;
 
+// F3 (wave 1 of docs/sessions/PLAN_WEEK_2026-11-04.md; OUTSTANDING REV-07):
+// every JSON file this process writes goes through one writer — the text whole
+// to a temporary file renamed over the old one, both steps retried while
+// Windows holds a file (electron/jsonFile.cjs says why). A crash mid-write
+// leaves the previous file, never a torn one that reads back as nothing.
+// readJSON keeps its shape: the file's value, or the fallback. writeJSON
+// returns the text it wrote (the bundle cache keeps it).
+const { readJson, writeJsonAtomic, createKeptFiles, createChangeOnlyWriter } = require('./jsonFile.cjs');
+
 function readJSON(filePath, fallback = null) {
-  try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return fallback; }
+  return readJson(filePath, fallback);
 }
 
 function writeJSON(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  return writeJsonAtomic(filePath, data);
 }
 
 function slugify(str) {
@@ -793,40 +802,70 @@ function startLocalServer(distPath) {
       return tier * 100 + group;
     }
 
-    function renumberSubjects(softwareSlug) {
+    // F3 (OUTSTANDING REV-06): a course's subjects, each `{ fileName, slug,
+    // data }`; `data` is null for a file that cannot be read (held by Windows,
+    // or not JSON), which is listed and never written over. Null when the
+    // course has no subjects folder.
+    function readSubjects(softwareSlug) {
       const subjDir = path.join(getSoftwareDir(), softwareSlug, 'subjects');
-      if (!fs.existsSync(subjDir)) return [];
-      const files = fs.readdirSync(subjDir).filter(f => f.endsWith('.json'));
-      const subjects = files.map(f => {
-        const data = readJSON(path.join(subjDir, f), {});
-        return { fileName: f, slug: f.replace('.json', ''), data };
+      if (!fs.existsSync(subjDir)) return null;
+      return fs.readdirSync(subjDir).filter(f => f.endsWith('.json')).map(f => {
+        const data = readJSON(path.join(subjDir, f), null);
+        return { fileName: f, slug: f.replace('.json', ''), data: data && typeof data === 'object' ? data : null };
       });
-      // Always apply content-aware curriculum sort
-      subjects.sort((a, b) => {
-        const sa = getCurriculumScore(a.data.title, a.data.skill_level);
-        const sb = getCurriculumScore(b.data.title, b.data.skill_level);
-        if (sa !== sb) return sa - sb;
-        return (a.data.title || '').localeCompare(b.data.title || '');
-      });
-      // Reassign sequential 1-indexed order
-      subjects.forEach((s, i) => {
+    }
+    const curriculumOrder = (a, b) => {
+      const da = a.data || {};
+      const db = b.data || {};
+      const sa = getCurriculumScore(da.title, da.skill_level);
+      const sb = getCurriculumScore(db.title, db.skill_level);
+      if (sa !== sb) return sa - sb;
+      return (da.title || '').localeCompare(db.title || '') || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0);
+    };
+    // The order every list answers: the stored subject_order, which the writes
+    // keep (renumberSubjects below); a subject with no number after every
+    // numbered one; a tie, and the unnumbered, by the curriculum order. A
+    // total order (design round, finding 4), whatever order the folder lists.
+    const isOrdered = (s) => typeof s.data?.subject_order === 'number' && Number.isFinite(s.data.subject_order);
+    const listedOrder = (a, b) => {
+      if (isOrdered(a) !== isOrdered(b)) return isOrdered(a) ? -1 : 1;
+      if (isOrdered(a) && a.data.subject_order !== b.data.subject_order) return a.data.subject_order - b.data.subject_order;
+      return curriculumOrder(a, b);
+    };
+    const subjectWire = (s, i) => {
+      const d = s.data || {};
+      return {
+        slug: s.slug, title: d.title || s.slug, description: d.description || '',
+        skill_level: d.skill_level || 'beginner', is_stub: d.is_stub || false,
+        subject_order: i + 1,
+      };
+    };
+
+    // The content-aware curriculum sort, written: each readable subject's
+    // subject_order is its place, 1-indexed. F3: run by the writes (POST, PUT,
+    // DELETE, /renumber), no longer by every list; a subject whose number is
+    // already right is not written, and a file that could not be read is not
+    // written over (it was overwritten with `{ subject_order }` before).
+    function renumberSubjects(softwareSlug) {
+      const subjects = readSubjects(softwareSlug);
+      if (!subjects) return [];
+      const subjDir = path.join(getSoftwareDir(), softwareSlug, 'subjects');
+      subjects.filter(s => s.data).sort(curriculumOrder).forEach((s, i) => {
+        if (s.data.subject_order === i + 1) return;
         s.data.subject_order = i + 1;
         writeJSON(path.join(subjDir, s.fileName), s.data);
       });
-      return subjects.map(s => ({
-        slug: s.slug, title: s.data.title || s.slug, description: s.data.description || '',
-        skill_level: s.data.skill_level || 'beginner', is_stub: s.data.is_stub || false,
-        subject_order: s.data.subject_order
-      }));
+      return subjects.sort(listedOrder).map(subjectWire);
     }
 
     // ── Subject endpoints ──
+    // F3 (OUTSTANDING REV-06): read-only. It renumbered and rewrote every
+    // subject file on every call (O.T.T.E.R. lists each course at launch and
+    // for the quiz picker); the order is the one the writes keep.
     expressApp.get('/api/software/:slug/subjects', (req, res) => {
-      const subjDir = path.join(getSoftwareDir(), req.params.slug, 'subjects');
-      if (!fs.existsSync(subjDir)) return res.json([]);
-      // Always use curriculum-aware sort to ensure correct ordering
-      const sorted = renumberSubjects(req.params.slug);
-      res.json(sorted);
+      const subjects = readSubjects(req.params.slug);
+      if (!subjects) return res.json([]);
+      res.json(subjects.sort(listedOrder).map(subjectWire));
     });
 
     expressApp.post('/api/software/:slug/subjects', (req, res) => {
@@ -844,6 +883,10 @@ function startLocalServer(distPath) {
         req.body.subject_order = maxOrder + 1;
       }
       writeJSON(path.join(subjDir, `${subSlug}.json`), req.body);
+      // F3: the order is kept by the writes now that the list only reads — a
+      // new subject takes its curriculum place here, where the next list put
+      // it before. The answer is unchanged (no caller reads its number).
+      renumberSubjects(req.params.slug);
       res.json({ slug: subSlug, ...req.body });
     });
 
@@ -886,6 +929,7 @@ function startLocalServer(distPath) {
       delete body.slug; // the URL is authoritative; a stray slug must not fork the file
       if (body.subject_order == null) body.subject_order = existing.subject_order;
       writeJSON(filePath, body);
+      renumberSubjects(req.params.slug); // F3: a changed title can change its place
       res.json({ slug: req.params.sub, ...body });
     });
 
@@ -914,7 +958,9 @@ function startLocalServer(distPath) {
       const subjectMap = {};
       for (const f of files) {
         const slug = f.replace('.json', '');
-        subjectMap[slug] = readJSON(path.join(subjDir, f), {});
+        // F3: a file that cannot be read is listed and never written over.
+        const data = readJSON(path.join(subjDir, f), null);
+        subjectMap[slug] = data && typeof data === 'object' ? data : null;
       }
       // Assign order based on orderedSlugs position
       let order = 1;
@@ -926,11 +972,12 @@ function startLocalServer(distPath) {
       }
       // Any subjects not in orderedSlugs get appended at the end
       for (const slug of Object.keys(subjectMap)) {
-        if (!orderedSlugs.includes(slug)) {
+        if (!orderedSlugs.includes(slug) && subjectMap[slug]) {
           subjectMap[slug].subject_order = order++;
           writeJSON(path.join(subjDir, `${slug}.json`), subjectMap[slug]);
         }
       }
+      for (const slug of Object.keys(subjectMap)) if (!subjectMap[slug]) subjectMap[slug] = { subject_order: order++ };
       // Return the sorted list
       const result = Object.entries(subjectMap).map(([slug, data]) => ({
         slug, title: data.title || slug, description: data.description || '',
@@ -1465,11 +1512,96 @@ function startLocalServer(distPath) {
     const legalFiling = require('./legalFiling.cjs').createLegalFiling({
       fs, path, resolveProjectFolder, resolveProjectFilesDir, getRabbitProjectDir, resolveContainedFilePath,
     });
+    // F3 (OUTSTANDING REV-07; desktop-build review C1): the bundles kept in
+    // memory, keyed by the file's path and valid while a stat of it is
+    // unchanged (electron/jsonFile.cjs says why that is enough). A read that
+    // finds its bundle kept costs one stat and a parse — no disk read, no
+    // reconcile; every caller still gets its own object, as a disk read gave.
+    const rabbitBundles = createKeptFiles();
     function readRabbitBundle(projectId) {
       let bundleFile;
       try { bundleFile = rabbitBundlePath(projectId); } catch { return null; }
+      const kept = rabbitBundles.read(bundleFile);
+      if (kept) {
+        // The one per-read step that asks the disk (design round, finding 8):
+        // with a demo folder open, a project folder outside it that has gone
+        // since the load is rebased now, as every read did before.
+        if (rebaseGoneFolderRoot(kept, projectId)) {
+          try { rabbitBundles.keep(bundleFile, writeJSON(bundleFile, kept)); } catch { rabbitBundles.forget(bundleFile); }
+        }
+        return kept;
+      }
+      // A disk load: stamped BEFORE the read, so a change between the two is
+      // seen at the next read. Reconciled in full, once per load.
+      const stamp = rabbitBundles.stamp(bundleFile);
       const bundle = readJSON(bundleFile, null);
       if (!bundle) return null;
+      const reconciled = reconcileRabbitBundle(bundle, projectId);
+      let dirty = reconciled.dirty;
+      const backfilled = reconciled.backfilled;
+      if (rebaseGoneFolderRoot(bundle, projectId)) dirty = true;
+      // Ensure sub-folder structure exists on first access
+      try { ensureProjectFolders(bundle); } catch {}
+      // S4b: a `legal` LABEL from S4a's period (a managed file, an invoice,
+      // a project file whose body is not in a LEGAL folder) is removed ONCE
+      // per project, as 0088 §2 strips the cloud's once, and the ids are
+      // kept beside the bundle's other one-time migrations (review round 2:
+      // run on every read it could strip a real Legal file). Persisted by the
+      // dirty write below; not settled while the project's folder is offline.
+      if (!bundle.legalLabelsSettled) {
+        try {
+          const settled = legalFiling.settleLegalLabels(bundle, projectId);
+          if (settled.stripped.length > 0) {
+            bundle.legalLabelsStripped = [...(bundle.legalLabelsStripped || []), ...settled.stripped];
+            dirty = true;
+            console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
+          }
+          // Settled only when every labelled row was decided — a body found
+          // nowhere (its drive unplugged) is asked about again next read.
+          if (settled.settled) {
+            bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: bundle.legalLabelsStripped || [] };
+            dirty = true;
+          }
+        } catch { /* next read */ }
+      }
+      // Session 26: the directories of the rows reconcileRabbitBundle ADDED
+      // (its comment says why only then).
+      if (reconciled.rowsAdded) {
+        try { materializeFolderDirs(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }
+      }
+      // F3: kept — after a dirty write the text written; otherwise the
+      // bundle's text with the stamp taken before the read. A failed write
+      // keeps nothing, so the next read loads, reconciles and tries the write
+      // again, as every read did before.
+      if (dirty) {
+        try { rabbitBundles.keep(bundleFile, writeJSON(rabbitBundlePath(projectId), bundle)); } catch { rabbitBundles.forget(bundleFile); }
+      } else {
+        rabbitBundles.keep(bundleFile, JSON.stringify(bundle), stamp);
+      }
+      // D21 (review R1 local#4): the persist above is a raw writeJSON — no
+      // mirror — so a legacy project that was only ever READ never got
+      // <slug>_DATABASES/scenes.json. Mirrored here, ONLY when this read ran
+      // the backfill: GET /api/rabbit/projects reads every project's bundle,
+      // and a mirror per project per list would rewrite six files each for
+      // nothing. The backfill runs once per bundle (twice only if the write
+      // above failed, and its ids are the same then). Last, so the mirror
+      // sees the sanitised folder_slug and the rebased folder_root; guarded,
+      // because the mirror makes a directory outside its own try.
+      if (backfilled) {
+        try { mirrorProjectDatabases(projectId, bundle); } catch (e) { console.error('shot list backfill mirror failed:', e.message); }
+      }
+      return bundle;
+    }
+    // F3: the half of a read's reconcile that reads and writes the bundle
+    // alone. Every step converges (once in step it changes nothing). Run on
+    // every disk load (readRabbitBundle) AND on every write (writeRabbitBundle),
+    // so the bundle kept in memory is always the one a read of its file would
+    // give, and the reads that find it kept need not run it (design round,
+    // finding 1: a title that slugifies to nothing was repaired only by the
+    // read). The half that asks the disk stays in the read: the demo rebase,
+    // ensureProjectFolders, the Legal settle, the directories of added rows.
+    // Returns { dirty, backfilled, rowsAdded }.
+    function reconcileRabbitBundle(bundle, projectId) {
       // ── Migrate old bundles ──
       let dirty = false;
       if (!bundle.projectTeam)     { bundle.projectTeam     = []; dirty = true; }
@@ -1490,11 +1622,11 @@ function startLocalServer(distPath) {
       // cloud's one-time backfill. A bundle that already has the array (even
       // an empty one: every project created since has it) is never backfilled
       // again; for those only the two sibling arrays are ensured. Either way
-      // the change is persisted by the dirty write below, so it happens once.
+      // the change is persisted by the read's dirty write, so it happens once.
       // Guarded: the backfill computes before it mutates, so a throw leaves
       // the bundle as it was and the next read tries again. Its ids are
-      // derived from the project (review R1, addendum H), so if the dirty
-      // write below fails, the next read mints the SAME list and items and a
+      // derived from the project (review R1, addendum H), so if the read's
+      // dirty write fails, the next read mints the SAME list and items and a
       // renderer holding the first answer is not left with a 404.
       //
       // Then the prune (addendum H): an item whose scene or shot is gone —
@@ -1530,26 +1662,52 @@ function startLocalServer(distPath) {
       try {
         if (rabbitTableViews.reconcileTableViewsOnRead(bundle)) dirty = true;
       } catch (e) { console.error('table views reconcile failed:', e.message); }
-      // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
-      // is stored absolute (the project POST writes <root>/<slug>), so a folder
-      // moved or copied elsewhere would keep pointing at where it USED to be —
-      // and on the same machine that old copy still exists, so the existsSync
-      // fallback in resolveProjectFolder would never fire. While a demo folder
-      // is open, a folder_root outside it is rebased to <folder>/projects/<slug>
-      // on read; the slug is re-slugified for the S40 reason.
       try {
         // (review round 1, H3) folder_slug is a PATH SEGMENT that
         // resolveProjectFolder, ensureProjectFolders, mirrorProjectDatabases
         // and resolveProjectFilesDir join RAW — S40 hardened only
         // resolveProjectFolderRoot. A bundle somebody else wrote (a copied
         // demo folder) can carry `..\..\..` and walk out of the root. Slugify
-        // it ONCE here, where every route reads the bundle, so no join below
-        // can leave the folder; idempotent for every legitimate slug.
+        // it ONCE here, on every load and every write, so no join below can
+        // leave the folder; idempotent for every legitimate slug. The fallback
+        // also names a project whose title slugifies to nothing (東京, 🎬).
         if (bundle.project && bundle.project.folder_slug != null) {
           const rawSlug = String(bundle.project.folder_slug);
           const safeSlug = fileSlugify(rawSlug) || fileSlugify(String(bundle.project.title || '')) || 'Untitled-Project';
           if (safeSlug !== rawSlug) { bundle.project.folder_slug = safeSlug; dirty = true; }
         }
+      } catch { /* leave the stored slug alone */ }
+      // Session 26: the tree, reconciled so a project that predates 0041
+      // gains its rows without anyone having to migrate anything. It
+      // converges — once every planned folder has a row nothing changes, so
+      // this does not rewrite the bundle on every request.
+      //
+      // The rows are recorded even when no directory can be made; the
+      // caller then makes the directories for whatever rows exist, ONLY when
+      // rows were actually ADDED: materializeFolderDirs is one existsSync per
+      // folder — on a project with a few hundred entities that is a few
+      // hundred stat calls, to discover nothing changed. The paths are
+      // deterministic, so this converges after one pass. Configuring a
+      // folder location LATER is the case this would otherwise miss: the
+      // rows already exist, so nothing is added and no directory gets made.
+      // The project PATCH route covers it — that is where folder_root is
+      // written.
+      let rowsAdded = false;
+      try {
+        if (ensureProjectFolderRows(bundle, projectId)) { rowsAdded = true; dirty = true; }
+      } catch (e) { console.error('folder reconcile failed:', e.message); }
+      return { dirty, backfilled, rowsAdded };
+    }
+    // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
+    // is stored absolute (the project POST writes <root>/<slug>), so a folder
+    // moved or copied elsewhere would keep pointing at where it USED to be —
+    // and on the same machine that old copy still exists, so the existsSync
+    // fallback in resolveProjectFolder would never fire. While a demo folder
+    // is open, a folder_root outside it is rebased to <folder>/projects/<slug>
+    // on read (the slug sanitised first, by reconcileRabbitBundle). True when
+    // it rebased (the caller persists it).
+    function rebaseGoneFolderRoot(bundle, projectId) {
+      try {
         const demoRoot = localDemoRootDir();
         const cur = bundle.project?.folder_root;
         // (review round 1, L9) Rebase only a root that is GONE. A live folder
@@ -1566,73 +1724,10 @@ function startLocalServer(distPath) {
             note: 'project folder rebased into the open demo folder (the stored path no longer exists)',
           });
           bundle.project.folder_root = next;
-          dirty = true;
+          return true;
         }
       } catch { /* leave the stored root alone */ }
-      // Ensure sub-folder structure exists on first access
-      try { ensureProjectFolders(bundle); } catch {}
-      // S4b: a `legal` LABEL from S4a's period (a managed file, an invoice,
-      // a project file whose body is not in a LEGAL folder) is removed ONCE
-      // per project, as 0088 §2 strips the cloud's once, and the ids are
-      // kept beside the bundle's other one-time migrations (review round 2:
-      // run on every read it could strip a real Legal file). Persisted by the
-      // dirty write below; not settled while the project's folder is offline.
-      if (!bundle.legalLabelsSettled) {
-        try {
-          const settled = legalFiling.settleLegalLabels(bundle, projectId);
-          if (settled.stripped.length > 0) {
-            bundle.legalLabelsStripped = [...(bundle.legalLabelsStripped || []), ...settled.stripped];
-            dirty = true;
-            console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
-          }
-          // Settled only when every labelled row was decided — a body found
-          // nowhere (its drive unplugged) is asked about again next read.
-          if (settled.settled) {
-            bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: bundle.legalLabelsStripped || [] };
-            dirty = true;
-          }
-        } catch { /* next read */ }
-      }
-      // Session 26: the tree, reconciled on read so a project that predates
-      // 0041 gains its rows without anyone having to migrate anything. It
-      // converges — once every planned folder has a row nothing changes, so
-      // this does not rewrite the bundle on every request.
-      //
-      // The rows are recorded even when no directory can be made, then the
-      // directories are made for whatever rows exist. Doing it in that order
-      // is what lets a project pick a location later and get its whole tree.
-      try {
-        if (ensureProjectFolderRows(bundle, projectId)) {
-          dirty = true;
-          // Only when rows were actually ADDED. readRabbitBundle runs on every
-          // API request, and materializeFolderDirs is one existsSync per
-          // folder — on a project with a few hundred entities that is a few
-          // hundred stat calls on every call, to discover nothing changed.
-          // The paths are deterministic, so this converges after one pass.
-          //
-          // Configuring a folder location LATER is the case this would
-          // otherwise miss: the rows already exist, so nothing is added and
-          // no directory gets made. The project PATCH route covers it — that
-          // is where folder_root is written.
-          materializeFolderDirs(bundle);
-        }
-      } catch (e) { console.error('folder reconcile failed:', e.message); }
-      if (dirty) {
-        try { writeJSON(rabbitBundlePath(projectId), bundle); } catch {}
-      }
-      // D21 (review R1 local#4): the persist above is a raw writeJSON — no
-      // mirror — so a legacy project that was only ever READ never got
-      // <slug>_DATABASES/scenes.json. Mirrored here, ONLY when this read ran
-      // the backfill: GET /api/rabbit/projects reads every project's bundle,
-      // and a mirror per project per list would rewrite six files each for
-      // nothing. The backfill runs once per bundle (twice only if the write
-      // above failed, and its ids are the same then). Last, so the mirror
-      // sees the sanitised folder_slug and the rebased folder_root; guarded,
-      // because the mirror makes a directory outside its own try.
-      if (backfilled) {
-        try { mirrorProjectDatabases(projectId, bundle); } catch (e) { console.error('shot list backfill mirror failed:', e.message); }
-      }
-      return bundle;
+      return false;
     }
     function writeRabbitBundle(projectId, bundle, { touch = true } = {}) {
       // touch:false is for persists that only append audit data (the S33
@@ -1642,9 +1737,16 @@ function startLocalServer(distPath) {
       // fileEvents, so rewriting all five per download is pure churn
       // (adversarial review, S33).
       if (touch) bundle.project.updated_at = new Date().toISOString();
-      // Ensure projectTeam array exists (backward compat for old bundles)
-      if (!bundle.projectTeam) bundle.projectTeam = [];
-      writeJSON(rabbitBundlePath(projectId), bundle);
+      // F3: what a disk load reconciles, reconciled here too (the old
+      // projectTeam default among it), so the bundle kept below is the one a
+      // read of the file would give. It changes nothing a current writer
+      // leaves, but for what only a read used to repair.
+      const reconciled = reconcileRabbitBundle(bundle, projectId);
+      if (reconciled.rowsAdded) {
+        try { materializeFolderDirs(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }
+      }
+      const bundleFile = rabbitBundlePath(projectId);
+      rabbitBundles.keep(bundleFile, writeJSON(bundleFile, bundle));
       // Mirror split databases to user-visible project folder
       if (touch) mirrorProjectDatabases(projectId, bundle);
     }
@@ -2043,17 +2145,24 @@ function startLocalServer(distPath) {
       };
     }
 
+    // F3: each mirror file is written only when its text differs from what
+    // this process last wrote there, or it is no longer in the folder (one
+    // listing per pass): a task edit rewrites project.json (its updated_at)
+    // and tasks.json, not all six. The first write per project after a launch
+    // writes all six, so a stale mirror is refreshed once per launch.
+    const databaseMirrors = createChangeOnlyWriter();
     function mirrorProjectDatabases(projectId, bundle) {
       const root = resolveProjectFolder(bundle);
       if (!root) return;
       const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
       const dbDir = path.join(root, `${slug}_DATABASES`);
       if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+      const writeMirror = databaseMirrors.writerFor(dbDir);
       try {
         // project.json — project metadata
-        writeJSON(path.join(dbDir, 'project.json'), bundle.project);
+        writeMirror(path.join(dbDir, 'project.json'), bundle.project);
         // team.json — project-scoped team roster
-        writeJSON(path.join(dbDir, 'team.json'), bundle.projectTeam || []);
+        writeMirror(path.join(dbDir, 'team.json'), bundle.projectTeam || []);
         // Post-overhaul S5b (0090's twin): rows the open bid version does not
         // hold are SET ASIDE — kept whole in project.json, hidden from these
         // readable mirrors as from every screen (with the edges and links on
@@ -2067,7 +2176,7 @@ function startLocalServer(distPath) {
         const liveItems = (bundle.taskItems || []).filter(i => i && !asideIds.has(String(i.task_id)));
         // tasks.json — tasks + dependencies + task links + (FX2) the items
         // each task is about
-        writeJSON(path.join(dbDir, 'tasks.json'), {
+        writeMirror(path.join(dbDir, 'tasks.json'), {
           tasks:        liveTasks,
           dependencies: liveDeps,
           taskLinks:    liveLinks,
@@ -2086,7 +2195,7 @@ function startLocalServer(distPath) {
           if (!assetIdsOf.has(k)) assetIdsOf.set(k, []);
           if (!assetIdsOf.get(k).includes(i.entity_id)) assetIdsOf.get(k).push(i.entity_id);
         }
-        writeJSON(path.join(dbDir, 'timeline.json'), {
+        writeMirror(path.join(dbDir, 'timeline.json'), {
           phases:       livePhases,
           tasks:        liveTasks.map(t => ({
             id: t.id, name: t.name, asset_ids: assetIdsOf.get(String(t.id)) || [],
@@ -2098,7 +2207,7 @@ function startLocalServer(distPath) {
           dependencies: liveDeps,
         });
         // budget.json — budget lines, actuals, versions, expenses
-        writeJSON(path.join(dbDir, 'budget.json'), {
+        writeMirror(path.join(dbDir, 'budget.json'), {
           budgetLines:    bundle.budgetLines    || [],
           budgetActuals:  bundle.budgetActuals  || [],
           budgetVersions: bundle.budgetVersions || [],
@@ -2108,7 +2217,7 @@ function startLocalServer(distPath) {
         // shot rows, and edits (post-overhaul S3a; Audrey D21: scenes.json
         // joins the desktop's readable database files). Lists first because a
         // list is how a person reads them: membership, not copies (D1 + D3).
-        writeJSON(path.join(dbDir, 'scenes.json'), {
+        writeMirror(path.join(dbDir, 'scenes.json'), {
           shotLists:     bundle.shotLists     || [],
           shotListItems: bundle.shotListItems || [],
           scenes:        bundle.scenes        || [],
@@ -2598,9 +2707,14 @@ function startLocalServer(distPath) {
       // means SCENES/ and SHOTS/ are now planned. Switching one OFF removes
       // nothing — a disabled category is simply absent from the plan, and
       // nothing here deletes (Audrey, 2026-08-03).
+      //
+      // F3: and the five sub-folders (ASSETS, _DATABASES, _FILES, INVOICES,
+      // LEGAL) at a new place — the next read made them before, and a read
+      // that finds the bundle kept no longer does.
       try {
         ensureProjectFolderRows(bundle, req.params.id);
         materializeFolderDirs(bundle);
+        ensureProjectFolders(bundle);
       } catch (e) { console.error('folder reconcile failed:', e.message); }
       writeRabbitBundle(req.params.id, bundle);
       res.json(bundle.project);
@@ -2612,6 +2726,7 @@ function startLocalServer(distPath) {
       const projectsDir = getRabbitProjectsDir();
       const dir = resolveContainedFilePath(projectsDir, String(req.params.id || ''));
       if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) return rabbitNotFound(res);
+      rabbitBundles.forget(path.join(dir, 'project.json')); // F3: its kept text goes with it
       if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
       res.json({ ok: true });
     });
@@ -4653,15 +4768,10 @@ function startLocalServer(distPath) {
       // is seen as a drive letter. This computer's settings only, never the
       // cloud; written by the folder dialog the bins module opens, nothing else.
       cloudBinsLocalPaths: {
-        read: () => {
-          try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json'), 'utf8')); }
-          catch { return null; }
-        },
-        write: (obj) => {
-          const file = path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json');
-          fs.writeFileSync(file + '.part', JSON.stringify(obj, null, 2));
-          fs.renameSync(file + '.part', file);
-        },
+        // F3: the one reader and the one writer (a temporary file renamed
+        // over it, retried while Windows holds it), not a copy of them.
+        read: () => readJSON(path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json'), null),
+        write: (obj) => { writeJSON(path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json'), obj); },
       },
     });
 
@@ -5099,7 +5209,10 @@ ipcMain.handle('rabbit:clear-gdrive', () => {
 // directory and its two modules, lifted by brace matching into
 // runMigrationBins.test.js (as mergeCloudMigrationRecord is) and run there
 // against a real temporary directory, with its control: a store left in place.
-function archiveLocalRabbitData(rabbitDir, fs, path) {
+// F3: `writeJsonAtomic` is passed in as `fs` and `path` are (the test lifts
+// this function alone): the archive is written whole and synced to the disk
+// before the live stores it holds are removed below.
+function archiveLocalRabbitData(rabbitDir, fs, path, writeJsonAtomic) {
   // The workspace stores, named inside (the test lifts this function alone).
   const stores = ['rate-cards', 'team-members', 'task-templates', 'cloud-migration'];
   const projectsDir = path.join(rabbitDir, 'projects');
@@ -5135,7 +5248,7 @@ function archiveLocalRabbitData(rabbitDir, fs, path) {
   }
 
   const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
-  fs.writeFileSync(archivePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+  writeJsonAtomic(archivePath, snapshot, { fs, durable: true });
 
   // Clear live stores. Binary files are already uploaded to Supabase Storage.
   fs.rmSync(projectsDir, { recursive: true, force: true });
@@ -5146,7 +5259,7 @@ function archiveLocalRabbitData(rabbitDir, fs, path) {
 }
 ipcMain.handle('rabbit:archive-local-data', () => {
   try {
-    return archiveLocalRabbitData(getRabbitDataDir(), fs, path);
+    return archiveLocalRabbitData(getRabbitDataDir(), fs, path, writeJsonAtomic);
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }

@@ -42,6 +42,10 @@
 const nodeFs = require('fs');
 const nodePath = require('path');
 const { isPathInside, makeContainment } = require('./pathContainment.cjs');
+// F3 (OUTSTANDING REV-07): the main process's one JSON reader and writer — the
+// pointer and the manifest written whole and renamed into place, retried while
+// Windows holds the file (jsonFile.cjs), with this module's injected fs.
+const { readJson, writeJsonAtomic } = require('./jsonFile.cjs');
 
 const MANIFEST_NAME = 'wilson-demo.json';
 const MANIFEST_KIND = 'wilson-local-demo';
@@ -223,11 +227,11 @@ function makeLocalDemoRoot({
   const pointerPath = () => path.join(userDataDir, POINTER_NAME);
 
   function readJSON(file) {
-    try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
+    return readJson(file, null, fs);
   }
   function writeJSON(file, data) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    writeJsonAtomic(file, data, { fs });
   }
   function savePointer() {
     writeJSON(pointerPath(), pointer);
