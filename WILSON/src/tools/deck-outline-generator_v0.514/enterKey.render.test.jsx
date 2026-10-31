@@ -632,8 +632,8 @@ async function addUpload(d, file) {
 }
 const fullDeckButton = (d) => [...d.view.container.querySelectorAll('button.dog-generate')].find((b) => /full deck outline/.test(b.textContent))
 
-describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (card 1\'s lower part since DG4)', () => {
-  it('card 1 holds the project first (the dropdown, its hint, New project), then the references, the uploads their first group', async () => {
+describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card 1\'s lower part since DG4; its own section after the references since DG6\'s follow-up)', () => {
+  it('card 1 holds the project first (the dropdown, its hint, New project), then the references, the uploads after them', async () => {
     const d = await openDog({ upload: false })
     const card1 = document.querySelector('#dog-card1-body')
     expect(document.getElementById('dog-card1-title').textContent).toBe('Project and references')
@@ -650,11 +650,11 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (
     expect(projectPart.querySelector('input[type=file]')).toBe(null)
     expect(projectPart.textContent).not.toMatch(/Upload Documents|Choose file|Source material/)
     expect(!!(projectPart.compareDocumentPosition(refsBody()) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-    // The one upload control on the page is the references' first group's.
+    // The one upload control on the page is the uploads section's.
     const inputs = d.view.container.querySelectorAll('.dog-main input[type=file]')
     expect(inputs).toHaveLength(1)
     expect(inputs[0]).toBe(chooseInput())
-    expect(inputs[0].closest('.dog-refs-group')).toBe(refsBody().querySelector('.dog-refs-group'))
+    expect(inputs[0].closest('.dog-refs-group')).toBe(refsBody().querySelector('.dog-refs-uploads'))
   })
 
   it('an upload is a row in References with its size as the chip said it; its Remove takes it out, and the header\'s one number follows', async () => {
@@ -663,7 +663,7 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (
     expect(rows).toHaveLength(1)
     expect(rows[0].querySelector('.dog-refs-name').textContent).toBe('fx13-brief.txt')
     expect(rows[0].querySelector('.dog-file-size').textContent).toBe(`(${(BRIEF.length / 1024).toFixed(1)} KB)`)
-    expect(refsBody().querySelector('.dog-refs-uploads .dog-refs-group-label').textContent).toBe('Uploads (1)')
+    expect(refsBody().querySelector('.dog-refs-uploads .dog-sec-title').textContent).toBe('Uploads (1)')
     expect(d.q('.dog-refs-count').textContent).toBe('1 chosen')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove fx13-brief.txt' })) })
     expect(uploadRows()).toHaveLength(0)
@@ -701,7 +701,7 @@ describe('DG2 on the rendered D.O.G.: the uploads are References\' first group (
     expect(uploadRows()).toHaveLength(20)
     expect(chooseInput()).toBe(null)
     expect(d.view.container.querySelector('.dog-main input[type=file]')).toBe(null)
-    expect(refsBody().querySelector('.dog-refs-uploads .dog-refs-group-label').textContent).toBe('Uploads (20)')
+    expect(refsBody().querySelector('.dog-refs-uploads .dog-sec-title').textContent).toBe('Uploads (20)')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remove note-07.txt' })) })
     expect(uploadRows()).toHaveLength(19)
     expect(chooseInput()).not.toBe(null)
@@ -832,7 +832,9 @@ describe('DG2 review round 1 on the rendered D.O.G.: Enter on an upload\'s × ne
     return d
   }
 
-  it('with words in the box: Enter on the first ×, then Enter again, removes both and starts no deck; focus ends on Add references', async () => {
+  // DG6's follow-up: the uploads' own way to add (it was Add references,
+  // a section away once Uploads followed the references).
+  it('with words in the box: Enter on the first ×, then Enter again, removes both and starts no deck; focus ends on Choose file', async () => {
     const d = await twoNotes()
     const first = screen.getByRole('button', { name: 'Remove note-01.txt' })
     await act(async () => { first.focus() })
@@ -841,7 +843,7 @@ describe('DG2 review round 1 on the rendered D.O.G.: Enter on an upload\'s × ne
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove note-02.txt' }))
     await pressEnter(document.activeElement)
     expect(uploadRows()).toHaveLength(0)
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose file' }))
     await new Promise((r) => setTimeout(r, 20))
     expect(callAI).not.toHaveBeenCalled()
     expect(d.toasts()).toHaveLength(0)
@@ -1185,24 +1187,26 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
   const tabStops = (d) => [...d.view.container.querySelectorAll('.dog-main button, .dog-main input, .dog-main select, .dog-main textarea, .dog-main [tabindex]')]
     .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[hidden]') && getComputedStyle(el).display !== 'none' && !el.classList.contains('hidden'))
 
-  // DG4: the references follow the project in one card, so the stop before
-  // Choose file is New project (it was the References header's button).
-  it('Choose file is a Tab stop in the references, after New project and before Add references; with two uploads, after their Removes; the file input never is', async () => {
+  // DG4: the references follow the project in one card. DG6's follow-up
+  // (her words of 2026-10-31: "below the references should be the upload
+  // option"): Uploads follows the references' actions, so the stop before
+  // Choose file is Core files only (before: New project, and Add references
+  // after it), and the uploads' Removes come after Core files only.
+  it('Choose file is a Tab stop in Uploads, after Core files only and before card 2; with two uploads, after their Removes; the file input never is', async () => {
     const d = await openDog({ upload: false })
     let stops = tabStops(d)
     const at = (el) => stops.indexOf(el)
-    const newProject = screen.getByRole('button', { name: 'New project' })
-    expect(at(chooseButton())).toBeGreaterThan(at(newProject))
-    expect(at(chooseButton())).toBe(at(newProject) + 1)
-    expect(at(screen.getByRole('button', { name: 'Add references' }))).toBe(at(chooseButton()) + 1)
+    const core = screen.getByRole('checkbox', { name: 'Core files only' })
+    expect(at(chooseButton())).toBe(at(core) + 1)
+    expect(at(headButton('Generate outline'))).toBe(at(chooseButton()) + 1)
     expect(stops.some((el) => el.matches('input[type=file]'))).toBe(false)
     await addUpload(d, new File(['Note one.'], 'note-01.txt', { type: 'text/plain' }))
     await new Promise((r) => setTimeout(r, 2))
     await addUpload(d, new File(['Note two.'], 'note-02.txt', { type: 'text/plain' }))
     stops = tabStops(d)
-    const names = stops.slice(at(newProject) + 1, at(screen.getByRole('button', { name: 'Add references' })) + 1)
-      .map((el) => el.getAttribute('aria-label') || el.textContent.trim())
-    expect(names).toEqual(['Remove note-01.txt', 'Remove note-02.txt', 'Choose file', 'Add references'])
+    const names = stops.slice(at(core), at(headButton('Generate outline')) + 1)
+      .map((el) => el.getAttribute('aria-label') || document.getElementById(el.getAttribute('aria-labelledby'))?.textContent.trim() || el.textContent.trim())
+    expect(names).toEqual(['Core files only', 'Remove note-01.txt', 'Remove note-02.txt', 'Choose file', 'Generate outline'])
   })
 
   for (const words of [false, true]) {
@@ -1290,23 +1294,40 @@ async function chooseProject(d) {
 const refNames = () => [...refsBody().querySelectorAll('.dog-refs-group:not(.dog-refs-uploads) .dog-refs-name')].map((n) => n.textContent)
 
 describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note 5)', () => {
-  it('the project first, then the references in her order under the contract line, Core files only beside Add references; the steps read 1 and 2', async () => {
+  // DG6's follow-up (Audrey, 2026-10-31, verbatim: "project select needs to
+  // go above the add references and below the references should be the
+  // upload option"; "we need a title or something for each function").
+  // Before: the label, the dropdown, New project, the contract line, Uploads,
+  // the no-project note, the meter, Add references, Core files only, its
+  // sentence. After: Project (its title, its sentence, the label, the
+  // dropdown, New project), References (its title, the no-project note, Add
+  // references, Core files only, its sentence), Uploads (its title), then
+  // the contract line and the meter.
+  it('the project first, then the references, then the uploads, each under its title, the contract line and the meter last; Core files only beside Add references; the steps read 1 and 2', async () => {
     const d = await openDog({ upload: false })
     expect(d.q('#dog-refs-body')).toBe(null)
     expect(screen.queryByRole('button', { name: 'References' })).toBe(null)
     expect([...d.view.container.querySelectorAll('.dog-main .dog-step-title')].map((h) => h.textContent)).toEqual(['1Project and references', '2Generate outline'])
     const card1 = d.q('#dog-card1-body')
+    // The three sections' titles are headings under the card's, in order.
+    expect([...card1.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)'])
+    const [project, references, uploads] = [...card1.querySelectorAll('h3')]
     const order = [
+      project,
+      card1.querySelector('.dog-sec-project .dog-sec-desc'),
       d.q('label[for="dog-project"]'),
       d.q('select.dog-project-select'),
       within(card1).getByRole('button', { name: 'New project' }),
-      card1.querySelector('.dog-refs-contract'),
-      card1.querySelector('.dog-refs-uploads'),
+      references,
       [...card1.querySelectorAll('.dog-details-note')].find((p) => /^Choose a project to reference/.test(p.textContent)),
-      card1.querySelector('.dog-refs-meter'),
       within(card1).getByRole('button', { name: 'Add references' }),
       coreBox(),
       coreSaid(),
+      uploads,
+      card1.querySelector('.dog-refs-uploads button.dog-upload'),
+      card1.querySelector('.dog-refs-contract'),
+      card1.querySelector('.dog-refs-meter'),
     ]
     expect(order.every(Boolean)).toBe(true)
     for (let i = 1; i < order.length; i++) {
@@ -1608,62 +1629,80 @@ describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
   // 'Theme generator', 'Deck Context & Guidelines': twelve stops.
   // Review round 2, finding 1: off, Core files only stays a stop (aria-disabled,
   // so it can say why it is off and never loses focus), right after Add references.
-  it('at the start: eleven stops, one card header fewer, Place visual for the two media boxes, Core files only after Add references', async () => {
+  // DG6's follow-up (her words of 2026-10-31: "below the references should be
+  // the upload option"): Choose file moves from after New project to after
+  // Core files only. Before (DG4 to DG6): 'Project and references', 'Choose a
+  // project', 'New project', 'Choose file', 'Add references', 'Core files
+  // only', then card 2's five. Still eleven stops; no name changes.
+  it('at the start: eleven stops, one card header fewer, Place visual for the two media boxes, Core files only after Add references, Choose file after it', async () => {
     const d = await openDog({ upload: false })
-    expect(stopNames(d)).toEqual(['Project and references', 'Choose a project', 'New project', 'Choose file', 'Add references', 'Core files only',
+    expect(stopNames(d)).toEqual(['Project and references', 'Choose a project', 'New project', 'Add references', 'Core files only', 'Choose file',
       'Generate outline', 'Full deck', 'Place visual', 'Theme generator', 'Deck Context & Guidelines'])
     expect(coreIsOff()).toBe(true)
   })
 
-  it('with a project that has Core files: Core files only is the stop after Add references', async () => {
+  it('with a project that has Core files: Core files only is the stop after Add references, then Choose file', async () => {
     withProject(CORE())
     const d = await openDog({ upload: false })
     await chooseProject(d)
     const names = stopNames(d)
-    expect(names.slice(names.indexOf('Add references'), names.indexOf('Generate outline') + 1)).toEqual(['Add references', 'Core files only', 'Generate outline'])
+    expect(names.slice(names.indexOf('Add references'), names.indexOf('Generate outline') + 1)).toEqual(['Add references', 'Core files only', 'Choose file', 'Generate outline'])
   })
 })
 
 // DG5 (Audrey, 2026-10-30) put the two input cards in a plain wrapper,
-// `div.dog-inputs`, to lay them side by side on a wide window. DG6 (Audrey,
-// 2026-10-31, verbatim: "i want to keep the 1 and 2 cards stacked not side by
-// side") keeps the wrapper as the stack's one width (dog.css, THE INPUTS
-// STACK; dogCss.test.js pins its width), one column at every width since her
-// walkthrough 90 Q1 ("One column always": DG6's follow-up removed the two
-// columns card 1 had from a 1468 window, and with them this describe's pin
-// on card 1's body as exactly two parts). jsdom lays nothing out, so this
-// pins what the stack rests on: the wrapper is a plain box (a class and
-// nothing else) holding card 1 then card 2, the output card after it in the
-// column, not in it. The DG4 cases above (card 1's order, the fold, the
-// count, the eleven Tab stops) run unchanged on the stacked cards.
-describe('DG6 on the rendered D.O.G.: the two input cards stacked in a plain wrapper, and nothing a person or a screen reader meets moves', () => {
-  // A box no one meets: one attribute, its class.
-  const plain = (el) => [...el.attributes].map((a) => a.name).join(' ') === 'class' && el.className === 'dog-inputs'
+// `div.dog-inputs`, to lay them side by side on a wide window; DG6 kept it as
+// the stack's one capped width. DG6's follow-up (Audrey, 2026-10-31, with a
+// picture of the beta, verbatim: "i really dont like that there is a open
+// space/gap to right and also project select needs to go above the add
+// references and below the references should be the upload option ... we
+// need a title or something for each function in the project and references
+// card") removed the cap and the wrapper with it: the two cards fill the
+// column (dog.css, CARD 1's SECTIONS; dogCss.test.js pins it), and card 1 is
+// titled sections in her order. jsdom lays nothing out, so this pins what the
+// layout rests on: the column holds card 1, card 2 and the output card, in
+// that order, as its own children, with nothing round the cards; card 1's
+// body is the Project section, then the references' part, whose sections are
+// References, Uploads and the line of what goes to the AI with its meter.
+// The DG4 cases above (card 1's order, the fold, the count, the Tab stops)
+// pin the rest.
+describe('DG6 on the rendered D.O.G.: the two input cards and the output card are the column\'s own children, and card 1 is titled sections in her order', () => {
+  const kids = (main) => [...main.children].filter((c) => c.matches('.dog-card')).map((c) => (c.matches('.dog-card-project') ? 1 : c.matches('.dog-s2') ? 2 : c.matches('.dog-output') ? 'out' : c.className))
+  const sections = (body) => [...body.querySelectorAll(':scope > .dog-sec, :scope > .dog-refs > .dog-sec')].map((s) => s.querySelector(':scope > .dog-sec-title')?.textContent ?? (s.matches('.dog-sec-foot') ? 'foot' : s.className))
 
-  it('the column holds the wrapper, then the output card; the wrapper holds card 1 then card 2, and a class and nothing else', async () => {
+  it('the column holds card 1, card 2 and the output card, in that order, with no wrapper round the cards', async () => {
     const d = await openDog({ upload: false })
     const main = d.q('.dog-main')
-    const kids = [...main.children]
-    const row = main.querySelector(':scope > .dog-inputs')
-    expect(row).not.toBe(null)
-    expect(plain(row)).toBe(true)
-    expect([...row.children].map((c) => (c.matches('.dog-card.dog-card-project') ? 1 : c.matches('.dog-card.dog-s2') ? 2 : c.className))).toEqual([1, 2])
-    expect(kids.indexOf(row)).toBeLessThan(kids.indexOf(main.querySelector(':scope > .dog-output')))
-    expect(main.querySelectorAll('.dog-inputs')).toHaveLength(1)
-    expect(main.querySelectorAll(':scope > .dog-card-project, :scope > .dog-s2')).toHaveLength(0)
-    // The output card is not the wrapper's: it keeps the column's width.
-    expect(main.querySelector('.dog-inputs .dog-output')).toBe(null)
+    expect(kids(main)).toEqual([1, 2, 'out'])
+    expect(main.querySelector('.dog-inputs')).toBe(null)
+    expect(d.q('.dog-card-project').parentElement).toBe(main)
+    expect(d.q('.dog-s2').parentElement).toBe(main)
   })
 
-  it('CONTROL: the check refuses a wrapper a person or a screen reader could meet (a role, a name, an id, a Tab stop)', () => {
-    for (const [name, value] of [['role', 'group'], ['aria-label', 'Inputs'], ['id', 'dog-inputs'], ['tabindex', '-1']]) {
-      const el = document.createElement('div')
-      el.className = 'dog-inputs'
-      el.setAttribute(name, value)
-      expect(plain(el), name).toBe(false)
-    }
-    const ok = document.createElement('div')
-    ok.className = 'dog-inputs'
-    expect(plain(ok)).toBe(true)
+  it('card 1 is Project, References, Uploads and the foot, in her order; the titles are headings', async () => {
+    withProject(CORE())
+    const d = await openDog({ upload: false })
+    const body = d.q('#dog-card1-body')
+    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    await chooseProject(d)
+    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    // The chosen project's description joins the Project section.
+    expect(body.querySelector('.dog-sec-project .dog-project-details').textContent).toContain('A made-up project.')
+  })
+
+  it('CONTROL: the checks refuse a wrapper round the cards, a section out of her order, and a section without its title', () => {
+    const main = document.createElement('main')
+    main.innerHTML = '<div class="dog-inputs"><div class="dog-card dog-card-project"></div><div class="dog-card dog-s2"></div></div><div class="dog-card dog-output"></div>'
+    expect(kids(main)).not.toEqual([1, 2, 'out'])
+    const body = document.createElement('div')
+    body.innerHTML = '<div class="dog-sec"><h3 class="dog-sec-title">Project</h3></div><div class="dog-refs"><div class="dog-sec"><h3 class="dog-sec-title">References</h3></div><div class="dog-sec"><h3 class="dog-sec-title">Uploads (0)</h3></div><div class="dog-sec dog-sec-foot"></div></div>'
+    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    const swapped = body.cloneNode(true)
+    const refs = swapped.querySelector('.dog-refs')
+    refs.prepend(refs.children[1])
+    expect(sections(swapped)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    const untitled = body.cloneNode(true)
+    untitled.querySelector('.dog-refs .dog-sec-title').remove()
+    expect(sections(untitled)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
   })
 })

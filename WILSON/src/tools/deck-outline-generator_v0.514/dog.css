@@ -98,37 +98,71 @@
   }
   .dog-main > * + * { margin-top: 8px; }
 
-  /* ═══ THE INPUTS STACK — DG6 ════════════════════════════════════════════
+  /* ═══ CARD 1's SECTIONS — DG6 and its follow-up ═════════════════════════
      Audrey, 2026-10-31, with a 2,000px-wide picture of DG5's two cards side
-     by side: "this looks objectively bad. please do a pass to make it
-     more appealing for the top two cards. leave the output card how it is
-     dont touch it. i want to keep the 1 and 2 cards stacked not side by
-     side". Her words withdraw DG5's pair (side by side from a 1414 window)
-     and its triple (card 2 the last third from 1974). Measured stacked with
-     nothing else done (Chromium, the dev fixtures): card 1's one 576px
-     column left 42, 50, 64 and 74 percent of the card empty across at 1280,
-     1440, 1920 and 2560, and card 2's box and Generate ran 988 to 2,268px.
-     The design round (one, on Fable; its hand-off po-dg6-2026-10-31) chose
-     one width for both cards, capped, so each card ends where its content
-     ends (Common Region): the wrapper `.dog-inputs`, a plain box round the
-     two cards, is the cap, at the output card's left edge; the output card
-     is outside it and keeps the column's full width (C4's preview).
-     The stack is 602 wide at every width = the measure 576 + 2 x 12 padding
-     + 2 x 1 border: card 1 one column, as DG4 built it; card 2's box and
-     Generate the card's content width, 576. Her answers to walkthrough 90
-     (2026-10-31, verbatim): Q1 "One column always" (DG6 had split card 1
-     into two 576 columns, the stack 1,202 wide, from a 1468 window; that
-     rule is gone, and the main column's size container with it), Q2 "Full
-     card width" (the box and Generate span the card). On a wide window
-     beside the stack is the page's paper, not card (OUTSTANDING DG5-02,
-     closed). Folded, a card is its 34px bar at the stack's width. */
-  .dog-inputs {
-    --dog-measure: 576px;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-    max-width: 602px;
+     by side: "this looks objectively bad. please do a pass to make it more
+     appealing for the top two cards. leave the output card how it is dont
+     touch it. i want to keep the 1 and 2 cards stacked not side by side".
+     DG6 stacked them at one capped width (602, then 1,202 with card 1 in two
+     columns from a 1468 window); her walkthrough 90 answers (Q1 "One column
+     always", Q2 "Full card width") took the two columns out. Then, with a
+     picture of the beta, verbatim: "i really dont like that there is a open
+     space/gap to right and also project select needs to go above the add
+     references and below the references should be the upload option. i
+     want you to do a pass on this card to make it more visually appealing
+     and make it easier to read. we need a title or something for each
+     function in the project and references card"; and, seeing the design
+     round's sketch, "remove the dividing lines. the titles themselves are
+     enough to separate", and the title's text and buttons below it, not in
+     a column to its right.
+     So the two cards fill the main column (no cap, no wrapper: the cards and
+     the output card share both edges, and `.dog-main > * + *` spaces them),
+     and card 1 is three titled sections, one under the other, in her order:
+     Project, References (with Add references), Uploads; then the line of
+     what goes to the AI and its meter, which count all three. A title is
+     the kit's H3 step (14/600, the first ink), not the Label step its
+     fields and groups wear (Similarity: two looks for two jobs); the orange
+     stays the step titles'. Sections are 32px apart, twice the 16 between a
+     section's parts, so the titles divide them with no rule (Proximity).
+     Text and single controls keep DG4's 576px measure; the lists of rows
+     use the width in shelves (below), each row at least 416px, so a row's
+     Preview and Remove stay one reach from its name (Fitts). Her answer of
+     2026-10-31 to the one question left: on a very wide window a section
+     holding one control ends where the control ends ("Keep it"). */
+  .dog-card-project { --dog-measure: 576px; }
+  .dog-card-project > .dog-card-body > * + *,
+  .dog-refs > .dog-sec + .dog-sec { margin-top: 32px; }
+  .dog-sec > * + * { margin-top: 16px; }
+  .dog-sec-title {
+    margin: 0;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
   }
+  .dog-sec > .dog-sec-title + * { margin-top: 8px; }
+  .dog-sec > .dog-sec-title + .dog-sec-desc { margin-top: 4px; }
+  .dog-sec > .dog-sec-desc + * { margin-top: 12px; }
+  .dog-sec-desc { max-width: var(--dog-measure); }
+  /* Project: the field, and the chosen project's description beside it
+     when both fit at the measure (a 1628px card and up), else under it. */
+  .dog-project-pair { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 24px; }
+  .dog-project-field { flex: 0 1 var(--dog-measure); min-width: 0; }
+  .dog-card-project .dog-project-details { flex: 0 1 var(--dog-measure); min-width: 0; margin-top: 0; }
+  /* References and Uploads: the rows in shelves, as many 416px-or-wider
+     columns as the section holds, read left to right then down (the DOM's
+     order, so Tab follows the eye). `auto-fill`, so one row keeps a row's
+     width; `min(100%, …)`, so a narrow card never scrolls sideways. */
+  .dog-card-project .dog-refs-rows {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 416px), 1fr));
+    column-gap: 32px;
+  }
+  /* A control's own sentence, and a list's own button, 8px under it. */
+  .dog-sec > .dog-refs-core-said,
+  .dog-refs-uploads > .dog-refs-rows + .dog-upload,
+  .dog-refs-uploads > .dog-refs-upload-error,
+  .dog-sec-foot > .dog-refs-meter { margin-top: 8px; }
 
   /* ═══ THE "DECK OUTLINE" BAR — post-overhaul S2a (Audrey's C1, C7) ══════
      The sidebar Panel's header, lifted out to run the page's full width
@@ -566,30 +600,24 @@
      and 2560 (the Caption step in Geist), so the column is 576px, the next
      8px step: no house measure is within a few pixels of it (66ch is 700px
      at the meter's 16px, 45ch 477px, the reading width 720px). The
-     project's description and the references keep to it, so a row's
-     Preview and Remove stay one reach from its name at any width (Fitts)
-     and the meter ends where the words above it end; the dropdown, Choose
-     file, the meter and Add references share the column's left edge. The
-     rhythm inside the references is the card body's 16px.
-     DG5: the measure is `--dog-measure`, declared once on `.dog-inputs`
-     (THE INPUTS STACK since DG6, above) for both cards; it was
-     `--dog-refs-measure` on this card. One column at every width since
-     DG6's follow-up (her walkthrough 90 Q1). */
-  .dog-card-project .dog-project-details,
-  .dog-refs { max-width: var(--dog-measure); }
-  .dog-refs > * + * { margin-top: 16px; }
+     dropdown, Choose file, the meter and Add references share the card's
+     left edge, and the meter ends where the words above it end.
+     DG6's follow-up: the measure is `--dog-measure` on `.dog-card-project`
+     (CARD 1's SECTIONS, above; DG5 had declared it on `.dog-inputs`, DG4
+     `--dog-refs-measure` on this card). The text, the project field and
+     description and the meter keep to it; the rows run in shelves of 416px
+     or more, so a row's Preview and Remove stay one reach from its name at
+     any width (Fitts). */
   /* Add references and Core files only side by side, the two ways to say
      what the deck reads (proximity), one short reach apart (Fitts). The
-     sentence under them is the checkbox's: 8px, not the part's 16px. */
+     sentence under them is the checkbox's: 8px (CARD 1's SECTIONS). */
   .dog-refs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-  .dog-refs > .dog-refs-core-said { margin: 8px 0 0; }
   .dog-refs-more {
     padding: 8px;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .dog-refs-contract { margin-bottom: 0; }
   .dog-refs-notice { display: flex; align-items: baseline; gap: 8px; margin-bottom: 0; }
   .dog-refs-dismiss {
     padding: 0;
@@ -601,10 +629,9 @@
     cursor: pointer;
   }
   .dog-refs-group-label { display: block; margin-bottom: 4px; }
-  /* DG2: Choose file at the foot of the uploads group, under its rows, and
-     an upload's refusal under it (review round 1, finding 2). */
-  .dog-refs-uploads .dog-refs-rows { margin-bottom: 8px; }
-  .dog-refs-upload-error { margin: 8px 0 0; }
+  /* DG2: Choose file at the foot of the uploads, under its rows, and an
+     upload's refusal under it (review round 1, finding 2): 8px each, in
+     CARD 1's SECTIONS since DG6's follow-up. */
   .dog-refs-rows,
   .dog-refs-pick-list,
   .dog-refs-pick-nested,

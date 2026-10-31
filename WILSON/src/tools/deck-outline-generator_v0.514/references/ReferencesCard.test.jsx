@@ -68,27 +68,43 @@ function mount({ files = [], busy = false, chosen = [], projectChosen = true, re
 const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
 describe('DG2: the References card reads as one list of what the AI reads', () => {
-  it('top to bottom: Uploads, then Items, Files, Notes, the meter, Add references', () => {
+  // DG6's follow-up (Audrey, 2026-10-31, verbatim: "project select needs to
+  // go above the add references and below the references should be the
+  // upload option"; "we need a title or something for each function").
+  // Before: the contract line, Uploads, Items, Files, Notes, the meter, Add
+  // references. After: the References section (Items, Files, Notes, Add
+  // references), the Uploads section, then the contract line and the meter.
+  it('top to bottom: References (Items, Files, Notes, Add references), then Uploads, then the contract line and the meter; each section titled', () => {
     const c = mount({ files: UPLOADS().slice(0, 2), chosen: [NOTE, FILE, ITEM] })
-    const labels = c.groups().map((g) => g.querySelector('.dog-refs-group-label').textContent)
-    expect(labels).toEqual(['Uploads (2)', 'Items (1)', 'Files (1)', 'Notes (1)'])
-    expect(c.groups().map((g) => g.getAttribute('aria-label'))).toEqual(['Uploads', 'Items', 'Files', 'Notes'])
-    expect(c.groups()[0]).toBe(c.uploadsGroup())
-    const meter = c.body().querySelector('.dog-refs-meter')
+    const titles = [...c.body().querySelectorAll('h3.dog-sec-title')].map((h) => h.textContent)
+    expect(titles).toEqual(['References', 'Uploads (2)'])
+    const labels = c.groups().map((g) => g.querySelector('.dog-refs-group-label, .dog-sec-title').textContent)
+    expect(labels).toEqual(['Items (1)', 'Files (1)', 'Notes (1)', 'Uploads (2)'])
+    expect(c.groups().map((g) => g.getAttribute('aria-label'))).toEqual(['Items', 'Files', 'Notes', 'Uploads'])
+    expect(c.groups()[3]).toBe(c.uploadsGroup())
     const add = screen.getByRole('button', { name: 'Add references' })
-    expect(before(c.groups()[3], meter)).toBe(true)
-    expect(before(meter, add)).toBe(true)
-    // The contract sentence above them all.
-    expect(before(c.body().querySelector('.dog-refs-contract'), c.uploadsGroup())).toBe(true)
+    const contract = c.body().querySelector('.dog-refs-contract')
+    const meter = c.body().querySelector('.dog-refs-meter')
+    expect(before(c.groups()[2], add)).toBe(true)
+    expect(before(add, c.uploadsGroup())).toBe(true)
+    expect(before(c.uploadsGroup(), contract)).toBe(true)
+    expect(before(contract, meter)).toBe(true)
+    // The two sections and the foot are the part's three children.
+    expect([...c.body().children].map((s) => s.className)).toEqual(['dog-sec dog-sec-refs', 'dog-sec dog-refs-group dog-refs-uploads', 'dog-sec dog-sec-foot'])
   })
 
-  it('the Uploads group is always drawn: nothing uploaded and nothing chosen, it still has its label, its hint and Choose file', () => {
+  it('the Uploads group is always drawn: nothing uploaded and nothing chosen, it still has its title, its hint and Choose file', () => {
     const c = mount({ files: [], chosen: [] })
     expect(c.groups()).toHaveLength(1)
     const g = c.uploadsGroup()
     expect(g.getAttribute('role')).toBe('group')
-    expect(g.querySelector('.dog-refs-group-label').textContent).toBe('Uploads (0)')
-    expect(g.querySelector('.dog-refs-group-label').className).toBe('ui-field-label dog-refs-group-label')
+    // DG6's follow-up: its label is the section's title, an h3 (was a
+    // `ui-field-label` paragraph); the words and the count are the same.
+    const title = g.querySelector('.dog-sec-title')
+    expect(title.textContent).toBe('Uploads (0)')
+    expect(title.tagName).toBe('H3')
+    expect(title.className).toBe('dog-sec-title')
+    expect(g.querySelector('.dog-refs-group-label')).toBe(null)
     expect(g.querySelector('.ui-field-hint').textContent).toBe('Source material for generating slide content (max 20 files)')
     expect(c.uploadRows()).toHaveLength(0)
     expect(g.querySelector('ul')).toBe(null)
@@ -142,7 +158,7 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(c.uploads.remove).not.toHaveBeenCalled()
     expect(c.refs.untick).not.toHaveBeenCalled()
     // CONTROL: the click is the input's own, not a click anywhere in the group.
-    fireEvent.click(c.uploadsGroup().querySelector('.dog-refs-group-label'))
+    fireEvent.click(c.uploadsGroup().querySelector('.dog-sec-title'))
     expect(click).toHaveBeenCalledTimes(2)
   })
 
@@ -201,10 +217,14 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     const c = mount({ files: UPLOADS().slice(0, 2) })
     const choose = c.choose()
     expect(choose.parentElement).toBe(c.uploadsGroup())
-    expect(choose).toBe(c.uploadsGroup().lastElementChild)
     expect(before(c.uploadsGroup().querySelector('ul'), choose)).toBe(true)
-    // The hidden input just before it (DG3), outside the button.
-    expect(choose.previousElementSibling).toBe(c.chooseInput())
+    // The rows just before it, and the hidden input just after it, outside
+    // the button and the group's last child (DG3; DG6's follow-up moved the
+    // input after the button, which it was just before, so the button is the
+    // rows' next sibling and sits 8px under them).
+    expect(choose.previousElementSibling).toBe(c.uploadsGroup().querySelector('ul'))
+    expect(choose.nextElementSibling).toBe(c.chooseInput())
+    expect(c.chooseInput()).toBe(c.uploadsGroup().lastElementChild)
     fireEvent.change(c.chooseInput(), { target: { files: [] } })
     expect(c.uploads.add).toHaveBeenCalledTimes(1)
   })
@@ -219,7 +239,7 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(c20.choose()).toBe(null)
     expect(c20.view.container.querySelector('input[type=file]')).toBe(null)
     expect(c20.uploadRows()).toHaveLength(20)
-    expect(c20.uploadsGroup().querySelector('.dog-refs-group-label').textContent).toBe('Uploads (20)')
+    expect(c20.uploadsGroup().querySelector('.dog-sec-title').textContent).toBe('Uploads (20)')
   })
 
   it('while a file is being read, Choose file shows the spinner in place of its glyph', () => {
@@ -306,7 +326,8 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(alert.textContent).toBe('Please upload a PDF, Markdown, Text, Image, or Video file')
     expect(alert.getAttribute('data-tone')).toBe('danger')
     expect(before(group.querySelector('button.dog-upload'), alert)).toBe(true)
-    expect(group.querySelector('button.dog-upload').nextElementSibling).toBe(alert)
+    // Under Choose file, with only its hidden input between (DG6's follow-up).
+    expect(group.querySelector('button.dog-upload').nextElementSibling.nextElementSibling).toBe(alert)
     cleanup()
     const many = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
     const full = render(<ReferencesCard refs={fakeRefs()} uploads={{ ...uploads, files: many, error: 'Maximum 20 files allowed' }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
@@ -314,13 +335,17 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(full.container.querySelector('.dog-refs-uploads [role="alert"]').textContent).toBe('Maximum 20 files allowed')
   })
 
-  it('with no project, the "Choose a project" note sits under the uploads group, above the references', () => {
+  // Before DG6's follow-up the note sat under the uploads group, above the
+  // references; now Uploads follows the references, and the note opens the
+  // References section, under its title, above its groups.
+  it('with no project, the "Choose a project" note opens the References section, under its title and above its groups and Uploads', () => {
     const c = mount({ files: UPLOADS().slice(0, 1), chosen: [NOTE], projectChosen: false })
     const note = [...c.body().querySelectorAll('.dog-details-note')].find((p) => /^Choose a project/.test(p.textContent))
     expect(note.textContent).toBe('Choose a project to reference its items and files. Your notes can be referenced without one.')
-    expect(before(c.uploadsGroup(), note)).toBe(true)
-    expect(before(note, c.groups()[1])).toBe(true)
-    expect(c.uploadsGroup().nextElementSibling).toBe(note)
+    const section = c.body().querySelector('.dog-sec-refs')
+    expect(section.querySelector('.dog-sec-title').nextElementSibling).toBe(note)
+    expect(before(note, c.groups()[0])).toBe(true)
+    expect(before(note, c.uploadsGroup())).toBe(true)
   })
 })
 
@@ -470,14 +495,27 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
   const removeOf = (name) => screen.getByRole('button', { name: `Remove ${name}` })
   const press = (b) => { b.focus(); fireEvent.keyDown(b, { key: 'Enter' }); fireEvent.click(b) }
 
-  it('an upload\'s Remove: focus goes to the next row\'s Remove, across the groups', () => {
+  // DG6's follow-up: Uploads is its own section after the references, so a
+  // Remove stays in its own section (before, the next row was the next one
+  // in the card, the uploads then Items' first).
+  it('an upload\'s Remove: focus goes to the next upload\'s Remove, else the previous one\'s; never across to the references', () => {
     const files = UPLOADS().slice(0, 2)
     const c = mount({ files, chosen: [ITEM] })
     press(removeOf(files[0].file.name))
     expect(c.uploads.remove).toHaveBeenCalledWith(files[0].id)
     expect(document.activeElement).toBe(removeOf(files[1].file.name))
+    // The mock leaves the rows drawn, so the first upload's Remove is still
+    // there: the last upload's Remove goes back to it, not to Scene one.
     press(removeOf(files[1].file.name))
-    expect(document.activeElement).toBe(removeOf('Scene one'))            // the next row is Items' first
+    expect(document.activeElement).toBe(removeOf(files[0].file.name))
+  })
+
+  it('a reference\'s last Remove goes to the previous reference\'s, never forward into Uploads', () => {
+    const files = UPLOADS().slice(0, 1)
+    mount({ files, chosen: [ITEM, NOTE] })
+    press(removeOf('A note'))
+    expect(document.activeElement).toBe(removeOf('Scene one'))
+    expect(document.activeElement).not.toBe(removeOf(files[0].file.name))
   })
 
   it('the last row\'s Remove goes to the previous row\'s; a reference\'s Remove the same', () => {
@@ -488,10 +526,16 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     expect(document.activeElement).toBe(removeOf('Scene one'))
   })
 
-  it('the only row\'s Remove goes to Add references', () => {
+  // DG6's follow-up: each section's own way to add (before, Add references
+  // for any row).
+  it('the only upload\'s Remove goes to Choose file; the only reference\'s Remove to Add references', () => {
     const files = UPLOADS().slice(0, 1)
     mount({ files })
     press(removeOf(files[0].file.name))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose file' }))
+    cleanup()
+    mount({ files: [], chosen: [ITEM] })
+    press(removeOf('Scene one'))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
   })
 
