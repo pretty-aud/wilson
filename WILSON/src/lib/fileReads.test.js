@@ -138,7 +138,8 @@ describe('the stream route: E13, one read a minute, written to the bundle', () =
   it('the first read records ONE "downloaded" and WRITES it (touch:false); the next does not repeat it', async () => {
     await (await stream('f1')).text()
     expect(logged).toEqual([expect.objectContaining({ file_id: 'f1', event: 'downloaded', old_path: '1-notes.txt', size_bytes: BODY.length })])
-    expect(writes).toEqual([['p1', { touch: false }]])
+    // F3 (build review round 2, finding 1): the audit append tries once.
+    expect(writes).toEqual([['p1', { touch: false, attempts: 1 }]])
     await (await stream('f1', { ...SAME, range: 'bytes=4-9' })).text()
     expect(logged).toHaveLength(1)
     // The window is keyed in the files' own namespace: main's one throttle

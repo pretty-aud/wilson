@@ -201,10 +201,11 @@ describe('the readable mirror files and the manifest hide set-aside rows', () =>
   const mirror = (bundle) => {
     const files = {}
     // eslint-disable-next-line no-new-func
-    const fn = new Function('resolveProjectFolder', 'fileSlugify', 'path', 'fs', 'writeJSON', 'console',
+    // F3: the mirror writes through one change-only writer per pass.
+    const fn = new Function('resolveProjectFolder', 'fileSlugify', 'path', 'fs', 'databaseMirrors', 'console',
       `${extractFunction(MAIN_CJS, 'mirrorProjectDatabases')}\nreturn mirrorProjectDatabases;`)(
       () => '/root', (s) => s, { join: (...p) => p.join('/') }, { existsSync: () => true, mkdirSync: () => {} },
-      (file, data) => { files[file.split('/').pop()] = data }, { error: (...a) => { throw new Error(a.join(' ')) } })
+      { writerFor: () => (file, data) => { files[file.split('/').pop()] = data } }, { error: (...a) => { throw new Error(a.join(' ')) } })
     fn('p1', bundle)
     return files
   }

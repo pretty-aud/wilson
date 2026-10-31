@@ -74,7 +74,9 @@ function mountFileStreamRead(expressApp, deps) {
           old_path:         file.storage_path,
           size_bytes:       file.size_bytes ?? null,
         });
-        writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+        // F3: an audit append, tried once (main.cjs's writer retries a held
+        // file; a folder she can only read must not hold every stream 0.2 s).
+        writeRabbitBundle(req.params.projectId, bundle, { touch: false, attempts: 1 });
       } catch (e) {
         warn('file read not logged:', e?.message || e);
       }

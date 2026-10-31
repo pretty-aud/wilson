@@ -94,11 +94,17 @@ function call(routes, verb, pattern, params = {}, body = {}, query = {}) {
 // project.updated_at and re-mirrors _DATABASES only when touch is true.
 function realWriteRabbitBundle(log) {
   // eslint-disable-next-line no-new-func
+  // F3: the write also runs reconcileRabbitBundle (passed through here: this
+  // test is about touch) and keeps its text (the real module, which keeps no
+  // file that is not on disk).
   const write = new Function('writeJSON', 'rabbitBundlePath', 'mirrorProjectDatabases',
+    'reconcileRabbitBundle', 'materializeFolderDirs', 'rabbitBundles',
     `${extractFunction(MAIN_CJS, 'writeRabbitBundle')}\nreturn writeRabbitBundle;`)(
     (file, data) => { log.disk.push(structuredClone(data)) },
     (id) => `/fake/${id}/project.json`,
     (id) => { log.mirrors.push(id) },
+    () => ({ dirty: false, backfilled: false, rowsAdded: false }), () => {},
+    require('../../../../electron/jsonFile.cjs').createKeptFiles(),
   )
   return (id, bundle, opts) => { log.opts.push(opts); write(id, bundle, opts) }
 }
@@ -757,12 +763,17 @@ describe('readRabbitBundle (lifted from main.cjs) reconciles the views on every 
     const files = new Map([['/fake/p1/project.json', JSON.stringify(initial)]])
     const diskWrites = []
     // eslint-disable-next-line no-new-func
+    // F3: lifted with reconcileRabbitBundle and rebaseGoneFolderRoot; the
+    // real kept bundles never keep a file that is not on disk (this disk is a
+    // Map), so every read here is a disk load, as before.
     const read = new Function(
       'rabbitBundlePath', 'readJSON', 'writeJSON', 'fileSlugify', 'localDemoRootDir', 'isPathInside', 'fs', 'path',
       'localDemoProjectsDir', 'rabbitLogFileEvent', 'ensureProjectFolders', 'ensureProjectFolderRows',
       'materializeFolderDirs', 'uuidv4', 'backfillShotListsOnRead', 'ensureShotListKeys',
-      'pruneDanglingShotListItems', 'mirrorProjectDatabases', 'rabbitTaskItems', 'rabbitTableViews',
-      `${extractFunction(MAIN_CJS, 'readRabbitBundle')}
+      'pruneDanglingShotListItems', 'mirrorProjectDatabases', 'rabbitTaskItems', 'rabbitTableViews', 'rabbitBundles',
+      `${extractFunction(MAIN_CJS, 'reconcileRabbitBundle')}
+       ${extractFunction(MAIN_CJS, 'rebaseGoneFolderRoot')}
+       ${extractFunction(MAIN_CJS, 'readRabbitBundle')}
        return readRabbitBundle;`,
     )(
       (id) => `/fake/${id}/project.json`,
@@ -771,7 +782,7 @@ describe('readRabbitBundle (lifted from main.cjs) reconciles the views on every 
       (s) => s, () => null, () => false, { existsSync: () => false }, path,
       () => '/fake/projects', () => {}, () => {}, () => false, () => {},
       () => 'unused', backfillShotListsOnRead, ensureShotListKeys, pruneDanglingShotListItems, () => {},
-      rabbitTaskItems, tv,
+      rabbitTaskItems, tv, require('../../../../electron/jsonFile.cjs').createKeptFiles(),
     )
     return { read, diskWrites, files }
   }
@@ -878,10 +889,14 @@ describe('main.cjs wires the module in', () => {
     expect(MAIN_CJS.slice(mount, MAIN_CJS.indexOf('});', mount)))
       .toMatch(/readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4, getDataDir, readJSON, writeJSON/)
   })
-  it('the empty bundle has both keys; every read reconciles them', () => {
+  it('the empty bundle has both keys; every load and every write reconciles them', () => {
     expect(extractFunction(MAIN_CJS, 'emptyBundle')).toMatch(/\btableViews:\s*\[\]/)
     expect(extractFunction(MAIN_CJS, 'emptyBundle')).toMatch(/\bitemGroupings:\s*\[\]/)
-    expect(extractFunction(MAIN_CJS, 'readRabbitBundle')).toMatch(/rabbitTableViews\.reconcileTableViewsOnRead\(bundle\)\) dirty = true;/)
+    // F3: in reconcileRabbitBundle, which every disk load and every write runs.
+    expect(extractFunction(MAIN_CJS, 'reconcileRabbitBundle')).toMatch(/rabbitTableViews\.reconcileTableViewsOnRead\(bundle\)\) dirty = true;/)
+    for (const fn of ['readRabbitBundle', 'writeRabbitBundle']) {
+      expect(extractFunction(MAIN_CJS, fn), fn).toMatch(/reconcileRabbitBundle\(bundle, projectId\)/)
+    }
   })
   it('the generic routes\' item hooks are wrapped with the sweep, and the asset DELETE route sweeps before its write', () => {
     expect(MAIN_CJS).toMatch(/const taskItemHooks = rabbitTableViews\.withItemGroupingSweep\(rabbitTaskItems\.makeTaskItemHooks\(\{ newId: uuidv4 \}\)\);/)
