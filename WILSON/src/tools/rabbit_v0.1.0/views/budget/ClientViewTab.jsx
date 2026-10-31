@@ -5,7 +5,8 @@
 // Maps to TOPSHEET - CLIENT in the Excel template.
 // Clean read-only view showing only department estimates.
 // NO subtotals visible to client.
-// NO contingency percentage visible — contingency shown as a flat line item.
+// NO contingency percentage visible — contingency shown as a flat line item,
+// and so is the agency fee on the crew and the expenses (F2).
 // Includes print/export functionality.
 //
 // UI overhaul B5 (2026-09-26), R3-27 / R3-39 / C9:
@@ -28,7 +29,7 @@ import { Eye, Printer } from 'lucide-react'
 import { Table, Th, Td, Row } from '../../../../ui/Table'
 import { Button } from '../../../../ui/Button'
 import { FONT_SANS, FONT_MONO, TYPE, LEADING, TRACKING, WEIGHT, INK_LIGHT, RULE_LIGHT } from '../../../../ui/tokens.js'
-import { projectBudgetSettings, applyMarginAndContingency } from '../../../../components/Budget/budgetMath'
+import { projectBudgetSettings, applyMarginAndContingency, lineMoney } from '../../../../components/Budget/budgetMath'
 import CurrencyDisplay, { formatMoney } from '../../components/CurrencyDisplay'
 import '../rabbitBudget.css'
 
@@ -123,7 +124,8 @@ export function estimateDocument({ title, code, date, rows, total, currency, fac
 export default function ClientViewTab({ budget, budgetHook, project, tasks, roleRates, expensesHook, currency }) {
   const printRef = useRef(null)
 
-  const { marginPct: markupPct, contingencyPct } = projectBudgetSettings(project)
+  const settings = projectBudgetSettings(project)
+  const { marginPct: markupPct, contingencyPct } = settings
 
   // Build department-level estimates from tasks + rate card (crew/team costs)
   const crewByDept = useMemo(() => {
@@ -191,18 +193,25 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
   // Calculate totals — contingency is a FLAT line item, not shown as %.
   // Both it and the markup are budgetMath's (F2), on the BASE: the crew, the
   // talent without its fees, the expenses — never on the talent's fees.
+  // The agency fee on the crew and the expenses is a FLAT line of its own
+  // too (her answer to walkthrough 91's F2 Q3, "Yes, its own line"). The
+  // talent line already holds its fees (the line computations'), so the
+  // line leaves the talent out and nothing is counted twice.
   const subtotalBeforeExtras = clientLineItems.reduce((s, r) => s + r.estimate, 0)
-  const base = Object.values(crewByDept).reduce((s, r) => s + r.estimate, 0) + talentBase + expenseTotal
+  const crewBase = Object.values(crewByDept).reduce((s, r) => s + r.estimate, 0)
+  const base = crewBase + talentBase + expenseTotal
   const { marginAmt: markupAmt, contingencyAmt } = applyMarginAndContingency(base, markupPct, contingencyPct)
-  const grandTotal     = subtotalBeforeExtras + contingencyAmt + markupAmt
+  const { agencyFee: agencyAmt } = lineMoney(crewBase + expenseTotal, null, settings)
+  const grandTotal     = subtotalBeforeExtras + contingencyAmt + markupAmt + agencyAmt
 
   // ONE list for the preview and the print: the line items, then contingency
-  // as a flat dollar line and the markup as "Production fee" — NO percentage
-  // shown on either — each only when it is more than zero.
+  // as a flat dollar line, the markup as "Production fee" and the agency
+  // fee — NO percentage shown on any — each only when it is more than zero.
   const estimateRows = [
     ...clientLineItems.map(r => ({ label: r.label, amount: r.estimate })),
     ...(contingencyAmt > 0 ? [{ label: 'Contingency', amount: contingencyAmt }] : []),
     ...(markupAmt > 0 ? [{ label: 'Production fee', amount: markupAmt }] : []),
+    ...(agencyAmt > 0 ? [{ label: 'Agency fee', amount: agencyAmt }] : []),
   ]
   const today = new Date().toLocaleDateString()
 

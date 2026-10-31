@@ -49,7 +49,7 @@ import { useExpenses } from '../../../components/Expenses/useExpenses'
 import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudgetLines'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
-import { buildRoleRates, projectBudgetSettings, bidTotals, lineMoney, AGENCY_DEFAULT_PCT } from '../../../components/Budget/budgetMath'
+import { buildRoleRates, projectBudgetSettings, bidTotals, lineMoney, agencyPctOnSwitchOn } from '../../../components/Budget/budgetMath'
 import CurrencyDisplay, { formatMoney, formatTenths } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
@@ -786,8 +786,11 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPen
               checked={agencyEnabled}
               onChange={() => {
                 if (!agencyEnabled) {
-                  updateProjectField('budget_agency_enabled', true)
-                  if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', AGENCY_DEFAULT_PCT)
+                  // One write, the switch and the default together: two
+                  // writes' replies could land the other way round on the
+                  // cloud (each is the whole row) and show 0% until a reload.
+                  const fill = agencyPctOnSwitchOn(project?.budget_agency_pct)
+                  ctx?.updateProject?.(project.id, fill != null ? { budget_agency_enabled: true, budget_agency_pct: fill } : { budget_agency_enabled: true })
                 } else {
                   updateProjectField('budget_agency_enabled', false)
                 }
@@ -875,7 +878,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPen
       {budgetHook && (
         <TopsheetRollup
           budgetHook={budgetHook} project={project} currency={currency}
-          tasks={tasks} roleRates={roleRates} rateCard={rateCard}
+          tasks={tasks} rateCard={rateCard}
           teamMembers={teamMembers} expensesHook={expensesHook}
         />
       )}
@@ -887,26 +890,19 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPen
 
 
 // ─── Topsheet rollup — grouped by Crew/Team, Talent, Expenses ──
-function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateCard, teamMembers, expensesHook }) {
+function TopsheetRollup({ budgetHook, project, currency, tasks, rateCard, teamMembers, expensesHook }) {
   const { lines, lineComputations } = budgetHook
-  // The crew's agency fee is budgetMath's (F2), the Crew tab's: on the
-  // member's subtotal, 20% when switched on with none typed.
+  // The crew's and the expenses' agency fee is budgetMath's (F2), the Crew
+  // tab's and the client estimate's: on the subtotal, 20% when switched on
+  // with none typed.
   const settings = useMemo(() => projectBudgetSettings(project), [project])
   const { agencyEnabled } = settings
 
   // ── Crew/Team: derived from team members + rate card + tasks ──
+  // A member is priced by their own entry on the card in use; a member with
+  // none has no role here, so no rate (F2's follow-up removed a role-rate
+  // map nothing reached; OUTSTANDING F2-02 records the roles left out).
   const crewData = useMemo(() => {
-    const rateMap = {}
-    for (const e of (rateCard?.entries || [])) {
-      if (!e.role_slug) continue
-      const rate = Number(e.wage || e.day_rate || 0)
-      if (rate > 0 && !rateMap[e.role_slug]) rateMap[e.role_slug] = rate
-    }
-    if (roleRates) {
-      for (const [slug, rate] of Object.entries(roleRates)) {
-        if (!rateMap[slug]) rateMap[slug] = rate
-      }
-    }
     const bidDaysByRole = {}
     for (const t of (tasks || [])) {
       const slug = t.assigned_role_slug
@@ -917,7 +913,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
       // Look up role via rate card entry (role_slug is on rate card, not on member)
       const memberEntry = (rateCard?.entries || []).find(e => e.member_id === m.id)
       const roleSlug = memberEntry?.role_slug
-      const rate = memberEntry ? Number(memberEntry.wage || memberEntry.day_rate || 0) : (roleSlug ? (rateMap[roleSlug] || 0) : 0)
+      const rate = memberEntry ? Number(memberEntry.wage || memberEntry.day_rate || 0) : 0
       const days = roleSlug ? Number(bidDaysByRole[roleSlug] || 0) : 0
       // Every project-team member gets a department bucket (even at zero)
       const dept = m.department || 'Uncategorized'
@@ -942,7 +938,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
       bidTotal: acc.bidTotal + d.bidTotal, actualTotal: acc.actualTotal + d.actualTotal,
     }), { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 })
     return { departments, total }
-  }, [teamMembers, rateCard?.entries, roleRates, tasks, lines, lineComputations, settings])
+  }, [teamMembers, rateCard?.entries, tasks, lines, lineComputations, settings])
 
   // ── Talent: from budget lines (grouped by talent_type) ──
   const talentData = useMemo(() => {
@@ -977,18 +973,21 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   }, [lines, lineComputations])
 
   // ── Expenses: from expenses system ──
+  // Their agency fee is the project's, on their estimate (her answer to
+  // walkthrough 91's F2 Q3: the client estimate carries it too).
   const expenseData = useMemo(() => {
     const list = expensesHook?.expenses || []
     const estimated = list.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)
     const actual = list.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)
-    return { estimated, actual, count: list.length }
-  }, [expensesHook?.expenses])
+    const { agencyFee, bidTotal } = lineMoney(estimated, null, settings)
+    return { estimated, agencyFee, bidTotal, actual, count: list.length }
+  }, [expensesHook?.expenses, settings])
 
   // Grand totals
   const grand = {
     subtotal: crewData.total.subtotal + talentData.total.subtotal + expenseData.estimated,
-    agencyFee: crewData.total.agencyFee + talentData.total.agencyFee,
-    bidTotal: crewData.total.bidTotal + talentData.total.bidTotal + expenseData.estimated,
+    agencyFee: crewData.total.agencyFee + talentData.total.agencyFee + expenseData.agencyFee,
+    bidTotal: crewData.total.bidTotal + talentData.total.bidTotal + expenseData.bidTotal,
     actualTotal: crewData.total.actualTotal + talentData.total.actualTotal + expenseData.actual,
   }
   grand.variance = grand.actualTotal - grand.bidTotal
@@ -1113,7 +1112,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {expenseData.count > 0 && (
           <>
             <SectionHeader label={`Expenses (${expenseData.count})`} Icon={Receipt} />
-            <DataRow label="All expenses" indent subtotal={expenseData.estimated} agencyFee={0} bidTotal={expenseData.estimated} actualTotal={expenseData.actual} />
+            <DataRow label="All expenses" indent subtotal={expenseData.estimated} agencyFee={expenseData.agencyFee} bidTotal={expenseData.bidTotal} actualTotal={expenseData.actual} />
           </>
         )}
       </Table>
