@@ -217,12 +217,13 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     expect(itemModelImports).toEqual(["from './assetTypes'"])
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/assetTypes.js')))).toBe(false)
     // The S5 loosening, proven the same way: budgetMath imports nothing, and
-    // budgetVersionModel imports dates.js and only dates.js, which imports
-    // nothing — so neither can carry the fixtures anywhere either.
+    // budgetVersionModel imports dates.js and budgetMath.js (F2: the money
+    // rules it saves a bid with) and only those, each importing nothing — so
+    // neither can carry the fixtures anywhere either.
     expect(importsSomething(read(join(SRC, 'components/Budget/budgetMath.js')))).toBe(false)
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/dates.js')))).toBe(false)
     const modelImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/budgetVersionModel.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])
-    expect(modelImports).toEqual(["from '../dates'"])
+    expect(modelImports).toEqual(["from '../dates'", "from '../../../components/Budget/budgetMath'"])
     // The S5b loosening: setAside imports budgetVersionModel and only that
     // (proven pure just above).
     const asideImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/setAside.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])

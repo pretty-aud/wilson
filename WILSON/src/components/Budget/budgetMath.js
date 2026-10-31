@@ -8,8 +8,17 @@
 // production is bid at, and whether it made a profit, is the last thing that
 // should be pinned only by four copies agreeing with each other.
 //
+// Post-overhaul F2 (OUTSTANDING REV-02): the views had never switched over,
+// and their copies came apart — the agency fee defaulted to 20% on the
+// Summary and to 0% everywhere else, and the Crew and Talent tabs charged
+// margin and contingency on the base plus the fees. Every Budget surface now
+// reads its money here: the project's settings (projectBudgetSettings), the
+// task-based bid (taskBaseCost, bidTotals) and one line's money (lineMoney).
+//
 // These are pure functions on purpose: no hooks, no adapter, no React, so
-// they can be tested directly and reused by both adapters.
+// they can be tested directly and reused by both adapters. This file imports
+// nothing (src/dev/devFixtures.test.js pins that: the fixtures build their
+// bids with it).
 
 // ── The inheritance rule ────────────────────────────────────────
 //
@@ -17,9 +26,8 @@
 // NULL (or undefined) means "inherit the project default".
 //
 // 🚨 ZERO IS A REAL VALUE. `0` is a deliberate "no margin on this line" and
-// must NOT inherit. The existing UI gets this right by testing `!= null`
-// rather than falsiness (CrewTeamTab.jsx:330-331), and CrewTeamTab.jsx:439
-// resets a line by writing NULL back precisely so it starts inheriting again.
+// must NOT inherit. Reset M/C on the Crew, Talent and Expenses tabs resets a
+// line by writing NULL back precisely so it starts inheriting again.
 // A `||` here instead of a null check would silently promote every
 // deliberate 0% to the project default — an error that looks like nothing at
 // all until someone reconciles a bid.
@@ -35,8 +43,8 @@ export function effectivePct(lineValue, projectDefault) {
 // ── Margin and contingency ──────────────────────────────────────
 //
 // 🚨 BOTH ARE APPLIED TO THE BASE. Contingency is NOT added first and then
-// margined. MEASURED in three independent places that already agree:
-// BudgetView.jsx:347-349, CrewTeamTab.jsx:332-333, ClientViewTab.jsx:86-88.
+// margined, and neither is charged on a fee: an agency or representation
+// fee is added on the base beside them (lineMoney, bidTotals).
 //
 // Margin IS the profit, so `baseCost` here is the actual cost to the company
 // and `total` is what the client is bid. Keeping the three parts separate is
@@ -61,6 +69,95 @@ export function applyMarginAndContingency(baseCost, marginPct, contingencyPct) {
 // and the whole point of tracking actuals is that the two differ.
 export function profit(bidTotal, actualCost) {
   return round2((Number(bidTotal) || 0) - (Number(actualCost) || 0))
+}
+
+// ── The project's settings ──────────────────────────────────────
+//
+// The agency fee when it is switched on and no percentage was ever typed:
+// 20%. Audrey's ruling of 2026-10-31 (F2), the one default every Budget
+// surface reads; the Summary's switch writes it when it turns the fee on
+// with none. A typed 0 is a real value. The cloud's column stores 0 for
+// "never typed" (0036: NOT NULL DEFAULT 0), so the default is met where an
+// unset value stays unset: the desktop's projects and the fixtures.
+export const AGENCY_DEFAULT_PCT = 20
+
+/**
+ * The project's budget settings, read once for every Budget surface: margin
+ * and contingency 0 when unset, the agency fee AGENCY_DEFAULT_PCT when unset
+ * (null, undefined or empty: never typed), and off unless switched on.
+ */
+export function projectBudgetSettings(project) {
+  return {
+    marginPct: firstNumber(project?.budget_margin_pct) ?? 0,
+    contingencyPct: firstNumber(project?.budget_contingency_pct) ?? 0,
+    agencyEnabled: project?.budget_agency_enabled === true,
+    agencyPct: firstNumber(project?.budget_agency_pct) ?? AGENCY_DEFAULT_PCT,
+  }
+}
+
+// ── The task-based bid ──────────────────────────────────────────
+//
+// base = Σ bid_days × the role's day rate. A task with no role is costed as
+// 'unassigned', a role with no rate at `fallbackDayRate`. The one loop the
+// Summary's waterfall (bidTotals) and the selectors' rollup both read.
+export function taskBaseCost({ tasks, roleRates = {}, fallbackDayRate = 0 }) {
+  const byRole = {}
+  let total = 0
+  for (const t of tasks || []) {
+    if (!t?.bid_days) continue
+    const role = t.assigned_role_slug || 'unassigned'
+    const rate = roleRates[role] ?? fallbackDayRate
+    const cost = Number(t.bid_days) * Number(rate)
+    if (!byRole[role]) byRole[role] = { days: 0, cost: 0, role }
+    byRole[role].days += Number(t.bid_days)
+    byRole[role].cost += cost
+    total += cost
+  }
+  return { total, byRole }
+}
+
+/**
+ * The Summary's waterfall, and every bid version's saved totals (F7): the
+ * base (taskBaseCost); margin and contingency each on the BASE, to cents
+ * (applyMarginAndContingency; 0037: never compounded); the before-agency
+ * total to cents; the agency fee on the BASE, to the whole unit (as every
+ * saved version's total was made); overall = before-agency + the fee when it
+ * is on (F7: "the total with the agency % is ... the overall total").
+ */
+export function bidTotals({ tasks, roleRates = {}, marginPct = 0, contingencyPct = 0, agencyEnabled = false, agencyPct = 0 }) {
+  const baseCost = taskBaseCost({ tasks, roleRates }).total
+  const { marginAmt, contingencyAmt, total: beforeAgency } = applyMarginAndContingency(baseCost, marginPct, contingencyPct)
+  const agencyAmt = agencyEnabled ? Math.round(baseCost * ((Number(agencyPct) || 0) / 100)) : 0
+  return { baseCost, marginAmt, contingencyAmt, agencyAmt, beforeAgency, overall: beforeAgency + agencyAmt }
+}
+
+// ── One line's money ────────────────────────────────────────────
+//
+// A line as the Crew, Talent and Expenses tabs and the Topsheet show it, on
+// its BASE (rate × days, a talent line's subtotal, an expense's estimate):
+//   marginPct, contingencyPct  the line's own, else the project's (effectivePct)
+//   marginAmt, contingencyAmt  each on the BASE, to cents — never on the base
+//                              plus the fees (REV-02)
+//   agencyFee                  the project's agency fee when it is on and the
+//                              line has not opted out, plus a talent line's
+//                              own representation fee: the two stack
+//                              additively on the BASE (0036), to cents like
+//                              the line's other amounts (on purpose: only
+//                              bidTotals keeps the Summary's fee to the whole
+//                              unit, the way every saved version's was made)
+//   bidTotal                   the base plus the fees: the tabs' Bid total,
+//                              margin and contingency standing beside it
+// `line` may be null (a role nobody holds yet); `settings` is
+// projectBudgetSettings(project).
+export function lineMoney(baseCost, line, settings) {
+  const base = Number(baseCost) || 0
+  const marginPct = effectivePct(line?.margin_pct, settings?.marginPct)
+  const contingencyPct = effectivePct(line?.contingency_pct, settings?.contingencyPct)
+  const { marginAmt, contingencyAmt } = applyMarginAndContingency(base, marginPct, contingencyPct)
+  const agencyPct = settings?.agencyEnabled && !line?.agency_opt_out ? (Number(settings.agencyPct) || 0) : 0
+  const repPct = line?.sheet === 'talent' ? (firstNumber(line.talent_agency_fee_pct) ?? 0) : 0
+  const agencyFee = round2(base * ((agencyPct + repPct) / 100))
+  return { marginPct, contingencyPct, marginAmt, contingencyAmt, agencyFee, bidTotal: base + agencyFee }
 }
 
 // ── Rate resolution ─────────────────────────────────────────────
@@ -144,10 +241,10 @@ export function buildRoleRates(entries = [], overrides = []) {
 
 // ── helpers ─────────────────────────────────────────────────────
 
-// Money is rounded to 2dp at each step, matching BudgetView.jsx:347-349.
-// Not a float concern the database shares — the columns are numeric — but the
-// client must agree with itself across tabs.
-function round2(n) {
+// Money is rounded to 2dp at each step: the one round2 (budgetVersionModel
+// kept a copy until F2). Not a float concern the database shares — the
+// columns are numeric — but the client must agree with itself across tabs.
+export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
