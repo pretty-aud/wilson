@@ -215,6 +215,45 @@ describe('Save — into the open version (F2)', () => {
   })
 })
 
+// F2's third follow-up (her answer to walkthrough 91's F2 Q6): a version
+// keeps each expense's estimate as it was bid, read from where the expenses
+// are kept at the moment of the save — the Expenses tab's list is its own
+// hook's, never the bundle's — so the Timeline's Save keeps them too.
+describe('a saved version keeps each expense\'s estimate (F2\'s third follow-up)', () => {
+  const kept = (v) => (v.snapshot.expenses || []).map(e => [e.title, e.estimated_cost])
+
+  it('Save as new version and Save each keep the expenses as stored then; undo puts the earlier ones back', async () => {
+    await bidding()
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'Mid ROM', roleRates: RATES }) })
+    expect(kept(byId(v.id))).toEqual([['Camera package hire', 16800], ['Set timber and paint', 4200], ['Compass props', 260]])
+    // An expense edited where they are kept (the Expenses tab's write), then a
+    // Save for a schedule change: the bid keeps the new estimate.
+    await holder.adapter.updateExpense(fid('expense', 2), PROJECT_ID, { estimated_cost: 4500 })
+    await run(() => ctx.updateTask(TASK_ID(9), { end_date: '2026-12-24' }))
+    await run(() => ctx.saveBudgetVersion(v.id, { roleRates: RATES }))
+    expect(kept(byId(v.id))[1]).toEqual(['Set timber and paint', 4500])
+    await run(() => ctx.undo())
+    expect(kept(byId(v.id))[1]).toEqual(['Set timber and paint', 4200])
+    // Never the actuals: a bid is estimates.
+    expect(JSON.stringify(byId(v.id).snapshot.expenses)).not.toMatch(/actual/)
+  })
+
+  it('CONTROL: a storage that keeps no expenses saves the older shape; a read that fails stops the save, said', async () => {
+    await bidding()
+    const list = holder.adapter.listExpenses
+    delete holder.adapter.listExpenses
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'No expenses here', roleRates: RATES }) })
+    expect(byId(v.id).snapshot).not.toHaveProperty('expenses')
+    holder.adapter.listExpenses = async () => { throw new Error('the expenses could not be read') }
+    const before = versions().length
+    await expect(ctx.createBudgetVersion({ name: 'Read fails', roleRates: RATES })).rejects.toThrow(/could not be read/)
+    expect(versions().length).toBe(before)
+    holder.adapter.listExpenses = list
+  })
+})
+
 describe('Edit this version — opening (F2)', () => {
   it('writes its schedule and settings into the live rows as ONE undo step; tasks it does not hold are SET ASIDE (S5b, ruling (a)); logged days never move', async () => {
     await bidding()

@@ -10,7 +10,7 @@ import {
   scheduleSpan, snapshotFromLive, readVersion,
   varianceAgainst, versionDelta, versionDiff, planOpen, planIsEmpty,
   sortVersionsNewest, selectedVersionOf, previousVersionOf, deltaWords, SNAPSHOT_KIND,
-  knownIdsOf, liveItemsOnly,
+  knownIdsOf, liveItemsOnly, expensesAgainstBid,
 } from './budgetVersionModel'
 
 const project = {
@@ -84,6 +84,55 @@ describe('snapshotFromLive — what a version carries (F1, F6, F7, F8)', () => {
 })
 
 const round = (n) => Math.round(n * 100) / 100
+
+// F2's third follow-up (her answer to walkthrough 91's F2 Q6): a version
+// keeps each expense's estimate, so the Expenses tab can show where the bid
+// was beside what is expected now.
+describe('a version\'s expenses (F2\'s third follow-up)', () => {
+  const expenses = [
+    { id: 'e1', title: 'Camera', estimated_cost: '16800', actual_cost: 16800, margin_pct: 5, project_id: 'p1' },
+    { id: 'e2', title: 'Timber', estimated_cost: 3900, actual_cost: 3860 },
+    { id: null, title: 'no id', estimated_cost: 10 },
+  ]
+  const saved = (exp) => ({ id: 'v', is_active: true, snapshot: snapshotFromLive({ tasks, phases, milestones, project, roleRates, expenses: exp }) })
+
+  it('snapshotFromLive keeps id, title and the estimate (a number) of each — never the actuals or the markups', () => {
+    expect(saved(expenses).snapshot.expenses).toEqual([
+      { id: 'e1', title: 'Camera', estimated_cost: 16800 },
+      { id: 'e2', title: 'Timber', estimated_cost: 3900 },
+    ])
+    // CONTROL: none given, none kept — the older shape, which readVersion says.
+    expect(live()).not.toHaveProperty('expenses')
+    expect(readVersion({ snapshot: live() }).expenses).toBeNull()
+    expect(readVersion(saved([])).expenses).toEqual([])
+    expect(readVersion({ snapshot: { grandTotal: 100 } }).expenses).toBeNull()
+  })
+
+  it('expensesAgainstBid: each one\'s bid, the bid\'s total with those removed since, and the bid\'s own fee', () => {
+    const b = expensesAgainstBid([{ id: 'e2', estimated_cost: 4200 }, { id: 'e9', estimated_cost: 50 }], saved(expenses))
+    expect(b.kept).toBe(true)
+    expect([b.bidOf('e2'), b.bidOf('e9'), b.bidOf('e1')]).toEqual([3900, null, 16800])
+    expect(b.bidTotal).toBe(20700)
+    expect(b.removed.map(r => r.id)).toEqual(['e1'])
+    expect(b.settings).toEqual({ agencyEnabled: true, agencyPct: 15 })
+    // A version kept with no expenses at all is kept: every one is not in it.
+    const none = expensesAgainstBid([{ id: 'e2' }], saved([]))
+    expect([none.kept, none.bidOf('e2'), none.bidTotal]).toEqual([true, null, 0])
+    // CONTROL: no version, or one saved before: nothing kept, no bid at all.
+    for (const v of [null, { snapshot: live() }]) {
+      const n = expensesAgainstBid([{ id: 'e2' }], v)
+      expect([n.kept, n.bidOf('e2'), n.bidTotal, n.removed]).toEqual([false, null, 0, []])
+    }
+  })
+
+  it('an expense edit is no unsaved change to a bid, and an open writes no expense back', () => {
+    const v = saved(expenses)
+    const now = snapshotFromLive({ tasks, phases, milestones, project, roleRates, expenses: [{ id: 'e1', title: 'Camera', estimated_cost: 99 }] })
+    expect(versionDiff(v.snapshot, now).isDirty).toBe(false)
+    const plan = planOpen(v.snapshot, { tasks, phases, milestones, project, roleRates })
+    expect(JSON.stringify(plan)).not.toMatch(/estimated_cost/)
+  })
+})
 
 describe('readVersion — every version keeps showing its numbers', () => {
   it('reads the S5 shape as written', () => {

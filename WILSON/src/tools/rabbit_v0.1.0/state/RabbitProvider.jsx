@@ -7379,14 +7379,29 @@ export function RabbitProvider({ children }) {
   }, [optimistic, restoreBudgetVersionRow]);
 
   /** The live rows as a version's snapshot, F8's line against `previous`. */
-  function liveBudgetSnapshot({ roleRates, shotList, previous }) {
+  function liveBudgetSnapshot({ roleRates, shotList, previous, expenses = null }) {
     const b = bundleRef.current;
     return snapshotFromLive({
       ...snapshotTaskRows(b), phases: b.phases, milestones: b.milestones, project: b.project,
-      roleRates: roleRates || {}, shotList,
+      roleRates: roleRates || {}, expenses, shotList,
       savedAt: new Date().toISOString(), savedBy: versionWho(),
       previous: previous?.snapshot || null, previousName: previous?.name || null,
     });
+  }
+
+  /**
+   * F2's third follow-up: the expenses a version keeps, read where they are
+   * kept at the moment of the save — the Expenses tab's list is its own hook's
+   * (useExpenses), never the bundle's (loadProjectBundle.test.js says why),
+   * and the Timeline saves too. null where this storage keeps no expenses.
+   * A read that fails stops the save, said: a bid saved without them would
+   * show no bid figure for any expense.
+   */
+  async function expensesForSnapshot(pid) {
+    const a = adapterRef.current;
+    if (typeof a?.listExpenses !== 'function') return null;
+    const list = await a.listExpenses(pid);
+    return Array.isArray(list) ? list : [];
   }
 
   /**
@@ -7463,7 +7478,10 @@ export function RabbitProvider({ children }) {
       const live = shotListById(listId);
       const shotList = live || (keepList ? (v.snapshot?.shot_list || null) : null);
       const previous = previousVersionOf(bundleRef.current.budgetVersions, v);
-      const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
+      const still = compositeGuard();
+      const expenses = await expensesForSnapshot(activeProjectIdRef.current);
+      still();
+      const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous, expenses });
       const patch = { snapshot };
       if (!keepList) patch.shot_list_id = live ? live.id : null;
       const before = { snapshot: v.snapshot ?? {} };
@@ -7542,7 +7560,9 @@ export function RabbitProvider({ children }) {
       refuseWhileReplaying();
       const shotList = shotListById(opts.basedOnListId);
       const previous = sortVersionsNewest(bundleRef.current.budgetVersions)[0] || null;
-      const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
+      const expenses = await expensesForSnapshot(pid);
+      still();
+      const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous, expenses });
       // No created_at on the wire: the server's clock orders versions.
       const row = {
         id: uuidv4(), project_id: pid, name, type: 'bid', is_active: false,

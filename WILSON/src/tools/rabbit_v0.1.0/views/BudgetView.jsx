@@ -76,7 +76,7 @@ import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 // and the model's arithmetic for the page's totals.
 import { BidVersionsBlock, ratesPendingFrom } from './budget/BidVersions'
 import VersionQuestions, { basedOnWords } from './budget/VersionQuestions'
-import { readVersion } from '../state/budgetVersionModel'
+import { readVersion, selectedVersionOf, expensesAgainstBid } from '../state/budgetVersionModel'
 import { resetToastWords } from '../state/versionWords'
 import { showDate } from '../dates'
 import './rabbitBudget.css'
@@ -1735,10 +1735,10 @@ const COST_STATUS_LABELS = {
   no_estimate:  'No estimate',
 }
 
-/** The expenses table's columns — the checkbox, Title, the five money
-    columns, Date, Related, Files and the row's actions: what a group's
-    header row spans. */
-const EXPENSE_COLUMNS = 11
+/** The expenses table's columns — the checkbox, Title, the six money
+    columns (Bid since F2's third follow-up), Date, Related, Files and the
+    row's actions: what a group's header row spans. */
+const EXPENSE_COLUMNS = 12
 
 function expenseCostStatus(exp) {
   const est = Number(exp.estimated_cost) || 0
@@ -1768,7 +1768,10 @@ function fmtExpLabel(str) {
 //   · The list is the kit Table (R3-20): the same columns in the same order,
 //     the money in the lane's one order — Estimated, Margin, Contingency,
 //     Actual, Variance (R3-05) — every figure a numeric cell, a group's
-//     header a full-width row of the table.
+//     header a full-width row of the table. Since F2's third follow-up the
+//     bid's figure leads (Bid), the estimate is "Expected" with how far it
+//     moved from the bid under it, and the variance says what it compares
+//     ("vs expected").
 //   · A row's hover is the kit Row's (R3-23), its selection the kit Row's
 //     `selected` (R3-38), its checkbox a 28px square (R3-40), its Edit and
 //     Delete the kit HoverActions, revealed by focus as well as hover (R3-24,
@@ -2026,12 +2029,30 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const totalEstimated = useMemo(() => expenses.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0), [expenses])
   const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
   const totalVariance  = totalActual - totalEstimated
-  // What the expenses are bid at with the project's agency fee: the
-  // Topsheet's figure, budgetMath's (her answer to walkthrough 91's F2 Q5);
-  // the client estimate's Agency fee line holds this fee with the crew's. The
-  // variance and the over/under status stay the cost against its estimate,
-  // which the Variance tile says while the fee is on.
-  const totalBid = useMemo(() => lineMoney(totalEstimated, null, settings), [totalEstimated, settings])
+  // F2's third follow-up (her answer to walkthrough 91's F2 Q6, "Yes, F2
+  // builds it next (Recommended)"): where the bid was, beside what she
+  // expects to spend now (the estimate) and what was spent. The bid is the
+  // SELECTED version's, the variance's baseline: each expense's estimate as
+  // that version was saved (budgetVersionModel's expensesAgainstBid). Every
+  // figure is a cost, an estimate against an estimate; the agency fee rides
+  // in the hints, budgetMath's — the bid's own (the fee it was bid with) and
+  // the project's (the Topsheet's figure, her Q5).
+  const selectedBid = useMemo(() => selectedVersionOf(ctx?.budgetVersions), [ctx?.budgetVersions])
+  const bid = useMemo(() => expensesAgainstBid(expenses, selectedBid), [expenses, selectedBid])
+  const bidWithFee = useMemo(() => lineMoney(bid.bidTotal, null, bid.settings), [bid])
+  const expectedWithFee = useMemo(() => lineMoney(totalEstimated, null, settings), [totalEstimated, settings])
+  const movedFromBid = totalEstimated - bid.bidTotal
+  const bidLocked = !!selectedBid && project?.budget_active === true && project?.budget_active_version_id === selectedBid.id
+  // What the Bid column cannot show, in words (the brief's "—", said).
+  const bidNote = !selectedBid
+    ? 'No bid version is selected, so the expenses have no bid figure.'
+    : !bid.kept
+      ? (bidLocked
+        ? `“${selectedBid.name}”, the locked bid, was saved before a bid kept its expenses, so they have no bid figure. A bid saved from now on keeps them.`
+        : `“${selectedBid.name}” was saved before a bid kept its expenses, so they have no bid figure. Save a new version to keep them.`)
+      : bid.removed.length
+        ? `The bid also holds ${bid.removed.length === 1 ? `“${bid.removed[0].title || 'Untitled'}”, removed` : `${bid.removed.length} expenses removed`} since: ${formatMoney(bid.removed.reduce((s, r) => s + (Number(r.estimated_cost) || 0), 0), currency)} of the Bid total.`
+        : null
 
   // ── Handlers ──
   function handleCreate() { setEditingId(null); setShowPopup(true) }
@@ -2095,6 +2116,10 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
     const fileCount  = exp.file_ids?.length || 0
     const isChecked = expSelected.has(exp.id)
     const { marginAmt: mAmt, contingencyAmt: cAmt } = moneyOf(exp)
+    // Where the bid was (F2's third follow-up): null when the expense is not
+    // in the bid, or the bid kept no expenses (`bid.kept`).
+    const bidEst = bid.bidOf(exp.id)
+    const moved = bidEst == null ? null : est - bidEst
     return (
       <Row
         key={exp.id}
@@ -2126,9 +2151,24 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
           {exp.description && <span className="rb-budget-exp-desc" title={exp.description}>{exp.description}</span>}
         </Td>
         <Td numeric className="rb-budget-quiet">
+          {!bid.kept
+            ? <span className="rb-budget-dash" data-empty="true">{'—'}</span>
+            : bidEst == null
+              ? <span className="rb-budget-exp-notbid">Not in the bid</span>
+              : <CurrencyDisplay value={bidEst} currency={currency} />}
+        </Td>
+        <Td numeric className="rb-budget-quiet">
           <span className="rb-budget-dash" data-empty={est ? undefined : 'true'}>
             <CurrencyDisplay value={est} currency={currency} />
           </span>
+          {/* How far what she expects now moved from the bid, on the figure
+              it is about (the Variance column is the other difference:
+              actual against expected). */}
+          {moved != null && (
+            <span className="rb-budget-var rb-budget-exp-vsbid" data-tone={moved > 0 ? 'danger' : moved < 0 ? 'success' : 'zero'}>
+              <CurrencyDisplay value={moved} currency={currency} signed /> vs bid
+            </span>
+          )}
         </Td>
         <Td numeric className="rb-budget-exp-mc-cell" onClick={keepClick}>
           <button type="button" onClick={e => handleMcCellClick(e, exp.id)} className="ui-input rb-budget-exp-mc" data-size="sm">
@@ -2195,9 +2235,20 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
             <span className="rb-budget-exp-group-label">{g.label}</span>
             <span className="rb-budget-exp-group-count">({g.items.length})</span>
             <span className="rb-budget-exp-group-totals">
-              Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} />
+              {/* The bid's figure for the group's expenses in it, when the
+                  bid kept them (F2's third follow-up); none of them in it, a
+                  dash, never a $0 bid. */}
+              {bid.kept && (
+                <>
+                  Bid: {g.items.some(e => bid.bidOf(e.id) != null)
+                    ? <CurrencyDisplay value={g.items.reduce((s, e) => s + (bid.bidOf(e.id) ?? 0), 0)} currency={currency} />
+                    : '—'}
+                  {' / '}
+                </>
+              )}
+              Expected: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} />
               {' / '}
-              Act: <span className="rb-budget-exp-group-act"><CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} /></span>
+              Actual: <span className="rb-budget-exp-group-act"><CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} /></span>
             </span>
           </span>
         </Td>
@@ -2213,25 +2264,40 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
     <div className="rb-budget-exp-tab">
       {/* Summary tiles: the kit Stat, through the tab's BigTile (R3-10). */}
       <div className="rb-budget-stats">
-        <BigTile label="Estimated total" value={formatMoney(totalEstimated, currency)} />
-        {settings.agencyEnabled && (
-          <BigTile
-            label="Bid total"
-            value={formatMoney(totalBid.bidTotal, currency)}
-            hint={`with the ${formatMoney(totalBid.agencyFee, currency)} agency fee`}
-          />
-        )}
+        <BigTile
+          label="Bid total"
+          value={bid.kept ? formatMoney(bid.bidTotal, currency) : '—'}
+          hint={!bid.kept
+            ? (selectedBid ? 'this bid kept no expenses' : 'no bid selected')
+            : bid.settings.agencyEnabled
+              ? `${formatMoney(bidWithFee.bidTotal, currency)} with the ${formatMoney(bidWithFee.agencyFee, currency)} agency fee`
+              : undefined}
+        />
+        <BigTile
+          label="Expected now"
+          value={formatMoney(totalEstimated, currency)}
+          hint={settings.agencyEnabled
+            ? `${formatMoney(expectedWithFee.bidTotal, currency)} with the ${formatMoney(expectedWithFee.agencyFee, currency)} agency fee`
+            : undefined}
+        />
         <BigTile label="Actual total" value={totalActual > 0 ? formatMoney(totalActual, currency) : '—'} />
         <BigTile
-          label="Variance"
+          label="Expected vs bid"
+          value={bid.kept ? formatMoney(movedFromBid, currency, { sign: 'exceptZero' }) : '—'}
+          hint={bid.kept ? 'expected now against the bid' : undefined}
+          tone={bid.kept && movedFromBid > 0 ? 'danger' : bid.kept && movedFromBid < 0 ? 'good' : 'neutral'}
+        />
+        <BigTile
+          label="Actual vs expected"
           value={totalEstimated > 0 || totalActual > 0
             ? formatMoney(totalVariance, currency, { sign: 'exceptZero' })
             : '—'}
-          hint={settings.agencyEnabled && (totalEstimated > 0 || totalActual > 0) ? 'against the estimate, before the fee' : undefined}
+          hint={totalEstimated > 0 || totalActual > 0 ? 'actual against expected now' : undefined}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
         <BigTile label="Expenses" value={expenses.length} />
       </div>
+      {bidNote && <p className="rb-budget-exp-bidnote">{bidNote}</p>}
 
       {/* The toolbar: the kit Toolbar, the same eleven controls in the same
           order at the 28px height (C1; the Hick's hotspot's regrouping and
@@ -2383,11 +2449,12 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
                 </button>
               </Th>
               <Th>Title</Th>
-              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'estimated_cost' ? sortDir : null} onSort={() => sortBy('estimated_cost')}>Estimated</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric>Bid</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'estimated_cost' ? sortDir : null} onSort={() => sortBy('estimated_cost')}>Expected</Th>
               <Th width="var(--rb-budget-exp-col-money)" numeric>Margin</Th>
               <Th width="var(--rb-budget-exp-col-money)" numeric>Conting.</Th>
               <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'actual_cost' ? sortDir : null} onSort={() => sortBy('actual_cost')}>Actual</Th>
-              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'variance' ? sortDir : null} onSort={() => sortBy('variance')}>Variance</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'variance' ? sortDir : null} onSort={() => sortBy('variance')}>vs expected</Th>
               <Th width="var(--rb-budget-exp-col-date)" sort={sortField === 'purchase_date' ? sortDir : null} onSort={() => sortBy('purchase_date')}>Date</Th>
               <Th width="var(--rb-budget-exp-col-related)">Related</Th>
               <Th width="var(--rb-budget-exp-col-files)" numeric>Files</Th>
@@ -3157,9 +3224,8 @@ function Card({ title, children, rule = true }) {
   )
 }
 
-// Kept for the Expenses tab's tiles (four, five with the agency fee on): a
-// thin wrapper over the kit Stat, so every tile on the Budget is the kit's
-// (R3-10). `tone` keeps its words.
+// Kept for the Expenses tab's six tiles: a thin wrapper over the kit Stat,
+// so every tile on the Budget is the kit's (R3-10). `tone` keeps its words.
 function BigTile({ label, value, hint, tone = 'neutral' }) {
   return (
     <Stat
