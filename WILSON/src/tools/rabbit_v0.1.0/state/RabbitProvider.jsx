@@ -7873,8 +7873,10 @@ export function RabbitProvider({ children }) {
       try {
         // F2's third follow-up (review round 1): the bid freezes each
         // expense's estimate as it is when the budget goes into production.
-        // First, so a read that fails changes nothing.
-        await m.keepExpensesInBid(id);
+        // Read first, so a read that fails changes nothing; written with the
+        // lock's last writes, so a stop at the first write still changes
+        // nothing (R2-08).
+        const expensesNow = await expensesForSnapshot(activeProjectIdRef.current);
         still();
         let plan = null;
         if (readVersion(v).hasTimeline) {
@@ -7885,6 +7887,8 @@ export function RabbitProvider({ children }) {
           still();
         }
         await m.selectBudgetVersion(id);
+        still();
+        await m.keepExpensesInBid(id, expensesNow);
         still();
         await m.stampBudgetVersionLock(id, true);
         still();
@@ -8351,16 +8355,17 @@ export function RabbitProvider({ children }) {
    * "the locked estimate when entering production". The expenses as they are
    * kept at this moment, written into the version's snapshot (its `expenses`
    * only: the schedule stays as saved), with its undo. Set budget active runs
-   * it as part of the lock's one step; on its own, it is the Expenses tab's
-   * "Keep today's estimates as its bid" for a bid locked before a version
-   * kept its expenses. Nothing is written when they are already so, or where
-   * the storage keeps no expenses.
+   * it as part of the lock's one step, with the list it read first
+   * (`read`); on its own, it is the Expenses tab's "Keep today's estimates
+   * as its bid" for a bid locked before a version kept its expenses.
+   * Nothing is written when they are already so, or where the storage keeps
+   * no expenses.
    */
-  const keepExpensesInBid = useCallback(async (id) => {
+  const keepExpensesInBid = useCallback(async (id, read) => {
     const still = compositeGuard();
     const visit = projectVisitRef.current;
     const v = requireBudgetVersion(id);
-    const list = await expensesForSnapshot(activeProjectIdRef.current);
+    const list = read !== undefined ? read : await expensesForSnapshot(activeProjectIdRef.current);
     still();
     if (list == null) return null;
     const before = v.snapshot ?? {};

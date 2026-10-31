@@ -262,7 +262,8 @@ the estimate, before the fee* while the fee is on) and the over and under
 budget labels stay what the expenses cost against their estimate; the
 Topsheet's variance for the expenses is against the bid with the fee
 (−$3,505), as on the Crew and Talent tabs. **Look at:** Budget → Expenses on
-*Salt Hours*.
+*Salt Hours*. (Since your Q6 answer, below, *Bid total* is where the bid
+was; this figure with the fee, $24,449, is now under *Expected now*.)
 
 **Q6. On the Expenses tab, should *Variance* compare what the expenses cost
 with their estimate, or with the bid?** The second review of the Q5 build
@@ -275,6 +276,90 @@ more than you expected. *(Recommended: the fee is not money spent, so
 against the bid the expenses always look under by the fee, $3,189 here.)*
 (b) Against the bid, as on the other tabs: every page's Variance measured
 the same way.
+**Answered 2026-10-31, to the controller, first with a question:** *"explain
+what is different between estimate and bid? estimated costs should be bid?
+or is the bid the locked estimate when entering production and the estimate
+is the current expected cost based on new expected costs after bid? if so,
+i want a way to see what im expected to spend but i need to see where the
+bid was at"*. The controller explained (an expense's estimate is what you
+expect it to cost and changes whenever you change it; a saved bid version
+kept no expenses, so once an estimate changed in production, where the bid
+was was lost) and asked whether expenses should get a locked bid, three
+figures each: *"Yes, F2 builds it next (Recommended)"*. Built the same day:
+
+### Built on your answer to Q6 (the same day)
+
+Measured on the test project before and after (Chromium at 1024, 1280 and
+1440 wide), built, and reviewed twice on Opus.
+
+1. **A bid keeps each expense's estimate.** Every save of a bid version
+   keeps them (Save or Save as new version, on the Summary or the Timeline),
+   and **setting the budget active writes them in as they are at that
+   moment**: your words, the bid is the estimate locked when entering
+   production. Nothing about the database changed (a version's saved copy
+   simply holds more).
+2. **The Expenses tab shows three figures for each expense:** **Bid** (where
+   the bid was: the estimate in the selected bid, the one the variance
+   measures against; while the budget is active, the locked bid),
+   **Expected** (the estimate as it is now, what you expect to spend), and
+   **Actual**. Under *Expected*, how far it moved from the bid (*+$300 vs
+   bid*); the next column, *vs expected*, is how far the actual is from what
+   you expect (it was *Variance*, the same figure). Every figure there is
+   what the expenses cost, before the agency fee.
+3. **Six figures at the top:** *Locked bid* (or *Selected bid* while you
+   are bidding), *Expected now*, *Actual total*, *Expected vs bid*, *Actual
+   vs expected*, *Expenses*. With the fee on, the bid's figure with its own
+   fee is under the first (the fee it was bid with) and today's under
+   *Expected now* (the Topsheet's expenses figure, your Q5). They count
+   every expense, whatever you search for.
+4. **A sentence under the figures names the bid** (*The bid is "Bid v2
+   (pre-production)", the locked bid.*) and anything its totals hold that
+   no row shows: an expense added since (its row reads *Not in the bid*;
+   the sentence names it and its amount) and one in the bid and deleted
+   since. A bid saved before today kept no expenses: its column reads "—"
+   and the sentence says so. While bidding, saving a new version or setting
+   the budget active keeps them. **A budget already active from before
+   today** gets one button, *Keep today's estimates as its bid*: it can no
+   longer be saved into, so this is the only way it gets a bid figure, and
+   it says what it is (today's figures, not the ones it was locked with).
+   Undo takes it back.
+5. **The list fits 1280 again:** twelve columns now, on the tighter cells
+   the Rate card uses, so nothing scrolls sideways at 1280 or wider (the
+   title keeps at least 200px; at 1024 the list scrolls sideways, as it did).
+
+| On the test project (15% typed) | Before | After |
+|---|---|---|
+| Expenses tab, the figures at the top | Estimated $21,260 · Bid total $24,449 · Actual $20,944 · Variance −$316 | Locked bid $20,960 · Expected now $21,260 · Actual $20,944 · Expected vs bid +$300 · Actual vs expected −$316 |
+| Their fee lines | $24,449 with the $3,189 fee | the bid's $24,104 with its $3,144 fee; now $24,449 with $3,189 |
+| Camera hire: bid, expected, actual | (no bid) $16,800, $16,800 | $16,800, $16,800 ($0 vs bid), $16,800 |
+| Set timber: bid, expected, actual | (no bid) $4,200, $3,860 | $3,900, $4,200 (+$300 vs bid), $3,860 |
+| Compass props: bid, expected, actual | (no bid) $260, $284 | $260, $260 ($0 vs bid), $284 |
+| The list at 1280 | 11 columns, title 240px | 12 columns, title 204px, no sideways scroll |
+
+The test project's *Bid v2* (the locked bid) now holds its three expenses
+as they were at its lock, the timber at $3,900 then and $4,200 since, so
+the tab has something to show. On your own projects, a bid keeps its
+expenses from its next save or its lock; one already active can take
+today's with the button.
+
+Two things to know. **While you are still bidding, changing only an
+expense does not light up Save** (expenses are not part of a bid's
+schedule, so opening an older version never puts old estimates back); the
+*Bid* column then shows the bid as last saved, and setting the budget
+active takes the expenses as they are then. **The Topsheet's *Bid* column
+is today's figures** (the estimates with today's fee, as for the crew and
+the talent), so for the expenses it matches *Expected now* with its fee,
+not the locked bid.
+
+**Pictures** (Chromium, the dev fixtures' *Salt Hours*, a made-up project),
+in the folder *91_wave_1 pictures* beside this file:
+`po-f2-before-01-expenses-…` and `po-f2-after-01-expenses-…` at 1024 × 768,
+1280 × 800 and 1440 × 900 (the Expenses tab before and after);
+`po-f2-after-02-locked-bid-without-expenses-1440x900.png` (a budget active
+from before today: the dashes, the sentence and the button).
+
+**Look at:** Budget → Expenses on *Salt Hours*: the timber's $3,900 bid and
+*+$300 vs bid*, the six figures, the sentence naming the locked bid.
 
 ## F3 — The desktop's project file: kept in memory, saved whole
 

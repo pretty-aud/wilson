@@ -3332,8 +3332,18 @@ met outside its list and did not fix:
   (`src/dev/fixtures/data/money.js`, INFERRED); (e) the client estimate's
   Agency fee line does not read a crew line's `agency_opt_out`, which the
   Crew tab honours and no screen sets (INFERRED, round 2). Owner: none named.
-- **F2-10 · The Expenses tab's Variance is against the estimate; the Crew
-  and Talent tabs' and the Topsheet's are against the bid.** MEASURED on the
+- **F2-10 · ~~CLOSED by F2's third follow-up (2026-10-31), her answer to
+  walkthrough 91's F2 Q6 — a question back, then "Yes, F2 builds it next
+  (Recommended)": a bid version keeps each expense's estimate; the Expenses
+  tab shows the selected bid's figure (Bid), what is expected now and what
+  was spent, with both differences, each saying what it compares
+  (*Expected vs bid*, *Actual vs expected*); the lock writes the expenses
+  in as they are then. MEASURED in Chromium on the fixtures at 15%:
+  Locked bid $20,960, Expected now $21,260, Expected vs bid +$300, Actual
+  vs expected −$316; the timber $3,900 bid, $4,200 expected (+$300 vs
+  bid). Commits `9ebfdeb1`, `419139cc`, `ca70ad5e`.~~ The Expenses tab's
+  Variance is against the estimate; the Crew and Talent tabs' and the
+  Topsheet's are against the bid.** MEASURED on the
   fixtures at 15% (F2's second follow-up, both review rounds): the Expenses
   tab −$316 beside its *Bid total* $24,449, the Topsheet's *All expenses*
   −$3,505; while the fee is on the tile says *against the estimate, before
@@ -3342,6 +3352,30 @@ met outside its list and did not fix:
   Topsheet shows "—"; each tile rounds on its own ($100 + $15 = $116 on a
   $100.45 estimate), as the Topsheet does. Fix shape: none until her answer
   to walkthrough 91's F2 Q6. Owner: Audrey.
+- **F2-11 · Changing an expense while bidding is no unsaved change to the
+  open bid version.** MEASURED by review round 1 of F2's third follow-up
+  (Playwright on the fixtures): `versionDiff` compares the schedule, the
+  rates and the percentages only, so after an expense change alone Save
+  stays grey and the Expenses tab's *Bid* is the version as last saved. The
+  lock writes the expenses in as they are then (`keepExpensesInBid`, the
+  round's fix), so the locked bid is never stale; an open writes no expense
+  back (they are the project's). Said in walkthrough 91. Fix shape, if
+  wanted: the expenses in `versionDiff` where the Summary and the Timeline
+  know them (an older version opened would then read unsaved until saved).
+  Owner: none named.
+- **F2-12 · The Expenses tab's undo and redo change the screen only.**
+  INFERRED by reading (review round 1, finding 7): `useExpenses`' undo and
+  redo (`useExpenses.js`) set the list on screen and write nothing, so the
+  stored expenses — what a save or the lock keeps in a bid — stay as before
+  the undo until the list is read again. Older than F2. Fix shape: undo and
+  redo through the adapter, as the provider's are. Owner: none named.
+- **F2-13 · The Topsheet's *Bid* for the expenses is today's, the
+  Expenses tab's is the locked bid.** MEASURED (round 1, finding 2): on the
+  fixtures the Topsheet's *All expenses* Bid is $24,449 (today's estimates
+  with today's fee, as its crew and talent rows are today's), the Expenses
+  tab's *Locked bid* $20,960 ($24,104 with the bid's fee); the Q5 figure
+  stays on the tab under *Expected now*. Said in walkthrough 91. Owner:
+  none named.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

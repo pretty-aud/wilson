@@ -5613,10 +5613,20 @@ of a session — this section is limits by design, that file is faults.
   rate over it; her answer to Q2), and **the client estimate's agency fee on
   the crew and the expenses is a line of its own** (Q3; the talent line keeps
   its fees, so nothing is counted twice; the Topsheet's expenses carry it,
-  and the Expenses tab's *Bid total* tile shows it on every expense,
-  whatever the search, Q5). The Expenses tab's variance and over/under
-  labels stay the cost against its estimate; its Variance tile says so
-  while the fee is on.
+  and the Expenses tab's *Expected now* tile shows it, Q5).
+- **An expense's bid is the SELECTED version's** (her Q6, F2's third
+  follow-up): a version keeps each expense's id, title and estimate when it
+  is saved (`snapshotFromLive`'s `expenses`, read by the provider from the
+  adapter at that moment — never `bundle.expenses`, which nothing loads),
+  and again as they are when the budget goes active (`keepExpensesInBid`,
+  first in the lock's one step; on its own, the tab's *Keep today's
+  estimates as its bid* for a bid locked before),
+  and `expensesAgainstBid` gives the Expenses tab its *Bid* column, *Bid
+  total* (with those removed since) and the bid's own fee. Every figure
+  there is a cost: *Expected vs bid* is the estimate now against the bid's,
+  *Actual vs expected* the old variance. A version saved before keeps none
+  (`readVersion(...).expenses` null): "—" and a sentence. An expense edit is
+  no unsaved change and an open writes none back (OUTSTANDING F2-11).
 - **A tab's Bid total is its subtotal plus the fees**; the margin and
   contingency it shows stand beside it, not in it (`lineMoney`'s
   `bidTotal`; OUTSTANDING F2-05). The Summary's overall total is the one
@@ -5632,7 +5642,8 @@ of a session — this section is limits by design, that file is faults.
   internal staff will be written by a **timecard system that does not exist**
   and is explicitly out of scope until after the current session plan. Its seam
   is `budget_actuals.source`.
-- **`budget_versions.snapshot` stores the percentages as applied.** Reading them
+- **`budget_versions.snapshot` stores the percentages as applied** (and,
+  since F2's third follow-up, each expense's estimate). Reading them
   live would let a later edit to a project default rewrite a closed project's
   history.
 - **Invoices are financial documents and are gated as such (0038).** Attaching
