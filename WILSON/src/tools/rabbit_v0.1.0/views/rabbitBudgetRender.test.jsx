@@ -7,7 +7,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, cleanup, within, screen, fireEvent, act } from '@testing-library/react'
+import { render, cleanup, within, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 // Review round two, R2-01: a question the app raises over a tab.
 import { Dialog } from '../../../ui/Dialog'
@@ -32,6 +32,8 @@ const clientModule = await import('./budget/ClientViewTab')
 const { default: InvoiceAttachment } = await import('../../../components/Budget/InvoiceAttachment')
 const { default: CrewTeamTab } = await import('./budget/CrewTeamTab')
 const { default: TalentTab } = await import('./budget/TalentTab')
+// F2: the Talent tab over the real line computations.
+const { useBudgetLines } = await import('../../../components/Budget/useBudgetLines')
 // Post-overhaul S5c: the Summary's bid versions — a bid built by the app's
 // own snapshot builder, the dropdown's dates, the list words, the source pin.
 const { snapshotFromLive } = await import('../state/budgetVersionModel')
@@ -618,6 +620,29 @@ describe('surface 2a', () => {
       expect(foot.map((td) => td.textContent)).toEqual(['Grand total', '$300', '$0', '$300', '$450', '+$150'])
       expect(foot.slice(1).every((td) => td.getAttribute('data-numeric') === 'true')).toBe(true)
       expect(foot[5].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
+    })
+
+    // F2: the Topsheet's crew fee is the one module's. With the fee on and no
+    // percentage typed it is 20%, as the waterfall above it charges; the old
+    // copy charged the crew 0% (Agency "—", Bid $4,500) under a waterfall
+    // saying +$900.
+    it('F2: the Topsheet charges the crew the waterfall\'s agency fee — 20% when none was typed', () => {
+      const project = { ...base, ...BIDDING, budget_agency_pct: undefined }
+      const ctx = Object.assign(makeCtx(project), { tasks, phases: [], milestones: [] })
+      const { container } = render(
+        <SummaryTab
+          ctx={ctx} project={project} variance={{ bid: 9, logged: 6, variance: -3 }} budget={budget}
+          tasks={tasks} roleRates={roleRates} missingRolesCount={0} rateCardName="General"
+          budgetHook={{ lines: [], lineComputations: {} }}
+          rateCard={{ entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }] }}
+          teamMembers={[{ id: 'm1', name: 'Ana Ruiz', department: 'Animation' }]}
+          expensesHook={{ expenses: [] }}
+        />,
+      )
+      const fee = [...container.querySelectorAll('.rb-budget-wf-row')].find((r) => r.textContent.startsWith('Agency fee'))
+      expect(fee.querySelector('.rb-budget-wf-amount').textContent).toBe('+$900')
+      const row = [...container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('Animation'))
+      expect([...row.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['Animation', '$4,500', '$900', '$5,400', '—', '-$5,400'])
     })
 
     it('no element in the mounted Summary carries an inline colour, ground or edge', () => {
@@ -1410,7 +1435,9 @@ describe('surface 4', () => {
       expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #1' })).toBeNull()
     })
 
-    it('Margin and Contingency open the lane\'s one editor, on the line\'s bid total (R3-32)', () => {
+    // F2: the editor works on the line's subtotal, its BASE (it said "Bid
+    // total", the base plus the agency fee, which the old copy charged on).
+    it('Margin and Contingency open the lane\'s one editor, on the line\'s subtotal (R3-32; F2)', () => {
       const { container } = render(tab())
       const wells = memberRow(container).querySelectorAll('button.rb-crew-mc')
       expect([...wells].map((w) => w.textContent)).toEqual(['+$200', '+$100'])
@@ -1419,7 +1446,35 @@ describe('surface 4', () => {
       expect(pop.parentElement).toBe(document.body)
       expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('10')
       expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('5')
-      expect(pop.querySelector('.rb-pop-amount').getAttribute('title')).toBe('Bid total $2,000 × 10%')
+      expect(pop.querySelector('.rb-pop-amount').getAttribute('title')).toBe('Subtotal $2,000 × 10%')
+    })
+
+    // F2 (OUTSTANDING REV-02). With the fee on, the old copy charged margin
+    // and contingency on the subtotal PLUS the fee: 10% of $2,200 = +$220 and
+    // 5% = +$110, its editor "Bid total $2,200 × 10%".
+    it('F2: with the agency fee on, margin and contingency are on the subtotal, never on the subtotal plus the fee', () => {
+      const { container } = render(tab(hook(), { project: { ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 10 } }))
+      expect(numerics(memberRow(container))).toEqual(['$500', '4.0', '$2,000', '+$200', '+$100', '$2,200', '$1,200', '-$1,000'])
+      expect(cells(container.querySelector('table > tfoot tr'))).toEqual(['Grand total', '$2,000', '+$200', '+$100', '$2,200', '$1,200', '-$1,000', ''])
+      fireEvent.click(memberRow(container).querySelectorAll('button.rb-crew-mc')[0])
+      const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+      expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => [a.textContent, a.getAttribute('title')]))
+        .toEqual([['+$200', 'Subtotal $2,000 × 10%'], ['+$100', 'Subtotal $2,000 × 5%']])
+    })
+
+    // F2, her ruling of 2026-10-31: the fee switched on with no percentage
+    // typed is 20%, on every surface. The old copy read 0% here (badge
+    // "Agency: 0%", bid total $2,000) while the Summary read 20%.
+    it('F2: the fee on and no percentage typed is the one default, 20% — the Summary\'s figure', () => {
+      const { container } = render(tab(hook(), { project: { ...PROJECT, budget_agency_enabled: true } }))
+      const bar = container.querySelector('.ui-toolbar.rb-crew-toolbar')
+      expect([...bar.querySelectorAll('.ui-badge')].map((b) => b.textContent)).toEqual(['Agency: 20%', 'Margin: 0%', 'Contingency: 5%'])
+      expect(numerics(memberRow(container))).toEqual(['$500', '4.0', '$2,000', '+$200', '+$100', '$2,400', '$1,200', '-$1,200'])
+      // CONTROL: a typed 0 is a real value.
+      cleanup()
+      const zero = render(tab(hook(), { project: { ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 0 } }))
+      expect([...zero.container.querySelectorAll('.rb-crew-toolbar .ui-badge')].map((b) => b.textContent)).toEqual(['Agency: 0%', 'Margin: 0%', 'Contingency: 5%'])
+      expect(numerics(memberRow(zero.container))[5]).toBe('$2,000')
     })
 
     it('W9: Reset M/C asks on the kit Dialog in <body>; Cancel keeps the values, Reset clears them through the hook', async () => {
@@ -1525,9 +1580,11 @@ describe('surface 4', () => {
       expect(tables).toHaveLength(1)
       expect(heads(tables[0])).toEqual(['Name', 'Type', 'Rate', 'Days', 'Subtotal', 'Agent %', 'Margin', 'Conting.', 'Bid total', 'Actions', 'Actual', 'Variance', '#1', '#2', '#3'])
       expect(tables[0].getAttribute('style')).toBe('--rb-talent-cols: 3;')
-      expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$1,035', '$10,350', '$500', '-$9,850'])
+      // F2: contingency 10% on the $9,000 subtotal, its base (the old copy
+      // charged it on the $10,350 bid total, the agent's fee in it: +$1,035).
+      expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$900', '$10,350', '$500', '-$9,850'])
       const foot = tables[0].querySelector('tfoot tr')
-      expect(cells(foot)).toEqual(['Grand total', '$9,000', '', '—', '+$1,035', '$10,350', '', '$500', '-$9,850', ''])
+      expect(cells(foot)).toEqual(['Grand total', '$9,000', '', '—', '+$900', '$10,350', '', '$500', '-$9,850', ''])
       expect([...foot.querySelectorAll('td')].reduce((n, td) => n + Number(td.getAttribute('colspan') || 1), 0)).toBe(15)
     })
 
@@ -1631,6 +1688,30 @@ describe('surface 4', () => {
       await act(async () => { fireEvent.click(within(container.querySelector('.ui-empty')).getByRole('button', { name: 'Add talent' })) })
       expect(h.addLine).toHaveBeenCalledWith({ sheet: 'talent', department: 'Talent', label: 'Talent 1', sort_order: 1, talent_type: 'actor' })
     })
+
+    // F2, through the real line computations (useBudgetLines over a fake
+    // adapter): the fee switched on with no percentage typed is the one
+    // default, 20%, stacked with the line's own 15% on the $9,000 base —
+    // $12,150. The old copy charged 0% (bid total $10,350) and put the
+    // contingency on that total (+$1,035); on the base it is +$900.
+    it('F2: the line computations charge the one default, 20% with the agent\'s 15%, and contingency on the base', async () => {
+      const project = { ...PROJECT, budget_agency_enabled: true, budget_contingency_pct: 10 }
+      const adapter = {
+        listBudgetLines: vi.fn(async () => [{ id: 't1', project_id: 'p1', sheet: 'talent', label: 'Mara (lead)', talent_type: 'actor', rate: 900, days: 10, qty: 1, talent_agency_fee_pct: 15, margin_pct: null, contingency_pct: null }]),
+        listBudgetActuals: vi.fn(async () => []),
+      }
+      const before = rabbit.current
+      rabbit.current = { getAdapter: () => adapter, project, adapterMode: 'fixtures', adapterStatus: { online: true } }
+      try {
+        function Wired() { return <TalentTab budgetHook={useBudgetLines()} project={project} currency="USD" /> }
+        const { container } = render(<Wired />)
+        await waitFor(() => expect(lineRow(container, 'Mara (lead)')).toBeTruthy())
+        expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$900', '$12,150', '—', '-$12,150'])
+        expect(container.querySelector('.rb-talent-stats .rb-talent-stat .ui-stat-value').textContent).toBe('$12,150')
+      } finally {
+        rabbit.current = before
+      }
+    })
   })
 })
 
@@ -1645,12 +1726,15 @@ describe('the client estimate', () => {
     project: { title: 'Salt <b>Hours</b>', project_code: 'SH-01', budget_margin_pct: 10, budget_contingency_pct: 5 },
     tasks: TASKS,
     roleRates: { editor: 500, dop: 1000 },
-    budgetHook: { lines: [{ id: 't1', sheet: 'talent' }], lineComputations: { t1: { bidTotal: 2000 } } },
+    budgetHook: { lines: [{ id: 't1', sheet: 'talent' }], lineComputations: { t1: { subtotal: 1600, bidTotal: 2000 } } },
     expensesHook: { expenses: [{ estimated_cost: 750 }] },
     currency: 'USD',
   }
-  // 5000 (editor) + 4000 (Camera) + 2000 (Talent) + 750 (Expenses) = 11750;
-  // contingency 5% = 587.5, production fee 10% = 1175; total 13512.5.
+  // 5000 (editor) + 4000 (Camera) + 2000 (Talent, its fees included) + 750
+  // (Expenses) = 11750. F2: contingency and the production fee are on the
+  // BASE — the talent line without its $400 of fees: 11350 — so 5% = 567.5
+  // and 10% = 1135; total 13452.5. The old copy charged both on 11750 too
+  // (587.5 and 1175; total 13512.5, "$13,513").
   const LABELS = ['editor', 'Camera', 'Talent', 'Expenses / travel', 'Contingency', 'Production fee']
 
   function printed() {
@@ -1670,7 +1754,8 @@ describe('the client estimate', () => {
     expect(table).toBeTruthy()
     expect([...table.querySelectorAll('tbody tr')].map((r) => r.cells[0].textContent)).toEqual(LABELS)
     for (const r of table.querySelectorAll('tbody tr')) expect(r.cells[1].getAttribute('data-numeric')).toBe('true')
-    expect(table.querySelector('tfoot').textContent).toBe('Total$13,513')
+    expect(table.querySelector('tfoot').textContent).toBe('Total$13,453')
+    expect([...table.querySelectorAll('tbody tr')].slice(-2).map((r) => r.cells[1].textContent)).toEqual(['$568', '$1,135'])
     expect(container.querySelector('.rb-client-sheet')).toBeTruthy()
     for (const el of container.querySelectorAll('[style]')) expect(el.getAttribute('style')).not.toMatch(/color|background/)
   })

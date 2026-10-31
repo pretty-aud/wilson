@@ -12,6 +12,7 @@
 // AssetStatusWarningModal carried a private isDone; they agreed by luck. The
 // old name is kept as an alias so every existing caller keeps working.
 import { isDone } from './dependencyStatus';
+import { taskBaseCost } from '../../../components/Budget/budgetMath';
 const TASK_ACTIVE_STATES = new Set(['in_progress', 'pending_review', 'needs_revisions']);
 
 export const isTaskDone = isDone;
@@ -69,7 +70,9 @@ export function assetWarningOfTasks(asset, list) {
 // v0.1 rollup is a flat sum of task bid_days × default day rate
 // from the active rate card (if any). The provider feeds the
 // resolved day rates in via `roleRates`. If no rate is found for
-// a role we fall back to `fallbackDayRate` (default 0).
+// a role we fall back to `fallbackDayRate` (default 0). The sum is
+// budgetMath's taskBaseCost (F2), the one loop the Summary's
+// waterfall reads too.
 export function selectProjectBudgetRollup({
   tasks,
   roleRates = {},
@@ -77,20 +80,7 @@ export function selectProjectBudgetRollup({
   currency = 'USD',
 }) {
   if (!tasks) return { total: 0, byRole: {}, currency };
-
-  const byRole = {};
-  let total = 0;
-  for (const task of tasks) {
-    if (!task.bid_days) continue;
-    const role = task.assigned_role_slug || 'unassigned';
-    const rate = roleRates[role] ?? fallbackDayRate;
-    const cost = Number(task.bid_days) * Number(rate);
-    if (!byRole[role]) byRole[role] = { days: 0, cost: 0, role };
-    byRole[role].days += Number(task.bid_days);
-    byRole[role].cost += cost;
-    total += cost;
-  }
-  return { total, byRole, currency };
+  return { ...taskBaseCost({ tasks, roleRates, fallbackDayRate }), currency };
 }
 
 // ─── Variance ───────────────────────────────────────────────
