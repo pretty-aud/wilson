@@ -4227,8 +4227,10 @@ empty breakdown, and reported "Intake complete".
 
 **Budget and rate cards**: a line's subtotal is `rate × days × qty` (or
 `cost × days × qty` on the travel sheet); an agency fee may be added from a
-project-wide percentage and, on the talent sheet, a per-row representation
-percentage — the two **stack additively**. Rate cards are **workspace-scoped**,
+project-wide percentage (20% when it is switched on with none typed) and, on
+the talent sheet, a per-row representation percentage — the two **stack
+additively** on the subtotal, and margin and contingency are on the subtotal
+too (`budgetMath.js`, §15). Rate cards are **workspace-scoped**,
 with a `general` and an `internal` card auto-created per workspace; an entry's
 total is `wage + burden + overhead`, each of which may be a row-level percent or
 fixed amount or fall back to a department default. Access is
@@ -4836,13 +4838,20 @@ lockdown).
 > policy is not free: check what else has to read those rows.**
 
 **Money arithmetic** — `src/components/Budget/budgetMath.js` is the single
-definition of the rules that decide what a production is bid at: the
-project-default **fallback** (NULL inherits; an explicit `0` does not), margin
-and contingency applied **independently to the base** rather than compounded,
-and rate resolution as *project override → workspace rate card → blank*. Pinned
-by 24 vitest cases, which were proven by breaking the source three ways. Before
-Session 24 those rules were duplicated inline across four view files with no
-test at any layer.
+definition of the rules that decide what a production is bid at, and since F2
+(2026-10-31) the one every Budget surface calls: the project's settings read
+once (`projectBudgetSettings`; the agency fee 20% when it is switched on with
+none typed, `AGENCY_DEFAULT_PCT`, her ruling of that day), the project-default
+**fallback** (NULL inherits; an explicit `0` does not), margin and contingency
+applied **independently to the base** rather than compounded and never to a
+fee, a line's agency and representation fees on the base beside them
+(`lineMoney`), the task-based bid (`taskBaseCost`, `bidTotals`, which every
+saved bid version's totals are made by), one `round2`, and rate resolution as
+*project override → workspace rate card → blank*. Pinned by 41 vitest cases,
+two of them a scan of the Budget's files that fails on a copy of a rule
+outside this one and its control. Before Session 24 those rules were duplicated inline across
+four view files with no test at any layer; until F2 the views kept their
+copies, which came apart (OUTSTANDING REV-02, closed).
 
 **Vitest** — **43 files, 909 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
@@ -5484,8 +5493,22 @@ of a session — this section is limits by design, that file is faults.
 - **Margin and contingency are each applied to the BASE, never compounded**,
   and per-line percentages are a **fallback**: `NULL` inherits the project
   default, an explicit `0` does not. Both rules live in `budgetMath.js` under
-  test. `NOT NULL DEFAULT 0` on `budget_lines.margin_pct` would silently pin
+  test, and every Budget surface calls them (F2, 2026-10-31: until then the
+  Crew and Talent tabs charged margin and contingency on the base plus the
+  fees, and the client estimate on a total holding the talent's fees).
+  `NOT NULL DEFAULT 0` on `budget_lines.margin_pct` would silently pin
   every line at 0% — a migration post-condition now refuses that.
+- **The agency fee switched on with no percentage typed is 20%, on every
+  surface** (her ruling of 2026-10-31, `AGENCY_DEFAULT_PCT`; until F2 the
+  Summary read 20 and the Crew tab, the Topsheet and the line computations
+  0). A typed `0` is a real value. The cloud's column stores 0 for a
+  percentage nobody typed (0036: `NOT NULL DEFAULT 0`), so the 20 is met on
+  the desktop and the fixtures, and a desktop project moved to the cloud
+  arrives at 0 (OUTSTANDING F2-04).
+- **A tab's Bid total is its subtotal plus the fees**; the margin and
+  contingency it shows stand beside it, not in it (`lineMoney`'s
+  `bidTotal`; OUTSTANDING F2-05). The Summary's overall total is the one
+  that adds them.
 - **A rate edited inside a project must never reach the rate card.**
   `rate_cards` / `rate_card_entries` are workspace-wide;
   `project_rate_overrides` is the project-scoped layer, resolving

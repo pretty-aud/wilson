@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul F2 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — REV-02 with her ruling of 2026-10-31 in the session's question box on the agency fee switched on with no percentage typed, verbatim *"20%"*: `budgetMath.js` the one money module every Budget surface calls (`projectBudgetSettings` and `bidTotals` moved in, `taskBaseCost` and `lineMoney` added, one `round2`, `AGENCY_DEFAULT_PCT`); margin and contingency on the base on the Crew and Talent tabs and the client estimate; the fourteen inline copies of the inheritance rule and the eleven settings reads with a default of their own gone; measured on the fixtures before and after with the fee on and none typed and with 10% typed (the Crew tab's agency 0% → 20%; with 10% typed its contingency +$8,449 → +$7,681, the Talent tab's +$1,538 → +$1,230, the client estimate's $12,881 → $12,573; the Summary unchanged); tests red first; two review rounds, both on Fable; no migration, no SQL | F2-01 (the Crew tab's rate for a role nobody holds), F2-02 (the Topsheet's crew rows), F2-03 (the client estimate's agency fee), F2-04 (the cloud's 0 for a percentage nobody typed), F2-05 (the tabs' Bid total) | REV-02 (closed by measurement on the fixtures). Comment markers: 4 → 4. |
 | Post-overhaul DG6 (2026-10-31, night 9; `po/dg6-cards-stacked` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-10-31, verbatim *"this looks objectively bad. please do a pass to make it more appealing for the top two cards. leave the output card how it is dont touch it. i want to keep the 1 and 2 cards stacked not side by side"*: D.O.G.'s two input cards stacked at every width at one capped width, 602px under a 1468 window and 1,202 from it, card 1 in two columns of the 576px measure there; DG5's pair, card 2's cap and the triple removed; the project dropdown's inline 360px cap removed (review round 1, finding 4: with no project the halves were 93px apart); the output card untouched; measured at 1280, 1440, 1920 and 2560 before and after (card 1 empty across 42/2/28/22 percent before, 2/2/1/1 now; card 2 1/2/28/23 before, its box stretched at 1280, 2/2/1/1 now); one Fable design round with the design-direction and laws-of-UX skills; two review rounds, both on Fable; no migration, no SQL | DG6-01 (the type sweep's scanner reads `DeckOutlineGenerator.jsx`'s backticks inverted from line 2635) | DG5-02 (closed by measurement at 3440x1440) |
 | Post-overhaul REV (2026-10-31; the controller's read-only code review at her ask, no branch, no code change) — five surveys of the code's areas for redundancies, near-duplicates and inefficiencies, 123 findings, in `docs/reviews/CODE_REVIEW_2026-10-31.md` with the five surveys beside it; seven correctness defects found along the way are REV-01 to REV-07 below; her ruling on REV-01, verbatim: "Record it, fix at the release steps" | | |
 | Post-overhaul DG5, a follow-up (2026-10-30; `po/dg5-pair-from-1414` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 89's Q2, relayed by the controller, verbatim *"Side by side from about 1,414 only"* (Q1 and Q3 as built): D.O.G.'s two input cards sit side by side from W 1148 (a 1414 window) and stack below it as DG4 left them, card 2 full width there; the design follow-up's W 1000 rule removed; the column keeps its scrollbar's gutter (review round 1, MEASURED with real scrollbars in Chromium 147 and Electron 33: a size query on the scroll column was answered before its scrollbar, so the pair applied at a 1404 window with a sideways scrollbar, and DG5's triple 10px early); measured before and after at 1280, 1366, 1400, 1414, 1440 and 1920; two review rounds, both on Fable; no migration, no SQL | nothing | nothing |
@@ -3100,6 +3101,58 @@ DG6 row). What DG6 met outside its list and did not fix:
   judges templates. Owner: the controller (a script under `scripts/`,
   outside DG6's list).
 
+## F2 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`)
+
+REV-02 fixed with her ruling of 2026-10-31 (the session log's F2 row). What F2
+met outside its list and did not fix:
+
+- **F2-01 · The Crew tab prices a role nobody holds yet below the Summary.**
+  MEASURED on the fixtures (Chromium on 5302): the Crew tab's rate for a
+  role is the rate card entry's `wage` (`CrewTeamTab.jsx`'s `rateMap`,
+  `e.wage || e.day_rate`), which `useRateCard` fills with the card's day
+  rate before burden and overhead, while `buildRoleRates` (the Summary, the
+  reports, the client estimate) reads `day_rate`, the entry's total with
+  them: Production Designer $520 against $624 (12% burden, 8% overhead); the
+  crew $76,810 on the Crew tab, the Summary's base $92,172. (With the fee on
+  and none typed the Crew tab's bid total is also $92,172: its 20% fee is the
+  size of the card's 12% and 8%, a coincidence.) `budgetMath.js`'s
+  `resolveRate` prices an unstaffed line at the role's day rate and a
+  person's at their wage; no surface calls it. Fix shape: the Crew tab and
+  the Topsheet price through `resolveRate`. Owner: Audrey (walkthrough 91,
+  F2's Q2).
+- **F2-02 · The Topsheet's Crew / Team rows price only members with an entry
+  of their own in the active card.** MEASURED on the fixtures: every crew
+  department reads $0 subtotal and $0 bid (their actuals, $17,030, only),
+  where the Crew tab lists $76,810 of roles nobody holds, so the Topsheet's
+  grand bid ($37,250 with 15% typed) leaves the crew out. `TopsheetRollup`'s
+  `crewData` (`BudgetView.jsx`) builds a `rateMap` it never reaches (a
+  member with no entry has no role) and adds no row for a role nobody holds.
+  Fix shape: one crew-rows function the Crew tab and the Topsheet both read.
+  Owner: none named.
+- **F2-03 · The client estimate carries the agency fee on talent only.**
+  MEASURED on the fixtures with 15% typed: the Talent line ($15,990) holds
+  the fee and the agents' fees; the crew lines and *Expenses / travel* hold
+  none, so the project's fee on the crew ($13,826 on the Summary's base)
+  appears nowhere on the estimate. Fix shape: her answer to walkthrough 91's
+  F2 Q3. Owner: Audrey.
+- **F2-04 · The cloud stores 0 for an agency percentage nobody typed, so her
+  20% reaches desktop projects only.** MEASURED by reading: 0036 makes
+  `budget_agency_pct` `NOT NULL DEFAULT 0`; the intake
+  (`IntakeWizardView.jsx:211`) sends no percentage when none is typed; the
+  desktop's `POST /api/rabbit/projects` (`main.cjs`) keeps the field absent;
+  the move to the cloud leaves an unset value out so the default applies
+  (`migrationRows.js`, `PROJECT_DEFAULTED`): a desktop project charging 20%
+  charges 0% once moved. Fix shape: the intake sends `AGENCY_DEFAULT_PCT`
+  when the fee is switched on and nothing is typed (her answer to walkthrough
+  91's F2 Q1); the move the same for an unset value. Owner: Audrey.
+- **F2-05 · The Crew and Talent tabs' Bid total leaves out the margin and
+  contingency shown beside it.** MEASURED on the fixtures: Production
+  Designer reads Subtotal $18,720, Contingency +$1,872, Bid total $21,528
+  (the subtotal and the 15% fee), and the Variance is the actual against
+  that; the Summary's overall total adds margin and contingency.
+  `lineMoney`'s `bidTotal` keeps the tabs' meaning. Fix shape: her call on
+  what a row's Bid total is. Owner: none named.
+
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 
 What R1 (night 2: R.A.B.B.I.T. robustness) met and did not fix, and what its
@@ -3584,7 +3637,23 @@ the way are recorded below. Nothing becomes a session unless she names it
   `deno check` of every function in CI with a failing control. Owner: the
   release steps, before `PRODUCTION_RUNBOOK.md` (g) 11; the controller then
   deploys the function to dev and staging on her go.
-- **REV-02 · The budget's money rules disagree.** The agency percentage
+- **REV-02 · ~~CLOSED by F2 (2026-10-31; `d1274ed4`), with her ruling of
+  that day on the fee switched on with no percentage typed, "20%": every
+  Budget surface calls `src/components/Budget/budgetMath.js` — the settings
+  read once (`projectBudgetSettings`, `AGENCY_DEFAULT_PCT`), margin and
+  contingency on the base, the fees on it beside them (`lineMoney`), cents as
+  `bidTotals` rounds, one `round2`; the fourteen inline copies gone, and a
+  scan in `budgetMath.test.js` red on each shape they took. MEASURED in
+  Chromium on the fixtures (walkthrough 91, F2): with the fee on and none
+  typed the Summary charged 20% (+$18,434) and the Crew tab said "Agency: 0%",
+  now 20% on every surface; with 10% typed the Crew tab's contingency +$8,449
+  → +$7,681, the Talent tab's +$1,538 → +$1,230, the client estimate's
+  $12,881 → $12,573. N1's hand-off note (list 4, "the four Budget views
+  still run inline copies, untested") resolved: `effectivePct` and
+  `applyMarginAndContingency` are what they run, through `lineMoney`;
+  `profit` still has no caller (no surface shows a profit: the Variance
+  columns are the actual less the bid).~~ The budget's money rules
+  disagree.** The agency percentage
   defaults to 20 when never set in
   `src/tools/rabbit_v0.1.0/state/budgetVersionModel.js:189` and to 0 in
   `views/budget/CrewTeamTab.jsx:123`, `src/components/Budget/useBudgetLines.js:228`
