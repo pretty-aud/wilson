@@ -795,8 +795,10 @@ export function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMon
             <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>Agency fee</span>
             {/* Switched on with nothing stored, it fills in the one default,
                 as the Budget Summary's switch does (her answer to
-                walkthrough 91's F2 Q1), in the same one write. */}
-            <SettingsToggle label="Agency fees" checked={project.budget_agency_enabled} onChange={v => {
+                walkthrough 91's F2 Q1), in the same one write; and like that
+                switch it is disabled while the budget is locked, so it never
+                puts a fee on a budget in production. */}
+            <SettingsToggle label="Agency fees" checked={project.budget_agency_enabled} disabled={project.budget_active === true} onChange={v => {
               const fill = v ? agencyPctOnSwitchOn(project.budget_agency_pct) : null
               ctx?.updateProject?.(project.id, fill != null ? { budget_agency_enabled: v, budget_agency_pct: fill } : { budget_agency_enabled: v })
             }} />
@@ -1093,8 +1095,8 @@ function SettingsField({ label, hint, children }) {
 // The kit's Switch (plan §4; review R34 keeps the pill as the one switch
 // shape). Same click, same onChange(!checked); it now has a name, which the
 // hand-rolled one never did (V1-05 counted it among the unnamed controls).
-function SettingsToggle({ checked, onChange, label }) {
-  return <Switch checked={checked} onChange={onChange} aria-label={label} title={label} />
+function SettingsToggle({ checked, onChange, label, disabled = false }) {
+  return <Switch checked={checked} onChange={onChange} aria-label={label} title={label} disabled={disabled} />
 }
 
 /* One size (B1 restyle). The `lg` variant set the project title at Body 600

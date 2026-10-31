@@ -505,7 +505,7 @@ const {
   PROJECT_NOT_OURS, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN, RECEIPTS_LEFT_OPEN,
 } = await import('./runMigration')
 const { pathKey } = await import('./binsMigration')
-const { projectRowForCloud, cloudDay, RECORD_KEY, budgetLineRowForCloud } = await import('./migrationRows')
+const { projectRowForCloud, projectValuesLeftOut, cloudDay, RECORD_KEY, budgetLineRowForCloud } = await import('./migrationRows')
 const { clearWorkspaceStorageCache } = await import('../workspaceStorage')
 const { BINS, BIN_FILES, SHOT_TAKES, SCENES, SHOTS, BIN_LOCATIONS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS, TASK_ITEMS, GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, GAME_TASK_ITEMS } = await import('../../dev/fixtures/data/scenes')
 const { PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, COMMENTS, TASK_LINKS, ASSET_ID } = await import('../../dev/fixtures/data/project')
@@ -1781,6 +1781,10 @@ describe('F2: the agency fee\'s one default on the move', () => {
     expect(projectRowForCloud({ ...p, budget_agency_pct: 0 }, WS).budget_agency_pct).toBe(0)
     expect(projectRowForCloud({ ...p, budget_agency_pct: 15 }, WS).budget_agency_pct).toBe(15)
     expect(projectRowForCloud({ ...p, budget_agency_enabled: false }, WS)).not.toHaveProperty('budget_agency_pct')
+    // A value typed but refused (a negative) stays left out and named in the
+    // report, never filled with 20 (follow-up review round 2, finding 7).
+    expect(projectRowForCloud({ ...p, budget_agency_pct: -5 }, WS)).not.toHaveProperty('budget_agency_pct')
+    expect(projectValuesLeftOut({ ...p, budget_agency_pct: -5 })).toContain('agency %')
   })
 })
 

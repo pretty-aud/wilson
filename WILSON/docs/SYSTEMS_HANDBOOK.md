@@ -4896,7 +4896,7 @@ applied **independently to the base** rather than compounded and never to a
 fee, a line's agency and representation fees on the base beside them
 (`lineMoney`), the task-based bid (`taskBaseCost`, `bidTotals`, which every
 saved bid version's totals are made by), one `round2`, and rate resolution as
-*project override → workspace rate card → blank*. Pinned by 41 vitest cases,
+*project override → workspace rate card → blank*. Pinned by 43 vitest cases,
 two of them a scan of the Budget's files for the three shapes the old copies
 took (the inheritance rule inline, a settings read with a default of its own,
 a second `round2`) and its control; a copy spelt another way passes the scan,

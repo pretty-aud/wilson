@@ -3263,23 +3263,28 @@ met outside its list and did not fix:
   Topsheet's *All expenses* bid $24,449 and variance −$3,505 (its fee
   $3,189), the Expenses tab's estimated $21,260 and variance −$316, with no
   fee column (it never had one). Fix shape: a fee column or a line on the
-  Expenses tab, or the Topsheet's expenses without it; her call. Owner:
-  Audrey.
+  Expenses tab, or the Topsheet's expenses without it; her call
+  (walkthrough 91's F2 Q5). Owner: Audrey.
 - **F2-08 · Cloud projects made before F2's follow-up with the fee on and no
   percentage typed hold 0 and charge no fee.** INFERRED by reading (round 1,
-  finding 5): nothing changed stored data; switching the fee off and on, or
-  typing a percentage, gives one its 20. Walkthrough 91's F2 Q4 asks her.
-  Owner: Audrey.
+  finding 5): nothing changed stored data; switching the fee off and on
+  gives one its 20, and typing a percentage gives it that percentage.
+  Walkthrough 91's F2 Q4 asks her. Owner: Audrey.
 - **F2-09 · Four older things seen in F2's follow-up review, not changed.**
   (a) The client estimate names a crew line by its role's code
   (*production_designer*, *dop*: `ClientViewTab.jsx`'s `crewByDept`, the
   task's position or the slug), MEASURED on the fixtures; (b) the project
-  settings' budget fields take edits while the budget is locked, where the
-  Summary's switch is disabled (INFERRED); (c) two members holding the same
-  role each get all its bid days on the Crew tab (INFERRED); (d) the
-  fixtures' internal rate card holds an annual wage (61,000) in the `wage`
-  field the Crew tab reads as a day rate (`src/dev/fixtures/data/money.js`,
-  INFERRED). Owner: none named.
+  settings' margin, contingency and agency % boxes take edits while the
+  budget is locked, where the Summary's are disabled (MEASURED by round 2 in
+  Chromium on the locked *Salt Hours*; its agency switch, which since the
+  follow-up also writes 20%, is disabled under the lock now,
+  `ProjectSummaryView.jsx`);
+  (c) two members holding the same role each get all its bid days on the
+  Crew tab (INFERRED); (d) the fixtures' internal rate card holds an annual
+  wage (61,000) in the `wage` field the Crew tab reads as a day rate
+  (`src/dev/fixtures/data/money.js`, INFERRED); (e) the client estimate's
+  Agency fee line does not read a crew line's `agency_opt_out`, which the
+  Crew tab honours and no screen sets (INFERRED, round 2). Owner: none named.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

@@ -626,6 +626,11 @@ describe('surface 2a', () => {
       // The expenses' own row, not only the foot (follow-up review round 1).
       const expRow = () => [...container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
       expect([...expRow().querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$60', '$360', '$450', '+$90'])
+      // The project's own percentage, 15% of $300 (round 2: only 20 was run).
+      cleanup()
+      const at15 = render(summary({ budget_agency_pct: 15 }))
+      const row15 = [...at15.container.querySelectorAll('table.rb-budget-top tbody tr')].find((tr) => tr.textContent.startsWith('All expenses'))
+      expect([...row15.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['All expenses', '$300', '$45', '$345', '$450', '+$105'])
       // CONTROL: the fee off, no fee on the expenses and no Agency column.
       cleanup()
       const off = render(summary({ budget_agency_enabled: false }))
@@ -1885,6 +1890,13 @@ describe('the client estimate', () => {
       expect(table.querySelector('tfoot').textContent).toBe('Total$15,403')
       cleanup()
     }
+    // The project's own percentage, not a 20 written in (follow-up review
+    // round 2: every case above was 20%): 15% of 9750 = 1462.5.
+    const fifteen = fee({ budget_agency_pct: 15 })
+    expect([...fifteen.container.querySelectorAll('table.ui-table tbody tr')].slice(-1).map((r) => [r.cells[0].textContent, r.cells[1].textContent]))
+      .toEqual([['Agency fee', '$1,463']])
+    expect(fifteen.container.querySelector('tfoot').textContent).toBe('Total$14,915')
+    cleanup()
     // CONTROL: the fee off, no line, the total as before.
     const off = fee({ budget_agency_enabled: false, budget_agency_pct: 20 })
     expect(off.container.textContent).not.toContain('Agency fee')
@@ -2167,6 +2179,15 @@ describe('the agency fee switched on anywhere fills in the one default (F2, Q1)'
     expect(switched({ budget_agency_pct: 0 })).toEqual([['p1', { budget_agency_enabled: true, budget_agency_pct: 20 }]])
     expect(switched({ budget_agency_pct: 10 })).toEqual([['p1', { budget_agency_enabled: true }]])
     expect(switched({ budget_agency_enabled: true })).toEqual([['p1', { budget_agency_enabled: false }]])
+    // Follow-up review round 2 (finding 2): under the lock ("Budget active —
+    // in production") the switch is disabled, as the Summary's is, so it
+    // writes nothing — it could put 20% on a locked budget.
+    const ctx = { updateProject: vi.fn() }
+    render(<ProjectSettingsPanel project={{ id: 'p1', title: 'x', budget_agency_enabled: false, budget_active: true }} ctx={ctx} teamMembers={[]} canSeeMoney />)
+    const locked = screen.getByRole('switch', { name: 'Agency fees' })
+    expect(locked.disabled).toBe(true)
+    fireEvent.click(locked)
+    expect(ctx.updateProject).not.toHaveBeenCalled()
   })
 
   it('the new-project form: the fee ticked with nothing typed creates the project at 20%, and says so before it is made; a typed 0 is kept', async () => {

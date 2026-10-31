@@ -69,8 +69,8 @@ allowance was used up; your choice for F1, *"Use Opus for both"*).
 
 The test project has a 10% contingency, no margin, the agency fee on, and a
 15% agent's fee on each talent line. Figures as each page showed them before
-your three answers were built (the Crew tab's and the client estimate's have
-moved since: *Built on your three answers*, below).
+your three answers were built (the Crew tab's, the client estimate's and the
+Topsheet's grand bid have moved since: *Built on your three answers*, below).
 
 | Page and figure | Fee on, no % typed: before | after | 10% typed: before | after |
 |---|---|---|---|---|
@@ -110,9 +110,9 @@ designer $22,464, contingency +$2,246; the estimate's total $159,010).
 4. **Summary**: unchanged, overall total $115,215.
 
 On the beta, a cloud project always holds a percentage (0% where none was
-typed, unless a switch filled in 20%: Q1), so the default does not show
-there; what you will see is the smaller contingency and margin on a budget
-with a fee (points 1 to 3).
+typed, unless 20% was filled in when the fee was switched on: Q1), so the
+default does not show there; what you will see is the smaller contingency
+and margin on a budget with a fee (points 1 to 3).
 
 ### Seen while measuring and reviewing, written down (three since answered)
 
@@ -190,7 +190,8 @@ built, and reviewed twice on Opus.
    place (on the cloud a 0 nobody typed looks the same as a typed one).
    Projects already on the cloud with the fee on at 0% stay at 0% until you
    switch the fee off and on, or type a percentage: nothing was changed
-   behind your back (Q4).
+   behind your back (Q4). Like the Summary's, the settings switch cannot be
+   used while the budget is locked (*Budget active — in production*).
 2. **The Crew tab prices a role nobody holds at the full rate** (Q2), the
    Summary's: the production designer $624 a day (it was $520), and so for
    every role; a project's own rate for a role now counts there too, as on
@@ -236,6 +237,14 @@ or you type the percentage you want. *(Recommended: nothing changes on a
 budget without you seeing it.)*
 (b) Find them and set them to 20% (a change to the stored data, for a later
 session; a typed 0 cannot be told apart, so those would change too).
+
+**Q5. The Topsheet's expenses row and the client estimate now add the agency
+fee to the expenses, but the Expenses tab shows no fee at all ($21,260
+there, $24,449 on the Topsheet on the test project). Should the Expenses
+tab show it?**
+(a) Yes: show the fee on the Expenses tab, so the pages agree.
+*(Recommended: one figure for what the expenses are bid at.)*
+(b) No: the Expenses tab shows what the expenses cost, before any fee.
 
 ## F3 — The desktop's project file: kept in memory, saved whole
 
