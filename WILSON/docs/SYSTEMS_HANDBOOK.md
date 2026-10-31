@@ -1591,7 +1591,7 @@ not push-to-`main`, where branch protection makes it redundant.
 | **issue-session smoke** | `scripts/probes/issue-session.sh` against real `wilson-dev` | That ES256 tokens validate in-function. The local stack issues HS256, so **only a hosted probe can catch this regression** |
 | **Vitest** | `npm test` | Renderer pure-function modules; no secrets |
 | **Playwright auth** | `npx playwright test` against `wilson-dev` | The auth, invite and reset flows end to end |
-| **Edge Functions type check** | `deno check --no-config` over every `supabase/functions/*/index.ts` with Deno 2.1.4 (the Deno inside `supabase/edge-runtime` v1.77.1, which the pinned CLI 2.119.0 runs), compared with the baseline `KNOWN` in the step (F1) | That every function's names and imports resolve and its types hold before a deploy. Nothing else type-checks a function: a deploy bundles without a check, so REV-01's unimported `PAGE` reached the beta as a bare 500 |
+| **Edge Functions type check** | `deno check --no-config` over every `supabase/functions/*/index.ts` with Deno 2.1.4 (the Deno inside `supabase/edge-runtime` v1.77.1, which the pinned CLI 2.119.0 runs), compared with the baseline `KNOWN` in the step (F1) | That every function's names and imports resolve and that no type error is added beyond the 28 counted ones, on every push. Nothing else type-checks a function: a deploy bundles without a check, so REV-01's unimported `PAGE` reached the beta as a bare 500. The job does not gate a deploy, which runs from a checkout |
 
 The coverage gate runs **before** Postgres boots and fails fast; its allowlist
 currently names **39 tables** (counted from `rls.yml`, 2026-08-04 — it read
@@ -1607,10 +1607,11 @@ annotation cheerfully reporting "replay produced no ERROR lines" for every
 file it did replay.
 
 **The type check's baseline (F1).** Its first run found 28 errors besides
-REV-01's six, in nine files, none of which throw (`docs/OUTSTANDING.md`
-F1-01). `KNOWN` lists them as file, code and count: a count above its line
-fails the job, and so does a count below it, so **the commit that fixes one
-lowers or deletes its line**. Each new error is a public annotation at its
+REV-01's six, in ten files (seven functions and the three shared guards),
+none of which throw (`docs/OUTSTANDING.md` F1-01). `KNOWN` lists them as
+file, code and count: a count above its line fails the job, and so does a
+count below it, so **the commit that fixes one lowers or deletes its line**,
+and a session that touches one of those files has `KNOWN` in its list. Each new error is a public annotation at its
 first line; the known ones are one warning; when the module graph fails
 before any check (esm.sh refusing an import) the annotation says that and
 nothing is compared. To move Deno, move it with the CLI's pin and read this
@@ -6573,7 +6574,9 @@ documentation and starts being wrong answers.
   it holds `unknown` values where the code passes them on as ids and paths
   (`storage-gc`'s queue rows, 17 of the 28).
   The count is per file and code, so one fixed and one new of the same code
-  in the same file, in one commit, pass unseen.
+  in the same file, in one commit, pass unseen; and when a count goes over,
+  every error of that code in that file is annotated as new, the old with
+  the one that is.
 - **It reads esm.sh on every run.** There is no import map and no lockfile:
   `supabase-js@2.45.4` and its types come from esm.sh as a deploy's do. If
   esm.sh is down the job is red with the import named; if esm.sh rebuilds
