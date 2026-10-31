@@ -4146,16 +4146,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               (uploadedFiles, isFileLoading, handleFileUpload, removeFile),
               reaching the references as the `uploads` prop. The fold is
               this card's (section1Collapsed); the header's count is the
-              References card's, one number for what is listed. */}
-          {/* DG5's wrapper; since DG6 (Audrey, 2026-10-31: "i want to keep
-              the 1 and 2 cards stacked not side by side") it holds the two
-              input cards stacked at one capped width, card 1 in two columns
-              on a wide window (dog.css, THE INPUTS STACK). It only lays them
-              out: no role, name, id or tabindex, so the cards' order, folds,
-              ids, the header count, the Tab order and every name are as they
-              were. The banners stay above it and the output card below it,
-              both the column's full width. */}
-          <div className="dog-inputs">
+              References card's, one number for what is listed.
+              DG6's follow-up (Audrey, 2026-10-31, with a picture of the
+              beta, her words verbatim in dog.css, CARD 1's SECTIONS): the
+              two cards fill the column (DG5's wrapper and DG6's cap are
+              gone), and card 1 is three titled sections in her order,
+              Project, then References with Add references, then Uploads,
+              and the line of what goes to the AI with its meter last. */}
           <Card pad={false} className="dog-card dog-card-project">
             <header
               className="ui-panel-head dog-card-head"
@@ -4188,27 +4185,27 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
             {!section1Collapsed && (
             <div className="dog-card-body" id="dog-card1-body">
-              {/* Project Selection. DG3 (Audrey, 2026-10-27: "Choose a
+              {/* The Project section (DG6's follow-up): its title, its
+                  sentence, then the field and, beside it when both fit at the
+                  measure, the chosen project's description. DG1: choosing a
+                  project no longer sends its files (Q2); its title and
+                  description always go (Q17). The sentence's words are her
+                  walkthrough 89 Q1's. DG3 (Audrey, 2026-10-27, "Choose a
                   project"): the label says what the dropdown does, and names
-                  it (FX15's htmlFor). DG4: the card's title is "1 Project and
-                  references"; the dropdown sits above what it scopes. */}
-              <div>
+                  it (FX15's htmlFor). */}
+              <div className="dog-sec dog-sec-project">
+                <h3 className="dog-sec-title">Project</h3>
+                <p className="ui-field-hint dog-sec-desc">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
+                <div className="dog-project-pair">
+                <div className="dog-project-field">
                 <label className="ui-field-label dog-field-label" htmlFor="dog-project">
                   Choose a project
                 </label>
-                {/* DG1: choosing a project no longer sends its files (Q2); its
-                    title and description always go (Q17). DG4: what else is
-                    chosen in this card. DG5: no "below", since on a wide
-                    window the references sit beside the project (dog.css,
-                    THE INPUTS STACK, from a 1468 window since DG6); her
-                    answer to walkthrough 89's Q1: as built. */}
-                <p className="ui-field-hint dog-field-hint">The deck&rsquo;s project. Its title and description go with every deck; choose what else goes.</p>
                 {/* DG6 (review round 1, finding 4): the dropdown takes the
                     row's width beside New project, so the row ends at the
-                    column's edge, level with the description below it and,
-                    in two columns, 24px from the references. Its old 360px
-                    cap left the row 69px short and, with no project chosen,
-                    a 93px hole before the references (her screenshot). */}
+                    field's edge. Its old 360px cap left the row 69px short
+                    (and, while card 1 had two columns, a 93px hole before
+                    the references with no project chosen, her screenshot's). */}
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <select
@@ -4235,6 +4232,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 {projectsHeldOffline && (
                   <p className="ui-field-hint dog-field-hint">{offlineSentence('projects')}</p>
                 )}
+                </div>
                 {selectedProject && (selectedProject.description || storedFilesBusy || storedFilesError) && (
                   <div className="dog-project-details">
                     {selectedProject.description && (
@@ -4252,11 +4250,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     )}
                   </div>
                 )}
+                </div>
               </div>
 
-              {/* What the deck reads (DG1; ./references/), the uploads its
-                  first group (DG2), Core files only beside Add references
-                  (DG4). */}
+              {/* What the deck reads (DG1; ./references/): its References
+                  and Uploads sections and the line of what goes to the AI
+                  with the meter (DG6's follow-up; Core files only beside Add
+                  references, DG4). */}
               <ReferencesCard
                 refs={refs}
                 projectChosen={!!selectedProject}
@@ -4524,7 +4524,6 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </div>
             )}
           </Card>
-          </div>
 
           {/* Output Section - Below Input */}
           <Card pad={false} className="dog-card dog-output">
