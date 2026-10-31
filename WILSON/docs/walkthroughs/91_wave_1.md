@@ -262,8 +262,9 @@ the estimate, before the fee* while the fee is on) and the over and under
 budget labels stay what the expenses cost against their estimate; the
 Topsheet's variance for the expenses is against the bid with the fee
 (−$3,505), as on the Crew and Talent tabs. **Look at:** Budget → Expenses on
-*Salt Hours*. (Since your Q6 answer, below, *Bid total* is where the bid
-was; this figure with the fee, $24,449, is now under *Expected now*.)
+*Salt Hours*. (Since your Q6 answer, below, the first figure, *Locked bid*,
+is where the bid was; this figure with the fee, $24,449, is now under
+*Expected now*.)
 
 **Q6. On the Expenses tab, should *Variance* compare what the expenses cost
 with their estimate, or with the bid?** The second review of the Q5 build
@@ -318,7 +319,8 @@ Measured on the test project before and after (Chromium at 1024, 1280 and
    the sentence names it and its amount) and one in the bid and deleted
    since. A bid saved before today kept no expenses: its column reads "—"
    and the sentence says so. While bidding, saving a new version or setting
-   the budget active keeps them. **A budget already active from before
+   the budget active keeps them, and the sentence says when the bid's
+   expenses were kept (*as saved on …*, or *as kept on …* after a lock). **A budget already active from before
    today** gets one button, *Keep today's estimates as its bid*: it can no
    longer be saved into, so this is the only way it gets a bid figure, and
    it says what it is (today's figures, not the ones it was locked with).
@@ -349,7 +351,9 @@ schedule, so opening an older version never puts old estimates back); the
 active takes the expenses as they are then. **The Topsheet's *Bid* column
 is today's figures** (the estimates with today's fee, as for the crew and
 the talent), so for the expenses it matches *Expected now* with its fee,
-not the locked bid.
+not the locked bid; the Crew and Talent tabs' *Bid total* are today's
+too, and the Summary's total for a bid version has never held the
+expenses.
 
 **Pictures** (Chromium, the dev fixtures' *Salt Hours*, a made-up project),
 in the folder *91_wave_1 pictures* beside this file:

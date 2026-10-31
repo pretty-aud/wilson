@@ -117,6 +117,13 @@ describe('a version\'s expenses (F2\'s third follow-up)', () => {
     expect(b.bidTotal).toBe(20700)
     expect(b.removed.map(r => r.id)).toEqual(['e1'])
     expect(b.settings).toEqual({ agencyEnabled: true, agencyPct: 15 })
+    // When they were kept: the save's (savedAt), or a lock's (keptAt); the
+    // bid's total to the cent (review round 2: 0.1 + 0.2 summed raw).
+    const atSave = expensesAgainstBid([], { snapshot: snapshotFromLive({ tasks, phases, milestones, project, roleRates, expenses, savedAt: '2026-10-05T10:00:00.000Z' }) })
+    expect([atSave.keptAt, atSave.savedAt]).toEqual([null, '2026-10-05T10:00:00.000Z'])
+    const locked =expensesAgainstBid([], { snapshot: { ...saved(expenses).snapshot, expenses_kept_at: '2026-10-06T09:00:00.000Z' } })
+    expect(locked.keptAt).toBe('2026-10-06T09:00:00.000Z')
+    expect(expensesAgainstBid([], saved([{ id: 'a', estimated_cost: 0.1 }, { id: 'b', estimated_cost: 0.2 }])).bidTotal).toBe(0.3)
     // A version kept with no expenses at all is kept: every one is not in it.
     const none = expensesAgainstBid([{ id: 'e2' }], saved([]))
     expect([none.kept, none.bidOf('e2'), none.bidTotal]).toEqual([true, null, 0])

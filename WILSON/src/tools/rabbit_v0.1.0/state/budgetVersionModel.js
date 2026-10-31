@@ -321,8 +321,10 @@ export function readVersion(version) {
       phases: Array.isArray(s.phases) ? s.phases : [],
       milestones: Array.isArray(s.milestones) ? s.milestones : [],
       roleRates: s.roleRates || {},
-      // F2's third follow-up: null for a version saved before one kept them.
+      // F2's third follow-up: null for a version saved before one kept them;
+      // expensesKeptAt when the lock (or the tab's button) wrote them, not a save.
       expenses: Array.isArray(s.expenses) ? s.expenses : null,
+      expensesKeptAt: s.expenses_kept_at || null,
       delta: s.delta || null,
       savedAt: s.saved_at || null,
     }
@@ -351,6 +353,7 @@ export function readVersion(version) {
     // The lock writes the expenses into an older version too (F2's third
     // follow-up, review round 1).
     expenses: Array.isArray(s.expenses) ? s.expenses : null,
+    expensesKeptAt: s.expenses_kept_at || null,
     delta: null,
     savedAt: s.lockedAt || null,
   }
@@ -368,6 +371,8 @@ export function readVersion(version) {
  *   removed     the bid's expenses no longer on the list
  *   settings    the bid's own agency fee (agencyEnabled, agencyPct): the fee
  *               it was bid with
+ *   keptAt      when the lock (or the tab's button) kept them; null: the
+ *               version's save did (savedAt)
  * Every figure is a cost, before the fee: an estimate against an estimate.
  */
 export function expensesAgainstBid(expenses, version) {
@@ -378,9 +383,11 @@ export function expensesAgainstBid(expenses, version) {
   return {
     kept: !!rows,
     bidOf: (id) => (rows && bids.has(String(id)) ? bids.get(String(id)) : null),
-    bidTotal: [...bids.values()].reduce((s, v) => s + v, 0),
+    bidTotal: round2([...bids.values()].reduce((s, v) => s + v, 0)),
     removed: (rows || []).filter(r => r && r.id != null && !live.has(String(r.id))),
     settings: { agencyEnabled: read?.agencyEnabled === true, agencyPct: num(read?.agencyPct) },
+    keptAt: read?.expensesKeptAt || null,
+    savedAt: read?.savedAt || null,
   }
 }
 

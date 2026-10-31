@@ -261,19 +261,47 @@ describe('a saved version keeps each expense\'s estimate (F2\'s third follow-up)
   // Review round 1 (finding 1): her option — the locked bid "freezes each
   // expense's estimate", the bid being "the locked estimate when entering
   // production". A change after the last save is in the locked bid.
+  const stored = async (id) => (await holder.adapter.listBudgetVersions(PROJECT_ID)).find(v => v.id === id).snapshot
+  const withoutExpenses = ({ expenses: _e, expenses_kept_at: _k, ...rest }) => rest
+
   it('Set budget active keeps the expenses as they are at that moment, in the lock\'s one undo step', async () => {
     await bidding()
     expect(kept(byId(BV2))[1]).toEqual(['Set timber and paint', 3900])
+    const pre = await stored(BV2)
     await holder.adapter.updateExpense(fid('expense', 2), PROJECT_ID, { estimated_cost: 4500 })
     await run(() => ctx.activateBudget(BV2))
     expect(ctx.project.budget_active).toBe(true)
     expect(kept(byId(BV2))).toEqual([['Camera package hire', 16800], ['Set timber and paint', 4500], ['Compass props', 260]])
-    expect(((await holder.adapter.listBudgetVersions(PROJECT_ID)).find(v => v.id === BV2)).snapshot.expenses[1].estimated_cost).toBe(4500)
-    // Its schedule is the version's as saved: only the expenses are written.
-    expect(byId(BV2).snapshot.tasks.length).toBeGreaterThan(0)
+    const after = await stored(BV2)
+    expect(after.expenses[1].estimated_cost).toBe(4500)
+    expect(after.expenses_kept_at).toBeTruthy()
+    // Review round 2 (finding 2): only the expenses are written — the rest of
+    // the snapshot (schedule, rates, totals, saved_at) is the save's, as stored.
+    expect(withoutExpenses(after)).toEqual(withoutExpenses(pre))
     await run(() => ctx.undo())
     expect(ctx.project.budget_active).toBe(false)
     expect(kept(byId(BV2))[1]).toEqual(['Set timber and paint', 3900])
+    expect(await stored(BV2)).toEqual(pre)
+  })
+
+  // Review round 2 (finding 1): the lock wrote the whole snapshot from this
+  // window's copy, so another window's save it had not heard of yet was lost;
+  // and its undo wrote the old copy back over a save made after the lock.
+  it('another window\'s save into the version survives the lock and the lock\'s undo', async () => {
+    await bidding()
+    const pre = await stored(BV2)
+    // Another window saves Bid v2 (five tasks); no event reaches this one.
+    await holder.adapter.patchBudgetVersion(PROJECT_ID, BV2, { snapshot: { ...pre, saved_at: '2026-10-31T09:00:00.000Z', tasks: pre.tasks.slice(0, 5) } })
+    await run(() => ctx.activateBudget(BV2))
+    let now = await stored(BV2)
+    expect([now.saved_at, now.tasks.length, now.expenses.length]).toEqual(['2026-10-31T09:00:00.000Z', 5, 3])
+    // Then saves it again after the lock: the lock's undo leaves that save.
+    const theirs = { ...now, saved_at: '2026-10-31T10:00:00.000Z', expenses: [{ id: 'x', title: 'Theirs', estimated_cost: 1 }] }
+    await holder.adapter.patchBudgetVersion(PROJECT_ID, BV2, { snapshot: theirs })
+    await run(() => ctx.undo())
+    expect(ctx.project.budget_active).toBe(false)
+    now = await stored(BV2)
+    expect([now.saved_at, now.expenses]).toEqual(['2026-10-31T10:00:00.000Z', [{ id: 'x', title: 'Theirs', estimated_cost: 1 }]])
   })
 
   it('a bid locked before a version kept its expenses: today\'s estimates kept as its bid, one undo step; already so, nothing written', async () => {

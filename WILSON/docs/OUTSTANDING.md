@@ -3341,7 +3341,8 @@ met outside its list and did not fix:
   in as they are then. MEASURED in Chromium on the fixtures at 15%:
   Locked bid $20,960, Expected now $21,260, Expected vs bid +$300, Actual
   vs expected −$316; the timber $3,900 bid, $4,200 expected (+$300 vs
-  bid). Commits `9ebfdeb1`, `419139cc`, `ca70ad5e`.~~ The Expenses tab's
+  bid). Commits `9ebfdeb1`, `419139cc`, `ca70ad5e`, `6b1a4216`, `b5971874`
+  and review round 2's.~~ The Expenses tab's
   Variance is against the estimate; the Crew and Talent tabs' and the
   Topsheet's are against the bid.** MEASURED on the
   fixtures at 15% (F2's second follow-up, both review rounds): the Expenses
@@ -3374,8 +3375,11 @@ met outside its list and did not fix:
   fixtures the Topsheet's *All expenses* Bid is $24,449 (today's estimates
   with today's fee, as its crew and talent rows are today's), the Expenses
   tab's *Locked bid* $20,960 ($24,104 with the bid's fee); the Q5 figure
-  stays on the tab under *Expected now*. Said in walkthrough 91. Owner:
-  none named.
+  stays on the tab under *Expected now*. Round 2 (finding 4, MEASURED): so
+  are the Crew and Talent tabs' *Bid total* (today's, with the fee), and
+  the Summary's banner names the locked bid with its overall total, which
+  has never held the expenses. "Bid" is several figures on one page. Said
+  in walkthrough 91. Owner: none named.
 
 ## Post-overhaul R1 (`po/r1-rabbit-robustness`) — left open (2026-10-27)
 

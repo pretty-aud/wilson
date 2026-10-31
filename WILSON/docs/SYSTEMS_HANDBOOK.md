@@ -5618,11 +5618,15 @@ of a session — this section is limits by design, that file is faults.
   follow-up): a version keeps each expense's id, title and estimate when it
   is saved (`snapshotFromLive`'s `expenses`, read by the provider from the
   adapter at that moment — never `bundle.expenses`, which nothing loads),
-  and again as they are when the budget goes active (`keepExpensesInBid`,
-  first in the lock's one step; on its own, the tab's *Keep today's
-  estimates as its bid* for a bid locked before),
-  and `expensesAgainstBid` gives the Expenses tab its *Bid* column, *Bid
-  total* (with those removed since) and the bid's own fee. Every figure
+  and again as they are when the budget goes active (`keepExpensesInBid`:
+  read first, written with the lock's last writes, in its one undo step;
+  on its own, the tab's *Keep today's estimates as its bid* for a bid
+  locked before). That write sets only `expenses` and `expenses_kept_at` on
+  the snapshot as stored, read again, and its undo and redo leave a save
+  made since (`setVersionExpenses`); a save writes the whole snapshot. Then
+  `expensesAgainstBid` gives the Expenses tab its *Bid* column, the
+  *Locked* or *Selected bid* tile (with those removed since) and the bid's
+  own fee. Every figure
   there is a cost: *Expected vs bid* is the estimate now against the bid's,
   *Actual vs expected* the old variance. A version saved before keeps none
   (`readVersion(...).expenses` null): "—" and a sentence. An expense edit is

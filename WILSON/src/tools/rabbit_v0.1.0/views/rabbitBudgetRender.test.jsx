@@ -881,6 +881,18 @@ describe('surface 2b', () => {
       expect(container.querySelector('.ui-table.rb-budget-exp').getAttribute('style')).toBeNull()
     })
 
+    // Review round 2 (finding 3): reset to bidding after a lock, the bid's
+    // expenses are the lock's, not its last save's — the sentence says which.
+    it('while bidding, the sentence says when the bid\'s expenses were kept: at its save, or at a lock', async () => {
+      const { showDate } = await import('../dates')
+      const saved = '2026-09-02T17:00:00.000Z'
+      const lockedAt = '2026-09-10T12:00:00.000Z'
+      const { container, rerender } = render(tab(hook(), at15, true, { budgetVersions: [version({}, { saved_at: saved })] }))
+      expect(note(container)).toMatch(new RegExp(`^The bid is “Bid v2” as saved on ${showDate(saved).replace(/[/.]/g, '\\$&')}; setting the budget active keeps the expenses as they are then\\.`))
+      rerender(tab(hook(), at15, true, { budgetVersions: [version({}, { saved_at: saved, expenses_kept_at: lockedAt })] }))
+      expect(note(container)).toMatch(new RegExp(`^The bid is “Bid v2”, its expenses as kept on ${showDate(lockedAt).replace(/[/.]/g, '\\$&')}; setting the budget active keeps them as they are then\\.`))
+    })
+
     it('locked, the tile is the locked bid and the sentence says so; no action offered', () => {
       const keep = vi.fn(async () => {})
       const { container } = render(tab(hook(), { ...at15, budget_active: true, budget_active_version_id: 'v2' }, true, { budgetVersions: [version()], keepExpensesInBid: keep }))

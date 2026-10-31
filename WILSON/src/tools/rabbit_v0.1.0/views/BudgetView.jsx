@@ -49,7 +49,7 @@ import { useExpenses } from '../../../components/Expenses/useExpenses'
 import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudgetLines'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
-import { buildRoleRates, projectBudgetSettings, bidTotals, lineMoney, agencyPctOnSwitchOn } from '../../../components/Budget/budgetMath'
+import { buildRoleRates, projectBudgetSettings, bidTotals, lineMoney, agencyPctOnSwitchOn, round2 } from '../../../components/Budget/budgetMath'
 import CurrencyDisplay, { formatMoney, formatTenths } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
@@ -2041,7 +2041,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const bid = useMemo(() => expensesAgainstBid(expenses, selectedBid), [expenses, selectedBid])
   const bidWithFee = useMemo(() => lineMoney(bid.bidTotal, null, bid.settings), [bid])
   const expectedWithFee = useMemo(() => lineMoney(totalEstimated, null, settings), [totalEstimated, settings])
-  const movedFromBid = totalEstimated - bid.bidTotal
+  const movedFromBid = round2(totalEstimated - bid.bidTotal)
   const bidLocked = !!selectedBid && project?.budget_active === true && project?.budget_active_version_id === selectedBid.id
   // Which bid the Bid column is, and what it cannot show, in words (the
   // brief's "—", said; review round 1: the expenses added since are in the
@@ -2059,7 +2059,9 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
       : [
         bidLocked
           ? `The bid is “${selectedBid.name}”, the locked bid.`
-          : `The bid is “${selectedBid.name}” as last saved; setting the budget active keeps the expenses as they are then.`,
+          : bid.keptAt
+            ? `The bid is “${selectedBid.name}”, its expenses as kept on ${showDate(bid.keptAt)}; setting the budget active keeps them as they are then.`
+            : `The bid is “${selectedBid.name}” as ${bid.savedAt ? `saved on ${showDate(bid.savedAt)}` : 'last saved'}; setting the budget active keeps the expenses as they are then.`,
         addedSince.length ? `Not in it: ${named(addedSince, 'added since')} (${estimateOf(addedSince)}).` : null,
         bid.removed.length ? `It also holds ${named(bid.removed, 'removed since')} (${estimateOf(bid.removed)}).` : null,
       ].filter(Boolean).join(' ')
@@ -2147,7 +2149,7 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
     // Where the bid was (F2's third follow-up): null when the expense is not
     // in the bid, or the bid kept no expenses (`bid.kept`).
     const bidEst = bid.bidOf(exp.id)
-    const moved = bidEst == null ? null : est - bidEst
+    const moved = bidEst == null ? null : round2(est - bidEst)
     return (
       <Row
         key={exp.id}

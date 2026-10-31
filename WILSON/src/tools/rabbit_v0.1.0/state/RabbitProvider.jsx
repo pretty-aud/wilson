@@ -8359,26 +8359,51 @@ export function RabbitProvider({ children }) {
    * (`read`); on its own, it is the Expenses tab's "Keep today's estimates
    * as its bid" for a bid locked before a version kept its expenses.
    * Nothing is written when they are already so, or where the storage keeps
-   * no expenses.
+   * no expenses. `expenses_kept_at` says when (the tab's sentence: "as kept
+   * on …", not "as last saved"; review round 2, finding 3).
    */
   const keepExpensesInBid = useCallback(async (id, read) => {
     const still = compositeGuard();
     const visit = projectVisitRef.current;
-    const v = requireBudgetVersion(id);
+    requireBudgetVersion(id);
     const list = read !== undefined ? read : await expensesForSnapshot(activeProjectIdRef.current);
     still();
     if (list == null) return null;
-    const before = v.snapshot ?? {};
-    const expenses = expenseRowsForVersion(list);
-    if (JSON.stringify(before.expenses ?? null) === JSON.stringify(expenses)) return null;
-    const snapshot = { ...before, expenses };
-    await patchBudgetVersionRow(id, { snapshot });
+    const kept = { expenses: expenseRowsForVersion(list), expenses_kept_at: new Date().toISOString() };
+    const done = await setVersionExpenses(id, kept);
+    if (!done) return null;
     pushHistory({
-      undoOps: [() => patchBudgetVersionRow(id, { snapshot: before })],
-      redoOps: [() => patchBudgetVersionRow(id, { snapshot })],
+      undoOps: [surfaced(() => setVersionExpenses(id, done.from, done.savedAt))],
+      redoOps: [surfaced(() => setVersionExpenses(id, kept, done.savedAt))],
     }, visit);
-    return snapshot;
+    return kept;
   }, [patchBudgetVersionRow]);
+
+  /**
+   * F2's third follow-up, review round 2 (finding 1): a version's kept
+   * expenses ({ expenses, expenses_kept_at }; null keeps none) set on its
+   * snapshot as STORED, read again — this window's copy can lag another
+   * window's save, and the rest of the snapshot is that save's, never this
+   * window's to write. `ifSavedAt` (an undo, a redo): only while the stored
+   * save is still that one; saved again since, that save holds its own
+   * expenses and nothing of this step is left in it, so nothing is written
+   * (quietly: the rest of the lock's undo still runs). Returns { from,
+   * savedAt } — what it replaced and the save it sits on — or null when
+   * nothing was written.
+   */
+  async function setVersionExpenses(id, kept, ifSavedAt) {
+    const pid = activeProjectIdRef.current;
+    const a = versionAdapterFor('listBudgetVersions');
+    const row = ((await a.listBudgetVersions(pid)) || []).find(r => r.id === id);
+    if (!row) throw new Error('bid version not found');
+    const { expenses, expenses_kept_at: keptAt, ...rest } = row.snapshot ?? {};
+    const savedAt = rest.saved_at ?? null;
+    if (ifSavedAt !== undefined && savedAt !== (ifSavedAt ?? null)) return null;
+    if (JSON.stringify(expenses ?? null) === JSON.stringify(kept?.expenses ?? null)) return null;
+    const from = expenses === undefined ? null : { expenses, ...(keptAt === undefined ? {} : { expenses_kept_at: keptAt }) };
+    await patchBudgetVersionRow(id, { snapshot: kept ? { ...rest, ...kept } : rest });
+    return { from, savedAt };
+  }
 
   // ── Mutations ref refresh ───────────────────────────────
   // History closures call into mutationsRef.current so they always
