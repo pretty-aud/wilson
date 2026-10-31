@@ -4848,8 +4848,10 @@ fee, a line's agency and representation fees on the base beside them
 (`lineMoney`), the task-based bid (`taskBaseCost`, `bidTotals`, which every
 saved bid version's totals are made by), one `round2`, and rate resolution as
 *project override → workspace rate card → blank*. Pinned by 41 vitest cases,
-two of them a scan of the Budget's files that fails on a copy of a rule
-outside this one and its control. Before Session 24 those rules were duplicated inline across
+two of them a scan of the Budget's files for the three shapes the old copies
+took (the inheritance rule inline, a settings read with a default of its own,
+a second `round2`) and its control; a copy spelt another way passes the scan,
+so the surfaces' render tests pin their figures too. Before Session 24 those rules were duplicated inline across
 four view files with no test at any layer; until F2 the views kept their
 copies, which came apart (OUTSTANDING REV-02, closed).
 
@@ -5502,9 +5504,11 @@ of a session — this section is limits by design, that file is faults.
   surface** (her ruling of 2026-10-31, `AGENCY_DEFAULT_PCT`; until F2 the
   Summary read 20 and the Crew tab, the Topsheet and the line computations
   0). A typed `0` is a real value. The cloud's column stores 0 for a
-  percentage nobody typed (0036: `NOT NULL DEFAULT 0`), so the 20 is met on
-  the desktop and the fixtures, and a desktop project moved to the cloud
-  arrives at 0 (OUTSTANDING F2-04).
+  percentage nobody typed (0036: `NOT NULL DEFAULT 0`), so on the cloud the
+  20 is met only where the Budget Summary's switch writes it (it reads a
+  stored 0 as none typed, and so also puts 20 over a typed 0 when the fee is
+  switched off and on); the intake and the project settings' toggle leave 0,
+  and a desktop project moved to the cloud arrives at 0 (OUTSTANDING F2-04).
 - **A tab's Bid total is its subtotal plus the fees**; the margin and
   contingency it shows stand beside it, not in it (`lineMoney`'s
   `bidTotal`; OUTSTANDING F2-05). The Summary's overall total is the one

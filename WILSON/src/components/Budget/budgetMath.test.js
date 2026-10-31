@@ -290,6 +290,13 @@ describe('bidTotals — the Budget screen\'s arithmetic, once (F7)', () => {
     expect(t.marginAmt).toBe(33.33)
     expect(t.beforeAgency).toBe(366.66)
     expect(t.agencyAmt).toBe(50)
+    // F2 review round 1 (finding 3): 49.99995 is 50 to the cent as well, so
+    // the line above pinned nothing about the whole unit. 15% of 1001 is
+    // 150.15: the Summary's fee is 150, a line's (lineMoney) 150.15.
+    const cents = bidTotals({ tasks: [{ bid_days: 1, assigned_role_slug: 'x' }], roleRates: { x: 1001 }, agencyEnabled: true, agencyPct: 15 })
+    expect(cents.agencyAmt).toBe(150)
+    expect(cents.overall).toBe(1151)
+    expect(lineMoney(1001, null, { agencyEnabled: true, agencyPct: 15 }).agencyFee).toBe(150.15)
   })
   it('its base is the selectors\' rollup total, unknown roles and zero days included', () => {
     const odd = [...tasks, { id: 't3', bid_days: 3, assigned_role_slug: 'nobody' }, { id: 't4', bid_days: 0, assigned_role_slug: 'editor' }]

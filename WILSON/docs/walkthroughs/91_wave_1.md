@@ -11,13 +11,14 @@ Your ruling of 2026-10-31, in this session's question box, on the agency fee
 when it is switched on and nobody has typed a percentage: *"20%"*. Measured
 first on the test project (*Salt Hours*) with the fee on and no percentage
 typed, and with 10% typed; built; measured again the same way; reviewed twice
-on Fable.
+(on Opus: Fable's weekly allowance was used up).
 
 1. **Every Budget page charges the same agency fee.** With the fee switched
    on and no percentage typed, the Summary charged 20% while the Crew tab,
    the Topsheet and the client estimate charged 0%. Now every page charges
-   20%, your ruling. A typed percentage, 0 included, is used as typed, as
-   before.
+   20%, your ruling. A typed percentage is used as typed, as before; a typed
+   0 too, with one exception that was there before: switching the fee off and
+   on again on the Summary page puts 20% back in its place.
 2. **Margin and contingency are worked out on the cost, never on a fee.**
    The Crew tab worked them out on the cost plus the agency fee; the Talent
    tab on the cost plus the agency fee and the agent's fee; the client
@@ -29,9 +30,11 @@ on Fable.
    *Bid total*, the cost with the fee in it).
 3. **Everything else is as it was.** The Summary's figures, every saved bid
    version, what each page adds into its own Bid total, and every page's
-   layout. Money is still shown in whole dollars; behind the screen each
-   amount is now worked out to the cent on every page, as the Summary
-   already did.
+   layout. Money is still shown in whole dollars, and no figure on screen
+   moved for rounding: behind the screen each line's amounts are now worked
+   out to the cent, as the Summary's margin and contingency already were (the
+   Summary's agency fee stays rounded to the dollar, the way every saved bid
+   version's was made).
 
 ### What it measured
 
@@ -72,9 +75,10 @@ R.A.B.B.I.T., *Salt Hours*, Budget. No pictures: the figures are these.
    $12,942 and $142,364).
 4. **Summary**: unchanged, overall total $115,215.
 
-On the beta, a project made on the cloud is saved with 0% when no percentage
-is typed (Q1), so what you will see there is the smaller contingency and
-margin on a budget with a fee (points 1 to 3).
+On the beta, a cloud project always holds a percentage (0% where none was
+typed, unless the Summary's switch filled in 20%: Q1), so the default does
+not show there; what you will see is the smaller contingency and margin on a
+budget with a fee (points 1 to 3).
 
 ### Seen while measuring, written down, not changed
 
@@ -87,10 +91,13 @@ margin on a budget with a fee (points 1 to 3).
   is also $92,172, only because its 20% fee is the size of the card's 12%
   and 8%. Q2.
 - **The client estimate leaves out the agency fee on the crew and the
-  expenses** (F2-03): the fee rides only inside its Talent line. Q3.
-- **The cloud keeps 0% for a percentage nobody typed** (F2-04): your 20%
-  reaches projects kept on this computer, and moving one of those to the
-  cloud turns its 20% into 0%. Q1.
+  expenses** (F2-03): the fee rides only inside its Talent line; the
+  Topsheet's expenses row has none either. Q3.
+- **The cloud keeps 0% for a percentage nobody typed** (F2-04): on the
+  cloud only the Budget's Summary page fills in your 20% when you switch the
+  fee on there; switching it on in the new-project form or in the project's
+  settings leaves 0%, and moving a project from this computer to the cloud
+  turns its 20% into 0%. Q1.
 - **The Topsheet's Crew / Team rows show $0 on the test project** (F2-02):
   they price only people with a rate of their own on the rate card in use,
   so the roles the Crew tab lists ($76,810) are missing from it.
@@ -100,13 +107,14 @@ margin on a budget with a fee (points 1 to 3).
 
 ### Questions
 
-**Q1. A new project on the cloud with the agency fee switched on and no
-percentage typed is saved with 0%, so your 20% never reaches it. Should the
-new-project form fill in 20% for you in that case?**
-(a) Yes: the form fills in 20% when the fee is switched on and nothing is
-typed, so cloud and desktop projects both start at 20% and you can change
-it. *(Recommended: your ruling, kept wherever the project lives.)*
-(b) No: cloud projects keep 0% until you type one.
+**Q1. On the cloud, switching the agency fee on in the new-project form or in
+the project's settings, without typing a percentage, saves 0%, so your 20%
+doesn't reach that project (the Budget's Summary page does fill in 20% when
+you switch the fee on there). Should those two fill in 20% for you too?**
+(a) Yes: switching the fee on with nothing typed fills in 20% wherever you do
+it, so every project starts at 20% and you can change it. *(Recommended: your
+ruling, kept wherever the project lives.)*
+(b) No: those two keep 0% until you type a percentage.
 
 **Q2. For a role nobody holds yet, which day rate should the Crew tab use?**
 (a) The full rate with the rate card's burden and overhead, as the Summary

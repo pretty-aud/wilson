@@ -2027,8 +2027,6 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   const totalEstimated = useMemo(() => expenses.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0), [expenses])
   const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
   const totalVariance  = totalActual - totalEstimated
-  const totalMargin = useMemo(() => expenses.reduce((s, e) => s + lineMoney(Number(e.estimated_cost) || 0, e, settings).marginAmt, 0), [expenses, settings])
-  const totalCont = useMemo(() => expenses.reduce((s, e) => s + lineMoney(Number(e.estimated_cost) || 0, e, settings).contingencyAmt, 0), [expenses, settings])
 
   // ── Handlers ──
   function handleCreate() { setEditingId(null); setShowPopup(true) }

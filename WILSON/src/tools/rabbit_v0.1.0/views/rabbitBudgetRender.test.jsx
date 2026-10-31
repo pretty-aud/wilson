@@ -1477,6 +1477,23 @@ describe('surface 4', () => {
       expect(numerics(memberRow(zero.container))[5]).toBe('$2,000')
     })
 
+    // F2 review round 1 (finding 1): a role nobody holds yet has a row of its
+    // own (lineMoney with no line) — on the fixtures every crew figure. The
+    // old copy charged it 0% with none typed ($1,500) and, with 10% typed,
+    // its contingency on the subtotal plus the fee (5% of $1,650: +$83).
+    it('F2: a role nobody holds yet — the one default, and contingency on its subtotal', () => {
+      const withRole = {
+        tasks: [{ assigned_role_slug: 'anim', bid_days: 4 }, { assigned_role_slug: 'comp', bid_days: 5 }],
+        rateCard: { entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }, { role_slug: 'comp', role_label: 'Compositor', department: 'VFX', day_rate: 300 }] },
+      }
+      const roleRow = (root) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Compositor'))
+      const none = render(tab(hook(), { ...withRole, project: { ...PROJECT, budget_agency_enabled: true } }))
+      expect(numerics(roleRow(none.container))).toEqual(['$300', '5.0', '$1,500', '—', '+$75', '$1,800', '—', '-$1,800'])
+      cleanup()
+      const ten = render(tab(hook(), { ...withRole, project: { ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 10 } }))
+      expect(numerics(roleRow(ten.container))).toEqual(['$300', '5.0', '$1,500', '—', '+$75', '$1,650', '—', '-$1,650'])
+    })
+
     it('W9: Reset M/C asks on the kit Dialog in <body>; Cancel keeps the values, Reset clears them through the hook', async () => {
       const confirm = vi.spyOn(window, 'confirm')
       const h = hook()
@@ -1586,6 +1603,19 @@ describe('surface 4', () => {
       const foot = tables[0].querySelector('tfoot tr')
       expect(cells(foot)).toEqual(['Grand total', '$9,000', '', '—', '+$900', '$10,350', '', '$500', '-$9,850', ''])
       expect([...foot.querySelectorAll('td')].reduce((n, td) => n + Number(td.getAttribute('colspan') || 1), 0)).toBe(15)
+    })
+
+    // F2 review round 1 (finding 2): the box works on the line's subtotal
+    // with the line's own percentages. The old copy opened it on the bid
+    // total, the fees in it ("Bid total $10,350 × 10%", +$1,035).
+    it('F2: the margin & contingency box works on the line\'s subtotal, with its own percentages', () => {
+      const { container } = render(tab())
+      fireEvent.click(lineRow(container, 'Mara (lead)').querySelectorAll('button.rb-talent-mc')[1])
+      const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+      expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('0')
+      expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('10')
+      expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => [a.textContent, a.getAttribute('title')]))
+        .toEqual([['+$0', 'Subtotal $9,000 × 0%'], ['+$900', 'Subtotal $9,000 × 10%']])
     })
 
     it('a period cell opens the lane\'s popover in <body>, closed by Escape and an outside press (R3-33, R3-32)', () => {

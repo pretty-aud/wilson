@@ -141,7 +141,10 @@ export function bidTotals({ tasks, roleRates = {}, marginPct = 0, contingencyPct
 //   agencyFee                  the project's agency fee when it is on and the
 //                              line has not opted out, plus a talent line's
 //                              own representation fee: the two stack
-//                              additively on the BASE (0036), to cents
+//                              additively on the BASE (0036), to cents like
+//                              the line's other amounts (on purpose: only
+//                              bidTotals keeps the Summary's fee to the whole
+//                              unit, the way every saved version's was made)
 //   bidTotal                   the base plus the fees: the tabs' Bid total,
 //                              margin and contingency standing beside it
 // `line` may be null (a role nobody holds yet); `settings` is
