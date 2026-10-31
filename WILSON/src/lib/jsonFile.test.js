@@ -136,13 +136,13 @@ describe('writeTextAtomic / writeJsonAtomic — whole, renamed into place, retri
     expect(() => writeJsonAtomic(file, {}, { fs, pause: () => {} })).toThrow(/EXDEV/)
     expect(counts.renameSync).toBe(1)
   })
-  it('durable: the temporary file is synced to the disk before the rename', () => {
+  it('durable: the whole text written to the temporary file, synced to the disk, then renamed', () => {
     const file = path.join(dir, 'archive.json')
     const { fs, counts } = countingFs()
-    writeJsonAtomic(file, { archived: true }, { fs, durable: true })
-    expect(counts.fsyncSync).toBe(1)
-    expect(counts.writeFileSync).toBeUndefined()
-    expect(readJson(file)).toEqual({ archived: true })
+    const data = { archived: true, projects: Array.from({ length: 2000 }, (_, i) => ({ id: `p${i}`, title: 'Salt Hours' })) }
+    writeJsonAtomic(file, data, { fs, durable: true })
+    expect([counts.openSync, counts.writeFileSync, counts.fsyncSync, counts.closeSync, counts.renameSync]).toEqual([1, 1, 1, 1, 1])
+    expect(readJson(file)).toEqual(data)
   })
   it('readJson: the value, or the fallback for a missing file and for one that is not JSON', () => {
     const file = path.join(dir, 'x.json')
@@ -187,12 +187,15 @@ describe('createKeptFiles — the text last read or written, while the file is u
     expect(kept.read(file)).toBeNull()
     expect(kept.usage().files).toBe(0)
   })
-  it('FAILING CONTROL: a cache that ignores the stamp serves the stale text after the hand edit', () => {
+  it('FAILING CONTROL: with its stat frozen at the first answer, the same cache serves the stale text after the hand edit — the stamp is the guard', () => {
     const file = path.join(dir, 'project.json')
-    const plain = new Map()
-    plain.set(file, writeJsonAtomic(file, { v: 1 }))
+    let frozen = null
+    const { fs } = countingFs({ statSync: (real, ...a) => (frozen ||= real(...a)) })
+    const kept = createKeptFiles({ fs })
+    kept.keep(file, writeJsonAtomic(file, { v: 1 }))
     realFs.writeFileSync(file, JSON.stringify({ v: 2, edited: true }))
-    expect(JSON.parse(plain.get(file))).not.toEqual(readJson(file))
+    expect(kept.read(file)).toEqual({ v: 1 })
+    expect(readJson(file)).toEqual({ v: 2, edited: true })
   })
   it('the stamp taken before a read: a change after it is seen at the next read', () => {
     const file = path.join(dir, 'project.json')
@@ -291,6 +294,15 @@ describe('mirrorProjectDatabases (main.cjs, lifted) — six files, each written 
     lifted('p1', b)
     expect(readJson(path.join(db(), 'budget.json')).budgetLines).toEqual([{ id: 'b1', amount: 20 }])
   })
+  it('a mirror Windows refuses (a folder she can only read) is tried once, not held up by the retries (round 1, finding 1)', () => {
+    let budgetTries = 0
+    const c = countingFs({ renameSync: (real, ...a) => { if (String(a[1]).endsWith('budget.json')) { budgetTries += 1; throw locked('EPERM') } return real(...a) } })
+    const mirror = new Function('resolveProjectFolder', 'fileSlugify', 'path', 'fs', 'databaseMirrors', 'console',
+      `${extractFunction(MAIN, 'mirrorProjectDatabases')}\nreturn mirrorProjectDatabases;`)(
+      () => dir, (s) => s, path, c.fs, createChangeOnlyWriter({ fs: c.fs }), { error: () => {} })
+    mirror('p1', bundleOf())
+    expect(budgetTries).toBe(1)
+  })
   it('FAILING CONTROL: a writer that always writes (the tip) rewrites all six for the same bundle', () => {
     const c = countingFs()
     const always = { writerFor: () => (file, data) => { writeJsonAtomic(file, data, { fs: c.fs }); return true } }
@@ -327,7 +339,7 @@ function liftBundleIO({ fsPlant = {}, demoRoot = null, kept, writeSource } = {})
     'backfillShotListsOnRead', 'ensureShotListKeys', 'pruneDanglingShotListItems', 'rabbitTaskItems', 'rabbitTableViews',
     'ensureProjectFolderRows', 'materializeFolderDirs', 'ensureProjectFolders', 'legalFiling', 'localDemoRootDir',
     'localDemoProjectsDir', 'isPathInside', 'rabbitLogFileEvent', 'mirrorProjectDatabases']
-  const values = [c.fs, path, (f, fb = null) => readJson(f, fb, c.fs), (f, d) => writeJsonAtomic(f, d, { fs: c.fs, pause: () => {} }),
+  const values = [c.fs, path, (f, fb = null) => readJson(f, fb, c.fs), (f, d, o) => writeJsonAtomic(f, d, { fs: c.fs, pause: () => {}, ...o }),
     (id) => { realFs.mkdirSync(path.join(dir, 'projects', id), { recursive: true }); return path.join(dir, 'projects', id, 'project.json') },
     rabbitBundles, () => `id-${++ids}`,
     backfillShotListsOnRead, ensureShotListKeys, pruneDanglingShotListItems, rabbitTaskItems, rabbitTableViews,
@@ -402,18 +414,36 @@ describe('readRabbitBundle / writeRabbitBundle (main.cjs, lifted) — kept in me
     io.writeRabbitBundle('p1', { ...CURRENT(), project: { id: 'p1', title: 'Проект', folder_slug: '' } })
     expect(readJson(io.file()).project.folder_slug).toBe('')
   })
-  it('a load whose dirty write fails keeps nothing: the next read loads, reconciles and writes again', () => {
-    let fail = 1
-    const io = liftBundleIO({ fsPlant: { writeFileSync: (real, ...a) => { if (fail-- > 0) throw Object.assign(new Error('EIO'), { code: 'EIO' }); return real(...a) } } })
+  it('on a folder she can only read, a load\'s write-back is tried once and the reconciled bundle kept: the next read is a hit that tries no write; the next write persists it (round 1, finding 1)', () => {
+    let readOnly = true
+    const io = liftBundleIO({ fsPlant: { writeFileSync: (real, ...a) => { if (readOnly) throw locked('EPERM'); return real(...a) } } })
     const legacy = CURRENT()
     delete legacy.projectTeam
     io.put(legacy)
     expect(io.readRabbitBundle('p1').projectTeam).toEqual([])
+    expect(io.c.counts.writeFileSync).toBe(1) // one try, no retries
     expect(readJson(io.file()).projectTeam).toBeUndefined()
     io.c.reset()
-    io.readRabbitBundle('p1')
-    expect(io.c.counts.readFileSync).toBe(1)
+    expect(io.readRabbitBundle('p1').projectTeam).toEqual([])
+    expect(io.c.counts.readFileSync).toBeUndefined()
+    expect(io.c.counts.writeFileSync).toBeUndefined()
+    readOnly = false
+    io.writeRabbitBundle('p1', io.readRabbitBundle('p1'))
     expect(readJson(io.file()).projectTeam).toEqual([])
+  })
+  it('a write that fails leaves the kept bundle valid: the next read is the file as it is, without reading it', () => {
+    let fail = false
+    const io = liftBundleIO({ fsPlant: { renameSync: (real, ...a) => { if (fail) throw Object.assign(new Error('EIO'), { code: 'EIO' }); return real(...a) } } })
+    io.put(CURRENT())
+    const b = io.readRabbitBundle('p1')
+    b.tasks[0].name = 'never landed'
+    fail = true
+    expect(() => io.writeRabbitBundle('p1', b)).toThrow(/EIO/)
+    io.c.reset()
+    const again = io.readRabbitBundle('p1')
+    expect(io.c.counts.readFileSync).toBeUndefined()
+    expect(again.tasks[0].name).toBe('Build the set')
+    expect(readJson(io.file()).tasks[0].name).toBe('Build the set')
   })
   it('a deleted bundle is never a hit', () => {
     const io = liftBundleIO()
@@ -479,7 +509,7 @@ const SUBJECTS = [
   ['editing-on-the-edit-page', 'Editing on the Edit page', 'intermediate'],
   ['classes-structs-and-records', 'Classes, structs and records', 'beginner'],
 ]
-function liftSubjects({ tip = false, postSource = null, fsPlant = {} } = {}) {
+function liftSubjects({ tip = false, postSource = null, putSource = null, fsPlant = {} } = {}) {
   const c = countingFs(fsPlant)
   const software = path.join(dir, 'software')
   const subjDir = path.join(software, 'resolve', 'subjects')
@@ -488,13 +518,14 @@ function liftSubjects({ tip = false, postSource = null, fsPlant = {} } = {}) {
   const helpers = tip ? TIP_SUBJECTS : block
   const getBody = tip ? TIP_GET : extractRouteBody(MAIN, "expressApp.get('/api/software/:slug/subjects',")
   const postBody = postSource || extractRouteBody(MAIN, "expressApp.post('/api/software/:slug/subjects',")
-  const make = new Function('fs', 'path', 'readJSON', 'writeJSON', 'getSoftwareDir', 'slugify',
-    `${extractFunction(MAIN, 'getCurriculumScore')}\n${helpers}\nreturn { get: (req, res) => ${getBody}, post: (req, res) => ${postBody}, renumberSubjects };`)
-  const routes = make(c.fs, path, (f, fb = null) => readJson(f, fb, c.fs), (f, d) => writeJsonAtomic(f, d, { fs: c.fs }),
-    () => software, (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''))
-  const call = (verb, body = {}) => {
+  const putBody = putSource || extractRouteBody(MAIN, "expressApp.put('/api/software/:slug/subjects/:sub',")
+  const make = new Function('fs', 'path', 'readJSON', 'writeJSON', 'getSoftwareDir', 'slugify', 'console',
+    `${extractFunction(MAIN, 'getCurriculumScore')}\n${helpers}\nreturn { get: (req, res) => ${getBody}, post: (req, res) => ${postBody}, put: (req, res) => ${putBody}, renumberSubjects };`)
+  const routes = make(c.fs, path, (f, fb = null) => readJson(f, fb, c.fs), (f, d) => writeJsonAtomic(f, d, { fs: c.fs, pause: () => {} }),
+    () => software, (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''), { error: () => {} })
+  const call = (verb, body = {}, sub) => {
     const res = { code: 200, body: null, status(x) { this.code = x; return this }, json(b) { this.body = b; return this } }
-    routes[verb]({ params: { slug: 'resolve' }, body, query: {} }, res)
+    routes[verb]({ params: { slug: 'resolve', sub }, body, query: {} }, res)
     return res
   }
   const seed = (rows = SUBJECTS) => rows.forEach(([slug, title, skill_level], i) => writeJsonAtomic(path.join(subjDir, `${slug}.json`), { title, skill_level, subject_order: i + 1, sections: [] }))
@@ -549,6 +580,36 @@ describe('the subjects GET (main.cjs, lifted) reads only; the writes keep the or
     s.call('post', { slug: 'arrays-and-lists', title: 'Arrays and lists', skill_level: 'beginner', sections: [] })
     expect(s.call('get').body.at(-1).slug).toBe('arrays-and-lists')
   })
+  it('a save stands when the renumber after it cannot write another subject: 200, the subject saved (round 1, finding 4); FAILING CONTROL: unguarded, the save answers an error', () => {
+    const refuseOthers = (real, from, to) => { if (!String(to).endsWith('arrays-and-lists.json')) throw Object.assign(new Error('EIO'), { code: 'EIO' }); return real(from, to) }
+    const s = liftSubjects({ fsPlant: { renameSync: refuseOthers } })
+    s.seed()
+    expect(s.call('post', { slug: 'arrays-and-lists', title: 'Arrays and lists', skill_level: 'beginner', sections: [] }).code).toBe(200)
+    expect(readJson(path.join(s.subjDir, 'arrays-and-lists.json')).title).toBe('Arrays and lists')
+    realFs.rmSync(path.join(dir, 'software'), { recursive: true, force: true })
+    const unguarded = extractRouteBody(MAIN, "expressApp.post('/api/software/:slug/subjects',")
+      .replace("try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }", 'renumberSubjects(req.params.slug);')
+    const t = liftSubjects({ postSource: unguarded, fsPlant: { renameSync: refuseOthers } })
+    t.seed()
+    expect(() => t.call('post', { slug: 'arrays-and-lists', title: 'Arrays and lists', skill_level: 'beginner', sections: [] })).toThrow(/EIO/)
+  })
+  it('a PUT that changes a title moves the subject to its new curriculum place; FAILING CONTROL: the PUT without the renumber leaves it where it was', () => {
+    const run = (putSource) => {
+      realFs.rmSync(path.join(dir, 'software'), { recursive: true, force: true })
+      const s = liftSubjects({ putSource })
+      s.seed()
+      s.routes.renumberSubjects('resolve')
+      const was = s.call('get').body.findIndex((x) => x.slug === 'delivering-a-dcp')
+      expect(s.call('put', { title: 'Project setup basics', skill_level: 'beginner', sections: [] }, 'delivering-a-dcp').code).toBe(200)
+      return [was, s.call('get').body.findIndex((x) => x.slug === 'delivering-a-dcp')]
+    }
+    const [was, now] = run()
+    expect(now).toBeLessThan(was)
+    const unguarded = extractRouteBody(MAIN, "expressApp.put('/api/software/:slug/subjects/:sub',")
+      .replace("try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }", '')
+    const [was2, now2] = run(unguarded)
+    expect(now2).toBe(was2)
+  })
   it('a subject file that cannot be read is listed (by its slug, last) and never written over; FAILING CONTROL: the tip overwrote it', () => {
     const s = liftSubjects()
     s.seed()
@@ -587,23 +648,29 @@ describe('main.cjs — the project PATCH, the writers, the body limit', () => {
   const replay = (body) => {
     const made = []
     const bundle = { project: { id: 'p1', title: 'Salt Hours', folder_root: null, folder_slug: 'Salt-Hours' }, budgetVersions: [] }
-    const handler = patchRoute(body)(() => bundle, () => {}, () => {}, (p) => ({ resolved: p }), (s) => String(s), path,
+    const handler = patchRoute(body)(() => bundle, () => made.push('written'), () => {}, (p) => ({ resolved: p }), (s) => String(s), path,
       { existsSync: () => false }, () => null, () => false, () => {}, (b) => made.push(b.project.folder_root), { error: () => {} })
     handler({ params: { id: 'p1' }, body: { folder_root: path.join(dir, 'NAS', 'Salt-Hours') }, query: {} }, { status() { return this }, json() { return this } })
     return made
   }
   const PATCH = extractRouteBody(MAIN, "expressApp.patch('/api/rabbit/projects/:id',")
-  it('a PATCH to a new place makes the five sub-folders there (the next read did; a kept read does not)', () => {
-    expect(replay(PATCH)).toEqual([path.join(dir, 'NAS', 'Salt-Hours')])
+  it('a PATCH to a new place makes the five sub-folders there (the next read did; a kept read does not), after the write that names an empty slug (round 1, finding 2)', () => {
+    expect(replay(PATCH)).toEqual(['written', path.join(dir, 'NAS', 'Salt-Hours')])
   })
   it('FAILING CONTROL: the PATCH without that call makes none', () => {
-    expect(replay(PATCH.replace('ensureProjectFolders(bundle);', ''))).toEqual([])
+    expect(replay(PATCH.replace("try { ensureProjectFolders(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }", ''))).toEqual(['written'])
+  })
+  it('a new project is created with its Legal clean-up settled, before its first write (round 1, finding 3)', () => {
+    const post = extractRouteBody(MAIN, "expressApp.post('/api/rabbit/projects',")
+    const at = post.indexOf('bundle.legalLabelsSettled = { at: now, stripped: [] };')
+    expect(at).toBeGreaterThan(post.indexOf('const bundle = emptyBundle(project);'))
+    expect(at).toBeLessThan(post.indexOf('writeRabbitBundle(project.id, bundle);'))
   })
   it('every JSON file main.cjs writes goes through the one writer: the only writeFileSync left write bytes (a thumbnail, the sealed session)', () => {
     const left = MAIN.split('\n').filter((l) => l.includes('writeFileSync(')).map((l) => l.trim())
     expect(left).toEqual(['fs.writeFileSync(thumbPath, buf);', 'fs.writeFileSync(getSessionPath(), encrypted);'])
     expect(MAIN).not.toMatch(/renameSync\([^)]*\.part/)
-    expect(extractFunction(MAIN, 'writeJSON')).toMatch(/return writeJsonAtomic\(filePath, data\);/)
+    expect(extractFunction(MAIN, 'writeJSON')).toMatch(/return writeJsonAtomic\(filePath, data, opts\);/)
     expect(extractFunction(MAIN, 'archiveLocalRabbitData')).toMatch(/writeJsonAtomic\(archivePath, snapshot, \{ fs, durable: true \}\)/)
   })
   it('localDemoRoot.cjs writes its pointer and manifest through the same writer', () => {

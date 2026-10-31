@@ -244,15 +244,16 @@ let rabbitFileLocator = null;
 // Windows holds a file (electron/jsonFile.cjs says why). A crash mid-write
 // leaves the previous file, never a torn one that reads back as nothing.
 // readJSON keeps its shape: the file's value, or the fallback. writeJSON
-// returns the text it wrote (the bundle cache keeps it).
+// returns the text it wrote (the bundle cache keeps it); `opts` reach the
+// writer (a read's write-back tries once: build review round 1, finding 1).
 const { readJson, writeJsonAtomic, createKeptFiles, createChangeOnlyWriter } = require('./jsonFile.cjs');
 
 function readJSON(filePath, fallback = null) {
   return readJson(filePath, fallback);
 }
 
-function writeJSON(filePath, data) {
-  return writeJsonAtomic(filePath, data);
+function writeJSON(filePath, data, opts) {
+  return writeJsonAtomic(filePath, data, opts);
 }
 
 function slugify(str) {
@@ -885,8 +886,11 @@ function startLocalServer(distPath) {
       writeJSON(path.join(subjDir, `${subSlug}.json`), req.body);
       // F3: the order is kept by the writes now that the list only reads — a
       // new subject takes its curriculum place here, where the next list put
-      // it before. The answer is unchanged (no caller reads its number).
-      renumberSubjects(req.params.slug);
+      // it before. The answer is unchanged (no caller reads its number). A
+      // renumber that fails to write another subject does not fail this
+      // save, which has landed (build review round 1, finding 4); the next
+      // write renumbers again.
+      try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }
       res.json({ slug: subSlug, ...req.body });
     });
 
@@ -929,7 +933,9 @@ function startLocalServer(distPath) {
       delete body.slug; // the URL is authoritative; a stray slug must not fork the file
       if (body.subject_order == null) body.subject_order = existing.subject_order;
       writeJSON(filePath, body);
-      renumberSubjects(req.params.slug); // F3: a changed title can change its place
+      // F3: a changed title can change its place; a failed renumber does not
+      // fail the save (as the POST's).
+      try { renumberSubjects(req.params.slug); } catch (e) { console.error('subjects renumber failed:', e.message); }
       res.json({ slug: req.params.sub, ...body });
     });
 
@@ -1526,8 +1532,11 @@ function startLocalServer(distPath) {
         // The one per-read step that asks the disk (design round, finding 8):
         // with a demo folder open, a project folder outside it that has gone
         // since the load is rebased now, as every read did before.
+        // Tried once, and kept either way: a folder she can only read must not
+        // stall every read on a write that cannot land (build review round 1,
+        // finding 1); the next write persists it.
         if (rebaseGoneFolderRoot(kept, projectId)) {
-          try { rabbitBundles.keep(bundleFile, writeJSON(bundleFile, kept)); } catch { rabbitBundles.forget(bundleFile); }
+          try { rabbitBundles.keep(bundleFile, writeJSON(bundleFile, kept, { attempts: 1 })); } catch { rabbitBundles.keep(bundleFile, JSON.stringify(kept)); }
         }
         return kept;
       }
@@ -1570,11 +1579,15 @@ function startLocalServer(distPath) {
         try { materializeFolderDirs(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }
       }
       // F3: kept — after a dirty write the text written; otherwise the
-      // bundle's text with the stamp taken before the read. A failed write
-      // keeps nothing, so the next read loads, reconciles and tries the write
-      // again, as every read did before.
+      // bundle's text with the stamp taken before the read. The write-back
+      // is tried once, and a failed one still keeps the reconciled bundle
+      // with that stamp (the file is unchanged, so it still matches): on a
+      // folder she can only read, every read re-loading and failing the write
+      // stalled the window about 0.23 s (build review round 1, finding 1).
+      // The reconcile is deterministic, so the next disk load, or the next
+      // write, persists the same bundle.
       if (dirty) {
-        try { rabbitBundles.keep(bundleFile, writeJSON(rabbitBundlePath(projectId), bundle)); } catch { rabbitBundles.forget(bundleFile); }
+        try { rabbitBundles.keep(bundleFile, writeJSON(rabbitBundlePath(projectId), bundle, { attempts: 1 })); } catch { rabbitBundles.keep(bundleFile, JSON.stringify(bundle), stamp); }
       } else {
         rabbitBundles.keep(bundleFile, JSON.stringify(bundle), stamp);
       }
@@ -2570,6 +2583,12 @@ function startLocalServer(distPath) {
         updated_at:      now,
       };
       const bundle = emptyBundle(project);
+      // F3 (build review round 1, finding 3): a new project holds no label
+      // from S4a's period, so its one-time Legal clean-up is settled at birth.
+      // The first read settled it before; a read that finds the bundle kept
+      // runs no clean-up, which would wait for the next launch and then
+      // treat the Legal files added this session as S4a's.
+      bundle.legalLabelsSettled = { at: now, stripped: [] };
       // Create the project folder on disk if a root is configured
       // (Session 34: workspace root outranks the machine default).
       const rootDir = project.folder_root || resolveConfiguredRootDir();
@@ -2707,16 +2726,17 @@ function startLocalServer(distPath) {
       // means SCENES/ and SHOTS/ are now planned. Switching one OFF removes
       // nothing — a disabled category is simply absent from the plan, and
       // nothing here deletes (Audrey, 2026-08-03).
-      //
-      // F3: and the five sub-folders (ASSETS, _DATABASES, _FILES, INVOICES,
-      // LEGAL) at a new place — the next read made them before, and a read
-      // that finds the bundle kept no longer does.
       try {
         ensureProjectFolderRows(bundle, req.params.id);
         materializeFolderDirs(bundle);
-        ensureProjectFolders(bundle);
       } catch (e) { console.error('folder reconcile failed:', e.message); }
       writeRabbitBundle(req.params.id, bundle);
+      // F3: and the five sub-folders (ASSETS, _DATABASES, _FILES, INVOICES,
+      // LEGAL) at a new place — the next read made them before, and a read
+      // that finds the bundle kept no longer does. After the write, whose
+      // reconcile names a title that slugifies to nothing (build review
+      // round 1, finding 2: before it, bare _DATABASES and _FILES were made).
+      try { ensureProjectFolders(bundle); } catch (e) { console.error('folder reconcile failed:', e.message); }
       res.json(bundle.project);
     });
 

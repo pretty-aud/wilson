@@ -5197,13 +5197,23 @@ of a session — this section is limits by design, that file is faults.
   the share's file times (about 10 s); two machines writing one demo folder
   was already last-writer-wins. On FAT, whose times step in 2 s, a hand edit
   of the same size within 2 s of the app's own write is not seen until the
-  next write. The bundle is not synced to the disk before its rename: a
-  power cut can still lose the last write, as before (the migration's
-  archive is synced, because the live stores are removed after it). A
-  `<file>.tmp` left by a rename Windows refused holds the newer text until
-  the next write replaces it; nothing reads it. A mirror deleted by hand
-  returns at the next pass; one edited by hand stays until what it mirrors
-  changes.
+  next write. The bundle is not synced to the disk before its rename: after
+  a power cut the rename can land before the text, leaving a file of zeros
+  where the in-place write could leave a torn one (the migration's archive is
+  synced, because the live stores are removed after it). Replacing a file
+  needs every other program that holds it open to allow a delete (one that
+  does not makes the write fail where writing in place succeeded), and the
+  new file takes the folder's attributes and permissions, not the old
+  file's. A `<file>.tmp` left by a rename Windows refused holds the newer
+  text until the next write replaces it; nothing reads it, but in a
+  `_DATABASES` folder or beside a demo folder's `wilson-demo.json` she can
+  see it, and two machines writing one NAS demo folder share the name. A
+  read's write-back and a mirror are tried once (a folder she can only read
+  must not stall every request on the retries); a read-only bundle is kept
+  reconciled in memory and written by the next save. A mirror deleted by
+  hand returns at the next pass; one edited by hand, or written by another
+  machine, stays until what it mirrors changes. Past 64 MiB of projects the
+  list reads each from disk again, as before F3 (build review round 1).
 - **"Root unknown because the read failed" is not a modelled state** —
   last-known-good stands in for it (a transient Supabase blip must not
   retarget a machine onto its local default; the split-storage failure is

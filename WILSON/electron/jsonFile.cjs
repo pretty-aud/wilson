@@ -14,8 +14,12 @@
 // while Windows holds a file (an indexer or antivirus: EPERM, EBUSY, EACCES).
 // A crash of the app leaves the previous file whole. A `.tmp` left by a rename
 // refused past the retries holds the newer text; the next write replaces it,
-// and nothing reads it. No fsync unless asked (`durable`): a power cut can
-// still lose the last write, as it could before.
+// and nothing reads it. No fsync unless asked (`durable`): after a power cut
+// the rename can reach the disk before the text, leaving neither version (a
+// file of zeros), as the in-place write could leave a torn one before.
+// Replacing a file needs every other program that holds it open to allow a
+// delete, and the new file takes the folder's attributes, not the old file's
+// (build review round 1, finding 6).
 //
 // ── THE BUNDLES KEPT ────────────────────────────────────────────────────────
 //
@@ -87,7 +91,7 @@ function writeTextAtomic(file, text, { fs: fsImpl = nodeFs, pause = pauseSync, a
     }
     const fd = fsImpl.openSync(tmp, 'w');
     try {
-      fsImpl.writeSync(fd, text);
+      fsImpl.writeFileSync(fd, text); // loops until the whole text is written (build review round 1, finding 5)
       fsImpl.fsyncSync(fd);
     } finally {
       fsImpl.closeSync(fd);
@@ -192,7 +196,10 @@ function createKeptFiles({ fs: fsImpl = nodeFs, maxBytes = KEPT_BYTES } = {}) {
  * returns `(file, data) => wrote`, which writes `data` as JSON only when its
  * text differs from what this writer last wrote to `file`, or `file` is not in
  * the folder (removed by hand, a reset, a new project at the same path). A
- * write that throws records nothing, so the next pass writes again.
+ * write that throws records nothing, so the next pass writes again; so each
+ * is tried once, not held up by the retries (a mirror is derived, and a
+ * folder she can only read must not cost every write 0.2 s: build review
+ * round 1, finding 1).
  */
 function createChangeOnlyWriter({ fs: fsImpl = nodeFs, write = writeTextAtomic } = {}) {
   const last = new Map(); // key → sha1 of the text this writer put there
@@ -209,7 +216,7 @@ function createChangeOnlyWriter({ fs: fsImpl = nodeFs, write = writeTextAtomic }
         const digest = crypto.createHash('sha1').update(text).digest('hex');
         const key = keyOf(file);
         if (last.get(key) === digest && present.has(nodePath.basename(String(file)).toLowerCase())) return false;
-        write(file, text, { fs: fsImpl });
+        write(file, text, { fs: fsImpl, attempts: 1 });
         last.set(key, digest);
         return true;
       };
