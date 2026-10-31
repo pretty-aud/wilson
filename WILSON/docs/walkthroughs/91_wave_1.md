@@ -237,6 +237,8 @@ or you type the percentage you want. *(Recommended: nothing changes on a
 budget without you seeing it.)*
 (b) Find them and set them to 20% (a change to the stored data, for a later
 session; a typed 0 cannot be told apart, so those would change too).
+**Answered 2026-10-31, to the controller: (a), *"Leave them
+(Recommended)"*.** Nothing to build.
 
 **Q5. The Topsheet's expenses row and the client estimate now add the agency
 fee to the expenses, but the Expenses tab shows no fee at all ($21,260
@@ -245,6 +247,19 @@ tab show it?**
 (a) Yes: show the fee on the Expenses tab, so the pages agree.
 *(Recommended: one figure for what the expenses are bid at.)*
 (b) No: the Expenses tab shows what the expenses cost, before any fee.
+**Answered 2026-10-31, to the controller: (a), *"Yes, show it
+(Recommended)"*.** Built the same day:
+
+With the agency fee on, the Expenses tab has a fifth figure at the top,
+**Bid total**, beside *Estimated total*: what the expenses are bid at with
+the fee, and under it the fee itself. On the test project it reads $24,449,
+*with the $3,189 agency fee* (it showed only the $21,260 estimate), the
+same as the Topsheet's expenses row. With the fee off it does not show.
+Each expense's own figures, the *Variance* (−$316) and the over and under
+budget labels stay what the expenses cost against their estimate; the
+Topsheet's variance for the expenses is against the bid with the fee
+(−$3,505), as on the Crew and Talent tabs. **Look at:** Budget → Expenses on
+*Salt Hours*.
 
 ## F3 — The desktop's project file: kept in memory, saved whole
 

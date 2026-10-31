@@ -5612,7 +5612,9 @@ of a session — this section is limits by design, that file is faults.
   (`roleRates`: the card's day rate with burden and overhead, a project's own
   rate over it; her answer to Q2), and **the client estimate's agency fee on
   the crew and the expenses is a line of its own** (Q3; the talent line keeps
-  its fees, so nothing is counted twice; the Topsheet's expenses carry it).
+  its fees, so nothing is counted twice; the Topsheet's expenses carry it,
+  and the Expenses tab's *Bid total* tile shows it, Q5). The Expenses tab's
+  variance and over/under labels stay the cost against its estimate.
 - **A tab's Bid total is its subtotal plus the fees**; the margin and
   contingency it shows stand beside it, not in it (`lineMoney`'s
   `bidTotal`; OUTSTANDING F2-05). The Summary's overall total is the one
