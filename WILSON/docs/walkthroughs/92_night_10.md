@@ -260,10 +260,13 @@ the folder *92_night_10 pictures* beside this file:
   drag; nothing appeared in the console.
 - D.O.G.'s slide preview keeps exactly its width at the usual sidebar width,
   by its own pixel check at 1280 and 1440.
-- 37 new tests, 34 of them failing on the code before the change (the other
+- 48 new tests, 45 of them failing on the code before the change (the other
   three check that nothing else changed and that two of the checks can
-  fail); 85 deliberate mistakes planted one at a time in the new code, each
+  fail); 101 deliberate mistakes planted one at a time in the new code, each
   caught by a failing test.
+- In Windows High Contrast the line stays drawn while you point at it, drag
+  it or reach it with Tab (the first review found the orange band hid it
+  there; it is not drawn in High Contrast now).
 
 ### Seen and written down, not changed
 
