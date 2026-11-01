@@ -129,6 +129,15 @@ describe('nav columns', () => {
     expect(PAGES.filter((p) => p.adminOnly).map((p) => p.id)).toEqual(['admin-terminal'])
   })
 
+  // AT1 (2026-11-01): the Admin terminal runs edge to edge (`.at-page` has no
+  // cap, adminTerminalCss.test.js), so its header takes no measure either; a
+  // `data` measure here would put the title at x 660 above a nav at x 24 on a
+  // 2560 window. Page and header move together, as the registry says.
+  it('the Admin terminal is full-bleed, as Files is, header and page alike', () => {
+    expect(PAGE_BY_ID['admin-terminal'].measure ?? null).toBe(null)
+    expect(PAGE_BY_ID['project-files'].measure ?? null).toBe(null)
+  })
+
   it('renames the two colliding SETTINGS items (Q7, ruled); the tool half has left the strip (S2a, C6)', () => {
     expect(PAGE_BY_ID.settings.navLabel).toBe('App settings')
     expect(PAGE_BY_ID.settings.title).toBe('App settings')

@@ -501,3 +501,107 @@ describe('the invite row reflects the username typed into it', () => {
     expect(within(row).getByLabelText('Username for sam@example.com')).toBeTruthy()
   })
 })
+
+describe('AT1: the member panel\'s confirms open outside the panel', () => {
+  // 🚨 Audrey, 2026-11-01: "the pop up card asking to confirm should be in the
+  // center of the overall admin terminal not inside of the column". The panel
+  // enters with a transform, and a transformed ancestor is the containing block
+  // of the kit Dialog's fixed backdrop, so a confirm rendered INSIDE the panel
+  // was laid out in the panel's 239px column (measured at four sizes). jsdom has
+  // no layout; what decides it is the DOM, so that is what is asserted: no
+  // confirm is a descendant of `.at-detail-panel`. Before AT1 all four were.
+  const panel = () => document.querySelector('.at-detail-panel')
+  const dialog = () => document.querySelector('.ui-dialog')
+  const OPENERS = [
+    ['Reset password', () => screen.getByRole('button', { name: /^Reset password$/ })],
+    ['the view grant', () => screen.getByRole('switch', { name: 'Can view rate card' })],
+    ['the edit grant', () => screen.getByRole('switch', { name: 'Can edit rate card' })],
+    ['Deactivate', () => screen.getByRole('button', { name: /^Deactivate$/ })],
+  ]
+
+  it.each(OPENERS)('%s opens its confirm beside the panel, not inside it', (_, opener) => {
+    render(<UsersSection wm={wmFixture([{ ...GRACE, is_active: true }])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    const button = opener()
+    button.focus()
+    fireEvent.click(button)
+
+    expect(dialog()).not.toBeNull()
+    expect(panel()).not.toBeNull()
+    expect(panel().contains(dialog())).toBe(false)
+    // Beside it: the section holds both, so the confirm is still the panel's.
+    expect(document.querySelector('.at-users').contains(dialog())).toBe(true)
+  })
+
+  it('focus goes into the confirm and back to Reset password on Cancel; Escape closes only the confirm', () => {
+    const onClose = vi.fn()
+    render(<UsersSection wm={wmFixture([GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    const reset = screen.getByRole('button', { name: /^Reset password$/ })
+    reset.focus()
+    fireEvent.click(reset)
+    expect(dialog().contains(document.activeElement)).toBe(true)
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    expect(dialog()).toBeNull()
+    expect(document.activeElement).toBe(reset)
+
+    fireEvent.click(reset)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(dialog()).toBeNull()
+    expect(panel()).not.toBeNull()
+    void onClose
+  })
+
+  it('CONTROL: the same check sees a confirm drawn inside the panel', () => {
+    // The shape the panel had before AT1, as markup: the backdrop a child of
+    // the panel. The assertion above must read it as inside.
+    document.body.innerHTML = '<div class="at-users"><div class="at-detail-panel"><div class="ui-dialog-backdrop"><div class="ui-dialog"></div></div></div></div>'
+    expect(panel().contains(dialog())).toBe(true)
+    document.body.innerHTML = ''
+  })
+})
+
+describe('AT1: beside an open member, a narrow roster shows Member and Status', () => {
+  // The roster's six columns need 860 (`ROSTER_MIN`, the CSS floor). With the
+  // 560 panel open the roster's column is 424 at 1280 and 584 at 1440, so it
+  // draws the name and the status, and the six come back when the panel
+  // closes. jsdom has no ResizeObserver: a stub reports the width.
+  let width = 424
+  beforeEach(() => {
+    globalThis.ResizeObserver = class {
+      constructor(cb) { this.cb = cb }
+      observe(node) { this.cb([{ target: node, contentRect: { width } }]) }
+      disconnect() {}
+    }
+  })
+  afterEach(() => { delete globalThis.ResizeObserver })
+  const heads = () => [...document.querySelectorAll('table thead th')].map((th) => th.textContent.trim())
+  const SIX = ['Member', 'Username', 'Role', 'Rate access', 'Status', 'Joined']
+
+  it('two columns while a member is open at 424, six again once the panel closes', () => {
+    width = 424
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    expect(heads()).toEqual(SIX)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(['Member', 'Status'])
+    // Status is never dropped: the deactivated member still reads as such.
+    expect(within(rosterRow('Grace Hopper')).getByText('Deactivated')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close (Esc)' }))
+    expect(heads()).toEqual(SIX)
+  })
+
+  it('six columns at 1064 (1920) with a member open', () => {
+    width = 1064
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(SIX)
+  })
+
+  it('CONTROL: at 860 exactly the six fit and stay', () => {
+    width = 860
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(SIX)
+  })
+})

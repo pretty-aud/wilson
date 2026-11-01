@@ -45,15 +45,22 @@
      padding, so its first column started 32px in while the page title in the
      orange bar above started at 24px. The measure is the data cap PLUS the
      one gutter outside it, which is the arithmetic `PageHeader` does with
-     `measure="data"`, so the title sits directly above the first row. */
+     `measure="data"`, so the title sits directly above the first row.
+
+     AT1 (2026-11-01, Audrey: "make it wider there is a lot empty space to the
+     sides"): NO CAP NOW, the Files rule. The page owns the field edge to edge
+     with the one gutter, and its registry entry (`src/layout/pages.js`) takes
+     no measure, so the header's title sits at the gutter above the nav. The
+     two move together or AT-29's misalignment comes back. Measured: the empty
+     margins were 24 / 100 / 340 / 660 at 1280 / 1440 / 1920 / 2560, and are
+     24 at every size. Company, Diagnostics and Storage keep the reading
+     measure inside it; Models takes the data cap of its own (below). */
   .at-page {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
     width: 100%;
-    max-width: calc(var(--width-data-max) + 2 * var(--spacing-gutter));
-    margin: 0 auto;
     padding: 16px var(--spacing-gutter) var(--spacing-gutter);
   }
   .at-page-gate { justify-content: center; }
@@ -348,12 +355,18 @@
      to (0,1,1). The same applies to `.at-input-grow` and, on specificity
      rather than order, to `textarea.at-note-field` against
      `textarea.ui-input`. */
-  input.at-search-input { width: 260px; flex: 0 0 auto; }
+  /* AT1: it may shrink to 160. With a member open at 1280 the roster's column
+     is 424 wide, and a fixed 260 ran under the three status chips (measured). */
+  input.at-search-input { width: 260px; flex: 0 1 auto; min-width: 160px; }
 
   /* The width below which the roster stops fitting and starts scrolling.
      Derived, not chosen: the six columns' longest real strings plus their
-     cell padding. See the note on `COLS` in `UsersSection.jsx`. */
+     cell padding. See the note on `COLS` in `UsersSection.jsx`, and its
+     `ROSTER_MIN`, which is this number: below it, with a member open, the
+     roster draws two columns (AT1), and the compact table's own floor is
+     Member's 160 plus Status's 140. */
   .at-roster { min-height: 0; min-width: 860px; }
+  .at-roster.at-roster-compact { min-width: 300px; }
   .at-roster-scroll { flex: 1; min-height: 0; }
   /* 🚨 THE ROSTER ROW'S TWO STATES HAVE NO RULE HERE, ON PURPOSE. `selected`
      and `inactive` are the kit `Row`'s own props and `index.css` paints them:
@@ -391,14 +404,17 @@
   /* ═══ THE MEMBER DETAIL PANEL ══════════════════════════════════════════ */
   .at-detail-panel {
     flex-shrink: 0;
-    /* 🚨 `--panel-md`, UNCONDITIONALLY, AND NO BREAKPOINT. `.at-page` is
-       capped at the data measure, so the section pane saturates at about
-       1016px and stops growing — while a viewport media query kept widening
-       the panel past it. A window 1px wider than 1320 therefore took 60px
-       away from the roster and never gave it back, which made the table
-       NARROWEST at the plan's own 1440x900 reference size. `panel-lg` never
-       pays for itself on a page that cannot grow. */
-    width: var(--panel-md);
+    /* AT1 (Audrey: "the member details should fit and static not able to
+       scroll"): the form width, in two columns (`.at-panel-cols`). At
+       `--panel-md` one column of the real content was 678px tall against
+       512 at 1280x800, and the security grid's 73px value column pushed the
+       panel 34px sideways, which cut the left edge of every label. At 560
+       the worst case measured is 392 (the desktop's 1280x800 gives ~480).
+       The old note here ("--panel-md, UNCONDITIONALLY, AND NO BREAKPOINT")
+       held only while the page was capped; the page is uncapped now, so the
+       viewport query below is exact. `overflow-y: auto` stays as the
+       fallback below the target, so nothing is ever unreachable. */
+    width: var(--dialog-form);
     margin-left: var(--spacing-gutter);
     padding-left: var(--spacing-gutter);
     border-left: 1px solid var(--color-rule);
@@ -413,10 +429,42 @@
     transition: opacity var(--duration-panel) var(--ease-response),
                 transform var(--duration-panel) var(--ease-response);
   }
-  .at-detail-panel[data-entered='true'] { opacity: 1; transform: translateX(0); }
+  /* 🚨 `none` AT REST, NOT `translateX(0)` (AT1). Any transform but `none`
+     makes the panel the containing block of a `position: fixed` descendant,
+     and the kit Dialog's backdrop is one: Reset password's confirm was laid
+     out inside the panel, 239px wide and centred on the column (measured at
+     all four sizes; with `none` the same confirm covered the window). The
+     confirms are siblings of the panel now as well (UsersSection.jsx); this
+     keeps any later fixed child of the panel safe too. `none` interpolates
+     as the identity, so the 8px slide looks the same. */
+  .at-detail-panel[data-entered='true'] { opacity: 1; transform: none; }
   @media (prefers-reduced-motion: reduce) {
     .at-detail-panel { transition: none; opacity: 1; transform: none; }
   }
+  /* The two columns under the full-width head: who they are and what they
+     can do (Identity, Access) on the left, their account (Security, Reset
+     password, Danger zone) on the right. */
+  .at-panel-cols {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--spacing-gutter);
+    align-items: start;
+  }
+  .at-panel-col { min-width: 0; }
+  /* Below the target width (1280) the panel narrows to the drawer width and
+     stacks its two columns; it scrolls there, never sideways (1024x700, the
+     desktop's smallest window, measured 669 of content in 452). The 20 is the
+     gap the Security label always had above it. */
+  @media (max-width: 1279px) {
+    .at-detail-panel { width: var(--panel-xl); }
+    .at-panel-cols { grid-template-columns: minmax(0, 1fr); row-gap: 20px; }
+  }
+  /* Scoped to the panel: Diagnostics shares `.at-sec-row` and its "WILSON
+     VERSION" needs the 120 track (V2). Here 96 holds "LAST SIGN-IN" on one
+     line and leaves the value 147px, wider than the widest badge (107), and
+     the value wraps a badge under the email instead of pushing it out. */
+  .at-detail-panel .at-sec-row { grid-template-columns: 96px minmax(0, 1fr); }
+  .at-detail-panel .at-sec-value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
   .at-panel-head {
     display: flex;
     align-items: flex-start;
@@ -440,6 +488,8 @@
     font-weight: 600;
     color: var(--color-ink);
     min-width: 0;
+    /* A long name and its YOU badge wrap in a 255px column (AT1). */
+    flex-wrap: wrap;
   }
   .at-identity-handle {
     font-family: var(--font-mono);
@@ -457,10 +507,12 @@
      surface used for the same idea. */
   .at-toggle-row[data-disabled='true'] .at-row-label { color: var(--color-ink-3); }
 
+  /* AT1: it ends the right column now, so 16 above and nothing below; the
+     rule and its own 12px still set it apart. */
   .at-danger-zone {
-    margin-top: 24px;
+    margin-top: 16px;
     padding-top: 12px;
-    padding-bottom: 24px;
+    padding-bottom: 0;
     border-top: 1px solid var(--color-rule);
   }
   .at-danger-label {
@@ -505,7 +557,10 @@
      its own scroller — one either way, never two. Its 28 rows are a list of
      three columns, so it takes the data cap with Users, Requests and Logs
      (P1-48; it was 900px). */
-  .at-models { overflow-y: auto; padding-bottom: 24px; }
+  /* AT1: the page is uncapped now, so Models takes the data cap itself: at
+     2560 its name column would sit ~1840px from the select that changes it.
+     1240 is wider than it ever rendered, so no row shortens. */
+  .at-models { overflow-y: auto; padding-bottom: 24px; max-width: var(--width-data-max); }
   /* Storage is a stack of cards and pickers, not a table: the form measure,
      not the data cap. */
   /* Same as `.at-section-narrow`: the wrapper scrolls this one. */
