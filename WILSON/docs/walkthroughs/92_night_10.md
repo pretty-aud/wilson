@@ -150,18 +150,22 @@ space, as measured above.
 
 ### Questions
 
-The work is built on the recommended answer to each; say if you want the
-other.
+Both answered 2026-11-01, in the session, as multiple choice; both are what
+was built, so nothing changed.
 
 - **Q1. How wide should the admin terminal go on a big screen?** (a) Edge to
   edge, with the same small margin the Files page has (Recommended, built).
   (b) Wider than it was, but stopping short on very large screens, leaving
-  some margin either side.
+  some margin either side. **Answered 2026-11-01: (a), "Edge to edge
+  (Recommended)".**
 - **Q2. On a laptop-sized window, while someone's details are open, what
   should the list beside them show?** (a) Just each person's name and whether
   they are active; the other columns come back when you close the details
   (Recommended, built). (b) All the columns, scrolling sideways to reach the
-  ones that do not fit.
+  ones that do not fit. **Answered 2026-11-01: (a), "Name and status
+  (Recommended)".**
+
+No question is open.
 
 ## SB1 — drag a sidebar's edge to set its width, in O.T.T.E.R. and D.O.G.
 
