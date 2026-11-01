@@ -383,13 +383,61 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     // AT-25: named properties, a symmetric exit, and a scoped reduced-motion
     // gate. A blanket rule in index.css would kill the pet (C5).
     [/\.at-detail-panel\s*\{[^}]*transition:\s*opacity var\(--duration-panel\) var\(--ease-response\),\s*transform var\(--duration-panel\) var\(--ease-response\)/, 'AT-25 named-property panel motion'],
-    [/\.at-detail-panel\[data-entered='true'\]\s*\{\s*opacity:\s*1;\s*transform:\s*translateX\(0\)/, 'panel entered end state'],
+    // AT1: `none` at rest, never `translateX(0)` — any other transform makes
+    // the panel the containing block of a fixed descendant (the confirm).
+    [/\.at-detail-panel\[data-entered='true'\]\s*\{\s*opacity:\s*1;\s*transform:\s*none;?\s*\}/, 'panel entered end state, no transform at rest'],
     [/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.at-detail-panel \{ transition: none;/, 'AT-25 reduced-motion gate'],
-    // AT-29: the measure is the data cap PLUS one gutter, the same arithmetic
-    // `PageHeader` does with `measure="data"` — they have to agree or the
-    // title and the first row sit on two different vertical lines.
-    [/\.at-page\s*\{[^}]*max-width:\s*calc\(var\(--width-data-max\) \+ 2 \* var\(--spacing-gutter\)\)/, 'AT-29 page measure'],
+    // AT1: the member panel at the form width, in two columns, and the
+    // drawer width in one column below 1220 (where the Users toolbar beside the two
+    // columns stops fitting, measured). `width` anchored, so
+    // a `min-width` or `max-width` of the same token does not pass for it.
+    [/\.at-detail-panel\s*\{[^}]*(?<![\w-])width:\s*var\(--dialog-form\)/, 'AT1 panel at the form width'],
+    [/\.at-panel-cols\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, 'AT1 two columns'],
+    [/@media \(max-width: 1219px\)\s*\{\s*\.at-detail-panel \{ width: var\(--panel-xl\); \}\s*\.at-panel-cols \{ grid-template-columns: minmax\(0, 1fr\);/, 'AT1 one column below 1220'],
+    // AT1: the panel's security grid gives its value 147px, wider than the
+    // widest badge, and wraps a badge under the email (it scrolled sideways).
+    [/\.at-detail-panel \.at-sec-row\s*\{\s*grid-template-columns:\s*96px minmax\(0, 1fr\)/, 'AT1 panel label track'],
+    [/\.at-detail-panel \.at-sec-value\s*\{[^}]*flex-wrap:\s*wrap/, 'AT1 panel value wraps'],
+    [/\.at-roster\.at-roster-compact\s*\{\s*min-width:\s*300px/, 'AT1 compact roster floor'],
+    // Review round 2: at 160 the search ran under the status chips from 1160
+    // to ~1265; 120 clears them from 1220, where the two columns begin.
+    [/input\.at-search-input\s*\{[^}]*flex:\s*0 1 auto;\s*min-width:\s*120px/, 'AT1 search shrinks to 120'],
+    [/@media \(max-width: 1219px\)\s*\{[^@]*input\.at-search-input \{ min-width: 80px; \}/, 'AT1 search shrinks to 80 at 1024'],
   ]
+
+  // AT1 (Audrey: "make it wider"): the page has NO cap now, the Files rule;
+  // its registry entry takes no measure (pages.test.js), so the title still
+  // sits above the first column (AT-29's point). Every rule whose selector
+  // names `.at-page` is read, so a cap cannot come back in a second rule.
+  const pageCaps = (sheet) => allRules(sheet)
+    .filter((r) => !r.sel.startsWith('@') && splitTop(r.sel).some((s) => /\.at-page(?![\w-])/.test(s)))
+    .flatMap((r) => decls(r.body).filter(([p, v]) => p === 'max-width' || (p === 'margin' && /auto/.test(v))).map(([p, v]) => `${p}: ${v}`))
+  it('AT1: the page takes no cap and no centring margin', () => {
+    expect(pageCaps(cssCode)).toEqual([])
+  })
+  it('CONTROL: the old cap, a second rule and a centring margin are each caught', () => {
+    expect(pageCaps('.at-page { max-width: calc(var(--width-data-max) + 2 * var(--spacing-gutter)); margin: 0 auto; }')).toHaveLength(2)
+    expect(pageCaps(`${cssCode}\n.at-page, .x { max-width: 1px; }`)).toEqual(['max-width: 1px'])
+    expect(pageCaps(`${cssCode}\n.at-page { margin: 0 auto; }`)).toEqual(['margin: 0 auto'])
+  })
+  // The bare `.at-sec-row` keeps its 120 track: Diagnostics' "WILSON VERSION"
+  // needs it (V2), so AT1's 96 must stay scoped to the panel.
+  it('AT1: the narrower security track is the panel\'s alone', () => {
+    const bare = allRules(cssCode).filter((r) => splitTop(r.sel).some((s) => s.trim() === '.at-sec-row'))
+    expect(bare.flatMap((r) => decls(r.body).filter(([p]) => p === 'grid-template-columns').map(([, v]) => v))).toEqual(['120px 1fr'])
+  })
+  it('CONTROL: the AT1 pins fail on the sheet as it was', () => {
+    const was = cssCode
+      .replace(/transform:\s*none;\s*\}(\s*@media \(prefers)/, 'transform: translateX(0); }$1')
+      .replace('width: var(--dialog-form)', 'width: var(--panel-md)')
+      .replace('.at-detail-panel .at-sec-row { grid-template-columns: 96px minmax(0, 1fr); }', '')
+    expect(was).not.toMatch(DECLARATIONS.find(([, n]) => n.startsWith('panel entered'))[0])
+    expect(was).not.toMatch(DECLARATIONS.find(([, n]) => n === 'AT1 panel at the form width')[0])
+    expect(was).not.toMatch(DECLARATIONS.find(([, n]) => n === 'AT1 panel label track')[0])
+    // Review round 1: the width pin read `max-width: var(--dialog-form)` as the width.
+    const capped = cssCode.replace('width: var(--dialog-form);', 'max-width: var(--dialog-form);')
+    expect(capped).not.toMatch(DECLARATIONS.find(([, n]) => n === 'AT1 panel at the form width')[0])
+  })
 
   it.each(DECLARATIONS)('pins %#: %s', (pattern) => {
     expect(cssCode).toMatch(pattern)
@@ -1340,11 +1388,13 @@ describe('the Admin Terminal has two measures and one load-error treatment (P1-4
     storage: widthsOf(sheet, '.at-storage'),
     models: widthsOf(sheet, '.at-models'),
   })
-  it('Company, Diagnostics and Storage take the reading measure; Models the data cap with the tables', () => {
+  // AT1: the page lost its cap, so Models takes the data cap itself (a name
+  // ~1840px from its select at 2560 otherwise); the tables take the pane.
+  it('Company, Diagnostics and Storage take the reading measure; Models the data cap, the tables the full pane', () => {
     expect(widths(cssCode)).toEqual({
       narrow: { rules: 1, maxWidths: ['var(--width-reading)'] },
       storage: { rules: 1, maxWidths: ['var(--width-reading)'] },
-      models: { rules: 1, maxWidths: [] },
+      models: { rules: 1, maxWidths: ['var(--width-data-max)'] },
     })
   })
   // NESTING, not order (V2 trap 15): from `{loadError && (` to the message,
@@ -1384,7 +1434,7 @@ describe('the Admin Terminal has two measures and one load-error treatment (P1-4
       ':is(.at-models) { max-width: 900px; }',
     ]) expect(widths(`${cssCode}\n  ${plant}`).models.maxWidths, plant).toContain('900px')
     // A width on something INSIDE Models is not a cap on Models.
-    expect(widths(`${cssCode}\n  .at-models .at-model-row { max-width: 900px; }`).models.maxWidths).toEqual([])
+    expect(widths(`${cssCode}\n  .at-models .at-model-row { max-width: 900px; }`).models.maxWidths).toEqual(['var(--width-data-max)'])
     // And a sheet that lost the rule is not read as "no cap".
     expect(widths('.at-other { max-width: 1px; }').models.rules).toBe(0)
     expect(loadErrorInBanner(`{loadError && (

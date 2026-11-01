@@ -17,7 +17,7 @@
 // trigger, admin-* functions). UI gates are presentation only.
 // =============================================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Users, Search, X, UserPlus, KeyRound, Power, ChevronDown,
 } from 'lucide-react'
@@ -68,9 +68,9 @@ const ADD_MENU_WIDTH = 240
 // was therefore inert.
 //
 // 🚨 PERCENTAGES ALONE CANNOT SATISFY SIX COLUMNS HERE, and two rounds of
-// rebalancing them proved it rather than fixing it. The page is capped at the
-// data measure, so the section pane saturates near 1016px whatever the window
-// does; with the detail panel open the table gets about 752. Measured against
+// rebalancing them proved it rather than fixing it. The page was capped at the
+// data measure then (AT1 uncapped it), so the section pane saturated near 1016px
+// whatever the window did; with the detail panel open the table got about 752. Measured against
 // the longest real string in each column — `Mara Okonkwo` plus its YOU badge,
 // `kenji.morimoto`, `Manager`, the RATE ACCESS header, `Deactivated`,
 // `May 10, 2026` — the six minimums sum to about 101 percent of 752. There is
@@ -84,6 +84,49 @@ const ADD_MENU_WIDTH = 240
 // tab, and `.ui-badge` is `white-space: nowrap`, so a short column does not
 // ellipsise it, it cuts the pill.
 const COLS = ['31%', '16%', '10%', '12%', '16%', '15%']
+
+// AT1: the width under which the six columns cannot fit — the same number as
+// `.at-roster { min-width: 860px }` in adminTerminal.css. While a member is open
+// and the roster's column is narrower than this (1280 and 1440 beside the 560
+// panel: 424 and 584), the roster draws two columns, Member and Status. The four
+// it drops are what the panel shows for the open member, and they come back when
+// the panel closes; Status is never dropped. From 1920 the six never leave.
+const ROSTER_MIN = 860
+// The compact table's Status column: the widest pill, "Deactivated", is 108
+// (measured) inside the cell's 12px padding either side, with room to spare.
+const COMPACT_STATUS_WIDTH = '140px'
+
+/**
+ * Whether `ref`'s element is narrower than `ROSTER_MIN`. A boolean, not the
+ * width, so dragging the window re-renders the roster only when it crosses.
+ *
+ * 🚨 MEASURED IN A LAYOUT EFFECT ON `key` TOO (AT1 review round 1). The
+ * ResizeObserver's answer is a normal update, painted a frame late: one frame
+ * after a row click showed the six columns squeezed into 424 and scrolling
+ * sideways. Measuring before paint when the selection changes closes that; the
+ * observer keeps it right while the window is resized. jsdom has no layout (a
+ * width of 0) and no ResizeObserver; both are skipped there.
+ */
+function useNarrow(ref, key) {
+  const [narrow, setNarrow] = useState(false)
+  useLayoutEffect(() => {
+    const w = ref.current?.getBoundingClientRect().width
+    if (w) setNarrow(w < ROSTER_MIN)
+  }, [ref, key])
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof ResizeObserver === 'undefined') return undefined
+    // A width of 0 is a page hidden by display, not a narrow one (review round
+    // 2): skipped, as the layout effect skips it.
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry.contentRect.width
+      if (w) setNarrow(w < ROSTER_MIN)
+    })
+    ro.observe(node)
+    return () => ro.disconnect()
+  }, [ref])
+  return narrow
+}
 
 function fmtDate(iso) {
   if (!iso) return '--'
@@ -124,6 +167,8 @@ export default function UsersSection({ wm }) {
   const [dialog, setDialog] = useState(null)   // 'invite' | 'create' | null
   const [creds, setCreds] = useState(null)     // { username, password, context } | null
   const addBtnRef = useRef(null)
+  const mainRef = useRef(null)
+  const narrow = useNarrow(mainRef, selectedId)
 
   // Roster liveness: workspace_members changes (and full RESYNCs after a
   // reconnect) debounce into a directory reload — Dashboard pattern.
@@ -203,6 +248,8 @@ export default function UsersSection({ wm }) {
   const selectedMember = selectedId
     ? wm.members.find(m => m.user_id === selectedId) || null
     : null
+  // No loop: compact changes the table, not the width of the column it sits in.
+  const compact = !!selectedMember && narrow
 
   function handleCreated(data, extra) {
     setDialog(null)
@@ -215,7 +262,7 @@ export default function UsersSection({ wm }) {
 
   return (
     <div className="at-section at-users">
-      <div className="at-users-main">
+      <div className="at-users-main" ref={mainRef}>
         <SectionTitle
           description="Everyone with an account in this workspace. Select a row to open their detail panel."
           actions={(
@@ -307,9 +354,14 @@ export default function UsersSection({ wm }) {
           />
         ) : (
           <Table
-            className="at-roster"
+            className={`at-roster${compact ? ' at-roster-compact' : ''}`}
             scrollClassName="at-roster-scroll"
-            head={(
+            head={compact ? (
+              <Row>
+                <Th>Member</Th>
+                <Th width={COMPACT_STATUS_WIDTH}>Status</Th>
+              </Row>
+            ) : (
               <Row>
                 <Th width={COLS[0]}>Member</Th>
                 <Th width={COLS[1]}>Username</Th>
@@ -358,13 +410,13 @@ export default function UsersSection({ wm }) {
                     {m.user_id === wm.userId && <Badge>You</Badge>}
                   </span>
                 </Td>
-                <Td><span className="at-mono">{m.username}</span></Td>
-                <Td>{ROLE_LABELS[m.app_role] || m.app_role || '--'}</Td>
-                <Td><GrantChips member={m} /></Td>
+                {!compact && <Td><span className="at-mono">{m.username}</span></Td>}
+                {!compact && <Td>{ROLE_LABELS[m.app_role] || m.app_role || '--'}</Td>}
+                {!compact && <Td><GrantChips member={m} /></Td>}
                 <Td>
                   <StatusBadge status={m.is_active ? 'active' : 'offline'} label={m.is_active ? 'Active' : 'Deactivated'} />
                 </Td>
-                <Td><span className="at-mono">{fmtDate(m.created_at)}</span></Td>
+                {!compact && <Td><span className="at-mono">{fmtDate(m.created_at)}</span></Td>}
               </Row>
             ))}
           </Table>
@@ -426,9 +478,15 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
   }, [])
 
   // Escape closes the panel — unless a modal owns the key right now.
+  // 🚨 `defaultPrevented` TOO (AT1 review round 1, measured with a real key
+  // press): the confirm's Dialog answers Escape on `document`, its close
+  // (`setModal(null)`) is flushed with its effects in the microtask before the
+  // event reaches `window`, and by then this listener is attached again — so one
+  // Escape closed the confirm AND the panel, focus falling to <body>. The Dialog
+  // marks the Escape it answers handled (Dialog.jsx, A2), and so stands this down.
   useEffect(() => {
     if (escapeDisabled || modal) return undefined
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [escapeDisabled, modal, onClose])
@@ -472,127 +530,145 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
       .finally(() => { if (mountedRef.current) setGrantBusy(null) })
   }
 
+  // 🚨 A FRAGMENT: THE CONFIRMS ARE SIBLINGS OF THE PANEL, NOT CHILDREN (AT1).
+  // The panel enters with a transform, and a transformed ancestor is the
+  // containing block of a `position: fixed` box, so the kit Dialog's backdrop
+  // was laid out inside the panel: Audrey's "the pop up card asking to confirm
+  // should be in the center of the overall admin terminal not inside of the
+  // column". Out here they sit beside the section's own three dialogs and centre
+  // on the window like every other kit Dialog. The state stays in this
+  // component, so Escape, the backdrop and the focus return are unchanged. The
+  // kit Dialog does not portal (kit request B4-KR-2); a sibling of the host is
+  // the house answer (B3c).
   return (
-    <div
-      className="at-detail-panel wilson-dark-scroll"
-      data-entered={String(entered)}
-    >
-      <div className="at-panel-head">
-        <span className="at-panel-head-label">Member detail</span>
-        <IconButton size="sm" Icon={X} title="Close (Esc)" onClick={onClose} />
-      </div>
-
-      {/* IDENTITY */}
-      <GroupLabel>Identity</GroupLabel>
-      <div className="at-identity">
-        <Avatar member={member} size={40} />
-        <div className="at-identity-text">
-          <div className="at-identity-name">
-            {name}
-            {isSelf && <Badge>You</Badge>}
-          </div>
-          <div className="at-identity-handle">@{member.username}</div>
+    <>
+      <div
+        className="at-detail-panel wilson-dark-scroll"
+        data-entered={String(entered)}
+      >
+        <div className="at-panel-head">
+          <span className="at-panel-head-label">Member detail</span>
+          <IconButton size="sm" Icon={X} title="Close (Esc)" onClick={onClose} />
         </div>
-      </div>
-      <div className="at-identity-meta">
-        {[member.title, member.department].filter(Boolean).join(' · ') || '--'}
-      </div>
-      <div className="at-identity-joined">
-        Joined {fmtDate(member.created_at)}
-      </div>
 
-      {/* ACCESS */}
-      <GroupLabel>Access</GroupLabel>
-      <div className="at-row">
-        <span className="at-row-label">Role</span>
-        {isSelf ? (
-          <span className="at-row-value" title="Ask another admin to change your role.">
-            {ROLE_LABELS[member.app_role] || member.app_role}
-          </span>
-        ) : (
-          <Select
-            size="sm"
-            value={member.app_role}
-            onChange={(v) => wm.setRole(member.user_id, v).catch(() => {})}
-            options={ROLE_OPTIONS}
-            aria-label={`Role for ${name}`}
-          />
-        )}
-      </div>
-      {isSelf && <p className="at-note">Ask another admin to change your role.</p>}
-      <ToggleRow
-        label="Can view rate card"
-        on={grantView || grantEdit}
-        busy={grantBusy === 'view'}
-        disabled={grantEdit}
-        note={grantEdit ? 'Included with edit access' : null}
-        onToggle={() => setModal({ kind: 'grant', key: 'view', next: !grantView })}
-      />
-      <ToggleRow
-        label="Can edit rate card"
-        on={grantEdit}
-        busy={grantBusy === 'edit'}
-        onToggle={() => setModal({ kind: 'grant', key: 'edit', next: !grantEdit })}
-      />
+        {/* Two columns (AT1, "see everything on a fitted area"): who they are
+            and what they can do; then their account. */}
+        <div className="at-panel-cols">
+          <div className="at-panel-col">
+            {/* IDENTITY */}
+            <GroupLabel>Identity</GroupLabel>
+            <div className="at-identity">
+              <Avatar member={member} size={40} />
+              <div className="at-identity-text">
+                <div className="at-identity-name">
+                  {name}
+                  {isSelf && <Badge>You</Badge>}
+                </div>
+                <div className="at-identity-handle">@{member.username}</div>
+              </div>
+            </div>
+            <div className="at-identity-meta">
+              {[member.title, member.department].filter(Boolean).join(' · ') || '--'}
+            </div>
+            <div className="at-identity-joined">
+              Joined {fmtDate(member.created_at)}
+            </div>
 
-      {/* SECURITY */}
-      <div className="mt-5">
-        <GroupLabel>Security</GroupLabel>
-      </div>
-      {secLoading ? (
-        <Loading label="Loading security info" />
-      ) : secError ? (
-        <Banner tone="danger">{secError}</Banner>
-      ) : security ? (
-        <div className="at-sec-group">
-          <SecRow label="Email">
-            <span className="at-mono at-break">{security.email || '--'}</span>
-            {typeof security.email === 'string' && security.email.endsWith('@mail.petalstudios.co') && (
-              <Badge title="Synthesized address — this account cannot receive mail">no real inbox</Badge>
-            )}
-          </SecRow>
-          <SecRow label="Last sign-in">
-            <span className="at-mono" title={security.last_sign_in_at || ''}>{timeAgo(security.last_sign_in_at)}</span>
-          </SecRow>
-          <SecRow label="MFA">
-            {/* A dot plus its own word, from the one source that decides a
-                status colour (AT-30). The enrolled/not-enrolled pair used to
-                be two hand-written fills, one of them a green that appears
-                nowhere else on the surface. */}
-            <StatusBadge
-              tone={security.mfa_enrolled ? 'success' : 'neutral'}
-              label={security.mfa_enrolled ? `Enrolled (${security.factor_count})` : 'Not enrolled'}
+            {/* ACCESS */}
+            <GroupLabel>Access</GroupLabel>
+            <div className="at-row">
+              <span className="at-row-label">Role</span>
+              {isSelf ? (
+                <span className="at-row-value" title="Ask another admin to change your role.">
+                  {ROLE_LABELS[member.app_role] || member.app_role}
+                </span>
+              ) : (
+                <Select
+                  size="sm"
+                  value={member.app_role}
+                  onChange={(v) => wm.setRole(member.user_id, v).catch(() => {})}
+                  options={ROLE_OPTIONS}
+                  aria-label={`Role for ${name}`}
+                />
+              )}
+            </div>
+            {isSelf && <p className="at-note">Ask another admin to change your role.</p>}
+            <ToggleRow
+              label="Can view rate card"
+              on={grantView || grantEdit}
+              busy={grantBusy === 'view'}
+              disabled={grantEdit}
+              note={grantEdit ? 'Included with edit access' : null}
+              onToggle={() => setModal({ kind: 'grant', key: 'view', next: !grantView })}
             />
-          </SecRow>
-          {security.banned_until && (
-            <SecRow label="Banned">
-              <StatusBadge tone="danger" label={`until ${fmtDate(security.banned_until)}`} />
-            </SecRow>
-          )}
-        </div>
-      ) : null}
-      <Button size="sm" Icon={KeyRound} onClick={() => setModal({ kind: 'reset' })}>
-        Reset password
-      </Button>
+            <ToggleRow
+              label="Can edit rate card"
+              on={grantEdit}
+              busy={grantBusy === 'edit'}
+              onToggle={() => setModal({ kind: 'grant', key: 'edit', next: !grantEdit })}
+            />
+          </div>
 
-      {/* DANGER ZONE — bottom, visually separated (Fitts: small + far). */}
-      <div className="at-danger-zone">
-        <span className="at-danger-label">Danger zone</span>
-        {isSelf ? (
-          <p className="at-note">You cannot deactivate yourself here.</p>
-        ) : (
-          /* Deactivate is `danger`; reactivate is not a destructive act and
-             stops borrowing the destructive treatment in a second colour
-             (the old green appeared on no other control). */
-          <Button
-            size="sm"
-            variant={member.is_active ? 'danger' : 'secondary'}
-            Icon={Power}
-            onClick={() => setModal({ kind: 'active', next: !member.is_active })}
-          >
-            {member.is_active ? 'Deactivate' : 'Reactivate'}
-          </Button>
-        )}
+          <div className="at-panel-col">
+            {/* SECURITY */}
+            <GroupLabel>Security</GroupLabel>
+            {secLoading ? (
+              <Loading label="Loading security info" />
+            ) : secError ? (
+              <Banner tone="danger">{secError}</Banner>
+            ) : security ? (
+              <div className="at-sec-group">
+                <SecRow label="Email">
+                  <span className="at-mono at-break">{security.email || '--'}</span>
+                  {typeof security.email === 'string' && security.email.endsWith('@mail.petalstudios.co') && (
+                    <Badge title="Synthesized address — this account cannot receive mail">no real inbox</Badge>
+                  )}
+                </SecRow>
+                <SecRow label="Last sign-in">
+                  <span className="at-mono" title={security.last_sign_in_at || ''}>{timeAgo(security.last_sign_in_at)}</span>
+                </SecRow>
+                <SecRow label="MFA">
+                  {/* A dot plus its own word, from the one source that decides a
+                      status colour (AT-30). The enrolled/not-enrolled pair used to
+                      be two hand-written fills, one of them a green that appears
+                      nowhere else on the surface. */}
+                  <StatusBadge
+                    tone={security.mfa_enrolled ? 'success' : 'neutral'}
+                    label={security.mfa_enrolled ? `Enrolled (${security.factor_count})` : 'Not enrolled'}
+                  />
+                </SecRow>
+                {security.banned_until && (
+                  <SecRow label="Banned">
+                    <StatusBadge tone="danger" label={`until ${fmtDate(security.banned_until)}`} />
+                  </SecRow>
+                )}
+              </div>
+            ) : null}
+            <Button size="sm" Icon={KeyRound} onClick={() => setModal({ kind: 'reset' })}>
+              Reset password
+            </Button>
+
+            {/* DANGER ZONE — bottom, visually separated (Fitts: small + far). */}
+            <div className="at-danger-zone">
+              <span className="at-danger-label">Danger zone</span>
+              {isSelf ? (
+                <p className="at-note">You cannot deactivate yourself here.</p>
+              ) : (
+                /* Deactivate is `danger`; reactivate is not a destructive act and
+                   stops borrowing the destructive treatment in a second colour
+                   (the old green appeared on no other control). */
+                <Button
+                  size="sm"
+                  variant={member.is_active ? 'danger' : 'secondary'}
+                  Icon={Power}
+                  onClick={() => setModal({ kind: 'active', next: !member.is_active })}
+                >
+                  {member.is_active ? 'Deactivate' : 'Reactivate'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {modal?.kind === 'grant' && (
@@ -644,7 +720,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
             : `Deactivate ${name}? Signs them out everywhere within the hour; access cuts immediately.`}
         </ConfirmModal>
       )}
-    </div>
+    </>
   )
 }
 

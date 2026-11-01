@@ -98,10 +98,10 @@ function AdminTerminalBody({ workspaceId }) {
        It capped itself at 1240px INSIDE its own padding, so the first column
        started 32px in while the page title in the orange bar above started at
        24px — an 8px offset small enough to read as an accident rather than an
-       indent, and the only vertical line the page had. The measure is the data
-       cap PLUS the one gutter outside it, the same arithmetic `PageHeader`
-       does with `measure="data"`, so the title sits directly above the first
-       row. Three stacked gutters become one.
+       indent, and the only vertical line the page had. Three stacked gutters
+       became one. Since AT1 there is no cap at all: the page runs edge to edge
+       with that one gutter and its header takes no measure, so the title
+       still sits directly above the first column.
 
        The duplicate <h1> and its Terminal icon go with it (AT-09): the page
        title was drawn twice, once in white in the bar and once in black 20px

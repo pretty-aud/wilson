@@ -218,13 +218,13 @@ const PAGE_LIST = [
     // together or the page renders black text on black.
     surface: 'dark',
     chrome: 'page',
-    // The seven sections run two scrolling tables, a 360px detail panel and a
-    // 28-row model list. `measure: 'data'` is the 1240px cap the page was
-    // already applying to ITSELF, inside its own padding — set here now, so
-    // the page's content and the title in the bar above it share one edge
-    // (AT-29). The registry comment asks for the page and its header to be set
-    // together, and this is the pair.
-    measure: 'data',
+    // The seven sections run two scrolling tables, a 560px detail panel and a
+    // 28-row model list. NO MEASURE since AT1 (2026-11-01, Audrey: "make it
+    // wider there is a lot empty space to the sides"): the page is full-bleed
+    // with the one gutter, as Files is, and the title sits at the gutter above
+    // the nav. It was `measure: 'data'`, the 1240px cap the page applied to
+    // itself (AT-29); the registry rule above still holds — the page
+    // (`.at-page` in adminTerminal.css) and its header move together.
     nav: 'resources',
     adminOnly: true,
   },
