@@ -116,7 +116,12 @@ function useNarrow(ref, key) {
   useEffect(() => {
     const node = ref.current
     if (!node || typeof ResizeObserver === 'undefined') return undefined
-    const ro = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < ROSTER_MIN))
+    // A width of 0 is a page hidden by display, not a narrow one (review round
+    // 2): skipped, as the layout effect skips it.
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry.contentRect.width
+      if (w) setNarrow(w < ROSTER_MIN)
+    })
     ro.observe(node)
     return () => ro.disconnect()
   }, [ref])

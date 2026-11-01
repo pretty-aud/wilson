@@ -388,17 +388,21 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     [/\.at-detail-panel\[data-entered='true'\]\s*\{\s*opacity:\s*1;\s*transform:\s*none;?\s*\}/, 'panel entered end state, no transform at rest'],
     [/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.at-detail-panel \{ transition: none;/, 'AT-25 reduced-motion gate'],
     // AT1: the member panel at the form width, in two columns, and the
-    // drawer width in one column below 1160 (where the roster beside the two
-    // columns would fall under its compact floor of 300). `width` anchored, so
+    // drawer width in one column below 1220 (where the Users toolbar beside the two
+    // columns stops fitting, measured). `width` anchored, so
     // a `min-width` or `max-width` of the same token does not pass for it.
     [/\.at-detail-panel\s*\{[^}]*(?<![\w-])width:\s*var\(--dialog-form\)/, 'AT1 panel at the form width'],
     [/\.at-panel-cols\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, 'AT1 two columns'],
-    [/@media \(max-width: 1159px\)\s*\{\s*\.at-detail-panel \{ width: var\(--panel-xl\); \}\s*\.at-panel-cols \{ grid-template-columns: minmax\(0, 1fr\);/, 'AT1 one column below 1160'],
+    [/@media \(max-width: 1219px\)\s*\{\s*\.at-detail-panel \{ width: var\(--panel-xl\); \}\s*\.at-panel-cols \{ grid-template-columns: minmax\(0, 1fr\);/, 'AT1 one column below 1220'],
     // AT1: the panel's security grid gives its value 147px, wider than the
     // widest badge, and wraps a badge under the email (it scrolled sideways).
     [/\.at-detail-panel \.at-sec-row\s*\{\s*grid-template-columns:\s*96px minmax\(0, 1fr\)/, 'AT1 panel label track'],
     [/\.at-detail-panel \.at-sec-value\s*\{[^}]*flex-wrap:\s*wrap/, 'AT1 panel value wraps'],
     [/\.at-roster\.at-roster-compact\s*\{\s*min-width:\s*300px/, 'AT1 compact roster floor'],
+    // Review round 2: at 160 the search ran under the status chips from 1160
+    // to ~1265; 120 clears them from 1220, where the two columns begin.
+    [/input\.at-search-input\s*\{[^}]*flex:\s*0 1 auto;\s*min-width:\s*120px/, 'AT1 search shrinks to 120'],
+    [/@media \(max-width: 1219px\)\s*\{[^@]*input\.at-search-input \{ min-width: 80px; \}/, 'AT1 search shrinks to 80 at 1024'],
   ]
 
   // AT1 (Audrey: "make it wider"): the page has NO cap now, the Files rule;

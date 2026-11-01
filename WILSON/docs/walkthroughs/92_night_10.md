@@ -54,7 +54,7 @@ twice on Opus.
   close the details. From 1920 wide the list keeps all six columns. (Before,
   the list scrolled sideways at every size while details were open, and the
   *Joined* column was cut.) Question 2 below.
-- Below 1160 wide the details narrow to one column and can scroll up and
+- Below 1220 wide the details narrow to one column and can scroll up and
   down there; nothing is ever cut off.
 
 ### What it measured
@@ -123,20 +123,28 @@ space, as measured above.
   columns otherwise, the page's full width with the title, the details'
   width and two columns, and the account rows' wider value. Sixteen
   deliberate breakages (each piece of the old code put back, one at a time)
-  each turned a test red. The whole suite passes.
+  each turned a test red, and so did ten more for what the two reviews
+  changed: twenty-six in all. The whole suite passes.
 - Two reviews (on Opus). The first found, with a real key press, that one
   Escape on a confirm closed the confirm and the member details together
   (older than this work, and the brief asks Escape to behave): fixed, one
   Escape closes one thing and you are back on the button. It also found that
   a narrow window just under 1280 (a 1366 or 1536 screen with Windows
   scaling) fell to one scrolling column: the two columns now hold down to
-  1160 wide. And a single frame of the wide list squeezed beside new details
+  1220 wide. And a single frame of the wide list squeezed beside new details
   (gone), and three tests that could not fail (rewritten until a deliberate
-  breakage turned each red). REVIEW2_PLACEHOLDER
+  breakage turned each red). The second confirmed with real key presses that
+  Escape now closes one thing at a time everywhere in Users, and found that
+  between about 1160 and 1265 wide (with details open) the search box ran
+  under the *All / Active / Deactivated* buttons: the box now narrows
+  further, the two columns start at 1220, and nothing overlaps from the
+  desktop's smallest window up (measured every 20 px). It also found a few
+  wrong numbers in these notes and a test that could not see the list's
+  quick switch; all corrected.
 - Recorded for you, not changed (OUTSTANDING AT1-01 to AT1-07): the list's
   two columns beside open details (Q2); Company, Diagnostics and Storage stay
   720 wide on a wide window, with empty space to their right (Q1 touches it);
-  the search box's hint is cut short beside open details at 1280; below 1160
+  the search box's hint is cut short beside open details at 1280; below 1220
   the pet sits over the details' corner; the test data shows a notice where
   your account rows go.
 

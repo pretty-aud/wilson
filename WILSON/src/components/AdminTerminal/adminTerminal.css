@@ -355,9 +355,12 @@
      to (0,1,1). The same applies to `.at-input-grow` and, on specificity
      rather than order, to `textarea.at-note-field` against
      `textarea.ui-input`. */
-  /* AT1: it may shrink to 160. With a member open at 1280 the roster's column
-     is 424 wide, and a fixed 260 ran under the three status chips (measured). */
-  input.at-search-input { width: 260px; flex: 0 1 auto; min-width: 160px; }
+  /* AT1: it may shrink to 120. With a member open at 1280 the roster's column
+     is 424 wide, and a fixed 260 ran under the three status chips (measured).
+     120, not 160 (review round 2, measured): at 160 it still ran under them
+     from 1160 to about 1265 wide; at 120 it clears them from 1220 (3px; 8px
+     from 1229), which is where the panel's two columns begin (below). */
+  input.at-search-input { width: 260px; flex: 0 1 auto; min-width: 120px; }
 
   /* The width below which the roster stops fitting and starts scrolling.
      Derived, not chosen: the six columns' longest real strings plus their
@@ -451,17 +454,22 @@
     align-items: start;
   }
   .at-panel-col { min-width: 0; }
-  /* Below 1160 the panel narrows to the drawer width and stacks its two
+  /* Below 1220 the panel narrows to the drawer width and stacks its two
      columns; it scrolls there, never sideways (1024x700, the desktop's
-     smallest window, measured 669 of content in 452). 1160, not the 1280
-     target (AT1 review round 1): the two columns fit as long as the roster
-     keeps its compact floor of 300 (window = 300 + 856), and Windows display
-     scaling turns a 1366 or 1536 screen into 1242 or 1229 CSS pixels, which a
-     1280 breakpoint sent to one scrolling column. The 20 is the gap the
-     Security label always had above it. */
-  @media (max-width: 1159px) {
+     smallest window, measured 621px of content with the real account rows in
+     452). Not the 1280 target (review round 1): Windows display scaling turns
+     a 1366 or 1536 screen into 1242 or 1229 CSS pixels, which a 1280
+     breakpoint sent to one scrolling column. Not lower (review round 2,
+     measured): the roster's column beside the two columns is the window less
+     856 from 1180 (the nav 200), and the Users toolbar, its search at its 120
+     floor and the three status chips, needs about 364 of it, which 1220
+     gives. The 20 is the gap the Security label always had above it. */
+  @media (max-width: 1219px) {
     .at-detail-panel { width: var(--panel-xl); }
     .at-panel-cols { grid-template-columns: minmax(0, 1fr); row-gap: 20px; }
+    /* At 1024 (the narrow nav, a 420 panel) the roster's column is 340 and a
+       120 search still ran 21px under the chips (measured); 80 clears them. */
+    input.at-search-input { min-width: 80px; }
   }
   /* Scoped to the panel: Diagnostics shares `.at-sec-row` and its "WILSON
      VERSION" needs the 120 track (V2). Here 96 holds "LAST SIGN-IN" on one

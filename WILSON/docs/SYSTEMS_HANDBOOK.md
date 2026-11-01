@@ -4578,8 +4578,8 @@ no measure, so the header's title sits above the nav (the two move together,
 measure, Models the 1240 data cap; Users, Requests and Logs take the pane. A
 selected member opens a 560px panel (`--dialog-form`) in two columns, Identity
 and Access, then Security, Reset password and the danger zone; it fits without
-scrolling from 1280x720 (the desktop's 1280x800 window too) and drops to one
-420px column, scrolling, below 1160. While it is open and the roster's column
+scrolling from 1280x720 (the desktop's 1280x800 window too) and drops to a
+420px panel in one column, scrolling, below 1220. While it is open and the roster's column
 is under 860 (`ROSTER_MIN`, the table's floor) the roster shows Member and
 Status, the six columns back when it closes. The panel's confirms render
 beside it (a fragment), never inside: the panel slides in, and a transformed

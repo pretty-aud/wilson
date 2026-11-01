@@ -572,21 +572,44 @@ describe('AT1: beside an open member, a narrow roster shows Member and Status', 
   // The roster's six columns need 860 (`ROSTER_MIN`, the CSS floor). With the
   // 560 panel open the roster's column is 424 at 1280 and 584 at 1440, so it
   // draws the name and the status, and the six come back when the panel
-  // closes. jsdom has no ResizeObserver: a stub reports the width.
-  let width = 424
+  // closes. jsdom has no layout, so the roster's column (`.at-users-main`)
+  // answers `getBoundingClientRect` as a browser would: `open` while the panel
+  // is in the document, 584 more without it.
+  //
+  // 🚨 THE DECISION IS MADE BEFORE PAINT, so the ResizeObserver stub fires
+  // NOTHING on attach (review round 2): a stub that answered at once let a
+  // build with no layout effect pass, and a browser painted one frame of six
+  // columns squeezed into 424 (review round 1, measured). `resize` drives the
+  // observer explicitly, for a window resized while a member is open.
+  let open = 424
+  let observers = []
+  let realRect
   beforeEach(() => {
+    observers = []
     globalThis.ResizeObserver = class {
-      constructor(cb) { this.cb = cb }
-      observe(node) { this.cb([{ target: node, contentRect: { width } }]) }
-      disconnect() {}
+      constructor(cb) { this.cb = cb; observers.push(this) }
+      observe(node) { this.node = node }
+      disconnect() { observers = observers.filter((o) => o !== this) }
+    }
+    realRect = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = function rect() {
+      if (!this.classList?.contains('at-users-main')) return realRect.call(this)
+      const width = document.querySelector('.at-detail-panel') ? open : open + 584
+      return { width, height: 500, top: 0, left: 0, right: width, bottom: 500, x: 0, y: 0 }
     }
   })
-  afterEach(() => { delete globalThis.ResizeObserver })
+  afterEach(() => {
+    delete globalThis.ResizeObserver
+    Element.prototype.getBoundingClientRect = realRect
+  })
+  const resize = (width) => act(() => {
+    for (const o of observers) o.cb([{ target: o.node, contentRect: { width } }])
+  })
   const heads = () => [...document.querySelectorAll('table thead th')].map((th) => th.textContent.trim())
   const SIX = ['Member', 'Username', 'Role', 'Rate access', 'Status', 'Joined']
 
-  it('two columns while a member is open at 424, six again once the panel closes', () => {
-    width = 424
+  it('two columns from the click itself at 424, six again once the panel closes', () => {
+    open = 424
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
     expect(heads()).toEqual(SIX)
     fireEvent.click(rosterRow('Grace Hopper'))
@@ -598,14 +621,27 @@ describe('AT1: beside an open member, a narrow roster shows Member and Status', 
   })
 
   it('six columns at 1064 (1920) with a member open', () => {
-    width = 1064
+    open = 1064
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
     fireEvent.click(rosterRow('Grace Hopper'))
     expect(heads()).toEqual(SIX)
   })
 
+  it('a window narrowed while a member is open folds the roster; widened, it unfolds', () => {
+    open = 1064
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(SIX)
+    resize(0) // a page hidden by display is not a narrow one
+    expect(heads()).toEqual(SIX)
+    resize(424)
+    expect(heads()).toEqual(['Member', 'Status'])
+    resize(1064)
+    expect(heads()).toEqual(SIX)
+  })
+
   it('CONTROL: at 860 exactly the six fit and stay', () => {
-    width = 860
+    open = 860
     render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
     fireEvent.click(rosterRow('Grace Hopper'))
     expect(heads()).toEqual(SIX)
