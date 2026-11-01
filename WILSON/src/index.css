@@ -2187,9 +2187,11 @@ select option {
     /* No fill. A panel is its hairline and its content. */
     background: none;
   }
-  .ui-panel[data-width="sm"] { width: var(--panel-sm); }
-  .ui-panel[data-width="md"] { width: var(--panel-md); }
-  .ui-panel[data-width="lg"] { width: var(--panel-lg); }
+  /* SB1: a resizable panel's width is `--ui-panel-size`, written on the aside
+     by its handle (Panel.jsx); the token is the width until one is chosen. */
+  .ui-panel[data-width="sm"] { width: var(--ui-panel-size, var(--panel-sm)); }
+  .ui-panel[data-width="md"] { width: var(--ui-panel-size, var(--panel-md)); }
+  .ui-panel[data-width="lg"] { width: var(--ui-panel-size, var(--panel-lg)); }
   .ui-panel[data-side="left"]  { border-right: 1px solid var(--color-rule); }
   .ui-panel[data-side="right"] { border-left: 1px solid var(--color-rule); }
   .ui-panel[data-surface="light"][data-side="left"]  { border-right-color: var(--color-rule-light); }
@@ -2212,7 +2214,68 @@ select option {
   }
   .ui-panel[data-surface="light"] .ui-panel-title { color: var(--color-ink-light); }
   .ui-panel-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-  .ui-panel-body { flex: 1; min-height: 0; overflow: auto; }
+  /* A custom property inherits: the size is the panel's own, never that of a
+     panel drawn inside it. */
+  .ui-panel-body { flex: 1; min-height: 0; overflow: auto; --ui-panel-size: initial; }
+
+  /* ── The resize handle (SB1; Panel.jsx `resizable`) ─────────────────────
+     An 8px strip over the hairline: 2px over the panel (its scrollbar sits
+     against the line), the line, 5px over the column beside, which is
+     padding in every view (D.O.G.'s main 8, Sidebar 2's rows 12, the
+     Library's gutter 24). Absolute, so it takes no width and D.O.G.'s
+     preview keeps its pinned width (C4); `right` counts from inside the 1px
+     border. At rest it draws nothing: the line is the panel's own hairline.
+     Live — hover, after 200ms, on a pointer that hovers; a drag and keyboard
+     focus at once — one 2px band of the signal over the line's pixel and the
+     next one out: the 2px the focus ring, the active tab and a selected
+     row's edge already are, 4.91:1 on the paper. z 4: over the sticky table
+     heads (1 to 3), under every floating surface. The panel itself takes no
+     z-index, which would trap the strip under the column beside. */
+  .ui-panel[data-resizable="true"] { position: relative; }
+  .ui-panel-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -6px;
+    width: 8px;
+    z-index: 4;
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .ui-panel-handle::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 2px;
+    width: 2px;
+    background-color: transparent;
+  }
+  @media (hover: hover) {
+    .ui-panel-handle::before { transition: background-color var(--duration-state) ease-out; }
+    .ui-panel-handle:hover::before { background-color: var(--color-signal); transition-delay: var(--duration-response); }
+    .ui-panel[data-surface="light"] .ui-panel-handle:hover::before { background-color: var(--color-ink-light); }
+  }
+  /* The band is the focus indicator, not the kit's ring: a ring would box a
+     strip that exists nowhere at rest. Transparent, never `none`, so forced
+     colours (Windows High Contrast) still paint a ring. */
+  .ui-panel-handle:focus-visible { outline-color: transparent; outline-offset: -2px; }
+  .ui-panel-handle:focus-visible::before,
+  .ui-panel-handle[data-dragging="true"]::before { background-color: var(--color-signal); transition: none; }
+  .ui-panel[data-surface="light"] .ui-panel-handle:focus-visible::before,
+  .ui-panel[data-surface="light"] .ui-panel-handle[data-dragging="true"]::before { background-color: var(--color-ink-light); }
+  /* A finger: 24px (WCAG 2.5.8), 4 over the panel, the line, 19 beside, and
+     the band still on the line. */
+  @media (pointer: coarse) {
+    .ui-panel-handle { right: -20px; width: 24px; }
+    .ui-panel-handle::before { left: 4px; }
+  }
+  /* For a drag's length the page keeps the cursor (a fast pointer outruns
+     8px) and selects nothing. `!important` because a cursor written inline
+     on whatever passes under the pointer would otherwise show through. */
+  html[data-ui-resizing],
+  html[data-ui-resizing] * { cursor: col-resize !important; user-select: none; }
 
   /* ── Drawer ─────────────────────────────────────────────────────────────
      🚨 `--titlebar-offset` is the whole point — see Drawer.jsx. Three surfaces
@@ -2574,7 +2637,8 @@ select option {
   .ui-btn, .ui-iconbtn, .ui-input, .ui-chip, .ui-menu-item,
   .ui-switch-track, .ui-switch-knob,
   .ui-tr, .ui-tab, .ui-hover-actions,
-  .wilson-nav-item, .tm-inline-edit, .tm-cell-btn {
+  .wilson-nav-item, .tm-inline-edit, .tm-cell-btn,
+  .ui-panel-handle::before {
     transition-duration: 0.01ms;
   }
   /* The press is movement, not a transition: killing the duration would still

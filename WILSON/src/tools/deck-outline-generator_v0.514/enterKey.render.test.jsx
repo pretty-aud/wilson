@@ -1706,3 +1706,67 @@ describe('DG6 on the rendered D.O.G.: the two input cards and the output card ar
     expect(sections(untitled)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
   })
 })
+
+// =============================================================================
+// SB1 (Audrey, 2026-11-01, of O.T.T.E.R.'s courses sidebar, then: "lets do the
+// same with the sidebar in the dog tool"): the pages sidebar resizes by its
+// edge through the kit Panel's handle (src/ui/Panel.test.jsx pins the handle
+// itself). This pins D.O.G.'s use of it on the rendered component: one
+// separator in the sidebar, named by the "Deck outline" bar, D.O.G.'s numbers
+// (md 240, 160 to 480), its key, and that the column's Tab stops (the DG4 walk
+// above reads `.dog-main`) never meet it.
+// =============================================================================
+describe('SB1 on the rendered D.O.G.: the pages sidebar resizes by its edge', () => {
+  const KEY = 'dog.sidebar.width'
+  const handleOf = (d) => d.q('aside.dog-sidebar > [role="separator"]')
+  const sizeOf = (d) => d.q('aside.dog-sidebar').style.getPropertyValue('--ui-panel-size')
+  beforeEach(() => { localStorage.removeItem(KEY) })
+  afterEach(() => { localStorage.removeItem(KEY); document.documentElement.removeAttribute('data-ui-resizing'); vi.restoreAllMocks() })
+
+  it('the sidebar\'s last child is one separator, named "Deck outline", controlling it, 160 to 480 from 240', async () => {
+    const d = await openDog({ upload: false })
+    const aside = d.q('aside.dog-sidebar')
+    const h = handleOf(d)
+    expect(aside.querySelectorAll('[role="separator"]')).toHaveLength(1)
+    expect(aside.lastElementChild).toBe(h)
+    expect(document.getElementById(h.getAttribute('aria-labelledby')).textContent).toBe('Deck outline')
+    expect(h.getAttribute('aria-controls')).toBe(aside.id)
+    expect(['aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'tabindex'].map((a) => h.getAttribute(a))).toEqual(['160', '480', '240', '0'])
+    expect(sizeOf(d)).toBe('240px')
+    expect(d.q('.dog-main [role="separator"]')).toBe(null)
+  })
+
+  it('a drag widens it and keeps the width under dog.sidebar.width; a double-click forgets it', async () => {
+    const d = await openDog({ upload: false })
+    const h = handleOf(d)
+    fireEvent.pointerDown(h, { pointerId: 1, button: 0, isPrimary: true, clientX: 240 })
+    fireEvent.pointerMove(h, { pointerId: 1, clientX: 340 })
+    expect(localStorage.getItem(KEY)).toBe(null)
+    fireEvent.pointerUp(h, { pointerId: 1, clientX: 340 })
+    expect([sizeOf(d), localStorage.getItem(KEY)]).toEqual(['340px', '340'])
+    fireEvent.doubleClick(h)
+    expect([sizeOf(d), localStorage.getItem(KEY)]).toEqual(['240px', null])
+  })
+
+  it('in a 1024 window the column keeps its 560: the widest is 464, and a kept 480 is drawn 464', async () => {
+    localStorage.setItem(KEY, '480')
+    // jsdom lays nothing out: the sidebar's row is given the width a 1024 window gives it.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
+      return this.querySelector?.(':scope > aside.dog-sidebar') ? 1024 : 0
+    })
+    const d = await openDog({ upload: false })
+    const h = handleOf(d)
+    expect([h.getAttribute('aria-valuemax'), h.getAttribute('aria-valuenow'), sizeOf(d), localStorage.getItem(KEY)]).toEqual(['464', '464', '464px', '480'])
+  })
+
+  it('a width kept is the one D.O.G. opens with, and the keys move it', async () => {
+    localStorage.setItem(KEY, '312')
+    const d = await openDog({ upload: false })
+    const h = handleOf(d)
+    expect([sizeOf(d), h.getAttribute('aria-valuenow')]).toEqual(['312px', '312'])
+    fireEvent.keyDown(h, { key: 'ArrowLeft', shiftKey: true })
+    expect([sizeOf(d), localStorage.getItem(KEY)]).toEqual(['272px', '272'])
+    fireEvent.keyDown(h, { key: 'Home' })
+    expect([sizeOf(d), localStorage.getItem(KEY)]).toEqual(['160px', '160'])
+  })
+})
