@@ -32,7 +32,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 
 // The Supabase client is constructed at module load and throws
 // 'supabaseUrl is required' without a .env.local, which is every CI run
@@ -499,5 +499,151 @@ describe('the invite row reflects the username typed into it', () => {
     const row = screen.getByLabelText('Username for sam@example.com').closest('.at-invite-row')
     expect(row.getAttribute('data-sent')).toBe('false')
     expect(within(row).getByLabelText('Username for sam@example.com')).toBeTruthy()
+  })
+})
+
+describe('AT1: the member panel\'s confirms open outside the panel', () => {
+  // 🚨 Audrey, 2026-11-01: "the pop up card asking to confirm should be in the
+  // center of the overall admin terminal not inside of the column". The panel
+  // enters with a transform, and a transformed ancestor is the containing block
+  // of the kit Dialog's fixed backdrop, so a confirm rendered INSIDE the panel
+  // was laid out in the panel's 239px column (measured at four sizes). jsdom has
+  // no layout; what decides it is the DOM, so that is what is asserted: no
+  // confirm is a descendant of `.at-detail-panel`. Before AT1 all four were.
+  const panel = () => document.querySelector('.at-detail-panel')
+  const dialog = () => document.querySelector('.ui-dialog')
+  const OPENERS = [
+    ['Reset password', () => screen.getByRole('button', { name: /^Reset password$/ })],
+    ['the view grant', () => screen.getByRole('switch', { name: 'Can view rate card' })],
+    ['the edit grant', () => screen.getByRole('switch', { name: 'Can edit rate card' })],
+    ['Deactivate', () => screen.getByRole('button', { name: /^Deactivate$/ })],
+  ]
+
+  it.each(OPENERS)('%s opens its confirm beside the panel, not inside it', (_, opener) => {
+    render(<UsersSection wm={wmFixture([{ ...GRACE, is_active: true }])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    const button = opener()
+    button.focus()
+    fireEvent.click(button)
+
+    expect(dialog()).not.toBeNull()
+    expect(panel()).not.toBeNull()
+    expect(panel().contains(dialog())).toBe(false)
+    // Beside it: the section holds both, so the confirm is still the panel's.
+    expect(document.querySelector('.at-users').contains(dialog())).toBe(true)
+  })
+
+  it('focus goes into the confirm and back to Reset password on Cancel', () => {
+    render(<UsersSection wm={wmFixture([GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    const reset = screen.getByRole('button', { name: /^Reset password$/ })
+    reset.focus()
+    fireEvent.click(reset)
+    expect(dialog().contains(document.activeElement)).toBe(true)
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    expect(dialog()).toBeNull()
+    expect(document.activeElement).toBe(reset)
+  })
+
+  // 🚨 ONE ESCAPE, ONE LAYER (review round 1, High, measured with a real key
+  // press). The Dialog answers Escape on `document` and marks it handled; React
+  // flushes the confirm's close, and its effects, in the microtask before the
+  // event reaches `window`, where the panel's listener is attached again — and
+  // it closed the panel too. `fireEvent` cannot leave that microtask, so this
+  // hands the panel the event as it arrives there: an Escape already handled.
+  it('an Escape a layer above has already handled does not close the panel', () => {
+    render(<UsersSection wm={wmFixture([GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    const handled = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    handled.preventDefault()
+    // `act`, or the panel's close would not be flushed before the check and
+    // the assertion could not fail (it did not, until the plant said so).
+    act(() => { window.dispatchEvent(handled) })
+    expect(handled.defaultPrevented).toBe(true)
+    expect(panel()).not.toBeNull()
+    // …and an Escape nobody handled still closes it, as it always did.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(panel()).toBeNull()
+  })
+})
+
+describe('AT1: beside an open member, a narrow roster shows Member and Status', () => {
+  // The roster's six columns need 860 (`ROSTER_MIN`, the CSS floor). With the
+  // 560 panel open the roster's column is 424 at 1280 and 584 at 1440, so it
+  // draws the name and the status, and the six come back when the panel
+  // closes. jsdom has no layout, so the roster's column (`.at-users-main`)
+  // answers `getBoundingClientRect` as a browser would: `open` while the panel
+  // is in the document, 584 more without it.
+  //
+  // 🚨 THE DECISION IS MADE BEFORE PAINT, so the ResizeObserver stub fires
+  // NOTHING on attach (review round 2): a stub that answered at once let a
+  // build with no layout effect pass, and a browser painted one frame of six
+  // columns squeezed into 424 (review round 1, measured). `resize` drives the
+  // observer explicitly, for a window resized while a member is open.
+  let open = 424
+  let observers = []
+  let realRect
+  beforeEach(() => {
+    observers = []
+    globalThis.ResizeObserver = class {
+      constructor(cb) { this.cb = cb; observers.push(this) }
+      observe(node) { this.node = node }
+      disconnect() { observers = observers.filter((o) => o !== this) }
+    }
+    realRect = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = function rect() {
+      if (!this.classList?.contains('at-users-main')) return realRect.call(this)
+      const width = document.querySelector('.at-detail-panel') ? open : open + 584
+      return { width, height: 500, top: 0, left: 0, right: width, bottom: 500, x: 0, y: 0 }
+    }
+  })
+  afterEach(() => {
+    delete globalThis.ResizeObserver
+    Element.prototype.getBoundingClientRect = realRect
+  })
+  const resize = (width) => act(() => {
+    for (const o of observers) o.cb([{ target: o.node, contentRect: { width } }])
+  })
+  const heads = () => [...document.querySelectorAll('table thead th')].map((th) => th.textContent.trim())
+  const SIX = ['Member', 'Username', 'Role', 'Rate access', 'Status', 'Joined']
+
+  it('two columns from the click itself at 424, six again once the panel closes', () => {
+    open = 424
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    expect(heads()).toEqual(SIX)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(['Member', 'Status'])
+    // Status is never dropped: the deactivated member still reads as such.
+    expect(within(rosterRow('Grace Hopper')).getByText('Deactivated')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close (Esc)' }))
+    expect(heads()).toEqual(SIX)
+  })
+
+  it('six columns at 1064 (1920) with a member open', () => {
+    open = 1064
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(SIX)
+  })
+
+  it('a window narrowed while a member is open folds the roster; widened, it unfolds', () => {
+    open = 1064
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(SIX)
+    resize(0) // a page hidden by display is not a narrow one
+    expect(heads()).toEqual(SIX)
+    resize(424)
+    expect(heads()).toEqual(['Member', 'Status'])
+    resize(1064)
+    expect(heads()).toEqual(SIX)
+  })
+
+  it('CONTROL: at 860 exactly the six fit and stay', () => {
+    open = 860
+    render(<UsersSection wm={wmFixture([ADA, GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    expect(heads()).toEqual(SIX)
   })
 })
