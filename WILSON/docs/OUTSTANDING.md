@@ -4065,13 +4065,15 @@ met outside its list, or decided and left for her:
   access and joined date need the panel closed at those widths, nothing on
   screen says columns were folded, and the search still matches a username or
   email it no longer shows. Before AT1 the six scrolled sideways there with
-  Joined cut. Hers to keep or change.
+  Joined cut. **Her answer of 2026-11-01 to walkthrough 92 Q2: "Name and
+  status (Recommended)"** — kept as built; the trade above stays recorded.
 - **AT1-02 · On a wide window Company, Diagnostics and Storage keep the
   720px reading measure**, left-aligned at the pane's edge. MEASURED at
   2560x1440: 720 in a 2,288 pane, 1,568 px empty to their right (Models 1,240;
   Requests and Logs 2,288). Left as the design round chose (prose and
-  label/value cards); her "empty space to the sides" may cover them too. Q1's
-  (b) in walkthrough 92 is the other way.
+  label/value cards); her "empty space to the sides" may cover them too. Her
+  answer to walkthrough 92 Q1 (2026-11-01): "Edge to edge (Recommended)", the
+  page as built; these three sections were not part of that question.
 - **AT1-03 · The roster's search field shrinks to 175 px beside an open
   member at 1280, which cuts its placeholder** ("Search username, name, e…").
   MEASURED at 1280x800. The field still works; a shorter placeholder is a
