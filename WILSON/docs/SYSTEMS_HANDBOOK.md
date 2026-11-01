@@ -4555,13 +4555,17 @@ line, in the system's text colour, is the mark. The width is
 `--ui-panel-size` on the aside: while a drag moves, the handle writes it with
 `style.setProperty` (no tool re-renders, not even at the end — the Panel's own
 state holds the width); at the release, one state update and one localStorage
-write; React never writes the property, so a re-render mid-drag cannot put the
-old width back. The widest is `max(token, min(maxWidth, row − minBeside))`,
-the row measured by a ResizeObserver (a row of 0 — a hidden page, jsdom —
-trims nothing); a remembered width that does not fit is drawn narrower and
+write. The property is never in React's style prop, and while a drag lives the
+layout effect repaints the drag, held to the row's widest, never the width
+React holds, so a re-render mid-drag cannot put the old width back (review
+round 2, measured). The widest is `max(token, min(maxWidth, row − minBeside))`,
+the row being the aside's parent element, measured by a ResizeObserver (a row
+of 0 — a hidden page, jsdom — trims nothing; a Panel must sit directly in its
+row, or it measures the wrapper and never widens); a remembered width that
+does not fit is drawn narrower and
 kept, and a drag or a key that changes nothing on screen writes nothing, so a
 width kept for a wider window stays kept; a window narrowed mid-drag holds the
-drag to the new widest. A press that travels under 3px (8 for a finger) is a
+drag to the new widest at once. A press that travels under 3px (8 for a finger) is a
 click; the arrows move ±8, Shift ±40,
 Home and End to the limits; a double-click, or any change landing on the
 token, removes the key; Escape (a capture-phase window listener for the drag's

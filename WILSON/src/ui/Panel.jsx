@@ -27,10 +27,15 @@
 //     system's text colour, stays the mark, and focus keeps the system's ring.
 //   - The width follows the pointer as `--ui-panel-size`, written straight on
 //     the aside, so no tool re-renders while it moves; the drag's end is one
-//     state update here and one storage write. React never writes that
-//     property: a re-render mid-drag would put the old width back.
+//     state update here and one storage write. The property is never in
+//     React's style prop, and while a drag lives the layout effect repaints
+//     the drag (held to the row's widest), never the width React holds, so a
+//     re-render mid-drag cannot put the old width back (review round 2).
 //   - Limits: `minWidth` / `maxWidth`, and `minBeside`, the room the row keeps
 //     beside the panel, so a small window keeps the column beside it usable.
+//     The row is the aside's parent element, measured: a Panel must sit
+//     directly in the row it shares with the column beside it (in a wrapper
+//     it would measure the wrapper and never widen past its token).
 //     The maximum never goes under the token, so an untouched panel is the
 //     token's width at every window size, as before. A remembered width that
 //     no longer fits is trimmed on screen, kept in storage, and returns when
@@ -113,10 +118,28 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
   // a window resized mid-drag may have moved since the press.
   const drawn = useRef(shown)
 
+  const paint = (handle, px) => {
+    asideRef.current?.style.setProperty('--ui-panel-size', `${px}px`)
+    handle.setAttribute('aria-valuenow', String(px))
+    handle.setAttribute('aria-valuetext', `${px} pixels`)
+  }
+
   useLayoutEffect(() => {
     drawn.current = shown
-    if (on) asideRef.current?.style.setProperty('--ui-panel-size', `${shown}px`)
-  }, [on, shown, asideRef])
+    if (!on) return
+    // A drag that has moved owns the width: a window resized under it holds the
+    // drag to the new widest at once, and React's width never lands over it
+    // (review round 2, measured). A press that has not moved yet follows the
+    // width drawn, and starts from it.
+    const d = drag.current
+    if (d?.moved) {
+      d.now = Math.min(d.now, widest)
+      paint(d.handle, d.now)
+      return
+    }
+    if (d) { d.from = shown; d.now = shown }
+    asideRef.current?.style.setProperty('--ui-panel-size', `${shown}px`)
+  }, [on, shown, widest, asideRef])
 
   // A drag the panel did not see end (Ctrl/Cmd+\ collapses O.T.T.E.R.'s
   // mid-drag): the page is handed back its cursor and its selection.
@@ -134,12 +157,6 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
     if (!storageKey) return
     if (next === def) forgetWidth(storageKey)
     else writeWidth(storageKey, next)
-  }
-
-  const paint = (handle, px) => {
-    asideRef.current?.style.setProperty('--ui-panel-size', `${px}px`)
-    handle.setAttribute('aria-valuenow', String(px))
-    handle.setAttribute('aria-valuetext', `${px} pixels`)
   }
 
   const end = (keep) => {

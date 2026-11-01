@@ -470,6 +470,58 @@ describe('Panel — resizable (SB1)', () => {
     expect(inRow(<Panel {...own}>x</Panel>).now()).toBe(300)
   })
 
+  // ── Review round 2 (Opus) ─────────────────────────────────────────────────
+  it('a window narrowed mid-drag holds the drag at once, with no move after it, and the release keeps that', () => {
+    const ro = stubResizeObserver()
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1280)
+    press(p.handle(), 200); move(p.handle(), 400)
+    p.setRow(1024); ro.fire()
+    expect([p.size(), p.now(), p.max()]).toEqual(['304px', 304, 304])
+    lift(p.handle(), 400)
+    expect([p.size(), localStorage.getItem(KEY)]).toEqual(['304px', '304'])
+  })
+
+  it('a window that grows mid-drag leaves the drag where it is: React\'s wider width never lands over it', () => {
+    const ro = stubResizeObserver()
+    localStorage.setItem(KEY, '480')
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1024)
+    press(p.handle(), 304); move(p.handle(), 204)
+    expect(p.size()).toBe('204px')
+    p.setRow(1440); ro.fire()
+    expect([p.size(), p.now()]).toEqual(['204px', 204])
+    lift(p.handle(), 204)
+    expect([p.size(), localStorage.getItem(KEY)]).toEqual(['204px', '204'])
+  })
+
+  it('a press that has not moved follows the width drawn when the window changes, starts from it, and a release writes nothing', () => {
+    const ro = stubResizeObserver()
+    localStorage.setItem(KEY, '480')
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1024)
+    press(p.handle(), 304)
+    p.setRow(1440); ro.fire()
+    expect(p.size()).toBe('480px')
+    lift(p.handle(), 304)
+    expect([p.size(), localStorage.getItem(KEY)]).toEqual(['480px', '480'])
+    p.setRow(1024); ro.fire()
+    press(p.handle(), 304)
+    p.setRow(1440); ro.fire()
+    move(p.handle(), 284)
+    expect(p.size()).toBe('460px')
+    lift(p.handle(), 284)
+    expect(localStorage.getItem(KEY)).toBe('460')
+  })
+
+  it('one write storage refused does not shadow the next it accepts', () => {
+    const own = { ...COURSES, storageKey: 'sb1.panel.test.once' }
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('quota') })
+    const p = inRow(<Panel {...own}>x</Panel>)
+    press(p.handle(), 200); move(p.handle(), 300); lift(p.handle(), 300)
+    press(p.handle(), 300); move(p.handle(), 320); lift(p.handle(), 320)
+    expect(localStorage.getItem(own.storageKey)).toBe('320')
+    p.unmount()
+    expect(inRow(<Panel {...own}>x</Panel>).now()).toBe(320)
+  })
+
   it('with neither a title nor aria-labelledby, the separator takes the panel\'s aria-label', () => {
     render(<Panel width="md" aria-label="Pages" resizable storageKey={KEY} minWidth={160} maxWidth={480}>x</Panel>)
     expect(screen.getByRole('separator', { name: 'Pages' })).toBeTruthy()
@@ -497,8 +549,14 @@ function handleSheetProblems(css) {
   want('the band', declsOf('.ui-panel-handle::before', plain), { content: "''", position: 'absolute', top: '0', bottom: '0', left: '2px', width: '2px', 'background-color': 'transparent' })
   want('the band\'s fade', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (hover: hover)')), { transition: 'background-color var(--duration-state) ease-out' })
   // Forced colours paint the opaque band as the system's canvas over the line
-  // it lights (review round 1, measured): there it is not drawn.
+  // it lights (review round 1, measured): there it is not drawn, under no
+  // other condition (round 2: nested in the hover block, a touch screen in
+  // High Contrast drew it again).
   want('forced colours\' band', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (forced-colors: active)')), { display: 'none' })
+  for (const r of rules.filter((x) => /ui-panel-handle/.test(x.sel) && x.parents.some((p) => p.startsWith('@media (forced-colors')))) {
+    const media = r.parents.filter((p) => p.startsWith('@media'))
+    if (media.length !== 1) out.push(`the forced-colours rule sits inside ${media.join(' and ')}`)
+  }
   want('a coarse pointer\'s band', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (pointer: coarse)')), { left: '4px' })
   // Weightless in :where(), so a tool's own two-class rule on its Panel outranks it.
   want('the panel', declsOf('.ui-panel:where([data-resizable="true"])'), { position: 'relative' })
@@ -518,7 +576,8 @@ function handleSheetProblems(css) {
   // two tokens only, nothing transitioning a width.
   for (const r of rules.filter((x) => /ui-panel-handle/.test(x.sel))) {
     for (const [p, v] of decls(r.body)) {
-      if (p === 'outline' && /none|0/.test(v)) out.push(`${r.sel} removes the outline`)
+      // In forced colours the system's ring is the only focus mark (review round 2).
+      if ((p === 'outline' && /none|0/.test(v)) || (p === 'outline-style' && /none|hidden/.test(v)) || (p === 'outline-width' && /^0/.test(v))) out.push(`${r.sel} removes the outline`)
       if (/color$/.test(p) && p !== 'outline-color' && !['transparent', 'var(--color-signal)', 'var(--color-ink-light)'].includes(v)) out.push(`${r.sel} ${p}: ${v}`)
     }
   }
@@ -560,6 +619,15 @@ describe('the handle\'s sheet (src/index.css)', () => {
     expect(handleSheetProblems(KIT.replace('transition-delay: var(--duration-response);', ''))).toContain('the hover band transition-delay: unset, not var(--duration-response)')
     expect(handleSheetProblems(`${KIT}\n.ui-panel-handle:focus-visible { outline: none; }`)).toContain('.ui-panel-handle:focus-visible removes the outline')
     expect(handleSheetProblems(`${KIT}\n.ui-panel-handle[data-dragging="true"]::before { background-color: #ea580c; }`)).toEqual(expect.arrayContaining(['.ui-panel-handle[data-dragging="true"]::before background-color: #ea580c']))
+  })
+
+  it('CONTROL: the focus outline taken away by its style or its width, and the forced-colours rule nested in the hover block, are each caught', () => {
+    expect(handleSheetProblems(`${KIT}\n.ui-panel-handle:focus-visible { outline-style: none; }`)).toEqual(['.ui-panel-handle:focus-visible removes the outline'])
+    expect(handleSheetProblems(`${KIT}\n.ui-panel-handle:focus-visible { outline-width: 0; }`)).toEqual(['.ui-panel-handle:focus-visible removes the outline'])
+    const nested = KIT.replace('  @media (forced-colors: active) {\n    .ui-panel-handle::before { display: none; }\n  }\n', '')
+      .replace('    .ui-panel[data-surface="light"] .ui-panel-handle:hover::before { background-color: var(--color-ink-light); }\n', '    .ui-panel[data-surface="light"] .ui-panel-handle:hover::before { background-color: var(--color-ink-light); }\n    @media (forced-colors: active) { .ui-panel-handle::before { display: none; } }\n')
+    expect(nested).not.toBe(KIT)
+    expect(handleSheetProblems(nested)).toEqual(['the forced-colours rule sits inside @media (hover: hover) and @media (forced-colors: active)'])
   })
 
   it('CONTROL: a band with no height, no fade, or drawn in forced colours is each caught', () => {

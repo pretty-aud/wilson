@@ -4129,11 +4129,14 @@ design round's three WCAG items, and one interplay measured for the pictures.
   first 5px of whatever starts at the line, which in O.T.T.E.R.'s Study,
   Hotkeys and Nodes views is Sidebar 2's rows (a section, a lesson,
   *Sources*): a press there grabs the line instead of opening the row, and a
-  click there does nothing. D.O.G.'s nearest control beside is 21px away.
-  For a finger (`pointer: coarse`, review round 1, measured with touch
-  emulation) the strip is 24px, 4 inside and 19 beside: it takes Sidebar 2's
-  rows from 1 to 19px beside the line and the first 11px of D.O.G.'s card 1
-  header (its fold), so a tap there grabs the line; a vertical swipe that
+  click there does nothing. D.O.G.'s nearest button or field beside is 21px
+  away, but card 1's header, which folds the card on a click anywhere on it,
+  starts 9px beside the line (after the column's 8px padding and the card's
+  1px border; review round 2, measured). For a finger (`pointer: coarse`,
+  review round 1, measured with touch emulation) the strip is 24px, 4 inside
+  and 19 beside: it takes Sidebar 2's rows from 1 to 19px beside the line and
+  the first 10px of D.O.G.'s card 1 header, so a tap there grabs the line
+  instead of folding the card; a vertical swipe that
   starts on those pixels cannot scroll the list under them (`touch-action:
   none`; INFERRED). A finger must travel 8px before it drags (a mouse 3), so
   a tap that wanders does not resize. The design round chose these numbers

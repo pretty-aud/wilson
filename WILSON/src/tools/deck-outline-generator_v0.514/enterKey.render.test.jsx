@@ -1750,9 +1750,13 @@ describe('SB1 on the rendered D.O.G.: the pages sidebar resizes by its edge', ()
 
   it('in a 1024 window the column keeps its 560: the widest is 464, and a kept 480 is drawn 464', async () => {
     localStorage.setItem(KEY, '480')
-    // jsdom lays nothing out: the sidebar's row is given the width a 1024 window gives it.
+    // jsdom lays nothing out: D.O.G.'s own row (the flex row under the bar, by
+    // its classes) is given the width a 1024 window gives it. The Panel measures
+    // its parent as the row, so a wrapper put round it would answer 0 here and
+    // fail this case, as it would fail in the app (review round 2).
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
-      return this.querySelector?.(':scope > aside.dog-sidebar') ? 1024 : 0
+      const row = this.classList?.contains('flex-1') && this.classList.contains('flex') && this.classList.contains('min-h-0')
+      return row && this.querySelector(':scope > aside.dog-sidebar') ? 1024 : 0
     })
     const d = await openDog({ upload: false })
     const h = handleOf(d)
