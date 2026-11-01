@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| AT1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`; `po/at1-admin-terminal-fit` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim in the brief (*"make it wider there is a lot empty space to the sides … the member details should fit and static not able to scroll … the pop up card asking to confirm should be in the center of the overall admin terminal not inside of the column"*): measured first at four sizes (margins 24/100/340/660; the panel 678 px of real content in 512 and 34 px sideways; every confirm 239 wide in the panel, the panel resting at `translateX(0)`, its transform the containing block); one design round on Opus (design-direction, laws-of-ux); the page edge to edge (the registry entry takes no measure), the panel 560 in two columns, no scroll from 1280x720, a compact roster beside it under 860, the confirms beside the panel and the panel at `transform: none`; no kit change; review round 1 on Opus (1 High, measured: one Escape closed the confirm and the panel, older than AT1, fixed; 1 Medium; 3 Low; 4 Notes), round 2 on Opus; 19 plants each red; no migration, no SQL | AT1-01 to AT1-07 | — . Comment markers: 4 → 4. |
 | Post-overhaul F2, a third follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 91's F2 Q6, relayed by the controller: a question back (verbatim in the walkthrough), then *"Yes, F2 builds it next (Recommended)"*: a bid version keeps each expense's estimate, at each save and as they are when the budget goes active; the Expenses tab shows the selected bid's figure, what is expected now and what was spent, with *Expected vs bid* and *Actual vs expected*, a sentence naming the bid, and for a budget active from before, *Keep today's estimates as its bid*; the table on the kit's compact cells (1280 holds it); measured before and after in Chromium on the fixtures (Locked bid $20,960, Expected now $21,260, +$300); 12 tests red on `1a36d9ad`'s source, 32 plants each killed; review round 1 on Opus (1 High — the bid froze at the last save, not at the lock: the lock writes them now; 3 Medium; 3 Low), round 2 on Opus (1 Medium — the lock wrote the whole snapshot from this window's copy: only the expenses now, on the stored one, its undo leaving a later save; 5 Low); no migration, no SQL | F2-11, F2-12, F2-13 | F2-10 (closed by measurement). Comment markers: 4 → 4. |
 | Post-overhaul F2, a second follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 Q4 and Q5, relayed by the controller, verbatim *"Leave them (Recommended)"* and *"Yes, show it (Recommended)"*: the Expenses tab's *Bid total* tile with the agency fee on (budgetMath's `lineMoney`; $24,449 with the $3,189 fee on the fixtures, the Topsheet's figure), nothing built for Q4; measured before and after; a test red first, eleven plants each killed; review round 1 on Opus (her F1 ruling: 1 Medium, the test's missing cases, pinned; 3 Low, the Variance tile now saying *against the estimate, before the fee*, a comment, this row; 4 Notes), round 2 on Opus (no wrong figure in 32 measured cases; the Variance's basis hers, Q6; the hint under an empty Variance removed; a comment); no migration, no SQL | F2-10 (her Q6) | F2-07 (closed by measurement), F2-08 (closed by her answer). Comment markers: 4 → 4. |
 | Post-overhaul F2, a follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 questions, relayed by the controller, verbatim: Q1 *"Yes, fill in 20% (Recommended)"*, Q2 *"Full rate, $624 (Recommended)"*, Q3 *"Yes, its own line"*: switching the agency fee on anywhere with nothing typed fills in 20% (`agencyPctOnSwitchOn` for the Summary's and the settings' switches, the new-project form, the move to the cloud); the Crew tab prices a role nobody holds at the Summary's rate (the production designer $520 → $624, the crew $76,810 → $92,172); the client estimate's own *Agency fee* line on the crew and the expenses ($17,015, total $141,995 → $159,010) and the Topsheet's expenses fee ($3,189); measured on the fixtures before and after; tests red first; two review rounds, both on Opus (her F1 ruling); no migration, no SQL | F2-07 (the Expenses tab shows no fee), F2-08 (cloud projects already at 0), F2-09 (four older things seen in review) | F2-01, F2-03, F2-04 (closed by measurement). Comment markers: 4 → 4. |
@@ -4047,3 +4048,47 @@ list (`PLAN_TO_1_0.md` §5, rule 1), so recorded and left.
   in the renderer; since the list reads the stored order, an order it sets
   now stands until the next subject write renumbers. INFERRED by reading
   (round 2's notes). Owner: none.
+
+## AT1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`) — left open
+
+The admin terminal edge to edge, the member panel in two columns with no
+scroll from 1280x720, its confirms beside the panel and centred on the window
+(her ask of 2026-11-01; the session log's AT1 row; walkthrough 92). What AT1
+met outside its list, or decided and left for her:
+
+- **AT1-01 · Beside an open member, at 1280 and 1440, the roster shows Member
+  and Status only.** By design (the design round; her Q2 in walkthrough 92,
+  built on the recommendation): the four columns it drops are what the panel
+  shows for the open member and come back when it closes; from 1920 the six
+  stay. MEASURED: roster 424 / 584 / 1,064 / 1,704 px at the four sizes. The
+  trade (review round 1, against C1): another member's username, role, rate
+  access and joined date need the panel closed at those widths, nothing on
+  screen says columns were folded, and the search still matches a username or
+  email it no longer shows. Before AT1 the six scrolled sideways there with
+  Joined cut. Hers to keep or change.
+- **AT1-02 · On a wide window Company, Diagnostics and Storage keep the
+  720px reading measure**, left-aligned at the pane's edge. MEASURED at
+  2560x1440: 720 in a 2,288 pane, 1,568 px empty to their right (Models 1,240;
+  Requests and Logs 2,288). Left as the design round chose (prose and
+  label/value cards); her "empty space to the sides" may cover them too. Q1's
+  (b) in walkthrough 92 is the other way.
+- **AT1-03 · The roster's search field shrinks to 175 px beside an open
+  member at 1280, which cuts its placeholder** ("Search username, name, e…").
+  MEASURED at 1280x800. The field still works; a shorter placeholder is a
+  word for the copy's owner.
+- **AT1-04 · Below 1160 the panel is one column and scrolls; the pet sits
+  over its bottom-right corner.** MEASURED at 1024x700: 669 px of content in
+  452. Whether the pet covers a control once scrolled is NOT measured.
+- **AT1-05 · The member panel's account rows do not load on the dev
+  fixtures** (`adminApi.js` answers the security read with a notice), so every
+  picture shows the notice; the real rows were measured by putting their markup
+  in place (147 px value column, no sideways scroll, the worst case 392 px).
+  Outside AT1's files.
+- **AT1-06 · Kit request B4-KR-2 (a portal on the kit `Dialog`) stays open.**
+  AT1 fixed its confirms as the house answer does (siblings of the host, B3c)
+  and changed no kit file: 38 files still render a Dialog inline, safe only
+  while no ancestor of theirs has a transform. The panel borrows the dialog
+  token `--dialog-form` (560) for its width (review round 1, a Note).
+- **AT1-07 · A stale note in `adminTerminal.css`**: the 1180px block's
+  comment says the detail panel gives width back there; only the nav and the
+  search do (review round 1, read; it predates AT1).

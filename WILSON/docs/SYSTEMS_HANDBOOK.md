@@ -4571,6 +4571,24 @@ Two traps it exists to avoid, both of which look fine in review:
 | Logs | System (`app_events`) and Activity (`edit_history`) tabs, filtered, with expandable JSON context | Direct RLS-scoped reads |
 | Diagnostics | Build/env block, live adapter + realtime status, error-code reference, test event, test Sentry exception; hosts **Storage Cleanup** | `reportAppEvent`, `storage-gc` |
 
+**Its layout (AT1, 2026-11-01).** The page runs edge to edge with the one
+24px gutter, as Files does: `.at-page` has no cap and the registry entry takes
+no measure, so the header's title sits above the nav (the two move together,
+`src/layout/pages.js`). Company, Diagnostics and Storage keep the 720 reading
+measure, Models the 1240 data cap; Users, Requests and Logs take the pane. A
+selected member opens a 560px panel (`--dialog-form`) in two columns, Identity
+and Access, then Security, Reset password and the danger zone; it fits without
+scrolling from 1280x720 (the desktop's 1280x800 window too) and drops to one
+420px column, scrolling, below 1160. While it is open and the roster's column
+is under 860 (`ROSTER_MIN`, the table's floor) the roster shows Member and
+Status, the six columns back when it closes. The panel's confirms render
+beside it (a fragment), never inside: the panel slides in, and a transformed
+ancestor is the containing block of the kit Dialog's fixed backdrop, which
+laid every confirm out in the panel's column. The kit Dialog does not portal
+(B4-KR-2), so any Dialog placed inside a transformed box has the same trap;
+the house answer is a sibling of the host. The panel's own Escape stands down
+for an Escape a layer above already handled, so one Escape closes one layer.
+
 **Team Members** reads `workspace_members` through the `workspace_directory`
 RPC — not RABBIT's legacy local `team_members` entity. It has roster liveness
 over the workspace channel, an assigned-projects column fed by a second
