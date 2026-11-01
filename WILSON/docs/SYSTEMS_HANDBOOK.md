@@ -3926,6 +3926,21 @@ headings, and the Tab order; `ReferencesCard.test.jsx` the part's order and
 `focusAfterRemove`. Walkthrough 90, its DG6 section, has the measurements
 before and after at 1280, 1440, 1920 and 2560 and her answers.
 
+**D.O.G.'s pages sidebar resizes by its edge (SB1, night 10, 2026-11-01;
+Audrey, *"lets do the same with the sidebar in the dog tool"*).** The kit
+Panel's handle (§13.4) on `.dog-sidebar`: `resizable
+storageKey="dog.sidebar.width" minWidth={160} maxWidth={480}
+minBeside={560}`. md (240) stays the default, so C4's arithmetic (`dog.css`,
+THE PAGE) holds until a width is chosen and `dog-preview-probe.mjs --check`
+passes as before (a fresh browser keeps no width); a chosen width narrows the
+output card's preview by as much, which is hers to choose. 160 keeps the
+fixtures' four page titles to three lines (140 took five); the column beside
+keeps 560, the narrowest measured with nothing overflowing, so the widest is
+464 at 1024. `enterKey.render.test.jsx` (SB1) pins the separator on the
+rendered D.O.G.: the sidebar's last child, named by the *Deck outline* bar,
+its numbers, its key, and that `.dog-main`'s Tab stops never meet it.
+Walkthrough 92, its SB1 section.
+
 ### 13.2 O.T.T.E.R.
 
 `src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
@@ -3943,6 +3958,18 @@ Reference for coding-language courses), `nodes`, `sources`, `requests` and
 than merely hidden, so that a queue fetch does not fire for every user at
 launch. Sidebar 1 collapses with `Ctrl/Cmd + \`, gated on
 `currentPage === 'otter'` (§13.4).
+
+**Sidebar 1 resizes by its edge (SB1, night 10, 2026-11-01).** The kit Panel's
+handle (§13.4): `resizable storageKey="otter.sidebar1.width" minWidth={180}
+maxWidth={480} minBeside={720}`, the width remembered beside
+`otter.sidebar1.collapsed`. 180 is the first width at which no filter chip
+sticks out of the column; the row keeps 720 in every view (Sidebar 2's 240 and
+a lesson pane of 480, where the lesson column is 422px, the Body step's 45ch),
+so the widest is 304 at 1024 and 480 from 1200, and the column never jumps on a
+view change. Collapsed, the Panel unmounts and the rail is as it was; reopened,
+the Panel reads its width back. `components/SidebarCollapse.test.jsx` composes
+the column from `SidebarCollapse.jsx` and the Panel with the props read from
+`Otter.jsx` by a parse, and pins the collapse and the resize together.
 
 **The three visibility tiers** — stored values `personal`, `shared`,
 `company_standard`:
@@ -4504,6 +4531,41 @@ Walkthrough 81.
 shell reimplements the bar inline. Session 17 deleted both, along with eleven
 other orphans totalling 1,840 lines. The main bundle was byte-identical
 afterwards, which is the proof that Rollup had never reached any of them.)
+
+**A docked sidebar resizes by its edge (SB1, night 10, 2026-11-01).** Audrey,
+of O.T.T.E.R.'s courses sidebar: *"this divider line from the courses sidebar
+and the overall otter window should be expanding by grabbing and putting the
+line to the desired width of the courses sidebar. lets do the same with the
+sidebar in the dog tool"*. The kit `Panel` (`src/ui/Panel.jsx`) takes
+`resizable`, `storageKey`, `minWidth`, `maxWidth` and `minBeside` (left-docked
+only; `side="right"` draws no handle and says so in dev); absent, a Panel is
+what it was. The handle is the aside's last child: `role="separator"`,
+vertical, focusable, named by the panel's title or its `aria-labelledby`,
+`aria-controls` the aside, `aria-valuemin`/`-max`/`-now` in whole pixels and
+*"N pixels"*. It is an 8px strip over the 1px hairline (2px over the panel,
+the line, 5px beside; 24px under `pointer: coarse`), absolute so it takes no
+width, z 4 (over the sticky table heads, under every floating surface; the
+panel takes no z-index). At rest it draws nothing; live (hover after 200ms
+where a pointer hovers, a drag, keyboard focus) one 2px band of the signal
+lies over the line, which is also its focus indicator (`outline-color:
+transparent`, so forced colours still draw a ring). The width is
+`--ui-panel-size` on the aside: while a drag moves, the handle writes it with
+`style.setProperty` (no tool re-renders, not even at the end — the Panel's own
+state holds the width); at the release, one state update and one localStorage
+write; React never writes the property, so a re-render mid-drag cannot put the
+old width back. The widest is `max(token, min(maxWidth, row − minBeside))`,
+the row measured by a ResizeObserver (a row of 0 — a hidden page, jsdom —
+trims nothing); a remembered width that does not fit is drawn narrower and
+kept. A press that travels under 3px is a click; the arrows move ±8, Shift ±40,
+Home and End to the limits; a double-click, or any change landing on the
+token, removes the key; Escape (a capture-phase window listener for the drag's
+length, so a field holding focus never sees it) and `pointercancel` abandon a
+drag; the mouse press's default is prevented (focus stays, no selection, no
+native drag, so no file drop); `<html data-ui-resizing>` holds the cursor and
+stops selection for the drag's length. Where storage throws, a width is kept
+in memory for the page's life, so a collapsed sidebar reopened still returns
+to it. `src/ui/Panel.test.jsx` (SB1) pins the behaviour and the sheet's
+numbers. Callers: §13.1 (D.O.G.'s pages) and §13.2 (O.T.T.E.R.'s courses).
 
 **The permission framework.** `src/permissions/roleMatrix.js` holds three roles
 and thirteen actions, mirrored 1:1 in a unit test that fails on any mismatch in
@@ -6726,6 +6788,24 @@ documentation and starts being wrong answers.
   annotation names which.
 - **Only what an `index.ts` imports is checked.** A `_shared/` module no
   function imports is not.
+
+**The sidebars that resize by their edge (SB1, 2026-11-01; §13.4, the kit
+Panel's handle)**
+
+- **The width is the device's, not the person's.** It lives in the browser's
+  (or the desktop's) localStorage beside the collapse flag, so a laptop and a
+  desktop keep their own, and a second person signed in on the same machine
+  meets the first one's width.
+- **Left-docked only.** A right-docked Panel with `resizable` draws no
+  handle (and says so in dev); none exists today.
+- **A wider D.O.G. sidebar hides more of the slide preview**, one pixel per
+  pixel: C4 (`dog-preview-probe.mjs --check`) pins the preview at the
+  default width only, which a fresh browser always has.
+- **Three WCAG items are recorded, not built** (`docs/OUTSTANDING.md` SB1-01
+  to SB1-03): no single-pointer way to set a width (2.5.7), an 8px strip for
+  a mouse (2.5.8; 24 for a finger), and the hairline's 1.48:1 at rest
+  (1.4.11). And a wide courses column at 1280 puts the lesson's *Next* under
+  the pet (SB1-04).
 
 ## Appendix A — Glossary
 
