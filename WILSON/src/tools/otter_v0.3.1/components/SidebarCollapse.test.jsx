@@ -98,6 +98,45 @@ describe('O.T.T.E.R.\'s courses Panel, as Otter.jsx writes it', () => {
     expect(OTTER).toContain(`useSidebarCollapse('${FLAG_KEY}', {`)
   })
 
+  // The Panel measures its parent as the row it shares with the column beside
+  // it (review round 2, R2-07): in a wrapper it would measure the wrapper and
+  // never widen. So the courses Panel is what renderSoftwareSidebar returns,
+  // and its call sits straight in the body row.
+  const directInRow = (src) => {
+    const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+    const out = []
+    traverse(ast, {
+      FunctionDeclaration(p) {
+        if (p.node.id?.name !== 'renderSoftwareSidebar') return
+        p.traverse({
+          JSXElement(q) {
+            const el = q.node.openingElement
+            if (el.name.name !== 'Panel' || !el.attributes.some((a) => a.name?.name === 'className' && a.value?.value === 'otter-courses')) return
+            const up = q.findParent((x) => !x.isParenthesizedExpression())
+            out.push(up.isReturnStatement() ? 'returned' : `inside ${up.type}`)
+          },
+        })
+      },
+      JSXExpressionContainer(p) {
+        const call = p.node.expression
+        if (call.type !== 'CallExpression' || call.callee.name !== 'renderSoftwareSidebar') return
+        const host = p.parentPath.node.openingElement
+        const cls = host?.attributes.find((a) => a.name?.name === 'className')?.value?.value
+        out.push(`called in .${(cls || '').split(' ').join('.')}`)
+      },
+    })
+    return out
+  }
+  it('is what renderSoftwareSidebar returns, called straight in the body row', () => {
+    expect(directInRow(OTTER)).toEqual(['called in .flex.flex-1.overflow-hidden', 'returned'])
+  })
+  it('CONTROL: a wrapper round the Panel, or round the call, is caught', () => {
+    const one = 'function A(){ return (<div className="flex flex-1 overflow-hidden">{renderSoftwareSidebar()}</div>) } function renderSoftwareSidebar(){ return (<Panel className="otter-courses">x</Panel>) }'
+    expect(directInRow(one)).toEqual(['called in .flex.flex-1.overflow-hidden', 'returned'])
+    expect(directInRow(one.replace('return (<Panel className="otter-courses">x</Panel>)', 'return (<div><Panel className="otter-courses">x</Panel></div>)'))).toEqual(['called in .flex.flex-1.overflow-hidden', 'inside JSXElement'])
+    expect(directInRow(one.replace('{renderSoftwareSidebar()}', '<div>{renderSoftwareSidebar()}</div>'))).toEqual(['called in .', 'returned'])
+  })
+
   it('CONTROL: the parse sees a dropped resizable, another key and a moved limit', () => {
     const one = '<Panel width="sm" className="otter-courses" title="Courses" resizable storageKey="otter.sidebar1.width" minWidth={180} maxWidth={480} minBeside={720}>x</Panel>'
     const read = (s) => coursesPanelProps(`const x = ${s}`)
