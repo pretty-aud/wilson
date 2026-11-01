@@ -17,7 +17,7 @@
 // trigger, admin-* functions). UI gates are presentation only.
 // =============================================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Users, Search, X, UserPlus, KeyRound, Power, ChevronDown,
 } from 'lucide-react'
@@ -92,21 +92,35 @@ const COLS = ['31%', '16%', '10%', '12%', '16%', '15%']
 // it drops are what the panel shows for the open member, and they come back when
 // the panel closes; Status is never dropped. From 1920 the six never leave.
 const ROSTER_MIN = 860
-// The compact table's Status column holds the widest pill, "Deactivated" (138).
+// The compact table's Status column: the widest pill, "Deactivated", is 108
+// (measured) inside the cell's 12px padding either side, with room to spare.
 const COMPACT_STATUS_WIDTH = '140px'
 
-/** The width of `ref`'s element, kept current; null before the first measure
- *  and wherever there is no ResizeObserver (jsdom). */
-function useWidth(ref) {
-  const [width, setWidth] = useState(null)
+/**
+ * Whether `ref`'s element is narrower than `ROSTER_MIN`. A boolean, not the
+ * width, so dragging the window re-renders the roster only when it crosses.
+ *
+ * 🚨 MEASURED IN A LAYOUT EFFECT ON `key` TOO (AT1 review round 1). The
+ * ResizeObserver's answer is a normal update, painted a frame late: one frame
+ * after a row click showed the six columns squeezed into 424 and scrolling
+ * sideways. Measuring before paint when the selection changes closes that; the
+ * observer keeps it right while the window is resized. jsdom has no layout (a
+ * width of 0) and no ResizeObserver; both are skipped there.
+ */
+function useNarrow(ref, key) {
+  const [narrow, setNarrow] = useState(false)
+  useLayoutEffect(() => {
+    const w = ref.current?.getBoundingClientRect().width
+    if (w) setNarrow(w < ROSTER_MIN)
+  }, [ref, key])
   useEffect(() => {
     const node = ref.current
     if (!node || typeof ResizeObserver === 'undefined') return undefined
-    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    const ro = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < ROSTER_MIN))
     ro.observe(node)
     return () => ro.disconnect()
   }, [ref])
-  return width
+  return narrow
 }
 
 function fmtDate(iso) {
@@ -149,7 +163,7 @@ export default function UsersSection({ wm }) {
   const [creds, setCreds] = useState(null)     // { username, password, context } | null
   const addBtnRef = useRef(null)
   const mainRef = useRef(null)
-  const mainWidth = useWidth(mainRef)
+  const narrow = useNarrow(mainRef, selectedId)
 
   // Roster liveness: workspace_members changes (and full RESYNCs after a
   // reconnect) debounce into a directory reload — Dashboard pattern.
@@ -230,7 +244,7 @@ export default function UsersSection({ wm }) {
     ? wm.members.find(m => m.user_id === selectedId) || null
     : null
   // No loop: compact changes the table, not the width of the column it sits in.
-  const compact = !!selectedMember && mainWidth !== null && mainWidth < ROSTER_MIN
+  const compact = !!selectedMember && narrow
 
   function handleCreated(data, extra) {
     setDialog(null)
@@ -459,9 +473,15 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
   }, [])
 
   // Escape closes the panel — unless a modal owns the key right now.
+  // 🚨 `defaultPrevented` TOO (AT1 review round 1, measured with a real key
+  // press): the confirm's Dialog answers Escape on `document`, its close
+  // (`setModal(null)`) is flushed with its effects in the microtask before the
+  // event reaches `window`, and by then this listener is attached again — so one
+  // Escape closed the confirm AND the panel, focus falling to <body>. The Dialog
+  // marks the Escape it answers handled (Dialog.jsx, A2), and so stands this down.
   useEffect(() => {
     if (escapeDisabled || modal) return undefined
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [escapeDisabled, modal, onClose])

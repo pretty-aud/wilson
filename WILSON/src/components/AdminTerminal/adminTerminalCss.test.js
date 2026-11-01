@@ -388,10 +388,12 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     [/\.at-detail-panel\[data-entered='true'\]\s*\{\s*opacity:\s*1;\s*transform:\s*none;?\s*\}/, 'panel entered end state, no transform at rest'],
     [/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.at-detail-panel \{ transition: none;/, 'AT-25 reduced-motion gate'],
     // AT1: the member panel at the form width, in two columns, and the
-    // drawer width in one column below the 1280 target.
-    [/\.at-detail-panel\s*\{[^}]*width:\s*var\(--dialog-form\)/, 'AT1 panel at the form width'],
+    // drawer width in one column below 1160 (where the roster beside the two
+    // columns would fall under its compact floor of 300). `width` anchored, so
+    // a `min-width` or `max-width` of the same token does not pass for it.
+    [/\.at-detail-panel\s*\{[^}]*(?<![\w-])width:\s*var\(--dialog-form\)/, 'AT1 panel at the form width'],
     [/\.at-panel-cols\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, 'AT1 two columns'],
-    [/@media \(max-width: 1279px\)\s*\{\s*\.at-detail-panel \{ width: var\(--panel-xl\); \}\s*\.at-panel-cols \{ grid-template-columns: minmax\(0, 1fr\);/, 'AT1 one column below 1280'],
+    [/@media \(max-width: 1159px\)\s*\{\s*\.at-detail-panel \{ width: var\(--panel-xl\); \}\s*\.at-panel-cols \{ grid-template-columns: minmax\(0, 1fr\);/, 'AT1 one column below 1160'],
     // AT1: the panel's security grid gives its value 147px, wider than the
     // widest badge, and wraps a badge under the email (it scrolled sideways).
     [/\.at-detail-panel \.at-sec-row\s*\{\s*grid-template-columns:\s*96px minmax\(0, 1fr\)/, 'AT1 panel label track'],
@@ -428,6 +430,9 @@ describe('🚨 the load-bearing values, pinned literally', () => {
     expect(was).not.toMatch(DECLARATIONS.find(([, n]) => n.startsWith('panel entered'))[0])
     expect(was).not.toMatch(DECLARATIONS.find(([, n]) => n === 'AT1 panel at the form width')[0])
     expect(was).not.toMatch(DECLARATIONS.find(([, n]) => n === 'AT1 panel label track')[0])
+    // Review round 1: the width pin read `max-width: var(--dialog-form)` as the width.
+    const capped = cssCode.replace('width: var(--dialog-form);', 'max-width: var(--dialog-form);')
+    expect(capped).not.toMatch(DECLARATIONS.find(([, n]) => n === 'AT1 panel at the form width')[0])
   })
 
   it.each(DECLARATIONS)('pins %#: %s', (pattern) => {

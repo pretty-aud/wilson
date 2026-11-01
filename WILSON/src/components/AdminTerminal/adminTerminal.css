@@ -451,11 +451,15 @@
     align-items: start;
   }
   .at-panel-col { min-width: 0; }
-  /* Below the target width (1280) the panel narrows to the drawer width and
-     stacks its two columns; it scrolls there, never sideways (1024x700, the
-     desktop's smallest window, measured 669 of content in 452). The 20 is the
-     gap the Security label always had above it. */
-  @media (max-width: 1279px) {
+  /* Below 1160 the panel narrows to the drawer width and stacks its two
+     columns; it scrolls there, never sideways (1024x700, the desktop's
+     smallest window, measured 669 of content in 452). 1160, not the 1280
+     target (AT1 review round 1): the two columns fit as long as the roster
+     keeps its compact floor of 300 (window = 300 + 856), and Windows display
+     scaling turns a 1366 or 1536 screen into 1242 or 1229 CSS pixels, which a
+     1280 breakpoint sent to one scrolling column. The 20 is the gap the
+     Security label always had above it. */
+  @media (max-width: 1159px) {
     .at-detail-panel { width: var(--panel-xl); }
     .at-panel-cols { grid-template-columns: minmax(0, 1fr); row-gap: 20px; }
   }

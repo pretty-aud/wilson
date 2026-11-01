@@ -32,7 +32,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 
 // The Supabase client is constructed at module load and throws
 // 'supabaseUrl is required' without a .env.local, which is every CI run
@@ -533,8 +533,7 @@ describe('AT1: the member panel\'s confirms open outside the panel', () => {
     expect(document.querySelector('.at-users').contains(dialog())).toBe(true)
   })
 
-  it('focus goes into the confirm and back to Reset password on Cancel; Escape closes only the confirm', () => {
-    const onClose = vi.fn()
+  it('focus goes into the confirm and back to Reset password on Cancel', () => {
     render(<UsersSection wm={wmFixture([GRACE])} />)
     fireEvent.click(rosterRow('Grace Hopper'))
     const reset = screen.getByRole('button', { name: /^Reset password$/ })
@@ -545,20 +544,27 @@ describe('AT1: the member panel\'s confirms open outside the panel', () => {
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
     expect(dialog()).toBeNull()
     expect(document.activeElement).toBe(reset)
-
-    fireEvent.click(reset)
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(dialog()).toBeNull()
-    expect(panel()).not.toBeNull()
-    void onClose
   })
 
-  it('CONTROL: the same check sees a confirm drawn inside the panel', () => {
-    // The shape the panel had before AT1, as markup: the backdrop a child of
-    // the panel. The assertion above must read it as inside.
-    document.body.innerHTML = '<div class="at-users"><div class="at-detail-panel"><div class="ui-dialog-backdrop"><div class="ui-dialog"></div></div></div></div>'
-    expect(panel().contains(dialog())).toBe(true)
-    document.body.innerHTML = ''
+  // 🚨 ONE ESCAPE, ONE LAYER (review round 1, High, measured with a real key
+  // press). The Dialog answers Escape on `document` and marks it handled; React
+  // flushes the confirm's close, and its effects, in the microtask before the
+  // event reaches `window`, where the panel's listener is attached again — and
+  // it closed the panel too. `fireEvent` cannot leave that microtask, so this
+  // hands the panel the event as it arrives there: an Escape already handled.
+  it('an Escape a layer above has already handled does not close the panel', () => {
+    render(<UsersSection wm={wmFixture([GRACE])} />)
+    fireEvent.click(rosterRow('Grace Hopper'))
+    const handled = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    handled.preventDefault()
+    // `act`, or the panel's close would not be flushed before the check and
+    // the assertion could not fail (it did not, until the plant said so).
+    act(() => { window.dispatchEvent(handled) })
+    expect(handled.defaultPrevented).toBe(true)
+    expect(panel()).not.toBeNull()
+    // …and an Escape nobody handled still closes it, as it always did.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(panel()).toBeNull()
   })
 })
 
