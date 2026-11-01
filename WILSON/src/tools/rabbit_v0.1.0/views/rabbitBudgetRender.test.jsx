@@ -778,8 +778,8 @@ describe('surface 2b', () => {
   // Post-overhaul S3c (S4a-07): the tab's undo keys act only while
   // R.A.B.B.I.T. is the page on screen, as BudgetView is told; these tests
   // put it there unless they say otherwise (the off-page tests below).
-  const tab = (h = hook(), project = PROJECT, pageActive = true) => (
-    <ExpensesTab ctx={{ getAdapter: () => ({}) }} pageActive={pageActive} project={project} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />
+  const tab = (h = hook(), project = PROJECT, pageActive = true, ctx = {}) => (
+    <ExpensesTab ctx={{ getAdapter: () => ({}), ...ctx }} pageActive={pageActive} project={project} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />
   )
   const rowsOf = (root) => [...root.querySelectorAll('table.rb-budget-exp tbody tr.rb-budget-exp-row')]
   const titles = (root) => rowsOf(root).map((r) => r.querySelector('.rb-budget-exp-title').textContent)
@@ -789,17 +789,24 @@ describe('surface 2b', () => {
     const table = container.querySelector('table.ui-table.rb-budget-exp')
     expect(table).not.toBeNull()
     const ths = [...table.querySelectorAll('thead th')]
-    expect(ths.map((th) => th.textContent)).toEqual(['', 'Title', 'Estimated', 'Margin', 'Conting.', 'Actual', 'Variance', 'Date', 'Related', 'Files', 'Actions'])
+    // F2's third follow-up: the bid's figure leads, the estimate is what she
+    // expects now, the variance says what it compares.
+    expect(ths.map((th) => th.textContent)).toEqual(['', 'Title', 'Bid', 'Expected', 'Margin', 'Conting.', 'Actual', 'vs expected', 'Date', 'Related', 'Files', 'Actions'])
     // Figures right-aligned, their headers with them; the words left.
     expect(ths.filter((th) => th.getAttribute('data-numeric') === 'true').map((th) => th.textContent))
-      .toEqual(['Estimated', 'Margin', 'Conting.', 'Actual', 'Variance', 'Files'])
+      .toEqual(['Bid', 'Expected', 'Margin', 'Conting.', 'Actual', 'vs expected', 'Files'])
+    // Twelve columns: the kit's compact cells, so 1280 holds them (measured
+    // in Chromium: 1228px of table, the title 204px at 1280).
+    expect(table.getAttribute('data-compact')).toBe('true')
+    expect(ths[7].style.width).toBe('var(--rb-budget-exp-col-vs)')
     // The tab's default order, newest first; an untitled expense says so.
     expect(titles(container)).toEqual(['Camera package hire', 'Set timber and paint', 'Untitled'])
     const rows = rowsOf(container)
     const numeric = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)
-    expect(numeric(rows[0])).toEqual(['$16,800', '—', '+$1,680', '$16,800', '$0', '1'])
-    expect(numeric(rows[1])).toEqual(['$4,200', '+$210', '—', '$3,860', '-$340', '—'])
-    expect(numeric(rows[2])).toEqual(['$260', '—', '—', '$284', '+$24', '—'])
+    // No bid version here: no bid figure.
+    expect(numeric(rows[0])).toEqual(['—', '$16,800', '—', '+$1,680', '$16,800', '$0', '1'])
+    expect(numeric(rows[1])).toEqual(['—', '$4,200', '+$210', '—', '$3,860', '-$340', '—'])
+    expect(numeric(rows[2])).toEqual(['—', '$260', '—', '—', '$284', '+$24', '—'])
     // Money is the one figure (CurrencyDisplay); a variance is signed and its
     // news is its tone.
     expect(rows[1].querySelectorAll('td[data-numeric="true"] .rb-money-figure')).toHaveLength(4)
@@ -808,58 +815,153 @@ describe('surface 2b', () => {
     expect(rows[2].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
     // A header sorts its column, as its click always did; the kit's arrow and
     // aria-sort say which way.
-    expect(ths[7].getAttribute('aria-sort')).toBe('descending')
-    fireEvent.click(within(ths[2]).getByRole('button'))
-    expect(ths[2].getAttribute('aria-sort')).toBe('ascending')
+    expect(ths[8].getAttribute('aria-sort')).toBe('descending')
+    fireEvent.click(within(ths[3]).getByRole('button'))
+    expect(ths[3].getAttribute('aria-sort')).toBe('ascending')
     expect(titles(container)).toEqual(['Untitled', 'Set timber and paint', 'Camera package hire'])
     expect(inlineColours(container)).toEqual([])
   })
 
-  // F2, her answer to walkthrough 91's F2 Q5 (2026-10-31), "Yes, show it
-  // (Recommended)": the Expenses tab shows what the expenses are bid at with
-  // the project's agency fee — the Topsheet's figure (budgetMath's lineMoney
-  // on the estimates). Each expense's cost, the cost variance and the
-  // over/under status stay the cost's, and the Variance tile says so while
-  // the fee is on. The old copy showed no fee: $21,260 here against the
-  // Topsheet's $24,449.
-  it('F2: with the agency fee on, a Bid total tile — the estimates plus the fee, the Topsheet\'s figure', () => {
+  // F2's third follow-up, her answer to walkthrough 91's F2 Q6 (2026-10-31),
+  // "Yes, F2 builds it next (Recommended)": per expense and in the tiles,
+  // where the bid was (the SELECTED version's saved estimate), what she
+  // expects to spend now (the estimate) and what was spent, with how far
+  // expected moved from the bid and how far actual is from expected. Every
+  // figure a cost; the agency fee in the hints, the bid's own and the
+  // project's (the Topsheet's figure, her Q5).
+  describe('F2: the bid, what is expected now and what was spent (her Q6)', () => {
     const read = (container) => [...container.querySelectorAll('.rb-budget-stats .ui-stat')].map((s) => [
       s.querySelector('.ui-stat-label').textContent, s.querySelector('.ui-stat-value').textContent, s.querySelector('.ui-stat-delta')?.textContent ?? null])
-    const tiles = (project) => {
-      const { container } = render(tab(hook(), project))
-      const out = read(container)
-      cleanup()
-      return out
-    }
+    const note = (container) => container.querySelector('.rb-budget-exp-bidnote')?.textContent ?? null
+    const cells = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].slice(0, 2).map((td) => td.textContent)
     const at15 = { ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 15 }
-    expect(tiles(at15)).toEqual([
-      ['Estimated total', '$21,260', null], ['Bid total', '$24,449', 'with the $3,189 agency fee'],
-      ['Actual total', '$20,944', null], ['Variance', '-$316', 'against the estimate, before the fee'], ['Expenses', '3', null],
-    ])
-    // The fee on with none typed: the one default, 20%; a typed 0 is 0.
-    expect(tiles({ ...PROJECT, budget_agency_enabled: true })[1]).toEqual(['Bid total', '$25,512', 'with the $4,252 agency fee'])
-    expect(tiles({ ...PROJECT, budget_agency_enabled: true, budget_agency_pct: 0 })[1]).toEqual(['Bid total', '$21,260', 'with the $0 agency fee'])
-    // Margin and contingency are not part of the bid here, as on the Topsheet.
-    expect(tiles({ ...at15, budget_margin_pct: 5, budget_contingency_pct: 10 })[1]).toEqual(['Bid total', '$24,449', 'with the $3,189 agency fee'])
-    // CONTROL: the fee off, no such tile and no hint under Variance.
-    expect(tiles(PROJECT).map((x) => x[0])).toEqual(['Estimated total', 'Actual total', 'Variance', 'Expenses'])
-    expect(tiles(PROJECT)[2]).toEqual(['Variance', '-$316', null])
-    // No expenses: no variance, so nothing under it to explain.
-    const { container: none } = render(tab(hook({ expenses: [] }), at15))
-    expect(read(none).slice(1, 4)).toEqual([
-      ['Bid total', '$0', 'with the $0 agency fee'], ['Actual total', '—', null], ['Variance', '—', null]])
-    cleanup()
-    // Every expense, whatever the search (the other tiles' rule and the
-    // Topsheet's); a row's own variance stays its cost against its estimate;
-    // a percentage typed afterwards moves the tile.
-    const { container, rerender } = render(tab(hook(), at15))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: 'Compass' } })
-    expect(read(container)[1]).toEqual(['Bid total', '$24,449', 'with the $3,189 agency fee'])
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: '' } })
-    const camera = rowsOf(container).find((r) => r.textContent.includes('Camera package hire'))
-    expect([...camera.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent).slice(3, 5)).toEqual(['$16,800', '$0'])
-    rerender(tab(hook(), { ...at15, budget_agency_pct: 10 }))
-    expect(read(container)[1]).toEqual(['Bid total', '$23,386', 'with the $2,126 agency fee'])
+    // The bid as Bid v2 kept it: the camera at its estimate, the timber at
+    // $3,900 (expected at $4,200 since), a drone day removed since, the
+    // untitled one (e3) never in it.
+    const BID_EXPENSES = [
+      { id: 'e1', title: 'Camera package hire', estimated_cost: 16800 },
+      { id: 'e2', title: 'Set timber and paint', estimated_cost: 3900 },
+      { id: 'gone', title: 'Drone day', estimated_cost: 500 },
+    ]
+    const version = (over = {}, snap = {}) => ({
+      id: 'v2', name: 'Bid v2', is_active: true, created_at: '2026-09-02T17:00:00Z',
+      snapshot: { kind: 'bid', totals: { overall: 0, beforeAgency: 0 }, tasks: [], phases: [], agencyEnabled: true, agencyPct: 15, expenses: BID_EXPENSES, ...snap },
+      ...over,
+    })
+    const OLD = version({ id: 'v1', name: 'Bid v1' }, { expenses: undefined })
+
+    it('the bid kept its expenses: each row\'s bid, how far expected moved, the tiles and the bid\'s own fee', () => {
+      const { container } = render(tab(hook(), at15, true, { budgetVersions: [version()] }))
+      expect(read(container)).toEqual([
+        ['Selected bid', '$21,200', '$24,380 with the $3,180 agency fee'],
+        ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'],
+        ['Actual total', '$20,944', null],
+        ['Expected vs bid', '+$60', 'expected now against the bid'],
+        ['Actual vs expected', '-$316', 'actual against expected now'],
+        ['Expenses', '3', null],
+      ])
+      const rows = rowsOf(container)
+      expect(rows.map(cells)).toEqual([
+        ['$16,800', '$16,800$0 vs bid'],
+        ['$3,900', '$4,200+$300 vs bid'],
+        ['Not in the bid', '$260'],
+      ])
+      expect(rows[1].querySelector('.rb-budget-exp-vsbid').getAttribute('data-tone')).toBe('danger')
+      expect(rows[0].querySelector('.rb-budget-exp-vsbid').getAttribute('data-tone')).toBe('zero')
+      // A row's own variance stays actual against expected (the timber: −$340).
+      expect([...rows[1].querySelectorAll('td[data-numeric="true"]')][5].textContent).toBe('-$340')
+      // Which bid, and what its totals hold that no row shows (review round
+      // 1): the one added since (in Expected now) and the one removed since
+      // (in the bid) — +$60 is +$300 − $500 + $260.
+      expect(note(container)).toBe('The bid is “Bid v2” as last saved; setting the budget active keeps the expenses as they are then. '
+        + 'Not in it: “Untitled”, added since ($260). It also holds “Drone day”, removed since ($500).')
+      // Every expense, whatever the search, as the tiles always were.
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: 'Compass' } })
+      expect(read(container).slice(0, 2).map((t) => t[1])).toEqual(['$21,200', '$21,260'])
+      expect(container.querySelector('.ui-table.rb-budget-exp').getAttribute('style')).toBeNull()
+    })
+
+    // Review round 2 (finding 3): reset to bidding after a lock, the bid's
+    // expenses are the lock's, not its last save's — the sentence says which.
+    it('while bidding, the sentence says when the bid\'s expenses were kept: at its save, or at a lock', async () => {
+      const { showDate } = await import('../dates')
+      const saved = '2026-09-02T17:00:00.000Z'
+      const lockedAt = '2026-09-10T12:00:00.000Z'
+      const { container, rerender } = render(tab(hook(), at15, true, { budgetVersions: [version({}, { saved_at: saved })] }))
+      expect(note(container)).toMatch(new RegExp(`^The bid is “Bid v2” as saved on ${showDate(saved).replace(/[/.]/g, '\\$&')}; setting the budget active keeps the expenses as they are then\\.`))
+      rerender(tab(hook(), at15, true, { budgetVersions: [version({}, { saved_at: saved, expenses_kept_at: lockedAt })] }))
+      expect(note(container)).toMatch(new RegExp(`^The bid is “Bid v2”, its expenses as kept on ${showDate(lockedAt).replace(/[/.]/g, '\\$&')}; setting the budget active keeps them as they are then\\.`))
+    })
+
+    it('locked, the tile is the locked bid and the sentence says so; no action offered', () => {
+      const keep = vi.fn(async () => {})
+      const { container } = render(tab(hook(), { ...at15, budget_active: true, budget_active_version_id: 'v2' }, true, { budgetVersions: [version()], keepExpensesInBid: keep }))
+      expect(read(container)[0]).toEqual(['Locked bid', '$21,200', '$24,380 with the $3,180 agency fee'])
+      expect(note(container)).toBe('The bid is “Bid v2”, the locked bid. Not in it: “Untitled”, added since ($260). It also holds “Drone day”, removed since ($500).')
+      expect(screen.queryByRole('button', { name: /today’s estimates/ })).toBeNull()
+    })
+
+    it('the fee each hint holds is its own: the bid\'s as it was bid, the project\'s now; off, no hint', () => {
+      const tiles = (project, v) => {
+        const { container } = render(tab(hook(), project, true, { budgetVersions: [v] }))
+        const out = read(container).slice(0, 2)
+        cleanup()
+        return out
+      }
+      expect(tiles(at15, version({}, { agencyPct: 10 }))).toEqual([
+        ['Selected bid', '$21,200', '$23,320 with the $2,120 agency fee'], ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee']])
+      // CONTROL: both fees off, no hints; the figures are the costs either way.
+      expect(tiles(PROJECT, version({}, { agencyEnabled: false }))).toEqual([['Selected bid', '$21,200', null], ['Expected now', '$21,260', null]])
+      // The project's margin and contingency are no part of either.
+      expect(tiles({ ...at15, budget_margin_pct: 5, budget_contingency_pct: 10 }, version())[1]).toEqual(['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'])
+    })
+
+    it('a bid saved before a version kept its expenses: "—" and why, in words; locked, today\'s estimates can be kept as its bid', async () => {
+      const keep = vi.fn(async () => {})
+      const { container, rerender } = render(tab(hook(), at15, true, { budgetVersions: [OLD], keepExpensesInBid: keep }))
+      expect(read(container).map((t) => t.slice(0, 3))).toEqual([
+        ['Selected bid', '—', 'this bid kept no expenses'], ['Expected now', '$21,260', '$24,449 with the $3,189 agency fee'],
+        ['Actual total', '$20,944', null], ['Expected vs bid', '—', null], ['Actual vs expected', '-$316', 'actual against expected now'], ['Expenses', '3', null]])
+      expect(rowsOf(container).map(cells)).toEqual([['—', '$16,800'], ['—', '$4,200'], ['—', '$260']])
+      expect(container.querySelector('.rb-budget-exp-vsbid')).toBeNull()
+      expect(note(container)).toBe('“Bid v1” was saved before a bid kept its expenses, so they have no bid figure yet. Saving a new version keeps them, and so does setting the budget active.')
+      // CONTROL: while bidding, no action — saving or the lock keeps them.
+      expect(screen.queryByRole('button', { name: /today’s estimates/ })).toBeNull()
+      rerender(tab(hook(), { ...at15, budget_active: true, budget_active_version_id: 'v1' }, true, { budgetVersions: [OLD], keepExpensesInBid: keep }))
+      expect(read(container)[0]).toEqual(['Locked bid', '—', 'this bid kept no expenses'])
+      expect(note(container)).toBe('“Bid v1”, the locked bid, was set active before a bid kept its expenses, so they have no bid figure in this production.')
+      // Locked: saving cannot reach it (review round 1), so the one way, said
+      // as what it is: today's estimates kept as its bid.
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Keep today’s estimates as its bid' })) })
+      expect(keep).toHaveBeenCalledWith('v1')
+      // No version at all.
+      rerender(tab(hook(), at15, true, { budgetVersions: [] }))
+      expect(read(container)[0]).toEqual(['Selected bid', '—', 'none selected'])
+      expect(note(container)).toBe('No bid version is selected, so the expenses have no bid figure.')
+    })
+
+    it('CONTROL: only the SELECTED version gives the bid; the OPEN one, or another that kept its expenses, does not', () => {
+      const other = version({ id: 'v3', name: 'Bid v3', is_active: false, created_at: '2026-09-20T17:00:00Z' })
+      const { container } = render(tab(hook(), { ...at15, open_budget_version_id: 'v3' }, true, { budgetVersions: [other, OLD] }))
+      expect(read(container)[0][1]).toBe('—')
+      expect(rowsOf(container).map((r) => cells(r)[0])).toEqual(['—', '—', '—'])
+      cleanup()
+      // Selected, it does.
+      const { container: c2 } = render(tab(hook(), at15, true, { budgetVersions: [{ ...other, is_active: true }, { ...OLD, is_active: false }] }))
+      expect(read(c2)[0][1]).toBe('$21,200')
+      expect(note(c2)).toMatch(/^The bid is “Bid v3” as last saved;/)
+    })
+
+    it('grouped, a group\'s header says its bid; a group with nothing in the bid, a dash', () => {
+      const { container } = render(tab(hook(), at15, true, { budgetVersions: [version()] }))
+      fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'cost_status' } })
+      const totals = [...container.querySelectorAll('tbody tr.rb-budget-exp-group .rb-budget-exp-group-totals')].map((g) => g.textContent)
+      expect(totals).toEqual([
+        'Bid: — / Expected: $260 / Actual: $284',
+        'Bid: $3,900 / Expected: $4,200 / Actual: $3,860',
+        'Bid: $16,800 / Expected: $16,800 / Actual: $16,800',
+      ])
+    })
   })
 
   // F2 review round 2 (finding 2): an expense with no percentage of its own
@@ -868,7 +970,7 @@ describe('surface 2b', () => {
   // that dropped the project's default passed them all.
   it('F2: an expense with no percentage of its own takes the project\'s, on its estimate', () => {
     const { container } = render(tab(hook(), { ...PROJECT, budget_margin_pct: 2, budget_contingency_pct: 10 }))
-    const numeric = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].slice(0, 3).map((td) => td.textContent)
+    const numeric = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].slice(1, 4).map((td) => td.textContent)
     expect(rowsOf(container).map(numeric)).toEqual([
       ['$16,800', '+$336', '+$1,680'],
       ['$4,200', '+$210', '+$420'],
@@ -1153,7 +1255,7 @@ describe('surface 2b', () => {
       expect(cells).toHaveLength(1)
       expect(cells[0].getAttribute('colspan')).toBe(String(tables[0].querySelectorAll('thead th').length))
     }
-    expect(groups[0].querySelector('.rb-budget-exp-group-totals').textContent).toBe('Est: $260 / Act: $284')
+    expect(groups[0].querySelector('.rb-budget-exp-group-totals').textContent).toBe('Expected: $260 / Actual: $284')
   })
 
   it('"Loading expenses..." is the kit Loading, never the empty state; no expenses is the kit EmptyState, in sentence case (R3-19)', () => {

@@ -207,9 +207,19 @@ const BID_V1 = asOlderVersion(snapshotFromLive({
   project: { ...PROJECT, budget_contingency_pct: 8 }, roleRates: FIXTURE_ROLE_RATES,
   savedAt: stamp(9, 17), savedBy: M.mara,
 }))
+// F2's third follow-up: Bid v2 keeps its expenses as they were when the
+// budget went active (day 38: the lock writes them in; a save does too), so
+// the Expenses tab has a bid to show on this project — the set timber at
+// $3,900 then, re-quoted to $4,200 since. Bid v1 stays the older shape: no
+// expenses kept.
 const BID_V2 = asOlderVersion(snapshotFromLive({
   tasks: TASKS, phases: PHASES, milestones: MILESTONES,
   project: PROJECT, roleRates: FIXTURE_ROLE_RATES,
+  expenses: [
+    { id: fid('expense', 1), title: 'Camera package hire', estimated_cost: 16800 },
+    { id: fid('expense', 2), title: 'Set timber and paint', estimated_cost: 3900 },
+    { id: fid('expense', 3), title: 'Compass props', estimated_cost: 260 },
+  ],
   savedAt: stamp(30, 17), savedBy: M.mara,
   previous: BID_V1, previousName: 'Bid v1 (fund application)',
 }))

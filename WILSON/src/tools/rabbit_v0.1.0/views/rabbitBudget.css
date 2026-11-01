@@ -101,8 +101,7 @@
   /* The day tiles: one kit Stat each (R3-10), on the raised paper with one
      hairline as B2's Tasks tiles are, in one row at the 24px gutter. They
      share the row evenly (the Crew and Talent tabs' four as well, and the
-     Expenses tab's four or, with the agency fee on, five)
-     and wrap under 120px. One class over `.ui-stat`, whose `min-width: 0`
+     Expenses tab's six) and wrap under 120px. One class over `.ui-stat`, whose `min-width: 0`
      this sheet may load before. */
   .rb-budget-stats,
   .rb-crew-stats,
@@ -665,29 +664,49 @@
      flex header over flex rows before). Its widths are declared once, here,
      on the wrapper the bulk bar shares, each holding its widest value and
      its own header at the step it draws, measured in the browser, plus the
-     kit's 12px a side:
+     cell's padding a side. Since F2's third follow-up (a sixth money
+     column, Bid) the table is the kit's compact one, 8px a side — a data
+     table with more columns than 1280 holds (B4-KR-3):
        check    the 28px square, the column's whole width (R3-40)      ->  28
-       money    "+$1,234,567" 85.8 in the 13px mono; "ESTIMATED" 66
-                and its 14px sort slot                                  -> 112
-       date     "2026-09-08" 78                                        -> 104
+       money    "+$1,234,567" 85.8 in the 13px mono; "EXPECTED" 62
+                and its 14px sort slot                                  -> 104
+       vs       "VS EXPECTED" 81 and its 14px sort slot                 -> 112
+       date     "2026-09-08" 78                                        ->  96
        related  "1 ASSET" 61.3 + 4 + "1 PHASE" 62.4 side by side; more
-                wraps, as the chips always did                          -> 152
-       files    the clip, 4 and "99" 33.6; "FILES" 33.1                 ->  64
+                wraps, as the chips always did                          -> 144
+       files    the clip, 4 and "99" 33.6; "FILES" 33.1                 ->  52
        acts     two 28px IconButtons 2px apart: one reserved slot, the
-                same width in every row (R3-24)                         ->  84
-     The title takes the rest, never under 200px: below 1192px of table the
+                same width in every row (R3-24)                         ->  76
+     The title takes the rest, never under 200px: below 1228px of table the
      list scrolls sideways (only at Electron's 1024px floor) rather than
      starve it. */
   .rb-budget-exp-table {
     --rb-budget-exp-col-check: 28px;
-    --rb-budget-exp-col-money: 112px;
-    --rb-budget-exp-col-date: 104px;
-    --rb-budget-exp-col-related: 152px;
-    --rb-budget-exp-col-files: 64px;
-    --rb-budget-exp-col-acts: 84px;
+    --rb-budget-exp-col-money: 104px;
+    --rb-budget-exp-col-vs: 112px;
+    --rb-budget-exp-col-date: 96px;
+    --rb-budget-exp-col-related: 144px;
+    --rb-budget-exp-col-files: 52px;
+    --rb-budget-exp-col-acts: 76px;
     position: relative;
   }
-  .ui-table.rb-budget-exp { min-width: 1192px; }
+  .ui-table.rb-budget-exp { min-width: 1228px; }
+
+  /* F2's third follow-up. Under an expense's Expected figure, how far it
+     moved from the bid: a line of its own at the caption step, the figure
+     in the mono and its words in the sans, its tone the variance's. An
+     expense the bid does not hold says so in the Bid column, in words, at
+     the third ink. Under the tiles, what the Bid column cannot show, in a
+     sentence. */
+  .rb-budget-var.rb-budget-exp-vsbid { display: flex; justify-content: flex-end; gap: 4px; margin-top: 2px; font-size: var(--text-caption); }
+  .rb-budget-exp-vsbid-words,
+  .rb-budget-exp-notbid { font-family: var(--font-sans); }
+  .rb-budget-exp-notbid { display: block; white-space: normal; font-size: var(--text-caption); color: var(--color-ink-3); }
+  .rb-budget-exp-row:hover .rb-budget-exp-notbid,
+  .rb-budget-exp-row[data-ticked="true"] .rb-budget-exp-notbid { color: var(--color-ink-2); }
+  .rb-budget-exp-bidrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .rb-budget-exp-bidnote { margin: 0; font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-2); }
+  .rb-budget-exp-bidnote[data-error="true"] { flex-basis: 100%; color: var(--color-danger); }
 
   /* The bulk-action bar overlays the header right of the checkbox column,
      where it always did. The kit has no bulk bar: this is the lane's, in the

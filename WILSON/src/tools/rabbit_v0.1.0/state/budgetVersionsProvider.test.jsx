@@ -215,6 +215,139 @@ describe('Save — into the open version (F2)', () => {
   })
 })
 
+// F2's third follow-up (her answer to walkthrough 91's F2 Q6): a version
+// keeps each expense's estimate as it was bid, read from where the expenses
+// are kept at the moment of the save — the Expenses tab's list is its own
+// hook's, never the bundle's — so the Timeline's Save keeps them too.
+describe('a saved version keeps each expense\'s estimate (F2\'s third follow-up)', () => {
+  const kept = (v) => (v.snapshot.expenses || []).map(e => [e.title, e.estimated_cost])
+
+  it('Save as new version and Save each keep the expenses as stored then; undo puts the earlier ones back', async () => {
+    await bidding()
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'Mid ROM', roleRates: RATES }) })
+    expect(kept(byId(v.id))).toEqual([['Camera package hire', 16800], ['Set timber and paint', 4200], ['Compass props', 260]])
+    // An expense edited where they are kept (the Expenses tab's write), then a
+    // Save for a schedule change: the bid keeps the new estimate.
+    await holder.adapter.updateExpense(fid('expense', 2), PROJECT_ID, { estimated_cost: 4500 })
+    await run(() => ctx.updateTask(TASK_ID(9), { end_date: '2026-12-24' }))
+    await run(() => ctx.saveBudgetVersion(v.id, { roleRates: RATES }))
+    expect(kept(byId(v.id))[1]).toEqual(['Set timber and paint', 4500])
+    await run(() => ctx.undo())
+    expect(kept(byId(v.id))[1]).toEqual(['Set timber and paint', 4200])
+    // Never the actuals: a bid is estimates.
+    expect(JSON.stringify(byId(v.id).snapshot.expenses)).not.toMatch(/actual/)
+  })
+
+  it('CONTROL: a storage that keeps no expenses saves the older shape; a read that fails stops the save, said', async () => {
+    await bidding()
+    const list = holder.adapter.listExpenses
+    delete holder.adapter.listExpenses
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'No expenses here', roleRates: RATES }) })
+    expect(byId(v.id).snapshot).not.toHaveProperty('expenses')
+    // The storage's own words alone named nothing (review round 1): said as
+    // the expenses'.
+    holder.adapter.listExpenses = async () => { throw new Error('Failed to fetch') }
+    const before = versions().length
+    await expect(ctx.createBudgetVersion({ name: 'Read fails', roleRates: RATES })).rejects.toThrow('the expenses could not be read (Failed to fetch)')
+    expect(versions().length).toBe(before)
+    // The lock reads them first: nothing changed.
+    await expect(ctx.activateBudget(BV2)).rejects.toThrow('Could not set “Bid v2 (pre-production)” active: the expenses could not be read (Failed to fetch). Nothing changed.')
+    expect(ctx.project.budget_active).toBe(false)
+    holder.adapter.listExpenses = list
+  })
+
+  // Review round 1 (finding 1): her option — the locked bid "freezes each
+  // expense's estimate", the bid being "the locked estimate when entering
+  // production". A change after the last save is in the locked bid.
+  const stored = async (id) => (await holder.adapter.listBudgetVersions(PROJECT_ID)).find(v => v.id === id).snapshot
+  const withoutExpenses = ({ expenses: _e, expenses_kept_at: _k, ...rest }) => rest
+
+  it('Set budget active keeps the expenses as they are at that moment, in the lock\'s one undo step', async () => {
+    await bidding()
+    expect(kept(byId(BV2))[1]).toEqual(['Set timber and paint', 3900])
+    const pre = await stored(BV2)
+    await holder.adapter.updateExpense(fid('expense', 2), PROJECT_ID, { estimated_cost: 4500 })
+    await run(() => ctx.activateBudget(BV2))
+    expect(ctx.project.budget_active).toBe(true)
+    expect(kept(byId(BV2))).toEqual([['Camera package hire', 16800], ['Set timber and paint', 4500], ['Compass props', 260]])
+    const after = await stored(BV2)
+    expect(after.expenses[1].estimated_cost).toBe(4500)
+    expect(after.expenses_kept_at).toBeTruthy()
+    // Review round 2 (finding 2): only the expenses are written — the rest of
+    // the snapshot (schedule, rates, totals, saved_at) is the save's, as stored.
+    expect(withoutExpenses(after)).toEqual(withoutExpenses(pre))
+    await run(() => ctx.undo())
+    expect(ctx.project.budget_active).toBe(false)
+    expect(kept(byId(BV2))[1]).toEqual(['Set timber and paint', 3900])
+    expect(await stored(BV2)).toEqual(pre)
+  })
+
+  // Review round 2 (finding 1): the lock wrote the whole snapshot from this
+  // window's copy, so another window's save it had not heard of yet was lost;
+  // and its undo wrote the old copy back over a save made after the lock.
+  it('another window\'s save into the version survives the lock and the lock\'s undo', async () => {
+    await bidding()
+    const pre = await stored(BV2)
+    // Another window saves Bid v2 (five tasks); no event reaches this one.
+    await holder.adapter.patchBudgetVersion(PROJECT_ID, BV2, { snapshot: { ...pre, saved_at: '2026-10-31T09:00:00.000Z', tasks: pre.tasks.slice(0, 5) } })
+    await run(() => ctx.activateBudget(BV2))
+    let now = await stored(BV2)
+    expect([now.saved_at, now.tasks.length, now.expenses.length]).toEqual(['2026-10-31T09:00:00.000Z', 5, 3])
+    // Then saves it again after the lock: the lock's undo leaves that save.
+    const theirs = { ...now, saved_at: '2026-10-31T10:00:00.000Z', expenses: [{ id: 'x', title: 'Theirs', estimated_cost: 1 }] }
+    await holder.adapter.patchBudgetVersion(PROJECT_ID, BV2, { snapshot: theirs })
+    await run(() => ctx.undo())
+    expect(ctx.project.budget_active).toBe(false)
+    now = await stored(BV2)
+    expect([now.saved_at, now.expenses]).toEqual(['2026-10-31T10:00:00.000Z', [{ id: 'x', title: 'Theirs', estimated_cost: 1 }]])
+  })
+
+  it('a bid locked before a version kept its expenses: today\'s estimates kept as its bid, one undo step; already so, nothing written', async () => {
+    // Bid v2 as an older lock: no expenses kept.
+    const { expenses: _gone, ...older } = byId(BV2).snapshot
+    await holder.adapter.patchBudgetVersion(PROJECT_ID, BV2, { snapshot: older })
+    await run(() => ctx.reloadActiveProject())
+    await waitFor(() => expect(byId(BV2).snapshot).not.toHaveProperty('expenses'))
+    expect(ctx.project.budget_active).toBe(true)
+    await run(() => ctx.keepExpensesInBid(BV2))
+    expect(kept(byId(BV2))).toEqual([['Camera package hire', 16800], ['Set timber and paint', 4200], ['Compass props', 260]])
+    const patched = vi.spyOn(holder.adapter, 'patchBudgetVersion')
+    await run(() => ctx.keepExpensesInBid(BV2))
+    expect(patched).not.toHaveBeenCalled()
+    patched.mockRestore()
+    await run(() => ctx.undo())
+    expect(byId(BV2).snapshot).not.toHaveProperty('expenses')
+  })
+
+  // Review round 1 (finding 6): the guard after the read — a project opened
+  // meanwhile stops the save; nothing is written to either project.
+  it('a project opened while the expenses are read stops Save as new version; nothing is made', async () => {
+    await bidding()
+    let other
+    await run(async () => { other = await ctx.createProject({ title: 'Other' }) })
+    const real = holder.adapter.listExpenses.bind(holder.adapter)
+    let release
+    const gateP = new Promise(r => { release = r })
+    let hit
+    const hitP = new Promise(r => { hit = r })
+    holder.adapter.listExpenses = async (...a) => { hit(); await gateP; return real(...a) }
+    let err = null
+    let making
+    await act(async () => { making = ctx.createBudgetVersion({ name: 'Mid switch', roleRates: RATES }).catch(e => { err = e }) })
+    await act(async () => { await hitP })
+    await act(async () => { ctx.setActiveProject(other.id) })
+    await waitFor(() => expect(ctx.project?.id).toBe(other.id))
+    release()
+    await act(async () => { await making })
+    expect(err?.message).toMatch(/another project was opened/)
+    holder.adapter.listExpenses = real
+    expect((await holder.adapter.listBudgetVersions(PROJECT_ID)).map(v => v.name)).not.toContain('Mid switch')
+    expect((await holder.adapter.listBudgetVersions(other.id)).map(v => v.name)).not.toContain('Mid switch')
+  })
+})
+
 describe('Edit this version — opening (F2)', () => {
   it('writes its schedule and settings into the live rows as ONE undo step; tasks it does not hold are SET ASIDE (S5b, ruling (a)); logged days never move', async () => {
     await bidding()
