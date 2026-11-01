@@ -22,7 +22,9 @@
 //     pointer), absolutely placed: it takes no layout width, so D.O.G.'s
 //     preview keeps its pinned width (C4) at the default. At rest it draws
 //     nothing; hover (after 200ms), a drag and keyboard focus draw one 2px
-//     band of the signal over the line (src/index.css, PANEL).
+//     band of the signal over the line (src/index.css, PANEL). In forced
+//     colours (Windows High Contrast) the band is not drawn: the line, in the
+//     system's text colour, stays the mark, and focus keeps the system's ring.
 //   - The width follows the pointer as `--ui-panel-size`, written straight on
 //     the aside, so no tool re-renders while it moves; the drag's end is one
 //     state update here and one storage write. React never writes that
@@ -47,8 +49,10 @@ import { PANEL } from './tokens'
 const WIDTHS = ['sm', 'md', 'lg']
 const STEP = 8
 const BIG_STEP = 40
-/** Travel under this is a click: nothing moves, nothing is written. */
+/** Travel under this is a click: nothing moves, nothing is written. A finger
+ *  wanders further on a tap than a mouse does (SB1 review round 1). */
 const SLOP = 3
+const TOUCH_SLOP = 8
 
 // Where a width goes when localStorage throws (a private window, a sandboxed
 // frame): kept for the page's life, so a collapsed sidebar reopened still
@@ -56,9 +60,11 @@ const SLOP = 3
 const unsaved = new Map()
 
 function readWidth(key) {
-  let v = null
-  try { v = window.localStorage.getItem(key) } catch { /* unreadable: the memory below */ }
-  if (v == null) v = unsaved.get(key) ?? null
+  // A width this page could not save is newer than anything storage holds.
+  let v = unsaved.get(key) ?? null
+  if (v == null) {
+    try { v = window.localStorage.getItem(key) } catch { /* unreadable: nothing kept */ }
+  }
   if (v == null || v.trim() === '') return null
   const n = Number(v)
   return Number.isFinite(n) ? Math.round(n) : null
@@ -145,7 +151,10 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
     d.handle.removeAttribute('data-dragging')
     try { if (d.handle.hasPointerCapture?.(d.id)) d.handle.releasePointerCapture(d.id) } catch { /* already released */ }
     if (!d.moved) return
-    if (keep) commit(d.now)
+    // A drag that ends where it began changes nothing and writes nothing: on a
+    // window too narrow for the width kept, a press that cannot widen the
+    // column must not overwrite that width (SB1 review round 1).
+    if (keep && d.now !== d.from) commit(d.now)
     else paint(d.handle, drawn.current)
   }
 
@@ -163,6 +172,7 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
         from: shown,
         now: shown,
         max: widestIn(rowEl ? rowEl.clientWidth : 0, { def, max, beside }),
+        slop: e.pointerType === 'touch' ? TOUCH_SLOP : SLOP,
         moved: false,
         handle,
         onKey: null,
@@ -185,9 +195,11 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
       const d = drag.current
       if (!d || e.pointerId !== d.id) return
       const dx = e.clientX - d.x
-      if (!d.moved && Math.abs(dx) < SLOP) return
+      if (!d.moved && Math.abs(dx) < d.slop) return
       d.moved = true
-      const next = clamp(Math.round(d.from + dx), min, d.max)
+      // The widest at the press, or narrower if the window has narrowed since
+      // (`widest` is this render's: no layout is read per move).
+      const next = clamp(Math.round(d.from + dx), min, Math.min(d.max, widest))
       if (next === d.now) return
       d.now = next
       paint(d.handle, next)
@@ -210,7 +222,10 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
               : null
       if (next == null) return
       e.preventDefault()
-      commit(clamp(next, min, widest))
+      // At a limit the key changes nothing and writes nothing (a width kept
+      // for a wider window stays kept).
+      const to = clamp(next, min, widest)
+      if (to !== shown) commit(to)
     },
   }
 

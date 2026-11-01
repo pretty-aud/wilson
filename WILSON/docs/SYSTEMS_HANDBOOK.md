@@ -4548,7 +4548,10 @@ width, z 4 (over the sticky table heads, under every floating surface; the
 panel takes no z-index). At rest it draws nothing; live (hover after 200ms
 where a pointer hovers, a drag, keyboard focus) one 2px band of the signal
 lies over the line, which is also its focus indicator (`outline-color:
-transparent`, so forced colours still draw a ring). The width is
+transparent`, so forced colours still draw a ring). In forced colours (Windows
+High Contrast) the band is not drawn: it would turn into the system's canvas,
+painted over the very line it lights (review round 1, measured); there the
+line, in the system's text colour, is the mark. The width is
 `--ui-panel-size` on the aside: while a drag moves, the handle writes it with
 `style.setProperty` (no tool re-renders, not even at the end — the Panel's own
 state holds the width); at the release, one state update and one localStorage
@@ -4556,7 +4559,10 @@ write; React never writes the property, so a re-render mid-drag cannot put the
 old width back. The widest is `max(token, min(maxWidth, row − minBeside))`,
 the row measured by a ResizeObserver (a row of 0 — a hidden page, jsdom —
 trims nothing); a remembered width that does not fit is drawn narrower and
-kept. A press that travels under 3px is a click; the arrows move ±8, Shift ±40,
+kept, and a drag or a key that changes nothing on screen writes nothing, so a
+width kept for a wider window stays kept; a window narrowed mid-drag holds the
+drag to the new widest. A press that travels under 3px (8 for a finger) is a
+click; the arrows move ±8, Shift ±40,
 Home and End to the limits; a double-click, or any change landing on the
 token, removes the key; Escape (a capture-phase window listener for the drag's
 length, so a field holding focus never sees it) and `pointercancel` abandon a

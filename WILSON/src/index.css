@@ -2268,6 +2268,13 @@ select option {
   .ui-panel-handle[data-dragging="true"]::before { background-color: var(--color-signal); transition: none; }
   .ui-panel[data-surface="light"] .ui-panel-handle:focus-visible::before,
   .ui-panel[data-surface="light"] .ui-panel-handle[data-dragging="true"]::before { background-color: var(--color-ink-light); }
+  /* Forced colours (Windows High Contrast) would turn the opaque band into the
+     system's canvas, painted over the very line it lights (SB1 review round
+     1, measured): there the line, in the system's text colour, is the mark,
+     and keyboard focus keeps the system's ring (the outline above). */
+  @media (forced-colors: active) {
+    .ui-panel-handle::before { display: none; }
+  }
   /* A finger: 24px (WCAG 2.5.8), 4 over the panel, the line, 19 beside, and
      the band still on the line. */
   @media (pointer: coarse) {

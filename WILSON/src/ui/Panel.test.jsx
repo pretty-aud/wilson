@@ -100,7 +100,19 @@ function stubResizeObserver() {
     observe() { live.add(this) }
     disconnect() { live.delete(this) }
   })
-  return { fire: () => act(() => { for (const ro of live) ro.cb([]) }) }
+  return { fire: () => act(() => { for (const ro of live) ro.cb([]) }), live: () => live.size }
+}
+
+/** Pointer capture, which jsdom lacks, as spies (the drag must take it). */
+function stubPointerCapture() {
+  const proto = HTMLElement.prototype
+  const had = ['setPointerCapture', 'hasPointerCapture', 'releasePointerCapture'].filter((m) => m in proto)
+  const captured = new Set()
+  const set = vi.fn((id) => { captured.add(id) })
+  const has = vi.fn((id) => captured.has(id))
+  const release = vi.fn((id) => { captured.delete(id) })
+  Object.assign(proto, { setPointerCapture: set, hasPointerCapture: has, releasePointerCapture: release })
+  return { set, has, release, restore: () => { for (const m of ['setPointerCapture', 'hasPointerCapture', 'releasePointerCapture']) if (!had.includes(m)) delete proto[m] } }
 }
 
 describe('Panel — resizable (SB1)', () => {
@@ -355,6 +367,113 @@ describe('Panel — resizable (SB1)', () => {
     inRow(<Panel width="sm" resizable storageKey={KEY} minWidth={240} maxWidth={480}>x</Panel>)
     expect(spy).toHaveBeenCalled()
   })
+
+  // ── Review round 1 (Opus): what the tests above could not see ────────────
+  it('the press takes the pointer (so a fast flick still drags) and every end hands it back', () => {
+    const cap = stubPointerCapture()
+    try {
+      const p = inRow(<Panel {...COURSES}>x</Panel>)
+      press(p.handle(), 200)
+      expect(cap.set).toHaveBeenCalledWith(1)
+      move(p.handle(), 260)
+      key(document.body, 'Escape')
+      expect(cap.release).toHaveBeenCalledWith(1)
+      press(p.handle(), 200); move(p.handle(), 260); lift(p.handle(), 260)
+      expect(cap.release).toHaveBeenCalledTimes(2)
+      expect(cap.set).toHaveBeenCalledTimes(2)
+    } finally { cap.restore() }
+  })
+
+  it('another pointer\'s release or lost capture ends nothing; a second press mid-drag starts nothing', () => {
+    const p = inRow(<Panel {...COURSES}>x</Panel>)
+    const adds = vi.spyOn(window, 'addEventListener')
+    press(p.handle(), 200); move(p.handle(), 260)
+    fireEvent.pointerUp(p.handle(), { pointerId: 2, clientX: 400 })
+    fireEvent.lostPointerCapture(p.handle(), { pointerId: 2 })
+    press(p.handle(), 400, { pointerId: 2 })
+    expect([resizing(), localStorage.getItem(KEY)]).toEqual([true, null])
+    expect(adds.mock.calls.filter(([type]) => type === 'keydown')).toHaveLength(1)
+    move(p.handle(), 280); lift(p.handle(), 280)
+    expect([p.now(), localStorage.getItem(KEY), resizing()]).toEqual([280, '280', false])
+  })
+
+  it('a travel of exactly 3px is a drag; a finger needs 8 (a tap wanders), then follows exactly', () => {
+    const p = inRow(<Panel {...COURSES}>x</Panel>)
+    press(p.handle(), 200); move(p.handle(), 203)
+    expect(p.size()).toBe('203px')
+    lift(p.handle(), 203)
+    press(p.handle(), 203, { pointerType: 'touch' }); move(p.handle(), 210)
+    expect(p.size()).toBe('203px')
+    move(p.handle(), 211)
+    expect(p.size()).toBe('211px')
+    lift(p.handle(), 211)
+    expect(localStorage.getItem(KEY)).toBe('211')
+  })
+
+  it('a fractional pointer draws and keeps whole pixels', () => {
+    const p = inRow(<Panel {...COURSES}>x</Panel>)
+    press(p.handle(), 200); move(p.handle(), 230.4); lift(p.handle(), 230.4)
+    expect([p.size(), p.now(), localStorage.getItem(KEY)]).toEqual(['230px', 230, '230'])
+  })
+
+  it('at a width trimmed to the row, a drag and the arrows start from what is shown, not from what is kept', () => {
+    localStorage.setItem(KEY, '480')
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1024)
+    press(p.handle(), 304); move(p.handle(), 284); lift(p.handle(), 284)
+    expect([p.now(), localStorage.getItem(KEY)]).toEqual([284, '284'])
+    localStorage.setItem(KEY, '480')
+    p.unmount()
+    const q = inRow(<Panel {...COURSES}>x</Panel>, 1024)
+    key(q.handle(), 'ArrowLeft')
+    expect([q.now(), localStorage.getItem(KEY)]).toEqual([296, '296'])
+  })
+
+  it('at a width trimmed to the row, a press that cannot widen it keeps the width kept, so it returns when the window grows', () => {
+    const ro = stubResizeObserver()
+    localStorage.setItem(KEY, '480')
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1024)
+    expect(key(p.handle(), 'ArrowRight')).toBe(false)
+    key(p.handle(), 'End')
+    press(p.handle(), 304); move(p.handle(), 344); lift(p.handle(), 344)
+    expect([p.now(), localStorage.getItem(KEY)]).toEqual([304, '480'])
+    p.setRow(1440); ro.fire()
+    expect(p.now()).toBe(480)
+  })
+
+  it('a window narrowed mid-drag holds the drag to the new widest, and that is what is kept', () => {
+    const ro = stubResizeObserver()
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1280)
+    press(p.handle(), 200); move(p.handle(), 400)
+    expect(p.size()).toBe('400px')
+    p.setRow(1024); ro.fire()
+    move(p.handle(), 440)
+    expect([p.size(), p.now()]).toEqual(['304px', 304])
+    lift(p.handle(), 440)
+    expect(localStorage.getItem(KEY)).toBe('304')
+  })
+
+  it('the row\'s observer goes with the panel', () => {
+    const ro = stubResizeObserver()
+    const p = inRow(<Panel {...COURSES}>x</Panel>, 1280)
+    expect(ro.live()).toBe(1)
+    p.unmount()
+    expect(ro.live()).toBe(0)
+  })
+
+  it('when storage refuses a write but holds an older width, the newer width kept in memory wins', () => {
+    const own = { ...COURSES, storageKey: 'sb1.panel.test.stale' }
+    localStorage.setItem(own.storageKey, '250')
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    const p = inRow(<Panel {...own}>x</Panel>)
+    press(p.handle(), 250); move(p.handle(), 300); lift(p.handle(), 300)
+    p.unmount()
+    expect(inRow(<Panel {...own}>x</Panel>).now()).toBe(300)
+  })
+
+  it('with neither a title nor aria-labelledby, the separator takes the panel\'s aria-label', () => {
+    render(<Panel width="md" aria-label="Pages" resizable storageKey={KEY} minWidth={160} maxWidth={480}>x</Panel>)
+    expect(screen.getByRole('separator', { name: 'Pages' })).toBeTruthy()
+  })
 })
 
 // ── The handle's sheet (src/index.css, the Panel block) ─────────────────────
@@ -375,7 +494,11 @@ function handleSheetProblems(css) {
 
   want('the strip', declsOf('.ui-panel-handle', plain), { position: 'absolute', top: '0', bottom: '0', right: '-6px', width: '8px', 'z-index': '4', cursor: 'col-resize', 'touch-action': 'none', 'user-select': 'none' })
   want('a coarse pointer\'s strip', declsOf('.ui-panel-handle', (r) => at(r, '@media (pointer: coarse)')), { right: '-20px', width: '24px' })
-  want('the band', declsOf('.ui-panel-handle::before', plain), { content: "''", position: 'absolute', left: '2px', width: '2px', 'background-color': 'transparent' })
+  want('the band', declsOf('.ui-panel-handle::before', plain), { content: "''", position: 'absolute', top: '0', bottom: '0', left: '2px', width: '2px', 'background-color': 'transparent' })
+  want('the band\'s fade', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (hover: hover)')), { transition: 'background-color var(--duration-state) ease-out' })
+  // Forced colours paint the opaque band as the system's canvas over the line
+  // it lights (review round 1, measured): there it is not drawn.
+  want('forced colours\' band', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (forced-colors: active)')), { display: 'none' })
   want('a coarse pointer\'s band', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (pointer: coarse)')), { left: '4px' })
   // Weightless in :where(), so a tool's own two-class rule on its Panel outranks it.
   want('the panel', declsOf('.ui-panel:where([data-resizable="true"])'), { position: 'relative' })
@@ -437,6 +560,12 @@ describe('the handle\'s sheet (src/index.css)', () => {
     expect(handleSheetProblems(KIT.replace('transition-delay: var(--duration-response);', ''))).toContain('the hover band transition-delay: unset, not var(--duration-response)')
     expect(handleSheetProblems(`${KIT}\n.ui-panel-handle:focus-visible { outline: none; }`)).toContain('.ui-panel-handle:focus-visible removes the outline')
     expect(handleSheetProblems(`${KIT}\n.ui-panel-handle[data-dragging="true"]::before { background-color: #ea580c; }`)).toEqual(expect.arrayContaining(['.ui-panel-handle[data-dragging="true"]::before background-color: #ea580c']))
+  })
+
+  it('CONTROL: a band with no height, no fade, or drawn in forced colours is each caught', () => {
+    expect(handleSheetProblems(KIT.replace('    top: 0;\n    bottom: 0;\n    left: 2px;', '    left: 2px;'))).toEqual(['the band top: unset, not 0', 'the band bottom: unset, not 0'])
+    expect(handleSheetProblems(KIT.replace('    .ui-panel-handle::before { transition: background-color var(--duration-state) ease-out; }\n', ''))).toEqual(['the band\'s fade transition: unset, not background-color var(--duration-state) ease-out'])
+    expect(handleSheetProblems(KIT.replace('    .ui-panel-handle::before { display: none; }\n', ''))).toEqual(['forced colours\' band display: unset, not none'])
   })
 
   it('CONTROL: the band missing from the reduced-motion list, and a drag cursor without !important, are each caught', () => {

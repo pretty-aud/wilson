@@ -4130,8 +4130,15 @@ design round's three WCAG items, and one interplay measured for the pictures.
   Hotkeys and Nodes views is Sidebar 2's rows (a section, a lesson,
   *Sources*): a press there grabs the line instead of opening the row, and a
   click there does nothing. D.O.G.'s nearest control beside is 21px away.
-  The design round chose these numbers (VS Code's sash takes the same 2px
-  inside). Fix shape: SB1-01's control. Owner: 1.1.
+  For a finger (`pointer: coarse`, review round 1, measured with touch
+  emulation) the strip is 24px, 4 inside and 19 beside: it takes Sidebar 2's
+  rows from 1 to 19px beside the line and the first 11px of D.O.G.'s card 1
+  header (its fold), so a tap there grabs the line; a vertical swipe that
+  starts on those pixels cannot scroll the list under them (`touch-action:
+  none`; INFERRED). A finger must travel 8px before it drags (a mouse 3), so
+  a tap that wanders does not resize. The design round chose these numbers
+  (VS Code's sash takes the same 2px inside). Fix shape: SB1-01's control.
+  Owner: 1.1.
 - **SB1-03 · At rest the separator is the 1px hairline, 1.48:1 against the
   paper (1.4.11 Non-text Contrast, AA, asks 3:1).** MEASURED with the kit's
   contrast helper: `--color-rule` over `--color-paper` flattens to `#3a3735`,
