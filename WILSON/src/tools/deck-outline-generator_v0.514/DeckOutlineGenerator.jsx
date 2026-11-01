@@ -4063,11 +4063,20 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             bar above. It keeps md (240) this bundle — the width was chosen to
             fit that header, which has gone (walkthrough 47, Q64, is Audrey's
             call) — and the main column's 8px padding with it (C4, dog.css
-            `.dog-main`). Named for a screen reader by the bar's label. */}
+            `.dog-main`). Named for a screen reader by the bar's label.
+            SB1 (Audrey, 2026-11-01: "lets do the same with the sidebar in the
+            dog tool"): its edge resizes it, 160 to 480 and never so wide the
+            column beside keeps under 560; md stays the default, so C4's
+            arithmetic above holds until a width is chosen. */}
         <Panel
           width="md"
           className="dog-sidebar"
           aria-labelledby="dog-outline-label"
+          resizable
+          storageKey="dog.sidebar.width"
+          minWidth={160}
+          maxWidth={480}
+          minBeside={560}
         >
           {sortedHistory.length === 0 ? (
             <EmptyState icon={FileText} title="No pages yet" compact className="dog-sidebar-empty" />

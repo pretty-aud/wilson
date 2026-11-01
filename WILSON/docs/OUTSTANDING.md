@@ -1340,6 +1340,8 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul SB1 (2026-11-01, night 10; `po/sb1-resizable-sidebars` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim *"this divider line from the courses sidebar and the overall otter window should be expanding by grabbing and putting the line to the desired width of the courses sidebar. lets do the same with the sidebar in the dog tool"*: one handle on the kit Panel (`resizable`, `storageKey`, `minWidth`, `maxWidth`, `minBeside`): an 8px strip over the 1px hairline (24 for a finger) that takes no layout width, the line as drawn at rest and a 2px band of the signal on hover, a drag and focus, `role="separator"` with its values, the arrows ±8 and ±40, Home and End, a double-click back to the token, Escape abandoning a drag, the width remembered per device only while it differs from the token and drawn narrower where the row cannot hold it; O.T.T.E.R.'s courses 180 to 480 with 720 kept beside (304 at 1024), D.O.G.'s pages 160 to 480 with 560 kept (464 at 1024); the collapse, its rail and Ctrl/Cmd+\ unchanged, a reopened column at its width; measured at 1280, 1440, 1920 and 2560 (and 1024) before and after, the line and the column beside pixel-identical at rest; C4's preview pin passes at the default; 55 new tests, 50 red on the source before, 112 plants each killed; one design round and two review rounds on Opus (round 1's corrections: the band not drawn in forced colours, a press that changes nothing writes nothing, a window narrowed mid-drag holds the drag, a finger's 8px slop; round 2's: a moved drag owns the width while it lives, the forced-colours ring and the memory's clearing pinned, the Panel measured against its own row in both tools) (Fable's allowance spent until 2026-11-04); no migration, no SQL | SB1-01 to SB1-04 (the design round's three WCAG items: no single-pointer way to set a width, an 8px strip for a mouse, the hairline's 1.48:1 at rest; and the pet over the lesson's *Next* when the courses column is wide at 1280) | nothing |
+| AT1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`; `po/at1-admin-terminal-fit` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim in the brief (*"make it wider there is a lot empty space to the sides … the member details should fit and static not able to scroll … the pop up card asking to confirm should be in the center of the overall admin terminal not inside of the column"*): measured first at four sizes (margins 24/100/340/660; the panel 678 px of real content in 512 and 34 px sideways; every confirm 239 wide in the panel, the panel resting at `translateX(0)`, its transform the containing block); one design round on Opus (design-direction, laws-of-ux); the page edge to edge (the registry entry takes no measure), the panel 560 in two columns, no scroll from 1280x720, a compact roster beside it under 860, the confirms beside the panel and the panel at `transform: none`; no kit change; review round 1 on Opus (1 High, measured: one Escape closed the confirm and the panel, older than AT1, fixed; 1 Medium; 3 Low; 4 Notes), round 2 on Opus (1 Medium, measured: from 1160 to ~1265 the roster's search ran under the status chips, round 1's breakpoint move having opened it; the search to 120 and 80, the two columns from 1220; 4 Low, the layout effect untested, three numbers; 3 Notes); 26 plants each red; no migration, no SQL | AT1-01 to AT1-08 | — . Comment markers: 4 → 4. |
 | Post-overhaul F2, a third follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 91's F2 Q6, relayed by the controller: a question back (verbatim in the walkthrough), then *"Yes, F2 builds it next (Recommended)"*: a bid version keeps each expense's estimate, at each save and as they are when the budget goes active; the Expenses tab shows the selected bid's figure, what is expected now and what was spent, with *Expected vs bid* and *Actual vs expected*, a sentence naming the bid, and for a budget active from before, *Keep today's estimates as its bid*; the table on the kit's compact cells (1280 holds it); measured before and after in Chromium on the fixtures (Locked bid $20,960, Expected now $21,260, +$300); 12 tests red on `1a36d9ad`'s source, 32 plants each killed; review round 1 on Opus (1 High — the bid froze at the last save, not at the lock: the lock writes them now; 3 Medium; 3 Low), round 2 on Opus (1 Medium — the lock wrote the whole snapshot from this window's copy: only the expenses now, on the stored one, its undo leaving a later save; 5 Low); no migration, no SQL | F2-11, F2-12, F2-13 | F2-10 (closed by measurement). Comment markers: 4 → 4. |
 | Post-overhaul F2, a second follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 Q4 and Q5, relayed by the controller, verbatim *"Leave them (Recommended)"* and *"Yes, show it (Recommended)"*: the Expenses tab's *Bid total* tile with the agency fee on (budgetMath's `lineMoney`; $24,449 with the $3,189 fee on the fixtures, the Topsheet's figure), nothing built for Q4; measured before and after; a test red first, eleven plants each killed; review round 1 on Opus (her F1 ruling: 1 Medium, the test's missing cases, pinned; 3 Low, the Variance tile now saying *against the estimate, before the fee*, a comment, this row; 4 Notes), round 2 on Opus (no wrong figure in 32 measured cases; the Variance's basis hers, Q6; the hint under an empty Variance removed; a comment); no migration, no SQL | F2-10 (her Q6) | F2-07 (closed by measurement), F2-08 (closed by her answer). Comment markers: 4 → 4. |
 | Post-overhaul F2, a follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answers to walkthrough 91's F2 questions, relayed by the controller, verbatim: Q1 *"Yes, fill in 20% (Recommended)"*, Q2 *"Full rate, $624 (Recommended)"*, Q3 *"Yes, its own line"*: switching the agency fee on anywhere with nothing typed fills in 20% (`agencyPctOnSwitchOn` for the Summary's and the settings' switches, the new-project form, the move to the cloud); the Crew tab prices a role nobody holds at the Summary's rate (the production designer $520 → $624, the crew $76,810 → $92,172); the client estimate's own *Agency fee* line on the crew and the expenses ($17,015, total $141,995 → $159,010) and the Topsheet's expenses fee ($3,189); measured on the fixtures before and after; tests red first; two review rounds, both on Opus (her F1 ruling); no migration, no SQL | F2-07 (the Expenses tab shows no fee), F2-08 (cloud projects already at 0), F2-09 (four older things seen in review) | F2-01, F2-03, F2-04 (closed by measurement). Comment markers: 4 → 4. |
@@ -4047,3 +4049,116 @@ list (`PLAN_TO_1_0.md` §5, rule 1), so recorded and left.
   in the renderer; since the list reads the stored order, an order it sets
   now stands until the next subject write renumbers. INFERRED by reading
   (round 2's notes). Owner: none.
+
+## AT1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`) — left open
+
+The admin terminal edge to edge, the member panel in two columns with no
+scroll from 1280x720, its confirms beside the panel and centred on the window
+(her ask of 2026-11-01; the session log's AT1 row; walkthrough 92). What AT1
+met outside its list, or decided and left for her:
+
+- **AT1-01 · Beside an open member, at 1280 and 1440, the roster shows Member
+  and Status only.** By design (the design round; her Q2 in walkthrough 92,
+  built on the recommendation): the four columns it drops are what the panel
+  shows for the open member and come back when it closes; from 1920 the six
+  stay. MEASURED: roster 424 / 584 / 1,064 / 1,704 px at the four sizes. The
+  trade (review round 1, against C1): another member's username, role, rate
+  access and joined date need the panel closed at those widths, nothing on
+  screen says columns were folded, and the search still matches a username or
+  email it no longer shows. Before AT1 the six scrolled sideways there with
+  Joined cut. **Her answer of 2026-11-01 to walkthrough 92 Q2: "Name and
+  status (Recommended)"** — kept as built; the trade above stays recorded.
+- **AT1-02 · On a wide window Company, Diagnostics and Storage keep the
+  720px reading measure**, left-aligned at the pane's edge. MEASURED at
+  2560x1440: 720 in a 2,288 pane, 1,568 px empty to their right (Models 1,240;
+  Requests and Logs 2,288). Left as the design round chose (prose and
+  label/value cards); her "empty space to the sides" may cover them too. Her
+  answer to walkthrough 92 Q1 (2026-11-01): "Edge to edge (Recommended)", the
+  page as built; these three sections were not part of that question.
+- **AT1-03 · The roster's search field shrinks to 175 px beside an open
+  member at 1280, which cuts its placeholder** ("Search username, name, e…").
+  MEASURED at 1280x800. The field still works; a shorter placeholder is a
+  word for the copy's owner.
+- **AT1-04 · Below 1220 the panel is one column and scrolls; the pet sits
+  over its bottom-right corner.** MEASURED at 1024x700: 621 px of content
+  (with the real account rows in place; 524 with the fixtures' notice) in 452. Whether the pet covers a control once scrolled is NOT measured.
+- **AT1-05 · The member panel's account rows do not load on the dev
+  fixtures** (`adminApi.js` answers the security read with a notice), so every
+  picture shows the notice; the real rows were measured by putting their markup
+  in place (147 px value column, no sideways scroll, the worst case 392 px).
+  Outside AT1's files.
+- **AT1-06 · Kit request B4-KR-2 (a portal on the kit `Dialog`) stays open.**
+  AT1 fixed its confirms as the house answer does (siblings of the host, B3c)
+  and changed no kit file. Of the 62 non-test files that render `<Dialog`, 24
+  portal at least one at the call site (`createPortal(…, document.body)`,
+  the B4 lanes' answer for a component inside a transformed host); the rest
+  render inline (round 2 counted 46 files with an inline one), safe only
+  while no ancestor of theirs has a transform. The panel borrows the dialog
+  token `--dialog-form` (560) for its width (review round 1, a Note).
+- **AT1-07 · A stale note in `adminTerminal.css`**: the 1180px block's
+  comment says the detail panel gives width back there; only the nav and the
+  search do (review round 1, read; it predates AT1).
+- **AT1-08 · After the Invite dialog or the Add people menu is closed with
+  Escape, focus lands on `<body>`.** MEASURED by review round 2 with real
+  key presses at 1280x800; it predates AT1 (the panel's confirms return
+  focus to their button).
+
+## SB1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`)
+
+O.T.T.E.R.'s courses sidebar and D.O.G.'s pages sidebar resize by dragging
+their edge, through one handle on the kit Panel (her ask of 2026-11-01; the
+session log's SB1 row). What SB1 met outside its list and did not fix: the
+design round's three WCAG items, and one interplay measured for the pictures.
+
+- **SB1-01 · A pointer that cannot drag has no way to set a sidebar's width
+  (WCAG 2.2, 2.5.7 Dragging Movements, AA).** MEASURED on
+  `po/sb1-resizable-sidebars` (2026-11-01, Chromium on 5303, the fixtures):
+  the handle answers a drag, a double-click (back to the default) and the
+  keyboard (the arrows, Home, End); a single click does nothing, and nothing
+  else sets a width. 2.5.7 asks for a way a single pointer can use without
+  dragging; the keyboard does not count. Fix shape (the design round's): one
+  small control of 24px or more on or beside the line, for example
+  *Narrower*, *Wider* and *Reset width* in a menu, which meets SB1-02 too.
+  Owner: hers to place (1.1); outside SB1's list.
+- **SB1-02 · For a mouse the grab strip is 8px wide (2.5.8 Target Size
+  (Minimum), AA, asks 24), and it shares pixels with the rows on either
+  side.** MEASURED (Chromium, 1280×800, the default widths): the strip is 8px
+  by the panel's height (24 under `pointer: coarse`, a finger). Its 24px
+  spacing circle meets the course rows' menus and the subjects' delete
+  buttons, which end 5px inside the line, and D.O.G.'s Remove, 5px inside
+  too. Its 2px inside the line take the last 2px of the full-width rows
+  (O.T.T.E.R.'s *Add subject*, D.O.G.'s page rows); its 5px beside take the
+  first 5px of whatever starts at the line, which in O.T.T.E.R.'s Study,
+  Hotkeys and Nodes views is Sidebar 2's rows (a section, a lesson,
+  *Sources*): a press there grabs the line instead of opening the row, and a
+  click there does nothing. D.O.G.'s nearest button or field beside is 21px
+  away, but card 1's header, which folds the card on a click anywhere on it,
+  starts 9px beside the line (after the column's 8px padding and the card's
+  1px border; review round 2, measured). For a finger (`pointer: coarse`,
+  review round 1, measured with touch emulation) the strip is 24px, 4 inside
+  and 19 beside: it takes Sidebar 2's rows from 1 to 19px beside the line and
+  the first 10px of D.O.G.'s card 1 header, so a tap there grabs the line
+  instead of folding the card; a vertical swipe that
+  starts on those pixels cannot scroll the list under them (`touch-action:
+  none`; INFERRED). A finger must travel 8px before it drags (a mouse 3), so
+  a tap that wanders does not resize. The design round chose these numbers
+  (VS Code's sash takes the same 2px inside). Fix shape: SB1-01's control.
+  Owner: 1.1.
+- **SB1-03 · At rest the separator is the 1px hairline, 1.48:1 against the
+  paper (1.4.11 Non-text Contrast, AA, asks 3:1).** MEASURED with the kit's
+  contrast helper: `--color-rule` over `--color-paper` flattens to `#3a3735`,
+  1.48:1. The brief keeps the line as drawn, so the strip is found by its
+  cursor and by the 2px band of the signal (4.91:1 on the paper, 3.32:1
+  against the rule it covers) on hover, a drag and keyboard focus. Every
+  Panel's hairline is the same rule. Fix shape: a brighter rule at rest, a
+  kit token across every docked panel, hers to choose. Owner: 1.1.
+- **SB1-04 · With O.T.T.E.R.'s courses column widened in a 1280×800 window,
+  the pet covers part of the lesson's *Next* button.** MEASURED (Chromium,
+  the fixtures, the first lesson): the lesson column centres in what is
+  left, so a wider courses column moves *Next* right, under the pet (fixed
+  at the window's bottom right, with no drag of its own). At the default 200
+  they do not meet; at 320 the pet covers 14px of the button's 90 (515 px²);
+  at 480, 39px (1,225 px²); at 1440×900, none even at 480. It is not new: at
+  the default width a 1100×760 window covers *Next* the same way (484 px²).
+  Fix shape: the pet's place over the page (walkthrough 47's question), not
+  the sidebar. Owner: the pet's (1.1).
