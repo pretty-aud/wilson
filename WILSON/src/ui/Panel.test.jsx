@@ -341,7 +341,7 @@ describe('Panel — resizable (SB1)', () => {
     expect([p.size(), p.now(), localStorage.getItem(KEY)]).toEqual(['304px', 304, '480'])
   })
 
-  it('a drag and End stop at the row\'s widest, read at the press', () => {
+  it('a drag and End stop at the row\'s widest', () => {
     const p = inRow(<Panel {...COURSES}>x</Panel>, 1024)
     press(p.handle(), 200); move(p.handle(), 900); lift(p.handle(), 900)
     expect([p.now(), localStorage.getItem(KEY)]).toEqual([304, '304'])

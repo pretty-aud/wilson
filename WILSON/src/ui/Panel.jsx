@@ -150,10 +150,10 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
     document.documentElement.removeAttribute('data-ui-resizing')
     d.handle.removeAttribute('data-dragging')
     try { if (d.handle.hasPointerCapture?.(d.id)) d.handle.releasePointerCapture(d.id) } catch { /* already released */ }
-    if (!d.moved) return
-    // A drag that ends where it began changes nothing and writes nothing: on a
-    // window too narrow for the width kept, a press that cannot widen the
-    // column must not overwrite that width (SB1 review round 1).
+    // A drag that ends where it began (a click among them) changes nothing and
+    // writes nothing: on a window too narrow for the width kept, a press that
+    // cannot widen the column must not overwrite that width (SB1 review
+    // round 1).
     if (keep && d.now !== d.from) commit(d.now)
     else paint(d.handle, drawn.current)
   }
@@ -165,13 +165,11 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
     onPointerDown: (e) => {
       if (e.button !== 0 || e.isPrimary === false || drag.current) return
       const handle = e.currentTarget
-      const rowEl = asideRef.current?.parentElement
       const d = {
         id: e.pointerId,
         x: e.clientX,
         from: shown,
         now: shown,
-        max: widestIn(rowEl ? rowEl.clientWidth : 0, { def, max, beside }),
         slop: e.pointerType === 'touch' ? TOUCH_SLOP : SLOP,
         moved: false,
         handle,
@@ -197,9 +195,9 @@ function usePanelSize({ on, storageKey, def, min, max, beside, asideRef }) {
       const dx = e.clientX - d.x
       if (!d.moved && Math.abs(dx) < d.slop) return
       d.moved = true
-      // The widest at the press, or narrower if the window has narrowed since
-      // (`widest` is this render's: no layout is read per move).
-      const next = clamp(Math.round(d.from + dx), min, Math.min(d.max, widest))
+      // This render's widest, kept by the row's observer, so a window narrowed
+      // mid-drag holds the drag too (no layout is read per move).
+      const next = clamp(Math.round(d.from + dx), min, widest)
       if (next === d.now) return
       d.now = next
       paint(d.handle, next)
