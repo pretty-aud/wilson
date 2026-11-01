@@ -2230,8 +2230,11 @@ select option {
      next one out: the 2px the focus ring, the active tab and a selected
      row's edge already are, 4.91:1 on the paper. z 4: over the sticky table
      heads (1 to 3), under every floating surface. The panel itself takes no
-     z-index, which would trap the strip under the column beside. */
-  .ui-panel[data-resizable="true"] { position: relative; }
+     z-index, which would trap the strip under the column beside. The
+     attribute in `:where()` weighs nothing, so a tool's own two-class rule on
+     its Panel (R.A.B.B.I.T.'s `.ui-panel.rb-rel-panel`) outranks this one
+     rather than tying with it on source order. */
+  .ui-panel:where([data-resizable="true"]) { position: relative; }
   .ui-panel-handle {
     position: absolute;
     top: 0;

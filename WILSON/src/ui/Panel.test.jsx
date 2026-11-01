@@ -377,7 +377,8 @@ function handleSheetProblems(css) {
   want('a coarse pointer\'s strip', declsOf('.ui-panel-handle', (r) => at(r, '@media (pointer: coarse)')), { right: '-20px', width: '24px' })
   want('the band', declsOf('.ui-panel-handle::before', plain), { content: "''", position: 'absolute', left: '2px', width: '2px', 'background-color': 'transparent' })
   want('a coarse pointer\'s band', declsOf('.ui-panel-handle::before', (r) => at(r, '@media (pointer: coarse)')), { left: '4px' })
-  want('the panel', declsOf('.ui-panel[data-resizable="true"]'), { position: 'relative' })
+  // Weightless in :where(), so a tool's own two-class rule on its Panel outranks it.
+  want('the panel', declsOf('.ui-panel:where([data-resizable="true"])'), { position: 'relative' })
   for (const w of ['sm', 'md', 'lg']) want(`the ${w} width`, declsOf(`.ui-panel[data-width="${w}"]`), { width: `var(--ui-panel-size, var(--panel-${w}))` })
   want('the body', declsOf('.ui-panel-body'), { '--ui-panel-size': 'initial' })
 
