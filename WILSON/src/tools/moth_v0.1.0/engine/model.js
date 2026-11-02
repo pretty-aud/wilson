@@ -8,11 +8,21 @@
 // the catalogue is keyed by project:
 //
 //   catalogue = {
-//     islands:   [{ id, title, is_personal, is_mine, is_private, can_write, updated_at, … }],
-//     folders:   { [projectId]: [{ id, parent_id, kind, slug, label, path, sort_order, updated_at }] },
-//     files:     { [projectId]: [{ id, project_id, folder_id, name, mime_type, size_bytes, kind, tags, updated_at }] },
+//     islands:   [{ id, title, is_personal, is_mine, is_private, my_project_role,
+//                   is_staffed, can_write, updated_at }],                      // moth_islands()
+//     folders:   { [projectId]: [{ id, parent_id, kind, entity_type, slug, label,
+//                   path, sort_order, updated_at }] },                         // moth_project_folders(p)
+//     files:     { [projectId]: [{ id, project_id, folder_id, name, mime_type, size_bytes,
+//                   kind, document_kind, description, tags, storage_provider, storage_path,
+//                   thumbnail_url, duration_sec, source_modified_at, uploaded_at,
+//                   updated_at }] },                                           // moth_project_files(p, …)
 //     relations: [{ source: { kind, id }, target: { kind, id }, label }],   // Session 3 supplies these
 //   }
+//
+// The project's own folder (0041: kind 'root', parent_id NULL, path '') is
+// the project dot itself, never a dot of its own: a folder or file filed under
+// it sits directly under the project. Only the columns the graph draws are
+// copied (never storage_path).
 //
 // The rules (the brief, §2):
 //   * One engine, many views. A view picks which kinds are dots, which kinds
@@ -26,6 +36,8 @@
 //   * Stable identities: `${kind}:${rowId}` for a dot, `${kind}|${from}|${to}`
 //     for a line, and output sorted by id, so the same rows in any order give
 //     the same graph.
+//   * A row whose kind is not on show makes no dot and no line, even inside a
+//     closed container (it still counts in that container's count).
 //
 // Privacy (brief §8): the engine draws only the rows it is handed. The RPCs
 // already exclude money, Legal and other people's personal spaces; a count
@@ -76,7 +88,6 @@ export function indexCatalogue(catalogue) {
     rows.set(nodeId('project', pid), {
       id: nodeId('project', pid), kind: 'project', rowId: pid, projectId: pid,
       label: island.title ?? '', updatedAt: island.updated_at ?? null,
-      isPersonal: !!island.is_personal, isMine: !!island.is_mine,
     })
   }
 
@@ -85,7 +96,10 @@ export function indexCatalogue(catalogue) {
     const folderRows = Array.isArray(catalogue?.folders?.[pid]) ? catalogue.folders[pid] : []
     const folders = new Map()
     for (const f of folderRows) {
-      if (!f || f.id == null) continue
+      // The root row is the project itself (0041). Leaving it out of the
+      // folders makes every parent_id and folder_id that names it fall back to
+      // the project, below.
+      if (!f || f.id == null || f.kind === 'root') continue
       const fid = String(f.id)
       const id = nodeId('folder', fid)
       if (rows.has(id)) continue // a folder id is one row; a duplicate is ignored
@@ -222,6 +236,7 @@ export function buildGraph(catalogue, view, index = indexCatalogue(catalogue)) {
   const repMemo = new Map()
   const rep = (id) => {
     if (repMemo.has(id)) return repMemo.get(id)
+    if (!included(rows.get(id).kind)) { repMemo.set(id, null); return null } // no dot, no line
     const anc = chain(id)
     let r = null
     for (let i = anc.length - 1; i >= 0; i--) {
@@ -229,7 +244,7 @@ export function buildGraph(catalogue, view, index = indexCatalogue(catalogue)) {
       const k = rows.get(a).kind
       if (included(k) && !v.isOpen(a)) { r = a; break }
     }
-    if (r == null) r = included(rows.get(id).kind) ? id : null
+    if (r == null) r = id
     repMemo.set(id, r)
     return r
   }
@@ -260,12 +275,15 @@ export function buildGraph(catalogue, view, index = indexCatalogue(catalogue)) {
   }
 
   const edges = new Map()
+  // A relation keeps its own direction while it is one relation; once two or
+  // more are summed into one line it has no single direction, so its ends are
+  // stored in id order (the same graph whatever order the rows came in).
   const addEdge = (kind, a, b, label, undirected) => {
     if (a == null || b == null || a === b) return
     const [s, t] = undirected && b < a ? [b, a] : [a, b]
     const id = edgeId(kind, s, t)
     const e = edges.get(id)
-    if (e) { e.weight += 1; e.label = null; return }
+    if (e) { e.weight += 1; e.label = null; e.source = s; e.target = t; return }
     edges.set(id, { id, kind, source: a, target: b, weight: 1, label: label ?? null })
   }
 
@@ -338,4 +356,51 @@ function applyFocus(nodeList, edgeList, nodes, focus) {
   }
   for (const n of nodeList) n.dim = !near.has(n.id)
   return { id: focus.id, depth: focus.depth, ids: near }
+}
+
+// ── The graph as layout input, and positions as data ───────────────────────
+// These live here, not in layout.js, so the page's chunk (renderer and model)
+// never pulls in the D3 modules: only the layout worker's chunk carries them.
+
+export const EDGE_CODE = Object.freeze({ lives_in: 0, tagged_with: 1, related_to: 2 })
+
+/** A dot's world radius: containers grow with what is inside them. */
+export const defaultRadius = (node) => (node.kind === 'file' ? 3.5 : node.kind === 'tag' ? 5 : 5 + 1.6 * Math.sqrt(node.count || 0))
+
+/**
+ * The graph as layout input, in the graph's own node order (sorted by id),
+ * which the renderer shares.
+ *   nodes: [{ id, parent, r, loose }]   (loose: outside the hierarchy, a tag dot)
+ *   links: [[sourceIndex, targetIndex, EDGE_CODE]]
+ */
+export function toLayoutInput(graph, radiusOf = defaultRadius) {
+  const index = new Map()
+  graph.nodes.forEach((n, i) => index.set(n.id, i))
+  const nodes = graph.nodes.map((n) => ({ id: n.id, parent: n.parent ?? null, r: radiusOf(n), loose: n.kind === 'tag' }))
+  const links = []
+  for (const e of graph.edges) {
+    const s = index.get(e.source)
+    const t = index.get(e.target)
+    if (s === undefined || t === undefined) continue
+    links.push([s, t, EDGE_CODE[e.kind] ?? EDGE_CODE.related_to])
+  }
+  return { nodes, links }
+}
+
+/**
+ * Positions as plain data for a later session to save with the view:
+ * { [nodeId]: { x, y, pinned? } }. A dot that was never given a place
+ * (placed(i) false) is left out, so a saved view never records a guess.
+ */
+export function positionsToData(ids, xy, { pinned = () => false, placed = () => true } = {}) {
+  const out = {}
+  for (let i = 0; i < ids.length; i++) {
+    const x = xy[2 * i]
+    const y = xy[2 * i + 1]
+    if (!placed(i) || !Number.isFinite(x) || !Number.isFinite(y)) continue
+    const p = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }
+    if (pinned(i)) p.pinned = true
+    out[ids[i]] = p
+  }
+  return out
 }

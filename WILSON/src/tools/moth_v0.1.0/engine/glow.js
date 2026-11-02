@@ -12,7 +12,12 @@
 //   * Text and dots over the bright core get a soft shadow whose strength is
 //     a smooth function of where they are, so it fades in, never snaps on.
 //   * Calm mode (reduced motion): the colour shift holds still.
-//   * Light mode (the lighter fallback): fewer stops, no drift, no flicker.
+//   * Light mode (the lighter fallback): two stops, no drift, no flicker, and
+//     a core that is not lifted towards white, so white labels stay readable
+//     over it (the shadows stay too, renderer.js).
+//   * The size steps in fortieths of the log scale, so a project read in
+//     pages repaints the light a few times, not once per page; the drift and
+//     the flicker are adjusted in place, never restarted from zero.
 //
 // No work when nothing moves: the glow is painted once per change of its
 // inputs onto its own canvas, and the drift and the flicker are Web
@@ -22,24 +27,25 @@
 // =============================================================================
 
 /** At this many things the light is a full sun; it grows on a log scale. */
-export const GLOW_FULL_AT = 5000
+const GLOW_FULL_AT = 5000
+const STEPS = 40
 export const DEFAULT_GLOW_COLOR = '#ffb347'
 const MAX_SHADOW = 0.55
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
-export const smoothstep = (a, b, v) => {
+const smoothstep = (a, b, v) => {
   const t = clamp01((v - a) / (b - a))
   return t * t * (3 - 2 * t)
 }
 
-/** '#rgb' or '#rrggbb' to [r, g, b]; anything else falls back to the default. */
-export function parseColor(hex) {
+/** '#rgb' or '#rrggbb' to [r, g, b]; anything else is the default colour. */
+function parseColor(hex) {
   const s = typeof hex === 'string' ? hex.trim() : ''
   const m3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s)
   const m6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(s)
   if (m6) return [parseInt(m6[1], 16), parseInt(m6[2], 16), parseInt(m6[3], 16)]
   if (m3) return [parseInt(m3[1] + m3[1], 16), parseInt(m3[2] + m3[2], 16), parseInt(m3[3] + m3[3], 16)]
-  return s === DEFAULT_GLOW_COLOR ? [255, 179, 71] : parseColor(DEFAULT_GLOW_COLOR)
+  return [255, 179, 71]
 }
 
 const rgba = ([r, g, b], a) => `rgba(${r},${g},${b},${Math.round(clamp01(a) * 1000) / 1000})`
@@ -53,14 +59,15 @@ const mix = (c, w, t) => c.map((v, i) => Math.round(v + (w[i] - v) * t))
  */
 export function glowParams({ size = 0, color = DEFAULT_GLOW_COLOR, reducedMotion = false, light = false } = {}) {
   const n = Math.max(0, Number(size) || 0)
-  const t = n === 0 ? 0 : clamp01(Math.log10(n + 1) / Math.log10(GLOW_FULL_AT + 1))
+  const raw = n === 0 ? 0 : clamp01(Math.log10(n + 1) / Math.log10(GLOW_FULL_AT + 1))
+  const t = n === 0 ? 0 : Math.max(1, Math.round(raw * STEPS)) / STEPS
   const intensity = n === 0 ? 0 : 0.1 + 0.9 * Math.pow(t, 1.15)
   const radiusFrac = n === 0 ? 0 : 0.14 + 0.48 * t
   const coreFrac = 0.24 * smoothstep(0.3, 1, t) // the white core appears as the project grows
   const c = parseColor(color)
   const white = [255, 255, 255]
   const stops = light
-    ? [{ at: 0, color: rgba(mix(c, white, coreFrac > 0 ? 0.7 : 0.2), intensity * 0.8) }, { at: 1, color: rgba(c, 0) }]
+    ? [{ at: 0, color: rgba(mix(c, white, 0.2), intensity * 0.45) }, { at: 1, color: rgba(c, 0) }]
     : [
         { at: 0, color: rgba(mix(c, white, 0.35 + 0.65 * smoothstep(0.3, 1, t)), intensity) },
         { at: Math.max(0.02, coreFrac), color: rgba(mix(c, white, 0.6 * smoothstep(0.3, 1, t)), intensity * 0.92) },
@@ -90,7 +97,7 @@ export function shadowAlpha(sx, sy, glow, viewport) {
 }
 
 /** Paint the glow onto a 2D context sized width x height CSS px at dpr. */
-export function paintGlow(ctx, glow, viewport, dpr = 1) {
+function paintGlow(ctx, glow, viewport, dpr = 1) {
   const w = viewport.width * dpr
   const h = viewport.height * dpr
   ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -108,17 +115,38 @@ const paintKey = (glow, viewport, dpr) => JSON.stringify([glow.stops, glow.radiu
 /**
  * Own a glow canvas: paint on change only, and run the drift and the flicker
  * as Web Animations (no script frame). `element` is the glow <canvas>.
- * Returns { update(glow, viewport, dpr) -> boolean painted, paints(), destroy() }.
+ * A change of drift or flicker adjusts the running animation in place (its
+ * keyframes and timing), so the colour never snaps back to its start.
+ * Returns { update(glow, viewport, dpr) -> boolean painted, paints(),
+ *           setActive(boolean) (pause on a hidden page), destroy() }.
  */
 export function mountGlow(element) {
   const ctx = element.getContext('2d')
   let key = null
   let paints = 0
-  let drift = null
-  let driftKey = null
-  let flicker = null
-  let flickerKey = null
-  const stop = (a) => { if (a && typeof a.cancel === 'function') a.cancel() }
+  let active = true
+  const anims = { drift: null, flicker: null }
+
+  // Start, adjust or stop one property's animation.
+  function drive(name, playing, keyframes, duration) {
+    const a = anims[name]
+    if (!playing) {
+      if (a && typeof a.cancel === 'function') a.cancel()
+      anims[name] = null
+      return
+    }
+    if (a && a.effect && typeof a.effect.setKeyframes === 'function') {
+      a.effect.setKeyframes(keyframes)
+      if (typeof a.effect.updateTiming === 'function') a.effect.updateTiming({ duration })
+      return
+    }
+    if (a && typeof a.cancel === 'function') a.cancel()
+    if (typeof element.animate !== 'function') { anims[name] = null; return }
+    const next = element.animate(keyframes, { duration, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' })
+    if (!active && next && typeof next.pause === 'function') next.pause()
+    anims[name] = next
+  }
+
   return {
     update(glow, viewport, dpr = 1) {
       const w = Math.max(1, Math.round(viewport.width * dpr))
@@ -133,33 +161,27 @@ export function mountGlow(element) {
         paints++
         painted = true
       }
-      const dk = glow.drift.playing ? `${glow.drift.degrees}|${glow.drift.periodMs}` : 'off'
-      if (dk !== driftKey) {
-        stop(drift)
-        drift = null
-        if (glow.drift.playing && typeof element.animate === 'function') {
-          drift = element.animate(
-            [{ filter: 'hue-rotate(0deg)' }, { filter: `hue-rotate(${glow.drift.degrees}deg)` }],
-            { duration: glow.drift.periodMs, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' },
-          )
-        }
-        driftKey = dk
-      }
-      const fk = glow.flicker.playing ? `${glow.flicker.low}|${glow.flicker.periodMs}` : 'off'
-      if (fk !== flickerKey) {
-        stop(flicker)
-        flicker = null
-        if (glow.flicker.playing && typeof element.animate === 'function') {
-          flicker = element.animate(
-            [{ opacity: 1 }, { opacity: glow.flicker.low }],
-            { duration: glow.flicker.periodMs, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' },
-          )
-        }
-        flickerKey = fk
-      }
+      drive('drift', glow.drift.playing, [{ filter: 'hue-rotate(0deg)' }, { filter: `hue-rotate(${glow.drift.degrees}deg)` }], glow.drift.periodMs)
+      drive('flicker', glow.flicker.playing, [{ opacity: 1 }, { opacity: glow.flicker.low }], glow.flicker.periodMs)
       return painted
     },
     paints: () => paints,
-    destroy() { stop(drift); stop(flicker); drift = flicker = null },
+    /** A hidden Moth page pauses its light; showing it again resumes it. */
+    setActive(on) {
+      active = !!on
+      for (const a of Object.values(anims)) {
+        if (!a) continue
+        if (active && typeof a.play === 'function') a.play()
+        else if (!active && typeof a.pause === 'function') a.pause()
+      }
+    },
+    destroy() {
+      for (const name of Object.keys(anims)) {
+        const a = anims[name]
+        if (a && typeof a.cancel === 'function') a.cancel()
+        anims[name] = null
+      }
+      key = null
+    },
   }
 }

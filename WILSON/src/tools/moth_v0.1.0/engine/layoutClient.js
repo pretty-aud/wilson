@@ -56,7 +56,10 @@ export function createLayoutClient({
     worker = createWorker()
     worker.onmessage = (event) => {
       const m = event.data
-      if (!m || m.job !== job) return // a stale job's message
+      // A stale job's message, or one still in flight after stop(), is
+      // dropped: it must not re-arm the watchdog over a worker that has
+      // rightly gone quiet.
+      if (!m || m.job !== job || !live) return
       if (m.type === 'tick') { busy = true; arm(); onTick(m) }
       else if (m.type === 'settled') { busy = false; disarm(); onSettled(m) }
       else if (m.type === 'error') {

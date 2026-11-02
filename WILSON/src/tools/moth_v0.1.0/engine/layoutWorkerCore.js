@@ -18,9 +18,11 @@
 //   { type: 'error', job, code: 'refused' }   (a pin or unpin of a dot it does not hold; the job stays)
 //
 // Bounds: at most WORKER_LIMITS.maxNodes dots and maxLinks lines; each batch
-// of ticks stops at batchMs; a run stops at maxTicks even if it has not
-// settled. Once settled (or capped) nothing is scheduled again until a pin,
-// an unpin or a reheat starts a new, equally bounded run.
+// of ticks stops at batchMs; a run stops at maxTicks or after maxRunMs of
+// wall-clock time, whichever comes first, even if it has not settled (reason
+// 'cap'). A layout that needs no ticks (every place saved, or a radial tree)
+// is answered at once. Once settled or capped nothing is scheduled again
+// until a pin, an unpin or a reheat starts a new, equally bounded run.
 // =============================================================================
 
 import { createForceLayout, radialTree } from './layout.js'
@@ -30,6 +32,7 @@ export const WORKER_LIMITS = Object.freeze({
   maxLinks: 60000,
   batchMs: 8,
   maxTicks: 600,
+  maxRunMs: 10000,
 })
 
 function validInput(nodes, links) {
@@ -43,8 +46,9 @@ function validInput(nodes, links) {
   return true
 }
 
-export function createLayoutWorkerCore({ post, schedule, now, limits = WORKER_LIMITS }) {
-  let job = null // the force run: { id, layout, indexOf, seq, ticks, runTicks, running }
+export function createLayoutWorkerCore({ post, schedule, now, limits = {} }) {
+  const L = { ...WORKER_LIMITS, ...limits } // a partial override keeps the other bounds
+  let job = null // the force run: { id, layout, indexOf, seq, ticks, runTicks, runStart, running }
   let lastId = null // the latest init's job id
 
   const send = (msg) => post(msg, msg.xy ? [msg.xy.buffer] : [])
@@ -54,24 +58,27 @@ export function createLayoutWorkerCore({ post, schedule, now, limits = WORKER_LI
     if (job !== j || j.running) return
     j.running = true
     j.runTicks = 0
+    j.runStart = now()
     schedule(() => step(j))
   }
 
   function step(j) {
     if (job !== j) return // stopped or replaced: this run ends here
     const t0 = now()
-    let done = false
+    let done = j.layout.settled() // nothing to move (every place saved)
     let reason = 'settled'
-    do {
+    while (!done) {
       j.layout.tick(1)
       j.ticks++
       j.runTicks++
       if (j.layout.settled()) { done = true; break }
-      if (j.runTicks >= limits.maxTicks) { done = true; reason = 'cap'; break }
-    } while (now() - t0 < limits.batchMs)
+      if (j.runTicks >= L.maxTicks || now() - j.runStart >= L.maxRunMs) { done = true; reason = 'cap'; break }
+      if (now() - t0 >= L.batchMs) break
+    }
     j.seq++
     if (done) {
       j.running = false
+      j.layout.releaseHolds()
       send({ type: 'settled', job: j.id, seq: j.seq, xy: snapshot(j), ticks: j.ticks, reason })
       return // suspended: nothing more is scheduled
     }
@@ -84,7 +91,7 @@ export function createLayoutWorkerCore({ post, schedule, now, limits = WORKER_LI
     const { job: id, layout, nodes, links, positions, options } = msg
     lastId = id
     if (!validInput(nodes, links)) return send({ type: 'error', job: id, code: 'bad_input' })
-    if (nodes.length > limits.maxNodes || links.length > limits.maxLinks) return send({ type: 'error', job: id, code: 'too_large' })
+    if (nodes.length > L.maxNodes || links.length > L.maxLinks) return send({ type: 'error', job: id, code: 'too_large' })
     if (layout === 'radial') {
       const xy = radialTree({ nodes, options })
       return send({ type: 'settled', job: id, seq: 1, xy, ticks: 0, reason: 'settled' })
@@ -92,7 +99,7 @@ export function createLayoutWorkerCore({ post, schedule, now, limits = WORKER_LI
     if (layout !== 'force') return send({ type: 'error', job: id, code: 'unknown_layout' })
     const j = {
       id, layout: createForceLayout({ nodes, links, positions, options }),
-      indexOf: new Map(nodes.map((n, i) => [n.id, i])), seq: 0, ticks: 0, runTicks: 0, running: false,
+      indexOf: new Map(nodes.map((n, i) => [n.id, i])), seq: 0, ticks: 0, runTicks: 0, runStart: 0, running: false,
     }
     job = j
     run(j)
@@ -117,13 +124,11 @@ export function createLayoutWorkerCore({ post, schedule, now, limits = WORKER_LI
         switch (msg.type) {
           case 'pin':
             if (i === undefined || !Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return refuse()
-            job.layout.pin(i, msg.x, msg.y)
-            job.layout.reheat()
+            job.layout.pin(i, msg.x, msg.y) // moves its neighbourhood, holds the rest
             return run(job)
           case 'unpin':
             if (i === undefined) return refuse()
             job.layout.unpin(i)
-            job.layout.reheat()
             return run(job)
           case 'reheat':
             job.layout.reheat()

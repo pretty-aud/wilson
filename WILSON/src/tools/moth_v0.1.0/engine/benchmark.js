@@ -4,12 +4,13 @@
 // under 20 ms; low power 300 and 600 at 30 fps, p95 at or under 34 ms;
 // feedback within 100 ms; no loop when settled.
 //
-// Two parts. frameStats() summarises samples. driveMotion() moves the camera
-// once per animation frame for N frames and records the frame intervals;
-// the renderer's own work per frame comes from its onFrame hook through a
-// recorder. MO2 replays this on her PC with the debug sample and her saved
-// local test project (PLAN_MOTH §9 Q6); MO2a ran it in the cloud on the
-// fixture generator (the hand-off records the machine and the numbers).
+// What a page needs to read its own frames: frameStats() summarises samples,
+// and createFrameRecorder() collects the renderer's per-frame numbers through
+// its onFrame hook. MO2's caller is the debug-mode frame readout, which is
+// how the acceptance replay on her PC reads the targets with the debug
+// sample and her saved local test project (PLAN_MOTH §9 Q6). MO2a measured
+// in the cloud on the fixture generator with a scratch harness that is not
+// committed (the hand-off records the machine, the procedure and the numbers).
 // =============================================================================
 
 export const TARGETS = Object.freeze({
@@ -28,38 +29,22 @@ export function frameStats(samples) {
   return { count: n, p50: rank(0.5), p95: rank(0.95), max: xs[n - 1], mean, fps: mean > 0 ? 1000 / mean : null }
 }
 
-/** Collects the renderer's per-frame work (pass recorder.onFrame to createRenderer). */
+/**
+ * Collects the renderer's per-frame numbers (pass recorder.onFrame to
+ * createRenderer): script work, and the sample the governor saw (the larger
+ * of work and lateness during motion).
+ */
 export function createFrameRecorder() {
   let work = []
+  let sample = []
   return {
-    onFrame(s) { if (s && Number.isFinite(s.workMs)) work.push(s.workMs) },
-    reset() { work = [] },
+    onFrame(s) {
+      if (!s) return
+      if (Number.isFinite(s.workMs)) work.push(s.workMs)
+      if (Number.isFinite(s.sampleMs)) sample.push(s.sampleMs)
+    },
+    reset() { work = []; sample = [] },
     work: () => frameStats(work),
+    sample: () => frameStats(sample),
   }
-}
-
-/**
- * Call step(i) once per animation frame for `frames` frames and resolve with
- * the intervals between frames: { intervals: frameStats }.
- */
-export function driveMotion({ frames = 300, step, requestFrame = (fn) => requestAnimationFrame(fn) }) {
-  return new Promise((resolve) => {
-    const gaps = []
-    let prev = null
-    let i = 0
-    const tick = (ts) => {
-      if (prev != null) gaps.push(ts - prev)
-      prev = ts
-      if (i >= frames) { resolve({ intervals: frameStats(gaps) }); return }
-      step(i++)
-      requestFrame(tick)
-    }
-    requestFrame(tick)
-  })
-}
-
-/** Whether a run meets a target: p95 of both the work and the frame interval. */
-export function meetsTarget(result, target) {
-  const p95 = Math.max(result.work.p95 ?? Infinity, result.intervals.p95 ?? Infinity)
-  return p95 <= target.p95Ms
 }

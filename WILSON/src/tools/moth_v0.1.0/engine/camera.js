@@ -8,10 +8,19 @@
 
 export const ZOOM_MIN = 0.05
 export const ZOOM_MAX = 8
+/** A fly-to never lasts longer than this, whatever it is asked. */
+export const MAX_FLY_MS = 2000
 
-const clampK = (k) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k))
+// Nothing that is not a finite number ever enters a camera: a NaN zoom would
+// poison every later move, and a NaN or endless duration would keep frames
+// coming for ever.
+const clampK = (k, fallback = 1) => (Number.isFinite(k) ? Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k)) : fallback)
+const num = (v, fallback) => (Number.isFinite(v) ? v : fallback)
 
-export const camera = (x = 0, y = 0, k = 1) => ({ x, y, k: clampK(k) })
+/** A bounded duration: finite, 0..MAX_FLY_MS; anything else is 0 (a jump). */
+export const boundedMs = (ms) => (Number.isFinite(ms) ? Math.min(MAX_FLY_MS, Math.max(0, ms)) : 0)
+
+export const camera = (x = 0, y = 0, k = 1) => ({ x: num(x, 0), y: num(y, 0), k: clampK(k) })
 
 /** viewport = { width, height } in CSS pixels. */
 export function worldToScreen(cam, viewport, wx, wy) {
@@ -31,22 +40,29 @@ export function visibleWorldRect(cam, viewport, margin = 0) {
 
 /** Pan by a screen-pixel delta (a drag moves the world with the pointer). */
 export function panBy(cam, dx, dy) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return cam
   return { x: cam.x - dx / cam.k, y: cam.y - dy / cam.k, k: cam.k }
 }
 
 /** Zoom by `factor` keeping the world point under (sx, sy) fixed on screen. */
 export function zoomAt(cam, viewport, factor, sx, sy) {
-  const k = clampK(cam.k * factor)
+  if (!Number.isFinite(factor) || factor <= 0 || !Number.isFinite(sx) || !Number.isFinite(sy)) return cam
+  const k = clampK(cam.k * factor, cam.k)
   if (k === cam.k) return cam
   const before = screenToWorld(cam, viewport, sx, sy)
   // After the zoom the same world point must sit at (sx, sy).
   return { x: before.x - (sx - viewport.width / 2) / k, y: before.y - (sy - viewport.height / 2) / k, k }
 }
 
-/** A wheel step as a zoom factor (trackpads send small deltas, mice large). */
-export function wheelFactor(deltaY, deltaMode = 0) {
+/**
+ * A wheel step as a zoom factor. A trackpad pinch arrives as a wheel event
+ * with ctrlKey set and small deltas, so it gets ten times the coefficient
+ * (as d3-zoom does), or a pinch would crawl.
+ */
+export function wheelFactor(deltaY, deltaMode = 0, ctrlKey = false) {
+  if (!Number.isFinite(deltaY)) return 1
   const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY
-  return Math.exp(-Math.max(-600, Math.min(600, px)) * 0.002)
+  return Math.exp(-Math.max(-600, Math.min(600, px)) * (ctrlKey ? 0.02 : 0.002))
 }
 
 /**
@@ -70,8 +86,8 @@ const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
  * motion) is a jump. Returns { duration, at(elapsedMs) -> camera, done(elapsedMs) }.
  */
 export function flyTo(from, to, viewport, ms = 650) {
-  const target = { x: to.x, y: to.y, k: clampK(to.k ?? from.k) }
-  const duration = Math.max(0, ms)
+  const target = { x: num(to.x, from.x), y: num(to.y, from.y), k: clampK(to.k ?? from.k, from.k) }
+  const duration = boundedMs(ms)
   // How far the hop is, in screens at the smaller of the two zooms.
   const span = Math.hypot(target.x - from.x, target.y - from.y) * Math.min(from.k, target.k)
   const screens = span / Math.max(1, Math.min(viewport.width, viewport.height))

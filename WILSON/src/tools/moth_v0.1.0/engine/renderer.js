@@ -3,42 +3,47 @@
 //
 //   * Draws on demand only. invalidate() asks for ONE animation frame when
 //     none is pending; frames continue only while a fly-to or a position
-//     tween is running, and a streamed layout asks for one frame per batch of
-//     ticks. Settled and idle, it requests nothing at all (the brief: "no work
-//     at all when nothing moves"; PLAN_MOTH: "no continuous settled layout or
-//     hidden render loop").
+//     tween is running (both bounded in time), and a streamed layout asks for
+//     one frame per batch of ticks. Settled and idle, it requests nothing at
+//     all (the brief: "no work at all when nothing moves"; PLAN_MOTH: "no
+//     continuous settled layout or hidden render loop").
 //   * Each frame executes a draw list from frame.js (culling, clustering,
 //     level of detail): lines in one path per style, dots in one path per
-//     colour, a pre-rendered halo sprite under dots and labels over the
-//     bright core (glow.js shadowAlpha), labels capped.
+//     colour, a pre-rendered halo sprite under dots, clusters and labels over
+//     the bright core (glow.js shadowAlpha), in full and light mode alike.
 //   * Feedback: setSelection / setHover redraw on the next frame, and
-//     hitTest reads the last drawn frame, so a press is answered within a
-//     frame (the target is 100 ms).
-//   * The lighter mode comes from governor.js, fed with frames drawn back to
-//     back while something moves.
+//     hitTest reads the frame on screen (its own dot ids), so a press is
+//     answered within a frame (the target is 100 ms).
+//   * The lighter mode comes from governor.js. Each frame drawn during
+//     motion feeds it the larger of its script work and how late the frame
+//     came (request to callback, and frame to frame when the motion is
+//     continuous), so a slow raster or compositor counts, not only script.
+//   * A dot that has never been given a place (new, and no ancestor with
+//     one) is drawn at the centre of the world but never saved as a place.
 //
 // Injected for tests: requestFrame, cancelFrame, now, createCanvas.
 // =============================================================================
 
-import { panBy as panCamera, zoomAt as zoomCamera, flyTo as flyPath, camera as makeCamera } from './camera.js'
+import { panBy as panCamera, zoomAt as zoomCamera, flyTo as flyPath, camera as makeCamera, boundedMs } from './camera.js'
 import { computeFrame, LOD } from './frame.js'
 import { shadowAlpha } from './glow.js'
-import { defaultRadius, positionsToData } from './layout.js'
+import { defaultRadius, positionsToData, EDGE_CODE } from './model.js'
+import { TYPE, FONT_SANS, SIGNAL } from '../../../ui/tokens.js'
 
-export const KIND_CODE = Object.freeze({ project: 0, folder: 1, file: 2, tag: 3 })
-const EDGE_KIND_CODE = Object.freeze({ lives_in: 0, tagged_with: 1, related_to: 2 })
+const KIND_CODE = Object.freeze({ project: 0, folder: 1, file: 2, tag: 3 })
 
+/** The defaults the page overrides from its Settings; type and the selection come from the kit. */
 export const DEFAULT_PALETTE = Object.freeze({
   dot: Object.freeze(['#ffffff', '#f4f1ea', '#d9d6cf', '#ffd28a']), // by KIND_CODE
-  edge: Object.freeze(['rgba(255,255,255,0.22)', 'rgba(255,210,138,0.20)', 'rgba(170,200,255,0.26)']), // by edge code
+  edge: Object.freeze(['rgba(255,255,255,0.22)', 'rgba(255,210,138,0.20)', 'rgba(170,200,255,0.26)']), // by EDGE_CODE
   cluster: 'rgba(244,241,234,0.75)',
   clusterText: '#000000',
   clusterEdge: 'rgba(255,255,255,0.14)',
-  selection: '#ff8a1f',
+  selection: SIGNAL,
   hover: 'rgba(255,255,255,0.8)',
   label: '#ffffff',
   labelShadow: '0,0,0',
-  font: '12px "Inter", system-ui, sans-serif',
+  font: `${TYPE.caption}px ${FONT_SANS}`,
   dimAlpha: 0.15,
 })
 
@@ -52,7 +57,7 @@ function defaultCreateCanvas(w, h) {
   return c
 }
 
-/** The soft dark disc drawn under a dot or label over the light. */
+/** The soft dark disc drawn under a dot, cluster or label over the light. */
 function makeHalo(createCanvas) {
   const c = createCanvas(HALO_PX, HALO_PX)
   const g = c.getContext('2d')
@@ -82,6 +87,7 @@ export function createRenderer({
 } = {}) {
   const ctx = canvas.getContext('2d')
   const halo = makeHalo(createCanvas)
+  const budgetMs = 20 // a frame request within this of the last frame is continuous motion
   let viewport = { width: canvas.width || 1, height: canvas.height || 1 }
   let dpr = 1
   let cam = makeCamera()
@@ -93,18 +99,19 @@ export function createRenderer({
   let selectedId = null
   let hoveredId = null
   let pending = null
+  let requestedAt = null
   let destroyed = false
   let fly = null // { path, start }
   let tween = null // { from, to, start, ms }
-  let last = null // the last drawn frame's draw list
+  let last = null // the last drawn frame's draw list, with its ids
+  let lastFrameEnd = null
   let lastFrameAt = null
-  let wasAnimating = false
   let frames = 0
   let requests = 0
 
   function emptyScene() {
     return {
-      n: 0, ids: [], index: new Map(), xy: new Float32Array(0), r: new Float32Array(0),
+      n: 0, ids: [], index: new Map(), xy: new Float32Array(0), r: new Float32Array(0), placed: new Uint8Array(0),
       kindCode: new Uint8Array(0), container: new Uint8Array(0), collapsed: new Uint8Array(0), dim: new Uint8Array(0),
       label: [], count: new Uint32Array(0), priority: new Float32Array(0),
       m: 0, ends: new Uint32Array(0), kind: new Uint8Array(0),
@@ -114,6 +121,7 @@ export function createRenderer({
   function invalidate() {
     if (pending != null || destroyed) return
     requests++
+    requestedAt = now()
     pending = requestFrame(onAnimationFrame)
   }
 
@@ -123,32 +131,52 @@ export function createRenderer({
     pending = null
     if (destroyed) return
     const t0 = now()
+    const asked = requestedAt
+    renderNow(t0)
+    const t1 = now()
+    const work = t1 - t0
+    // How late this frame came: from the request, and from the previous
+    // frame when the request followed it closely (continuous motion; a pause
+    // in a drag starts afresh).
+    const late = asked != null ? t0 - asked : 0
+    const continuous = asked != null && lastFrameEnd != null && asked - lastFrameEnd <= budgetMs
+    const gap = continuous && lastFrameAt != null ? t0 - lastFrameAt : 0
+    const sample = Math.max(work, late, gap)
+    const light = governor ? governor.mode() === 'light' : false
+    if (governor) governor.record(sample)
+    if (onFrame) onFrame({ workMs: work, intervalMs: continuous ? gap : null, sampleMs: sample, lod: last.lod, dots: last.dots.count, edges: last.edges.count + last.clusterEdges.count, clusters: last.clusters.count, light })
+    lastFrameAt = t0
+    lastFrameEnd = t1
+    if (animating()) invalidate()
+  }
+
+  /** Advance any fly-to or tween to time t and draw. */
+  function renderNow(t) {
     if (fly) {
-      const el = t0 - fly.start
+      const el = t - fly.start
       cam = fly.path.at(el)
       if (fly.path.done(el)) fly = null
     }
     if (tween) {
-      const u = Math.min(1, (t0 - tween.start) / tween.ms)
+      const u = Math.min(1, (t - tween.start) / tween.ms)
       const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2
       for (let i = 0; i < scene.xy.length; i++) scene.xy[i] = tween.from[i] + (tween.to[i] - tween.from[i]) * e
       if (u >= 1) tween = null
     }
     const light = governor ? governor.mode() === 'light' : false
     last = computeFrame(scene, cam, viewport, { ...frameOptions, light, selected })
-    draw(last, light)
-    const t1 = now()
-    const work = t1 - t0
-    const interval = wasAnimating && lastFrameAt != null ? t0 - lastFrameAt : null
-    if (governor) governor.record(interval != null ? Math.max(work, interval) : work)
-    if (onFrame) onFrame({ workMs: work, intervalMs: interval, lod: last.lod, dots: last.dots.count, edges: last.edges.count + last.clusterEdges.count, clusters: last.clusters.count, light })
+    last.ids = scene.ids
+    draw(last)
     frames++
-    lastFrameAt = t0
-    wasAnimating = animating()
-    if (wasAnimating) invalidate()
   }
 
-  function draw(list, light) {
+  function haloAt(x, y, r, alpha) {
+    const s = r * 2.4 + 4
+    ctx.globalAlpha = alpha
+    ctx.drawImage(halo, x - s, y - s, 2 * s, 2 * s)
+  }
+
+  function draw(list) {
     const p = palette
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, viewport.width, viewport.height)
@@ -173,23 +201,32 @@ export function createRenderer({
       }
     }
     const C = list.clusterEdges
-    if (C.count) {
-      ctx.globalAlpha = 1
-      ctx.strokeStyle = p.clusterEdge
-      ctx.beginPath()
-      for (let e = 0; e < C.count; e++) { ctx.moveTo(C.x1[e], C.y1[e]); ctx.lineTo(C.x2[e], C.y2[e]) }
-      ctx.stroke()
+    for (let dim = 0; dim < 2; dim++) {
+      let any = false
+      for (let e = 0; e < C.count; e++) {
+        if (C.dim[e] !== dim) continue
+        if (!any) { ctx.beginPath(); any = true }
+        ctx.moveTo(C.x1[e], C.y1[e])
+        ctx.lineTo(C.x2[e], C.y2[e])
+      }
+      if (any) {
+        ctx.globalAlpha = dim ? p.dimAlpha : 1
+        ctx.strokeStyle = p.clusterEdge
+        ctx.stroke()
+      }
     }
 
-    // Halos under the dots that sit over the bright core.
+    // Halos under whatever sits over the bright core (dots and clusters).
     const D = list.dots
-    if (!light && glow) {
+    const K = list.clusters
+    if (glow) {
       for (let d = 0; d < D.count; d++) {
         const a = shadowAlpha(D.x[d], D.y[d], glow, viewport)
-        if (a < 0.01) continue
-        const s = D.r[d] * 2.4 + 4
-        ctx.globalAlpha = a * (scene.dim[D.index[d]] ? p.dimAlpha : 1)
-        ctx.drawImage(halo, D.x[d] - s, D.y[d] - s, 2 * s, 2 * s)
+        if (a >= 0.01) haloAt(D.x[d], D.y[d], D.r[d], a * (scene.dim[D.index[d]] ? p.dimAlpha : 1))
+      }
+      for (let c = 0; c < K.count; c++) {
+        const a = shadowAlpha(K.x[c], K.y[c], glow, viewport)
+        if (a >= 0.01) haloAt(K.x[c], K.y[c], K.r[c], a * (K.dim[c] ? p.dimAlpha : 1))
       }
     }
 
@@ -212,20 +249,31 @@ export function createRenderer({
       }
     }
 
-    // Clusters (FAR).
-    const K = list.clusters
+    // Clusters (FAR), mist kept, with their size inside when it reads.
     if (K.count) {
-      ctx.globalAlpha = 1
-      ctx.fillStyle = p.cluster
-      ctx.beginPath()
-      for (let c = 0; c < K.count; c++) { ctx.moveTo(K.x[c] + K.r[c], K.y[c]); ctx.arc(K.x[c], K.y[c], K.r[c], 0, 2 * Math.PI) }
-      ctx.fill()
-      // How many dots a cluster holds, inside it when it is big enough to read.
+      for (let dim = 0; dim < 2; dim++) {
+        let any = false
+        for (let c = 0; c < K.count; c++) {
+          if (K.dim[c] !== dim) continue
+          if (!any) { ctx.beginPath(); any = true }
+          ctx.moveTo(K.x[c] + K.r[c], K.y[c])
+          ctx.arc(K.x[c], K.y[c], K.r[c], 0, 2 * Math.PI)
+        }
+        if (any) {
+          ctx.globalAlpha = dim ? p.dimAlpha : 1
+          ctx.fillStyle = p.cluster
+          ctx.fill()
+        }
+      }
       ctx.font = p.font
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillStyle = p.clusterText
-      for (let c = 0; c < K.count; c++) if (K.r[c] >= 10) ctx.fillText(String(K.size[c]), K.x[c], K.y[c])
+      for (let c = 0; c < K.count; c++) {
+        if (K.r[c] < 10) continue
+        ctx.globalAlpha = K.dim[c] ? p.dimAlpha : 1
+        ctx.fillText(String(K.size[c]), K.x[c], K.y[c])
+      }
     }
 
     // Selection and hover rings.
@@ -255,7 +303,7 @@ export function createRenderer({
         const x = L.x + L.r + 4
         const y = L.y
         const fade = scene.dim[i] ? p.dimAlpha : 1
-        const a = light || !glow ? 0 : shadowAlpha(x, y, glow, viewport)
+        const a = glow ? shadowAlpha(x, y, glow, viewport) : 0
         if (a >= 0.01) {
           ctx.globalAlpha = fade
           ctx.strokeStyle = `rgba(${p.labelShadow},${Math.round(a * 1000) / 1000})`
@@ -276,7 +324,7 @@ export function createRenderer({
     const n = graph.nodes.length
     const s = {
       n, ids: graph.nodes.map((x) => x.id), index: new Map(),
-      xy: new Float32Array(2 * n), r: new Float32Array(n),
+      xy: new Float32Array(2 * n), r: new Float32Array(n), placed: new Uint8Array(n),
       kindCode: new Uint8Array(n), container: new Uint8Array(n), collapsed: new Uint8Array(n), dim: new Uint8Array(n),
       label: new Array(n), count: new Uint32Array(n), priority: new Float32Array(n),
       m: 0, ends: null, kind: null,
@@ -284,7 +332,7 @@ export function createRenderer({
     graph.nodes.forEach((node, i) => {
       s.index.set(node.id, i)
       s.r[i] = radiusOf(node)
-      s.kindCode[i] = KIND_CODE[node.kind] ?? 2
+      s.kindCode[i] = KIND_CODE[node.kind] ?? KIND_CODE.file
       s.container[i] = node.kind === 'project' || node.kind === 'folder' ? 1 : 0
       s.collapsed[i] = node.collapsed ? 1 : 0
       s.dim[i] = node.dim ? 1 : 0
@@ -292,12 +340,22 @@ export function createRenderer({
       s.count[i] = node.count || 0
       s.priority[i] = (s.container[i] ? 1000 : 0) + (node.count || 0) - (node.depth || 0)
     })
-    // Keep every known dot where it was; a new dot starts at its parent.
+    // Keep every known dot where it was. A new dot starts at its nearest
+    // ancestor that has a place (however many new levels opened at once);
+    // with none, it sits at the centre and is not marked placed.
+    const parentOf = new Map(graph.nodes.map((nd) => [nd.id, nd.parent ?? null]))
+    const where = (id, guard = 0) => {
+      const j = prev.index.get(id)
+      if (j !== undefined && prev.placed[j]) return j
+      const p = parentOf.get(id)
+      return p == null || guard > 64 ? undefined : where(p, guard + 1)
+    }
     graph.nodes.forEach((node, i) => {
-      const j = prev.index.get(node.id)
-      if (j !== undefined) { s.xy[2 * i] = prev.xy[2 * j]; s.xy[2 * i + 1] = prev.xy[2 * j + 1]; return }
-      const pj = node.parent != null ? prev.index.get(node.parent) : undefined
-      if (pj !== undefined) { s.xy[2 * i] = prev.xy[2 * pj]; s.xy[2 * i + 1] = prev.xy[2 * pj + 1] }
+      const j = where(node.id)
+      if (j === undefined) return
+      s.xy[2 * i] = prev.xy[2 * j]
+      s.xy[2 * i + 1] = prev.xy[2 * j + 1]
+      s.placed[i] = prev.ids[j] === node.id ? 1 : 0 // a borrowed place is a start, not a saved place
     })
     const ends = []
     const kinds = []
@@ -306,7 +364,7 @@ export function createRenderer({
       const b = s.index.get(e.target)
       if (a === undefined || b === undefined) continue
       ends.push(a, b)
-      kinds.push(EDGE_KIND_CODE[e.kind] ?? 2)
+      kinds.push(EDGE_CODE[e.kind] ?? EDGE_CODE.related_to)
     }
     s.m = kinds.length
     s.ends = Uint32Array.from(ends)
@@ -314,25 +372,28 @@ export function createRenderer({
     return s
   }
 
+  /** Float32Array in scene order (a worker message), or { id: { x, y } }. Returns { xy, placed }. */
   function positionsArray(input) {
     if (input instanceof Float32Array || input instanceof Float64Array) {
       if (input.length !== 2 * scene.n) return null
-      return Float32Array.from(input)
+      return { xy: Float32Array.from(input), placed: new Uint8Array(scene.n).fill(1) }
     }
     if (input && typeof input === 'object') {
-      const out = Float32Array.from(scene.xy)
+      const xy = Float32Array.from(scene.xy)
+      const placed = Uint8Array.from(scene.placed)
       for (const [id, p] of Object.entries(input)) {
         const i = scene.index.get(id)
         if (i === undefined || !p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue
-        out[2 * i] = p.x
-        out[2 * i + 1] = p.y
+        xy[2 * i] = p.x
+        xy[2 * i + 1] = p.y
+        placed[i] = 1
       }
-      return out
+      return { xy, placed }
     }
     return null
   }
 
-  const api = {
+  return {
     invalidate,
     setScene(graph) {
       scene = buildScene(graph)
@@ -341,28 +402,41 @@ export function createRenderer({
       hovered = hoveredId != null && scene.index.has(hoveredId) ? scene.index.get(hoveredId) : -1
       invalidate()
     },
-    /** Float32Array in scene order (a worker tick) or { id: { x, y } }. */
+    /** Float32Array in scene order (a worker tick) or { id: { x, y } }. A tween is bounded (2 s). */
     setPositions(input, { tweenMs = 0 } = {}) {
       const next = positionsArray(input)
       if (!next) return false
-      if (tweenMs > 0 && !calm) tween = { from: Float32Array.from(scene.xy), to: next, start: now(), ms: tweenMs }
-      else { tween = null; scene.xy = next }
+      const ms = boundedMs(tweenMs)
+      scene.placed = next.placed
+      if (ms > 0 && !calm) tween = { from: Float32Array.from(scene.xy), to: next.xy, start: now(), ms }
+      else { tween = null; scene.xy = next.xy }
       invalidate()
       return true
     },
+    /** A new size is drawn at once (a ResizeObserver runs after this frame's callbacks). */
     resize(width, height, ratio = 1) {
-      viewport = { width: Math.max(1, width), height: Math.max(1, height) }
-      dpr = ratio > 0 ? ratio : 1
-      canvas.width = Math.round(viewport.width * dpr)
-      canvas.height = Math.round(viewport.height * dpr)
-      invalidate()
+      const w = Math.max(1, Number.isFinite(width) ? width : 1)
+      const h = Math.max(1, Number.isFinite(height) ? height : 1)
+      const r = Number.isFinite(ratio) && ratio > 0 ? ratio : 1
+      const bw = Math.round(w * r)
+      const bh = Math.round(h * r)
+      const same = viewport.width === w && viewport.height === h && dpr === r && canvas.width === bw && canvas.height === bh
+      if (same && last) return false // nothing changed: nothing to clear or draw
+      viewport = { width: w, height: h }
+      dpr = r
+      canvas.width = bw
+      canvas.height = bh
+      if (pending != null) { cancelFrame(pending); pending = null }
+      if (!destroyed) renderNow(now())
+      if (animating()) invalidate()
+      return true
     },
     camera: () => cam,
     viewport: () => viewport,
-    setCamera(next) { fly = null; cam = makeCamera(next.x, next.y, next.k); invalidate() },
+    setCamera(next) { fly = null; cam = makeCamera(next?.x, next?.y, next?.k); invalidate() },
     panBy(dx, dy) { fly = null; cam = panCamera(cam, dx, dy); invalidate() },
     zoomAt(factor, sx, sy) { fly = null; cam = zoomCamera(cam, viewport, factor, sx, sy); invalidate() },
-    /** target: { x, y, k } or { id, k }. Reduced motion jumps. */
+    /** target: { x, y, k } or { id, k }. Reduced motion jumps; a fly lasts at most 2 s. */
     flyTo(target, { ms = 650 } = {}) {
       let to = target
       if (target && target.id != null) {
@@ -376,7 +450,7 @@ export function createRenderer({
       invalidate()
       return true
     },
-    /** What is under a screen point in the last drawn frame. */
+    /** What is under a screen point in the frame on screen. */
     hitTest(sx, sy, slopPx = 4) {
       if (!last) return null
       let best = null
@@ -384,7 +458,7 @@ export function createRenderer({
       const D = last.dots
       for (let d = 0; d < D.count; d++) {
         const dist = Math.hypot(D.x[d] - sx, D.y[d] - sy)
-        if (dist <= D.r[d] + slopPx && dist < bestD) { bestD = dist; best = { type: 'dot', id: scene.ids[D.index[d]] } }
+        if (dist <= D.r[d] + slopPx && dist < bestD) { bestD = dist; best = { type: 'dot', id: last.ids[D.index[d]] } }
       }
       if (best) return best
       const K = last.clusters
@@ -394,8 +468,18 @@ export function createRenderer({
       }
       return best
     },
-    setSelection(id) { selectedId = id ?? null; const i = id != null ? scene.index.get(id) : undefined; const next = i === undefined ? -1 : i; if (next !== selected) { selected = next; invalidate() } },
-    setHover(id) { hoveredId = id ?? null; const i = id != null ? scene.index.get(id) : undefined; const next = i === undefined ? -1 : i; if (next !== hovered) { hovered = next; invalidate() } },
+    setSelection(id) {
+      selectedId = id ?? null
+      const i = id != null ? scene.index.get(id) : undefined
+      const next = i === undefined ? -1 : i
+      if (next !== selected) { selected = next; invalidate() }
+    },
+    setHover(id) {
+      hoveredId = id ?? null
+      const i = id != null ? scene.index.get(id) : undefined
+      const next = i === undefined ? -1 : i
+      if (next !== hovered) { hovered = next; invalidate() }
+    },
     /** glowParams() output; only the shadows read it here (the glow has its own canvas). */
     setGlow(next) { glow = next || null; invalidate() },
     setReducedMotion(v) {
@@ -404,7 +488,11 @@ export function createRenderer({
       if (calm && tween) { scene.xy = tween.to; tween = null }
       invalidate()
     },
-    positionsSnapshot(pinned) { return positionsToData(scene.ids, scene.xy, pinned) },
+    /** Places as data for saving (model.js positionsToData); a dot never placed is left out. */
+    positionsSnapshot(pinned = () => false) {
+      const placed = scene.placed
+      return positionsToData(scene.ids, scene.xy, { pinned, placed: (i) => placed[i] === 1 })
+    },
     lod: () => (last ? last.lod : LOD.MID),
     frameRequested: () => pending != null,
     stats: () => ({ frames, requests, animating: animating() }),
@@ -415,5 +503,4 @@ export function createRenderer({
       fly = tween = null
     },
   }
-  return api
 }

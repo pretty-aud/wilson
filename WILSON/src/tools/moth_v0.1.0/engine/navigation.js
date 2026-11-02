@@ -7,12 +7,18 @@
 // dot is MO2's link and move gestures, brief §4.2): return false and the
 // press never pans. The pen and touch adaptation of the HUD (brief §12a.11)
 // is MO2's; this only moves the camera.
+//
+// While bound, the element's touch-action is 'none' (restored on unbind):
+// otherwise the browser claims a finger or pen drag for its own scrolling
+// and cancels the pointer a few pixels in, so pan and pinch would stop.
 // =============================================================================
 
 import { pinch, wheelFactor } from './camera.js'
 
 export function bindNavigation(element, renderer, { shouldStart = () => true, wheel = true } = {}) {
   const pointers = new Map() // pointerId -> { x, y }
+  const touchAction = element.style ? element.style.touchAction : undefined
+  if (element.style) element.style.touchAction = 'none'
   const local = (e) => {
     const r = element.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
@@ -49,7 +55,7 @@ export function bindNavigation(element, renderer, { shouldStart = () => true, wh
   function onWheel(e) {
     e.preventDefault()
     const p = local(e)
-    renderer.zoomAt(wheelFactor(e.deltaY, e.deltaMode), p.x, p.y)
+    renderer.zoomAt(wheelFactor(e.deltaY, e.deltaMode, e.ctrlKey), p.x, p.y)
   }
 
   element.addEventListener('pointerdown', down)
@@ -63,6 +69,7 @@ export function bindNavigation(element, renderer, { shouldStart = () => true, wh
     element.removeEventListener('pointerup', up)
     element.removeEventListener('pointercancel', up)
     if (wheel) element.removeEventListener('wheel', onWheel)
+    if (element.style) element.style.touchAction = touchAction ?? ''
     pointers.clear()
   }
 }

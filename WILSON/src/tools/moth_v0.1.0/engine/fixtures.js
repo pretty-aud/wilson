@@ -33,16 +33,22 @@ function uuid(rand) {
   return s
 }
 
-/** The nine file tags of 0085, less the two the read path never returns. */
-export const FIXTURE_TAGS = Object.freeze(['production', 'creative', 'reference', 'assets', 'code', 'shots', 'documentation'])
+/** The nine file tags of 0085, less the two the read path never returns (finance, legal). */
+const FIXTURE_TAGS = Object.freeze(['production', 'creative', 'reference', 'assets', 'code', 'shots', 'documentation'])
 const MIMES = ['image/png', 'image/jpeg', 'video/mp4', 'text/markdown', 'application/pdf', 'model/gltf-binary']
+const FILE_KINDS = ['source', 'reference', 'deliverable', 'export', 'other'] // 0000's file_kind enum
 const BASE = Date.UTC(2026, 0, 1)
 
 /**
  * generateCatalogue({ seed, projects, foldersPerProject, filesPerProject,
  *                     maxDepth, tagPool, tagsPerFile, relations })
+ * Rows in the read path's shape (MR-5) and 0041's: each project has its root
+ * folder (kind 'root', parent_id null, path ''), the folders under it with
+ * slug paths, and files in the root, in a folder, or (a few) with folder_id
+ * null, as moth_project_files returns a folder that is not the project's.
+ *   foldersPerProject: folders besides the root.
  *   tagsPerFile: an exact number (every file gets that many distinct tags).
- *   relations:   the number of distinct file-to-file relations (unordered pairs).
+ *   relations: the number of distinct file-to-file relations (unordered pairs).
  */
 export function generateCatalogue({
   seed = 1, projects = 2, foldersPerProject = 10, filesPerProject = 60,
@@ -57,20 +63,27 @@ export function generateCatalogue({
   const allFiles = []
   for (let p = 0; p < projects; p++) {
     const pid = uuid(rand)
+    const title = `Project ${p + 1}`
     islands.push({
-      id: pid, title: `Project ${p + 1}`, is_personal: false, is_mine: false, is_private: false,
+      id: pid, title, is_personal: false, is_mine: false, is_private: false,
       my_project_role: 'member', is_staffed: true, can_write: true, updated_at: stamp(),
     })
-    const fs = []
-    const depthOf = new Map()
+    const root = {
+      id: uuid(rand), parent_id: null, kind: 'root', entity_type: null,
+      slug: `project-${p + 1}`, label: title, path: '', sort_order: 0, updated_at: stamp(),
+    }
+    const fs = [root]
+    const depthOf = new Map([[root.id, 0]])
     for (let i = 0; i < foldersPerProject; i++) {
-      const candidates = fs.filter((f) => depthOf.get(f.id) < maxDepth)
-      const parentRow = candidates.length && rand() < 0.75 ? pick(candidates) : null
+      const deeper = fs.filter((f) => f.kind !== 'root' && depthOf.get(f.id) < maxDepth)
+      const parentRow = deeper.length && rand() < 0.75 ? pick(deeper) : root
       const id = uuid(rand)
-      depthOf.set(id, parentRow ? depthOf.get(parentRow.id) + 1 : 1)
+      const slug = `folder-${i + 1}`
+      depthOf.set(id, depthOf.get(parentRow.id) + 1)
       fs.push({
-        id, parent_id: parentRow ? parentRow.id : null, kind: 'custom', entity_type: null,
-        slug: `folder-${i + 1}`, label: `Folder ${i + 1}`, path: null, sort_order: i, updated_at: stamp(),
+        id, parent_id: parentRow.id, kind: parentRow === root ? 'category' : 'custom', entity_type: null,
+        slug, label: `Folder ${i + 1}`, path: parentRow.path ? `${parentRow.path}/${slug}` : slug,
+        sort_order: i + 1, updated_at: stamp(),
       })
     }
     folders[pid] = fs
@@ -82,11 +95,14 @@ export function generateCatalogue({
         const t = pick(tagPool)
         if (!tags.includes(t)) tags.push(t)
       }
+      const roll = rand()
+      const folder = roll < 0.05 ? null : roll < 0.2 || fs.length === 1 ? root : pick(fs.slice(1))
+      const name = `file-${p + 1}-${i + 1}`
       const row = {
-        id: uuid(rand), project_id: pid,
-        folder_id: fs.length && rand() < 0.9 ? pick(fs).id : null,
-        name: `file-${p + 1}-${i + 1}`, mime_type: pick(MIMES), size_bytes: Math.floor(rand() * 5e7),
-        kind: 'file', document_kind: null, description: null, tags,
+        id: uuid(rand), project_id: pid, folder_id: folder ? folder.id : null,
+        name, mime_type: pick(MIMES), size_bytes: Math.floor(rand() * 5e7),
+        kind: pick(FILE_KINDS), document_kind: null, description: null, tags,
+        storage_provider: 'supabase', storage_path: `projects/${pid}/${folder && folder.path ? `${folder.path}/` : ''}${name}`,
         thumbnail_url: null, duration_sec: null, source_modified_at: null, uploaded_at: stamp(), updated_at: stamp(),
       }
       rs.push(row)
@@ -94,11 +110,11 @@ export function generateCatalogue({
     }
     files[pid] = rs
   }
+  const maxPairs = (allFiles.length * (allFiles.length - 1)) / 2
+  if (relations > maxPairs) throw new Error(`generateCatalogue: ${relations} relations asked, only ${maxPairs} distinct pairs of files`)
   const rel = []
   const seen = new Set()
-  const maxPairs = (allFiles.length * (allFiles.length - 1)) / 2
-  const want = Math.min(relations, maxPairs)
-  while (rel.length < want) {
+  while (rel.length < relations) {
     const a = pick(allFiles).id
     const b = pick(allFiles).id
     if (a === b) continue
@@ -113,7 +129,10 @@ export function generateCatalogue({
 /**
  * A catalogue whose fully opened graph has exactly `nodes` dots and `edges`
  * lines (all kinds on show), for the performance targets: 1,000 and 2,000,
- * and 300 and 600 in low power. Returns { catalogue, view }.
+ * and 300 and 600 in low power. Returns { catalogue, view }. It refuses a
+ * shape it cannot make exactly rather than return different counts.
+ *   dots  = projects + folders + files + tags in use (the root rows are the projects)
+ *   lines = one lives-in per folder and file + one tagged-with per file + relations
  */
 export function fixtureForTarget({ nodes, edges, seed = 7, tagPool = FIXTURE_TAGS } = {}) {
   const projects = Math.max(1, Math.round(nodes / 500))
@@ -122,22 +141,34 @@ export function fixtureForTarget({ nodes, edges, seed = 7, tagPool = FIXTURE_TAG
   const perProject = Math.floor(rowsTotal / projects)
   const extra = rowsTotal - perProject * projects
   const foldersPerProject = Math.max(1, Math.round(perProject * 0.1))
-  // Lines: one lives-in per folder and file, one tagged-with per file; the
-  // rest are relations.
   const filesTotal = rowsTotal - foldersPerProject * projects
+  if (filesTotal < tagPool.length) throw new Error('fixtureForTarget: too few files to use every tag')
   const relations = edges - rowsTotal - filesTotal
   if (relations < 0) throw new Error('fixtureForTarget: too few lines for the shape')
+  if (relations > (filesTotal * (filesTotal - 1)) / 2) throw new Error('fixtureForTarget: more lines than distinct pairs of files')
   const catalogue = generateCatalogue({
     seed, projects, foldersPerProject, filesPerProject: perProject - foldersPerProject,
     tagPool, tagsPerFile: 1, relations: 0,
   })
-  // The remainder goes to the first project, then relations are drawn over all files.
+  // The remainder goes to the first project's root, then relations are drawn over all files.
   if (extra > 0) {
     const pid = catalogue.islands[0].id
+    const rootId = catalogue.folders[pid][0].id
     const more = generateCatalogue({ seed: seed + 1, projects: 1, foldersPerProject: 0, filesPerProject: extra, tagPool, tagsPerFile: 1 })
-    for (const r of more.files[more.islands[0].id]) catalogue.files[pid].push({ ...r, project_id: pid, folder_id: null })
+    for (const r of more.files[more.islands[0].id]) catalogue.files[pid].push({ ...r, project_id: pid, folder_id: rootId, storage_path: `projects/${pid}/${r.name}` })
   }
   const all = Object.values(catalogue.files).flat()
+  // Every tag in the pool must be in use, or there would be fewer tag dots.
+  const used = new Set(all.flatMap((r) => r.tags))
+  for (let i = 0; used.size < tagPool.length && i < all.length; i++) {
+    const missing = tagPool.find((t) => !used.has(t))
+    if (used.has(all[i].tags[0]) && all.filter((r) => r.tags[0] === all[i].tags[0]).length > 1) {
+      used.delete(all[i].tags[0])
+      all[i].tags = [missing]
+      for (const r of all) for (const t of r.tags) used.add(t)
+    }
+  }
+  if (used.size !== tagPool.length) throw new Error('fixtureForTarget: could not use every tag')
   const rand = seededRandom(seed + 2)
   const seen = new Set()
   while (catalogue.relations.length < relations) {

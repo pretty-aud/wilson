@@ -12,9 +12,10 @@ import { buildGraph } from './model.js'
 const ISLAND = ['id', 'title', 'is_personal', 'is_mine', 'is_private', 'my_project_role', 'is_staffed', 'can_write', 'updated_at']
 const FOLDER = ['id', 'parent_id', 'kind', 'entity_type', 'slug', 'label', 'path', 'sort_order', 'updated_at']
 const FILE = ['id', 'project_id', 'folder_id', 'name', 'mime_type', 'size_bytes', 'kind', 'document_kind', 'description', 'tags',
-  'thumbnail_url', 'duration_sec', 'source_modified_at', 'uploaded_at', 'updated_at']
+  'storage_provider', 'storage_path', 'thumbnail_url', 'duration_sec', 'source_modified_at', 'uploaded_at', 'updated_at']
 // What the read path never returns (MR-5's post-conditions).
-const NEVER = ['is_financial', 'created_by', 'count', 'storage_path']
+const NEVER = ['is_financial', 'created_by', 'count']
+const FILE_KINDS = ['source', 'reference', 'deliverable', 'export', 'other'] // 0000's file_kind enum
 
 describe('fixture generator', () => {
   it('the seeded generator is deterministic and differs by seed', () => {
@@ -32,15 +33,43 @@ describe('fixture generator', () => {
     expect(JSON.stringify(generateCatalogue({ ...o, seed: 10 }))).not.toBe(JSON.stringify(generateCatalogue(o)))
   })
 
-  it('rows have the read path columns and none it never returns', () => {
+  it('every row has exactly the read path columns (MR-5) and none it never returns', () => {
     const cat = generateCatalogue({ seed: 3 })
-    const pid = cat.islands[0].id
-    expect(Object.keys(cat.islands[0]).sort()).toEqual([...ISLAND].sort())
-    expect(Object.keys(cat.folders[pid][0]).sort()).toEqual([...FOLDER].sort())
-    expect(Object.keys(cat.files[pid][0]).sort()).toEqual([...FILE].sort())
-    for (const row of [cat.islands[0], cat.folders[pid][0], cat.files[pid][0]]) {
-      for (const k of NEVER) expect(k in row).toBe(false)
+    for (const island of cat.islands) {
+      expect(Object.keys(island).sort()).toEqual([...ISLAND].sort())
+      for (const f of cat.folders[island.id]) expect(Object.keys(f).sort()).toEqual([...FOLDER].sort())
+      for (const r of cat.files[island.id]) {
+        expect(Object.keys(r).sort()).toEqual([...FILE].sort())
+        expect(FILE_KINDS).toContain(r.kind)
+      }
+      for (const row of [island, ...cat.folders[island.id], ...cat.files[island.id]]) {
+        for (const k of NEVER) expect(k in row).toBe(false)
+      }
     }
+  })
+
+  it('folders obey 0041: one root per project (the only folder without a parent, path empty), slug paths below it', () => {
+    const cat = generateCatalogue({ seed: 4, foldersPerProject: 25 })
+    for (const island of cat.islands) {
+      const fs = cat.folders[island.id]
+      const roots = fs.filter((f) => f.kind === 'root')
+      expect(roots.length).toBe(1)
+      for (const f of fs) expect(f.kind === 'root').toBe(f.parent_id === null) // folders_root_shape_chk
+      expect(roots[0].path).toBe('')
+      const byId = new Map(fs.map((f) => [f.id, f]))
+      for (const f of fs) {
+        if (f.kind === 'root') continue
+        const parent = byId.get(f.parent_id)
+        expect(f.path).toBe(parent.path ? `${parent.path}/${f.slug}` : f.slug)
+      }
+    }
+  })
+
+  it('CONTROL: the root-shape check catches a top-level folder with no parent', () => {
+    const cat = generateCatalogue({ seed: 4 })
+    const f = cat.folders[cat.islands[0].id][1]
+    f.parent_id = null
+    expect(cat.folders[cat.islands[0].id].every((x) => (x.kind === 'root') === (x.parent_id === null))).toBe(false)
   })
 
   it('folders stay within the depth limit and files point at their own project', () => {
@@ -48,7 +77,7 @@ describe('fixture generator', () => {
     for (const island of cat.islands) {
       const byId = new Map(cat.folders[island.id].map((f) => [f.id, f]))
       for (const f of byId.values()) {
-        let d = 1
+        let d = 0 // the root is depth 0
         for (let p = f.parent_id; p != null; p = byId.get(p).parent_id) d++
         expect(d).toBeLessThanOrEqual(3)
       }
@@ -80,7 +109,18 @@ describe('fixture generator', () => {
     expect(buildGraph(catalogue, view).edges.length).not.toBe(600)
   })
 
-  it('refuses a shape it cannot make rather than returning the wrong counts', () => {
+  it('refuses a shape it cannot make rather than returning the wrong counts or looping', () => {
     expect(() => fixtureForTarget({ nodes: 1000, edges: 10 })).toThrow(/too few lines/)
+    expect(() => fixtureForTarget({ nodes: 20, edges: 1000 })).toThrow(/distinct pairs/)
+    expect(() => fixtureForTarget({ nodes: 14, edges: 15 })).toThrow(/every tag/)
+    expect(() => generateCatalogue({ projects: 1, filesPerProject: 3, relations: 4 })).toThrow(/distinct pairs/)
+  })
+
+  it('small targets that can be made are exact', () => {
+    for (const [nodes, edges] of [[60, 100], [16, 20]]) {
+      const { catalogue, view } = fixtureForTarget({ nodes, edges })
+      const g = buildGraph(catalogue, view)
+      expect([g.nodes.length, g.edges.length]).toEqual([nodes, edges])
+    }
   })
 })
