@@ -1,0 +1,146 @@
+// =============================================================================
+// layoutWorkerCore.js — the layout worker's protocol (MO2a, the brief's
+// item 2: "run in a bounded Web Worker; the simulation suspends once
+// settled").
+//
+// Pure and injectable: { post(message, transfer), schedule(fn), now() }.
+// layout.worker.js is the five-line shim that wires it to `self`; the tests
+// drive it directly and through layoutClient.js with a fake worker.
+//
+// Messages in (every one names its job; another job's message is ignored):
+//   { type: 'init', job, layout: 'force' | 'radial', nodes, links, positions, options }
+//   { type: 'pin', job, id, x, y }   { type: 'unpin', job, id }
+//   { type: 'reheat', job }          { type: 'stop', job }
+// Messages out:
+//   { type: 'tick', job, seq, xy }                 (xy: Float32Array, transferred)
+//   { type: 'settled', job, seq, xy, ticks, reason: 'settled' | 'cap' }
+//   { type: 'error', job, code: 'too_large' | 'bad_input' | 'unknown_layout' | 'failed' }
+//   { type: 'error', job, code: 'refused' }   (a pin or unpin of a dot it does not hold; the job stays)
+//
+// Bounds: at most WORKER_LIMITS.maxNodes dots and maxLinks lines; each batch
+// of ticks stops at batchMs; a run stops at maxTicks even if it has not
+// settled. Once settled (or capped) nothing is scheduled again until a pin,
+// an unpin or a reheat starts a new, equally bounded run.
+// =============================================================================
+
+import { createForceLayout, radialTree } from './layout.js'
+
+export const WORKER_LIMITS = Object.freeze({
+  maxNodes: 20000,
+  maxLinks: 60000,
+  batchMs: 8,
+  maxTicks: 600,
+})
+
+function validInput(nodes, links) {
+  if (!Array.isArray(nodes) || !Array.isArray(links)) return false
+  for (const n of nodes) if (!n || typeof n.id !== 'string') return false
+  const n = nodes.length
+  for (const l of links) {
+    if (!Array.isArray(l) || l.length < 2) return false
+    if (!Number.isInteger(l[0]) || !Number.isInteger(l[1]) || l[0] < 0 || l[1] < 0 || l[0] >= n || l[1] >= n) return false
+  }
+  return true
+}
+
+export function createLayoutWorkerCore({ post, schedule, now, limits = WORKER_LIMITS }) {
+  let job = null // the force run: { id, layout, indexOf, seq, ticks, runTicks, running }
+  let lastId = null // the latest init's job id
+
+  const send = (msg) => post(msg, msg.xy ? [msg.xy.buffer] : [])
+  const snapshot = (j) => j.layout.write(new Float32Array(j.layout.n * 2))
+
+  function run(j) {
+    if (job !== j || j.running) return
+    j.running = true
+    j.runTicks = 0
+    schedule(() => step(j))
+  }
+
+  function step(j) {
+    if (job !== j) return // stopped or replaced: this run ends here
+    const t0 = now()
+    let done = false
+    let reason = 'settled'
+    do {
+      j.layout.tick(1)
+      j.ticks++
+      j.runTicks++
+      if (j.layout.settled()) { done = true; break }
+      if (j.runTicks >= limits.maxTicks) { done = true; reason = 'cap'; break }
+    } while (now() - t0 < limits.batchMs)
+    j.seq++
+    if (done) {
+      j.running = false
+      send({ type: 'settled', job: j.id, seq: j.seq, xy: snapshot(j), ticks: j.ticks, reason })
+      return // suspended: nothing more is scheduled
+    }
+    send({ type: 'tick', job: j.id, seq: j.seq, xy: snapshot(j) })
+    schedule(() => step(j))
+  }
+
+  function init(msg) {
+    job = null
+    const { job: id, layout, nodes, links, positions, options } = msg
+    lastId = id
+    if (!validInput(nodes, links)) return send({ type: 'error', job: id, code: 'bad_input' })
+    if (nodes.length > limits.maxNodes || links.length > limits.maxLinks) return send({ type: 'error', job: id, code: 'too_large' })
+    if (layout === 'radial') {
+      const xy = radialTree({ nodes, options })
+      return send({ type: 'settled', job: id, seq: 1, xy, ticks: 0, reason: 'settled' })
+    }
+    if (layout !== 'force') return send({ type: 'error', job: id, code: 'unknown_layout' })
+    const j = {
+      id, layout: createForceLayout({ nodes, links, positions, options }),
+      indexOf: new Map(nodes.map((n, i) => [n.id, i])), seq: 0, ticks: 0, runTicks: 0, running: false,
+    }
+    job = j
+    run(j)
+  }
+
+  return {
+    handle(msg) {
+      try {
+        if (!msg || typeof msg.type !== 'string') return
+        if (msg.type === 'init') return init(msg)
+        if (!job || msg.job !== job.id) {
+          // The latest job with nothing to tick (a radial tree, a refused
+          // init): answered, so the client never waits on silence. An older
+          // job's message is ignored.
+          if (msg.job === lastId && msg.type !== 'stop') send({ type: 'error', job: msg.job, code: 'refused' })
+          return
+        }
+        const i = msg.id != null ? job.indexOf.get(msg.id) : undefined
+        // A pin or unpin it cannot apply is answered, never left silent, so
+        // the client's watchdog does not mistake it for a hung worker.
+        const refuse = () => send({ type: 'error', job: job.id, code: 'refused' })
+        switch (msg.type) {
+          case 'pin':
+            if (i === undefined || !Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return refuse()
+            job.layout.pin(i, msg.x, msg.y)
+            job.layout.reheat()
+            return run(job)
+          case 'unpin':
+            if (i === undefined) return refuse()
+            job.layout.unpin(i)
+            job.layout.reheat()
+            return run(job)
+          case 'reheat':
+            job.layout.reheat()
+            return run(job)
+          case 'stop':
+            job = null
+            return
+          default:
+            return
+        }
+      } catch {
+        const id = msg && msg.job
+        job = null
+        send({ type: 'error', job: id, code: 'failed' })
+      }
+    },
+    /** For tests: whether a run is in progress. */
+    running: () => !!(job && job.running),
+  }
+}
