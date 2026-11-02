@@ -199,7 +199,7 @@ Also that day: the ninth beta merge (`69546e1d`); the RLS workflow pinned to `ub
 | Session | Scope |
 |---|---|
 | **MO1 Shared foundations, storage and security** | All of Moth's tables with their security and suites, the personal space, safe moves and restorable deletes, the network-drive catalogue, the privacy repairs, a minimal entry. Brief `briefs/po-moth1-foundations.md`; chipped 2026-11-02; walkthrough 93 |
-| **MO2 Graph, glow, HUD and navigation** | The graph itself, the light, the HUD, previews, link and move gestures, adaptive input, measured performance. Brief written from MO1's hand-off |
+| **MO2 Graph, glow, HUD and navigation** | The graph itself, the light, the HUD, previews, link and move gestures, adaptive input, measured performance. Brief written from MO1's hand-off. **Split at her ruling of 2026-11-02, verbatim "Engine now, rest later (Recommended)":** MO2a (`briefs/po-moth2a-engine.md`) builds the graph engine now, beside MO1, in the cloud, on its own branch, unmerged until MO2 wires it; her other answer the same moment, "Cloud applies it later": MO1's 0108 is applied on wilson-dev by the cloud session once she adds the dev password to its environment |
 | **MO3 Tags, relationships and workspace notes** | Typed company and personal tags, nominations, inline `#` and `[[`, backlinks, shared notes. Brief written from MO2's hand-off |
 | **MO4 Boards, live editing and release verification** | The board toolkit, the board window, live cursors and sticky locks, the cost measurement, the full acceptance pass. Brief written from MO3's hand-off |
 
