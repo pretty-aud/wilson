@@ -1066,7 +1066,7 @@ A space's folder is either projects.folder_root, which only an admin or manager 
 
 The check is a worker-thread walk with async containment and same-origin plus token gates. Frame sequences are collapsed. Batching is stateless: each directory carries its own record of completeness and subfolders, and the missing sweep runs per directory (NS-X05/X07). Only people who hold the project's roster seat run checks (or the owner, for a personal space). Anyone who can edit runs file operations. Each file operation is server-first and journalled in network_share_ops, then settled by the desktop, so a crash never duplicates or loses a row. 'Last checked' lives in network_share_checks, which has its own thin broadcast (NS-X01). Catalogue writes depend on the repairs area's edit_history privacy arm (NS-SEC-03). moth_local_scopes and local Moth state are deferred to Session 2, with a question for Audrey (answer 6, NS-X09).
 
-Two open questions for Audrey are recorded under decisions NS-Q1 and NS-Q2. Note: while extracting the reviews, one scratch file was written outside the repo (C:\Users\Audrey\AppData\Local\Temp\claude\C--Users-Audrey-Documents-My-Work-Dev-Work-wilson-WILSON--claude-worktrees-eager-shannon-92f415\8de41a2c-43aa-42d3-84dc-c10800a19926\nas_reviews.txt). No repo file was touched.
+Two open questions for Audrey are recorded under decisions NS-Q1 and NS-Q2. Note: while extracting the reviews, one scratch file was written outside the repo, in the session's scratch folder. No repo file was touched.
 
 #### Findings and their dispositions
 
