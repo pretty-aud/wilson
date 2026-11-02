@@ -309,6 +309,11 @@ No automated test covers the two-factor path end to end: re-run the first three 
   shows as on every other page (DG3-02): two of plan §3's nine defects. `[BLOCKING]` D.O.G. reading past a project's first 1,000
   cloud files rests on walkthrough 82.
 - The corner dot: green when the database and the files' home answer, amber when only the database does, red offline. `[NOTE]`
+- `[Cloud]` Private projects, two windows (MO1, 0107 and 0109): an admin makes a shared project private while a teammate has it open,
+  once on a build without 0109's client and once on a new one. The teammate's list drops it and the open project closes with *This
+  project is no longer shared with you.*; the creator's and the admin's stay open; the old build stops hearing the project. `[BLOCKING]`
+- `[Cloud]` A member seat (not a manager of the project's team) opens a project: the Producer select is grey with *Only someone who
+  manages this project's team can choose its producer.*; an app manager or the team's manager chooses one. `[BLOCKING]`
 
 ## §H. Scenes, shot lists and edits (20 min · walkthroughs 51, 53, 67)
 

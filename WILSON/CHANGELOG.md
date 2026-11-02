@@ -125,6 +125,9 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 - **A manager approving their own nomination is allowed and audited** (WIL-4108). (0069 `93c199e6`)
 - **The file gateway was attacked before release** and its findings fixed (a per-peer connection cap; `CF-Connecting-IP` honoured only behind a declared proxy). (GW5, `docs/sessions/handoffs/po-gw5-2026-10-12.md`)
 - **Viewing from outside the office is off by default**, enforced in the database, and the switch says it leaves TPN Gold eligibility. (0091; TPN-NET-012)
+- **A private project's rows are written only by people who can see it**: every client write clause hops to the project under its read policy, only its creator or an admin changes who can see it, a member seat cannot choose the producer, and a row cannot point into another project. (MO1 0107)
+- **A private project's money and history are its creator's and the admins'**: a manager seat no longer opens a private project's budget, invoices or Legal files, and edit history goes only to people who could see the project when the change was made. (MO1 0108)
+- **The live channels follow project visibility**: the workspace channel never carries a private project's rows (one content-free event says the audience changed), a move between projects sends each side only to its own project, and a narrowing moves the project to a new channel that only its new audience can join. (MO1 0109)
 - **Earlier July work stands:** RLS as the boundary, privilege changes audited (WIL-4105/4106/4107), operator writes narrowed, MFA guards that fail closed, the Anthropic key never on a client, path containment on managed files, four append-only audit streams. (S15–S17; `TPN_AUDIT/FINDINGS.md`)
 
 ---
