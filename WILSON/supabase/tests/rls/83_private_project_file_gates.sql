@@ -315,10 +315,12 @@ SELECT is(
 -- reads back that the abort undid all of it. (On the hosted API this is the
 -- statement pg-safeupdate refuses for the API role — unmeasured on this
 -- project's envs; the hop is the gate that does not depend on it.)
-SELECT throws_ok(
+-- Since 0107 files_update's USING carries the hop too, so the statement no
+-- longer reaches a1 at all: it runs and rewrites only the public file b1
+-- (probe 24 reads both back). Before 0107 it aborted on a1's new row.
+SELECT lives_ok(
   $$UPDATE public.files SET description = 'x'$$,
-  '42501', NULL,
-  '🚨 an UPDATE that reads no column cannot rewrite a private project''s file (files_update''s WITH CHECK hop — the one shape files_select never sees)');
+  '🚨 an UPDATE that reads no column runs and never reaches a private project''s file (files_update''s USING hop, 0107; its WITH CHECK hop since 0083)');
 
 
 -- ── 21-24: nothing was written by the refused calls (read as postgres) ─────
@@ -349,18 +351,15 @@ SELECT is(
       AND actor_user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
   1, 'PRESENCE CONTROL: the creator''s read of the same file was logged');
 
--- PRESENCE CONTROL for probe 20: the refused column-free UPDATE aborted as a
--- WHOLE. The private file's description is untouched — and so is the public
--- file's, which the same statement reached through files_update's USING: a
--- per-row refusal that left the rows before it rewritten would be the same
--- hole with a different exit code. Two rows, both still NULL; a missing row
--- would count 1 or 0, a rewritten one 1.
+-- CONTROL for probe 20 (0107): the private file's description is untouched
+-- and the public file's was rewritten by the same statement, so the statement
+-- ran and the USING hop is what kept a1 out. A missing row would count 1 or 0.
 SELECT is(
   (SELECT count(*)::int FROM public.files
-    WHERE id IN ('83830000-0000-0000-0000-0000000000a1',
-                 '83830000-0000-0000-0000-0000000000b1')
-      AND description IS NULL),
-  2, 'PRESENCE CONTROL: the refused column-free UPDATE rewrote neither the private file nor the public one');
+    WHERE id = '83830000-0000-0000-0000-0000000000a1' AND description IS NULL)
+  + (SELECT count(*)::int FROM public.files
+    WHERE id = '83830000-0000-0000-0000-0000000000b1' AND description = 'x'),
+  2, 'CONTROL: the column-free UPDATE rewrote the public file and not the private one');
 
 
 -- ── 25-26: a plain member — can_write_project TRUE (unstaffed), and refused ─

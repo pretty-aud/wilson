@@ -268,8 +268,9 @@ SELECT is(
   'files_insert: 0088''s body with the Legal arm');                                                       -- 10
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
-  'files_update USING: 0088''s with the Legal arm');                                                      -- 11
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
+  'files_update USING: 0088''s with the Legal arm, and 0107''s project hop');                                                      -- 11
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
   '((workspace_id = current_workspace_id()) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
@@ -277,8 +278,9 @@ SELECT is(
   'files_update WITH CHECK: 0088''s with the Legal arm');                                                 -- 12
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_delete'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
-  'files_delete: 0088''s body with the Legal arm');                                                       -- 13
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
+  'files_delete: 0088''s body with the Legal arm, and 0107''s project hop');                                                       -- 13
 SELECT is(
   (SELECT array_agg(policyname::TEXT ORDER BY policyname) FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'files' AND permissive = 'PERMISSIVE'),

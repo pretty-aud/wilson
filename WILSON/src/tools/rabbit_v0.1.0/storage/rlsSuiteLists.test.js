@@ -71,8 +71,10 @@ describe('rls.yml\'s failure-replay list', () => {
     // 0101's, suite 104, which covers no table either; M2 (2026-10-28): and
     // 0103's, suite 106, which covers none (105 stays reserved); P8
     // (2026-10-28): and 0104's, 0105's and 0106's, suites 107, 108 and 109,
-    // columns, functions and policies on tables with suites of their own.
-    expect(listed.slice(-5)).toEqual(['104_versions_and_items_realtime.sql', '106_project_status_desktop_values.sql', '107_bins_vetted_and_gateway_names.sql', '108_two_factor_step_up.sql', '109_s3_endpoint_public_hosts.sql'])
+    // columns, functions and policies on tables with suites of their own; MO1
+    // (2026-11-02): and 0107's, suite 110, policies and guards on tables with
+    // suites of their own.
+    expect(listed.slice(-5)).toEqual(['106_project_status_desktop_values.sql', '107_bins_vetted_and_gateway_names.sql', '108_two_factor_step_up.sql', '109_s3_endpoint_public_hosts.sql', '110_private_project_write_hops.sql'])
   })
 })
 
@@ -107,12 +109,13 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
   // B1 (2026-10-27): 103_otter_subject_shares.sql (0100) was; R1
   // (2026-10-27): 104_versions_and_items_realtime.sql (0101) was; M2
   // (2026-10-28): 106_project_status_desktop_values.sql (0103) was; P8
-  // (2026-10-28): 109_s3_endpoint_public_hosts.sql (0106) is.
-  it('over the real directory, every suite once, 103, 104, 106, 107, 108 then 109 last', () => {
+  // (2026-10-28): 109_s3_endpoint_public_hosts.sql (0106) was; MO1
+  // (2026-11-02): 110_private_project_write_hops.sql (0107) is.
+  it('over the real directory, every suite once, 104, 106, 107, 108, 109 then 110 last', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-6)).toEqual(['103_otter_subject_shares.sql', '104_versions_and_items_realtime.sql', '106_project_status_desktop_values.sql', '107_bins_vetted_and_gateway_names.sql', '108_two_factor_step_up.sql', '109_s3_endpoint_public_hosts.sql'])
+    expect(picked.slice(-6)).toEqual(['104_versions_and_items_realtime.sql', '106_project_status_desktop_values.sql', '107_bins_vetted_and_gateway_names.sql', '108_two_factor_step_up.sql', '109_s3_endpoint_public_hosts.sql', '110_private_project_write_hops.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })

@@ -715,6 +715,22 @@ live-parent `EXISTS` join — the "0014 pattern". Hiding a parent transitively
 hides its children with **zero propagation writes**, which is why trashing a
 project is one `UPDATE` and not a cascade.
 
+**The hop is on the write side too (0107, M.O.T.H. Session 1).** Every client
+write clause of a project-scoped table (INSERT's WITH CHECK, UPDATE's USING
+and WITH CHECK, DELETE's USING) carries `EXISTS (SELECT 1 FROM public.projects
+p WHERE p.id = <t>.project_id)` under the caller's `projects_select`
+(comments through `fn_comment_project_id`; task_templates `project_id IS NULL
+OR` the hop), and so do `project_members_select` and `task_templates_select`.
+Before 0107 only the WITH CHECKs of files and milestones carried it:
+`can_write_project` says yes to every admin and manager and to every member of
+an unstaffed project, so anyone holding a private project's id could write
+into it, and a blanket UPDATE or DELETE, which reads no column and so is
+judged by no SELECT policy, reached its rows. 0107's post-condition S2 and
+suite 110 scan every permissive clause of every client-privileged
+project-scoped table for the hop; the pinned exceptions are
+`edit_history_select` (0108 gives it its arm) and the own-row arm of
+`upload_reservations_select`. Two guards ride with it, in the list below.
+
 **Deliberate deviations, each with a reason:**
 
 | Table | Deviation | Why |
@@ -860,7 +876,16 @@ Grouped by job, because the *category* is what a reader needs:
   zero active admins), `fn_workspaces_client_guard` (slug/id/created_at pinned),
   `fn_workspaces_delete_guard` (0029: refuses any DELETE issued as
   `authenticated` or `anon`), `fn_soft_delete_stamp` (projects are admin-only
-  to trash).
+  to trash), `fn_projects_owner_guard` (0107: for client callers
+  `created_by` and `topic_epoch` are pinned, `is_private` changes only by the
+  creator or an admin, a producer is chosen only by someone who manages the
+  team; for every caller a narrowing bumps `topic_epoch`),
+  `fn_same_project_refs_guard` (0107: a client's new or changed secondary link,
+  the uuid[] links on assets and both ends of a dependency must name a row of
+  the same project, 23503 otherwise; it judges only a row whose project the
+  caller can see, and for `budget_actuals` whose money they may read, leaving
+  every other refusal to RLS, so it is no existence oracle; skipped under
+  `wilson.checked_move`).
 - **Capture** — `fn_edit_history_capture` (13 tables),
   `fn_file_events_capture` (files lifecycle), `fn_app_events_stamp`
   (server-side actor stamp), `fn_files_gc_enqueue` (blob disposal queue), and
@@ -1153,6 +1178,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0013`, `0020`, `0040`, `0041`, `0044`, `0061`, `0082` **or** `0092` | `0107` | **(MO1)** 0107 restates, from the bodies deployed on wilson-dev, the client write policies of tasks, assets, folders, scenes, shots, levels, experiences, comments, project_members and task_templates, `project_members_select`, `task_templates_select`, `files_update` / `files_delete`, `milestones_update` / `milestones_delete`, `task_deps_update`, `phase_deps_update` and `projects_update`, each with the private-project hop. A bare re-run of any of those files puts its policies back without the hop, so anyone with a private project's id can write into it again; suite 110's S2 probe fails meanwhile. |
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
 | `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |
 | `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens `custom_access_token_hook`, and its `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE ON FUNCTIONS` re-arms the same trap for every function a later migration creates. |
