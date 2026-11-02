@@ -763,16 +763,43 @@ export function RabbitProvider({ children }) {
   }, [dismissUndoToast]);
 
   // ── refresh ─────────────────────────────────────────────
+  // MO1 (0109, R11): each read of the list carries a sequence number. A read
+  // a newer one overtook is dropped (never landed over the newer list), and
+  // the list is returned. A revalidation (AUDIENCE, or a project made
+  // private: who may see a project changed) is answered by the first list
+  // landed from a read started after it was asked (revalidateFromSeqRef): if
+  // the open project is not in it, this window may no longer see it, and it
+  // closes as a trashed project does, with a notice.
+  const projectsIndexSeqRef = useRef(0);
+  const revalidateFromSeqRef = useRef(null);
   const refreshProjectsIndex = useCallback(async () => {
-    if (!adapterRef.current) return;
+    if (!adapterRef.current) return null;
+    const seq = ++projectsIndexSeqRef.current;
     try {
       const list = await adapterRef.current.listProjects();
+      if (seq !== projectsIndexSeqRef.current) return null;
       setProjectsIndex(indexById(list));
       setAdapterStatus(s => ({ ...s, online: true, lastSyncAt: new Date(), error: null }));
+      const from = revalidateFromSeqRef.current;
+      if (from !== null && seq >= from) {
+        revalidateFromSeqRef.current = null;
+        const open = activeProjectIdRef.current;
+        if (open && !(Array.isArray(list) && list.some(p => p?.id === open))) {
+          setActiveProjectIdState(null);
+          setBundle(EMPTY_BUNDLE);
+          clearHistory();
+          saveRabbitSettings({ activeProjectId: null });
+          setError('This project is no longer shared with you.');
+        }
+      }
+      return list;
     } catch (err) {
-      setAdapterStatus(s => ({ ...s, online: false, error: err.message || String(err) }));
+      if (seq === projectsIndexSeqRef.current) {
+        setAdapterStatus(s => ({ ...s, online: false, error: err.message || String(err) }));
+      }
+      return null;
     }
-  }, []);
+  }, [clearHistory]);
 
   const setActiveProject = useCallback(async (projectId, persist = true) => {
     if (!adapterRef.current) return;
@@ -1131,6 +1158,9 @@ export function RabbitProvider({ children }) {
     for (const eff of effects) {
       if (eff.type === 'roster') {
         roster = true;
+      } else if (eff.type === 'audience') {
+        // MO1 (0109): who may see the open project changed (realtimeMerge).
+        requestIndexRevalidationRef.current?.();
       } else if (eff.type === 'refetch') {
         refetch = true;
       } else if (eff.type === 'versions-refetch') {
@@ -1168,6 +1198,10 @@ export function RabbitProvider({ children }) {
     if (versionsRefetch && !refetch) mutationsRef.current.refreshBudgetVersions?.();
   }, [effectTick, activeProjectId, clearHistory, refreshProjectMembers, scheduleRealtimeRefetch]);
 
+  // MO1 (0109, R11): the channel's name carries the project's topic epoch
+  // (bumped by every narrowing, 0107), read from the list; a new epoch
+  // re-joins the new topic, whose join refetch closes the missed window.
+  const activeTopicEpoch = Number(projectsIndex[activeProjectId]?.topic_epoch) || 0;
   useEffect(() => {
     if (adapterMode !== 'supabase' || !activeProjectId
         || typeof adapterRef.current?.subscribeProjectChanges !== 'function') {
@@ -1184,6 +1218,7 @@ export function RabbitProvider({ children }) {
         handleRealtimeEvent(evt);
       },
       {
+        topicEpoch: activeTopicEpoch,
         onStatus: (status) => {
           if (seq !== realtimeSeqRef.current) return;
           if (status === 'SUBSCRIBED') {
@@ -1216,7 +1251,7 @@ export function RabbitProvider({ children }) {
       }
       setPresentUsers([]);
     };
-  }, [adapterMode, activeProjectId, handleRealtimeEvent, scheduleRealtimeRefetch]);
+  }, [adapterMode, activeProjectId, activeTopicEpoch, handleRealtimeEvent, scheduleRealtimeRefetch]);
 
   // ── workspace realtime (Session 8, migration 0018) ──────
   // One private channel per signed-in workspace, independent of the open
@@ -1236,13 +1271,31 @@ export function RabbitProvider({ children }) {
     return () => { wsListenersRef.current.delete(cb); };
   }, []);
 
+  // MO1 (0109, R11): the reason for a refetch lives in a ref, so a join
+  // refetch already pending still revalidates (the debounce coalesces the
+  // timers, not the reasons). The debounced run reads and clears it, and the
+  // read it starts (or any later one) answers it (refreshProjectsIndex).
+  const revalidateRef = useRef(false);
+  const requestIndexRevalidationRef = useRef(null);
   const scheduleProjectsIndexRefetch = useCallback(() => {
     if (wsIndexRefetchTimerRef.current) clearTimeout(wsIndexRefetchTimerRef.current);
     wsIndexRefetchTimerRef.current = setTimeout(() => {
       wsIndexRefetchTimerRef.current = null;
+      if (revalidateRef.current) {
+        revalidateRef.current = false;
+        revalidateFromSeqRef.current = projectsIndexSeqRef.current + 1;
+      }
       refreshProjectsIndex();
     }, 400);
   }, [refreshProjectsIndex]);
+  const requestIndexRevalidation = useCallback(() => {
+    revalidateRef.current = true;
+    scheduleProjectsIndexRefetch();
+  }, [scheduleProjectsIndexRefetch]);
+  // Reached through a ref by handleWorkspaceEvent (kept stable: the
+  // workspace channel's effect depends on it) and by the effects reducer
+  // above (an 'audience' effect from the project channel).
+  requestIndexRevalidationRef.current = requestIndexRevalidation;
 
   const handleWorkspaceEvent = useCallback((evt) => {
     // Index liveness: projects events land whether or not the project is
@@ -1251,7 +1304,12 @@ export function RabbitProvider({ children }) {
     // delivers the same event; isStaleIncoming + spread-merge make the
     // double delivery idempotent, and active-project teardown stays with
     // the per-project channel (single owner).
-    if (evt.table === 'projects') {
+    // MO1 (0109): AUDIENCE (a visibility flip, no row) and a private row (a
+    // server without 0109 still sends them) are never merged: the list is
+    // read again through RLS, and the open project closes if it is gone.
+    if (evt.table === 'projects' && (evt.op === 'AUDIENCE' || evt.record?.is_private === true)) {
+      requestIndexRevalidationRef.current?.();
+    } else if (evt.table === 'projects') {
       const rec = evt.record;
       if (evt.op === 'DELETE' || (rec && rec.deleted_at)) {
         const gone = rec?.id ?? evt.oldRecord?.id;

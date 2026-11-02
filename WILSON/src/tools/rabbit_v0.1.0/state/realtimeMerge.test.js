@@ -263,6 +263,45 @@ describe('applyRealtimeEvent — projects & roster', () => {
     expect(next).toBe(bundle)
     expect(effects).toEqual([{ type: 'project-trashed', id: 'p1' }])
   })
+  // MO1 (0109, R11): who may see the project changed.
+  it('AUDIENCE (no row) emits audience and leaves the bundle alone', () => {
+    const bundle = makeBundle()
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null,
+    }, { pendingFields: noPending })
+    expect(next).toBe(bundle)
+    expect(effects).toEqual([{ type: 'audience' }])
+  })
+  it('a projects UPDATE that makes the project private also emits audience', () => {
+    const bundle = makeBundle()
+    const record = { id: 'p1', title: 'Project', is_private: true, updated_at: T1 }
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'projects', op: 'UPDATE',
+      record, oldRecord: { id: 'p1', title: 'Project', is_private: false, updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(effects).toEqual([{ type: 'project-patch', record }, { type: 'audience' }])
+    expect(next.project.is_private).toBe(true)
+  })
+  it('a public rename, or an UPDATE that stays private, does not', () => {
+    const bundle = makeBundle()
+    for (const [was, now] of [[false, false], [true, true], [true, false]]) {
+      const { effects } = applyRealtimeEvent(bundle, {
+        table: 'projects', op: 'UPDATE',
+        record: { id: 'p1', title: 'Renamed', is_private: now, updated_at: T1 },
+        oldRecord: { id: 'p1', title: 'Project', is_private: was, updated_at: T0 },
+      }, { pendingFields: noPending })
+      expect(effects.map(e => e.type)).not.toContain('audience')
+    }
+  })
+  it('a trashed project still emits project-trashed, made private or not', () => {
+    const bundle = makeBundle()
+    const { effects } = applyRealtimeEvent(bundle, {
+      table: 'projects', op: 'UPDATE',
+      record: { id: 'p1', deleted_at: T1, is_private: true },
+      oldRecord: { id: 'p1', deleted_at: null, is_private: false },
+    }, { pendingFields: noPending })
+    expect(effects).toEqual([{ type: 'project-trashed', id: 'p1' }])
+  })
   it('project_members events only signal a roster refresh', () => {
     const bundle = makeBundle()
     const { bundle: next, effects } = applyRealtimeEvent(bundle, {

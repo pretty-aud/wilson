@@ -215,10 +215,13 @@ SELECT ok(
 -- 2026-10-17 (VW1c, migration 0098): 0098 restates the body with table_views
 -- and item_groupings (md5 e5abdcf2…, held by 101_table_views probe 18), so a
 -- database past 0098 reads that one; 0097 still writes none of its own.
+-- MO1 (2026-11-02, migration 0109): 0109 restates it again (each side to its
+-- own project's topic; md5 cb26163e…, held by 112_private_project_channels
+-- probe 4 and 101_table_views probe 18).
 SELECT ok(
   (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure)
-    IN ('2e8cc917144b17b674af3ca03fa76055', 'e5abdcf2b8abce914416acb148144971'),
-  'fn_realtime_broadcast is 0096''s body or 0098''s restatement of it: 0097 does not restate it');
+    IN ('2e8cc917144b17b674af3ca03fa76055', 'e5abdcf2b8abce914416acb148144971', 'cb26163e64f063de4da39c4eb316de4b'),
+  'fn_realtime_broadcast is 0096''s body, 0098''s or 0109''s restatement of it: 0097 does not restate it');
 
 
 -- ═════════════════════════════════════════════════════════════════════════

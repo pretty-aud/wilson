@@ -26,6 +26,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
+import { canOnProject } from '../../permissions/projectRoleMatrix'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments'
 import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../../tools/rabbit_v0.1.0/fileTags'
@@ -49,7 +50,8 @@ export default function ProjectsPage({ onNavigate }) {
 
   // Create/delete affordances (Session 6) — DB-side RLS is the real gate;
   // cloud mode hides them below the matrix roles, local mode stays open.
-  const { can, offline } = usePermissions()
+  const perms = usePermissions()
+  const { can, offline } = perms
   const cloud = ctx?.adapterMode === 'supabase'
   // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the cloud.
   const heldOffline = !!offline && cloud
@@ -98,6 +100,17 @@ export default function ProjectsPage({ onNavigate }) {
   const [busy, setBusy] = useState(false)
 
   const activeProject = projects.find(p => p.id === activeId) || null
+  // MO1 (R11, SEC-6): only someone who manages this project's team may choose
+  // its producer (0107's guard refuses the rest). The seat is RABBIT's open
+  // project's, which opening a project here sets (handleOpen); until the two
+  // agree, there is no seat to read, and the matrix answers from the app role.
+  const sameOpen = !!activeProject && ctx?.activeProjectId === activeProject.id
+  const canManageTeam = !cloud || canOnProject({
+    appRole: perms.role,
+    projectRole: sameOpen ? ctx?.myProjectRole : null,
+    isStaffed: sameOpen ? ctx?.projectIsStaffed : false,
+    ready: perms.ready,
+  }, 'project.roster.manage')
 
   // ── Create / open / delete ────────────────────────────────
   const handleCreateProject = async () => {
@@ -576,6 +589,7 @@ export default function ProjectsPage({ onNavigate }) {
         onFileDelete={handleFileDelete}
         onFileUpload={handleFileUpload}
         canUpload={canStoreFiles}
+        canManageTeam={canManageTeam}
         // §6 #31 trap (g). Cloud deletes are soft and hold quota for 30 days;
         // Local Server deletes unlink the body there and then. The panel says
         // which, because "Delete" alone means the wrong one half the time.

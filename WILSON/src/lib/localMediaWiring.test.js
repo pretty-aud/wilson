@@ -88,7 +88,8 @@ describe('supabaseAdapter — the private branch, beside the money pin', () => {
     expect(adapter).toContain('async function privateProjectsAvailable(client)')
     expect(adapter).toContain("error.code === '42703'")
     expect(adapter).toContain("const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';")
-    expect(adapter).toContain("cover_image_url' + privateCol)")
+    // MO1 (0109): topic_epoch rides its own probe after it, the same way.
+    expect(adapter).toContain("cover_image_url' + privateCol + epochCol)")
     expect(adapter).toContain('if (row.is_private !== undefined && !(await privateProjectsAvailable(client))) delete row.is_private;')
     expect(adapter).toContain('privateColumnKnown = null;\n  fileMetaKnown = null;\n}')
     expect(adapter).toContain('async supportsPrivateProjects()')

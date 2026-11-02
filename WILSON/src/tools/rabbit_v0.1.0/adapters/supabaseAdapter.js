@@ -151,6 +151,7 @@ export function resetSupabaseAdapter() {
   // `privateColumnKnown = null;` — so 0085's probe (S4a) is forgotten first.
   legalFilesKnown = false;
   fileTagsKnown = null;
+  topicEpochKnown = null;
   privateColumnKnown = null;
   fileMetaKnown = null;
 }
@@ -250,6 +251,26 @@ async function privateProjectsAvailable(client) {
   // Any other failure (network, RLS) says nothing about the column: answer
   // "not now" and probe again next time.
   return false;
+}
+// MO1 (0107, 0109): projects.topic_epoch names the project's realtime topic
+// after a narrowing (rabbit:project:{id}:{n}). Probed the same way, so a
+// database without 0107 lists projects as before and every channel joins at
+// epoch 0, the only topic such a database has.
+let topicEpochKnown = null;
+async function topicEpochAvailable(client) {
+  if (topicEpochKnown !== null) return topicEpochKnown;
+  const { error } = await client.from('projects').select('topic_epoch').limit(1);
+  if (!error) { topicEpochKnown = true; return true; }
+  if (error.code === '42703' || /topic_epoch/.test(error.message || '')) {
+    topicEpochKnown = false;
+    return false;
+  }
+  return false;
+}
+// The project channel's name: epoch 0 keeps the name every build has used.
+export function projectTopicName(projectId, topicEpoch = 0) {
+  const epoch = Number.isInteger(topicEpoch) && topicEpoch > 0 ? topicEpoch : 0;
+  return `rabbit:project:${projectId}${epoch > 0 ? ':' + epoch : ''}`;
 }
 // Demo 2026-09-11 (Audrey: "the name of the file, file type, creation date
 // and time, file size, if its an audio or video file the duration as well"):
@@ -2688,9 +2709,12 @@ export function supabaseAdapter() {
       // Demo 2026-09-11: is_private joins the list only where 0072 has
       // landed — naming a column the database lacks fails the WHOLE list.
       const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';
+      // MO1 (0109): topic_epoch, so the open project's channel joins the topic
+      // its current epoch names (not in PROJECT_COLUMNS: the client never writes it).
+      const epochCol = (await topicEpochAvailable(client)) ? ', topic_epoch' : '';
       return unwrap(await client
         .from('projects')
-        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol)
+        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol + epochCol)
         .order('updated_at', { ascending: false }));
     },
 
@@ -5675,7 +5699,10 @@ export function supabaseAdapter() {
         }
         if (cancelled) return;
 
-        channel = client.channel(`rabbit:project:${projectId}`, {
+        // MO1 (0109): the topic carries the project's epoch after a narrowing
+        // (opts.topicEpoch, from the project list); a listener on an older
+        // epoch hears one AUDIENCE and then nothing.
+        channel = client.channel(projectTopicName(projectId, opts.topicEpoch), {
           config: {
             private: true,
             ...(presenceMeta ? { presence: { key: presenceMeta.user_id } } : {}),
@@ -5694,6 +5721,10 @@ export function supabaseAdapter() {
             });
           });
         }
+        // MO1 (0109): who may see the project changed. No row rides it.
+        channel.on('broadcast', { event: 'AUDIENCE' }, () => {
+          callback({ table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null });
+        });
 
         if (opts.onPresence) {
           channel.on('presence', { event: 'sync' }, () => {
@@ -5786,6 +5817,11 @@ export function supabaseAdapter() {
             });
           });
         }
+        // MO1 (0109): a project's visibility flipped somewhere in the
+        // workspace. No id, no row: the provider reads the list again.
+        channel.on('broadcast', { event: 'AUDIENCE' }, () => {
+          callback({ table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null });
+        });
 
         if (opts.onPresence) {
           channel.on('presence', { event: 'sync' }, () => {

@@ -947,13 +947,40 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | | Project channel | Workspace channel |
 |---|---|---|
 | Migration | 0016 | 0018 |
-| Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
-| Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
+| Topic | `rabbit:project:{project_id}`, `:{topic_epoch}` after a narrowing (0109) | `rabbit:workspace:{workspace_id}` |
+| Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select`; and `project_topic_matches()` — the current epoch (0109) | `can_read_workspace_topic()` — workspace match + active membership (so the trigger sends only what every member may see, 0109) |
 | Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)**; **budget_versions (0101: a thin event, `{id, project_id}` and never the row — a bid version is money — and the client reads the versions again through RLS)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members; **task_items (0101: only an assigned task's, never a private project's — the Dashboard's assets)** |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the
 topic-suffix cast so a hand-crafted topic string cannot error a policy.
+
+**Since 0109 (M.O.T.H. Session 1) both channels follow project visibility.**
+🚨 The workspace channel's join gate is membership only, so its trigger sends
+only what every member may see: a `projects` side when the project is not
+private, a `tasks`, `assets` or `project_members` side when its project exists
+and is not private (`workspace_members` always). A change with one visible
+side goes out INSERT-shaped (NEW only) or DELETE-shaped (OLD only); the
+assignee and asset-churn filters then test only the sides sent (SEC-8). A
+project whose visibility flips sends the workspace one payload-free
+**`AUDIENCE`** event (no id, no title): every window reads its project list
+again through RLS and closes the open project if it is gone, with "This
+project is no longer shared with you." On the project channel, a row moved
+between projects goes as a DELETE (OLD) to the old project's topic and an
+INSERT (NEW) to the new one's; a dependency across projects goes to neither.
+The topic carries the project's **epoch** (`projects.topic_epoch`, bumped by
+0107's owner guard on every narrowing): `rabbit:project:{id}` at 0,
+`rabbit:project:{id}:{n}` after; `project_topic(id)` (definer, the triggers'
+router) names it, and both 0016 policies also require
+`project_topic_matches(realtime.topic())` (INVOKER: a project the caller can
+see, at its current epoch). A narrowing sends the old topic one `AUDIENCE` and
+the write to the new one, so a listener who joined before it hears nothing
+more, whatever Realtime cached at its join. The client joins the epoch the
+project list names (`listProjects` reads `topic_epoch` behind a column probe)
+and binds `AUDIENCE` on both channels; it tolerates a server without 0109.
+Accepted (OUTSTANDING): a private project's liveness in its creator's and the
+admins' other windows rests on the join refetch, `AUDIENCE` and the project
+topic, not on the workspace channel.
 
 Deliberately **never broadcast**: `otter_*` (personal content — the workspace
 channel hands full row payloads to every subscriber) and `notes` /
@@ -1213,6 +1240,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0016`, `0018`, `0098` **or** `0101` | `0109` | **(MO1)** 0109 restates the two project-topic `realtime.messages` policies (0016) with `project_topic_matches`, `fn_workspace_realtime_broadcast` (0018) with the side flags and `AUDIENCE`, `fn_realtime_broadcast` (0098) with each side to its own project's topic, and `fn_budget_versions_broadcast` (0101) with `project_topic`. A replay of any of them puts back a channel that carries private rows, silently. 🚨 **0098 refuses after 0109** (its pre-flight accepts only 0096's body or its own): a replay of 0098 needs 0096's body back first, then 0098, then 0109 (whose pre-flight accepts 0098's md5 or its own, `cb26163e64f063de4da39c4eb316de4b`) |
 | `0012`, `0037`, `0061`, `0082`, `0088` **or** `0092` | `0108` | **(MO1)** 0108 restates `can_access_project_money` (0037) with the privacy arm, `fn_edit_history_capture` (0061) with both sides' projects and `captured_private`, `fn_edit_history_money_snapshot` (0092) with the move and gone lines, and `edit_history_select` (0012 / 0088 / 0092) with the project audience. A bare re-run of 0037 puts the money gate back without the privacy arm (a manager seat on a private project opens its money again); of 0061, the capture back without projects (new rows NULL: admins only, fails closed); of **0088 or 0092**, silently, the policy without the project arm and the snapshot without the move line, so every workspace manager reads every private project's history again. 🚨 **0092 is not re-runnable after 0108** (its post-condition 12 pins 0037's money body, post-condition 10 the old policy): the order that restores everything is 0037, then 0092, then 0108. Re-running 0108 also re-runs `edit_history_restamp()` (about 0.13 ms per history row while the table is locked); suite 111 fails meanwhile. |
 | `0013`, `0020`, `0040`, `0041`, `0044`, `0061`, `0082` **or** `0092` | `0107` | **(MO1)** 0107 restates, from the bodies deployed on wilson-dev, the client write policies of tasks, assets, folders, scenes, shots, levels, experiences, comments, project_members and task_templates, `project_members_select`, `task_templates_select`, `files_update` / `files_delete`, `milestones_update` / `milestones_delete`, `task_deps_update`, `phase_deps_update` and `projects_update`, each with the private-project hop. A bare re-run of any of those files puts its policies back without the hop, so anyone with a private project's id can write into it again; suite 110's S2 probe fails meanwhile. |
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
