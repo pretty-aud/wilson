@@ -27,7 +27,7 @@
 
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(53);
 
 SELECT * FROM tests.rls_setup();
 
@@ -165,20 +165,26 @@ GRANT SELECT ON h111 TO authenticated;
 SELECT ok(
   EXISTS (SELECT 1 FROM information_schema.columns
            WHERE table_schema = 'public' AND table_name = 'edit_history' AND column_name = 'captured_private'
-             AND data_type = 'boolean' AND is_nullable = 'NO' AND column_default = 'false'),
-  'edit_history.captured_private is boolean NOT NULL DEFAULT false');
+             AND data_type = 'boolean' AND is_nullable = 'NO' AND column_default = 'true'),
+  'edit_history.captured_private is boolean NOT NULL DEFAULT true (a writer that leaves it out fails closed)');
 
 SELECT ok(
   NOT has_function_privilege('authenticated', 'public.edit_history_project_of(text, jsonb)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.edit_history_project_of(text, jsonb)', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.edit_history_value_at(text, uuid, text, timestamptz, bigint)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.edit_history_value_at(text, uuid, text, timestamptz, bigint)', 'EXECUTE')
-  AND NOT has_function_privilege('authenticated', 'public.edit_history_project_at(text, uuid, jsonb, timestamptz, bigint)', 'EXECUTE')
-  AND NOT has_function_privilege('anon', 'public.edit_history_project_at(text, uuid, jsonb, timestamptz, bigint)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.edit_history_project_at(text, uuid, jsonb, timestamptz, bigint, boolean)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.edit_history_project_at(text, uuid, jsonb, timestamptz, bigint, boolean)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.edit_history_restamp()', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.edit_history_restamp()', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.fn_edit_history_project_gone()', 'EXECUTE')
   AND (SELECT bool_and(prosecdef AND provolatile = 's' AND proconfig @> ARRAY['search_path=public'])
          FROM pg_proc WHERE pronamespace = 'public'::regnamespace
-          AND proname IN ('edit_history_project_of', 'edit_history_value_at', 'edit_history_project_at')),
-  'the resolver and both walks are STABLE SECURITY DEFINER, search_path pinned, and closed to client roles');
+          AND proname IN ('edit_history_project_of', 'edit_history_value_at', 'edit_history_project_at'))
+  AND (SELECT bool_and(prosecdef AND proconfig @> ARRAY['search_path=public'])
+         FROM pg_proc WHERE pronamespace = 'public'::regnamespace
+          AND proname IN ('edit_history_restamp', 'fn_edit_history_project_gone')),
+  'the resolver, both walks, the restamp and the purge step are SECURITY DEFINER, search_path pinned, closed to client roles (the readers STABLE)');
 
 SELECT ok(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'edit_history' AND policyname = 'edit_history_select')
@@ -270,7 +276,148 @@ SELECT is(
   'the walk over crafted rows of a deleted entity: the rename before the move was P''s, the one after it Q''s');
 
 
--- ── 26-34: the second manager (user_e, seated manager on P and Q) ──────────────
+-- ── 26-32: the restamp (0108's backfill) over history as it was before 0108 ─────
+
+-- It agrees with the live capture: over every row the fixtures wrote, it
+-- changes nothing.
+CREATE TEMP TABLE h111_live AS
+  SELECT id, project_id, captured_private FROM public.edit_history
+   WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND entity_id <> '11100000-0000-0000-0000-0000000000e1';
+-- (Taken before the crafted rows below, so it holds only what the live capture wrote.)
+
+-- Crafted rows, written as history stood before 0108 (no project, the
+-- column's default flag) and, for files, as 0088's snapshot left them.
+-- (a) a reused file id: X lived in P (create, delete); X now lives in Q, and
+--     0088 stamped the P-era rows with Q from the live row.
+INSERT INTO public.edit_history (workspace_id, entity_type, entity_id, action, diff) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'files', '11100000-0000-0000-0000-0000000000f1', 'create',
+   '{"new": {"id": "11100000-0000-0000-0000-0000000000f1", "project_id": "aaaa1111-0000-0000-0000-000000000111", "name": "p-secret.txt"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'files', '11100000-0000-0000-0000-0000000000f1', 'delete',
+   '{"old": {"id": "11100000-0000-0000-0000-0000000000f1", "project_id": "aaaa1111-0000-0000-0000-000000000111", "name": "p-secret.txt"}}');
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path) VALUES
+  ('11100000-0000-0000-0000-0000000000f1', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000112', 'q.txt', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000112/project/x/1-q.txt');
+-- 0088's backfill was an UPDATE (no trigger sees it) that took the LIVE row's
+-- project: Q.
+UPDATE public.edit_history SET project_id = 'aaaa1111-0000-0000-0000-000000000112'
+ WHERE entity_id = '11100000-0000-0000-0000-0000000000f1' AND action IN ('create', 'delete')
+   AND diff::text LIKE '%p-secret%';
+-- (b) a task made in Q with a link, moved into P, its link edited there, then
+--     deleted (the link cascades: the parent's delete row is written first).
+INSERT INTO public.edit_history (workspace_id, entity_type, entity_id, action, diff) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'tasks', '11100000-0000-0000-0000-0000000000f2', 'create',
+   '{"new": {"id": "11100000-0000-0000-0000-0000000000f2", "project_id": "aaaa1111-0000-0000-0000-000000000112", "title": "t"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'task_links', '11100000-0000-0000-0000-0000000000f3', 'create',
+   '{"new": {"id": "11100000-0000-0000-0000-0000000000f3", "task_id": "11100000-0000-0000-0000-0000000000f2", "url": "https://example.test/q"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'tasks', '11100000-0000-0000-0000-0000000000f2', 'update',
+   '{"project_id": {"old": "aaaa1111-0000-0000-0000-000000000112", "new": "aaaa1111-0000-0000-0000-000000000111"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'task_links', '11100000-0000-0000-0000-0000000000f3', 'update',
+   '{"url": {"old": "https://example.test/q", "new": "https://example.test/p-only"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'tasks', '11100000-0000-0000-0000-0000000000f2', 'delete',
+   '{"old": {"id": "11100000-0000-0000-0000-0000000000f2", "project_id": "aaaa1111-0000-0000-0000-000000000111", "title": "t"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'task_links', '11100000-0000-0000-0000-0000000000f3', 'delete',
+   '{"old": {"id": "11100000-0000-0000-0000-0000000000f3", "task_id": "11100000-0000-0000-0000-0000000000f2", "url": "https://example.test/p-only"}}');
+-- (d) a task made in Q, moved into P and renamed there, whose delete was
+--     never recorded (a cascade with no claim, before 0108): no later row and
+--     no live row, so the rename's project is read from the latest row before
+--     it that carries one — the move's new side, P — never the create row's Q.
+INSERT INTO public.edit_history (workspace_id, entity_type, entity_id, action, diff) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'tasks', '11100000-0000-0000-0000-0000000000f5', 'create',
+   '{"new": {"id": "11100000-0000-0000-0000-0000000000f5", "project_id": "aaaa1111-0000-0000-0000-000000000112", "title": "t"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'tasks', '11100000-0000-0000-0000-0000000000f5', 'update',
+   '{"project_id": {"old": "aaaa1111-0000-0000-0000-000000000112", "new": "aaaa1111-0000-0000-0000-000000000111"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'tasks', '11100000-0000-0000-0000-0000000000f5', 'update',
+   '{"title": {"old": "t", "new": "P-only title"}}');
+-- (c) a project B made public, made private, deleted for good; then its id
+--     created again, as a public project, by the second manager.
+INSERT INTO public.edit_history (workspace_id, entity_type, entity_id, action, diff) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'projects', 'aaaa1111-0000-0000-0000-000000000115', 'create',
+   '{"new": {"id": "aaaa1111-0000-0000-0000-000000000115", "title": "Old B", "is_private": false}}'),
+  ('11111111-1111-1111-1111-111111111111', 'projects', 'aaaa1111-0000-0000-0000-000000000115', 'update',
+   '{"is_private": {"old": false, "new": true}}'),
+  ('11111111-1111-1111-1111-111111111111', 'projects', 'aaaa1111-0000-0000-0000-000000000115', 'delete',
+   '{"old": {"id": "aaaa1111-0000-0000-0000-000000000115", "title": "Old B, secret", "is_private": true}}');
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000000115', '11111111-1111-1111-1111-111111111111', 'New B', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', false);
+
+CREATE TEMP TABLE h111_restamp AS SELECT public.edit_history_restamp() AS res;
+
+SELECT is(
+  (SELECT count(*)::int FROM h111_live l JOIN public.edit_history eh ON eh.id = l.id
+    WHERE eh.project_id IS DISTINCT FROM l.project_id OR eh.captured_private IS DISTINCT FROM l.captured_private),
+  0, 'the restamp agrees with the live capture: over every row the fixtures wrote it changes nothing');
+SELECT is(
+  public.edit_history_restamp(),
+  '{"project_set": 0, "project_gone": 0, "captured_private_set": 0}'::jsonb,
+  'run again, it changes nothing at all');
+SELECT is(
+  (SELECT string_agg(action || ':' || COALESCE(project_id::text, '-') || '|' || captured_private::text, ' ' ORDER BY id)
+     FROM public.edit_history WHERE entity_id = '11100000-0000-0000-0000-0000000000e1'),
+  'create:aaaa1111-0000-0000-0000-000000000111|true update:aaaa1111-0000-0000-0000-000000000111|true update:-|true update:aaaa1111-0000-0000-0000-000000000112|false delete:aaaa1111-0000-0000-0000-000000000112|false',
+  'a moved task''s old history: P''s rows private, the move no one''s, Q''s rows Q''s');
+SELECT is(
+  (SELECT string_agg(action || ':' || COALESCE(project_id::text, '-') || '|' || captured_private::text, ' ' ORDER BY id)
+     FROM public.edit_history WHERE entity_id = '11100000-0000-0000-0000-0000000000f1'),
+  'create:aaaa1111-0000-0000-0000-000000000111|true delete:aaaa1111-0000-0000-0000-000000000111|true create:aaaa1111-0000-0000-0000-000000000112|false',
+  '🚨 a reused file id: the earlier file''s rows go back to P (0088 had stamped them Q from the live row); the new file''s are Q''s');
+SELECT is(
+  (SELECT string_agg(action || ':' || COALESCE(project_id::text, '-') || '|' || captured_private::text, ' ' ORDER BY id)
+     FROM public.edit_history WHERE entity_id = '11100000-0000-0000-0000-0000000000f3'),
+  'create:aaaa1111-0000-0000-0000-000000000112|false update:aaaa1111-0000-0000-0000-000000000111|true delete:-|true',
+  '🚨 a link of a task moved Q -> P then deleted: made in Q, edited in P (private), and its cascaded delete no one''s — never Q''s, its parent''s first project');
+SELECT is(
+  (SELECT string_agg(action || ':' || COALESCE(project_id::text, '-') || '|' || captured_private::text, ' ' ORDER BY id)
+     FROM public.edit_history WHERE entity_id = '11100000-0000-0000-0000-0000000000f5'),
+  'create:aaaa1111-0000-0000-0000-000000000112|false update:-|true update:aaaa1111-0000-0000-0000-000000000111|true',
+  '🚨 a moved task with no delete row and no live row: its rename in P is P''s (private), not its first project''s');
+SELECT is(
+  (SELECT string_agg(action || ':' || COALESCE(project_id::text, '-'), ' ' ORDER BY id)
+     FROM public.edit_history WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000000115'),
+  'create:- update:- delete:- create:aaaa1111-0000-0000-0000-000000000115',
+  '🚨 a reused project id: the earlier project''s rows name no project (admins only); only the new one''s create row is B''s');
+
+-- ── 33-34: a project deleted for good leaves its history to the admins ──────────
+
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000000116', '11111111-1111-1111-1111-111111111111', 'Purged P2', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true);
+INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
+  ('11100000-0000-0000-0000-0000000000f4', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000116', 'P2 secret task');
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path) VALUES
+  ('11100000-0000-0000-0000-0000000000f6', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000116', 'p2-secret.txt', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000116/project/x/1-p2-secret.txt');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111'))::text, true);
+DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000116';
+SELECT set_config('request.jwt.claims', '{}', true);
+
+SELECT ok(
+  (SELECT count(*) FROM public.edit_history WHERE project_id = 'aaaa1111-0000-0000-0000-000000000116') = 0
+  AND (SELECT count(*) FROM public.edit_history
+        WHERE entity_id IN ('aaaa1111-0000-0000-0000-000000000116', '11100000-0000-0000-0000-0000000000f4',
+                            '11100000-0000-0000-0000-0000000000f6')) >= 6,
+  '🚨 a project deleted for good: every row of its history (its own, its task''s and file''s, the cascades'') is kept and names no project');
+
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+INSERT INTO public.projects (id, workspace_id, title, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000000116', '11111111-1111-1111-1111-111111111111', 'Squatted P2', true);
+SELECT is(
+  (SELECT string_agg(entity_id::text || ':' || action, ',') FROM public.edit_history
+    WHERE project_id = 'aaaa1111-0000-0000-0000-000000000116'
+       OR entity_id IN ('aaaa1111-0000-0000-0000-000000000116', '11100000-0000-0000-0000-0000000000f4',
+                        '11100000-0000-0000-0000-0000000000f6')),
+  'aaaa1111-0000-0000-0000-000000000116:create',
+  '🚨 whoever creates the id again reads only their own create row — none of the old private project''s history, though they are its creator now');
+
+-- ── 35-43: the second manager (user_e, seated manager on P and Q) ──────────────
+
 
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
@@ -325,7 +472,7 @@ SELECT is(
   2, 'rate cards stay every manager''s');
 
 
--- ── 35-39: the creator (user_d, seated manager on P) ───────────────────────────
+-- ── 44-48: the creator (user_d, seated manager on P) ───────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -356,7 +503,7 @@ SELECT is(
   0, 'a trashed project''s history is not the creator''s either (can_read_project_topic is false on a trashed project)');
 
 
--- ── 40-43: the workspace admin (user_a) ─────────────────────────────────────────
+-- ── 49-52: the workspace admin (user_a) ─────────────────────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -388,7 +535,7 @@ SELECT throws_ok(
   '42501', NULL, 'a client cannot call the resolver, not even an admin');
 
 
--- ── 44: a plain member reads no history at all (0012, unchanged) ──────────────
+-- ── 53: a plain member reads no history at all (0012, unchanged) ──────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
