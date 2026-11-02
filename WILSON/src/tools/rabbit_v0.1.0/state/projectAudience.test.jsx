@@ -132,6 +132,16 @@ describe('AUDIENCE: the list is read again, and the open project closes if it is
     expect(listCalls).toBe(before + 1)
   })
 
+  // Review round 1, finding 4: the order in which the reason must survive the
+  // debounce — a plain join refetch replacing the revalidating timer.
+  it('AUDIENCE, then a join refetch within the debounce: the read still revalidates', async () => {
+    const before = listCalls
+    hide = true
+    await act(async () => { ws.emit(AUDIENCE); ws.opts.onStatus('SUBSCRIBED') })
+    await waitFor(() => expect(ctx.activeProjectId).toBe(null), LONG)
+    expect(listCalls).toBe(before + 1)
+  })
+
   it('the project channel\'s own AUDIENCE revalidates too', async () => {
     hide = true
     await act(async () => { proj.emit(AUDIENCE) })

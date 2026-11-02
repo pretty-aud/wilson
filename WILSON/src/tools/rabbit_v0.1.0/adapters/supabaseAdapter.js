@@ -253,18 +253,22 @@ async function privateProjectsAvailable(client) {
   return false;
 }
 // MO1 (0107, 0109): projects.topic_epoch names the project's realtime topic
-// after a narrowing (rabbit:project:{id}:{n}). Probed the same way, so a
-// database without 0107 lists projects as before and every channel joins at
-// epoch 0, the only topic such a database has.
+// after a narrowing (rabbit:project:{id}:{n}) — but only 0109 makes the
+// triggers send there. 0107 alone adds the column and bumps it, while every
+// write still goes to the plain topic (review round 1, finding 1). So the
+// probe is for 0109 itself: its join test, project_topic_matches, which a
+// signed-in caller may run. Absent (PGRST202, 42883): the list never reads the
+// epoch and every channel joins epoch 0, the only topic such a database has.
 let topicEpochKnown = null;
 async function topicEpochAvailable(client) {
   if (topicEpochKnown !== null) return topicEpochKnown;
-  const { error } = await client.from('projects').select('topic_epoch').limit(1);
+  const { error } = await client.rpc('project_topic_matches', { p_topic: 'rabbit:project:00000000-0000-0000-0000-000000000000' });
   if (!error) { topicEpochKnown = true; return true; }
-  if (error.code === '42703' || /topic_epoch/.test(error.message || '')) {
+  if (error.code === 'PGRST202' || error.code === '42883' || /project_topic_matches/.test(error.message || '')) {
     topicEpochKnown = false;
     return false;
   }
+  // Any other failure (network) says nothing about the schema: not now.
   return false;
 }
 // The project channel's name: epoch 0 keeps the name every build has used.

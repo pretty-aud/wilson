@@ -775,6 +775,9 @@ export function RabbitProvider({ children }) {
   const refreshProjectsIndex = useCallback(async () => {
     if (!adapterRef.current) return null;
     const seq = ++projectsIndexSeqRef.current;
+    // The project open when the read STARTS: a project opened while it was in
+    // flight may postdate the list's snapshot (review round 1, finding 6).
+    const openAtStart = activeProjectIdRef.current;
     try {
       const list = await adapterRef.current.listProjects();
       if (seq !== projectsIndexSeqRef.current) return null;
@@ -784,7 +787,10 @@ export function RabbitProvider({ children }) {
       if (from !== null && seq >= from) {
         revalidateFromSeqRef.current = null;
         const open = activeProjectIdRef.current;
-        if (open && !(Array.isArray(list) && list.some(p => p?.id === open))) {
+        if (open && open === openAtStart && !(Array.isArray(list) && list.some(p => p?.id === open))) {
+          // A load of the hidden project still in flight must not land after
+          // the close (review round 1, finding 7): retire it as a switch does.
+          bundleLoadSeqRef.current++;
           setActiveProjectIdState(null);
           setBundle(EMPTY_BUNDLE);
           clearHistory();

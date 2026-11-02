@@ -105,11 +105,16 @@ export default function ProjectsPage({ onNavigate }) {
   // project's, which opening a project here sets (handleOpen); until the two
   // agree, there is no seat to read, and the matrix answers from the app role.
   const sameOpen = !!activeProject && ctx?.activeProjectId === activeProject.id
+  // …and the roster must be this project's: right after opening, it is still
+  // the previous project's until refreshProjectMembers lands (review round 1,
+  // finding 8), which reads as "not known yet", never as that project's seat.
+  const rosterIsThis = sameOpen
+    && (ctx?.projectMembers || []).every(m => !m?.project_id || m.project_id === activeProject.id)
   const canManageTeam = !cloud || canOnProject({
     appRole: perms.role,
-    projectRole: sameOpen ? ctx?.myProjectRole : null,
-    isStaffed: sameOpen ? ctx?.projectIsStaffed : false,
-    ready: perms.ready,
+    projectRole: rosterIsThis ? ctx?.myProjectRole : null,
+    isStaffed: rosterIsThis ? ctx?.projectIsStaffed : false,
+    ready: perms.ready && (rosterIsThis || !sameOpen),
   }, 'project.roster.manage')
 
   // ── Create / open / delete ────────────────────────────────

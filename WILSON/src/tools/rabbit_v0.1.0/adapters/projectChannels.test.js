@@ -15,8 +15,8 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
 
 const { supabaseAdapter, resetSupabaseAdapter, projectTopicName } = await import('./supabaseAdapter')
 
-/** A client with a projects table (with or without topic_epoch) and channels that record their bindings. */
-function makeClient({ hasEpoch = true } = {}) {
+/** A client on a database with (or without) 0109, and channels that record their bindings. */
+function makeClient({ has0109 = true } = {}) {
   const channels = []
   const selects = []
   const client = {
@@ -35,6 +35,10 @@ function makeClient({ hasEpoch = true } = {}) {
       return ch
     },
     removeChannel() {},
+    // 0109's join test, the adapter's probe for whether the triggers send to epoch topics.
+    rpc: async (fn) => (has0109 && fn === 'project_topic_matches'
+      ? { data: false, error: null }
+      : { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${fn}` } }),
     from(table) {
       let cols = null
       const b = {
@@ -42,9 +46,6 @@ function makeClient({ hasEpoch = true } = {}) {
         limit: () => b,
         order: () => b,
         then: (resolve) => {
-          if (/topic_epoch/.test(cols || '') && !hasEpoch) {
-            return resolve({ data: null, error: { code: '42703', message: 'column projects.topic_epoch does not exist' } })
-          }
           return resolve({ data: [], error: null })
         },
       }
@@ -111,13 +112,15 @@ describe('subscribeWorkspaceChanges (0109)', () => {
 
 describe('listProjects and topic_epoch', () => {
   const listCols = () => fake.selects.filter(s => s.table === 'projects' && /^id, title/.test(s.cols)).map(s => s.cols)
-  it('reads topic_epoch where the column exists', async () => {
+  it('reads topic_epoch where 0109 is present', async () => {
     await supabaseAdapter().listProjects()
     expect(listCols()).toHaveLength(1)
     expect(listCols()[0]).toMatch(/, topic_epoch$/)
   })
-  it('lists as before on a database without it (no 42703 on the whole list)', async () => {
-    fake = makeClient({ hasEpoch: false })
+  // Review round 1, finding 1: 0107 alone adds the column and bumps it, but the
+  // triggers still send to the plain topic until 0109, so the epoch must wait for it.
+  it('lists as before on a database without 0109, the column there or not', async () => {
+    fake = makeClient({ has0109: false })
     globalThis.__testSupabase = fake.client
     await supabaseAdapter().listProjects()
     expect(listCols()).toHaveLength(1)
