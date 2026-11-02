@@ -10,12 +10,14 @@ Her answers (2026-10-27, verbatim, two batches of four): the finish line **"Feat
 
 **v1.0.0 is tagged when all four hold:**
 
-1. The feature list in §2 is built, merged and on the beta.
+1. The feature list in §2 is built, merged and on the beta: the baseline, built by 2026-11-01, and M.O.T.H., which her ruling of 2026-11-01 added (§2; four sessions, §4's M.O.T.H. section).
 2. The closed defects list in §3 is fixed. Nothing is added to that list from now on.
-3. Audrey's testing passes: the walkthroughs in §6 reported, `docs/RELEASE_TESTING.md` ticked.
+3. Audrey's testing passes: the walkthroughs in §6 reported (M.O.T.H.'s four among them), `docs/RELEASE_TESTING.md` ticked.
 4. The release steps in §6 are done: hers in the browser, then the controller's on production, after the TPN re-audit reports nothing High.
 
 Nothing else goes in before the tag. Every review finding from here on is written in `docs/OUTSTANDING.md` and waits for 1.1 unless it is a security defect or it breaks one of the four above.
+
+**Does not wait for M.O.T.H. or the tag:** TPN-AI-009's AI-files sweep on the beta, due **before 2026-11-09** (§6).
 
 ---
 
@@ -47,6 +49,7 @@ What the last month built: the post-overhaul bundles (settings, O.T.T.E.R. funct
 - **Offline launch past the sign-in screen** with a fresh saved sign-in; cloud calls then fail honestly. A policy decision then a small build; the fix shape is in `OUTSTANDING.md`.
 - **The desktop → cloud migration carries everything**: shot lists, edits, folders, comments, milestones, budgets, expenses, levels, experiences; and a second run does not resurrect rows a teammate deleted. Two build nights.
 - **Browser previews for a workspace on its own storage** (S3, a NAS). One build night.
+- **M.O.T.H.** (Mapping, Organization & Tagging Hub, said "Moth"), added by her ruling of 2026-11-01 (`briefs/MOTH_PLANNING_BRIEF.md` §12, verbatim in §4's M.O.T.H. section): an editable visual world of a project's files and everything connected to them, with company and personal tags, labelled links, workspace notes and live boards. **Everything above this line is the baseline, built and on the beta by 2026-11-01; M.O.T.H. is what the release still needs.** Planned in `docs/sessions/PLAN_MOTH.md`, her six answers in its §9; four sessions, §4.
 
 **Small, in unless she says otherwise (no ruling needed):**
 - Levels and Experiences get the write gate Scenes has (a seat that cannot write sees a live Delete and rename today; `ScenesView.jsx` reads the gate 148 times, `LevelsView.jsx` and `ExperiencesView.jsx` zero).
@@ -194,19 +197,21 @@ Also that day: the ninth beta merge (`69546e1d`); the RLS workflow pinned to `ub
 **Night 10 done (2026-11-01).** AT1 merged `5556ea09` (CI run 41281528003 green; Opus throughout): the admin terminal edge to edge with one 24 px gutter, the member panel 560 px in two columns with no scroll from 1280x720 and never sideways (her cut-off edge was badges overflowing a 73 px column), every confirm from the panel centred on the window (cause measured: the panel's resting translateX(0) made it the containing block of the dialog's fixed backdrop), one Escape no longer closing both. Her answers, verbatim: in the controller's chat Q1 **"Edge to edge (Recommended)"** and Q2 **"Compact list (Recommended)"**, in AT1's session **"Edge to edge (Recommended)"** and **"Name and status (Recommended)"** — the same choices, both as built (docs `947c45ad`). SB1 merged `e0cd3a00` (CI run 41288996655 green; Opus throughout): O.T.T.E.R.'s courses sidebar (180–480 px) and D.O.G.'s pages sidebar (160–480 px) resize by dragging one handle on the kit Panel, the width kept per device, double-click to reset, arrow keys, the collapse kept; at rest both tools pixel-identical to before. Asked whether to merge AT1 alone, her answer, verbatim: **"Wait for SB1"**; **the twenty-fifth beta merge `f85763ea`** pushed 17:29 UTC once SB1 had merged (parents `57e25d4d` and `e0cd3a00`), the bundle `index-DfcBt_E0.js` live at 17:31 UTC; nothing applied on staging.
 
 ### M.O.T.H. — part of the release (her ruling of 2026-11-01)
-**Her rulings, verbatim (her brief `briefs/MOTH_PLANNING_BRIEF.md`, §12):** *"What has been called 1.0 is the baseline, and it is already reached. This tool is now part of the release: the release and the v1.0.0 tag wait until it is built. Work starts now, not after a tag."* and *"Optimisation waves 2–4 in `PLAN_WEEK_2026-11-04.md` (F4–F12) run after this tool is built, so they optimise the finished code. Wave 1 stays done."* M.O.T.H. (Mapping, Organization & Tagging Hub, said "Moth") is a visual graph of a project's files, tags, links and notes, plus live boards. The plan is `docs/sessions/PLAN_MOTH.md`, written in a read-only planning pass from her brief, with her six answers in its §9 (among them *"Opus for all sessions"*). Four long sessions, one after another, each starting from the previous hand-off; this section governs until MO1 brings §0 and §2 to it (PLAN_MOTH §2):
+**Her rulings, verbatim (her brief `briefs/MOTH_PLANNING_BRIEF.md`, §12):** *"What has been called 1.0 is the baseline, and it is already reached. This tool is now part of the release: the release and the v1.0.0 tag wait until it is built. Work starts now, not after a tag."* and *"Optimisation waves 2–4 in `PLAN_WEEK_2026-11-04.md` (F4–F12) run after this tool is built, so they optimise the finished code. Wave 1 stays done."* M.O.T.H. (Mapping, Organization & Tagging Hub, said "Moth") is a visual graph of a project's files, tags, links and notes, plus live boards. The plan is `docs/sessions/PLAN_MOTH.md`, written in a read-only planning pass from her brief, with her six answers in its §9 (among them *"Opus for all sessions"*). Four long sessions, one after another, each starting from the previous hand-off; §0 and §2 carry it since MO1 (2026-11-02, PLAN_MOTH §2). A session that stalls on the usage limit gets "continue", not a new session:
 
-| Session | Scope |
-|---|---|
-| **MO1 Shared foundations, storage and security** | All of Moth's tables with their security and suites, the personal space, safe moves and restorable deletes, the network-drive catalogue, the privacy repairs, a minimal entry. Brief `briefs/po-moth1-foundations.md`; chipped 2026-11-02; walkthrough 93 |
-| **MO2 Graph, glow, HUD and navigation** | The graph itself, the light, the HUD, previews, link and move gestures, adaptive input, measured performance. Brief written from MO1's hand-off |
-| **MO3 Tags, relationships and workspace notes** | Typed company and personal tags, nominations, inline `#` and `[[`, backlinks, shared notes. Brief written from MO2's hand-off |
-| **MO4 Boards, live editing and release verification** | The board toolkit, the board window, live cursors and sticky locks, the cost measurement, the full acceptance pass. Brief written from MO3's hand-off |
+| Session | Scope | Starts when |
+|---|---|---|
+| **MO1 Shared foundations, storage and security** | All of Moth's tables with their security and suites, the personal space, safe moves and restorable deletes, the network-drive catalogue, the privacy repairs, a minimal entry. Brief `briefs/po-moth1-foundations.md`; chipped 2026-11-02; walkthrough 93 | The integration tip `9a2d7023` |
+| **MO2 Graph, glow, HUD and navigation** | The graph itself, the light, the HUD, previews, link and move gestures, adaptive input, measured performance. Brief written from MO1's hand-off; walkthrough at the next free number | MO1 merged, its migrations on dev |
+| **MO3 Tags, relationships and workspace notes** | Typed company and personal tags, nominations, inline `#` and `[[`, backlinks, shared notes. Brief written from MO2's hand-off; walkthrough at the next free number | MO2 merged |
+| **MO4 Boards, live editing and release verification** | The board toolkit, the board window, live cursors and sticky locks, the cost measurement, the full acceptance pass. Brief written from MO3's hand-off; walkthrough at the next free number | MO3 merged |
 
-**Does not wait for Moth:** TPN-AI-009's AI-files sweep on the beta is due before 2026-11-09 (hers, in the operator console).
+**What Moth adds to the release steps (the deployment inventory).** Its migrations start at **0107 with suite 110** (measured at MO1's start on every local and remote ref and on wilson-dev, whose head is 0106); every new table lands with its suite and its `RLS_TABLES` line. Each session applies its files to wilson-dev by the house method (`docs/PRODUCTION_RUNBOOK.md` (b)) and adds their rows, with suite and md5, to the runbook's (b) table after 0106. The controller applies them to staging on her go before each beta merge; production takes them in (b)'s order after 0106. An Edge Function that Moth adds or changes joins the runbook's (c) list, named by the session that makes it. The waves' F7 takes the next free numbers after Moth's.
+
+**Does not wait for Moth:** TPN-AI-009's AI-files sweep on the beta is due **before 2026-11-09** (hers, in the operator console).
 
 ### After night 10
-Her testing (walkthroughs and `RELEASE_TESTING.md`), her browser steps, the controller's production steps, the tag. If a night's session stalls (the usage limit, a CI outage), its brief carries to the next night; nothing new is added in its place. Four nights was the estimate, not a promise: a design that needs her ruling waits a morning. Night 5 was added by her ruling of 2026-10-28; night 6 by her ruling of 2026-10-29 (*"2. a"*); night 7 by her *"Q2. b"* the same morning; night 8 by her ask of 2026-10-30 (the layout pass on D.O.G.'s card 1, in her words above); night 9 by her ask of 2026-10-31 (the two cards stacked and cleaned up, in her words above); night 10 by her ask of 2026-11-01 (the admin terminal and the resizable sidebars, in her words above). **The week after the reset (2026-11-04 08:00 UTC) is planned in `docs/sessions/PLAN_WEEK_2026-11-04.md`** at her ask of 2026-10-31 (verbatim there): the review's work in four waves of three sessions, F1 to F12, wave 1's chips posted and waiting; F1 (OUTSTANDING REV-01) is before production by her ruling, the rest 1.1 unless she names it; this plan's §0 gate is unchanged.
+Her testing (walkthroughs and `RELEASE_TESTING.md`), her browser steps, the controller's production steps, the tag. If a night's session stalls (the usage limit, a CI outage), its brief carries to the next night; nothing new is added in its place. Four nights was the estimate, not a promise: a design that needs her ruling waits a morning. Night 5 was added by her ruling of 2026-10-28; night 6 by her ruling of 2026-10-29 (*"2. a"*); night 7 by her *"Q2. b"* the same morning; night 8 by her ask of 2026-10-30 (the layout pass on D.O.G.'s card 1, in her words above); night 9 by her ask of 2026-10-31 (the two cards stacked and cleaned up, in her words above); night 10 by her ask of 2026-11-01 (the admin terminal and the resizable sidebars, in her words above). **The week after the reset (2026-11-04 08:00 UTC) is planned in `docs/sessions/PLAN_WEEK_2026-11-04.md`** at her ask of 2026-10-31 (verbatim there): the review's work in four waves of three sessions, F1 to F12, wave 1's chips posted and waiting; F1 (OUTSTANDING REV-01) is before production by her ruling, the rest 1.1 unless she names it; waves 2 to 4 run after M.O.T.H. is built (her ruling of 2026-11-01) and add nothing to this plan's §0 gate.
 
 ---
 
@@ -229,6 +234,7 @@ Her testing (walkthroughs and `RELEASE_TESTING.md`), her browser steps, the cont
 - The answer blocks: Bins on the cloud (13), custom views (batch 18), the DG1b design's §9, and each morning's block (the 5c design first).
 - The release steps in the browser: rotate `smoke_admin`; roll staging's legacy `service_role` key; the two Auth hooks on staging; PR #4's title and body; the gateway's GitHub setup and the Windows installer rehearsal; `RELEASE_TESTING.md`.
 - The operator console's AI-files sweep on the beta before 2026-11-09 (walkthrough 76 part C).
+- M.O.T.H.'s four walkthroughs: 93 for MO1, then the next free number for each of MO2 to MO4, one report each.
 
 ## 7. The overnight routine
 
