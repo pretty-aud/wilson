@@ -80,6 +80,73 @@ describe('frame governor', () => {
     expect([...modes]).toEqual(['full']) // ours never left
   })
 
+  // A machine where full frames cost 28 ms and light frames 12 ms of script:
+  // light is cheaper by design, so "good in light" must not mean "go back".
+  const runOwnEffect = (g, clock, seconds) => {
+    for (let s = 0; s < seconds; s++) {
+      clock.t += 1000
+      for (let i = 0; i < 60; i++) {
+        const ms = g.mode() === 'light' ? 12 : 28
+        g.record(ms, ms)
+      }
+    }
+    return g.switches()
+  }
+
+  it('under its own effect it switches once and stays (no flapping, design round U29)', () => {
+    const { g, clock } = make()
+    expect(runOwnEffect(g, clock, 120)).toBe(1)
+    expect(g.mode()).toBe('light')
+  })
+
+  it('CONTROL: an exit rule that only asks "under budget in light" flaps on the same machine', () => {
+    let mode = 'full'
+    let switches = 0
+    let badRun = 0
+    let goodRun = 0
+    let last = -Infinity
+    for (let s = 0; s < 120; s++) {
+      const ms = mode === 'light' ? 12 : 28
+      if (ms > 20) { badRun++; goodRun = 0 } else { goodRun++; badRun = 0 }
+      if (s * 1000 - last >= 5000) {
+        if (mode === 'full' && badRun >= 2) { mode = 'light'; switches++; last = s * 1000 }
+        else if (mode === 'light' && goodRun >= 4) { mode = 'full'; switches++; last = s * 1000 }
+      }
+    }
+    expect(switches).toBeGreaterThan(1)
+  })
+
+  it('a healthy 60 Hz machine leaves light: frames 16.7 ms late but 2 ms of script count as headroom', () => {
+    const { g, clock } = make()
+    feed(g, clock, 2, 0.5) // into light
+    expect(g.mode()).toBe('light')
+    for (let w = 0; w < 4; w++) {
+      clock.t += 2000
+      for (let i = 0; i < W; i++) g.record(16.7, 2)
+    }
+    expect(g.mode()).toBe('full')
+  })
+
+  it('CONTROL: judging headroom on the frame time (not the script work) never leaves light at 60 Hz', () => {
+    const { g, clock } = make()
+    feed(g, clock, 2, 0.5)
+    for (let w = 0; w < 8; w++) {
+      clock.t += 2000
+      for (let i = 0; i < W; i++) g.record(16.7) // workMs defaults to the frame time
+    }
+    expect(g.mode()).toBe('light')
+  })
+
+  it('dropping back to light soon after leaving doubles the next minimum stay', () => {
+    const { g, clock } = make()
+    feed(g, clock, 2, 0.5) // light at t=4 s
+    feed(g, clock, 4, 0) // full at t=12 s (dwell 5 s met)
+    feed(g, clock, 3, 0.5) // light again at t=18 s (5 s after the last switch): the stay becomes 10 s
+    expect(g.mode()).toBe('light')
+    expect(feed(g, clock, 4, 0)).toBe('light') // t=26 s: only 8 s since the switch
+    expect(feed(g, clock, 1, 0)).toBe('full') // t=28 s: 10 s
+  })
+
   it('the manual override wins both ways and auto returns to the measured mode', () => {
     const { g, clock } = make()
     expect(g.setOverride('light')).toBe('light')

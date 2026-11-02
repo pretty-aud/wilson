@@ -12,7 +12,7 @@
 //   { type: 'pin', job, id, x, y }   { type: 'unpin', job, id }
 //   { type: 'reheat', job }          { type: 'stop', job }
 // Messages out:
-//   { type: 'tick', job, seq, xy }                 (xy: Float32Array, transferred)
+//   { type: 'tick', job, seq, xy }                 (xy: Float32Array, transferred; at most every postEveryMs)
 //   { type: 'settled', job, seq, xy, ticks, reason: 'settled' | 'cap' }
 //   { type: 'error', job, code: 'too_large' | 'bad_input' | 'unknown_layout' | 'failed' }
 //   { type: 'error', job, code: 'refused' }   (a pin or unpin of a dot it does not hold; the job stays)
@@ -33,6 +33,7 @@ export const WORKER_LIMITS = Object.freeze({
   batchMs: 8,
   maxTicks: 600,
   maxRunMs: 10000,
+  postEveryMs: 32, // ticks keep running between posts; the page draws at most ~30 times a second while it settles
 })
 
 function validInput(nodes, links) {
@@ -75,14 +76,21 @@ export function createLayoutWorkerCore({ post, schedule, now, limits = {} }) {
       if (j.runTicks >= L.maxTicks || now() - j.runStart >= L.maxRunMs) { done = true; reason = 'cap'; break }
       if (now() - t0 >= L.batchMs) break
     }
-    j.seq++
     if (done) {
+      j.seq++
       j.running = false
       j.layout.releaseHolds()
       send({ type: 'settled', job: j.id, seq: j.seq, xy: snapshot(j), ticks: j.ticks, reason })
       return // suspended: nothing more is scheduled
     }
-    send({ type: 'tick', job: j.id, seq: j.seq, xy: snapshot(j) })
+    // Positions go to the page at most every postEveryMs: fewer copies and
+    // frames on the main thread while the layout settles, so a press is
+    // still answered quickly (measured: feedback while streaming, hand-off).
+    if (j.lastPost == null || now() - j.lastPost >= L.postEveryMs) {
+      j.seq++
+      j.lastPost = now()
+      send({ type: 'tick', job: j.id, seq: j.seq, xy: snapshot(j) })
+    }
     schedule(() => step(j))
   }
 
@@ -99,7 +107,7 @@ export function createLayoutWorkerCore({ post, schedule, now, limits = {} }) {
     if (layout !== 'force') return send({ type: 'error', job: id, code: 'unknown_layout' })
     const j = {
       id, layout: createForceLayout({ nodes, links, positions, options }),
-      indexOf: new Map(nodes.map((n, i) => [n.id, i])), seq: 0, ticks: 0, runTicks: 0, runStart: 0, running: false,
+      indexOf: new Map(nodes.map((n, i) => [n.id, i])), seq: 0, ticks: 0, runTicks: 0, runStart: 0, lastPost: null, running: false,
     }
     job = j
     run(j)

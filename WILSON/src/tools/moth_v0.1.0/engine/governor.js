@@ -11,8 +11,12 @@
 // both ways. Reduced motion is a different thing (calm mode, glow.js): it is
 // a request about motion, never a claim that the machine is slow.
 //
-// It is fed only frames that were drawn back to back while something moved;
-// an idle Moth draws nothing and therefore records nothing.
+// It is fed only frames drawn while the camera moved (a pan, zoom, pinch,
+// fly-to or tween): the question is whether this machine can draw the world
+// as it moves under the person's hand. Frames that only show a settling
+// layout are not fed: they are slow when the layout worker holds a core,
+// which the lighter mode would not fix. An idle Moth draws nothing and
+// therefore records nothing.
 // =============================================================================
 
 export const GOVERNOR_DEFAULTS = Object.freeze({
@@ -20,7 +24,7 @@ export const GOVERNOR_DEFAULTS = Object.freeze({
   windowFrames: 60,
   enterBadRatio: 0.25, // a window is bad when a quarter of its frames miss the budget…
   enterWindows: 2, // …and two bad windows in a row switch to light
-  exitHeadroom: 0.5, // in light, a frame counts as good only under half the budget…
+  exitHeadroom: 0.5, // in light, a frame counts as good only with script work under half the budget…
   exitBadRatio: 0.05, // …a window is good when almost none miss that…
   exitWindows: 4, // …and four good windows in a row switch back
   minDwellMs: 5000, // never sooner than this after the last switch, doubled per re-entry
@@ -46,12 +50,18 @@ export function createFrameGovernor(options = {}) {
   const mode = () => (override === 'auto' ? auto : override)
 
   return {
-    /** One drawn frame's duration in ms. Returns the mode in effect. */
-    record(frameMs) {
+    /**
+     * One drawn frame: frameMs is what the person saw (the larger of the
+     * script work and how late the frame came), workMs the script work alone.
+     * Entering light judges frameMs; leaving it also needs headroom in
+     * workMs, because at 60 Hz a healthy frame still comes up to 16.7 ms
+     * after it was asked for. Returns the mode in effect.
+     */
+    record(frameMs, workMs = frameMs) {
       if (!Number.isFinite(frameMs) || frameMs < 0) return mode()
       frames++
       if (frameMs > o.budgetMs) bad++
-      if (frameMs > o.budgetMs * o.exitHeadroom) tight++
+      if (frameMs > o.budgetMs || (Number.isFinite(workMs) ? workMs : frameMs) > o.budgetMs * o.exitHeadroom) tight++
       if (frames >= o.windowFrames) {
         const ratio = bad / frames
         const tightRatio = tight / frames

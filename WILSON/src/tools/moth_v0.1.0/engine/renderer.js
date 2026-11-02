@@ -14,10 +14,12 @@
 //   * Feedback: setSelection / setHover redraw on the next frame, and
 //     hitTest reads the frame on screen (its own dot ids), so a press is
 //     answered within a frame (the target is 100 ms).
-//   * The lighter mode comes from governor.js. Each frame drawn during
-//     motion feeds it the larger of its script work and how late the frame
-//     came (request to callback, and frame to frame when the motion is
-//     continuous), so a slow raster or compositor counts, not only script.
+//   * The lighter mode comes from governor.js. Each frame drawn while the
+//     camera moves (pan, zoom, pinch, fly-to, tween) feeds it the larger of
+//     its script work and how late the frame came (request to callback, and
+//     frame to frame when the motion is continuous), so a slow raster or
+//     compositor counts, not only script; the script work goes with it for
+//     the exit test. Frames that only show a settling layout are not fed.
 //   * A dot that has never been given a place (new, and no ancestor with
 //     one) is drawn at the centre of the world but never saved as a place.
 //
@@ -108,6 +110,7 @@ export function createRenderer({
   let lastFrameAt = null
   let frames = 0
   let requests = 0
+  let moved = false // the camera moved since the last frame (pan, zoom, pinch)
 
   function emptyScene() {
     return {
@@ -143,7 +146,8 @@ export function createRenderer({
     const gap = continuous && lastFrameAt != null ? t0 - lastFrameAt : 0
     const sample = Math.max(work, late, gap)
     const light = governor ? governor.mode() === 'light' : false
-    if (governor) governor.record(sample)
+    if (governor && (moved || animating())) governor.record(sample, work) // camera motion only
+    moved = false
     if (onFrame) onFrame({ workMs: work, intervalMs: continuous ? gap : null, sampleMs: sample, lod: last.lod, dots: last.dots.count, edges: last.edges.count + last.clusterEdges.count, clusters: last.clusters.count, light })
     lastFrameAt = t0
     lastFrameEnd = t1
@@ -433,9 +437,9 @@ export function createRenderer({
     },
     camera: () => cam,
     viewport: () => viewport,
-    setCamera(next) { fly = null; cam = makeCamera(next?.x, next?.y, next?.k); invalidate() },
-    panBy(dx, dy) { fly = null; cam = panCamera(cam, dx, dy); invalidate() },
-    zoomAt(factor, sx, sy) { fly = null; cam = zoomCamera(cam, viewport, factor, sx, sy); invalidate() },
+    setCamera(next) { fly = null; moved = true; cam = makeCamera(next?.x, next?.y, next?.k); invalidate() },
+    panBy(dx, dy) { fly = null; moved = true; cam = panCamera(cam, dx, dy); invalidate() },
+    zoomAt(factor, sx, sy) { fly = null; moved = true; cam = zoomCamera(cam, viewport, factor, sx, sy); invalidate() },
     /** target: { x, y, k } or { id, k }. Reduced motion jumps; a fly lasts at most 2 s. */
     flyTo(target, { ms = 650 } = {}) {
       let to = target
