@@ -33,6 +33,8 @@ Asked as multiple choice in plain words; each answer is the recommended option, 
 3. **The storage notice everyone sees** (its total now includes personal spaces): *"Full or nearly full (Recommended)"*: members see only whether storage is full or nearly full, with no amounts.
 4. **Moth data for a project kept only on one computer:** *"Wait for the cloud (Recommended)"*: its layout, tags and boards wait until the project moves to the cloud (Session 2 onward).
 
+What these four change in section 1, which was written before them (**the answers win**): answer 1 is the integrated default for who runs the office-server check, so nothing changes. **Answer 2 changes the move operation:** an admin may move a former member's personal-space files into a project once that person is no longer an active member (through the same checked move, refused while the person is active, recorded in the admin activity list as answer 4 of the first set requires); section 1's "admins can open and download, never move" is superseded. **Answer 3 adds work not yet placed in section 1.4:** members' storage notice shows only "full" or "nearly full", no amounts (the member path of `workspace_storage_usage()` coarsened, the admin views keep the figure; OUTSTANDING S4b-06 closes); it lands with the personal-space migration (0110), when personal bodies start counting, or as its own file beside it, decided when 0110 is written. Answer 4 keeps the deferral already in section 1.13.
+
 ## 1. Session 1, integrated: what the build implements
 
 ### 1.1 Summary
