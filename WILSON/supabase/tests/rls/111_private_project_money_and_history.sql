@@ -27,7 +27,7 @@
 
 BEGIN;
 
-SELECT plan(53);
+SELECT plan(58);
 
 SELECT * FROM tests.rls_setup();
 
@@ -66,12 +66,14 @@ INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VA
   ('aaaa1111-0000-0000-0000-000000000111', '11111111-1111-1111-1111-111111111111', 'Private P', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true),
   ('aaaa1111-0000-0000-0000-000000000112', '11111111-1111-1111-1111-111111111111', 'Public Q',  'dddddddd-dddd-dddd-dddd-dddddddddddd', false),
   ('aaaa1111-0000-0000-0000-000000000113', '11111111-1111-1111-1111-111111111111', 'Flipped R', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true),
-  ('aaaa1111-0000-0000-0000-000000000114', '11111111-1111-1111-1111-111111111111', 'Trashed T', 'dddddddd-dddd-dddd-dddd-dddddddddddd', false);
+  ('aaaa1111-0000-0000-0000-000000000114', '11111111-1111-1111-1111-111111111111', 'Trashed T', 'dddddddd-dddd-dddd-dddd-dddddddddddd', false),
+  ('aaaa1111-0000-0000-0000-000000000119', '11111111-1111-1111-1111-111111111111', 'Public S, made private later', 'dddddddd-dddd-dddd-dddd-dddddddddddd', false);
 
 INSERT INTO public.project_members (workspace_id, project_id, user_id, project_role) VALUES
   ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000111', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'manager'),
   ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000112', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'manager'),
-  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'manager')
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'manager'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000119', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'manager')
 ON CONFLICT DO NOTHING;
 
 -- Money on P and on Q.
@@ -151,6 +153,42 @@ INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
   ('11100000-0000-0000-0000-0000000000d3', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000114', 'T task');
 UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1111-0000-0000-0000-000000000114';
 
+-- Re-points inside one project (Q): a dependency's successor, a link's task
+-- and a comment's subject each move to another task of Q. The live capture
+-- keeps Q on each; the restamp must agree (probe 26).
+INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
+  ('11100000-0000-0000-0000-0000000000b6', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000112', 'Q task 3'),
+  ('11100000-0000-0000-0000-0000000000b7', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000112', 'Q task 4');
+INSERT INTO public.task_dependencies (id, predecessor_id, successor_id) VALUES
+  ('11100000-0000-0000-0000-0000000000bd', '11100000-0000-0000-0000-0000000000b8', '11100000-0000-0000-0000-0000000000b6');
+INSERT INTO public.task_links (id, task_id, url) VALUES
+  ('11100000-0000-0000-0000-0000000000be', '11100000-0000-0000-0000-0000000000b8', 'https://example.test/q2');
+INSERT INTO public.comments (id, workspace_id, entity_type, entity_id, body) VALUES
+  ('11100000-0000-0000-0000-0000000000bf', '11111111-1111-1111-1111-111111111111', 'task', '11100000-0000-0000-0000-0000000000b8', 'Q note');
+UPDATE public.task_dependencies SET successor_id = '11100000-0000-0000-0000-0000000000b7' WHERE id = '11100000-0000-0000-0000-0000000000bd';
+UPDATE public.task_links SET task_id = '11100000-0000-0000-0000-0000000000b6' WHERE id = '11100000-0000-0000-0000-0000000000be';
+UPDATE public.comments SET entity_id = '11100000-0000-0000-0000-0000000000b6' WHERE id = '11100000-0000-0000-0000-0000000000bf';
+
+-- A comment outlives its deleted task (comments carry no foreign key to
+-- their subject); the task's id is then created again in Q; the comment is
+-- then deleted. Its delete row must not be Q's.
+INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
+  ('11100000-0000-0000-0000-0000000000c7', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000111', 'P task to delete');
+INSERT INTO public.comments (id, workspace_id, entity_type, entity_id, body) VALUES
+  ('11100000-0000-0000-0000-0000000000c8', '11111111-1111-1111-1111-111111111111', 'task', '11100000-0000-0000-0000-0000000000c7', 'PRIVATE P NOTE');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111'))::text, true);
+DELETE FROM public.tasks WHERE id = '11100000-0000-0000-0000-0000000000c7';
+INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
+  ('11100000-0000-0000-0000-0000000000c7', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000112', 'Q task on a reused id');
+DELETE FROM public.comments WHERE id = '11100000-0000-0000-0000-0000000000c8';
+SELECT set_config('request.jwt.claims', '{}', true);
+
+-- S: public, with a task user_e (seated manager) could read; then made private.
+INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
+  ('11100000-0000-0000-0000-0000000000d4', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000119', 'S task, written while public');
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000000119';
+
 -- The capture's answer for one entity's row of one action: 'project|private'.
 CREATE TEMP TABLE h111 AS
   SELECT entity_type, entity_id, action, id,
@@ -227,7 +265,7 @@ SELECT is((SELECT stamp FROM h111 WHERE entity_type = 'phase_dependencies' AND e
   'aaaa1111-0000-0000-0000-000000000111|true', 'phase_dependencies: both endpoints in P, so P');
 
 
--- ── 18-22: rows that belong to no one side ─────────────────────────────────────
+-- ── 18-23: rows that belong to no one side ─────────────────────────────────────
 
 SELECT is((SELECT stamp FROM h111 WHERE entity_type = 'task_dependencies' AND entity_id = '11100000-0000-0000-0000-0000000000ba' AND action = 'create'),
   '-|true', 'a dependency that joins Q to P names no project (admins only)');
@@ -241,9 +279,11 @@ SELECT is((SELECT stamp FROM h111 WHERE entity_type = 'files' AND entity_id = '1
   '-|true', '🚨 the file''s move from P to Q names no project (the snapshot''s move line; the classifier alone would say Q)');
 SELECT is((SELECT stamp FROM h111 WHERE entity_type = 'task_links' AND entity_id = '11100000-0000-0000-0000-0000000000bb' AND action = 'delete'),
   '-|true', 'a link deleted with its task (a cascade: the parent is gone) names no project (admins only)');
+SELECT is((SELECT stamp FROM h111 WHERE entity_type = 'comments' AND entity_id = '11100000-0000-0000-0000-0000000000c8' AND action = 'delete'),
+  '-|true', '🚨 a comment that outlived its task, deleted after the task''s id was created again in Q, names no project — not Q''s');
 
 
--- ── 23-25: the walk ─────────────────────────────────────────────────────────────
+-- ── 24-26: the walk ─────────────────────────────────────────────────────────────
 
 SELECT is(
   public.edit_history_project_at('assets', '11100000-0000-0000-0000-0000000000a7', NULL, now(),
@@ -276,7 +316,7 @@ SELECT is(
   'the walk over crafted rows of a deleted entity: the rename before the move was P''s, the one after it Q''s');
 
 
--- ── 26-32: the restamp (0108's backfill) over history as it was before 0108 ─────
+-- ── 27-33: the restamp (0108's backfill) over history as it was before 0108 ─────
 
 -- It agrees with the live capture: over every row the fixtures wrote, it
 -- changes nothing.
@@ -376,7 +416,7 @@ SELECT is(
   'create:- update:- delete:- create:aaaa1111-0000-0000-0000-000000000115',
   '🚨 a reused project id: the earlier project''s rows name no project (admins only); only the new one''s create row is B''s');
 
--- ── 33-34: a project deleted for good leaves its history to the admins ──────────
+-- ── 34-37: a project deleted (or re-keyed) for good leaves its history to the admins ──────────
 
 INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
   ('aaaa1111-0000-0000-0000-000000000116', '11111111-1111-1111-1111-111111111111', 'Purged P2', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true);
@@ -385,9 +425,15 @@ INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
 INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path) VALUES
   ('11100000-0000-0000-0000-0000000000f6', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000116', 'p2-secret.txt', 'supabase',
    'projects/aaaa1111-0000-0000-0000-000000000116/project/x/1-p2-secret.txt');
+INSERT INTO public.comments (id, workspace_id, entity_type, entity_id, body) VALUES
+  ('11100000-0000-0000-0000-0000000000f7', '11111111-1111-1111-1111-111111111111', 'project', 'aaaa1111-0000-0000-0000-000000000116', 'OLD PRIVATE SECRET');
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000000118', '11111111-1111-1111-1111-111111111111', 'Purged public V', 'dddddddd-dddd-dddd-dddd-dddddddddddd', false);
+INSERT INTO public.tasks (id, workspace_id, project_id, title) VALUES
+  ('11100000-0000-0000-0000-0000000000f8', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000000118', 'V task');
 SELECT set_config('request.jwt.claims', json_build_object(
   'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111'))::text, true);
-DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000116';
+DELETE FROM public.projects WHERE id IN ('aaaa1111-0000-0000-0000-000000000116', 'aaaa1111-0000-0000-0000-000000000118');
 SELECT set_config('request.jwt.claims', '{}', true);
 
 SELECT ok(
@@ -396,6 +442,22 @@ SELECT ok(
         WHERE entity_id IN ('aaaa1111-0000-0000-0000-000000000116', '11100000-0000-0000-0000-0000000000f4',
                             '11100000-0000-0000-0000-0000000000f6')) >= 6,
   '🚨 a project deleted for good: every row of its history (its own, its task''s and file''s, the cascades'') is kept and names no project');
+SELECT is(
+  public.edit_history_restamp(),
+  '{"project_set": 0, "project_gone": 0, "captured_private_set": 0}'::jsonb,
+  'after a private and a public project are deleted for good, the restamp still changes nothing (no project means private, on every path)');
+
+-- A project whose id is changed (no child rows hold it): the old id's rows
+-- go to no one, as for a delete.
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000000117', '11111111-1111-1111-1111-111111111111', 'Re-keyed U', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true);
+DELETE FROM public.project_members WHERE project_id = 'aaaa1111-0000-0000-0000-000000000117';
+UPDATE public.projects SET title = 'Re-keyed U, renamed' WHERE id = 'aaaa1111-0000-0000-0000-000000000117';
+UPDATE public.projects SET id = 'aaaa1111-0000-0000-0000-00000000011a' WHERE id = 'aaaa1111-0000-0000-0000-000000000117';
+SELECT ok(
+  (SELECT count(*) FROM public.edit_history WHERE project_id = 'aaaa1111-0000-0000-0000-000000000117') = 0
+  AND (SELECT count(*) FROM public.edit_history WHERE entity_id = 'aaaa1111-0000-0000-0000-000000000117') >= 2,
+  '🚨 a project whose id is changed: the old id''s rows are kept and name no project, so whoever creates that id again reads none of them');
 
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
@@ -408,15 +470,30 @@ SET LOCAL ROLE authenticated;
 
 INSERT INTO public.projects (id, workspace_id, title, is_private) VALUES
   ('aaaa1111-0000-0000-0000-000000000116', '11111111-1111-1111-1111-111111111111', 'Squatted P2', true);
+-- The old project's comment (no foreign key: it outlived the project) is
+-- then deleted, as the nightly purge would.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111'))::text, true);
+DELETE FROM public.comments WHERE id = '11100000-0000-0000-0000-0000000000f7';
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
 SELECT is(
   (SELECT string_agg(entity_id::text || ':' || action, ',') FROM public.edit_history
     WHERE project_id = 'aaaa1111-0000-0000-0000-000000000116'
        OR entity_id IN ('aaaa1111-0000-0000-0000-000000000116', '11100000-0000-0000-0000-0000000000f4',
-                        '11100000-0000-0000-0000-0000000000f6')),
+                        '11100000-0000-0000-0000-0000000000f6', '11100000-0000-0000-0000-0000000000f7')),
   'aaaa1111-0000-0000-0000-000000000116:create',
-  '🚨 whoever creates the id again reads only their own create row — none of the old private project''s history, though they are its creator now');
+  '🚨 whoever creates the id again reads only their own create row — none of the old private project''s history, not even its comment deleted afterwards, though they are its creator now');
 
--- ── 35-43: the second manager (user_e, seated manager on P and Q) ──────────────
+-- ── 38-47: the second manager (user_e, seated manager on P and Q) ──────────────
 
 
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -470,9 +547,13 @@ SELECT is(
   (SELECT count(*)::int FROM public.edit_history WHERE entity_type IN ('rate_cards', 'rate_card_entries')
       AND entity_id IN ('11100000-0000-0000-0000-0000000000c1', '11100000-0000-0000-0000-0000000000c2')),
   2, 'rate cards stay every manager''s');
+SELECT is(
+  (SELECT count(*)::int FROM public.edit_history WHERE project_id = 'aaaa1111-0000-0000-0000-000000000119'
+      OR entity_id IN ('aaaa1111-0000-0000-0000-000000000119', '11100000-0000-0000-0000-0000000000d4')),
+  0, '🚨 a project made private after the fact: its seated manager reads none of its history, the public-era rows included');
 
 
--- ── 44-48: the creator (user_d, seated manager on P) ───────────────────────────
+-- ── 48-53: the creator (user_d, seated manager on P) ───────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -495,6 +576,9 @@ SELECT ok(
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history WHERE project_id = 'aaaa1111-0000-0000-0000-000000000113' AND entity_type = 'tasks'),
   2, 'the creator reads both of R''s tasks: the private-era row is hers');
+SELECT ok(
+  (SELECT count(*) FROM public.edit_history WHERE project_id = 'aaaa1111-0000-0000-0000-000000000119') >= 3,
+  'CONTROL: the creator still reads all of S''s history after making it private');
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history WHERE project_id IS NULL AND entity_type <> 'rate_cards' AND entity_type <> 'rate_card_entries'),
   0, 'a row with no project (the moves, the split dependency, the cascaded link) is not even the creator''s');
@@ -503,7 +587,7 @@ SELECT is(
   0, 'a trashed project''s history is not the creator''s either (can_read_project_topic is false on a trashed project)');
 
 
--- ── 49-52: the workspace admin (user_a) ─────────────────────────────────────────
+-- ── 54-57: the workspace admin (user_a) ─────────────────────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -535,7 +619,7 @@ SELECT throws_ok(
   '42501', NULL, 'a client cannot call the resolver, not even an admin');
 
 
--- ── 53: a plain member reads no history at all (0012, unchanged) ──────────────
+-- ── 58: a plain member reads no history at all (0012, unchanged) ──────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;

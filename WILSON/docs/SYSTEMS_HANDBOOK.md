@@ -820,9 +820,13 @@ after the project is made public. A trashed project's history is the admins'
 until it is restored. The history written before 0108 was stamped by
 `edit_history_restamp()` (a revoked DEFINER function that walks each entity's
 own recorded changes, `edit_history_project_at` and `edit_history_value_at`);
-re-running it changes nothing (suite 111). It costs about 0.5 ms per history
-row (214,022 synthetic rows: 1 min 49 s on a local stack) while the table is
-locked, so each environment's rehearsal records its row count and time.
+re-running it changes nothing (suite 111). It costs about 0.13 ms per
+history row (214,022 synthetic rows: 28 s on a local stack) while the table
+is locked, so each environment's rehearsal records its row count and time.
+A project whose id is changed is treated as deleted
+(`trg_projects_edit_history_rekeyed`), and a comment (which has no foreign
+key to its subject) whose subject was deleted after it was written belongs to
+no project, even if the subject's id is created again.
 
 **O.T.T.E.R.** (0022, extended 0024/0025/0026/**0045**) — `otter_courses`
 (carries the five reference-document JSONB blobs), `otter_subjects`,
@@ -1209,7 +1213,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
-| `0012`, `0037`, `0061`, `0082`, `0088` **or** `0092` | `0108` | **(MO1)** 0108 restates `can_access_project_money` (0037) with the privacy arm, `fn_edit_history_capture` (0061) with both sides' projects and `captured_private`, `fn_edit_history_money_snapshot` (0092) with the move and gone lines, and `edit_history_select` (0012 / 0088 / 0092) with the project audience. A bare re-run of 0037 puts the money gate back without the privacy arm (a manager seat on a private project opens its money again); of 0061, the capture back without projects (new rows NULL: admins only, fails closed); of **0088 or 0092**, silently, the policy without the project arm and the snapshot without the move line, so every workspace manager reads every private project's history again. 🚨 **0092 is not re-runnable after 0108** (its post-condition 12 pins 0037's money body, post-condition 10 the old policy): the order that restores everything is 0037, then 0092, then 0108. Re-running 0108 also re-runs `edit_history_restamp()` (about 0.5 ms per history row while the table is locked); suite 111 fails meanwhile. |
+| `0012`, `0037`, `0061`, `0082`, `0088` **or** `0092` | `0108` | **(MO1)** 0108 restates `can_access_project_money` (0037) with the privacy arm, `fn_edit_history_capture` (0061) with both sides' projects and `captured_private`, `fn_edit_history_money_snapshot` (0092) with the move and gone lines, and `edit_history_select` (0012 / 0088 / 0092) with the project audience. A bare re-run of 0037 puts the money gate back without the privacy arm (a manager seat on a private project opens its money again); of 0061, the capture back without projects (new rows NULL: admins only, fails closed); of **0088 or 0092**, silently, the policy without the project arm and the snapshot without the move line, so every workspace manager reads every private project's history again. 🚨 **0092 is not re-runnable after 0108** (its post-condition 12 pins 0037's money body, post-condition 10 the old policy): the order that restores everything is 0037, then 0092, then 0108. Re-running 0108 also re-runs `edit_history_restamp()` (about 0.13 ms per history row while the table is locked); suite 111 fails meanwhile. |
 | `0013`, `0020`, `0040`, `0041`, `0044`, `0061`, `0082` **or** `0092` | `0107` | **(MO1)** 0107 restates, from the bodies deployed on wilson-dev, the client write policies of tasks, assets, folders, scenes, shots, levels, experiences, comments, project_members and task_templates, `project_members_select`, `task_templates_select`, `files_update` / `files_delete`, `milestones_update` / `milestones_delete`, `task_deps_update`, `phase_deps_update` and `projects_update`, each with the private-project hop. A bare re-run of any of those files puts its policies back without the hop, so anyone with a private project's id can write into it again; suite 110's S2 probe fails meanwhile. |
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
 | `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |

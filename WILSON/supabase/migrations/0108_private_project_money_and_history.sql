@@ -142,8 +142,9 @@ CREATE INDEX IF NOT EXISTS idx_edit_history_project
 -- admins'. Its id can be created again (projects.id is the client's to send),
 -- and without this the new holder would read the old project's history —
 -- its private-era rows through the creator arm, its invoices through the
--- money gate (review round 1, F1). Statement-level, so it runs after the
--- cascaded children's own captures have been written.
+-- money gate (review round 1, F1). The triggers themselves are created
+-- after the backfill (§6b): DDL on projects takes a lock that blocks every
+-- read of projects, held to commit (review round 2).
 CREATE OR REPLACE FUNCTION public.fn_edit_history_project_gone()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -152,7 +153,7 @@ SET search_path = public
 AS $$
 BEGIN
   UPDATE public.edit_history eh
-     SET project_id = NULL
+     SET project_id = NULL, captured_private = true
    WHERE eh.project_id IN (SELECT o.id FROM old_rows o);
   RETURN NULL;
 END;
@@ -160,14 +161,32 @@ $$;
 
 REVOKE ALL ON FUNCTION public.fn_edit_history_project_gone() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS trg_projects_edit_history_gone ON public.projects;
-CREATE TRIGGER trg_projects_edit_history_gone
-  AFTER DELETE ON public.projects
-  REFERENCING OLD TABLE AS old_rows
-  FOR EACH STATEMENT EXECUTE FUNCTION public.fn_edit_history_project_gone();
+-- The same for a project whose id is changed (authenticated may UPDATE
+-- projects.id, and a project with no child rows can be re-keyed): the old
+-- id's rows would otherwise wait for whoever creates that id again (review
+-- round 2). Transition tables cannot ride a column list, so it runs on every
+-- projects UPDATE statement; an unchanged id set costs one empty EXCEPT.
+CREATE OR REPLACE FUNCTION public.fn_edit_history_project_rekeyed()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.edit_history eh
+     SET project_id = NULL, captured_private = true
+   WHERE eh.project_id IN (SELECT o.id FROM old_rows o EXCEPT SELECT n.id FROM new_rows n);
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_edit_history_project_rekeyed() FROM PUBLIC, anon, authenticated;
+
+COMMENT ON FUNCTION public.fn_edit_history_project_rekeyed() IS
+  '0108: after a projects UPDATE (statement-level, transition tables), sets project_id NULL (and captured_private true) on every edit_history row of an id the statement changed away, as fn_edit_history_project_gone does for a delete. DEFINER; no client role executes it.';
 
 COMMENT ON FUNCTION public.fn_edit_history_project_gone() IS
-  '0108: after a projects DELETE (statement-level, transition table), sets project_id NULL on every edit_history row of the deleted projects, so a project deleted for good leaves its history to the workspace admins and a later holder of the same id reads none of it. DEFINER; no client role executes it.';
+  '0108: after a projects DELETE (statement-level, transition table), sets project_id NULL (and captured_private true) on every edit_history row of the deleted projects, so a project deleted for good leaves its history to the workspace admins and a later holder of the same id reads none of it. DEFINER; no client role executes it.';
 
 -- §3 The resolver and the walk (R8 a, e) --------------------------------------------
 -- The project a row of one of 0061's fourteen captured tables belongs to, read
@@ -194,6 +213,19 @@ BEGIN
       v_project := public.fn_try_uuid(p_row ->> 'project_id');
     WHEN 'comments' THEN
       v_project := public.fn_comment_project_id(p_row ->> 'entity_type', public.fn_try_uuid(p_row ->> 'entity_id'));
+      -- comments carry no foreign key to their subject, so one outlives a
+      -- deleted subject; if the id is created again, the row now holding it
+      -- is not the comment's subject. A subject deleted after the comment
+      -- was first written leaves the comment to no project (review round 2).
+      IF v_project IS NOT NULL AND EXISTS (
+           SELECT 1 FROM public.edit_history s
+            WHERE s.entity_type = CASE p_row ->> 'entity_type' WHEN 'project' THEN 'projects' WHEN 'phase' THEN 'phases'
+                                                               WHEN 'asset' THEN 'assets' WHEN 'task' THEN 'tasks' END
+              AND s.entity_id = public.fn_try_uuid(p_row ->> 'entity_id') AND s.action = 'delete'
+              AND s.id > (SELECT min(c.id) FROM public.edit_history c
+                           WHERE c.entity_type = 'comments' AND c.entity_id = public.fn_try_uuid(p_row ->> 'id'))) THEN
+        v_project := NULL;
+      END IF;
     WHEN 'asset_versions' THEN
       SELECT a.project_id INTO v_project FROM public.assets a
        WHERE a.id = public.fn_try_uuid(p_row ->> 'asset_id');
@@ -382,6 +414,17 @@ BEGIN
                     public.edit_history_value_at(p_entity_type, p_entity_id, 'entity_type', p_at, p_after));
       v_parent := public.fn_try_uuid(COALESCE(p_row ->> 'entity_id',
                     public.edit_history_value_at(p_entity_type, p_entity_id, 'entity_id', p_at, p_after)));
+      -- A subject deleted between the comment's first row and this moment
+      -- is not the comment's subject any more, even if its id came back.
+      IF EXISTS (SELECT 1 FROM public.edit_history s
+                  WHERE s.entity_type = CASE v_kind WHEN 'project' THEN 'projects' WHEN 'phase' THEN 'phases'
+                                                    WHEN 'asset' THEN 'assets' WHEN 'task' THEN 'tasks' END
+                    AND s.entity_id = v_parent AND s.action = 'delete'
+                    AND s.id > (SELECT min(c.id) FROM public.edit_history c
+                                 WHERE c.entity_type = 'comments' AND c.entity_id = p_entity_id)
+                    AND CASE WHEN p_after IS NOT NULL THEN s.id <= p_after ELSE s.created_at <= p_at END) THEN
+        RETURN NULL;
+      END IF;
       RETURN CASE v_kind
                WHEN 'project' THEN public.edit_history_project_at('projects', v_parent, NULL, p_at, p_after, true)
                WHEN 'phase'   THEN public.edit_history_project_at('phases', v_parent, NULL, p_at, p_after, true)
@@ -541,6 +584,8 @@ BEGIN
   END IF;
   IF TG_TABLE_NAME IN ('rate_cards', 'rate_card_entries') THEN
     v_priv := false;
+  ELSIF v_project IS NULL THEN
+    v_priv := true;  -- no project: the admins' alone (and what the restamp writes)
   ELSIF TG_TABLE_NAME = 'projects' THEN
     v_priv := COALESCE((to_jsonb(OLD) ->> 'is_private')::boolean, false)
            OR COALESCE((to_jsonb(NEW) ->> 'is_private')::boolean, false);
@@ -641,23 +686,38 @@ BEGIN
      SET project_id = x.pid
     FROM (SELECT h.id,
                  CASE
-                   WHEN h.action = 'update' AND h.diff ?| (CASE h.entity_type
-                          WHEN 'projects'           THEN ARRAY['id']
-                          WHEN 'asset_versions'     THEN ARRAY['asset_id']
-                          WHEN 'task_links'         THEN ARRAY['task_id']
-                          WHEN 'ingestion_chunks'   THEN ARRAY['run_id']
-                          WHEN 'comments'           THEN ARRAY['entity_type', 'entity_id']
-                          WHEN 'task_dependencies'  THEN ARRAY['predecessor_id', 'successor_id']
-                          WHEN 'phase_dependencies' THEN ARRAY['predecessor_id', 'successor_id']
-                          ELSE ARRAY['project_id'] END)
+                   -- An update that changed the project of a project-scoped
+                   -- row itself (or a projects id): no one's.
+                   WHEN h.action = 'update' AND h.entity_type IN ('projects', 'phases', 'assets', 'tasks', 'files', 'ingestion_runs')
+                        AND h.diff ?| ARRAY['id', 'project_id']
                      THEN NULL
+                   -- A child re-pointed to another parent: both sides through
+                   -- the walk, as the capture does; the project only when the
+                   -- two agree (a re-point inside one project keeps it).
+                   WHEN h.action = 'update' AND h.diff ?| a.keys
+                     THEN (SELECT CASE WHEN sides.o IS NOT DISTINCT FROM sides.n THEN sides.n END
+                             FROM (SELECT public.edit_history_project_at(h.entity_type, h.entity_id,
+                                            (SELECT jsonb_object_agg(k, h.diff -> k -> 'old') FROM unnest(a.keys) k WHERE h.diff ? k),
+                                            h.created_at, h.id) AS o,
+                                          public.edit_history_project_at(h.entity_type, h.entity_id,
+                                            (SELECT jsonb_object_agg(k, h.diff -> k -> 'new') FROM unnest(a.keys) k WHERE h.diff ? k),
+                                            h.created_at, h.id) AS n) sides)
                    ELSE public.edit_history_project_at(
                           h.entity_type, h.entity_id,
                           CASE h.action WHEN 'create' THEN h.diff -> 'new' WHEN 'delete' THEN h.diff -> 'old' END,
                           h.created_at, h.id)
                  END AS walked
             FROM public.edit_history h
-           WHERE h.entity_type NOT IN ('rate_cards', 'rate_card_entries')) w
+           CROSS JOIN LATERAL (SELECT CASE h.entity_type
+                          WHEN 'asset_versions'     THEN ARRAY['asset_id']
+                          WHEN 'task_links'         THEN ARRAY['task_id']
+                          WHEN 'ingestion_chunks'   THEN ARRAY['run_id']
+                          WHEN 'comments'           THEN ARRAY['entity_type', 'entity_id']
+                          WHEN 'task_dependencies'  THEN ARRAY['predecessor_id', 'successor_id']
+                          WHEN 'phase_dependencies' THEN ARRAY['predecessor_id', 'successor_id']
+                          ELSE ARRAY[]::text[] END AS keys) a
+           WHERE h.entity_type NOT IN ('rate_cards', 'rate_card_entries')
+          OFFSET 0) w
    CROSS JOIN LATERAL (
      SELECT CASE
               WHEN w.walked IS NULL THEN NULL
@@ -731,6 +791,20 @@ BEGIN
     v_total, round(extract(epoch FROM clock_timestamp() - v_t0) * 1000), v_null_pre, v_null_post, v_res, v_priv_post;
 END $$;
 
+-- §6b The purge and re-key triggers on projects ----------------------------------------
+-- Here, after the backfill, and CREATE OR REPLACE (SHARE ROW EXCLUSIVE: it
+-- blocks writes to projects until commit, not reads) rather than DROP and
+-- CREATE (ACCESS EXCLUSIVE: every read of projects, and every RLS hop
+-- through it, would wait for the whole backfill; review round 2).
+CREATE OR REPLACE TRIGGER trg_projects_edit_history_gone
+  AFTER DELETE ON public.projects
+  REFERENCING OLD TABLE AS old_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.fn_edit_history_project_gone();
+CREATE OR REPLACE TRIGGER trg_projects_edit_history_rekeyed
+  AFTER UPDATE ON public.projects
+  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.fn_edit_history_project_rekeyed();
+
 -- §7 edit_history_select: the project audience (R8 f) -------------------------------
 -- 0092's body word for word, then one conjunct: rate cards stay the
 -- workspace's; otherwise a workspace admin, or a reader of the project's topic
@@ -802,6 +876,11 @@ BEGIN
      IS DISTINCT FROM 'CREATE TRIGGER trg_projects_edit_history_gone AFTER DELETE ON public.projects REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION fn_edit_history_project_gone()' THEN
     RAISE EXCEPTION '0108 post-condition 2 failed: trg_projects_edit_history_gone is missing, disabled or mis-shaped';
   END IF;
+  IF (SELECT pg_get_triggerdef(tg.oid) FROM pg_trigger tg
+       WHERE tg.tgrelid = 'public.projects'::regclass AND tg.tgname = 'trg_projects_edit_history_rekeyed' AND tg.tgenabled = 'O')
+     IS DISTINCT FROM 'CREATE TRIGGER trg_projects_edit_history_rekeyed AFTER UPDATE ON public.projects REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION fn_edit_history_project_rekeyed()' THEN
+    RAISE EXCEPTION '0108 post-condition 2 failed: trg_projects_edit_history_rekeyed is missing, disabled or mis-shaped';
+  END IF;
 
   -- 3. The resolver, the walks, the restamp and the purge step: DEFINER,
   --    search_path pinned, closed to client roles (the three readers STABLE);
@@ -809,7 +888,7 @@ BEGIN
   FOR r IN SELECT p.oid, p.proname, p.prosecdef, p.provolatile, p.proconfig FROM pg_proc p
             WHERE p.pronamespace = 'public'::regnamespace
               AND p.proname IN ('edit_history_project_of', 'edit_history_value_at', 'edit_history_project_at',
-                                'edit_history_restamp', 'fn_edit_history_project_gone') LOOP
+                                'edit_history_restamp', 'fn_edit_history_project_gone', 'fn_edit_history_project_rekeyed') LOOP
     IF NOT r.prosecdef OR r.proconfig IS NULL OR NOT ('search_path=public' = ANY (r.proconfig))
        OR (r.proname LIKE 'edit_history\_%' AND r.proname <> 'edit_history_restamp' AND r.provolatile <> 's') THEN
       RAISE EXCEPTION '0108 post-condition 3 failed: % must be SECURITY DEFINER with search_path pinned (and STABLE if it only reads)', r.proname;
@@ -820,8 +899,8 @@ BEGIN
   END LOOP;
   IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
          AND proname IN ('edit_history_project_of', 'edit_history_value_at', 'edit_history_project_at',
-                         'edit_history_restamp', 'fn_edit_history_project_gone')) <> 5 THEN
-    RAISE EXCEPTION '0108 post-condition 3 failed: the resolver, the two walks, the restamp and the purge step must each exist once';
+                         'edit_history_restamp', 'fn_edit_history_project_gone', 'fn_edit_history_project_rekeyed')) <> 6 THEN
+    RAISE EXCEPTION '0108 post-condition 3 failed: the resolver, the two walks, the restamp and the purge and re-key steps must each exist once';
   END IF;
   IF public.edit_history_project_of('projects', '{"id": "00000000-0000-0000-0000-0000000001a8"}') IS DISTINCT FROM '00000000-0000-0000-0000-0000000001a8'::uuid
      OR public.edit_history_project_of('tasks', '{"project_id": "00000000-0000-0000-0000-0000000001a8"}') IS DISTINCT FROM '00000000-0000-0000-0000-0000000001a8'::uuid
