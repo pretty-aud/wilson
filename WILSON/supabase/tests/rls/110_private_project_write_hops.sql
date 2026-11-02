@@ -131,7 +131,7 @@ SELECT x.tablename, x.policyname, x.clause
    AND NOT (x.tablename IN ('budget_versions', 'budget_lines', 'budget_actuals', 'expenses', 'project_rate_overrides')
             AND x.txt ~ 'can_access_project_money\(project_id\)')
    AND NOT (x.tablename IN ('file_events', 'edit_history') AND x.txt ~ 'can_read_project_topic\(project_id\)')
-   AND NOT (x.tablename = 'edit_history' AND x.policyname = 'edit_history_select')
+   -- (0108 gave edit_history_select its arm, so its pinned exception is gone.)
    AND NOT (x.tablename = 'upload_reservations' AND x.policyname = 'upload_reservations_select'
             AND x.txt ~ 'created_by = auth\.uid\(\)');
 

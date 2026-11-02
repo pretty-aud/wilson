@@ -319,8 +319,12 @@ SELECT ok(
 -- A17-A18: the two read policies, whole — no purged arm (Legal 1).
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'edit_history' AND policyname = 'edit_history_select'),
-  '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND has_active_membership(workspace_id) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))))',
-  'edit_history_select: 0012''s arms, 0088''s money arm, and the Legal arm on is_legal rows');            -- 17
+  -- 0108 (MO1) added ONE conjunct after the Legal arm: the project audience
+  -- (rate cards, admins, or a topic reader; captured_private rows the
+  -- creator's). The arms this suite pins are unchanged; suite 111 proves the
+  -- new one caller by caller.
+  '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND has_active_membership(workspace_id) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))) AND ((entity_type = ANY (ARRAY[''rate_cards''::text, ''rate_card_entries''::text])) OR (current_app_role() = ''admin''::text) OR (can_read_project_topic(project_id) AND ((NOT captured_private) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = edit_history.project_id) AND (p.created_by = auth.uid()))))))))',
+  'edit_history_select: 0012''s arms, 0088''s money arm, the Legal arm on is_legal rows, and 0108''s project audience');            -- 17
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events' AND policyname = 'file_events_select'),
   -- 0093 (GW1) restated every arm below and added ONE conjunct: a
@@ -1465,8 +1469,9 @@ SELECT ok(
   '0088''s classifier keeps its signature (so 0088 stays replayable), the verdict is closed to clients, and the trigger''s definition is whole'); -- 166
 SELECT ok(
   (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_money(uuid)'::regprocedure)
-    = 'SELECT EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND ( public.current_app_role() = ''admin'' OR public.project_role_for(p_project) = ''manager'' );',
-  '🚨 can_access_project_money''s body is 0037''s, WHOLE (whitespace collapsed) — no additive leg of any kind');          -- 167
+    -- 0108 (MO1): 0037's body with ONE narrowing conjunct, the privacy arm.
+    = 'SELECT EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project) AND ( public.current_app_role() = ''admin'' OR public.project_role_for(p_project) = ''manager'' );',
+  '🚨 can_access_project_money''s body is 0037''s plus 0108''s privacy arm, WHOLE (whitespace collapsed): money never widens; privacy narrows it');          -- 167
 SELECT ok(
   (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_legal(uuid)'::regprocedure)
     = 'SELECT COALESCE(public.can_access_project_money(p_project), false) OR COALESCE( public.current_app_role() = ''manager'' AND EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project), false);',
