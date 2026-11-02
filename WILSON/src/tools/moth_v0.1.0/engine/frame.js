@@ -142,13 +142,16 @@ export function computeFrame(scene, cam, viewport, options = {}) {
 
 function clusterInto(out, scene, o, k, rect, maxDots, visible, toSX, toSY, dotPx, boxMeets) {
   const { n, xy, m, ends } = scene
-  // The cell: a power-of-two step of the zoom, doubled until the cells in
-  // view fit the dot budget.
+  // The cell: a power-of-two step of the zoom, doubled until every cell that
+  // will be drawn (any cell whose square meets the view, including border
+  // cells whose dots are all just off screen) fits the dot budget.
   let cellWorld = o.cellPx / Math.pow(2, Math.floor(Math.log2(k)))
   for (let grow = 0; grow < 12; grow++) {
     const seen = new Set()
     for (let i = 0; i < n; i++) {
-      if (visible[i]) seen.add(cellKey(Math.floor(xy[2 * i] / cellWorld), Math.floor(xy[2 * i + 1] / cellWorld)))
+      const cx = Math.floor(xy[2 * i] / cellWorld)
+      const cy = Math.floor(xy[2 * i + 1] / cellWorld)
+      if (boxMeets(cx * cellWorld, cy * cellWorld, (cx + 1) * cellWorld, (cy + 1) * cellWorld)) seen.add(cellKey(cx, cy))
     }
     if (seen.size <= maxDots) break
     cellWorld *= 2
