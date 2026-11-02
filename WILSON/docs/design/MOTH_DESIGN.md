@@ -15,6 +15,17 @@ How it was made: the measuring round (nine read-only readers over the handbook, 
 
 Her brief's rulings (`briefs/MOTH_PLANNING_BRIEF.md` §8, §12 and §12a) bind every section below and are not restated.
 
+### Her answers to the design round's six questions (2026-11-02 UTC, this session's chat)
+
+Asked as multiple choice in plain words; her choice verbatim in italics, then the option's own text as it was offered. **Where an answer differs from a design below, the answer wins**; the synthesis carries it into the design.
+
+1. **A private project's picture or video moved into a shared project or into a personal space** (those bodies live only on the computer they were added from): *"Copy it up from there"*: allowed only from the computer that holds it; the file is copied up to the company's storage as part of the move. (The design round had recommended refusing; §1's and §3's refusals are superseded.)
+2. **A file moved between two projects that live only on one computer:** *"Move the real file"*: the file moves into the other project's folder on the same computer (nothing is uploaded), checked before WILSON says it is done. (The design round had recommended deferring; superseded.)
+3. **Personal-space files of a company whose storage is an office server** (hidden inside WILSON, findable by anyone who opens the server directly): *"Yes, say so (Recommended)"*: kept on the office server, and people are told this in plain words when they add files to their personal space.
+4. **An admin opening someone else's personal space from the Files page:** *"Yes, admins see it (Recommended)"*: a record goes into the admin activity list, where other admins can see it.
+5. **Deleting, in WILSON, a file that lives on the office server** (offered: list it again after the 30-day bin empties, or never list it again), her own words: *"deleting a file in wilson should delete it in the folder. remember it acts like a file manager. for this also make sure to ask them to confirm they want to delete before doing so."* Read with her §12a ruling 5 (confirmation, the usual undo, a trash view): after the confirmation the desktop moves the real file into a bin folder on that server, so it leaves its folder; undo and restore bring it back; after 30 days it is removed for good; in a browser, which cannot reach the server, the delete says it is done from the desktop app (as previews already do). That reading was told to her in the chat when the answer was recorded. (§4's "WILSON never touches the file on the server" is superseded.)
+6. **When Moth's other tables are built:** *"Each when used (Recommended)"*: views and layouts in Session 2; tags, links and shared notes in Session 3; boards and sticky locks in Session 4. (This changes `PLAN_MOTH.md` §4's allocation and Session 1's "all section 4 schemas"; Session 1 builds the personal space, safe moves and deletes, the office-server list, the privacy repairs and the history record.)
+
 ## 1. Stable file bodies
 
 **Judged** from two rival drafts (A: a new table `file_body_locations`; B: no table, a resolver over `files`). Winner: **hybrid**.
