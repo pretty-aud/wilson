@@ -64,6 +64,17 @@ describe('mothFileHidden', () => {
     expect(mothFileHidden({ ...PLAIN, folder_id: folderId }, { folders: new Map(FOLDERS.map((f) => [f.id, f])) })).toBe(hidden)
   })
 
+  it('always returns: a loop through a root stops at 64 steps, as the walk does, and a root there locks nothing', () => {
+    const selfRoot = [{ id: 'r', parent_id: 'r', kind: 'root', slug: 'p', path: '' }]
+    expect(mothFileHidden({ ...PLAIN, folder_id: 'r' }, { folders: selfRoot })).toBe(false)
+    const throughRoot = [
+      { id: 'r', parent_id: 'a', kind: 'root', slug: 'p', path: '' },
+      { id: 'a', parent_id: 'r', kind: 'custom', slug: 'a', path: 'Docs' },
+    ]
+    expect(mothFileHidden({ ...PLAIN, folder_id: 'a' }, { folders: throughRoot })).toBe(false)
+    expect(mothFileHidden({ ...PLAIN, folder_id: 'r' }, { folders: throughRoot })).toBe(true)
+  })
+
   it('stops at 64 steps, as the walk does: a deeper chain fails closed', () => {
     const chain = (n) => {
       const rows = [{ id: 'root', parent_id: null, kind: 'root', slug: 'r', path: '' }]
@@ -102,9 +113,11 @@ describe('0111\'s classifier, read from the migration', () => {
     expect(text).toContain('public.file_row_is_money(p_flag, p_path)')
     expect(text).toContain("'legal' = ANY (p_tags)")
     expect(text).toContain('public.moth_folder_chain_locked(p_workspace, p_folder)')
-    expect(text).toContain('e.file_ids @> ARRAY[f.id]')
-    // Scoped to the file's own project: an expense elsewhere hides nothing.
-    expect(text).toContain('e.project_id = f.project_id')
+    expect(text).toContain('e.file_ids @> ARRAY[p_file]')
+    // Scoped to the row's own project: an expense elsewhere hides nothing.
+    expect(text).toContain('e.project_id = p_project')
+    // A row image: history's capture of a deleted row has no live row to read.
+    expect(text).not.toContain('public.files')
   })
 
   it('moth_folder_chain_locked has the arms moneyFolderChainLocked has', () => {

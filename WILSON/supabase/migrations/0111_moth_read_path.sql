@@ -23,8 +23,9 @@
 --   §1  expenses_file_ids_gin: the receipt arm's lookup.
 --   §2  moth_folder_path_locked(text), and fn_folders_lock_guard with
 --       trg_folders_lock_guard: a client write never changes a folder's money
---       or Legal standing, and never detaches a folder's first path segment
---       from its parent's, so the standing the walk below reads can be trusted.
+--       or Legal standing, never detaches a folder's first path segment from its
+--       parent's, and never deletes a money or Legal folder or a project's root,
+--       so the standing the walk below reads can be trusted.
 --   §3  moth_folder_chain_locked and moth_file_row_locked: the one classifier
 --       (0119's history capture calls the second, so history's redaction and
 --       Moth's live gate cannot drift).
@@ -110,9 +111,27 @@ DECLARE
   v_old_parent_kind TEXT;
   v_was_locked      BOOLEAN;
   v_is_locked       BOOLEAN;
+  v_bound           BOOLEAN := COALESCE(current_setting('role', true), '') IN ('authenticated', 'anon');
 BEGIN
+  -- A delete would undo the walk for every file filed there (their folder_id goes
+  -- NULL). A project's root is refused with them: its delete cascades to them. A
+  -- cascade itself has been judged where it began, or is a project's own delete.
+  IF TG_OP = 'DELETE' THEN
+    IF v_bound AND pg_trigger_depth() = 1 THEN
+      SELECT par.kind INTO v_old_parent_kind
+        FROM public.folders par WHERE par.id = OLD.parent_id;
+      IF OLD.kind = 'root'
+         OR public.moth_folder_path_locked(OLD.path)
+         OR (COALESCE(v_old_parent_kind = 'root', false) AND public.rabbit_money_segment(OLD.slug)) THEN
+        RAISE EXCEPTION 'A money or Legal folder, or a project''s top folder, cannot be deleted.'
+          USING ERRCODE = '42501';
+      END IF;
+    END IF;
+    RETURN OLD;
+  END IF;
+
   -- Client callers only: migrations, cron and service_role pass (I-2).
-  IF COALESCE(current_setting('role', true), '') NOT IN ('authenticated', 'anon') THEN
+  IF NOT v_bound THEN
     RETURN NEW;
   END IF;
 
@@ -154,7 +173,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_folders_lock_guard() FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE TRIGGER trg_folders_lock_guard
-  BEFORE INSERT OR UPDATE OF path, slug, parent_id ON public.folders
+  BEFORE INSERT OR DELETE OR UPDATE OF path, slug, parent_id ON public.folders
   FOR EACH ROW EXECUTE FUNCTION public.fn_folders_lock_guard();
 
 -- §3 The one classifier -------------------------------------------------------------
@@ -196,11 +215,13 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.moth_folder_chain_locked(uuid, uuid) FROM PUBLIC, anon, authenticated;
 
--- A row image, so history's capture (0119) can classify OLD and NEW alike. The
--- receipt arm is scoped to the file's own project: an expense in project B that
--- names project A's file does not hide it from A (SEC-3).
+-- A row image: every arm reads its arguments and never the live files row, so
+-- history's capture (0119) classifies OLD and NEW alike, a deleted row's included
+-- (an AFTER DELETE trigger can no longer read the row; review round 1). The receipt
+-- arm is scoped to the row's own project: an expense in project B that names
+-- project A's file does not hide it from A (SEC-3).
 CREATE OR REPLACE FUNCTION public.moth_file_row_locked(
-  p_workspace uuid, p_file uuid, p_flag boolean, p_path text, p_tags text[], p_folder uuid)
+  p_workspace uuid, p_project uuid, p_file uuid, p_flag boolean, p_path text, p_tags text[], p_folder uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 STABLE
@@ -213,17 +234,14 @@ BEGIN
       OR public.moth_folder_chain_locked(p_workspace, p_folder)
       OR EXISTS (
            SELECT 1
-             FROM public.files f
-             JOIN public.expenses e
-               ON e.project_id = f.project_id
-              AND e.workspace_id = f.workspace_id
-            WHERE f.id = p_file
-              AND f.workspace_id = p_workspace
-              AND e.file_ids @> ARRAY[f.id]
+             FROM public.expenses e
+            WHERE e.workspace_id = p_workspace
+              AND e.project_id = p_project
+              AND e.file_ids @> ARRAY[p_file]
          );
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.moth_file_row_locked(uuid, uuid, boolean, text, text[], uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.moth_file_row_locked(uuid, uuid, uuid, boolean, text, text[], uuid) FROM PUBLIC, anon, authenticated;
 
 -- §4 The gates ------------------------------------------------------------------------
 -- Kind only picks the table; the decision comes from the row found. Definers
@@ -266,7 +284,7 @@ BEGIN
      WHERE f.id = p_id AND f.workspace_id = v_ws;
     IF v_project IS NULL
        OR (v_deleted IS NOT NULL AND NOT COALESCE(p_allow_trashed, false))
-       OR public.moth_file_row_locked(v_ws, p_id, v_flag, v_path, v_tags, v_folder) THEN
+       OR public.moth_file_row_locked(v_ws, v_project, p_id, v_flag, v_path, v_tags, v_folder) THEN
       RETURN false;
     END IF;
   ELSE
@@ -442,10 +460,10 @@ GRANT  EXECUTE ON FUNCTION public.moth_project_files(uuid, uuid, integer) TO aut
 COMMENT ON FUNCTION public.moth_folder_path_locked(text) IS
   'True when a folder path''s first segment is a money or Legal one. Pure.';
 COMMENT ON FUNCTION public.fn_folders_lock_guard() IS
-  'A client write never changes a folder''s money or Legal standing and never detaches its first path segment from its parent''s. INVOKER: a parent the caller cannot see reads as no row. Unbound sessions pass.';
+  'A client write never changes a folder''s money or Legal standing, never detaches its first path segment from its parent''s, and never deletes a money or Legal folder or a project''s root. INVOKER: a parent the caller cannot see reads as no row. Unbound sessions and cascades pass.';
 COMMENT ON FUNCTION public.moth_folder_chain_locked(uuid, uuid) IS
   'True when any folder up the chain has a money first path segment, a top-level one has a money slug, or the chain cannot be walked to its end within 64 steps. Revoked from clients.';
-COMMENT ON FUNCTION public.moth_file_row_locked(uuid, uuid, boolean, text, text[], uuid) IS
+COMMENT ON FUNCTION public.moth_file_row_locked(uuid, uuid, uuid, boolean, text, text[], uuid) IS
   'The one classifier for a file row image: the money flag or key, the legal tag, the folder chain, or an expense of the file''s own project naming it. Revoked from clients; 0119''s capture and _moth_target_eligible both call it.';
 COMMENT ON FUNCTION public._moth_target_eligible(text, uuid, boolean) IS
   'Whether the caller may see this project, folder or file in Moth. Any other kind, a NULL id, or no signed-in active member: false. Missing and hidden answer alike. The personal arm has no admin leg. Revoked from clients.';
@@ -475,12 +493,13 @@ BEGIN
     RAISE EXCEPTION '0111 post-condition: moth_folder_chain_locked lost an arm';
   END IF;
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
-    FROM pg_proc WHERE oid = 'public.moth_file_row_locked(uuid,uuid,boolean,text,text[],uuid)'::regprocedure;
+    FROM pg_proc WHERE oid = 'public.moth_file_row_locked(uuid,uuid,uuid,boolean,text,text[],uuid)'::regprocedure;
   IF position('file_row_is_money' IN v_body) = 0
      OR position('''legal''' IN v_body) = 0
      OR position('moth_folder_chain_locked' IN v_body) = 0
-     OR position('e.project_id = f.project_id' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0111 post-condition: moth_file_row_locked lost an arm';
+     OR position('e.project_id = p_project' IN v_body) = 0
+     OR position('public.files' IN v_body) > 0 THEN
+    RAISE EXCEPTION '0111 post-condition: moth_file_row_locked lost an arm, or reads the live row';
   END IF;
 
   -- The gate: both classifiers, privacy, and a personal arm with no admin leg.
@@ -505,8 +524,9 @@ BEGIN
     FROM pg_proc WHERE oid = 'public.moth_project_files(uuid,uuid,integer)'::regprocedure;
   IF position('fo.id = f.folder_id AND fo.project_id = f.project_id' IN v_body) = 0
      OR position('moth_can_read_target(''file''' IN v_body) = 0
-     OR position('LEAST(GREATEST(COALESCE(p_limit, 500), 1), 1000)' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0111 post-condition: moth_project_files lost its gate, its clamp or the positive folder form';
+     OR position('LEAST(GREATEST(COALESCE(p_limit, 500), 1), 1000)' IN v_body) = 0
+     OR position('OFFSET 0' IN v_body) = 0 THEN
+    RAISE EXCEPTION '0111 post-condition: moth_project_files lost its gate, its clamp, its fence or the positive folder form';
   END IF;
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
     FROM pg_proc WHERE oid = 'public.moth_project_folders(uuid)'::regprocedure;
@@ -547,7 +567,7 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('public.moth_folder_chain_locked(uuid,uuid)', false),
-      ('public.moth_file_row_locked(uuid,uuid,boolean,text,text[],uuid)', false),
+      ('public.moth_file_row_locked(uuid,uuid,uuid,boolean,text,text[],uuid)', false),
       ('public._moth_target_eligible(text,uuid,boolean)', false),
       ('public.moth_can_read_target(text,uuid)', true),
       ('public.moth_can_write_target(text,uuid)', true)
@@ -572,7 +592,7 @@ BEGIN
                   WHERE tgrelid = 'public.folders'::regclass
                     AND tgname = 'trg_folders_lock_guard'
                     AND tgenabled = 'O'
-                    AND pg_get_triggerdef(oid) LIKE '%BEFORE INSERT OR UPDATE OF path, slug, parent_id ON public.folders%') THEN
+                    AND pg_get_triggerdef(oid) LIKE '%BEFORE INSERT OR DELETE OR UPDATE OF path, slug, parent_id ON public.folders%') THEN
     RAISE EXCEPTION '0111 post-condition: trg_folders_lock_guard is missing or changed';
   END IF;
   IF to_regclass('public.expenses_file_ids_gin') IS NULL THEN

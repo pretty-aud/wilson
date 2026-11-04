@@ -14,8 +14,9 @@
 --     in another project does not hide a file.
 --   * Missing and hidden answer alike. A foreign folder_id comes back NULL.
 --   * The folder guard: a client never changes a folder's money or Legal
---     standing or detaches its first path segment; a parent the caller cannot
---     see answers like a random uuid; an unbound session passes.
+--     standing, detaches its first path segment, or deletes a money or Legal
+--     folder or a project's root; a parent the caller cannot see answers like a
+--     random uuid; an unbound session and a cascade pass.
 --
 -- 🚨 The MATRIX lines below are read by src/permissions/projectRoleMatrix.test.js:
 --   -- MATRIX <action> | appRole | projectRole | staffed | personal | owner | expected
@@ -32,7 +33,7 @@
 
 BEGIN;
 
-SELECT plan(274);
+SELECT plan(285);
 
 SELECT * FROM tests.rls_setup();
 
@@ -126,6 +127,10 @@ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
   ('11300000-0000-0000-0000-0000000000e1', 'aaaa1111-0000-0000-0000-000000001136', '11300000-0000-0000-0000-0000000000e0', 'custom', 'Notes', 'Notes');
 UPDATE public.folders SET parent_id = '11300000-0000-0000-0000-0000000000b3' WHERE id = '11300000-0000-0000-0000-0000000000b2'; -- b2 and b3 now point at each other
 
+-- Two rows below name a folder of another project, which 0113's key refuses. The
+-- key goes for this transaction only: it pins the read's positive form, which stands
+-- in case a row ever reaches that state some other way.
+ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_folder_same_project_fk;
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, folder_id, is_financial, tags, deleted_at) VALUES
   ('11300000-0000-0000-0000-0000000001a1', 'aaaa1111-0000-0000-0000-000000001131', 'ok.txt', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000001131/files/11300000-0000-0000-0000-0000000001a1/ok.txt', '11300000-0000-0000-0000-0000000000f2'::uuid, false, '{}'::text[], NULL),
   ('11300000-0000-0000-0000-0000000001a2', 'aaaa1111-0000-0000-0000-000000001131', 'flag.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000001131/files/11300000-0000-0000-0000-0000000001a2/flag.pdf', NULL, true, '{}'::text[], NULL),
@@ -153,7 +158,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   ('11300000-0000-0000-0000-0000000001f3', 'bbbb2222-0000-0000-0000-000000000001', 'other-company.txt', 'supabase', 'projects/bbbb2222-0000-0000-0000-000000000001/files/11300000-0000-0000-0000-0000000001f3/other-company.txt', NULL, false, '{}'::text[], NULL);
 
 INSERT INTO public.expenses (id, workspace_id, project_id, title, file_ids) VALUES
-  ('11300000-0000-0000-0000-000000000201', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', 'names its own project''s file', ARRAY['11300000-0000-0000-0000-0000000001a6']::uuid[]),
+  ('11300000-0000-0000-0000-000000000201', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', 'names its own project''s file, and one already gone', ARRAY['11300000-0000-0000-0000-0000000001a6', '11300000-dead-dead-dead-000000000001']::uuid[]),
   ('11300000-0000-0000-0000-000000000202', '11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001132', 'names another project''s file', ARRAY['11300000-0000-0000-0000-0000000001a7']::uuid[]);
 
 UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1111-0000-0000-0000-000000001134';
@@ -162,8 +167,8 @@ UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1111-0000-0000-000
 SELECT ok(NOT has_function_privilege('authenticated', 'public._moth_target_eligible(text,uuid,boolean)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public._moth_target_eligible(text,uuid,boolean)', 'EXECUTE'),
   '_moth_target_eligible is closed to clients');
-SELECT ok(NOT has_function_privilege('authenticated', 'public.moth_file_row_locked(uuid,uuid,boolean,text,text[],uuid)', 'EXECUTE')
-          AND NOT has_function_privilege('anon', 'public.moth_file_row_locked(uuid,uuid,boolean,text,text[],uuid)', 'EXECUTE'),
+SELECT ok(NOT has_function_privilege('authenticated', 'public.moth_file_row_locked(uuid,uuid,uuid,boolean,text,text[],uuid)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.moth_file_row_locked(uuid,uuid,uuid,boolean,text,text[],uuid)', 'EXECUTE'),
   'moth_file_row_locked is closed to clients');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.moth_folder_chain_locked(uuid,uuid)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.moth_folder_chain_locked(uuid,uuid)', 'EXECUTE'),
@@ -208,15 +213,17 @@ SELECT is(public.moth_folder_path_locked('INVOICES/x'), true, 'a money first seg
 SELECT is(public.moth_folder_path_locked('invoices'), true, 'the first segment is case-folded');
 SELECT is(public.moth_folder_path_locked('SCENES/Legal'), false, 'a deeper segment does not lock');
 SELECT is(public.moth_folder_path_locked(NULL), false, 'NULL is not locked, and not NULL');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), false, 'a plain row image is not locked');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', NULL, NULL), false, 'NULL tags answer false, never NULL');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-dead-dead-dead-000000000000', true, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), true, 'the money flag locks');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-dead-dead-dead-000000000000', false, 'projects/x/FINANCE/y/z.txt', ARRAY[]::text[], NULL), true, 'a money key locks');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY['legal']::text[], NULL), true, 'the legal tag locks');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], '11300000-0000-0000-0000-0000000000f5'), true, 'a folder under a money top level locks');
-SELECT is(public.moth_file_row_locked('22222222-2222-2222-2222-222222222222', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], '11300000-0000-0000-0000-0000000000f5'), false, 'a folder of another company is not walked');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-0000-0000-0000-0000000001a6', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), true, 'a file its own project''s expense names is locked');
-SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-0000-0000-0000-0000000001a7', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), false, 'a file only another project''s expense names is not');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), false, 'a plain row image is not locked');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', NULL, NULL), false, 'NULL tags answer false, never NULL');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000000', true, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), true, 'the money flag locks');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000000', false, 'projects/x/FINANCE/y/z.txt', ARRAY[]::text[], NULL), true, 'a money key locks');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY['legal']::text[], NULL), true, 'the legal tag locks');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], '11300000-0000-0000-0000-0000000000f5'), true, 'a folder under a money top level locks');
+SELECT is(public.moth_file_row_locked('22222222-2222-2222-2222-222222222222', 'bbbb2222-0000-0000-0000-000000000001', '11300000-dead-dead-dead-000000000000', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], '11300000-0000-0000-0000-0000000000f5'), false, 'a folder of another company is not walked');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000001a6', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), true, 'a file its own project''s expense names is locked');
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000001a7', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), false, 'a file only another project''s expense names is not');
+-- The row image alone decides: 0119's AFTER DELETE capture has no live row to read.
+SELECT is(public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-dead-dead-dead-000000000001', false, 'projects/x/files/y/z.txt', ARRAY[]::text[], NULL), true, 'a receipt whose row is already gone is still locked');
 
 -- ── user_c: a plain user with a member seat on S and a personal space ─────
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -435,7 +442,7 @@ SELECT set_config('request.jwt.claims', json_build_object(
 SET LOCAL ROLE authenticated;
 
 SELECT throws_ok($$ SELECT public._moth_target_eligible('file', '11300000-0000-0000-0000-0000000001ae', true) $$, '42501', NULL, 'a client may not ask for trashed rows');
-SELECT throws_ok($$ SELECT public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', '11300000-0000-0000-0000-0000000001a1', false, NULL, NULL, NULL) $$, '42501', NULL, 'a client may not call the classifier');
+SELECT throws_ok($$ SELECT public.moth_file_row_locked('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000001a1', false, NULL, NULL, NULL) $$, '42501', NULL, 'a client may not call the classifier');
 SELECT throws_ok($$ SELECT public.moth_folder_chain_locked('11111111-1111-1111-1111-111111111111', '11300000-0000-0000-0000-0000000000f2') $$, '42501', NULL, 'a client may not walk a folder chain');
 
 -- As the runner with user_c's claims: what a definer's call of the gate answers.
@@ -468,6 +475,12 @@ SELECT lives_ok($$ UPDATE public.folders SET label = 'One' WHERE id = '11300000-
 SELECT lives_ok($$ UPDATE public.folders SET slug = 'uno' WHERE id = '11300000-0000-0000-0000-0000000000f2' $$, 'a slug-only edit of a working folder lands');
 SELECT lives_ok($$ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('11300000-0000-0000-0000-000000000091', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000000f1', 'custom', 'two', 'SCENES/two') $$, 'a new folder under SCENES lands');
 SELECT lives_ok($$ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('11300000-0000-0000-0000-000000000092', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000000f0', 'custom', 'Brand', 'Brand') $$, 'a new top-level folder lands');
+SELECT throws_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000f4' $$, '42501', NULL, 'INVOICES cannot be deleted by a client: its files would surface');
+SELECT throws_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000f5' $$, '42501', NULL, 'nor a folder under it');
+SELECT throws_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000f6' $$, '42501', NULL, 'nor a renamed category whose slug says INVOICES');
+SELECT throws_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000f0' $$, '42501', NULL, 'nor the projects root, which would take them with it');
+SELECT lives_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-000000000092' $$, 'a working folder can be deleted');
+SELECT is((SELECT count(*)::int FROM public.folders WHERE id = '11300000-0000-0000-0000-000000000092'), 0, 'and it is gone (the guard returns the row, so the delete is not skipped)');
 
 -- ── A parent the caller cannot see answers like a random uuid (no oracle) ─
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -487,6 +500,27 @@ RESET ROLE;
 
 -- An unbound session passes: migrations, cron and service_role are not clients.
 SELECT lives_ok($$ UPDATE public.folders SET path = 'FINANCE', slug = 'FINANCE' WHERE id = '11300000-0000-0000-0000-0000000000fa' $$, 'CONTROL: the runner may change a standing');
+SELECT lives_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000fa' $$, 'CONTROL: the runner may delete a money folder');
+SELECT is((SELECT count(*)::int FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000fa'), 0, 'and it is gone');
+
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES ('aaaa1111-0000-0000-0000-000000001139', '11111111-1111-1111-1111-111111111111', 'To be deleted', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
+  ('11300000-0000-0000-0000-000000000094', 'aaaa1111-0000-0000-0000-000000001139', NULL, 'root', 'to-be-deleted', ''),
+  ('11300000-0000-0000-0000-000000000095', 'aaaa1111-0000-0000-0000-000000001139', '11300000-0000-0000-0000-000000000094', 'category', 'INVOICES', 'INVOICES');
+-- A project's own delete still takes its folders: a cascade has been judged where it began.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT lives_ok($$ DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000001139' $$, 'an admin may delete a project that has a money folder');
+SELECT is((SELECT count(*)::int FROM public.folders WHERE id IN ('11300000-0000-0000-0000-000000000094', '11300000-0000-0000-0000-000000000095')), 0, 'and its folders go with it');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 
 -- ── The MATRIX: the SQL helpers, row by row, against one table (CL-2) ──────
 -- Read by src/permissions/projectRoleMatrix.test.js; keep the format. A helper's

@@ -157,6 +157,79 @@ describe('Moth\'s reads', () => {
   })
 })
 
+// MO1 (0111, review round 1): the desktop's three, over a stubbed Local Server.
+describe('Moth\'s reads on the signed-out desktop', () => {
+  const ROUTES = {
+    '/api/rabbit/projects': { status: 200, body: [{ id: 'p1', title: 'One', updated_at: 't1' }, { id: 'p2', title: 'Gone', deleted_at: 't0' }] },
+    '/api/rabbit/personal-space': { status: 200, body: { project: { id: 'space', title: 'Personal space', updated_at: 't2' } } },
+    '/api/rabbit/projects/p1': {
+      status: 200,
+      body: {
+        folders: [
+          { id: 'root', parent_id: null, kind: 'root', slug: 'one', path: '' },
+          { id: 'inv', parent_id: 'root', kind: 'category', slug: 'INVOICES', path: 'INVOICES' },
+          { id: 'inv-x', parent_id: 'inv', kind: 'custom', slug: 'x', path: 'INVOICES/x' },
+          { id: 'scenes', parent_id: 'root', kind: 'category', slug: 'SCENES', path: 'SCENES' },
+        ],
+        files: [{ id: 'f2', name: 'b.txt' }, { id: 'f1', name: 'a.txt' }, { id: 'f0', name: 'binned.txt', deleted_at: 't0' }],
+        managedFiles: [
+          { id: 'm1', file_name: 'shot.mov', size_bytes: 7, asset_id: 'a1', tags: [] },
+          { id: 'm0', file_name: 'gone.mov', deleted_at: 't0' },
+        ],
+      },
+    },
+    '/api/rabbit/projects/missing': { status: 404, body: { error: 'project not found' } },
+    '/api/rabbit/projects/broken': { status: 500, body: { error: 'disk' } },
+  }
+  let routes
+  let local
+  beforeEach(async () => {
+    routes = { ...ROUTES }
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const hit = routes[String(url)]
+      if (!hit) throw new Error(`unrouted ${url}`)
+      return { ok: hit.status < 400, status: hit.status, headers: { get: () => 'application/json' }, json: async () => hit.body }
+    }))
+    const { localServerAdapter } = await import('./localServerAdapter')
+    local = localServerAdapter()
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('lists the personal space first, as its own, and no binned project', async () => {
+    const islands = await local.listMothIslands()
+    expect(islands.map(i => [i.id, i.is_personal, i.is_mine, i.can_write])).toEqual([['space', true, true, true], ['p1', false, false, true]])
+  })
+  it('an unreadable personal bundle costs the space, not the projects', async () => {
+    routes['/api/rabbit/personal-space'] = { status: 409, body: { error: 'unreadable', code: 'unreadable' } }
+    expect((await local.listMothIslands()).map(i => i.id)).toEqual(['p1'])
+  })
+  it('CONTROL: any other failure of the personal read is a failure', async () => {
+    routes['/api/rabbit/personal-space'] = { status: 500, body: { error: 'disk' } }
+    await expect(local.listMothIslands()).rejects.toThrow('disk')
+  })
+  it('leaves money folders and those under them out of the tree', async () => {
+    expect((await local.listMothFolders('p1')).map(f => f.id)).toEqual(['root', 'scenes'])
+  })
+  it('lists files and managed files by id, live only, the managed ones marked', async () => {
+    const rows = await local.listMothFiles('p1')
+    expect(rows.map(r => r.id)).toEqual(['f1', 'f2', 'm1'])
+    expect(rows[2]).toMatchObject({ name: 'shot.mov', managed: true, folder_id: null, storage_path: null, project_id: 'p1' })
+  })
+  it('keeps the cloud\'s keyset and clamp', async () => {
+    expect((await local.listMothFiles('p1', 'f1')).map(r => r.id)).toEqual(['f2', 'm1'])
+    expect((await local.listMothFiles('p1', null, 1)).map(r => r.id)).toEqual(['f1'])
+    expect((await local.listMothFiles('p1', null, -3)).map(r => r.id)).toEqual(['f1'])
+  })
+  it('a project this desktop no longer holds is an empty answer, not an error', async () => {
+    expect(await local.listMothFiles('missing')).toEqual([])
+    expect(await local.listMothFolders('missing')).toEqual([])
+  })
+  it('CONTROL: any other failure of the bundle read is a failure', async () => {
+    await expect(local.listMothFiles('broken')).rejects.toThrow('disk')
+    await expect(local.listMothFolders('broken')).rejects.toThrow('disk')
+  })
+})
+
 describe('listPersonalSpaces', () => {
   it('reads the owner column under RLS, for spaces only', async () => {
     const row = { id: 'ps1', title: 'Personal space', personal_owner_id: 'u1', folder_slug: 'Personal_u1', updated_at: 'x' }

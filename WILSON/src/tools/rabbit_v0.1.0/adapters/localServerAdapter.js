@@ -17,6 +17,7 @@ import { describeSourceFile } from '../storage/mediaMetadata';
 
 import { byMilestoneDate } from '../state/milestoneOrder';
 import { splitSetAside } from '../state/setAside';
+import { moneyFolderChainLocked } from '../storage/index.js';
 
 // B3 (Track B): every request below goes to the desktop loopback server, which
 // refuses /api without the per-launch token. localFetch attaches the header;
@@ -71,6 +72,17 @@ async function jfetch(url, init) {
 // Supabase does it with `.order('path')`; the local bundle is a plain array,
 // so it is sorted here. Copied rather than sorted in place — the caller owns
 // the bundle and mutating it would reorder the file on the next write.
+// MO1 (0111): a project the desktop no longer holds is an empty answer for Moth,
+// as a hidden or missing project is on the cloud.
+async function mothBundle(projectId) {
+  try {
+    return await jfetch(`${BASE}/projects/${projectId}`);
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
 function sortByPath(rows) {
   return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
@@ -212,11 +224,16 @@ export function localServerAdapter() {
     // MO1 (0111, MOTH_DESIGN §2.2): Moth's reads on the signed-out desktop. It
     // has no roles, so everything here is the one person's and writable. There
     // is no server to strip money and Legal either: the Moth page passes every
-    // row through mothFileHidden, the only filter here.
+    // file row through mothFileHidden, and the folders are filtered here.
     async listMothIslands() {
+      // An unreadable personal bundle costs the person their space, not their
+      // projects (the Files page treats it the same way).
       const [projects, personal] = await Promise.all([
         jfetch(`${BASE}/projects`),
-        jfetch(`${BASE}/personal-space`),
+        jfetch(`${BASE}/personal-space`).catch((err) => {
+          if (err?.status === 409) return null;
+          throw err;
+        }),
       ]);
       const island = (p, mine) => ({
         id: p.id, title: p.title, is_personal: mine, is_mine: mine, is_private: mine || !!p.is_private,
@@ -227,11 +244,26 @@ export function localServerAdapter() {
         ...(projects || []).filter(p => !p.deleted_at).map(p => island(p, false)),
       ];
     },
-    listMothFolders: async (projectId) =>
-      sortByPath((await jfetch(`${BASE}/projects/${projectId}`)).folders),
-    // The cloud's keyset and clamp, so a page means the same on both.
+    async listMothFolders(projectId) {
+      const rows = (await mothBundle(projectId))?.folders || [];
+      return sortByPath(rows.filter(f => !moneyFolderChainLocked(f.id, rows)));
+    },
+    // The cloud's keyset and clamp, so a page means the same on both. A managed
+    // file (an asset's, a shot's) is an ordinary files row in the cloud, so it is
+    // listed here too, marked: it has no folder and does not move between
+    // projects (§1.3 I-6).
     async listMothFiles(projectId, after = null, limit = 500) {
-      const rows = (await jfetch(`${BASE}/projects/${projectId}`)).files || [];
+      const bundle = await mothBundle(projectId);
+      const rows = [
+        ...(bundle?.files || []),
+        ...(bundle?.managedFiles || []).filter(m => !m.deleted_at).map(m => ({
+          id: m.id, project_id: projectId, folder_id: null,
+          name: m.file_name || m.original_name || m.stored_name || 'file',
+          mime_type: m.mime_type ?? null, size_bytes: m.size_bytes ?? null, kind: 'source',
+          tags: m.tags || [], storage_provider: m.storage_provider || 'local_managed', storage_path: null,
+          uploaded_at: m.uploaded_at ?? null, updated_at: m.updated_at ?? null, managed: true,
+        })),
+      ];
       return rows
         .filter(f => !f.deleted_at && (after == null || String(f.id) > String(after)))
         .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))

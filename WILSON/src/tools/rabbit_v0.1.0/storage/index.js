@@ -170,10 +170,10 @@ export function moneyFolderChainLocked(folderId, folders) {
   const isMoney = (seg) => typeof seg === 'string' && MONEY_SEGMENTS.includes(seg.toUpperCase())
   let node = byId.get(folderId)
   for (let depth = 1; node; depth += 1) {
+    if (depth === 64) return node.kind !== 'root'
     const parent = byId.get(node.parent_id)
     if (node.kind !== 'root') {
       if (isMoney(String(node.path ?? '').split('/')[0])) return true
-      if (depth === 64) return true
       if (parent?.kind === 'root' && isMoney(node.slug)) return true
     }
     node = parent
