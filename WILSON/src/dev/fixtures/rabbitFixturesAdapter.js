@@ -667,7 +667,33 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Projects ─────────────────────────────────────────────────────────────
     async listProjects() {
-      return clone(live(store.projects))
+      return clone(live(store.projects).filter(p => !p.personal_owner_id))
+    },
+    // MO1 (0110): the cloud's four, as its RLS and RPCs answer them.
+    async supportsPersonalSpaces() { return true },
+    async listPersonalSpaces() {
+      return clone(live(store.projects)
+        .filter(p => p.personal_owner_id && (appRole === 'admin' || p.personal_owner_id === userId))
+        .map(({ id, title, personal_owner_id, folder_slug, updated_at }) => ({ id, title, personal_owner_id, folder_slug, updated_at })))
+    },
+    async ensurePersonalSpace() {
+      const mine = store.projects.find(p => p.personal_owner_id === userId)
+      if (mine) return mine.id
+      const row = upsert(store.projects, stampBy({
+        workspace_id: workspaceId, title: 'Personal space', is_private: true, status: 'active',
+        personal_owner_id: userId, folder_slug: `Personal_${String(userId).replace(/-/g, '')}`, created_by: userId,
+      }))
+      store.projectMembers.push({ project_id: row.id, user_id: userId, workspace_id: workspaceId, project_role: 'manager' })
+      return row.id
+    },
+    async recordPersonalSpaceOpened(projectId) {
+      const space = projectOf(projectId)
+      if (appRole !== 'admin' || !space?.personal_owner_id || space.personal_owner_id === userId) {
+        const err = new Error('only an admin opening another person\'s personal space is recorded')
+        err.code = '42501'
+        throw err
+      }
+      store.personalSpaceOpens.push({ project_id: projectId, owner_user_id: space.personal_owner_id, actor_user_id: userId, at: now() })
     },
     async loadProject(projectId) {
       const project = projectOf(projectId)

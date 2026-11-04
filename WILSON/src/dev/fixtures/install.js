@@ -104,7 +104,7 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
       listProjectMemberships() {
         const data = store.projectMembers.map(m => {
           const p = findById(store.projects, m.project_id)
-          return { user_id: m.user_id, project_id: m.project_id, projects: p ? { title: p.title, deleted_at: p.deleted_at ?? null } : null }
+          return { user_id: m.user_id, project_id: m.project_id, projects: p ? { title: p.title, deleted_at: p.deleted_at ?? null, personal_owner_id: p.personal_owner_id ?? null } : null }
         })
         return { data: clone(data), error: null }
       },

@@ -52,6 +52,9 @@ export const ERROR_CODES = Object.freeze({
   // the record, not a refusal. context carries nomination_id, course_id,
   // course_slug, course_name, approver_app_role and superseded_course_id.
   'WIL-4108': 'Nomination approved by its own proposer',
+  // MO1 (0110): written by record_personal_space_opened (DEFINER), never by a
+  // client: an admin opening another person's personal space in Files.
+  'WIL-4114': 'An admin opened someone else\'s personal space',
   'WIL-4201': 'Admin action failed',
   'WIL-4202': 'Last-admin protection triggered',
   'WIL-4203': 'Invite delivery failed',

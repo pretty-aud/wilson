@@ -45,6 +45,7 @@ function makeClient({ has0109 = true } = {}) {
         select: (c) => { cols = c; selects.push({ table, cols: c }); return b },
         limit: () => b,
         order: () => b,
+        is: () => b,
         then: (resolve) => {
           return resolve({ data: [], error: null })
         },

@@ -14,7 +14,7 @@
 import { WORKSPACE, MEMBERS } from './data/workspace'
 import {
   PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, TASK_LINKS,
-  COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
+  COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, PERSONAL_SPACES, PERSONAL_SPACE_FILES, PERSONAL_SPACE_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
 import {
   SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES,
@@ -144,7 +144,9 @@ export function createStore() {
     workspace: clone(WORKSPACE),
     members: clone(MEMBERS),
 
-    projects: [clone(PROJECT)],
+    projects: [clone(PROJECT), ...clone(PERSONAL_SPACES)],
+    // MO1 (0110): the fixtures' stand-in for the WIL-4114 line in app_events.
+    personalSpaceOpens: [],
     phases: clone(PHASES),
     milestones: clone(MILESTONES),
     assets: clone(ASSETS),
@@ -156,7 +158,7 @@ export function createStore() {
     comments: clone(COMMENTS),
     assetVersions: clone(ASSET_VERSIONS),
     editHistory: clone(EDIT_HISTORY),
-    projectMembers: clone(PROJECT_MEMBERS),
+    projectMembers: [...clone(PROJECT_MEMBERS), ...clone(PERSONAL_SPACE_MEMBERS)],
     taskTemplates: clone(TASK_TEMPLATES),
     ingestionRuns: [],
     ingestionChunks: [],
@@ -191,7 +193,7 @@ export function createStore() {
     tableViewLast: {},
 
     folders: clone(FOLDERS),
-    files: clone(FILES),
+    files: [...clone(FILES), ...clone(PERSONAL_SPACE_FILES)],
     fileEvents: clone(FILE_EVENTS),
     thumbnails: new Map(THUMBNAILS),
     manifests: {},

@@ -1485,6 +1485,11 @@ function startLocalServer(distPath) {
     // can't be require()'d from this CommonJS main process file.
     const { randomUUID: uuidv4 } = require('node:crypto');
 
+    // MO1 (MOTH_DESIGN §2.2 DT-1): the signed-out desktop's personal space,
+    // outside rabbit-data (electron/personalSpace.cjs).
+    const { createPersonalSpace, mountPersonalSpace } = require('./personalSpace.cjs');
+    const personalSpace = createPersonalSpace({ fs, path, userDataDir: app.getPath('userData'), newId: uuidv4 });
+
     function getRabbitProjectsDir() {
       const dir = path.join(getRabbitDataDir(), 'projects');
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1496,6 +1501,8 @@ function startLocalServer(distPath) {
       // the person's own demo folder now that the root is user-chosen. The
       // id is contained the way every file path is; a traversal is a
       // thrown error the readers turn into "not found".
+      const personalDir = personalSpace.dirFor(projectId);
+      if (personalDir) return personalDir;
       const projectsDir = getRabbitProjectsDir();
       const dir = resolveContainedFilePath(projectsDir, String(projectId || ''));
       if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) {
@@ -1846,6 +1853,8 @@ function startLocalServer(distPath) {
     //                                   receipts since C4 — see INVOICES/)
 
     function resolveProjectFolder(bundle) {
+      // MO1: the personal space has no project folder and no _DATABASES mirror.
+      if (personalSpace.isPersonalBundle(bundle)) return null;
       const root = bundle?.project?.folder_root;
       // (review round 2, H3) a stored root is followed only where the person
       // could have chosen it — inside the open demo folder, or anywhere when
@@ -2251,6 +2260,9 @@ function startLocalServer(distPath) {
     // Resolve the _FILES dir inside the user-visible project folder.
     // Falls back to the internal rabbit-data files dir if no project folder exists.
     function resolveProjectFilesDir(bundle, projectId) {
+      // MO1: the personal space's bodies live in one place only.
+      const personalFiles = personalSpace.filesDirFor(projectId);
+      if (personalFiles) return personalFiles;
       // Session 14: a storage relink can point the project's files at a new
       // home (project.files_dir). Honored only while it exists on disk — if
       // it moves again, resolution falls through and the scan reports the
@@ -2449,6 +2461,10 @@ function startLocalServer(distPath) {
       list.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
       res.json(list);
     });
+
+    // MO1: its two routes, and the guards that run ahead of the project routes
+    // below, so those stay as they were (several tests lift their bodies).
+    mountPersonalSpace(expressApp, { space: personalSpace, emptyBundle, readRabbitBundle, writeRabbitBundle });
 
     expressApp.get('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
@@ -2948,6 +2964,7 @@ function startLocalServer(distPath) {
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
     // create/rename/soft-delete OS folders when assets change.
     function resolveProjectFolderRoot(bundle) {
+      if (personalSpace.isPersonalBundle(bundle)) return null; // MO1: as resolveProjectFolder
       const projectRoot = bundle.project?.folder_root;
       if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot; // (review 2, H3)
       // Session 34: workspace root (byos) outranks the machine default.

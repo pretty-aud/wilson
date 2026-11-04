@@ -101,6 +101,7 @@ export const ORPHAN_TAKES = (n) => `${n} take${n === 1 ? '' : 's'} of a shot or 
 // archive is offered (review round 2) — since M1, what a later run of the
 // migration carries apart from what no migration carries (`later`; since M2
 // the later run is night 5's).
+export const PERSONAL_SPACE_STAYS = 'Your personal space on this computer stays on this computer; it was not moved to the cloud'
 export const NOT_CARRIED_SENTENCE = (list) => {
   const words = (xs) => xs.map(x => `${x.count} ${x.label}`).join(', ')
   const later = list.filter(x => x.later)
@@ -267,6 +268,16 @@ async function fetchLocalProjectsList() {
   const res = await localFetch(`${RABBIT_BASE}/projects`)
   if (!res.ok) throw new Error(`list projects failed: HTTP ${res.status}`)
   return res.json()
+}
+
+// MO1: whether this computer has a personal space. A desktop too old to have the
+// route, or no answer at all, is "none to report": it changes nothing carried.
+async function fetchLocalPersonalSpace() {
+  try {
+    const res = await localFetch(`${RABBIT_BASE}/personal-space`)
+    if (!res?.ok) return null
+    return (await res.json())?.project ?? null
+  } catch { return null }
 }
 
 async function fetchLocalProject(projectId) {
@@ -2643,6 +2654,12 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   }
 
   note(`Found ${localProjects.length} local project${localProjects.length === 1 ? '' : 's'}.`)
+  // MO1 (PSA-05): the local personal space is no project the list names, so the
+  // report says it stayed; without this line it would read as clean.
+  if (await fetchLocalPersonalSpace()) {
+    addNotCarried('personalSpace', 1)
+    note(`  ${PERSONAL_SPACE_STAYS}`)
+  }
   // Asked once, and only when there is something to write.
   let legalLocked = null
 

@@ -498,7 +498,7 @@ vi.mock('tus-js-client', () => ({
 }))
 
 const {
-  runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, PROJECT_FOLDER_STAYS, ARCHIVED_AGAIN,
+  runMigration, NOT_CARRIED_SENTENCE, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, PROJECT_FOLDER_STAYS, ARCHIVED_AGAIN,
   KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, INVOICES_FILED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   KEY_DATES_PHASE_LET_GO, FILE_LINKS_LET_GO, EDITS_CHAIN_TAKEN, STATUS_NOT_IN_CLOUD, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, TASK_LINKS_ON_GONE_TASKS, ROW_LINKS_LET_GO, removedWords,
@@ -616,6 +616,7 @@ let servedRecord
 let servedGone
 let streamCalls
 let streamEvents
+const localPersonalSpace = { project: null, status: 200 }
 let posterStatus
 let bundleWrites
 let recordWrites
@@ -699,6 +700,7 @@ function serve(bundles, extra = {}) {
       }
       return { ok: true, status: 200, headers: h({ 'content-length': String(size) }), blob: async () => ({ size, type: mf.mime_type || '' }) }
     }
+    if (url === '/api/rabbit/personal-space') return localPersonalSpace.status === 200 ? { ok: true, json: async () => ({ project: localPersonalSpace.project }) } : { ok: false, status: localPersonalSpace.status }
     if (url === '/api/rabbit/projects') return { ok: true, json: async () => served.map(b => ({ id: b.project.id, title: b.project.title })) }
     const m = /^\/api\/rabbit\/projects\/([^/]+)$/.exec(url)
     if (m) { const b = served.find(x => x.project.id === m[1]); return b ? { ok: true, json: async () => JSON.parse(JSON.stringify(b)) } : { ok: false, status: 404 } }
@@ -4033,5 +4035,40 @@ describe('D2: the report names the actuals that arrive without their invoice', (
     fake.state.moneyGate = false
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(report.invoicesLeftBehind).toEqual([])
+  })
+})
+
+// MO1 (MOTH_DESIGN §2.2 PSA-05): the signed-out desktop's personal space is no
+// project the list names; the report says it stayed, so it does not read as clean.
+describe('the personal space on this computer', () => {
+  const stays = { key: 'personalSpace', label: 'personal space on this computer (archive and clear leaves it where it is)', count: 1, later: false }
+  const reset = () => { localPersonalSpace.project = null; localPersonalSpace.status = 200 }
+
+  it('it stays, and the report and the log say so', async () => {
+    serve([])
+    localPersonalSpace.project = { id: 'ps-local', title: 'Personal space', personal: true }
+    const lines = []
+    try {
+      const report = await runMigration({ workspaceId: WS, dryRun: true, onProgress: (m) => lines.push(m) })
+      expect(report.notCarried).toContainEqual(stays)
+      expect(lines.join(' ')).toContain('Your personal space on this computer stays on this computer; it was not moved to the cloud')
+      expect(NOT_CARRIED_SENTENCE(report.notCarried)).toContain('1 personal space on this computer (archive and clear leaves it where it is)')
+    } finally { reset() }
+  })
+
+  it('FAILING CONTROL: no personal space, nothing said', async () => {
+    serve([])
+    const report = await runMigration({ workspaceId: WS, dryRun: true })
+    expect(report.notCarried.find(n => n.key === 'personalSpace')).toBeUndefined()
+  })
+
+  it('a desktop too old to have the route: nothing said, and the run goes on', async () => {
+    serve([])
+    localPersonalSpace.status = 404
+    try {
+      const report = await runMigration({ workspaceId: WS, dryRun: true })
+      expect(report.notCarried.find(n => n.key === 'personalSpace')).toBeUndefined()
+      expect(report.errors).toEqual([])
+    } finally { reset() }
   })
 })

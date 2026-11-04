@@ -100,6 +100,7 @@ import {
   looksLikeVideoFile, generateVideoThumbnailFromFile,
 } from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
+import { personalSpacesAvailable, isPersonalSpace } from '../../../cloud/personalSpace';
 import { presignStorage, presignReadUrls } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
@@ -358,12 +359,16 @@ async function canAccessProjectLegal(client, projectId) {
     return false;
   }
 }
+// Whether this project keeps its media on this computer. MO1 (0110): a
+// personal space is is_private and is NOT that: its files go to the company's
+// storage, as any project's do (her answer; MOTH_DESIGN §2.2 PS-6).
 async function projectIsPrivate(client, projectId) {
   if (!(await privateProjectsAvailable(client))) return false;
+  const personal = await personalSpacesAvailable(client);
   const { data, error } = await client
-    .from('projects').select('is_private').eq('id', projectId).maybeSingle();
+    .from('projects').select(personal ? 'is_private, personal_owner_id' : 'is_private').eq('id', projectId).maybeSingle();
   if (error) throw new Error(`[supabase] ${error.message}`);
-  return !!data?.is_private;
+  return !!data?.is_private && !isPersonalSpace(data);
 }
 
 function sanitize(obj, drop = []) {
@@ -1779,14 +1784,24 @@ function missing0084Table(error) {
     && /\b(shot_lists|shot_list_items|edits)\b/.test(error.message || '');
 }
 
-// A missing 0084 FUNCTION: PGRST202 (PostgREST's schema cache), or a 42883
-// that names THIS function. A 42883 raised inside its body (a helper dropped
+// A missing FUNCTION (0084's first, every newer RPC's since MO1): PGRST202
+// (PostgREST's schema cache), or a 42883 that names THIS function. A 42883 raised inside its body (a helper dropped
 // or re-signatured) is a real failure and must reach the caller.
 // 🚨 PGRST202 is also PostgREST's answer to a parameter-NAME mismatch, which
 // is why supabaseLoadProject.test.js pins every p_* name each method sends.
-function missing0084Function(fnName) {
+function missingFunction(fnName) {
   return (error) => error?.code === 'PGRST202'
     || (error?.code === '42883' && (error.message || '').includes(fnName));
+}
+
+// MO1 (0110): the two personal-space RPCs on a database without them.
+const PERSONAL_SPACES_ABSENT = 'this workspace\'s database does not have personal spaces yet';
+function unwrapPersonalRpc(result, fnName) {
+  if (missingFunction(fnName)(result?.error)) {
+    lastError = PERSONAL_SPACES_ABSENT;
+    throw new Error(PERSONAL_SPACES_ABSENT);
+  }
+  return unwrap(result);
 }
 
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
@@ -2716,10 +2731,15 @@ export function supabaseAdapter() {
       // MO1 (0109): topic_epoch, so the open project's channel joins the topic
       // its current epoch names (not in PROJECT_COLUMNS: the client never writes it).
       const epochCol = (await topicEpochAvailable(client)) ? ', topic_epoch' : '';
-      return unwrap(await client
+      // MO1 (0110): a personal space is in no list; an admin's RLS would admit
+      // everyone's. "Not now" fails closed: this read must not guess.
+      const personal = await personalSpacesAvailable(client);
+      if (personal === null) throw new Error('[supabase] the project list could not be read just now');
+      let list = client
         .from('projects')
-        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol + epochCol)
-        .order('updated_at', { ascending: false }));
+        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol + epochCol);
+      if (personal) list = list.is('personal_owner_id', null);
+      return unwrap(await list.order('updated_at', { ascending: false }));
     },
 
     async loadProject(projectId) {
@@ -5113,7 +5133,7 @@ export function supabaseAdapter() {
       requireShotLists();
       const rows = unwrapShotList(
         await client.rpc('replace_shot_list_items', { p_list: listId ?? null, p_items: shotListItemsParam(items) }),
-        missing0084Function('replace_shot_list_items'),
+        missingFunction('replace_shot_list_items'),
       );
       return rows || [];
     },
@@ -5137,7 +5157,7 @@ export function supabaseAdapter() {
         await client.rpc('upsert_shot_list_items', {
           p_list: listId ?? null, p_items: shotListItemsParam(items), p_positions_only: false,
         }),
-        missing0084Function('upsert_shot_list_items'),
+        missingFunction('upsert_shot_list_items'),
       );
       return rows || [];
     },
@@ -5160,7 +5180,7 @@ export function supabaseAdapter() {
         await client.rpc('upsert_shot_list_items', {
           p_list: listId ?? null, p_items, p_positions_only: true,
         }),
-        missing0084Function('upsert_shot_list_items'),
+        missingFunction('upsert_shot_list_items'),
       );
       return rows || [];
     },
@@ -5253,7 +5273,7 @@ export function supabaseAdapter() {
       requireShotLists();
       const active = unwrapShotList(
         await client.rpc('set_active_shot_list', { p_project: projectId ?? null, p_list: listId ?? null }),
-        missing0084Function('set_active_shot_list'),
+        missingFunction('set_active_shot_list'),
       );
       return active ?? null;
     },
@@ -5266,7 +5286,7 @@ export function supabaseAdapter() {
         await client.rpc('archive_shot_list', {
           p_list: listId ?? null, p_archived: archived == null ? true : Boolean(archived),
         }),
-        missing0084Function('archive_shot_list'),
+        missingFunction('archive_shot_list'),
       );
     },
     async archiveEdit(_projectId, editId, archived = true) {
@@ -5276,7 +5296,7 @@ export function supabaseAdapter() {
         await client.rpc('archive_edit', {
           p_edit: editId ?? null, p_archived: archived == null ? true : Boolean(archived),
         }),
-        missing0084Function('archive_edit'),
+        missingFunction('archive_edit'),
       );
     },
 
@@ -5867,6 +5887,34 @@ export function supabaseAdapter() {
       const client = await getClient();
       if (!client) return false;
       return privateProjectsAvailable(client);
+    },
+
+    // ── personal spaces (MO1, 0110, MOTH_DESIGN §2.2) ───────────────────────
+    async supportsPersonalSpaces() {
+      const client = await getClient();
+      if (!client) return false;
+      return (await personalSpacesAvailable(client)) === true;
+    },
+    // The caller's one space in this workspace, made on first ask (the server
+    // answers the same id every time).
+    async ensurePersonalSpace() {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('ensure_personal_space'), 'ensure_personal_space');
+    },
+    // Under RLS: the caller's own, and every member's for a workspace admin.
+    async listPersonalSpaces() {
+      const client = await requireClient();
+      if (!(await personalSpacesAvailable(client))) return [];
+      return unwrap(await client
+        .from('projects')
+        .select('id, title, personal_owner_id, folder_slug, updated_at')
+        .not('personal_owner_id', 'is', null)
+        .order('updated_at', { ascending: false })) || [];
+    },
+    // An admin opening someone else's space in Files: the server's WIL-4114 line.
+    async recordPersonalSpaceOpened(projectId) {
+      const client = await requireClient();
+      unwrapPersonalRpc(await client.rpc('record_personal_space_opened', { p_project: projectId }), 'record_personal_space_opened');
     },
   };
 }

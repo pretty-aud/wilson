@@ -327,6 +327,12 @@ export function googleDriveAdapter() {
       return res.blob();
     },
 
+    // MO1 (0110): Drive keeps no personal space.
+    async supportsPersonalSpaces() { return false; },
+    async listPersonalSpaces() { return []; },
+    ensurePersonalSpace:       readOnly('ensurePersonalSpace'),
+    recordPersonalSpaceOpened: readOnly('recordPersonalSpaceOpened'),
+
     // ── Writes (all throw) ────────────────────────────────────
     createProject:        readOnly('createProject'),
     updateProject:        readOnly('updateProject'),

@@ -13,6 +13,9 @@
 //     from admins (0022) — a company takeout that swept them in would be
 //     an admin backdoor. The per-user /api/export-all stays for one's own.
 //   - Notes (S8): owner-only personal content with NO admin bypass.
+//   - Personal spaces (MO1, 0110) and every row under them: an admin's RLS
+//     reads them, but her ruling is that admins reach them from Files only,
+//     where each open is logged (WIL-4114). See droppedRow.
 //   - storage_gc_queue: service-role plumbing, not company data.
 //
 // UX laws applied (≥5): Goal-Gradient (per-table progress with counts),
@@ -69,6 +72,17 @@ const ORDER_KEYS = {
   project_members:   ['project_id', 'user_id'],
 }
 
+// MO1 (0110, MOTH_DESIGN §2.2 SEC-4): which columns tie a row to its parent. The
+// tables above are parents first, so a child's parent has been judged already.
+const PARENT_KEYS = ['entity_id', 'asset_id', 'task_id', 'phase_id', 'file_id', 'predecessor_id', 'successor_id', 'run_id']
+
+/** Whether a row is a personal space's own: its project, or a parent already dropped. */
+export function droppedRow(table, row, personalIds, dropped) {
+  if (table === 'projects') return personalIds.has(row.id)
+  if (personalIds.has(row.project_id)) return true
+  return PARENT_KEYS.some(k => row[k] != null && dropped.has(row[k]))
+}
+
 export default function WorkspaceTakeout({ workspaceId, slug }) {
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState(null) // { table, done, total }
@@ -106,6 +120,23 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
     return { rows, truncated }
   }
 
+  // The personal set, read first (project_members comes before projects), paged
+  // as every table is. 42703 is a database without 0110: nothing to leave out.
+  // Any other failure stops the takeout: guessing "none" would export them.
+  async function personalSpaceIds() {
+    const ids = new Set()
+    for (let from = 0; ; from += PAGE) {
+      const { data, error: err } = await supabase.from('projects').select('id')
+        .not('personal_owner_id', 'is', null).order('id', { ascending: true }).range(from, from + PAGE - 1)
+      if (err) {
+        if (err.code === '42703' || /personal_owner_id/.test(err.message || '')) return new Set()
+        throw new Error(`projects: ${err.message}`)
+      }
+      for (const row of data || []) ids.add(row.id)
+      if (!data || data.length < PAGE) return ids
+    }
+  }
+
   async function runTakeout() {
     if (running) return
     setRunning(true)
@@ -121,6 +152,7 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
         excluded: [
           'otter_* (locked #20: personal courses are private even from admins)',
           'notes (owner-only personal content, no admin bypass)',
+          'personal spaces (owner-only; admins reach them from Files)',
           'storage_gc_queue (service plumbing)',
           'file blobs (metadata only — blobs live in the company storage provider)',
         ],
@@ -128,10 +160,12 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
       }
       let totalRows = 0
       const truncatedTables = []
+      const personalIds = await personalSpaceIds()
+      const dropped = new Set(personalIds)
       for (let i = 0; i < TAKEOUT_TABLES.length; i++) {
         const table = TAKEOUT_TABLES[i]
         setProgress({ table, done: i, total: TAKEOUT_TABLES.length })
-        const { rows, truncated, missing } = await fetchAll(table)
+        const { rows: read, truncated, missing } = await fetchAll(table)
         // A table that does not exist on this database is recorded rather than
         // skipped in silence — an archive that quietly omits a table looks
         // exactly like an archive of a workspace that had no such rows.
@@ -144,6 +178,11 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
           }
           continue
         }
+        const rows = read.filter((row) => {
+          if (!droppedRow(table, row, personalIds, dropped)) return true
+          if (row.id != null) dropped.add(row.id)
+          return false
+        })
         zip.file(`${table}.csv`, toCsv(rows))
         manifest.tables[table] = { rows: rows.length, truncated }
         totalRows += rows.length
@@ -170,8 +209,9 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
       </p>
       <p className="at-note">
         Excluded by design: O.T.T.E.R. courses (personal content is private
-        even from admins) and Notes. File rows are metadata — the blobs stay
-        in your storage provider.
+        even from admins), Notes and personal spaces (their owners&rsquo;; you
+        reach them from Files). File rows are metadata — the blobs stay in
+        your storage provider.
       </p>
 
       {error && <Banner tone="danger">{error}</Banner>}

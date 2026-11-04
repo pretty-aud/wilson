@@ -145,6 +145,9 @@ import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigat
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
+import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
+import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
+import { personalSpaceLabel } from '../../cloud/personalSpace'
 import { canSeeProjectMoney, canSeeProjectLegal } from '../../permissions/projectRoleMatrix'
 import GatedAction from '../../permissions/GatedAction'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
@@ -254,6 +257,10 @@ function safeList(fn, id) {
 // loses, and so does one of the same age. Only the cloud stamps `updated_at`:
 // a Local Server row carries none, so there the provider's copy always wins
 // (round 2, R2-TST-13).
+// MO1 (0110): the two things Files says about someone else's personal space.
+const PERSONAL_RECORD_FAILED = 'This personal space was not opened: the record of opening it could not be written. Try Reload.'
+const PERSONAL_OPEN_NOTED = 'Opening it is noted in Logs, where other admins see it.'
+
 function strictlyNewer(a, b) {
   const ta = Date.parse(a?.updated_at || '')
   const tb = Date.parse(b?.updated_at || '')
@@ -278,12 +285,45 @@ function applyOverlay(rows, overlay) {
   return rows.map(r => (overlay.has(r.id) ? { ...r, ...overlay.get(r.id) } : r))
 }
 
+// The Resources page's picker. MO1 (0110, MOTH_DESIGN §2.2 PS-9): the caller's own
+// personal space heads the list, and an admin's view of other people's follows
+// the projects, each by its owner's name. Its own component so the members are
+// read only where a picker is drawn, not on R.A.B.B.I.T.'s Files tab.
+function ProjectPicker({ value, onChange, projects, personalSpaces, me }) {
+  const wm = useWorkspaceMembers()
+  const label = (row) => personalSpaceLabel(row, { me, members: wm.members || [], membersKnown: (wm.members?.length > 0) && !wm.error })
+  const own = personalSpaces.filter(s => s.personal === true || s.personal_owner_id === me)
+  const others = personalSpaces.filter(s => !own.includes(s))
+    .map(s => ({ value: s.id, label: label(s) }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  return (
+    <Select
+      size="sm"
+      value={value}
+      onChange={onChange}
+      placeholder="Choose a project…"
+      options={[
+        ...own.map(s => ({ value: s.id, label: label(s) })),
+        ...projects.map(p => ({
+          value: p.id,
+          label: `${p.title || 'Untitled'}${p.is_private ? ' · private' : ''}`,
+        })),
+        ...others,
+      ]}
+      aria-label="Project"
+    />
+  )
+}
+
 // `pageActive` (S4c): whether this host's page is the one on screen. R.A.B.B.I.T.
 // passes `currentPage === 'rabbit'` (its page stays mounted while hidden); the
 // Resources page mounts the explorer only while it is shown, so its default
 // is true. The table's keys stand down while it is false.
 export default function ProjectFilesExplorer({ projectId: hostProjectId = null, showPicker = true, pageActive = true } = {}) {
   const ctx = useRabbit()
+  const perms = usePermissions()
+  const noRoles = ctx?.adapterMode === 'local_server'
+  const appRole = perms?.role ?? null
   const projects = useMemo(
     () => Object.values(ctx?.projectsIndex || {}).sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' })),
     [ctx?.projectsIndex],
@@ -314,6 +354,51 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const [selectedFileId, setSelectedFileId] = useState(null)
   const getAdapter = ctx?.getAdapter
 
+  // ── MO1 (0110, MOTH_DESIGN §2.2 PS-9, AU-1): personal spaces ────────────────
+  // In this page's picker only: they are in no project list, and R.A.B.B.I.T.'s
+  // tab shows the open project, which a personal space never is. RLS answers: an
+  // ordinary person gets their own, a workspace admin everyone's.
+  const [personalSpaces, setPersonalSpaces] = useState([])
+  useEffect(() => {
+    const a = getAdapter?.()
+    if (!showPicker || typeof a?.listPersonalSpaces !== 'function') { setPersonalSpaces([]); return undefined }
+    let off = false
+    Promise.resolve().then(() => a.listPersonalSpaces())
+      .then((rows) => { if (!off) setPersonalSpaces(Array.isArray(rows) ? rows : []) })
+      .catch(() => { if (!off) setPersonalSpaces([]) })
+    return () => { off = true }
+  }, [showPicker, getAdapter, ctx?.adapterMode, perms?.userId, appRole, reloads])
+  const personalRow = (showPicker && personalSpaces.find(s => s.id === projectId)) || null
+  const isPersonalOwner = !!personalRow && (noRoles || personalRow.personal_owner_id === perms?.userId)
+
+  // Her answer 4: an admin opening another person's space writes a line other
+  // admins see in Logs, once per selection and BEFORE anything of it is listed.
+  // A failure says so and lists nothing. The ref makes "once" survive an
+  // effect that runs twice; Reload tries again only after a failure.
+  const needsRecord = !!personalRow && !isPersonalOwner
+  const [recordedId, setRecordedId] = useState(null)
+  const [recordError, setRecordError] = useState('')
+  const recordingRef = useRef(null)
+  useEffect(() => {
+    setRecordError('')
+    if (!needsRecord) { recordingRef.current = null; setRecordedId(null); return undefined }
+    const a = getAdapter?.()
+    if (recordingRef.current?.id !== projectId) {
+      recordingRef.current = { id: projectId, done: Promise.resolve().then(() => a.recordPersonalSpaceOpened(projectId)) }
+    }
+    let off = false
+    const recording = recordingRef.current
+    recording.done
+      .then(() => { if (!off) setRecordedId(projectId) })
+      .catch(() => {
+        // Only this selection's: a newer one's record stands.
+        if (recordingRef.current === recording) recordingRef.current = null
+        if (!off) { setRecordedId(null); setRecordError(PERSONAL_RECORD_FAILED) }
+      })
+    return () => { off = true }
+  }, [needsRecord, projectId, getAdapter, reloads])
+  const awaitingRecord = needsRecord && recordedId !== projectId && !recordError
+
   // The open project's rows change → read them again. Identity, not content:
   // the provider replaces the array on every write it makes.
   const watchedFiles = isOpenProject ? ctx?.files : null
@@ -323,6 +408,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
 
   useEffect(() => {
     if (!projectId) { setLoaded(null); setError(''); return }
+    if (needsRecord && recordedId !== projectId) { setLoaded(null); setLoading(false); return }
     const adapter = getAdapter?.()
     if (!adapter) return
     let cancelled = false
@@ -350,7 +436,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     // `loaded` is read for its project id only; adding it would refetch on
     // every answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, getAdapter, reloads, watchedFiles, watchedFolders, watchedManaged])
+  }, [projectId, getAdapter, reloads, watchedFiles, watchedFolders, watchedManaged, needsRecord, recordedId])
 
   // Another project: nothing selected, no edit carried over.
   useEffect(() => {
@@ -463,7 +549,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const declineNavigate = useCallback(() => false, [])
   useNavigateTarget('files', showPicker ? declineNavigate : showFileTarget, showPicker ? null : (projectId || null))
 
-  const project = projects.find(p => p.id === projectId) || null
+  const project = projects.find(p => p.id === projectId) || personalRow || null
 
   // ── Who may change what, for the project on screen ──────────────────────
   // The open project's seat is known (useProjectAccess, canSeeProjectMoney).
@@ -473,14 +559,16 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // let them edit it with that project open". The Local Server has no roles
   // at all (noRoles), so there everything is a label and allowed; a backend
   // that cannot write (Google Drive) allows nothing. The DATABASE is the gate.
-  const perms = usePermissions()
+  // MO1 (0110, PSA-10): a personal space is decided from its own row: its owner
+  // writes, nobody else does (an admin reads it, read-only, and is told why).
   const access = useProjectAccess()
-  const noRoles = ctx?.adapterMode === 'local_server'
   const backendWrites = adapterSupportsWrites(ctx?.adapterMode)
-  const appRole = perms?.role ?? null
-  const canWrite = backendWrites && (noRoles || (isOpenProject
-    ? access.canWrite
-    : (appRole === 'admin' || appRole === 'manager')))
+  const personalCtx = { appRole, projectRole: null, isStaffed: true, isPersonal: true, isPersonalOwner, ready: perms?.ready, noRoles }
+  const canWrite = backendWrites && (personalRow
+    ? canOnProject(personalCtx, 'project.entity.write')
+    : (noRoles || (isOpenProject
+      ? access.canWrite
+      : (appRole === 'admin' || appRole === 'manager'))))
   const canSeeMoney = noRoles || (isOpenProject
     ? canSeeProjectMoney({ appRole, projectRole: ctx?.myProjectRole })
     : appRole === 'admin')
@@ -492,9 +580,11 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     : (appRole === 'admin' || appRole === 'manager'))
   const writeReason = !backendWrites
     ? 'This backend is read-only.'
-    : (isOpenProject
-      ? access.writeReason
-      : 'Open this project in R.A.B.B.I.T. to change its files; your seat on it is read when it is open.')
+    : (personalRow
+      ? projectActionDeniedReason(personalCtx, 'project.entity.write')
+      : (isOpenProject
+        ? access.writeReason
+        : 'Open this project in R.A.B.B.I.T. to change its files; your seat on it is read when it is open.'))
 
   // ── E1: the three controls that left the Summary's Control Panel ──────────
   // They act on the OPEN project (uploadFile files into it, the census and
@@ -1058,16 +1148,12 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
       >
         {/* E8: hidden on R.A.B.B.I.T.'s Files tab, which IS the open project. */}
         {showPicker && (
-          <Select
-            size="sm"
+          <ProjectPicker
             value={projectId}
             onChange={(v) => setPickedId(v ?? '')}
-            placeholder="Choose a project…"
-            options={projects.map(p => ({
-              value: p.id,
-              label: `${p.title || 'Untitled'}${p.is_private ? ' · private' : ''}`,
-            }))}
-            aria-label="Project"
+            projects={projects}
+            personalSpaces={personalSpaces}
+            me={perms?.userId ?? null}
           />
         )}
         <Tabs
@@ -1091,6 +1177,8 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         tabIndex={!projectId || loading || flat.length === 0 ? 0 : undefined}
       >
         {error && <Banner tone="danger">{error}</Banner>}
+        {recordError && <Banner tone="danger" data-personal-record-error>{recordError}</Banner>}
+        {needsRecord && !recordError && <Banner tone="info" live={false} data-personal-read-only>{writeReason} {PERSONAL_OPEN_NOTED}</Banner>}
         {uploadError && <Banner tone="danger" data-upload-error>{uploadError}</Banner>}
         {/* E1: the missing-files notice and its Relink, moved with the census
             from the Control Panel — on the kit Banner now (it was a hand-drawn
@@ -1155,12 +1243,14 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
             body="Choose a project above to see its folders and files."
           />
         )}
-        {projectId && loading && <Loading rows={10} columns={7} label="Loading this project's files" />}
+        {projectId && (loading || awaitingRecord) && <Loading rows={10} columns={7} label="Loading this project's files" />}
         {projectId && !loading && tree && flat.length === 0 && !error && (
           <EmptyState
             Icon={Folder}
             title="Nothing filed yet"
-            body="This project has no folders or files. They appear here as R.A.B.B.I.T. files things into it."
+            body={personalRow
+              ? 'This personal space has no files yet.'
+              : 'This project has no folders or files. They appear here as R.A.B.B.I.T. files things into it.'}
           />
         )}
 
@@ -1221,7 +1311,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                     node={selectedFile}
                     canWrite={canWrite}
                     writeReason={writeReason}
-                    canSeeMoney={canSeeMoney}
+                    canSeeMoney={canSeeMoney || isPersonalOwner}
                     tagsSupported={tagsSupported}
                     noRoles={noRoles}
                     saveError={saveError}

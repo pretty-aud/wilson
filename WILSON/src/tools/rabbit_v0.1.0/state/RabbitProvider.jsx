@@ -61,6 +61,7 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
+import { isPersonalSpace } from '../../../cloud/personalSpace';
 import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsInTurn, groupingRestoreNotice } from './tableViewsState';
 import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
@@ -274,6 +275,20 @@ export function markLoadedBinFiles(nextFiles, prevFiles, caps, { markOnline = nu
   if (caps.backend !== 'desktop_cloud' && caps.backend !== 'gateway_cloud') return nextFiles;
   const known = new Map((prevFiles || []).filter(f => typeof f?.online === 'boolean').map(f => [f.id, f.online]));
   return nextFiles.map(f => ({ ...f, online: known.has(f.id) ? known.get(f.id) : false }));
+}
+
+// MO1 (0109, 0110): a projects row no listener merges into the project list.
+function isHiddenProjectRecord(record) {
+  return record?.is_private === true || isPersonalSpace(record);
+}
+function dropPersonalFromIndex(setProjectsIndex, record) {
+  if (!record?.id || !isPersonalSpace(record)) return;
+  setProjectsIndex(idx => {
+    if (!(record.id in idx)) return idx;
+    const next = { ...idx };
+    delete next[record.id];
+    return next;
+  });
 }
 
 export function RabbitProvider({ children }) {
@@ -1172,6 +1187,12 @@ export function RabbitProvider({ children }) {
       } else if (eff.type === 'versions-refetch') {
         // S5b: another window opened or closed a bid version (realtimeMerge).
         versionsRefetch = true;
+      } else if (eff.type === 'project-patch' && eff.record?.id && isHiddenProjectRecord(eff.record)) {
+        // MO1 (0110, MOTH_DESIGN §2.2 PSA-08): the workspace path's rule, on
+        // this path too. A private or personal row is never merged: the list
+        // is read again through RLS. A personal space leaves it at once.
+        dropPersonalFromIndex(setProjectsIndex, eff.record);
+        requestIndexRevalidationRef.current?.();
       } else if (eff.type === 'project-patch' && eff.record?.id) {
         setProjectsIndex(idx => {
           // Same stale guard as the workspace path (Session 8): the same
@@ -1313,7 +1334,9 @@ export function RabbitProvider({ children }) {
     // MO1 (0109): AUDIENCE (a visibility flip, no row) and a private row (a
     // server without 0109 still sends them) are never merged: the list is
     // read again through RLS, and the open project closes if it is gone.
-    if (evt.table === 'projects' && (evt.op === 'AUDIENCE' || evt.record?.is_private === true)) {
+    // 0110: the same for a personal space, which also leaves the list at once.
+    if (evt.table === 'projects' && (evt.op === 'AUDIENCE' || isHiddenProjectRecord(evt.record))) {
+      dropPersonalFromIndex(setProjectsIndex, evt.record);
       requestIndexRevalidationRef.current?.();
     } else if (evt.table === 'projects') {
       const rec = evt.record;

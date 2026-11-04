@@ -452,6 +452,10 @@ export const NOT_CARRIED = Object.freeze([
   // desktop-only builds before InvoiceAttachment), no address in the cloud:
   // the actual goes up without it.
   ['invoicePaths', 'invoices attached by a path on this computer', 'invoice attached by a path on this computer'],
+  // MO1 (MOTH_DESIGN §2.2 PSA-05): the signed-out desktop's personal space, which
+  // archive-and-clear does not reach either, so the sentence's archive line is
+  // not about it. Not counted from a bundle: runMigration asks its own route.
+  ['personalSpace', 'personal spaces on this computer (archive and clear leaves them where they are)', 'personal space on this computer (archive and clear leaves it where it is)'],
 ].map(Object.freeze))
 
 /** The report's word for `count` of `key`: the plural, or the one given for a single (the plural less its s, else). */

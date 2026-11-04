@@ -194,3 +194,42 @@ describe('the topic epoch', () => {
     await waitFor(() => expect(proj.calls.at(-1)).toEqual({ pid: PROJECT_ID, epoch: 1 }))
   })
 })
+
+// MO1 (0110, MOTH_DESIGN §2.2 PSA-08): neither path ever merges a personal space,
+// or a private row, into the project list; the list is read again through RLS.
+describe('neither channel merges a personal space or a private row', () => {
+  const STAMP = '2030-01-01T00:00:00.000Z'
+  const personal = { id: 'ps-1', title: 'Personal space', is_private: true, personal_owner_id: 'u2', updated_at: STAMP }
+  const projectsEvent = (record) => ({ table: 'projects', op: 'UPDATE', oldRecord: null, record })
+
+  it('the workspace channel: a personal row stays out, and one that got in leaves', async () => {
+    const before = listCalls
+    await act(async () => { ws.emit(projectsEvent(personal)) })
+    expect(ctx.projectsIndex['ps-1']).toBeUndefined()
+    await waitFor(() => expect(listCalls).toBe(before + 1), LONG)
+    expect(ctx.projectsIndex['ps-1']).toBeUndefined()
+  })
+
+  it('the project channel: a personal row stays out, and the list is read again', async () => {
+    const before = listCalls
+    await act(async () => { proj.emit(projectsEvent(personal)) })
+    expect(ctx.projectsIndex['ps-1']).toBeUndefined()
+    await waitFor(() => expect(listCalls).toBe(before + 1), LONG)
+  })
+
+  it('the project channel: a private row\'s words are not merged, and the list is read again', async () => {
+    const before = listCalls
+    await act(async () => {
+      proj.emit(projectsEvent({ id: PROJECT_ID, title: 'Leaked title', is_private: true, updated_at: STAMP }))
+    })
+    expect(ctx.projectsIndex[PROJECT_ID]?.title).not.toBe('Leaked title')
+    await waitFor(() => expect(listCalls).toBe(before + 1), LONG)
+  })
+
+  it('FAILING CONTROL: both channels still merge an ordinary row', async () => {
+    await act(async () => { ws.emit(projectsEvent({ id: 'open-1', title: 'From the workspace', updated_at: STAMP })) })
+    expect(ctx.projectsIndex['open-1']?.title).toBe('From the workspace')
+    await act(async () => { proj.emit(projectsEvent({ id: 'open-2', title: 'From the project', updated_at: STAMP })) })
+    expect(ctx.projectsIndex['open-2']?.title).toBe('From the project')
+  })
+})

@@ -1554,3 +1554,35 @@ describe('custom table views and groupings (VW1c, 0098 on the fixtures)', () => 
     expect(() => raise('No such sentence')).toThrow(/raises no/)
   })
 })
+
+// MO1 (0110): the fake cloud answers personal spaces as the real one's RLS and RPCs do.
+describe('personal spaces (0110)', () => {
+  const MARA = fid('member', 1)
+  const PRIYA = fid('member', 3)
+  const fresh = () => buildDevFixtures()
+  it('no list holds them; the admin sees both in listPersonalSpaces', async () => {
+    const fx = fresh().rabbitAdapter()
+    expect((await fx.listProjects()).some(p => p.personal_owner_id)).toBe(false)
+    expect((await fx.listPersonalSpaces()).map(s => s.personal_owner_id).sort()).toEqual([MARA, PRIYA].sort())
+  })
+  it('ensurePersonalSpace answers the same id every time', async () => {
+    const fx = fresh().rabbitAdapter()
+    const first = await fx.ensurePersonalSpace()
+    expect(await fx.ensurePersonalSpace()).toBe(first)
+    expect((await fx.listPersonalSpaces()).find(s => s.id === first).personal_owner_id).toBe(MARA)
+  })
+  it('an admin\'s open of someone else\'s is recorded; their own, and an ordinary project, are refused', async () => {
+    const dev = fresh()
+    const fx = dev.rabbitAdapter()
+    const spaces = await fx.listPersonalSpaces()
+    const hers = spaces.find(s => s.personal_owner_id === PRIYA).id
+    const mine = spaces.find(s => s.personal_owner_id === MARA).id
+    await fx.recordPersonalSpaceOpened(hers)
+    await expect(fx.recordPersonalSpaceOpened(mine)).rejects.toThrow()
+    await expect(fx.recordPersonalSpaceOpened(fid('project', 1))).rejects.toThrow()
+  })
+  it('the Team page\'s seats name them, so the page can leave them out', () => {
+    const { data } = fresh().workspace.listProjectMemberships()
+    expect(data.filter(r => r.projects?.personal_owner_id).length).toBe(2)
+  })
+})

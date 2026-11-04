@@ -195,6 +195,20 @@ export function localServerAdapter() {
     // ── Projects ──────────────────────────────────────────────
     listProjects: () => jfetch(`${BASE}/projects`),
 
+    // MO1 (MOTH_DESIGN §2.2 DT-1): the signed-out desktop's one personal space
+    // per computer and OS user. The existing project routes serve it by its id.
+    supportsPersonalSpaces: async () => true,
+    async ensurePersonalSpace() {
+      const project = await jfetch(`${BASE}/personal-space`, { method: 'POST' });
+      return project?.id ?? null;
+    },
+    async listPersonalSpaces() {
+      const body = await jfetch(`${BASE}/personal-space`);
+      return body?.project ? [body.project] : [];
+    },
+    // No admins here, so nobody opens someone else's.
+    async recordPersonalSpaceOpened() {},
+
     async loadProject(id) {
       const bundle = await jfetch(`${BASE}/projects/${id}`);
       // Local server stores everything in one bundle file; align the
