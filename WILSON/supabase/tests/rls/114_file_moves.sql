@@ -22,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(48);
 
 SELECT * FROM tests.rls_setup();
 
@@ -119,7 +119,7 @@ SELECT is((SELECT folder_id IS NULL AND project_id = 'aaaa1111-0000-0000-0000-00
   'and clears the file''s folder_id, keeping its project');
 
 
--- ── 17-19: the provider helper ───────────────────────────────────────────────
+-- ── 17-21: the provider helper ───────────────────────────────────────────────
 SELECT is(public.fn_moth_body_provider_for('11111111-1111-1111-1111-111111111111'), 'supabase',
   'a company with no storage row keeps its bodies with Supabase');
 INSERT INTO public.workspace_storage (workspace_id, provider, mode, root_path, root_kind)
@@ -133,9 +133,20 @@ UPDATE public.workspace_storage
  WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SELECT is(public.fn_moth_body_provider_for('11111111-1111-1111-1111-111111111111'), 's3',
   'an s3 company''s new bodies go to s3');
+-- Back on Petal: the old provider stays in the row, remembered and inert.
+UPDATE public.workspace_storage SET mode = 'central'
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT is(public.fn_moth_body_provider_for('11111111-1111-1111-1111-111111111111'), 'supabase',
+  'an s3 company back on Petal: new bodies go to Supabase, not its old bucket');
+UPDATE public.workspace_storage
+   SET provider = 'network', provider_config = NULL,
+       root_path = repeat(chr(92), 2) || 'server' || chr(92) || 'share', root_kind = 'unc'
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT is(public.fn_moth_body_provider_for('11111111-1111-1111-1111-111111111111'), 'supabase',
+  'an office-server company back on Petal: not to its old share');
 
 
--- ── 20-22: the audit trigger and the shape, as the runner with user_c's claims ─
+-- ── 22-24: the audit trigger and the shape, as the runner with user_c's claims ─
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
   'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'user')
@@ -161,7 +172,7 @@ SELECT is((SELECT txid FROM public.file_moves WHERE id = '11400000-0000-0000-000
   txid_current(), 'the txid defaults to this transaction');
 
 
--- ── 23-34: the admission ─────────────────────────────────────────────────────
+-- ── 25-36: the admission ─────────────────────────────────────────────────────
 SELECT set_config('wilson.file_move', '', true);
 SELECT is(public.fn_checked_move_admits('11400000-0000-0000-0000-000000000101', 'aaaa1111-0000-0000-0000-000000001142',
           '11400000-0000-0000-0000-0000000000f9', 'supabase', 'projects/b/files/101/a.txt'), false,
@@ -209,7 +220,7 @@ SELECT is(public.fn_checked_move_admits('11400000-0000-0000-0000-000000000101', 
           '11400000-0000-0000-0000-0000000000f9', 'supabase', 'projects/b/files/101/a.txt'), false,
   'another person: false, admins included');
 
--- ── 35-36: another transaction's row, and no signed-in person ────────────────
+-- ── 37-38: another transaction's row, and no signed-in person ────────────────
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
   'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'user')
@@ -225,7 +236,7 @@ SELECT is(public.fn_checked_move_admits('11400000-0000-0000-0000-000000000101', 
   'no signed-in person: false, never NULL');
 
 
--- ── 37-40: every write and read refused to a client ──────────────────────────
+-- ── 39-42: every write and read refused to a client ──────────────────────────
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
   'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin')
@@ -240,7 +251,7 @@ RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
 
 
--- ── 41-43: the shape and the purge ───────────────────────────────────────────
+-- ── 43-47: the shape and the purge ───────────────────────────────────────────
 SELECT throws_ok($$ INSERT INTO public.file_moves (workspace_id, actor_user_id, items)
                     VALUES ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '[]') $$,
   '23514', NULL, 'an empty journal row is refused');
@@ -249,9 +260,14 @@ SELECT throws_ok($$ SELECT public.purge_file_moves(interval '1 hour') $$, 'P0001
 UPDATE public.file_moves SET created_at = now() - interval '31 days' WHERE id = '11400000-0000-0000-0000-000000000201';
 INSERT INTO public.file_moves (id, workspace_id, actor_user_id, items) VALUES
   ('11400000-0000-0000-0000-000000000202', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '[{"id":"x"}]');
-SELECT is(public.purge_file_moves(), 1, 'the purge deletes what is past 30 days and keeps the rest');
+-- By id: a real journal row past 30 days may be waiting for tonight's job.
+SELECT ok(public.purge_file_moves() >= 1, 'the purge says how many it deleted');
+SELECT ok(NOT EXISTS (SELECT 1 FROM public.file_moves WHERE id = '11400000-0000-0000-0000-000000000201'),
+  'the purge deletes what is past 30 days');
+SELECT ok(EXISTS (SELECT 1 FROM public.file_moves WHERE id = '11400000-0000-0000-0000-000000000202'),
+  'and keeps the rest');
 
--- 44: the purge's job, where this stack has pg_cron (CI's db-only stack may not).
+-- 48: the purge's job, where this stack has pg_cron (CI's db-only stack may not).
 SELECT ok(
   to_regclass('cron.job') IS NULL
   OR (SELECT count(*) = 1 FROM cron.job WHERE jobname = 'wilson-purge-file-moves' AND schedule = '41 4 * * *'),

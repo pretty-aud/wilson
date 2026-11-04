@@ -33,7 +33,7 @@
 
 BEGIN;
 
-SELECT plan(285);
+SELECT plan(290);
 
 SELECT * FROM tests.rls_setup();
 
@@ -481,6 +481,33 @@ SELECT throws_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-00
 SELECT throws_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-0000000000f0' $$, '42501', NULL, 'nor the projects root, which would take them with it');
 SELECT lives_ok($$ DELETE FROM public.folders WHERE id = '11300000-0000-0000-0000-000000000092' $$, 'a working folder can be deleted');
 SELECT is((SELECT count(*)::int FROM public.folders WHERE id = '11300000-0000-0000-0000-000000000092'), 0, 'and it is gone (the guard returns the row, so the delete is not skipped)');
+
+-- A folder stays in its project and keeps its id, and the answer is the same
+-- whatever it holds: left to the foreign keys, which answer past RLS, the write
+-- would say whether a file the caller cannot see is filed there.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
+  ('11300000-0000-0000-0000-000000000096', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000000f0', 'custom', 'EmptyHere', 'EmptyHere'),
+  ('11300000-0000-0000-0000-000000000097', 'aaaa1111-0000-0000-0000-000000001131', '11300000-0000-0000-0000-0000000000f0', 'custom', 'HoldsHidden', 'HoldsHidden');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, folder_id, deleted_at) VALUES
+  ('11300000-0000-0000-0000-0000000001f9', 'aaaa1111-0000-0000-0000-000000001131', 'binned-here.txt', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000001131/files/11300000-0000-0000-0000-0000000001f9/binned-here.txt', '11300000-0000-0000-0000-000000000097', now());
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT throws_ok($$ UPDATE public.folders SET project_id = 'aaaa1111-0000-0000-0000-000000001132' WHERE id = '11300000-0000-0000-0000-000000000096' $$, '42501', 'A folder stays in its project and keeps its id.', 'an empty folder cannot change project');
+SELECT throws_ok($$ UPDATE public.folders SET project_id = 'aaaa1111-0000-0000-0000-000000001132', parent_id = '11300000-0000-0000-0000-0000000000b0', path = 'probe', slug = 'probe' WHERE id = '11300000-0000-0000-0000-000000000097' $$, '42501', 'A folder stays in its project and keeps its id.', 'and the answer is the same with a hidden file filed there and every reference pointed at the new project');
+SELECT throws_ok($$ UPDATE public.folders SET id = '11300000-0000-0000-0000-000000000098' WHERE id = '11300000-0000-0000-0000-000000000096' $$, '42501', 'A folder stays in its project and keeps its id.', 'an empty folder cannot change its id');
+SELECT throws_ok($$ UPDATE public.folders SET id = '11300000-0000-0000-0000-000000000098' WHERE id = '11300000-0000-0000-0000-000000000097' $$, '42501', 'A folder stays in its project and keeps its id.', 'and the answer is the same with a hidden file filed there');
+SELECT lives_ok($$ UPDATE public.folders SET id = '11300000-0000-0000-0000-000000000097', project_id = 'aaaa1111-0000-0000-0000-000000001131', label = 'Holds' WHERE id = '11300000-0000-0000-0000-000000000097' $$, 'resending a folder''s own id and project passes');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+DELETE FROM public.files WHERE id = '11300000-0000-0000-0000-0000000001f9';
+DELETE FROM public.folders WHERE id IN ('11300000-0000-0000-0000-000000000096', '11300000-0000-0000-0000-000000000097');
 
 -- ── A parent the caller cannot see answers like a random uuid (no oracle) ─
 SELECT set_config('request.jwt.claims', '{}', true);

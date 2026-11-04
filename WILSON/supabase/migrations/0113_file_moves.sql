@@ -66,6 +66,10 @@ BEGIN
 END $$;
 
 -- §1 The keys ----------------------------------------------------------------------
+-- The composite keys go first: they depend on the unique key, so a re-run could
+-- not drop it while they stand.
+ALTER TABLE public.folders DROP CONSTRAINT IF EXISTS folders_parent_same_project_fk;
+ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_folder_same_project_fk;
 ALTER TABLE public.folders DROP CONSTRAINT IF EXISTS folders_id_project_key;
 ALTER TABLE public.folders ADD CONSTRAINT folders_id_project_key UNIQUE (id, project_id);
 
@@ -89,14 +93,12 @@ BEGIN
   END LOOP;
 END $$;
 
-ALTER TABLE public.folders DROP CONSTRAINT IF EXISTS folders_parent_same_project_fk;
 ALTER TABLE public.folders ADD CONSTRAINT folders_parent_same_project_fk
   FOREIGN KEY (parent_id, project_id) REFERENCES public.folders (id, project_id)
   ON DELETE CASCADE NOT VALID;
 ALTER TABLE public.folders VALIDATE CONSTRAINT folders_parent_same_project_fk;
 
 -- The column list keeps project_id: a folder's delete clears only folder_id.
-ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_folder_same_project_fk;
 ALTER TABLE public.files ADD CONSTRAINT files_folder_same_project_fk
   FOREIGN KEY (folder_id, project_id) REFERENCES public.folders (id, project_id)
   ON DELETE SET NULL (folder_id) NOT VALID;
@@ -168,9 +170,11 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_checked_move_admits(uuid, uuid, uuid, text, text) FROM PUBLIC, anon, authenticated;
 
 -- §4 Where a company's new bodies go -----------------------------------------------------
--- The server's copy of storage/index.js fileProviderFor, except on an office server:
--- a copy-up there targets the share, not local_server. Text, because no guard
--- written before 0117 uses the enum value (0112).
+-- The server's copy of storage/index.js activeWorkspaceProvider and fileProviderFor,
+-- except on an office server: a copy-up there targets the share, not local_server.
+-- Only mode 'byos' makes a provider active: a company back on Petal keeps its old
+-- provider in the row, remembered and inert. Text, because no guard written before
+-- 0117 uses the enum value (0112).
 CREATE OR REPLACE FUNCTION public.fn_moth_body_provider_for(p_workspace uuid)
 RETURNS text
 LANGUAGE plpgsql
@@ -181,7 +185,7 @@ AS $$
 DECLARE
   v_provider TEXT;
 BEGIN
-  SELECT ws.provider INTO v_provider
+  SELECT CASE WHEN ws.mode = 'byos' THEN ws.provider END INTO v_provider
     FROM public.workspace_storage ws
    WHERE ws.workspace_id = p_workspace;
   RETURN CASE v_provider
@@ -243,7 +247,7 @@ COMMENT ON COLUMN public.file_moves.items IS
 COMMENT ON FUNCTION public.fn_checked_move_admits(uuid, uuid, uuid, text, text) IS
   'True only when wilson.file_move names a journal row written in this transaction by this person with an item matching all five values. The one way a definer is admitted to change a file''s project, folder or locator. Revoked from clients.';
 COMMENT ON FUNCTION public.fn_moth_body_provider_for(uuid) IS
-  'The provider a company''s new bodies go to, as text: supabase, s3 or network_share. The server''s copy of storage/index.js fileProviderFor, except that on an office server a copy-up targets the share. Revoked from clients.';
+  'The provider a company''s new bodies go to, as text: supabase, s3 or network_share. Only mode byos makes a provider active. The server''s copy of storage/index.js activeWorkspaceProvider and fileProviderFor, except that on an office server a copy-up targets the share. Revoked from clients.';
 COMMENT ON FUNCTION public.purge_file_moves(interval) IS
   'Deletes journal rows older than the retention (30 days; refuses under one day). Cron wilson-purge-file-moves, 04:41 UTC. Service role only.';
 

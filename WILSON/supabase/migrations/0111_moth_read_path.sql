@@ -23,9 +23,9 @@
 --   §1  expenses_file_ids_gin: the receipt arm's lookup.
 --   §2  moth_folder_path_locked(text), and fn_folders_lock_guard with
 --       trg_folders_lock_guard: a client write never changes a folder's money
---       or Legal standing, never detaches a folder's first path segment from its
---       parent's, and never deletes a money or Legal folder or a project's root,
---       so the standing the walk below reads can be trusted.
+--       or Legal standing, its project or its id, never detaches a folder's first
+--       path segment from its parent's, and never deletes a money or Legal folder
+--       or a project's root, so the standing the walk below reads can be trusted.
 --   §3  moth_folder_chain_locked and moth_file_row_locked: the one classifier
 --       (0119's history capture calls the second, so history's redaction and
 --       Moth's live gate cannot drift).
@@ -135,6 +135,17 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- A folder stays in its project and keeps its id, whatever it holds. Its files
+  -- and children are filed by both (0113's keys), and a foreign key answers past
+  -- RLS: left to the keys, this write would say whether a file the caller cannot
+  -- see is filed here. No shipped writer changes either, and resending the same
+  -- values passes.
+  IF TG_OP = 'UPDATE'
+     AND (NEW.id IS DISTINCT FROM OLD.id OR NEW.project_id IS DISTINCT FROM OLD.project_id) THEN
+    RAISE EXCEPTION 'A folder stays in its project and keeps its id.'
+      USING ERRCODE = '42501';
+  END IF;
+
   SELECT par.kind, par.path INTO v_new_parent_kind, v_new_parent_path
     FROM public.folders par WHERE par.id = NEW.parent_id;
 
@@ -173,7 +184,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_folders_lock_guard() FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE TRIGGER trg_folders_lock_guard
-  BEFORE INSERT OR DELETE OR UPDATE OF path, slug, parent_id ON public.folders
+  BEFORE INSERT OR DELETE OR UPDATE OF path, slug, parent_id, project_id, id ON public.folders
   FOR EACH ROW EXECUTE FUNCTION public.fn_folders_lock_guard();
 
 -- §3 The one classifier -------------------------------------------------------------
@@ -460,7 +471,7 @@ GRANT  EXECUTE ON FUNCTION public.moth_project_files(uuid, uuid, integer) TO aut
 COMMENT ON FUNCTION public.moth_folder_path_locked(text) IS
   'True when a folder path''s first segment is a money or Legal one. Pure.';
 COMMENT ON FUNCTION public.fn_folders_lock_guard() IS
-  'A client write never changes a folder''s money or Legal standing, never detaches its first path segment from its parent''s, and never deletes a money or Legal folder or a project''s root. INVOKER: a parent the caller cannot see reads as no row. Unbound sessions and cascades pass.';
+  'A client write never changes a folder''s money or Legal standing, its project or its id, never detaches its first path segment from its parent''s, and never deletes a money or Legal folder or a project''s root. INVOKER: a parent the caller cannot see reads as no row. Unbound sessions and cascades pass.';
 COMMENT ON FUNCTION public.moth_folder_chain_locked(uuid, uuid) IS
   'True when any folder up the chain has a money first path segment, a top-level one has a money slug, or the chain cannot be walked to its end within 64 steps. Revoked from clients.';
 COMMENT ON FUNCTION public.moth_file_row_locked(uuid, uuid, uuid, boolean, text, text[], uuid) IS
@@ -584,7 +595,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- The guard is not a definer, and it is on folders for the three columns.
+  -- The guard is not a definer, and it is on folders for the five columns.
   IF (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_folders_lock_guard()'::regprocedure) THEN
     RAISE EXCEPTION '0111 post-condition: fn_folders_lock_guard must be INVOKER (a definer is an oracle over a hidden parent''s path)';
   END IF;
@@ -592,7 +603,7 @@ BEGIN
                   WHERE tgrelid = 'public.folders'::regclass
                     AND tgname = 'trg_folders_lock_guard'
                     AND tgenabled = 'O'
-                    AND pg_get_triggerdef(oid) LIKE '%BEFORE INSERT OR DELETE OR UPDATE OF path, slug, parent_id ON public.folders%') THEN
+                    AND pg_get_triggerdef(oid) LIKE '%BEFORE INSERT OR DELETE OR UPDATE OF path, slug, parent_id, project_id, id ON public.folders%') THEN
     RAISE EXCEPTION '0111 post-condition: trg_folders_lock_guard is missing or changed';
   END IF;
   IF to_regclass('public.expenses_file_ids_gin') IS NULL THEN
