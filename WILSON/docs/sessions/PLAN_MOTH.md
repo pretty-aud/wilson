@@ -507,6 +507,8 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 
 Required: Opus 5.5 for builds, designs, both cold reviews; stop if wrong; no Fable wait.
 
+**Amended 2026-11-04 (her ruling, verbatim):** *"Fable for reviews only"* — builds and designs stay on Opus 5.5; the review rounds' reviewer and checker agents run on Fable 5.1. Recorded in `PLAN_TO_1_0.md`'s M.O.T.H. section.
+
 ### Q2 History — settled
 
 > Show graph structure and metadata from Moth’s first recorded baseline onward, retain 90 days, and label periods with no recorded history; file bodies are not historical copies.
