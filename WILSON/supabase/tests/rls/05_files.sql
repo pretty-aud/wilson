@@ -17,7 +17,7 @@
 -- CASCADE and SET NULL differ by one word in the DDL and by "the blob is
 -- still there but nothing knows where" in production.
 BEGIN;
-SELECT plan(12);
+SELECT plan(14);
 
 SELECT * FROM tests.rls_setup();
 
@@ -230,6 +230,22 @@ SELECT is(
     WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01' AND folder_id IS NULL),
   1,
   '0043: deleting a folder clears files.folder_id and KEEPS the file row');
+
+-- 13-14 (MO1, 0113): the composite key on (folder_id, project_id). A patch that
+-- resends the row's own project passes, as updateFile's and patchFile's do; a
+-- filing in another project's folder is refused, here for the runner, whom no
+-- guard stops (suite 110 pins a client's refusal, suite 114 the rest of the key).
+SELECT lives_ok($$
+  UPDATE public.files SET project_id = 'aaaa1111-0000-0000-0000-000000000001', name = 'ref-renamed.png'
+   WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01'
+$$, '0113: a patch that resends the same project_id passes');
+
+INSERT INTO public.folders (id, project_id, kind, slug, path)
+VALUES ('bbbb2222-0000-0000-0000-0000000000d2', 'bbbb2222-0000-0000-0000-000000000001', 'root', 'Project-B', '');
+SELECT throws_ok($$
+  UPDATE public.files SET folder_id = 'bbbb2222-0000-0000-0000-0000000000d2'
+   WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01'
+$$, '23503', NULL, '0113: a file cannot be filed in another project''s folder');
 
 SELECT * FROM finish();
 ROLLBACK;

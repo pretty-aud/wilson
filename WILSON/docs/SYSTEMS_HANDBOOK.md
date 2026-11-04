@@ -738,6 +738,7 @@ below.
 |---|---|---|
 | `platform_audit` | Has a `workspace_id` column but **no FK**, and snapshots slug + name as text | A `workspace.teardown` certificate must still name the company after the row is gone. A migration post-condition fails the deploy if an FK ever appears. |
 | `workspace_ai_keys`, `edge_rate_limits`, `storage_gc_queue` | **Zero policies at all** | Tenancy is enforced by the absence of any client grant. Service-role only. |
+| `file_moves` (MO1, 0113) | **Zero policies at all**, RLS forced, no client grants | The move journal. Only definers write it and nobody reads it, so the private ids it records leak nothing. `fn_checked_move_admits` admits a row change only for the row the marker names, written in this transaction, by this person, with a matching item. |
 | `notes`, `note_subjects`, `otter_progress`, `otter_quiz_attempts` | Tenancy **plus** `owner_id = auth.uid()` (`user_id = auth.uid()` on the two O.T.T.E.R. tables, which have no `owner_id` column), with **no admin bypass** | Private personal content. A workspace admin cannot read another member's notes, study progress or quiz marks. |
 | `otter_quiz_attempts` (again) | **No UPDATE policy at all**, and a 30-day window inside the SELECT policy | An attempt records something that happened, so immutability is enforced by the ABSENCE of a policy (RLS default-denies an unpoliced verb) rather than by a CHECK anyone could forget. 🚨 The window is why `otter_prune_quiz_attempts()` must be SECURITY DEFINER — see §15. |
 | `otter_courses` (personal tier) | No `current_app_role()` in the SELECT policy at all | Enforced by a post-condition that fails the migration if any SELECT policy on `otter_courses`/`otter_progress` ever mentions it. |
@@ -1212,6 +1213,7 @@ deletion goes through the GC function as `service_role`.
 
 | Job | UTC | Sweeps | Retention |
 |---|---|---|---|
+| `wilson-purge-file-moves` | 04:41 | `file_moves` (MO1, 0113) | 30 days |
 | `wilson-purge-edit-history` | 04:43 | `edit_history` | 90 days |
 | `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree | 30 days |
 | `wilson-purge-app-events` | 04:51 | `app_events` | 90 days |

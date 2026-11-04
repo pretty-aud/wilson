@@ -75,9 +75,10 @@ describe('rls.yml\'s failure-replay list', () => {
     // (2026-11-02): and 0107's, suite 110, policies and guards on tables with
     // suites of their own; 0108's, suite 111, functions, a column and a
     // policy on tables with suites of their own; 0109's, suite 112, functions
-    // and realtime policies, no table; and 0111's, suite 113, functions, a
-    // trigger and an index, no table.
-    expect(listed.slice(-5)).toEqual(['109_s3_endpoint_public_hosts.sql', '110_private_project_write_hops.sql', '111_private_project_money_and_history.sql', '112_private_project_channels.sql', '113_moth_read_path.sql'])
+    // and realtime policies, no table; 0111's, suite 113, functions, a trigger
+    // and an index, no table; and 0113's, suite 114, the file_moves table, which
+    // is in RLS_TABLES too.
+    expect(listed.slice(-5)).toEqual(['110_private_project_write_hops.sql', '111_private_project_money_and_history.sql', '112_private_project_channels.sql', '113_moth_read_path.sql', '114_file_moves.sql'])
   })
 })
 
@@ -116,12 +117,13 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
   // (2026-11-02): 110_private_project_write_hops.sql (0107) was;
   // 111_private_project_money_and_history.sql (0108) was;
   // 112_private_project_channels.sql (0109) was;
-  // 113_moth_read_path.sql (0111) is.
-  it('over the real directory, every suite once, 108, 109, 110, 111, 112 then 113 last', () => {
+  // 113_moth_read_path.sql (0111) was;
+  // 114_file_moves.sql (0113) is.
+  it('over the real directory, every suite once, 109, 110, 111, 112, 113 then 114 last', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-6)).toEqual(['108_two_factor_step_up.sql', '109_s3_endpoint_public_hosts.sql', '110_private_project_write_hops.sql', '111_private_project_money_and_history.sql', '112_private_project_channels.sql', '113_moth_read_path.sql'])
+    expect(picked.slice(-6)).toEqual(['109_s3_endpoint_public_hosts.sql', '110_private_project_write_hops.sql', '111_private_project_money_and_history.sql', '112_private_project_channels.sql', '113_moth_read_path.sql', '114_file_moves.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })
