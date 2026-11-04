@@ -1,9 +1,10 @@
 // =============================================================================
 // frame.test.js — what one frame draws (MO2a, the brief's item 3; frame.js).
 // Pins, on hand-built scenes and on fixture graphs (fixtureForTarget ->
-// buildGraph, placed on a grid): culling of dots and lines; the level of
-// detail by zoom; clustering by zoom AND by budget (1,000 dots / 2,000 lines,
-// 300 / 600 in light mode), drawing no more than the budget; clusters built
+// buildGraph, placed on a grid): culling of dots and lines on both axes; the
+// level of detail by zoom; clustering by zoom AND by budget (1,000 dots / 2,000
+// lines, 300 / 600 in light mode), counting only what is in view and drawing
+// no more than the budget, whichever budget grew the cell; clusters built
 // from whole world cells, so a 1 px pan never reshuffles one; a line to an
 // off-screen dot kept as a cluster edge; mist on clusters and cluster edges;
 // labels by level (MID: containers and the selection, NEAR: all, light MID:
@@ -114,6 +115,36 @@ describe('culling and level of detail', () => {
     expect(cullingHolds(naiveCull(CULL, NEAR_CAM, VP))).toBe(false)
   })
 
+  // Off screen only above or below the view: the left and right tests cannot see these.
+  const CULL_Y = makeScene(
+    [{ x: 0, y: 0 }, { x: 0, y: 2000 }, { x: -100, y: 2000 }, { x: 100, y: -2000 }, { x: 0, y: -1000 }, { x: 0, y: 1000 }],
+    [[1, 2], [4, 5]], // wholly below the view; both ends off but crossing it
+  )
+  const cullingHoldsAboveBelow = (out) => out.dots.index.join() === '0' && out.edges.count === 1 && out.edges.y1[0] === -700 && out.edges.y2[0] === 1300
+  /** Planted fault: culling left and right only, so everything above and below the screen is drawn. */
+  function xOnlyCull(scene, cam, vp) {
+    const rect = visibleWorldRect(cam, vp, FRAME_DEFAULTS.marginPx)
+    const out = { dots: { index: [] }, edges: { count: 0, y1: [], y2: [] } }
+    for (let i = 0; i < scene.n; i++) if (scene.xy[2 * i] >= rect.minX && scene.xy[2 * i] <= rect.maxX) out.dots.index.push(i)
+    for (let e = 0; e < scene.m; e++) {
+      const [a, b] = [scene.ends[2 * e], scene.ends[2 * e + 1]]
+      if (Math.max(scene.xy[2 * a], scene.xy[2 * b]) < rect.minX || Math.min(scene.xy[2 * a], scene.xy[2 * b]) > rect.maxX) continue
+      out.edges.count++
+      out.edges.y1.push(worldToScreen(cam, vp, 0, scene.xy[2 * a + 1]).y); out.edges.y2.push(worldToScreen(cam, vp, 0, scene.xy[2 * b + 1]).y)
+    }
+    return out
+  }
+
+  it('a dot or line off screen only above or below is not drawn; a line crossing the view top to bottom is', () => {
+    const out = computeFrame(CULL_Y, NEAR_CAM, VP, { selected: -1 })
+    expect(cullingHoldsAboveBelow(out)).toBe(true)
+    expect(out.culled).toBe(5)
+  })
+
+  it('CONTROL: a culler that tests only left and right fails the same check', () => {
+    expect(cullingHoldsAboveBelow(xOnlyCull(CULL_Y, NEAR_CAM, VP))).toBe(false)
+  })
+
   const LOD_TABLE = [[0.2, LOD.FAR], [0.3499, LOD.FAR], [0.35, LOD.MID], [0.6, LOD.MID], [0.9999, LOD.MID], [1, LOD.NEAR], [4, LOD.NEAR]]
   const lodHolds = (lodOf) => LOD_TABLE.every(([k, want]) => lodOf(k) === want)
 
@@ -158,6 +189,48 @@ describe('clustering by budget', () => {
 
   it('CONTROL: without light mode the 300/600 cases do not cluster, so the light check fails', () => {
     for (const [s, , budget] of OVER().filter((c) => c[1])) expect(withinBudget(computeFrame(s, MID_CAM, VP, {}), budget, s.n)).toBe(false)
+  })
+
+  // The budget counts what is in view: dots and lines off screen do not hold a person out of the clusters.
+  const FAR_OFF = 20000
+  const offScreen = (p) => ({ x: p.x + FAR_OFF, y: p.y })
+  const inViewScenes = () => [
+    makeScene([...grid(10, 30), ...grid(5000, 3).map(offScreen)]), // 5,010 dots, 10 in view
+    makeScene([...grid(10, 30), ...grid(900, 30).map(offScreen)], ring(900, 2500).map(([a, b]) => [a + 10, b + 10])), // 2,500 lines, none in view
+  ]
+  const opensInView = (frameOf) => inViewScenes().every((s) => {
+    const out = frameOf(s)
+    return out.clustered === null && out.lod === LOD.NEAR && out.dots.count === 10
+  })
+
+  it('a project over the budget opens when zoomed in: only the dots and lines in view count', () => {
+    expect(opensInView((s) => computeFrame(s, NEAR_CAM, VP))).toBe(true)
+  })
+
+  it('CONTROL: a budget that counts the whole project stays clustered at every zoom and fails the same check', () => {
+    const wholeProject = (s) => computeFrame(s, NEAR_CAM, VP, s.n > FRAME_DEFAULTS.maxDots || s.m > FRAME_DEFAULTS.maxLines ? { maxDots: -1 } : {})
+    expect(opensInView(wholeProject)).toBe(false)
+  })
+
+  // Dots every 11 px over a 1280 x 800 view: 504 cells at the base cell, so only the 300 budget has to grow the
+  // cell (the 301-dot cases above fit in far fewer cells, whichever number the growth compares with).
+  const WIDE = { width: 1280, height: 800 }
+  const denseScene = () => {
+    const dots = []
+    for (let x = -634.5; x <= 640; x += 11) for (let y = -394.5; y <= 400; y += 11) dots.push({ x, y })
+    return makeScene(dots)
+  }
+
+  it('in light mode the cell grows until dots + clusters are within 300, not 1,000', () => {
+    const s = denseScene()
+    expect(withinBudget(computeFrame(s, NEAR_CAM, WIDE, { light: true }), 300, s.n)).toBe(true)
+  })
+
+  it('CONTROL: a growth rule holding the full budget stops at the base cell, draws over 300 and fails the same check', () => {
+    const s = denseScene()
+    const out = computeFrame(s, NEAR_CAM, WIDE, { light: true, lightMaxDots: FRAME_DEFAULTS.maxDots })
+    expect(out.dots.count + out.clusters.count).toBeGreaterThan(300)
+    expect(withinBudget(out, 300, s.n)).toBe(false)
   })
 
   // A large viewport (2560 x 1440 CSS px) at MID: 1,000 interior cells hold two visible dots each, and every

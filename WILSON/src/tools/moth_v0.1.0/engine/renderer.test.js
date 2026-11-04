@@ -7,18 +7,21 @@
 // Infinity, '300') never leave a frame pending or a non-finite camera;
 // invalidate coalesces; hitTest reads the frame on screen; selection redraws
 // within one frame; the governor is fed lateness, not only script work;
-// light mode keeps label shadows and halos over a sun; clusters on the core
-// get a halo at FAR; a same-size resize is silent and a new size draws at
-// once; positionsSnapshot never saves a guess; reduced motion jumps; destroy
-// cancels the pending frame; the default palette is the kit's. Each rule has
-// a sibling CONTROL running the same check on a planted fault, which must fail.
+// light mode keeps label shadows and halos over a sun; a label that runs over
+// the core is shadowed for the brightest point under it, fading with its
+// position; clusters on the core get a halo at FAR; a same-size resize is
+// silent and a new size draws at once; positionsSnapshot never saves a guess;
+// reduced motion jumps; destroy cancels the pending frame; the default palette
+// is the kit's. Each rule has a sibling CONTROL running the same check on a
+// planted fault, which must fail.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
 import { createRenderer, DEFAULT_PALETTE } from './renderer.js'
-import { buildGraph, positionsToData } from './model.js'
+import { FRAME_DEFAULTS } from './frame.js'
+import { buildGraph, defaultRadius, positionsToData } from './model.js'
 import { generateCatalogue } from './fixtures.js'
-import { glowParams } from './glow.js'
+import { glowParams, shadowAlpha } from './glow.js'
 import { MAX_FLY_MS } from './camera.js'
 import { createFrameGovernor } from './governor.js'
 import { TYPE, FONT_SANS, SIGNAL } from '../../../ui/tokens.js'
@@ -309,6 +312,53 @@ describe('renderer: the governor and the light', () => {
     h.q.pump()
     expect(h.info().light).toBe(true)
     expect(shadowsDrawn(h.calls.slice(mark))).toBe(false)
+  })
+
+  // A long white label on the midline, wide and short view: it starts outside the core and runs into it.
+  const WIDE = { width: 1280, height: 500 }
+  const R = SUN.radiusFrac * WIDE.height
+  const LONG = 'x'.repeat(32)
+  const LONG_PX = LONG.length * FRAME_DEFAULTS.charPx
+  const ONE_LABEL = { nodes: [{ id: 'file:a', kind: 'file', label: LONG, depth: 0 }], edges: [] }
+  /** Where the label starts: `f` of the light's radius left of the centre. */
+  const startOf = (f) => WIDE.width / 2 - f * R
+  /** The shadow the real renderer strokes for that label (0 when it strokes nothing). */
+  const drawnShadow = (f) => {
+    const h = harness()
+    h.r.setScene(ONE_LABEL)
+    h.r.setPositions({ 'file:a': { x: startOf(f) - (defaultRadius(ONE_LABEL.nodes[0]) + 4) - WIDE.width / 2, y: 0 } })
+    h.r.resize(WIDE.width, WIDE.height)
+    h.r.setGlow(SUN)
+    pumpUntilIdle(h.q)
+    const stroke = h.calls.filter((c) => c.m === 'strokeText').at(-1)
+    return stroke ? Number(/,([\d.]+)\)$/.exec(stroke.strokeStyle)[1]) : 0
+  }
+  /** What the brightest point under the label calls for: the point of its span nearest the centre. */
+  const calledFor = (f) => shadowAlpha(Math.min(startOf(f) + LONG_PX, Math.max(startOf(f), WIDE.width / 2)), WIDE.height / 2, SUN, WIDE)
+  // Starts beyond the shadow's reach and ends in the core; starts part way and crosses the centre; starts in the core; starts past it.
+  const readsOverCore = (shadowOf) => shadowOf(0.86) > 0.5 && [0.86, 0.6, 0.1, -0.1].every((f) => Math.abs(shadowOf(f) - calledFor(f)) <= 0.001)
+  /** A label sliding across the light in 3 px steps: the shadow changes by little at each step. */
+  const fadesWithPosition = (shadowOf) => {
+    const steps = Array.from({ length: 200 }, (_, i) => 1.5 - i * 0.01).map(shadowOf)
+    return steps.some((a) => a > 0.5) && steps.every((a, i) => i === 0 || Math.abs(a - steps[i - 1]) <= 0.02)
+  }
+
+  it('a label that runs over the core is shadowed for the brightest point under it, not for its first letter', () => {
+    expect(readsOverCore(drawnShadow)).toBe(true)
+  })
+
+  it('CONTROL: judging the label at its first letter leaves white text on the core unshadowed and fails the same check', () => {
+    const firstLetter = (f) => shadowAlpha(startOf(f), WIDE.height / 2, SUN, WIDE)
+    expect(firstLetter(0.86)).toBe(0)
+    expect(readsOverCore(firstLetter)).toBe(false)
+  })
+
+  it('that shadow fades in with the position of the label: it never snaps on', () => {
+    expect(fadesWithPosition(drawnShadow)).toBe(true)
+  })
+
+  it('CONTROL: a shadow switched on past a threshold fails the same check', () => {
+    expect(fadesWithPosition((f) => (calledFor(f) > 0.1 ? 0.55 : 0))).toBe(false)
   })
 
   /** Every cluster (its size written at its centre) has a halo drawn centred on it. */

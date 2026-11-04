@@ -27,7 +27,7 @@
 // =============================================================================
 
 import { panBy as panCamera, zoomAt as zoomCamera, flyTo as flyPath, camera as makeCamera, boundedMs } from './camera.js'
-import { computeFrame, LOD } from './frame.js'
+import { computeFrame, LOD, FRAME_DEFAULTS } from './frame.js'
 import { shadowAlpha } from './glow.js'
 import { defaultRadius, positionsToData, EDGE_CODE } from './model.js'
 import { TYPE, FONT_SANS, SIGNAL } from '../../../ui/tokens.js'
@@ -90,6 +90,7 @@ export function createRenderer({
   const ctx = canvas.getContext('2d')
   const halo = makeHalo(createCanvas)
   const budgetMs = 20 // a frame request within this of the last frame is continuous motion
+  const charPx = frameOptions.charPx ?? FRAME_DEFAULTS.charPx // a label's width, as frame.js spaces them
   let viewport = { width: canvas.width || 1, height: canvas.height || 1 }
   let dpr = 1
   let cam = makeCamera()
@@ -307,7 +308,11 @@ export function createRenderer({
         const x = L.x + L.r + 4
         const y = L.y
         const fade = scene.dim[i] ? p.dimAlpha : 1
-        const a = glow ? shadowAlpha(x, y, glow, viewport) : 0
+        // Judged where the text comes nearest the bright core, not at its first
+        // letter: white text running into the core from outside needs the shadow
+        // too. Still a smooth function of position, so it never snaps on.
+        const nearest = Math.min(x + text.length * charPx, Math.max(x, viewport.width / 2))
+        const a = glow ? shadowAlpha(nearest, y, glow, viewport) : 0
         if (a >= 0.01) {
           ctx.globalAlpha = fade
           ctx.strokeStyle = `rgba(${p.labelShadow},${Math.round(a * 1000) / 1000})`

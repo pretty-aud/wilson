@@ -10,11 +10,12 @@
 // the centre, overlaps nothing, and rings the tags outside everything. The
 // worker protocol (layoutWorkerCore.js, driven by a manual schedule queue and
 // an injected clock): one settled then nothing scheduled until a pin, unpin or
-// reheat; stale jobs ignored; refusals answered; bounds and error codes; the
-// buffers transferred. The client (layoutClient.js, around a fake worker built
-// on the real core, with fake timers): settle, the watchdog, a late tick after
-// stop, pins dropped after stop or dispose, a refusal keeps the job, dispose
-// and a crash end the worker. Each rule has a PLANTED control.
+// reheat; stale jobs ignored, in effect as well as in silence; refusals
+// answered; bounds and error codes; the buffers transferred. The client
+// (layoutClient.js, around a fake worker built on the real core, with fake
+// timers): settle, the watchdog, a late tick after stop, a replaced job's
+// messages dropped, pins dropped after stop or dispose, a refusal keeps the
+// job, dispose and a crash end the worker. Each rule has a PLANTED control.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -283,6 +284,23 @@ describe('worker protocol', () => {
     expect(silentFor(h, 1, from)).toBe(false)
   })
 
+  // Not only silence: a replaced job's drag must leave the new job's layout exactly as it would have been.
+  const finalXy = (messages = []) => {
+    const h = started()
+    h.steps(3)
+    h.send(init(2))
+    for (const m of messages) h.send(m)
+    expect(quietOnceSettled(h)).toBe(true)
+    return [...h.out.at(-1).m.xy]
+  }
+  const moves = (job) => [{ type: 'pin', job, id: SID[5], x: 777, y: 777 }, { type: 'unpin', job, id: SID[5] }, { type: 'reheat', job }]
+  it("a stale job's pin, unpin and reheat do not touch the new job's layout", () => {
+    expect(finalXy(moves(1))).toEqual(finalXy())
+  })
+  it('CONTROL: the same messages naming the current job do move it, so the check can fail', () => {
+    expect(finalXy(moves(2))).not.toEqual(finalXy())
+  })
+
   const refusedButKept = (h, job) => {
     for (const m of [{ type: 'pin', id: 'node:nope', x: 1, y: 1 }, { type: 'unpin', id: 'node:nope' }, { type: 'pin', id: SID[4], x: NaN, y: 1 }]) {
       const a = h.send({ ...m, job })
@@ -440,6 +458,23 @@ describe('layout client', () => {
     const oldOnMessage = (m) => { if (!m || m.job !== job) return; if (m.type === 'tick') { busy = true; arm() } }
     oldOnMessage({ type: 'tick', job: 1, seq: 1, xy: new Float32Array(2 * SMALL.nodes.length) })
     expect(quietAfterStop(env)).toBe(false)
+  })
+
+  // A replaced job's messages, already on their way when the new run began.
+  const staleDropped = (env, job) => {
+    env.w.onmessage({ data: { type: 'tick', job, seq: 1, xy: new Float32Array(2) } })
+    env.w.onmessage({ data: { type: 'settled', job, seq: 2, xy: new Float32Array(2), ticks: 1, reason: 'settled' } })
+    return env.ticks.length === 0 && env.settled.length === 0 && env.client.busy() && env.timers.size === 1
+  }
+  it("a replaced job's tick and settled never reach the page, and the new run stays watched", () => {
+    const env = clientEnv()
+    expect(env.client.run(SMALL)).toBe(2)
+    expect(staleDropped(env, 1)).toBe(true)
+  })
+  it('CONTROL: the same messages naming the current job do reach the page, and the same check fails', () => {
+    const env = clientEnv()
+    env.client.run(SMALL)
+    expect(staleDropped(env, 2)).toBe(false)
   })
 
   const pinDropped = (env) => env.client.pin(SID[5], 1, 2) === false && env.workers.every((w) => !w.sent.some((m) => m.type === 'pin')) && env.timers.size === 0
