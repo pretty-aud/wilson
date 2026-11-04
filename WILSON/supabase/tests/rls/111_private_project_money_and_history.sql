@@ -466,10 +466,14 @@ SELECT set_config('request.jwt.claims', json_build_object(
     'workspace_id', '11111111-1111-1111-1111-111111111111',
     'app_role', 'manager')
 )::text, true);
-SET LOCAL ROLE authenticated;
-
-INSERT INTO public.projects (id, workspace_id, title, is_private) VALUES
-  ('aaaa1111-0000-0000-0000-000000000116', '11111111-1111-1111-1111-111111111111', 'Squatted P2', true);
+SELECT set_config('request.jwt.claims', '{}', true);
+-- MO1 (0110): a client can no longer create this id again (the owner guard's
+-- id-reuse arm, suite 110). A session the guard does not bind (the service,
+-- a migration) still can, so 0108's property is kept with the runner making
+-- it, as user_e's.
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000000116', '11111111-1111-1111-1111-111111111111', 'Squatted P2',
+   'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true);
 -- The old project's comment (no foreign key: it outlived the project) is
 -- then deleted, as the nightly purge would.
 SELECT set_config('request.jwt.claims', '{}', true);

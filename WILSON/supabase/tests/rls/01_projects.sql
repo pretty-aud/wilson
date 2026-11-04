@@ -1,6 +1,6 @@
 -- pgTAP: projects RLS
 BEGIN;
-SELECT plan(9);
+SELECT plan(11);
 
 -- Seed the shared fixture (ws_a, ws_b, user_a, user_b, project_a, project_b).
 SELECT * FROM tests.rls_setup();
@@ -116,6 +116,24 @@ SELECT ok(
   ),
   'anon holds no table privilege on projects'
 );
+
+-- MO1 (2026-11-04, migration 0110): projects_insert and projects_delete are
+-- 0013's bodies plus personal_owner_id IS NULL (no client creates a personal
+-- row; nobody hard-deletes one), and projects_update gains the owner arm.
+-- Behaviour: suite 80. Here, the texts, read as postgres.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT ok(
+  (SELECT strpos(with_check, 'personal_owner_id IS NULL') > 0 AND strpos(with_check, 'has_active_membership(workspace_id)') > 0
+     FROM pg_policies WHERE schemaname = 'public' AND tablename = 'projects' AND policyname = 'projects_insert')
+  AND (SELECT strpos(qual, 'personal_owner_id IS NULL') > 0 AND strpos(qual, '''admin''') > 0
+         FROM pg_policies WHERE schemaname = 'public' AND tablename = 'projects' AND policyname = 'projects_delete'),
+  'MO1: projects_insert and projects_delete refuse a personal row, keeping 0013''s arms');
+SELECT ok(
+  (SELECT strpos(qual, 'personal_owner_id = auth.uid()') > 0 AND strpos(qual, 'can_write_project(id)') > 0
+     FROM pg_policies WHERE schemaname = 'public' AND tablename = 'projects' AND policyname = 'projects_update'),
+  'MO1: projects_update keeps its arms and admits only the owner to a personal row');
 
 SELECT * FROM finish();
 ROLLBACK;

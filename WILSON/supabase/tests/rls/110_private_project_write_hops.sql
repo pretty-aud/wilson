@@ -27,7 +27,7 @@
 
 BEGIN;
 
-SELECT plan(45);
+SELECT plan(51);
 
 SELECT * FROM tests.rls_setup();
 
@@ -477,6 +477,84 @@ SET LOCAL ROLE authenticated;
 SELECT lives_ok($$
   UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000000110'
 $$, 'an admin may change the visibility of a project they did not make');
+
+-- ═════════════════════════════════════════════════════════════════════════
+-- MO1 (2026-11-04, migration 0110): the owner guard restated with two arms.
+-- A project id this company has already had, held by no row now (its
+-- history, its comments still name it: the 0108 review), cannot be created
+-- again by a client; a fresh id can (CONTROL); a live row's id still answers
+-- 23505. The body keeps every 0107 arm and names the personal ones (the
+-- personal arms' behaviour is suite 80's).
+-- ═════════════════════════════════════════════════════════════════════════
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('11010000-0000-0000-0000-0000000000c1', 'mo1_m@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES ('11111111-1111-1111-1111-111111111111', '11010000-0000-0000-0000-0000000000c1', 'manager', 'mo1_m', 'MO1 M', true)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+
+-- A project deleted for good (by the runner), leaving its history and a
+-- comment that names it.
+INSERT INTO public.projects (id, workspace_id, title)
+VALUES ('11010000-0000-0000-0000-0000000000a1', '11111111-1111-1111-1111-111111111111', 'Deleted for good');
+INSERT INTO public.comments (id, workspace_id, entity_type, entity_id, body)
+VALUES ('11010000-0000-0000-0000-0000000000a2', '11111111-1111-1111-1111-111111111111', 'project',
+        '11010000-0000-0000-0000-0000000000a1', 'A note on the old project');
+DELETE FROM public.projects WHERE id = '11010000-0000-0000-0000-0000000000a1';
+
+CREATE FUNCTION pg_temp.mo1_as(p_uid UUID, p_app_role TEXT, p_ws UUID DEFAULT '11111111-1111-1111-1111-111111111111')
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', p_uid, 'role', 'authenticated',
+    'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+SELECT pg_temp.mo1_as('11010000-0000-0000-0000-0000000000c1', 'manager');
+SELECT throws_ok($$
+  INSERT INTO public.projects (id, workspace_id, title)
+  VALUES ('11010000-0000-0000-0000-0000000000a1', '11111111-1111-1111-1111-111111111111', 'Same id, again')
+$$, '42501', NULL, 'MO1: a client cannot create again a project id this company has had');
+SELECT lives_ok($$
+  INSERT INTO public.projects (id, workspace_id, title)
+  VALUES ('11010000-0000-0000-0000-0000000000a3', '11111111-1111-1111-1111-111111111111', 'A fresh id')
+$$, 'MO1: CONTROL: a fresh id is created as before');
+SELECT throws_ok($$
+  INSERT INTO public.projects (id, workspace_id, title)
+  VALUES ('aaaa1111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'A live id')
+$$, '23505', NULL, 'MO1: a live row''s id still answers the primary key (23505), as before');
+SELECT throws_ok($$
+  UPDATE public.projects SET id = '11010000-0000-0000-0000-0000000000a1' WHERE id = '11010000-0000-0000-0000-0000000000a3'
+$$, '42501', 'A project keeps its id.', 'MO1: nor can a client change a project''s id to take a used one over (review round 1)');
+SELECT lives_ok($$
+  UPDATE public.projects SET title = 'A fresh id, renamed' WHERE id = '11010000-0000-0000-0000-0000000000a3'
+$$, 'MO1: CONTROL: the same project''s other columns still change');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT ok(
+  (SELECT strpos(b, 'NEW.created_by := OLD.created_by') > 0 AND strpos(b, 'NEW.topic_epoch := OLD.topic_epoch + 1') > 0
+      AND strpos(b, 'can_manage_project_roster(OLD.id)') > 0 AND strpos(b, 'current_setting(''role'', true)') > 0
+      AND strpos(b, 'NEW.personal_owner_id IS DISTINCT FROM OLD.personal_owner_id') > 0
+      AND strpos(b, 'OLD.personal_owner_id IS NOT NULL') > 0
+      AND strpos(b, 'NEW.deleted_at IS DISTINCT FROM OLD.deleted_at') > 0
+      AND strpos(b, 'NEW.folder_slug IS DISTINCT FROM OLD.folder_slug') > 0
+      AND strpos(b, 'NEW.folder_root IS DISTINCT FROM OLD.folder_root') > 0
+      AND strpos(b, 'public.edit_history h') > 0 AND strpos(b, 'public.comments c') > 0
+      AND strpos(b, 'public.file_events fe') > 0 AND strpos(b, 'NEW.id IS DISTINCT FROM OLD.id') > 0
+     FROM (SELECT regexp_replace(regexp_replace(prosrc, '/\*.*?\*/', '', 'g'), '--[^' || chr(10) || ']*', '', 'g') AS b
+             FROM pg_proc WHERE oid = 'public.fn_projects_owner_guard()'::regprocedure) s),
+  'MO1: the owner guard keeps every 0107 arm and carries 0110''s personal and id-reuse arms');
 
 SELECT * FROM finish();
 ROLLBACK;

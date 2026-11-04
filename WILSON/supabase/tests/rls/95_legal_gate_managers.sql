@@ -288,20 +288,24 @@ SELECT is(
   'files keeps exactly its four permissive policies — none added beside');                               -- 14
 
 -- A15-A16: the eight money storage policies WHOLE (both buckets, every
--- clause), the eight base ones untouched in shape.
+-- clause), the eight base ones untouched in shape. MO1 (2026-11-04, 0110):
+-- the six write clauses also carry can_write_project on the path's project
+-- (a personal space's money is its owner's to write; the SELECTs keep the
+-- admins' read).
 CREATE TEMP TABLE legal95_obj AS
   SELECT b AS bucket, p AS prefix,
-         '((bucket_id = ''' || b || '''::text) AND (auth.role() = ''authenticated''::text) AND ((storage.foldername(name))[1] = ''projects''::text) AND rabbit_money_segment((storage.foldername(name))[3]) AND (can_access_project_money(fn_try_uuid((storage.foldername(name))[2])) OR (rabbit_legal_segment((storage.foldername(name))[3]) AND can_access_project_legal(fn_try_uuid((storage.foldername(name))[2])))))' AS gate
+         '((bucket_id = ''' || b || '''::text) AND (auth.role() = ''authenticated''::text) AND ((storage.foldername(name))[1] = ''projects''::text) AND rabbit_money_segment((storage.foldername(name))[3]) AND (can_access_project_money(fn_try_uuid((storage.foldername(name))[2])) OR (rabbit_legal_segment((storage.foldername(name))[3]) AND can_access_project_legal(fn_try_uuid((storage.foldername(name))[2])))))' AS gate,
+         '((bucket_id = ''' || b || '''::text) AND (auth.role() = ''authenticated''::text) AND ((storage.foldername(name))[1] = ''projects''::text) AND rabbit_money_segment((storage.foldername(name))[3]) AND (can_access_project_money(fn_try_uuid((storage.foldername(name))[2])) OR (rabbit_legal_segment((storage.foldername(name))[3]) AND can_access_project_legal(fn_try_uuid((storage.foldername(name))[2])))) AND can_write_project(fn_try_uuid((storage.foldername(name))[2])))' AS wgate
     FROM (VALUES ('rabbit-files', 'rabbit_files'), ('rabbit-thumbnails', 'rabbit_thumbnails')) v(b, p);
 SELECT ok(
   (SELECT bool_and(
       (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_select' AND cmd = 'SELECT') = gate
-      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_insert' AND cmd = 'INSERT') = gate
-      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = gate
-      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = gate
-      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_delete' AND cmd = 'DELETE') = gate)
+      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_insert' AND cmd = 'INSERT') = wgate
+      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = wgate
+      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = wgate
+      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_delete' AND cmd = 'DELETE') = wgate)
      FROM legal95_obj),
-  'the eight money storage policies, both buckets, every clause: the segment still LOCKED (rabbit_money_segment), opened by the money gate OR, for LEGAL, the Legal gate'); -- 15
+  'the eight money storage policies, both buckets, every clause: the segment still LOCKED (rabbit_money_segment), opened by the money gate OR, for LEGAL, the Legal gate; the writes also need can_write_project (0110)'); -- 15
 SELECT ok(
   (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
      AND (policyname LIKE 'rabbit\_files%' OR policyname LIKE 'rabbit\_thumbnails%')
