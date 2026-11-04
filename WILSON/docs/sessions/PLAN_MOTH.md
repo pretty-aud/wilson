@@ -507,7 +507,7 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 
 Required: Opus 5.5 for builds, designs, both cold reviews; stop if wrong; no Fable wait.
 
-**Amended 2026-11-04 (her ruling, verbatim):** *"Fable for reviews only"* — builds and designs stay on Opus 5.5; the review rounds' reviewer and checker agents run on Fable 5.1. Recorded in `PLAN_TO_1_0.md`'s M.O.T.H. section.
+**Amended 2026-11-04 (her ruling, verbatim):** *"Fable for reviews only"* — builds and designs stay on Opus 5.5; the review rounds' reviewer and checker agents run on Fable 5.1. Recorded in `PLAN_TO_1_0.md`'s M.O.T.H. section. **Amended again the same day, 20:40 UTC (her ruling, verbatim):** *"Opus for reviews from now"* — reviewer and checker agents back on Opus 5.5, as the sessions are; a round already running on Fable finishes as it is.
 
 ### Q2 History — settled
 
