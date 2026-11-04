@@ -8,7 +8,7 @@
 //     all (the brief: "no work at all when nothing moves"; PLAN_MOTH: "no
 //     continuous settled layout or hidden render loop").
 //   * Each frame executes a draw list from frame.js (culling, clustering,
-//     level of detail): lines in one path per style, dots in one path per
+//     level of detail): each line its own stroke, dots in one path per
 //     colour, a pre-rendered halo sprite under dots, clusters and labels over
 //     the bright core (glow.js shadowAlpha), in full and light mode alike.
 //   * Feedback: setSelection / setHover redraw on the next frame, and
@@ -175,6 +175,13 @@ export function createRenderer({
     frames++
   }
 
+  function strokeLine(x1, y1, x2, y2) {
+    ctx.beginPath()
+    ctx.moveTo(x1, y1)
+    ctx.lineTo(x2, y2)
+    ctx.stroke()
+  }
+
   function haloAt(x, y, r, alpha) {
     const s = r * 2.4 + 4
     ctx.globalAlpha = alpha
@@ -187,21 +194,22 @@ export function createRenderer({
     ctx.clearRect(0, 0, viewport.width, viewport.height)
     ctx.lineWidth = 1
 
-    // Lines: one path per (kind, mist) pair.
+    // Lines: grouped by (kind, mist) so the style changes rarely, but each one
+    // its own stroke. Above scale 1 a 1 px line is no longer a hairline, and the
+    // browser rasters a stroke of many segments in software (measured at 4K and
+    // 150%: 64 to 81 ms a frame for 2,000 lines, 16.7 ms stroked one by one).
     const E = list.edges
     for (let kind = 0; kind < 3; kind++) {
       for (let dim = 0; dim < 2; dim++) {
         let any = false
         for (let e = 0; e < E.count; e++) {
           if (E.kind[e] !== kind || E.dim[e] !== dim) continue
-          if (!any) { ctx.beginPath(); any = true }
-          ctx.moveTo(E.x1[e], E.y1[e])
-          ctx.lineTo(E.x2[e], E.y2[e])
-        }
-        if (any) {
-          ctx.globalAlpha = dim ? p.dimAlpha : 1
-          ctx.strokeStyle = p.edge[kind]
-          ctx.stroke()
+          if (!any) {
+            ctx.globalAlpha = dim ? p.dimAlpha : 1
+            ctx.strokeStyle = p.edge[kind]
+            any = true
+          }
+          strokeLine(E.x1[e], E.y1[e], E.x2[e], E.y2[e])
         }
       }
     }
@@ -210,14 +218,12 @@ export function createRenderer({
       let any = false
       for (let e = 0; e < C.count; e++) {
         if (C.dim[e] !== dim) continue
-        if (!any) { ctx.beginPath(); any = true }
-        ctx.moveTo(C.x1[e], C.y1[e])
-        ctx.lineTo(C.x2[e], C.y2[e])
-      }
-      if (any) {
-        ctx.globalAlpha = dim ? p.dimAlpha : 1
-        ctx.strokeStyle = p.clusterEdge
-        ctx.stroke()
+        if (!any) {
+          ctx.globalAlpha = dim ? p.dimAlpha : 1
+          ctx.strokeStyle = p.clusterEdge
+          any = true
+        }
+        strokeLine(C.x1[e], C.y1[e], C.x2[e], C.y2[e])
       }
     }
 

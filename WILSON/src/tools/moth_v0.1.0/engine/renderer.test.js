@@ -99,6 +99,51 @@ function settled(opts, places = grid(G1), clock) {
   return h
 }
 
+describe('renderer: every line is its own stroke', () => {
+  // Above scale 1 a 1 px line is no longer a hairline, and the browser rasters a stroke of many segments in
+  // software: 64 to 81 ms a frame at 1,000 dots and 2,000 lines, 4K at 150% on an RTX 4080 (the hand-off's
+  // table), against 16.7 ms with one segment per stroke, which it draws as a plain thin rectangle.
+  const lineStats = (calls) => {
+    let inPath = 0
+    let most = 0
+    let lines = 0
+    for (const c of calls) {
+      if (c.m === 'beginPath') inPath = 0
+      else if (c.m === 'lineTo') { inPath++; lines++ } else if (c.m === 'stroke') most = Math.max(most, inPath)
+    }
+    return { lines, most }
+  }
+  const oneEach = (calls, wantLines) => {
+    const { lines, most } = lineStats(calls)
+    return lines === wantLines && most === 1
+  }
+  const lastFrame = (h, draw) => { const mark = h.calls.length; draw(); pumpUntilIdle(h.q); return h.calls.slice(mark) }
+  /** Far enough apart at k 0.1 that the cells hold few dots and many pairs of cells are joined. */
+  const spread = (g) => Object.fromEntries(g.nodes.map((n, i) => [n.id, { x: -2700 + (i % 10) * 600, y: -1500 + Math.floor(i / 10) * 600 }]))
+
+  it('at MID and NEAR every line goes in a stroke of its own, in the style of its kind', () => {
+    const h = settled()
+    const calls = lastFrame(h, () => h.r.invalidate())
+    expect(h.info().edges).toBeGreaterThan(1)
+    expect(oneEach(calls, h.info().edges)).toBe(true)
+    const styles = new Set(calls.filter((c) => c.m === 'stroke').map((c) => c.strokeStyle))
+    expect([...styles].every((s) => DEFAULT_PALETTE.edge.includes(s))).toBe(true)
+  })
+
+  it('at FAR every cluster line does too', () => {
+    const h = settled({}, spread(G1))
+    const calls = lastFrame(h, () => h.r.setCamera({ x: 0, y: 0, k: 0.1 }))
+    expect(h.info().lod).toBe('far')
+    expect(h.info().edges).toBeGreaterThan(1)
+    expect(oneEach(calls, h.info().edges)).toBe(true)
+  })
+
+  it('CONTROL: one path per style (three segments, one stroke) fails the same check', () => {
+    const onePath = [{ m: 'beginPath' }, { m: 'moveTo' }, { m: 'lineTo' }, { m: 'moveTo' }, { m: 'lineTo' }, { m: 'moveTo' }, { m: 'lineTo' }, { m: 'stroke' }]
+    expect(oneEach(onePath, 3)).toBe(false)
+  })
+})
+
 describe('renderer: no frame once settled', () => {
   /** Idle within `max` pumps, then 60 more ticks of the clock request and draw nothing. */
   const staysSettled = (q, calls, max = 10) => {
