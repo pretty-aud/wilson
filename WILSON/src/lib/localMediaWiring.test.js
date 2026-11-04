@@ -258,7 +258,9 @@ describe('migration 0072 and suite 80', () => {
     expect(migration).not.toMatch(/ALTER TABLE public\.(files|assets|tasks|scenes|shots)/)
   })
   it('suite 80 covers the owner, the member, the admin and the child hop', () => {
-    expect(suite).toContain('SELECT plan(15);')
+    // MO1 (2026-11-04, 0110): suite 80 also holds the personal space's probes.
+    expect(suite).toContain('SELECT plan(47);')
+    expect(suite).toContain('an app-role user gets a personal space')
     expect(suite).toContain('a plain member does not see the private project')
     expect(suite).toContain('the workspace admin sees the private project')
     expect(suite).toContain("'local_server'")
