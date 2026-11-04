@@ -1796,13 +1796,15 @@ function missingFunction(fnName) {
 
 // MO1 (0110): the two personal-space RPCs on a database without them.
 const PERSONAL_SPACES_ABSENT = 'this workspace\'s database does not have personal spaces yet';
-function unwrapPersonalRpc(result, fnName) {
+function unwrapPersonalRpc(result, fnName, absent = PERSONAL_SPACES_ABSENT) {
   if (missingFunction(fnName)(result?.error)) {
-    lastError = PERSONAL_SPACES_ABSENT;
-    throw new Error(PERSONAL_SPACES_ABSENT);
+    lastError = absent;
+    throw new Error(absent);
   }
   return unwrap(result);
 }
+// MO1 (0111): the same, for Moth's three reads.
+const MOTH_ABSENT = 'this workspace\'s database does not have M.O.T.H. yet';
 
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
 // contract's collision rules answer 23505 with Postgres' own sentence —
@@ -5915,6 +5917,30 @@ export function supabaseAdapter() {
     async recordPersonalSpaceOpened(projectId) {
       const client = await requireClient();
       unwrapPersonalRpc(await client.rpc('record_personal_space_opened', { p_project: projectId }), 'record_personal_space_opened');
+    },
+
+    // MO1 (0111, MOTH_DESIGN §2.2 MR-1): Moth reads only through these. Each
+    // runs as the caller and only narrows RLS: no money, no Legal, and no one
+    // else's personal space, admins included. A hidden or missing project is
+    // an empty answer, and nothing here counts anything. The two lists are
+    // ordered by the server, so PostgREST's pages cannot straddle a row.
+    async listMothIslands() {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.rpc('moth_islands'),
+        (res) => unwrapPersonalRpc(res, 'moth_islands', MOTH_ABSENT) || []);
+    },
+    async listMothFolders(projectId) {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.rpc('moth_project_folders', { p_project: projectId }),
+        (res) => unwrapPersonalRpc(res, 'moth_project_folders', MOTH_ABSENT) || []);
+    },
+    // One page, keyed on id (the server clamps the limit to 1..1000): the
+    // caller follows the last id, and a short page is the end.
+    async listMothFiles(projectId, after = null, limit = 500) {
+      const client = await requireClient();
+      return unwrapPersonalRpc(
+        await client.rpc('moth_project_files', { p_project: projectId, p_after: after, p_limit: limit }),
+        'moth_project_files', MOTH_ABSENT) || [];
     },
   };
 }

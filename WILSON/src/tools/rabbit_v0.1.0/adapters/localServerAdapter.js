@@ -209,6 +209,35 @@ export function localServerAdapter() {
     // No admins here, so nobody opens someone else's.
     async recordPersonalSpaceOpened() {},
 
+    // MO1 (0111, MOTH_DESIGN §2.2): Moth's reads on the signed-out desktop. It
+    // has no roles, so everything here is the one person's and writable. There
+    // is no server to strip money and Legal either: the Moth page passes every
+    // row through mothFileHidden, the only filter here.
+    async listMothIslands() {
+      const [projects, personal] = await Promise.all([
+        jfetch(`${BASE}/projects`),
+        jfetch(`${BASE}/personal-space`),
+      ]);
+      const island = (p, mine) => ({
+        id: p.id, title: p.title, is_personal: mine, is_mine: mine, is_private: mine || !!p.is_private,
+        my_project_role: null, is_staffed: false, can_write: true, updated_at: p.updated_at ?? null,
+      });
+      return [
+        ...(personal?.project ? [island(personal.project, true)] : []),
+        ...(projects || []).filter(p => !p.deleted_at).map(p => island(p, false)),
+      ];
+    },
+    listMothFolders: async (projectId) =>
+      sortByPath((await jfetch(`${BASE}/projects/${projectId}`)).folders),
+    // The cloud's keyset and clamp, so a page means the same on both.
+    async listMothFiles(projectId, after = null, limit = 500) {
+      const rows = (await jfetch(`${BASE}/projects/${projectId}`)).files || [];
+      return rows
+        .filter(f => !f.deleted_at && (after == null || String(f.id) > String(after)))
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
+        .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
+    },
+
     async loadProject(id) {
       const bundle = await jfetch(`${BASE}/projects/${id}`);
       // Local server stores everything in one bundle file; align the

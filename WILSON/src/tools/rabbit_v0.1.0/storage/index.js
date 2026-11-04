@@ -158,6 +158,29 @@ export function isMoneyKey(path) {
   return typeof seg === 'string' && seg !== '' && MONEY_SEGMENTS.includes(seg.toUpperCase())
 }
 
+// MO1 (0111): the same vocabulary on the folder tree, the mirror of
+// public.moth_folder_chain_locked. Walking up from a folder: any folder but the
+// root with a money first path segment, a top-level folder with a money slug (a
+// renamed category whose slug still says so), or a chain that cannot be walked
+// to its end within 64 steps (deeper, or a loop), which fails closed. A slug
+// deeper down is a working folder's name, and a root's slug is the project's.
+export function moneyFolderChainLocked(folderId, folders) {
+  if (!folderId || !folders) return false
+  const byId = folders instanceof Map ? folders : new Map(folders.map((f) => [f.id, f]))
+  const isMoney = (seg) => typeof seg === 'string' && MONEY_SEGMENTS.includes(seg.toUpperCase())
+  let node = byId.get(folderId)
+  for (let depth = 1; node; depth += 1) {
+    const parent = byId.get(node.parent_id)
+    if (node.kind !== 'root') {
+      if (isMoney(String(node.path ?? '').split('/')[0])) return true
+      if (depth === 64) return true
+      if (parent?.kind === 'root' && isMoney(node.slug)) return true
+    }
+    node = parent
+  }
+  return false
+}
+
 export function fileProviderFor(workspaceProvider, { financial = false } = {}) {
   if (financial) return FILE_PROVIDERS.SUPABASE
   const mapped = NEW_BODY_GOES_TO[workspaceProvider]

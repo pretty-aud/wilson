@@ -11,6 +11,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { renderToString } from 'react-dom/server'
 import {
   canOnProject, canSeeProjectMoney, canWriteTaskTemplate,
@@ -649,6 +651,56 @@ describe('useProjectAccess — the gate context', () => {
     const access = renderAccess()
     expect(access.gateCtx.noRoles).toBe(false)
     expect(access.can(ACTIVATE)).toBe(false)
+  })
+})
+
+// MO1 (0111, MOTH_DESIGN §2.2 CL-2): one table for the SQL helpers and this
+// file's subject. Suite 113 runs every MATRIX line against the helper as a seat
+// on a real project; here canOnProject answers the same line. Each line's probe
+// must follow it and say the same thing, so a comment cannot drift from its SQL.
+describe('the MATRIX in suite 113', () => {
+  const HELPER = {
+    'project.entity.write': 'can_write_project',
+    'project.comment.write': 'can_comment_project',
+    'project.roster.manage': 'can_manage_project_roster',
+    'project.shotlist.write': 'can_edit_shot_lists',
+  }
+  const lines = readFileSync(join(process.cwd(), 'supabase/tests/rls/113_moth_read_path.sql'), 'utf8').split(/\r?\n/)
+  const rows = lines.flatMap((line, at) => {
+    const m = /^-- MATRIX (\S+) \| (\w+) \| (\w+) \| (\w+) \| (\w+) \| (\w+) \| (\w+)$/.exec(line)
+    if (!m) return []
+    const [, action, appRole, seat, staffed, personal, owner, expected] = m
+    return [{ at, action, appRole, seat, staffed, personal, owner, expected, text: line.slice('-- MATRIX '.length) }]
+  })
+
+  it('covers every app role, seat and personal state, for all four actions', () => {
+    expect(rows).toHaveLength(84)
+    expect(new Set(rows.map(r => r.action))).toEqual(new Set(Object.keys(HELPER)))
+    expect(new Set(rows.map(r => r.appRole))).toEqual(new Set(['admin', 'manager', 'user']))
+    expect(new Set(rows.map(r => r.seat))).toEqual(new Set(['manager', 'member', 'reviewer', 'none']))
+    expect(new Set(rows.map(r => r.text)).size).toBe(rows.length)
+  })
+
+  it('canOnProject agrees on every line', () => {
+    const wrong = rows.filter(r => String(canOnProject({
+      appRole: r.appRole,
+      projectRole: r.seat === 'none' ? null : r.seat,
+      isStaffed: r.staffed === 'true',
+      isPersonal: r.personal === 'true',
+      isPersonalOwner: r.owner === 'true',
+      ready: true,
+    }, r.action)) !== r.expected)
+    expect(wrong.map(r => r.text)).toEqual([])
+  })
+
+  it('every line is followed by its own probe, with its helper and its answer', () => {
+    for (const r of rows) {
+      expect(lines[r.at + 1], r.text).toMatch(new RegExp(`^SELECT is\\(COALESCE\\(public\\.${HELPER[r.action]}\\('[0-9a-f-]{36}'\\), false\\), ${r.expected}, `))
+      expect(lines[r.at + 1], r.text).toContain(`'MATRIX ${r.text}'`)
+      if (r.action === 'project.entity.write') {
+        expect(lines[r.at + 2], r.text).toMatch(new RegExp(`^SELECT is\\(public\\.moth_can_write_target\\('project', '[0-9a-f-]{36}'\\), ${r.expected}, `))
+      }
+    }
   })
 })
 

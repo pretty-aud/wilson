@@ -80,6 +80,83 @@ describe('listProjects', () => {
   })
 })
 
+// MO1 (0111, MOTH_DESIGN §2.2 MR-1): Moth's three reads. The names are pinned
+// because PGRST202 is also PostgREST's answer to a parameter-NAME mismatch.
+describe('Moth\'s reads', () => {
+  const ABSENT = 'this workspace\'s database does not have M.O.T.H. yet'
+  /** rpc() as PostgREST's builder: range() narrows, awaiting answers. */
+  function rpcClient(answer) {
+    const calls = []
+    const client = {
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1', email: 'u1@test.local', user_metadata: {} } } } }) },
+      realtime: { setAuth: async () => {} },
+      rpc(fn, args) {
+        const call = { fn, args, range: null }
+        calls.push(call)
+        const b = {
+          range(from, to) { call.range = [from, to]; return b },
+          then: (resolve) => resolve(answer(call)),
+        }
+        return b
+      },
+    }
+    return { client, calls }
+  }
+  const rows = (n, at = 0) => Array.from({ length: n }, (_, i) => ({ id: `r${at + i}` }))
+
+  it('listMothIslands calls moth_islands with no arguments and follows the pages', async () => {
+    const { client, calls } = rpcClient(({ range }) => ({ data: range[0] === 0 ? rows(1000) : rows(2, 1000), error: null }))
+    use({ client })
+    expect(await adapter.listMothIslands()).toHaveLength(1002)
+    expect(calls.map(c => [c.fn, c.args, c.range])).toEqual([
+      ['moth_islands', undefined, [0, 999]],
+      ['moth_islands', undefined, [1000, 1999]],
+    ])
+  })
+
+  it('listMothFolders names p_project and follows the pages', async () => {
+    const { client, calls } = rpcClient(() => ({ data: rows(3), error: null }))
+    use({ client })
+    expect(await adapter.listMothFolders('p1')).toHaveLength(3)
+    expect(calls).toEqual([{ fn: 'moth_project_folders', args: { p_project: 'p1' }, range: [0, 999] }])
+  })
+
+  it('listMothFiles is one page, named p_project, p_after and p_limit', async () => {
+    const { client, calls } = rpcClient(() => ({ data: rows(2), error: null }))
+    use({ client })
+    expect(await adapter.listMothFiles('p1', 'r9', 50)).toHaveLength(2)
+    expect(await adapter.listMothFiles('p1')).toHaveLength(2)
+    expect(calls.map(c => c.args)).toEqual([
+      { p_project: 'p1', p_after: 'r9', p_limit: 50 },
+      { p_project: 'p1', p_after: null, p_limit: 500 },
+    ])
+    expect(calls.every(c => c.range === null)).toBe(true)
+  })
+
+  it.each([
+    ['listMothIslands', 'moth_islands'],
+    ['listMothFolders', 'moth_project_folders'],
+    ['listMothFiles', 'moth_project_files'],
+  ])('%s on a database without it: the sentence, for PGRST202 and a 42883 naming it', async (method, fn) => {
+    use({ client: rpcClient(() => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })).client })
+    await expect(adapter[method]('p')).rejects.toThrow(ABSENT)
+    use({ client: rpcClient(() => ({ data: null, error: { code: '42883', message: `function public.${fn}() does not exist` } })).client })
+    await expect(adapter[method]('p')).rejects.toThrow(ABSENT)
+  })
+
+  it('CONTROL: a failure inside one is the real failure', async () => {
+    use({ client: rpcClient(() => ({ data: null, error: { code: '42883', message: 'function public.some_helper() does not exist' } })).client })
+    await expect(adapter.listMothFiles('p')).rejects.toThrow('some_helper')
+  })
+
+  it('an empty answer is an empty list, not an error', async () => {
+    use({ client: rpcClient(() => ({ data: [], error: null })).client })
+    expect(await adapter.listMothFiles('hidden')).toEqual([])
+    expect(await adapter.listMothFolders('hidden')).toEqual([])
+    expect(await adapter.listMothIslands()).toEqual([])
+  })
+})
+
 describe('listPersonalSpaces', () => {
   it('reads the owner column under RLS, for spaces only', async () => {
     const row = { id: 'ps1', title: 'Personal space', personal_owner_id: 'u1', folder_slug: 'Personal_u1', updated_at: 'x' }

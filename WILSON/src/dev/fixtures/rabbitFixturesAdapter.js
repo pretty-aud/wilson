@@ -49,6 +49,7 @@ import {
   planLegacyFieldWrite, seedItemsFor, buildItemLookup,
 } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
+import { isMoneyKey, moneyFolderChainLocked } from '../../tools/rabbit_v0.1.0/storage/index'
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
 // VW1c (0098): custom table views and groupings — the one statement of their
 // rules (pure, imports nothing; devFixtures.test.js allows it).
@@ -309,6 +310,10 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
   const passesLegalGate = (projectId) => passesMoneyGate(projectId) || appRole === 'manager'
   const isMoneyFile = (f) => !!f?.is_financial || isLegalFile(f)
   const isLegalRow = (f) => isLegalFile(f) && !f?.is_financial
+  // MO1 (0111): moth_can_read_target's project arm. The personal arm has no admin leg.
+  const mothProjectVisible = (p) => !!p && !p.deleted_at
+    && (!p.is_private || p.created_by === userId || appRole === 'admin')
+    && (!p.personal_owner_id || p.personal_owner_id === userId)
   const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id) || (isLegalRow(f) && passesLegalGate(f.project_id)))
 
   // 0090 (S5b): the set-aside stamp is written only by setAsideRows — never
@@ -694,6 +699,44 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         throw err
       }
       store.personalSpaceOpens.push({ project_id: projectId, owner_user_id: space.personal_owner_id, actor_user_id: userId, at: now() })
+    },
+    // MO1 (0111): Moth's three reads, as the cloud's answer them: the same rows
+    // for every role, no money, no Legal, no one else's personal space.
+    async listMothIslands() {
+      const seatOf = (id) => store.projectMembers.find(m => m.project_id === id && m.user_id === userId)
+      const staffed = (id) => store.projectMembers.some(m => m.project_id === id)
+      const mine = (p) => p.personal_owner_id === userId
+      return clone(live(store.projects).filter(mothProjectVisible)
+        .sort((a, b) => Number(mine(b)) - Number(mine(a)) || String(a.title).localeCompare(String(b.title)) || String(a.id).localeCompare(String(b.id)))
+        .map(p => ({
+          id: p.id,
+          title: p.title,
+          is_personal: !!p.personal_owner_id,
+          is_mine: mine(p),
+          is_private: !!p.is_private,
+          my_project_role: seatOf(p.id)?.project_role ?? null,
+          is_staffed: staffed(p.id),
+          can_write: p.personal_owner_id
+            ? mine(p)
+            : appRole === 'admin' || appRole === 'manager' || !staffed(p.id) || ['manager', 'member'].includes(seatOf(p.id)?.project_role),
+          updated_at: p.updated_at,
+        })))
+    },
+    async listMothFolders(projectId) {
+      if (!mothProjectVisible(projectOf(projectId))) return []
+      const rows = store.folders.filter(f => f.project_id === projectId)
+      return clone(rows.filter(f => !moneyFolderChainLocked(f.id, rows)).sort((a, b) => a.path.localeCompare(b.path)))
+    },
+    async listMothFiles(projectId, after = null, limit = 500) {
+      if (!mothProjectVisible(projectOf(projectId))) return []
+      const folders = store.folders.filter(f => f.project_id === projectId)
+      const receipts = new Set(store.expenses.filter(e => e.project_id === projectId).flatMap(e => e.file_ids || []))
+      return clone(live(store.files.filter(f => f.project_id === projectId))
+        .filter(f => !isMoneyFile(f) && !isMoneyKey(f.storage_path) && !receipts.has(f.id) && !moneyFolderChainLocked(f.folder_id, folders))
+        .filter(f => after == null || String(f.id) > String(after))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000))
+        .map(({ is_financial: _flag, created_by: _by, ...row }) => row))
     },
     async loadProject(projectId) {
       const project = projectOf(projectId)

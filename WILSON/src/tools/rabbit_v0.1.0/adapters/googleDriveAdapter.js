@@ -332,6 +332,10 @@ export function googleDriveAdapter() {
     async listPersonalSpaces() { return []; },
     ensurePersonalSpace:       readOnly('ensurePersonalSpace'),
     recordPersonalSpaceOpened: readOnly('recordPersonalSpaceOpened'),
+    // MO1 (0111): Moth has nothing to show on Drive.
+    async listMothIslands() { return []; },
+    async listMothFolders() { return []; },
+    async listMothFiles() { return []; },
 
     // ── Writes (all throw) ────────────────────────────────────
     createProject:        readOnly('createProject'),

@@ -1555,6 +1555,54 @@ describe('custom table views and groupings (VW1c, 0098 on the fixtures)', () => 
   })
 })
 
+// MO1 (0111): the fake cloud's Moth reads, as moth_islands and its two neighbours answer.
+describe('Moth\'s reads (0111)', () => {
+  const PROJECT = fid('project', 1)
+  const fresh = () => buildDevFixtures()
+  it('an admin\'s islands hold their own space and never another person\'s', async () => {
+    const fx = fresh().rabbitAdapter()
+    const islands = await fx.listMothIslands()
+    expect(islands.filter(i => i.is_personal).map(i => i.is_mine)).toEqual([true])
+    expect(islands[0].is_mine).toBe(true)
+    expect(Object.keys(islands[0])).toEqual(['id', 'title', 'is_personal', 'is_mine', 'is_private', 'my_project_role', 'is_staffed', 'can_write', 'updated_at'])
+  })
+  it('another person\'s space answers no rows, for an admin too', async () => {
+    const fx = fresh().rabbitAdapter()
+    const other = (await fx.listPersonalSpaces()).find(s => s.personal_owner_id !== fid('member', 1))
+    expect(await fx.listMothFiles(other.id)).toEqual([])
+    expect(await fx.listMothFolders(other.id)).toEqual([])
+  })
+  it('no file of the list is money or Legal, though the Files page\'s list holds them', async () => {
+    const fx = fresh().rabbitAdapter()
+    const everything = await fx.listFiles(PROJECT)
+    const rows = await fx.listMothFiles(PROJECT)
+    expect(everything.some(f => f.is_financial || f.tags?.includes('legal'))).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    const hidden = everything.filter(f => f.is_financial || f.tags?.includes('legal')).map(f => f.id)
+    expect(rows.filter(f => hidden.includes(f.id))).toEqual([])
+    expect(rows[0]).not.toHaveProperty('is_financial')
+  })
+  it('no folder of the list is a money folder', async () => {
+    const fx = fresh().rabbitAdapter()
+    const paths = (await fx.listMothFolders(PROJECT)).map(f => f.path)
+    expect(paths.length).toBeGreaterThan(0)
+    expect(paths.filter(p => /^(INVOICES|FINANCE|LEGAL)(\/|$)/i.test(p))).toEqual([])
+  })
+  it('a page is keyed on id and clamped', async () => {
+    const fx = fresh().rabbitAdapter()
+    const all = (await fx.listMothFiles(PROJECT)).map(f => f.id)
+    expect(all).toEqual([...all].sort())
+    expect((await fx.listMothFiles(PROJECT, null, 1)).map(f => f.id)).toEqual(all.slice(0, 1))
+    expect((await fx.listMothFiles(PROJECT, all[0])).map(f => f.id)).toEqual(all.slice(1))
+    expect((await fx.listMothFiles(PROJECT, null, -3)).length).toBe(1)
+  })
+  it('a hidden or missing project is an empty answer, never an error', async () => {
+    const fx = fresh().rabbitAdapter()
+    expect(await fx.listMothFiles('no-such-project')).toEqual([])
+    expect(await fx.listMothFolders('no-such-project')).toEqual([])
+  })
+})
+
 // MO1 (0110): the fake cloud answers personal spaces as the real one's RLS and RPCs do.
 describe('personal spaces (0110)', () => {
   const MARA = fid('member', 1)
