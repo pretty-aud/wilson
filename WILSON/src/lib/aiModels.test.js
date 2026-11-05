@@ -64,12 +64,16 @@ describe('MODEL_INPUT_LIMITS: read from the provider\'s documentation', () => {
     for (const model of [...Object.values(BUILTIN), ...SEEDS]) expect(inputLimitFor(model), model).toBeGreaterThan(0)
   })
 
-  it('the figures the documentation gives: 1M, and 200k for Haiku 4.5', () => {
-    for (const model of ['claude-sonnet-5', 'claude-opus-5', 'claude-sonnet-4-6', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1']) {
-      expect(inputLimitFor(model), model).toBe(1000000)
-    }
+  // Every id, whole: review round 1 (READ) found only some held to their figure,
+  // and (MEASURED) a documented 1M model missing, whose 110 pages read past the limit.
+  it('the figures the documentation gives, every id: 1M, and 200k for the older models', () => {
+    expect(MODEL_INPUT_LIMITS).toEqual({
+      'claude-fable-5-1': 1000000, 'claude-mythos-5-1': 1000000, 'claude-fable-5': 1000000, 'claude-mythos-5': 1000000, 'claude-mythos-preview': 1000000,
+      'claude-opus-5-5': 1000000, 'claude-opus-5': 1000000, 'claude-opus-4-8': 1000000, 'claude-opus-4-7': 1000000, 'claude-opus-4-6': 1000000,
+      'claude-sonnet-5-5': 1000000, 'claude-sonnet-5': 1000000, 'claude-sonnet-4-6': 1000000, 'claude-haiku-5-5': 1000000,
+      'claude-opus-4-5-20251101': 200000, 'claude-sonnet-4-5-20250929': 200000, 'claude-haiku-4-5-20251001': 200000, 'claude-haiku-4-5': 200000,
+    })
     expect(inputLimitFor(BUILTIN.FAST)).toBe(200000)
-    expect(inputLimitFor('claude-haiku-4-5')).toBe(200000)
   })
 
   it('the eight measured requests are a floor: claude-sonnet-5 took 247,693 input tokens, so its limit is no less', () => {

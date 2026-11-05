@@ -185,8 +185,12 @@
      a status makes one tile of a shelf row taller, its neighbours' names
      stay on the same line as its name, not centred lower (review round 2,
      finding 1, MEASURED: 12 to 25px apart without it). The status starts
-     under the name: the glyph and the row's 8px gap in. */
-  .dog-card-project .dog-refs-row { flex-wrap: wrap; row-gap: 0; align-content: flex-start; }
+     under the name: the glyph and the row's 8px gap in. `position`: a tile's
+     hidden word (`sr-only`, absolute) stays in the tile and scrolls with it
+     (DG7 review round 1, MEASURED: without it the word's box is the app's
+     unscrolled frame, whose overflow grew 197px with 24 tiles at 1280x720, and
+     a move to the word scrolled the whole column out of place). */
+  .dog-card-project .dog-refs-row { position: relative; flex-wrap: wrap; row-gap: 0; align-content: flex-start; }
   .dog-card-project .dog-refs-row > :is(.dog-refs-warn, .dog-refs-gone, .dog-refs-sub) {
     order: 1;
     flex-basis: 100%;
@@ -633,13 +637,14 @@
   /* Folded, the header still says when the meter needs a look. */
   .dog-refs-head-warn { color: var(--color-warning); }
   /* DG4 (Audrey, 2026-10-28, note 5: one card, its layout by the laws of
-     UX). Card 1 is one column at the measure of its own text. Its longest
-     line, the contract line, measured 571.28px in Chromium at 1280, 1440
-     and 2560 (the Caption step in Geist), so the column is 576px, the next
+     UX). The card's text keeps to the measure of its own longest line, the
+     contract line, which measured 571.28px in Chromium at 1280, 1440
+     and 2560 (the Caption step in Geist), so the measure is 576px, the next
      8px step: no house measure is within a few pixels of it (66ch is 700px
      at the meter's 16px, 45ch 477px, the reading width 720px). The
-     dropdown, Choose file, the meter and Add references share the card's
-     left edge, and the meter ends where the words above it end.
+     dropdown, the meter and Add references share the card's left edge
+     (Choose file too until DG7, which set it beside Add references), and the
+     meter ends where the words above it end.
      DG6's follow-up: the measure is `--dog-measure` on `.dog-card-project`
      (CARD 1's SECTIONS, above; DG5 had declared it on `.dog-inputs`, DG4
      `--dog-refs-measure` on this card). The text, the project field and
@@ -658,7 +663,10 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .dog-refs-notice { display: flex; align-items: baseline; gap: 8px; }
+  /* DG7: it lives in a column of 416px or more now, and can name a project: a
+     long title wraps and its Undo and Dismiss take the next line (review round
+     1, MEASURED: a 71-character title ran 168px into the Uploads column). */
+  .dog-refs-notice { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; overflow-wrap: anywhere; }
   .dog-refs-dismiss {
     padding: 0;
     border: 0;

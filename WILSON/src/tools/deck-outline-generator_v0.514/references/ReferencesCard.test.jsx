@@ -149,8 +149,8 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
       'Preview Scene one', 'Remove Scene one', 'Preview A note', 'Remove A note', 'Remove note-01.txt'])
   })
 
-  it('each section\'s first control comes right under its title, so the two sit on one line whatever else is said; the sentences follow', () => {
-    for (const opts of [{}, { projectChosen: false }, { files: UPLOADS().slice(0, 1) }, { refs: fakeRefs([ITEM, NOTE], { notice: '2 references removed.', undoable: true }) }]) {
+  it('each section\'s first control comes right under its title, with no project and with one, so the two sit on one line beside each other; the sentences follow', () => {
+    for (const opts of [{}, { projectChosen: false }, { files: UPLOADS().slice(0, 1) }, { refs: fakeRefs([ITEM, NOTE], { core: { state: 'none', count: 0, legacy: 0 } }) }]) {
       const c = mount(opts)
       const refsTitle = c.body().querySelector('.dog-sec-refs > h3')
       const upTitle = c.uploadsGroup().querySelector(':scope > h3')
@@ -371,6 +371,20 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(c.refRows()[0].querySelector('.dog-refs-warn').textContent).toBe('700 pages: the AI may refuse a PDF over 600')
   })
 
+  // Review round 1 (READ: placementFrom has no size check; an upload is in
+  // memory): "too large to place" is a stored file's rule, and was false here.
+  it('a video upload past the placing cap says nothing of being too large; a chosen video does', () => {
+    const big = 300 * 1024 * 1024
+    const files = [up('clip.mp4', 'video', big)]
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn() }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    const tile = view.container.querySelector('.dog-refs-row[data-kind="upload"]')
+    expect(tile.querySelector('.dog-refs-warn')).toBe(null)
+    expect(tile.querySelector('.dog-refs-sub').textContent).toBe('placed only, not read')
+    cleanup()
+    const c = mount({ chosen: [{ key: 'file:v1', kind: 'file', name: 'clip.mp4', dogType: 'video', id: 'v1', size: big }] })
+    expect(c.refRows()[0].querySelector('.dog-refs-warn').textContent).toBe('300 MB: too large to place in a slide')
+  })
+
   it('CONTROL: an upload\'s tile with no count of its pages warns of nothing a person has not been told', () => {
     const files = [up('script.pdf', 'pdf', 1024 * 1024)]
     const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn() }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
@@ -442,13 +456,24 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(before(note, c.uploadsGroup())).toBe(true)
   })
 
-  it('the notice follows the actions too, so nothing under the pointer moves when it arrives; with no project, the note after it', () => {
+  // DG7 review round 1 (MEASURED in Chromium): after the actions, the Tab from
+  // Add references to Undo crossed Core files only, where Enter ticks or makes a
+  // deck. Remove all leaves focus on Add references, so one Shift+Tab reaches it.
+  it('the notice opens the References section: Undo and Dismiss come before Add references, and no Tab from Add references to Undo crosses the Core files only box', () => {
     const c = mount({ projectChosen: false, refs: fakeRefs([ITEM, NOTE], { notice: '2 references removed.', undoable: true }) })
     const section = c.body().querySelector('.dog-sec-refs')
     const notice = section.querySelector('.dog-refs-notice')
-    expect(section.querySelector('.dog-refs-actions').nextElementSibling).toBe(notice)
-    expect(notice.nextElementSibling.textContent).toMatch(/^Choose a project/)
+    expect(section.querySelector('h3').nextElementSibling).toBe(notice)
+    expect(notice.nextElementSibling).toBe(section.querySelector('.dog-refs-actions'))
+    expect(section.querySelector('.dog-refs-actions').nextElementSibling.textContent).toMatch(/^Choose a project/)
     expect(notice.getAttribute('role')).toBe('status')
+    const stops = [...c.body().querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())
+    expect(stops.slice(0, 5)).toEqual(['Undo', 'Dismiss', 'Add references', 'Core files only', 'Remove all references'])
+    // CONTROL: the same walk with the notice after the actions has the box between.
+    const moved = section.cloneNode(true)
+    moved.append(moved.querySelector('.dog-refs-notice'))
+    const walk = [...moved.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())
+    expect(walk.indexOf('Undo')).toBeGreaterThan(walk.indexOf('Core files only'))
   })
 })
 
@@ -550,7 +575,7 @@ describe('DG7: the reading meter says what is true', () => {
 // =============================================================================
 describe('DG4: Core files only, beside Add references', () => {
   const box = () => screen.getByRole('checkbox', { name: 'Core files only' })
-  const said = (c) => c.body().querySelector('.dog-refs-core-said')
+  const said = (c) => c.body().querySelector('#dog-refs-core-said')
   const add = () => screen.getByRole('button', { name: 'Add references' })
   // Off is `aria-disabled`, never `disabled` (review round 2, finding 1): a
   // disabled button loses focus in Chromium, to <body>.
@@ -743,6 +768,17 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     press(removeOf('Scene one'))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
     expect(document.activeElement).not.toBe(removeOf(files[0].file.name))
+  })
+
+  // Review round 1 (MEASURED: previous-first passed every test, none pressed a
+  // middle tile): next, else previous.
+  it('a middle tile\'s Remove goes to the next of its kind, not the previous', () => {
+    const files = UPLOADS().slice(0, 3)
+    mount({ files, chosen: [ITEM, FILE, NOTE] })
+    press(removeOf('board-01.pdf'))
+    expect(document.activeElement).toBe(removeOf('A note'))
+    press(removeOf(files[1].file.name))
+    expect(document.activeElement).toBe(removeOf(files[2].file.name))
   })
 
   it('a reference\'s first Remove goes to the next reference\'s, over nothing else; the last upload\'s goes back over no reference', () => {

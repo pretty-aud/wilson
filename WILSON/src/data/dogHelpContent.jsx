@@ -155,7 +155,7 @@ export function DogHelpContent({ helpPage, theme }) {
       <section>
         <h3 className={T.sectionTitle}>Basic workflow</h3>
         <div className={T.bodyList2}>
-          <p><span className={T.accentStrong}>1. Choose sources:</span> In Project and references, choose the project, upload documents (up to 20 files: PDFs, markdown, text, images or videos), and tick what else the deck reads: the project’s items and files, and your own notes; or tick "Core files only" to use the project’s files marked Core instead. Only what is listed goes to the AI, with the project’s title and description.</p>
+          <p><span className={T.accentStrong}>1. Choose sources:</span> In Project and references, choose the project, tick what else the deck reads: the project’s items and files, and your own notes; or tick "Core files only" to use the project’s files marked Core instead; and upload documents (up to 20 files: PDFs, markdown, text, images or videos). Only what is listed goes to the AI, with the project’s title and description.</p>
           <p><span className={T.accentStrong}>2. Set deck context:</span> On the "Full deck" side, provide guidelines about the overall tone, style, and objectives for your presentation. They guide single pages too.</p>
           <p><span className={T.accentStrong}>3. Choose mode:</span> Switch to "Full deck" to generate an entire presentation, or to "Single page" to generate individual slides.</p>
           <p><span className={T.accentStrong}>4. For single pages:</span> Select a layout type, optionally set a page number, and describe what content you want on the slide.</p>

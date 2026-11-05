@@ -226,32 +226,39 @@ export const RETIRED = Object.freeze({
  *
  * READ FROM THE PROVIDER'S DOCUMENTATION on 2026-11-05, never from memory:
  *   platform.claude.com/docs/en/build-with-claude/context-windows.md, "Context
- *   window sizes by model" (1M for the models first below; 200k for the others),
- *   and platform.claude.com/docs/en/about-claude/models/overview.md.
+ *   window sizes by model" (the 1M models below by name; "other Claude models"
+ *   200k), with the ids from .../build-with-claude/pdf-support.md and
+ *   .../about-claude/models/overview.md.
  * Its Models API (`max_input_tokens`) is the live answer; WILSON's client holds
  * no key to ask it, so this is a dated copy.
  *
- * The first four are the catalogue migration 0031 seeds and the built-in floors,
- * so every model a D.O.G. call resolves to out of the box; the rest are what an
- * operator can approve today. A model not here has no recorded limit: the bar
- * keeps its old ceiling and says nothing it cannot stand behind.
+ * Every id the documentation gives a window for. That covers the built-in floors
+ * and the catalogue migration 0031 seeds, but an operator can approve any id the
+ * provider answers for (operator-models checks its shape and asks), so a newer
+ * one can be missing here: it has no recorded limit, and the bar keeps its old
+ * ceiling rather than say what it cannot stand behind.
  *
  * MEASURED floor (staging's usage log, 45 days to 2026-11-05): eight D.O.G.
  * requests of 230,850 to 247,693 input tokens, all completed on claude-sonnet-5.
  */
 export const MODEL_INPUT_LIMITS = Object.freeze({
-  'claude-sonnet-5': 1000000,
-  'claude-opus-5': 1000000,
-  'claude-sonnet-4-6': 1000000,
-  'claude-haiku-4-5-20251001': 200000,
   'claude-fable-5-1': 1000000,
+  'claude-mythos-5-1': 1000000,
   'claude-fable-5': 1000000,
+  'claude-mythos-5': 1000000,
+  'claude-mythos-preview': 1000000,
   'claude-opus-5-5': 1000000,
+  'claude-opus-5': 1000000,
   'claude-opus-4-8': 1000000,
   'claude-opus-4-7': 1000000,
   'claude-opus-4-6': 1000000,
   'claude-sonnet-5-5': 1000000,
+  'claude-sonnet-5': 1000000,
+  'claude-sonnet-4-6': 1000000,
   'claude-haiku-5-5': 1000000,
+  'claude-opus-4-5-20251101': 200000,
+  'claude-sonnet-4-5-20250929': 200000,
+  'claude-haiku-4-5-20251001': 200000,
   'claude-haiku-4-5': 200000,
 })
 

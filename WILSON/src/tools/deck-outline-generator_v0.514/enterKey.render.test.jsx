@@ -1344,7 +1344,7 @@ function withProject(files) {
 const coreBox = () => screen.getByRole('checkbox', { name: 'Core files only' })
 // Off is aria-disabled, never disabled (DG4 review round 2, finding 1).
 const coreIsOff = () => { expect(coreBox().disabled).toBe(false); return coreBox().getAttribute('aria-disabled') === 'true' }
-const coreSaid = () => document.querySelector('#dog-card1-body .dog-refs-core-said')
+const coreSaid = () => document.querySelector('#dog-card1-body #dog-refs-core-said')
 /** Choose the project and wait for its list (the checkbox's "Looking for…" gone). */
 async function chooseProject(d) {
   await act(async () => { fireEvent.change(d.q('select.dog-project-select'), { target: { value: PROJECT.id } }) })

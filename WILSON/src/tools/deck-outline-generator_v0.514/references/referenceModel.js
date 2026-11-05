@@ -675,18 +675,20 @@ export const IMAGE_TOKEN_ESTIMATE = 4000;
 /**
  * One PDF page, the figure the bar counts (MTR-01). The provider's PDF page gives
  * 1,500 to 3,000 text tokens a page by density, and each page also goes as a
- * picture. MEASURED: staging's usage log holds eight full decks of 230,850 to
- * 247,693 input tokens, about 2,100 a page for a 110-page text PDF. DG1's 4,500
- * was a dense page's text and picture, and more than twice that measurement. So
- * the top of the documented range: about 1.4 times what a text page measured,
- * cautious, and a dense scan may still cost more.
+ * picture, costed by its vision page (up to 4,784 for one picture on the newest
+ * models), so a page can cost up to 7,784. MEASURED: staging's usage log holds
+ * eight full decks of 230,850 to 247,693 input tokens, about 2,100 a page all in
+ * for a 110-page text PDF. DG1's 4,500 was a dense page, more than twice that
+ * measurement. So the top of the documented text range: about 1.4 times what a
+ * text page measured, and an estimate that can run low on a PDF of dense or
+ * picture-heavy pages (OUTSTANDING DG7-01); the bar says "an estimate" for this.
  */
 export const PDF_PAGE_TOKENS = 3000;
 /**
  * The provider's page cap on one request (MTR-02), which had no source here:
  * its PDF page gives 600, and 100 when the request's context window is under 1M
  * tokens. Past it a request may be refused. The cap counts the whole request,
- * pictures too (OUTSTANDING DG7-01); a row's warning speaks for its own file.
+ * pictures too (OUTSTANDING DG7-02); a row's warning speaks for its own file.
  */
 export const PDF_PAGE_LIMIT = 600;
 export const PDF_PAGE_LIMIT_SMALL = 100;
@@ -720,11 +722,12 @@ export function sizeWarning(dogType, bytes, pages = null, pageLimit = PDF_PAGE_L
 export const textTokens = (s) => Math.ceil(String(s || '').length / 4);
 
 /**
- * The words a mode's request always carries beyond its system prompt, in tokens
+ * The words a mode's request carries beyond its system prompt, in tokens
  * (MTR-03): the template, its wrapper and the file roles, measured from
  * DeckOutlineGenerator.jsx and rounded up to the next 100 (a test holds the
- * measurement to the source; Place visual's lines and the deck's earlier pages
- * in Single page are not counted).
+ * measurement to the source). The file roles go only with project files, about
+ * 95 tokens counted when they do not; Place visual's lines and the deck's earlier
+ * pages in Single page are not counted.
  */
 export const FULL_DECK_FIXED_TOKENS = 3100;
 export const SINGLE_PAGE_FIXED_TOKENS = 2500;

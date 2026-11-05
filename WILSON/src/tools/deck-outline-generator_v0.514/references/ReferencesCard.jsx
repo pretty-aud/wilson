@@ -351,8 +351,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   // titled, an h3 under the card's h2, so a screen reader's heading list reads
   // the card as it looks. DG7 (her words at the head of this file): References
   // and Uploads side by side, each title with its first control right under
-  // it, so the two first controls sit on one line in every state; a section's
-  // sentences follow its controls, keeping their words. Then the one list, the
+  // it, so while they are side by side the two first controls sit on one line
+  // (a notice, while it shows, comes first; Choose file goes at 20 uploads); a
+  // section's sentences follow its controls, keeping their words. Then the one list, the
   // contract line and the meter, always drawn, so nothing jumps when the first
   // tile arrives. The DOM follows the eye, so Tab does: Add references, Core
   // files only, Remove all references, Choose file, then each tile's Preview
@@ -364,6 +365,23 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
       <div className="dog-refs-pair">
         <div className="dog-sec dog-sec-refs">
           <h3 className="dog-sec-title">References</h3>
+          {/* DG7 review round 1, finding (MEASURED in Chromium): the notice
+              stays before the actions. After them, the Tab from Add references
+              (where Remove all leaves focus) to Undo crossed Core files only,
+              and Enter there, expecting Undo, ticked the box or started a deck
+              (enterGenerates.js). While it shows, Add references sits under it. */}
+          {refs.notice && (
+            <p className="dog-details-note dog-refs-notice" role="status">
+              {refs.notice}
+              {/* Both take the notice, and themselves, away: from the
+                  keyboard, focus goes to Add references, never the page
+                  (review round 2, finding 1). */}
+              {refs.undoable && (
+                <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.undoRemoveAll)}>Undo</button>
+              )}
+              <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.clearNotice)}>Dismiss</button>
+            </p>
+          )}
           {/* DG4: the two ways to say what the deck reads, side by side
               (proximity; Fitts: one short reach from Add references). */}
           <div className="dog-refs-actions">
@@ -405,19 +423,6 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
             )}
           </div>
 
-          {refs.notice && (
-            <p className="dog-details-note dog-refs-notice" role="status">
-              {refs.notice}
-              {/* Both take the notice, and themselves, away: from the
-                  keyboard, focus goes to Add references, never the page
-                  (review round 2, finding 1). */}
-              {refs.undoable && (
-                <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.undoRemoveAll)}>Undo</button>
-              )}
-              <button type="button" className="dog-refs-dismiss" onClick={(e) => removing(e, refs.clearNotice)}>Dismiss</button>
-            </p>
-          )}
-
           {/* A project is needed for items and files, not for uploads (DG2).
               Not while a sign-in is held offline (DG4 review round 2, finding
               2: S2's one sentence is card 1's only words then, and notes are a
@@ -427,7 +432,7 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               Choose a project to reference its items and files. Your notes can be referenced without one.
             </p>
           )}
-          {coreSaid && <p id="dog-refs-core-said" className="dog-details-note dog-refs-core-said">{coreSaid}</p>}
+          {coreSaid && <p id="dog-refs-core-said" className="dog-details-note">{coreSaid}</p>}
         </div>
 
         {/* Always drawn, so the card is never without a way to add. Choose
@@ -512,8 +517,11 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               const Glyph = fileGlyph(f.type);
               const name = f.file.name;
               // MTR-02: the warning a chosen file's tile shows; an upload's
-              // pages are D.O.G.'s, counted when it arrived.
-              const warn = sizeWarning(f.type, f.file.size, uploads?.pdfPages?.get(f.id) || null, pageLimit);
+              // pages are D.O.G.'s, counted when it arrived. Not a video's:
+              // "too large to place" is the rule for a stored file, which is
+              // not read past the cap; an upload is in memory and is placed
+              // whatever its size (DG7 review round 1, READ: placementFrom).
+              const warn = f.type === 'video' ? null : sizeWarning(f.type, f.file.size, uploads?.pdfPages?.get(f.id) || null, pageLimit);
               return (
                 <li key={`upload:${f.id}`} className="dog-refs-row" data-kind="upload">
                   <Glyph className="dog-file-icon" aria-hidden="true" />
