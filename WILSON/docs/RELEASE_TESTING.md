@@ -313,6 +313,7 @@ No automated test covers the two-factor path end to end: re-run the first three 
   once on a build without 0109's client and once on a new one. The teammate's list drops it and the open project closes with *This
   project is no longer shared with you.*; the creator's and the admin's stay open; the old build stops hearing the project. `[BLOCKING]`
 - `[Cloud]` Stored copies follow the file (MO1, 0115): as a member and as an admin, Project Files' pictures and previews load, a new upload lands with its picture, and a shot re-file moves its file and picture. As a member with no money access, a receipt's file does not open. `[BLOCKING]`
+- `[Cloud]` A file's log and private time (MO1, 0116): make a project private, upload a file to it, then open it to the company. As a member, the file's activity shows only what happened after it was opened, and the panel's foot says why. As the project's creator and as an admin, the same panel also shows the upload from its private time.
 - `[Cloud]` A member seat (not a manager of the project's team) opens a project: the Producer select is grey with *Only someone who
   manages this project's team can choose its producer.*; an app manager or the team's manager chooses one. `[BLOCKING]`
 

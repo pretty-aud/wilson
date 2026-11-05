@@ -2110,6 +2110,20 @@ per-file audit drawer never shows one; the workspace takeout and the
 withdrew it; suite 66 probe 27 now asserts the term and the writer land
 together.
 
+**Since 0116 (MO1) the vocabulary is thirteen terms**, in one widening: 0093's
+`viewed_remote`, and `catalogued`, `moved_out`, `moved_in`, `refiled`. Nothing
+writes the four until 0117 and 0118. A project change writes `moved_out` under
+the old project and `moved_in` under the new one, with no paths and `details`
+`{}`, each classified from both sides, so neither side learns the other's
+locator; `moved` is a locator change within one project. A person's folder change
+within a project writes `refiled` with both folder ids; a foreign key emptying a
+file's folder writes nothing, told by the folder it left being gone (an AFTER
+trigger under a foreign key's action fires at `pg_trigger_depth()` 1, so depth
+cannot tell it). An insert under this project's own catalogue check writes
+`catalogued`; that check's rows do not go on the project's channel either. An
+office-server row's certificate adds `details.body`: `company server bin`, or
+`left on the company server`.
+
 Written by `trg_files_lifecycle` → `fn_file_events_capture()` (SECURITY
 DEFINER) — and, since 0073, by `sweep_abandoned_uploads()` (SECURITY DEFINER)
 for `upload_abandoned` only, joined in 0074 (Track C / C2) by
@@ -2155,6 +2169,21 @@ earlier events unflagged (§17). Suite 78 pins it; 33 pins the rest. There are
 no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
 its subject. Append-only is enforced three ways: zero write policies, revoked
 grants, and migration post-conditions.
+
+**A file's log from a project's private time (0116, her ruling of 2026-11-05,
+"Keep them hidden (Recommended)").** Every row carries `captured_private`, set
+by `trg_file_events_private` for every writer, whatever the writer says; DEFAULT
+true, so anything past the trigger fails closed. `file_events_select` gains the
+arm `edit_history` has since 0108: such a row is read only by a workspace admin
+or the project's creator, even after the project is opened. Rows already written
+were stamped once, by the run that added the column (`file_events_restamp`,
+revoked from every role but its owner): closed when the project is gone, when the
+row is older than its project, or when it is older than `edit_history` keeps (90
+days, so a flip after it may be gone: her second ruling that day, the same
+answer); else the project's live value when its visibility never changed in what
+is kept; else walked back through `edit_history_value_at`. Never run it again by
+hand: it would close rows stamped open once they pass 90 days. Suite 78 proves it
+caller by caller, and suite 95 pins the policy whole.
 
 **The `purged` rows are deletion certificates** (TPN-CONT-002). That is why the
 local twin, `bundle.fileEvents`, trims to 2000 events by dropping everything
