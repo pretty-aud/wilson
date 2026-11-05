@@ -849,6 +849,11 @@ const FILE_COLUMNS = new Set([
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
 
+// MO1 (0114, MOTH §2.1): where a file is kept and filed, which a client's UPDATE
+// never changes (fn_files_body_guard). In FILE_COLUMNS all the same: an INSERT
+// writes every one. updateFile takes them out of its patch.
+const FILE_BODY_COLUMNS = ['project_id', 'workspace_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial', 'folder_id'];
+
 // ── Phase 2 of the 2026-08-10 build pass (migration 0061) ───────────────
 // The LAST write path still on the raw `sanitize(dep, [])` denylist, and the
 // one this whole defect class was named after. Audrey, 2026-08-10: "i was able
@@ -1456,18 +1461,18 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 //      object no row names once it is 24h old, so no object is ever left
 //      moved with its row still saying the old key for longer than one
 //      round trip (round 1, item 1; the scan now also keeps an object whose
-//      twin key a row names, _shared/shotKeys.ts). A row update that answers
-//      an error, or no row — a row a teammate trashed meanwhile is invisible
-//      to the update (files_select, 0014) — puts the object back, but only
-//      after RE-READING the row, successfully, and only while it still
-//      names the old key: an update that committed and lost its answer is
-//      left as it committed, and when the read fails too nothing is moved
-//      (round 2, item 4). An object already at its new key with nothing at
-//      the old one is a move that landed on an earlier run and is counted
-//      done; an object at BOTH keys is left alone and reported (a move
-//      never overwrites and nothing here deletes). A thumbnail at neither
-//      key is a derived picture: the row stops naming it rather than the
-//      shot being held back;
+//      twin key a row names, _shared/shotKeys.ts). The row is rewritten through
+//      rekey_file_body (0114). A call that answers an error — a row a teammate
+//      trashed meanwhile is refused, 42501 — or false, the row no longer saying
+//      what this run read, puts the object back, but only after RE-READING the
+//      row, successfully, and only while it still names the old key: a call
+//      that committed and lost its answer is left as it committed, and when
+//      the read fails too nothing is moved (round 2, item 4). An object
+//      already at its new key with nothing at the old one is a move that
+//      landed on an earlier run and is counted done; an object at BOTH keys
+//      is left alone and reported (a move never overwrites and nothing here
+//      deletes). A thumbnail at neither key is a derived picture: the row
+//      stops naming it rather than the shot being held back;
 //   4. the old prefix is read again: a live row still under it (an upload
 //      that landed meanwhile) leaves the folder where it is, to be run
 //      again; then, and only then, the folder row is re-parented, and the
@@ -1566,22 +1571,36 @@ async function rereadFileRow(client, id) {
 }
 
 /**
- * The row rewritten to say where its object now is. An error, or no row
- * answered (the update reached nothing this account can see), puts the
- * object back — but only after the row has been READ AGAIN, successfully,
- * and still names the old key (or cannot be seen at all): an update that
- * committed and lost its answer stays as it committed; a row someone else
- * changed meanwhile is left to them; and when the read fails too, nothing
- * is known, so nothing is moved — the object stays at its new key, the
- * shot is left with "run it again", and the next run finds it (the row
- * still old: landed earlier; the row new: done) while storage-gc keeps it
- * (its twin key is named either way).
+ * The row rewritten to say where its object now is. An error, or a false
+ * answer (the row no longer says what this run read), puts the object back —
+ * but only after the row has been READ AGAIN, successfully, and still names
+ * the old key (or cannot be seen at all): a call that committed and lost its
+ * answer stays as it committed; a row someone else changed meanwhile is left
+ * to them; and when the read fails too, nothing is known, so nothing is moved
+ * — the object stays at its new key, the shot is left with "run it again",
+ * and the next run finds it (the row still old: landed earlier; the row new:
+ * done) while storage-gc keeps it (its twin key is named either way).
+ *
+ * MO1 (0114): through rekey_file_body, the one path a client has to a stored
+ * key (fn_files_body_guard refuses a patch). It is still one phase per column:
+ * the body's phase keeps the picture, the picture's phase keeps the path. So
+ * `row` is the row as it stands at this phase, and the picture's phase is handed
+ * the body's new key: the call compares both columns, and a stale path is a miss.
  */
 async function rewriteFileRow(client, row, column, from, to, putBack) {
-  const up = await client.from('files').update({ [column]: to }).eq('id', row.id).select('id').maybeSingle();
+  const body = column === 'storage_path';
+  const picture = row.thumbnail_url ?? null;
+  const up = await client.rpc('rekey_file_body', {
+    p_file: row.id,
+    p_from_path: body ? from : row.storage_path,
+    p_to_path: body ? to : row.storage_path,
+    p_from_thumb: body ? picture : from,
+    p_to_thumb: body ? picture : to,
+    p_financial: false,
+  });
   const failed = up.error
     ? up.error.message
-    : (!up.data || !up.data.id ? 'its record is not visible to this account any more (trashed or removed meanwhile)' : null);
+    : (up.data !== true ? 'its record was changed by someone else meanwhile' : null);
   if (!failed) return;
   const again = await rereadFileRow(client, row.id);
   if (!again.ok) {
@@ -1640,13 +1659,16 @@ async function refileOneObject(client, projectId, p, row) {
   const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
   const where = { client, local, bucketName: BUCKET_FILES };
   let did = 'untouched';
+  // What the row says as this goes on (rewriteFileRow compares both columns).
+  let now = row;
   // 1. The body, then its row — at once. (A row whose body is nested already
   // and whose picture is not — a run that stopped between the two — skips
   // to the picture.)
   if (to) {
     await moveObjectVerified(where, row.storage_path, to, row.name);
-    await rewriteFileRow(client, row, 'storage_path', row.storage_path, to,
+    await rewriteFileRow(client, now, 'storage_path', row.storage_path, to,
       () => moveObjectVerified(where, to, row.storage_path, row.name));
+    now = { ...row, storage_path: to };
     did = 'moved';
   }
   // 2. Its thumbnail, then its row — at once. The body is moved and its row
@@ -1661,12 +1683,12 @@ async function refileOneObject(client, projectId, p, row) {
         // than the shot being held back. (The file shows no picture from
         // then on — nothing regenerates a cloud thumbnail from its source
         // today, thumbnails.js — but the file itself is whole and moved.)
-        await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, null, async () => {});
+        await rewriteFileRow(client, now, 'thumbnail_url', row.thumbnail_url, null, async () => {});
         return 'moved';
       }
       throw err;
     }
-    await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, thumbTo,
+    await rewriteFileRow(client, now, 'thumbnail_url', row.thumbnail_url, thumbTo,
       () => moveObjectVerified(thumbWhere, thumbTo, row.thumbnail_url, row.name));
     did = 'moved';
   }
@@ -3864,16 +3886,28 @@ export function supabaseAdapter() {
       // three new surfaces in front of file rows, and the local managedFiles
       // store uses field names — stored_name, notes, version_label — that have
       // no columns here and would otherwise arrive intact from shared code.
-      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at']));
+      //
+      // MO1 (0114, MOTH §2.1): the denylist also takes the seven columns
+      // fn_files_body_guard refuses a client's UPDATE (42501). FILE_COLUMNS
+      // keeps them, because an INSERT writes every one. The project_id callers
+      // pass (RabbitProvider, ProjectsPage) is for localServerAdapter's URL; a
+      // file changes project only through Move to, and a stored key only
+      // through rekey_file_body.
+      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at', ...FILE_BODY_COLUMNS]));
       // S4a (0085): a database without files.tags gets the patch without it.
       // A patch that was ONLY tags refuses in words — a silent no-op would
       // leave the chip lit until the next list (the 0075 trap, again).
       if ('tags' in row && !(await fileTagsAvailable(client))) {
         delete row.tags;
-        const left = Object.keys(row).filter((k) => k !== 'project_id');
-        if (left.length === 0) {
+        if (Object.keys(row).length === 0) {
           throw new Error('[supabase] Tags are not on this database yet (migration 0085). Nothing was changed.');
         }
+      }
+      // MO1: the same trap for a patch with nothing else in it. PostgREST answers
+      // an empty PATCH with no row, which .single() would report as its own
+      // error, in words nobody could act on.
+      if (Object.keys(row).length === 0) {
+        throw new Error('[supabase] Nothing in this change can be saved: a file\'s project, folder and storage change only through Move to.');
       }
       const res = await client.from('files').update(row).eq('id', id).select().single();
       // S4b (0088): the two Legal CHECKs answer in Postgres's words; say what

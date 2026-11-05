@@ -27,6 +27,12 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) 
   ('bbbb2222-0000-0000-0000-00000000ff02',
    'bbbb2222-0000-0000-0000-000000000001', 'b.txt', 'supabase', 'projects/b/b.txt');
 
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/files/a1/audit.txt',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   '11111111-1111-1111-1111-111111111111'
@@ -51,7 +57,7 @@ SELECT is((SELECT count(*)::int FROM upd), 0, 'user_a cannot UPDATE workspace-B 
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
 VALUES ('aaaa1111-0000-0000-0000-00000000ff99',
         'aaaa1111-0000-0000-0000-000000000001',
-        'audit.txt', 'supabase', 'projects/a/audit.txt');
+        'audit.txt', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000000001/files/a1/audit.txt');
 
 SELECT is(
   (SELECT created_by FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-00000000ff99'),

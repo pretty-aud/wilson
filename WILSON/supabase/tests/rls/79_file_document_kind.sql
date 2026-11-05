@@ -155,6 +155,13 @@ SELECT is(
   'CHECK (((description IS NULL) OR (char_length(description) <= 2000)))',
   'files_description_len_chk caps description at 2000 characters');          -- 6
 
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload
+-- leaves it. 1-long.pdf's too, so that probe 8's refusal stays the cap's.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/c3/1-brief.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/c3/1-long.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c3/1-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
   'app_metadata', jsonb_build_object(
@@ -358,7 +365,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path,
                           size_bytes, is_financial, document_kind, description)
 VALUES ('aaaa1111-0000-0000-0000-000000007903',
         'aaaa1111-0000-0000-0000-000000000001', 'invoice.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-invoice.pdf',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c3/1-invoice.pdf',
         1024, true, 'other', 'october invoice, 12k');
 
 SELECT is(

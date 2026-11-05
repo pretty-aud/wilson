@@ -66,7 +66,7 @@
 
 BEGIN;
 
-SELECT plan(173);
+SELECT plan(174);
 
 SELECT * FROM tests.rls_setup();
 
@@ -156,6 +156,19 @@ BEGIN
     'sub', p_uid, 'role', 'authenticated',
     'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
   PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+-- MO1 (0114): fn_files_body_guard is a BEFORE trigger, so it answers a client ahead of the
+-- policies and a policy's own refusal cannot be heard with it on. No runner can stand in, a
+-- runner passes RLS. So a probe that names a policy runs with the guard off, as suites 96
+-- and 103 do: the guard only ever refuses more, so what is refused here is refused with it
+-- on, and suite 115 pins the guard itself. DEFINER because only the table's owner may say
+-- this.
+CREATE FUNCTION pg_temp.body_guard(p_switch TEXT)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  EXECUTE format('ALTER TABLE public.files %s TRIGGER trg_files_body_guard', p_switch);
 END;
 $$;
 
@@ -412,21 +425,6 @@ SELECT lives_ok(
   'the project manager edits the Legal file''s note, and the invoice''s (edit history is written for both)'); -- 23
 UPDATE public.files SET description = 'net 30 (approved)' WHERE id = 'f9500000-0000-0000-0000-000000000003';
 
--- §P's two UNFLAGGED money rows (review round 1, finding 2): money by the
--- path alone — a note filed under FINANCE and a receipt under INVOICES, both
--- with is_financial false — each edited once so they have history.
-INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
-VALUES ('f9500000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
-        'aaaa1111-0000-0000-0000-000000000001', 'rates-note.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/aaaa1111-0000-0000-0000-000000000001/1-rates-note.pdf',
-        40, false, 'rates discussion'),
-       ('f9500000-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111',
-        'aaaa1111-0000-0000-0000-000000000001', 'receipt.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
-        30, false, 'taxi receipt');
-UPDATE public.files SET description = 'rates discussion (final)' WHERE id = 'f9500000-0000-0000-0000-00000000000a';
-UPDATE public.files SET description = 'taxi receipt (filed)' WHERE id = 'f9500000-0000-0000-0000-00000000000b';
-
 SELECT is(
   (SELECT count(*)::int FROM public.files WHERE id IN ('f9500000-0000-0000-0000-000000000001', 'f9500000-0000-0000-0000-000000000003')),
   2, 'CONTROL: the project manager reads the Legal row and the invoice');                                 -- 24
@@ -435,6 +433,31 @@ SELECT is(
     WHERE name ILIKE 'projects/aaaa1111-0000-0000-0000-000000000001/invoices/%'
        OR name = 'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/RATES.json'),
   3, 'CONTROL: the project manager reads the invoice body, its thumbnail and the FINANCE mirror');        -- 25
+
+-- §P's two UNFLAGGED money rows (review round 1, finding 2): money by the
+-- path alone — a note filed under FINANCE and a receipt under INVOICES, both
+-- with is_financial false — each edited once so they have history.
+-- MO1 (0114): the receipt names a stored copy already in the bucket (seeded here, past
+-- probe 25's count). FINANCE is not on the guard's list, so no client adds the note any
+-- more: the runner does, with the project manager's claims still set, as an older row.
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 30}'::jsonb);
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
+VALUES ('f9500000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'rates-note.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/aaaa1111-0000-0000-0000-000000000001/1-rates-note.pdf',
+        40, false, 'rates discussion');
+SELECT set_config('role', 'authenticated', true);
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
+VALUES ('f9500000-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'receipt.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
+        30, false, 'taxi receipt');
+UPDATE public.files SET description = 'rates discussion (final)' WHERE id = 'f9500000-0000-0000-0000-00000000000a';
+UPDATE public.files SET description = 'taxi receipt (filed)' WHERE id = 'f9500000-0000-0000-0000-00000000000b';
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
@@ -617,13 +640,17 @@ SELECT lives_ok(
             'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf.jpg',
             10, false, ARRAY['legal'])$$,
   '…and adds the Legal row (files_insert''s Legal arm): Add as Legal works for them');                   -- 50
+-- With the guard off (MO1, 0114), which would refuse them first, on the same gate.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
     VALUES ('f9500000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111',
             'aaaa1111-0000-0000-0000-000000000001', 'w-invoice.pdf', 'supabase',
             'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-w.pdf',
             10, true)$$,
-  '42501', NULL, '🚨 but cannot add an invoice row');                                                     -- 51
+  '42501', 'new row violates row-level security policy for table "files"',
+  '🚨 but cannot add an invoice row');                                                                    -- 51
+SELECT pg_temp.body_guard('ENABLE');
 SELECT throws_ok(
   $$INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
     VALUES ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-w.pdf',
@@ -642,25 +669,35 @@ SELECT throws_ok(
      WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf'$$,
   'new row violates row-level security policy for table "objects"',
   '🚨 nor rename a Legal object INTO INVOICES/ (the money UPDATE policy''s WITH CHECK: INVOICES is not Legal, and money refuses them)'); -- 54
+-- With the guard off (MO1, 0114), which refuses any client's patch of the flag first.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$UPDATE public.files SET is_financial = true WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
-  '42501', NULL, '🚨 nor turn their Legal file into an invoice by flagging it (files_update WITH CHECK refuses before the CHECK)'); -- 55
+  '42501', 'new row violates row-level security policy for table "files"',
+  '🚨 nor turn their Legal file into an invoice by flagging it (files_update WITH CHECK refuses before the CHECK)'); -- 55
+SELECT pg_temp.body_guard('ENABLE');
+-- MO1 (0114): the guard answers a client's patch of a stored key first, so the runner
+-- proves the trigger; probe 174 is this person's own statement.
+RESET ROLE;
 SELECT throws_ok(
   $$UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf',
            tags = ARRAY[]::text[]
      WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
   '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
-  'nor declassify it: Legal is fixed at add for the new audience too (trg_files_legal_fixed)');          -- 56
+  'a Legal file is not declassified, whoever writes: fixed at add for the new audience too (trg_files_legal_fixed; probe 174 is theirs)'); -- 56
+SELECT set_config('role', 'authenticated', true);
 
 -- The two column-free statements (0083 C-R2-01 / suite 90 probes 36-38): only
 -- files_delete''s and files_update''s own clauses judge them. Counted inside
--- a sub-block that is then undone, so the fixtures stay.
+-- a sub-block that is then undone, so the fixtures stay. With the guard off
+-- (MO1, 0114), which refuses any client's patch of the flag first.
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 CREATE TEMP TABLE legal95_cf (k TEXT, v TEXT);
 GRANT ALL ON legal95_cf TO PUBLIC;
 SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a2', 'manager');
+SELECT pg_temp.body_guard('DISABLE');
 DO $$
 DECLARE
   v_n INT;
@@ -687,6 +724,7 @@ BEGIN
   END;
   INSERT INTO legal95_cf VALUES ('flag', v_out);
 END $$;
+SELECT pg_temp.body_guard('ENABLE');
 SELECT is((SELECT v FROM legal95_cf WHERE k = 'delete'), '4',
   '🚨 the workspace manager''s column-free DELETE reaches project A''s two plain rows and two Legal rows — never the invoice, never a private project''s Legal row (files_delete''s arm)'); -- 57
 SELECT is((SELECT v FROM legal95_cf WHERE k = 'flag'), '42501',
@@ -767,13 +805,17 @@ SELECT throws_ok(
     'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-small-c.pdf', 4000)$$,
   '42501', 'reserve_upload_bytes: you cannot write to this project',
   'nor reserve a LEGAL key — the Legal arm admits the Legal audience, not a member');                    -- 74
+-- With the guard off (MO1, 0114), which would refuse them first, on the same gate.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9500000-0000-0000-0000-0000000000c2', '11111111-1111-1111-1111-111111111111',
             'aaaa1111-0000-0000-0000-000000000001', 'm.pdf', 'supabase',
             'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-m.pdf',
             10, false, ARRAY['legal'])$$,
-  '42501', NULL, 'nor add a Legal row');                                                                  -- 75
+  '42501', 'new row violates row-level security policy for table "files"',
+  'nor add a Legal row');                                                                                 -- 75
+SELECT pg_temp.body_guard('ENABLE');
 SELECT isnt(
   public.reserve_upload_bytes(
     'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/9-big-plain.mov', 27262976),
@@ -901,13 +943,17 @@ SELECT throws_ok(
     'projects/95950000-0000-0000-0000-000000000002/LEGAL/95950000-0000-0000-0000-000000000002/9-guess.pdf', 4000)$$,
   '42501', 'reserve_upload_bytes: you cannot write to this project',
   'nor reserve a LEGAL key under it — the same refusal, so P2''s existence is not confirmed');           -- 98
+-- With the guard off (MO1, 0114), which would refuse them first, on the same privacy.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9500000-0000-0000-0000-0000000000c3', '11111111-1111-1111-1111-111111111111',
             '95950000-0000-0000-0000-000000000002', 'x.pdf', 'supabase',
             'projects/95950000-0000-0000-0000-000000000002/LEGAL/95950000-0000-0000-0000-000000000002/9-x.pdf',
             10, false, ARRAY['legal'])$$,
-  '42501', NULL, 'nor add a Legal row to it (files_insert''s parent hop, 0083)');                         -- 99
+  '42501', 'new row violates row-level security policy for table "files"',
+  'nor add a Legal row to it (files_insert''s parent hop, 0083)');                                        -- 99
+SELECT pg_temp.body_guard('ENABLE');
 -- P3 is user_n''s; user_m is not its creator either.
 SELECT is(
   (SELECT count(*)::int FROM public.files WHERE id = 'f9500000-0000-0000-0000-000000000006'),
@@ -1223,6 +1269,12 @@ SELECT ok(
 
 -- ══ N. The CHECK — as the project manager, so only the CHECK can refuse ═════
 
+-- MO1 (0114): the row names a stored copy already in the bucket, so that the guard lets it
+-- through to the CHECK. Past every count that reads Legal objects as present.
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-both.pdf',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 10}'::jsonb);
 SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
@@ -1232,10 +1284,14 @@ SELECT throws_ok(
             10, true, ARRAY['legal'])$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_not_financial_chk"',
   'a Legal file cannot be added as an invoice too (files_legal_not_financial_chk)');                     -- 137
+-- With the guard off (MO1, 0114), which refuses any client's patch of the flag first: a
+-- runner would reach the CHECK too, but only this person proves that RLS admits them.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$UPDATE public.files SET is_financial = true WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_not_financial_chk"',
   'nor can the project manager flag an existing Legal file (RLS admits them; the CHECK refuses)');       -- 138
+SELECT pg_temp.body_guard('ENABLE');
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 
@@ -1573,6 +1629,19 @@ SELECT ok(
     WHERE entity_type = 'files' AND entity_id = '95950000-0000-0000-0000-00000000f001' AND action = 'create'
       AND diff::text LIKE '%LEGAL%'),
   '🚨 a purged invoice''s id reused for a Legal row: the invoice''s history (its note-only edit included) stays money and NOT Legal; the Legal row''s own is Legal'); -- 173
+
+-- 174 (MO1, 0114): probe 56's person. The guard answers their statement first, with its
+-- 42501.
+SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a2', 'manager');
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf',
+           tags = ARRAY[]::text[]
+     WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
+  '42501', NULL,
+  'the workspace manager cannot declassify their Legal file: Legal is fixed at add for the new audience too'); -- 174
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

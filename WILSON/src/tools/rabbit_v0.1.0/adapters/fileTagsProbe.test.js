@@ -88,7 +88,8 @@ describe('updateFile and files.tags', () => {
     const client = makeClient({ hasTags: true })
     globalThis.__testSupabase = client
     await supabaseAdapter().updateFile('f1', { tags: ['shots'], description: 'n', project_id: 'p1' })
-    expect(client.updates).toEqual([{ tags: ['shots'], description: 'n', project_id: 'p1' }])
+    // MO1 (0114): the caller's project_id is its URL's on the desktop, never a column here.
+    expect(client.updates).toEqual([{ tags: ['shots'], description: 'n' }])
     expect(await supabaseAdapter().supportsFileTags()).toBe(true)
   })
 
@@ -96,7 +97,7 @@ describe('updateFile and files.tags', () => {
     const client = makeClient({ hasTags: false })
     globalThis.__testSupabase = client
     await supabaseAdapter().updateFile('f1', { tags: ['shots'], description: 'n', project_id: 'p1' })
-    expect(client.updates).toEqual([{ description: 'n', project_id: 'p1' }])
+    expect(client.updates).toEqual([{ description: 'n' }])
     expect(await supabaseAdapter().supportsFileTags()).toBe(false)
   })
 
@@ -113,7 +114,7 @@ describe('updateFile and files.tags', () => {
     globalThis.__testSupabase = client
     await supabaseAdapter().updateFile('f1', { description: 'n', project_id: 'p1' })
     expect(client.probes).toEqual([])
-    expect(client.updates).toEqual([{ description: 'n', project_id: 'p1' }])
+    expect(client.updates).toEqual([{ description: 'n' }])
   })
 
   it('an unrelated error that merely says "tags" is NOT remembered as "absent" (round 1, R1-SEC-05)', async () => {
@@ -123,7 +124,7 @@ describe('updateFile and files.tags', () => {
     expect(await supabaseAdapter().supportsFileTags()).toBe(true)  // …probed again, and the column is there
     expect(client.probes.length).toBe(2)
     await supabaseAdapter().updateFile('f1', { tags: ['shots'], project_id: 'p1' })
-    expect(client.updates).toEqual([{ tags: ['shots'], project_id: 'p1' }])
+    expect(client.updates).toEqual([{ tags: ['shots'] }])
   })
 
   it('CONTROL: the missing-column sentence alone (no code) IS remembered as "absent"', async () => {

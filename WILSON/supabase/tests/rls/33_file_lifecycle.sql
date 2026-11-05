@@ -57,6 +57,13 @@ SELECT has_table('public'::name, 'storage_gc_queue'::name, 'storage_gc_queue tab
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
+
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-lifecycle.png', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-downloaded.png', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/x/1-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   '11111111-1111-1111-1111-111111111111'
@@ -84,9 +91,17 @@ SELECT is(
   'uploaded event carries the acting user'
 );
 
+-- MO1 (0114): a client no longer patches a stored key, so the runner makes the change
+-- the capture trigger is pinned on (suite 115 pins the client's refusal).
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 UPDATE public.files
    SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/2-lifecycle.png'
  WHERE id = 'aaaa1111-0000-0000-0000-000000003301';
+SELECT tests.login_as(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  '11111111-1111-1111-1111-111111111111'
+);
 
 -- 5: storage_path change emitted 'moved' with both paths.
 SELECT is(
@@ -339,7 +354,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
 VALUES ('aaaa1111-0000-0000-0000-000000003303',
         'aaaa1111-0000-0000-0000-000000000001',
         'invoice.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-invoice.pdf',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/x/1-invoice.pdf',
         1024, true);
 
 -- 28: a money-privileged caller logs a financial file.

@@ -5421,8 +5421,8 @@ export function RabbitProvider({ children }) {
   // RESOURCES → FILES edits any project's files without opening it, and
   // only the OPEN project's rows live in the bundle — so a write for another
   // project goes straight to the adapter WITH ITS OWN id (the Local Server
-  // builds the URL from it, and in the cloud project_id is a column: sending
-  // the open project's id would move the row into it). Omitted, it is the
+  // builds the URL from it; the cloud adapter takes it out of the patch, 0114,
+  // because a file changes project only through Move to). Omitted, it is the
   // open project, exactly as before.
   //
   // Review round 2 (R2-UI-01, measured): the optimistic write kept the row's

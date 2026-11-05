@@ -60,7 +60,26 @@ function likeToRegExp(pattern) {
  * (files_select, 0014) — an update or delete still reaches them, as the
  * database's own USING does not read deleted_at. A ranged SELECT with no
  * ORDER answers in a different rotation each call, as Postgres may.
+ *
+ * MO1 (0114): a files UPDATE that changes a guarded column is refused as
+ * fn_files_body_guard refuses it, and rpc('rekey_file_body') answers as the
+ * function does, row by row: a row trashed or hidden, a key of the wrong shape,
+ * a body not at its new key or a picture it does not allow all give 42501 and
+ * 'file not found or not writable'; a path or picture that is no longer what the
+ * caller read gives false. failUpdate('files', { the column it changes }, [row])
+ * speaks for it: a message refuses it, 'filtered' answers false, and
+ * 'committed:<msg>' applies it and answers the error.
  */
+const GUARDED_FILE_COLUMNS = ['project_id', 'workspace_id', 'folder_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial']
+const KEY_THIRD_SEGMENTS = ['scenes', 'shots', 'levels', 'experiences', 'assets', 'tasks', 'phases', 'project', 'files', 'invoices', 'legal']
+/** rabbit_private.file_key_shape_ok (0114), as the fake's rekey applies it. */
+function fileKeyShapeOk(key) {
+  const segs = String(key ?? '').split('/')
+  return String(key ?? '').length <= 1024 && segs.length >= 5 && segs[0] === 'projects'
+    && KEY_THIRD_SEGMENTS.includes(segs[2].toLowerCase())
+    && segs.every(seg => /^[A-Za-z0-9._-]+$/.test(seg) && seg !== '.' && seg !== '..')
+}
+
 function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, failDelete = () => null, dropLanding = () => false, onMove = () => {}, failRead = () => null, failList = () => null, hidden = new Set() } = {}) {
   const log = []
   let seq = 0
@@ -116,6 +135,9 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
           rows.push(row)
           log.push(['insert', name, row.path || row.name || row.id])
           result = { data: { ...row }, error: null }
+        } else if (state.op === 'update' && name === 'files' && rows.filter(match).some(h => GUARDED_FILE_COLUMNS.some(c => c in state.payload && state.payload[c] !== h[c]))) {
+          log.push(['guard-refused', name, rows.filter(match).map(h => h.id), { ...state.payload }])
+          result = { data: null, error: { code: '42501', message: "A file's project, folder and storage change only through Move to." } }
         } else if (state.op === 'update') {
           const hits = rows.filter(match)
           const refused = failUpdate(name, state.payload, hits)
@@ -165,12 +187,43 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
       },
     }),
   }
+  const rekeyFileBody = (args) => {
+    const noAuthority = { data: null, error: { code: '42501', message: 'file not found or not writable' } }
+    const row = (tables.files || []).find(r => r.id === args.p_file)
+    if (!row || row.deleted_at || hidden.has(row.id)) {
+      log.push(['rekey-refused', 'files', [args.p_file], {}, { ...args }])
+      return noAuthority
+    }
+    if (row.storage_path !== args.p_from_path || row.thumbnail_url !== args.p_from_thumb) {
+      log.push(['rekey-missed', 'files', [row.id], {}, { ...args }])
+      return { data: false, error: null }
+    }
+    const pathChanges = args.p_to_path !== row.storage_path
+    const hasBody = row.storage_provider !== 'supabase' || objects['rabbit-files']?.has(args.p_to_path)
+    const pictureOk = args.p_to_thumb === row.thumbnail_url || args.p_to_thumb === null || args.p_to_thumb === `${args.p_to_path}.jpg`
+    if ((pathChanges && (!fileKeyShapeOk(args.p_to_path) || !hasBody)) || !pictureOk) {
+      log.push(['rekey-refused', 'files', [row.id], {}, { ...args }])
+      return noAuthority
+    }
+    const changed = {}
+    if (pathChanges) changed.storage_path = args.p_to_path
+    if (args.p_to_thumb !== row.thumbnail_url) changed.thumbnail_url = args.p_to_thumb
+    const refused = failUpdate('files', changed, [row])
+    if (refused === 'filtered') {
+      log.push(['rekey-missed', 'files', [row.id], changed, { ...args }])
+      return { data: false, error: null }
+    }
+    const committed = !refused || String(refused).startsWith('committed:')
+    if (committed) Object.assign(row, changed)
+    log.push([refused ? 'rekey-refused' : 'rekey', 'files', [row.id], changed, { ...args }])
+    return refused ? { data: null, error: { message: String(refused).replace(/^committed:/, '') } } : { data: true, error: null }
+  }
   return {
     log, tables, objects,
     auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
     from: table,
     storage,
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (fn, args) => (fn === 'rekey_file_body' ? rekeyFileBody(args) : { data: null, error: null }),
   }
 }
 
@@ -206,6 +259,11 @@ function fixture() {
   return { tables, objects }
 }
 
+const OLD = {
+  plate: `projects/${PID}/shots/sh1/1-plate.exr`,
+  plateThumb: `projects/${PID}/shots/sh1/1-plate.exr.jpg`,
+  board: `projects/${PID}/shots/sh2/1-board.png`,
+}
 const NEW = {
   plate: `projects/${PID}/scenes/sc1/sh1/1-plate.exr`,
   plateThumb: `projects/${PID}/scenes/sc1/sh1/1-plate.exr.jpg`,
@@ -268,10 +326,10 @@ describe('refileShotFolders: the happy path and its order', () => {
     const log = client.log
     const moveBody = indexOf(log, e => e[0] === 'move' && e[1] === 'rabbit-files' && e[3] === NEW.plate)
     const seeBody = indexOf(log, e => e[0] === 'list' && e[1] === 'rabbit-files' && e[2] === `projects/${PID}/scenes/sc1/sh1` && e[3] === '1-plate.exr' && log.indexOf(e) > moveBody)
-    const rowBody = indexOf(log, e => e[0] === 'update' && e[1] === 'files' && e[2].includes('f1') && e[3].storage_path === NEW.plate)
+    const rowBody = indexOf(log, e => e[0] === 'rekey' && e[2].includes('f1') && e[3].storage_path === NEW.plate)
     const moveThumb = indexOf(log, e => e[0] === 'move' && e[1] === 'rabbit-thumbnails')
     const seeThumb = indexOf(log, e => e[0] === 'list' && e[1] === 'rabbit-thumbnails' && e[3] === '1-plate.exr.jpg' && log.indexOf(e) > moveThumb)
-    const rowThumb = indexOf(log, e => e[0] === 'update' && e[1] === 'files' && e[2].includes('f1') && e[3].thumbnail_url === NEW.plateThumb)
+    const rowThumb = indexOf(log, e => e[0] === 'rekey' && e[2].includes('f1') && e[3].thumbnail_url === NEW.plateThumb)
     const folderUpdate = indexOf(log, e => e[0] === 'update' && e[1] === 'folders' && e[2].includes('f-sh1'))
     const categoryDelete = indexOf(log, e => e[0] === 'delete' && e[1] === 'folders' && e[2].includes('c-shots'))
     for (const i of [moveBody, seeBody, rowBody, moveThumb, seeThumb, rowThumb, folderUpdate, categoryDelete]) expect(i).toBeGreaterThanOrEqual(0)
@@ -284,9 +342,17 @@ describe('refileShotFolders: the happy path and its order', () => {
     expect(folderUpdate).toBeLessThan(categoryDelete)
     // The body's row is never written with the thumbnail's key, nor the
     // other way round: one column per update, each after its own object.
-    expect(log.filter(e => e[0] === 'update' && e[1] === 'files').map(e => [e[2][0], Object.keys(e[3]).join()])).toEqual([
+    expect(log.filter(e => e[0] === 'rekey').map(e => [e[2][0], Object.keys(e[3]).join()])).toEqual([
       ['f3', 'storage_path'], ['f1', 'storage_path'], ['f1', 'thumbnail_url'],
     ])
+    // MO1 (0114): through rekey_file_body, the guard's one door. The body's
+    // phase keeps the picture; the picture's phase keeps the path, which by then
+    // is the NEW one: the row read at the start says the old key.
+    expect(log.filter(e => e[0] === 'rekey' && e[2].includes('f1')).map(e => e[4])).toEqual([
+      { p_file: 'f1', p_from_path: OLD.plate, p_to_path: NEW.plate, p_from_thumb: OLD.plateThumb, p_to_thumb: OLD.plateThumb, p_financial: false },
+      { p_file: 'f1', p_from_path: NEW.plate, p_to_path: NEW.plate, p_from_thumb: OLD.plateThumb, p_to_thumb: NEW.plateThumb, p_financial: false },
+    ])
+    expect(log.some(e => e[0] === 'guard-refused' || e[0] === 'rekey-refused' || e[0] === 'rekey-missed')).toBe(false)
     // Nothing of the shot moved before the shot was checked whole: the
     // door's PICTURE was looked for at its new key before the door's BODY
     // moved (the pre-flight; the move's own look comes after).
@@ -302,7 +368,7 @@ describe('refileShotFolders: the happy path and its order', () => {
     client.log.length = 0
     const again = await run(client)
     expect(again).toEqual({ moved: [], left: [], removedShotsCategory: false })
-    expect(client.log.filter(e => e[0] === 'move' || e[0] === 'update' || e[0] === 'delete')).toEqual([])
+    expect(client.log.filter(e => e[0] === 'move' || e[0] === 'update' || e[0].startsWith('rekey') || e[0] === 'delete')).toEqual([])
   })
 
   it('keeps SHOTS while a shot with no scene still has a folder under it', async () => {
@@ -341,7 +407,7 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(res.left[0].reason).toContain('did not arrive')
     expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(`projects/${PID}/shots/sh2/1-board.png`)
     expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
-    expect(client.log.some(e => e[0] === 'update' && e[1] === 'files' && e[2].includes('f3'))).toBe(false)
+    expect(client.log.some(e => e[0].startsWith('rekey') && e[2].includes('f3'))).toBe(false)
     expect(res.removedShotsCategory).toBe(false)
   })
 
@@ -386,6 +452,9 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(again.moved.map(m => [m.name, m.files])).toEqual([['The-Door', 1]])
     expect([f1.storage_path, f1.thumbnail_url]).toEqual([NEW.plate, NEW.plateThumb])
     expect(client.log.filter(e => e[0] === 'move').map(e => e[1])).toEqual(['rabbit-thumbnails'])
+    expect(client.log.filter(e => e[0] === 'rekey').map(e => e[4])).toEqual([
+      { p_file: 'f1', p_from_path: NEW.plate, p_to_path: NEW.plate, p_from_thumb: OLD.plateThumb, p_to_thumb: NEW.plateThumb, p_financial: false },
+    ])
     expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dawn/The-Door')
   })
 
@@ -397,6 +466,7 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(res.left).toEqual([])
     const f1 = tables.files.find(f => f.id === 'f1')
     expect([f1.storage_path, f1.thumbnail_url]).toEqual([NEW.plate, null])
+    expect(client.log.filter(e => e[0] === 'rekey' && e[2].includes('f1')).pop()[4]).toEqual({ p_file: 'f1', p_from_path: NEW.plate, p_to_path: NEW.plate, p_from_thumb: OLD.plateThumb, p_to_thumb: null, p_financial: false })
     expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dawn/The-Door')
   })
 
@@ -410,6 +480,8 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(res.moved.find(m => m.name === 'The-Cold-Lamp').files).toBe(1)
     expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
     expect(client.log.some(e => e[0] === 'move' && e[3] === NEW.board)).toBe(false)
+    // No picture: nulls, sent. PostgREST finds a function by the names it is given.
+    expect(client.log.find(e => e[0] === 'rekey' && e[2].includes('f3'))[4]).toEqual({ p_file: 'f3', p_from_path: OLD.board, p_to_path: NEW.board, p_from_thumb: null, p_to_thumb: null, p_financial: false })
   })
 
   it('an object at BOTH keys is left alone (nothing is ever overwritten or deleted), and its shot with it — found BEFORE any object of the shot moves', async () => {
@@ -470,23 +542,76 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(client.log.filter(e => e[0] === 'move' && e[3].endsWith('1-board.png'))).toHaveLength(1)
   })
 
-  it('an update that reaches NO ROW (the row trashed meanwhile is invisible to it, and to the read after) puts the object back and leaves the shot with the reason', async () => {
+  it('a row trashed meanwhile: rekey_file_body refuses it (42501, one answer for every failure of authority), the read after does not see it either, the object goes back and the shot is left with the reason', async () => {
     const { tables, objects } = fixture()
     const hidden = new Set()
     const client = makeClient({
       tables, objects, hidden,
-      failUpdate: (name, patch) => (name === 'files' && patch.storage_path === NEW.board ? 'filtered' : null),
-      // Trashed the moment its body has moved: the update reaches no row,
-      // and the row read again is not there either (`!now`).
+      // Trashed the moment its body has moved: the call is refused, and the
+      // row read again is not there either (`!now`).
       onMove: (bucket, from) => { if (from.endsWith('1-board.png')) hidden.add('f3') },
     })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
-    expect(res.left[0].reason).toContain('not visible to this account')
-    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh2/1-board.png`)).toBe(true)
+    expect(res.left[0].reason).toContain('could not be re-filed: file not found or not writable')
+    expect(objects['rabbit-files'].has(OLD.board)).toBe(true)
     expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
-    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(`projects/${PID}/shots/sh2/1-board.png`)
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(OLD.board)
     expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+  })
+
+  it('a false answer reads the row again: still its old key, so the object goes back and the shot is left with the reason (0114, the old no-row branch)', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects, failUpdate: (name, patch) => (name === 'files' && patch.storage_path === NEW.board ? 'filtered' : null) })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
+    expect(res.left[0].reason).toContain('could not be re-filed: its record was changed by someone else meanwhile')
+    expect(objects['rabbit-files'].has(OLD.board)).toBe(true)
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(OLD.board)
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+    expect(client.log.some(e => e[0] === 'rekey-missed' && e[2].includes('f3'))).toBe(true)
+  })
+
+  it('a false answer with the row already at the new key (another tab\'s run): left as it stands and counted done, nothing moved back', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({
+      tables, objects,
+      onMove: (bucket, from) => { if (from === OLD.board) tables.files.find(f => f.id === 'f3').storage_path = NEW.board },
+    })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.moved.find(m => m.name === 'The-Cold-Lamp').files).toBe(1)
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+    expect(client.log.filter(e => e[0] === 'move' && e[3] === OLD.board)).toEqual([])
+  })
+
+  it('a false answer with the row at a third key is left to whoever changed it: the object stays and the shot is left with the reason', async () => {
+    const { tables, objects } = fixture()
+    const elsewhere = `projects/${PID}/shots/sh2/2-board-replaced.png`
+    const client = makeClient({
+      tables, objects,
+      onMove: (bucket, from) => { if (from === OLD.board) tables.files.find(f => f.id === 'f3').storage_path = elsewhere },
+    })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
+    expect(res.left[0].reason).toContain('could not be re-filed: its record was changed by someone else meanwhile')
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+    expect(client.log.filter(e => e[0] === 'move' && e[3] === OLD.board)).toEqual([])
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(elsewhere)
+  })
+
+  it('the picture\'s phase goes the same way: a false answer puts the picture back and says so, and the body stays where its row says', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects, failUpdate: (name, patch) => (name === 'files' && patch.thumbnail_url === NEW.plateThumb ? 'filtered' : null) })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.left[0].reason).toContain('could not be re-filed: its record was changed by someone else meanwhile')
+    expect(objects['rabbit-thumbnails'].has(OLD.plateThumb)).toBe(true)
+    expect(objects['rabbit-thumbnails'].has(NEW.plateThumb)).toBe(false)
+    expect(objects['rabbit-files'].has(NEW.plate)).toBe(true)
+    const f1 = tables.files.find(f => f.id === 'f1')
+    expect([f1.storage_path, f1.thumbnail_url]).toEqual([NEW.plate, OLD.plateThumb])
   })
 
   it('an update refused and a read that fails too: nothing is known, so nothing is moved back — the object stays at its new key, the shot says "run it again", and the next run counts it landed (round 2, item 4)', async () => {
@@ -787,5 +912,28 @@ describe('uploadFile keys a shot\'s object (S4c)', () => {
     // CONTROL: a scene's own file is untouched by any of this.
     const scene = await a.uploadFile(PID, { sceneId: 'sc1' }, txt())
     expect(scene.storage_path).toMatch(new RegExp(`^projects/${PID}/scenes/sc1/\\d+-notes\\.txt$`))
+  })
+
+  it('MO1 (0114): every key it can make meets file_key_shape_ok, whatever the scope and whatever the file is called', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects })
+    // This database locks LEGAL, and this person passes the gates.
+    client.rpc = async (fn) => ({ data: ['rabbit_money_segment', 'can_access_project_legal', 'can_access_project_money'].includes(fn) ? true : null, error: null })
+    globalThis.__testSupabase = client
+    const a = supabaseAdapter()
+    const scopes = [
+      {}, { sceneId: 'sc1' }, { shotId: 'sh1' }, { shotId: 'sh3' }, { levelId: 'l1' }, { experienceId: 'e1' }, { assetId: 'a1' }, { taskId: 't1' }, { phaseId: 'ph1' },
+      { financial: true }, { financial: true, lineId: 'b7e9a1c2-0000-4000-8000-000000000001' }, { legal: true }, { legal: true, assetId: 'a1' },
+    ]
+    const names = ['notes.txt', 'my r\u00e9port (final) 100%.pdf', '\u65e5\u672c\u8a9e.mov', '...', '..', '.', 'a b/c\\d.png', '#&$@!.jpg', '']
+    const keys = []
+    for (const scope of scopes) {
+      for (const name of names) {
+        const row = await a.uploadFile(PID, scope, new File(['x'], name, { type: 'text/plain' }))
+        keys.push(row.storage_path)
+      }
+    }
+    expect(keys).toHaveLength(scopes.length * names.length)
+    expect(keys.filter(k => !fileKeyShapeOk(k))).toEqual([])
   })
 })

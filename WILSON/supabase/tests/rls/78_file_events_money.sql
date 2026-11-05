@@ -154,6 +154,21 @@ SELECT ok(
 
 -- ══ 3. Capture, as a workspace admin (money access to CREATE the invoice) ═══
 
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/c2/1-brief.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c2/1-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+-- Flagged false on the row, filed under FINANCE/: the PATH arm of the one
+-- definition, and the shape 0042's storage gate protects by key alone. Such a row
+-- stays in the world, and 0114's guard lets no client make a new one (FINANCE is
+-- not on its list), so the runner seeds it; the capture trigger reads it the same.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
+VALUES
+  ('aaaa1111-0000-0000-0000-000000007803', 'aaaa1111-0000-0000-0000-000000000001',
+   'rates-note.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/1-rates-note.pdf', 512, false);
+
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
   'app_metadata', jsonb_build_object(
@@ -168,12 +183,7 @@ VALUES
    'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/c2/1-brief.pdf', 2048, false),
   ('aaaa1111-0000-0000-0000-000000007802', 'aaaa1111-0000-0000-0000-000000000001',
    'invoice.pdf', 'supabase',
-   'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-invoice.pdf', 1024, true),
-  -- Flagged false on the row, filed under FINANCE/: the PATH arm of the one
-  -- definition, and the shape 0042's storage gate protects by key alone.
-  ('aaaa1111-0000-0000-0000-000000007803', 'aaaa1111-0000-0000-0000-000000000001',
-   'rates-note.pdf', 'supabase',
-   'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/1-rates-note.pdf', 512, false);
+   'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c2/1-invoice.pdf', 1024, true);
 
 SELECT is(
   (SELECT is_financial FROM public.file_events
@@ -191,9 +201,13 @@ SELECT is(
   true, 'a row flagged false but filed under FINANCE/ is financial by its key');
                                                                             -- 9
 
+-- MO1 (0114): a client no longer patches a stored key, so the runner makes the change
+-- the capture trigger is pinned on (suite 115 pins the client's refusal).
+RESET ROLE;
 UPDATE public.files
-   SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/2-invoice.pdf'
+   SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c2/2-invoice.pdf'
  WHERE id = 'aaaa1111-0000-0000-0000-000000007802';
+SET LOCAL ROLE authenticated;
 
 SELECT is(
   (SELECT is_financial FROM public.file_events
