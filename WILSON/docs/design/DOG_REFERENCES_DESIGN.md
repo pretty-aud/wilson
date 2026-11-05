@@ -169,7 +169,8 @@ round 1, removes the chosen references only. The rest of this section stands.
   *"· 2 PDFs not counted until read"*. Past 100% the bar turns amber and the
   line reads *"Past what D.O.G. can read for one deck: generating may be slow,
   cost more, or fail."*; Generate stays enabled (R10). The hover says it is an
-  estimate, in tokens. A PDF over 100 pages says so on its row.
+  estimate, in tokens. A PDF over 100 pages says so on its row. (DG7,
+  2026-11-05: the limit, the page figure, the words and the cap changed; §18.)
 - **Add references** opens the window. With no project chosen the card says
   *"Choose a project to reference its items and files. Your notes can be
   referenced without one."* and the button still opens the window on Notes (R7).
@@ -694,3 +695,29 @@ the notice's Undo and Dismiss the same focus rule, cleared the refusal when a
 generation starts (as the banner was), and made a repeated refusal a new alert. What one generation reads and sends (§4), the meter's
 figures, the AI store's let-go and the Enter rule are unchanged: the state and
 handlers stay in D.O.G. Walkthrough 80.
+
+## 18. DG7: the card and the meter's limit (2026-11-05)
+
+**The card.** Her ask, verbatim: *"lets have references and the uploads be side by
+side in the card. this makes the card shorter and fills in the negative space a
+bit. when doing this, the uploads and references selected/uploaded files should
+show up on the list together showing what its reading."* References and Uploads are
+two columns holding their controls; one list under both holds every chosen
+reference (items, files, notes) and then every upload, with the contract line and
+the meter, under the title *The deck reads* (not hers; walkthrough 94 Q1). The group
+labels Items, Files and Notes are gone (§2.2's; a file, a note and an upload say
+their kind in a hidden word). This supersedes §17's *First, above the chosen items*
+as DG6's follow-up had; an upload's tile is still the row she chose there.
+
+**The meter's limit.** Her words: *"I added a 110 page script of a movie and it read
+it fine and the limit bar said we were more than 100% of what DOG can read."* Her
+answer: *"Fix it in the D.O.G. session (Recommended)"*. §2.2's 200,000 was DG1's
+figure, set under the 232,275-token deck that had worked; it stays only for a model
+with no recorded limit. The ceiling is now the input limit of the model `dog.fullDeck`
+resolves to, from the provider's documentation (`src/lib/aiModels.js`,
+`MODEL_INPUT_LIMITS`), less the 16,384 the request reserves: 983,616 on Sonnet 5. A PDF
+page counts 3,000, the top of the provider's documented text range and about 1.4
+times the 2,100 measured from staging's log; it can read low on dense or picture-heavy
+pages (OUTSTANDING DG7-01), and the sentence now says *(an estimate)* and, past the
+limit, the number. Item 18's page cap is the provider's 600 a request, 100 under a 1M
+window, and it shows on an upload's tile too. Q8 stands: it warns and never blocks.
