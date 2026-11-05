@@ -227,6 +227,10 @@ open list).
 | 2 | Generate, then read that generation's row in the usage log | The real count, lower than the bar's |
 | 3 | Switch to Single page and type a page request | The bar's words or its hover move; back on Full deck they do not count |
 
+Pictures, in the same folder, at 1280 × 800 and 1440 × 900:
+`po-dg7-meter-after-110-pages-…` and `po-dg7-meter-after-past-the-limit-…` (made-up
+PDFs of 110 and 700 pages).
+
 ### How it was checked
 
 Tests with 33 deliberate breakages, each red (the limit, the reserve, the page
