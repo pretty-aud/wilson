@@ -32,18 +32,20 @@ up on the list together showing what its reading."*
    under its buttons, keeping their words: *Source material for generating slide
    content (max 20 files)* is under Choose file now, and *Choose a project to
    reference its items and files…* under Add references. Two exceptions: the
-   line *N references removed. Undo Dismiss* comes first while it shows, so Add
-   references sits under it for that moment (the review found that, placed after
-   the buttons, reaching Undo meant passing the Core files only box, where Enter
-   can start a deck); and when the columns stack the two buttons are not side by
-   side at all.
+   line *N references removed. Undo Dismiss*, and the line a project change leaves,
+   come first while they show, so Add references sits lower (about 35 to 81 px)
+   until you press Undo or Dismiss (the review found that, placed after the
+   buttons, reaching Undo meant passing the Core files only box, where Enter can
+   start a deck); and when the columns stack the two buttons are not side by side
+   at all.
 6. **The buttons in References are a little closer** (8 px apart, the same as the
    project's dropdown and New project; they were 16). At 16 *Remove all
    references* missed fitting at 1280 by 4 px and took a line of its own.
 7. **Help's step 1** gives the card's new order, in the same words.
 
-Nothing else in D.O.G. changed: card 2 and the generated output are where they
-were, to the pixel (the slide preview's own check passes).
+Nothing else in D.O.G. changed: card 2 and the generated output keep their size
+and their left edge, and sit higher because card 1 is shorter (the slide
+preview's own check passes).
 
 **Tab now goes:** card 1's header, *Choose a project*, New project, (Undo and
 Dismiss while that line shows), Add references, Core files only, Remove all
@@ -55,8 +57,9 @@ the page, where the next Enter would start a deck.
 
 ### What it measured
 
-Chromium, the fixtures, real scrollbars and hidden ones (the same numbers).
-"Six and two" is six references and two uploads listed.
+In the browser, on the made-up project, with scrollbars showing and hidden (the
+same numbers), the pages column at its usual width. "Six and two" is six
+references and two uploads listed.
 
 **Card 1's height, before → now, in px:**
 
@@ -67,12 +70,12 @@ Chromium, the fixtures, real scrollbars and hidden ones (the same numbers).
 | 1920 × 1080 | 528 → 427 | 470 → 402 | 709 → 514 | 34 → 34 |
 | 2560 × 1440 | 528 → 427 | 470 → 402 | 709 → 482 | 34 → 34 |
 
-**One place it is taller:** where the two columns stack, on a window under 1,148
-px, with little listed: 20 to 36 px more (at 760 and 860 wide, 580 → 600 and
-528 → 548 with nothing chosen, with six and two still 67 px shorter). The new
-title and its gap are the reason, so *no title* in Q1 would take it back. Your
-laptop and monitor do not reach this; WILSON's window can, as it goes down to
-1,024 wide.
+**One place it is taller:** where the two columns stack, with little listed: 20
+to 36 px more (at 760 and 860 wide, 580 → 600 and 528 → 548 with nothing chosen,
+with six and two still 67 px shorter). The new title and its gap are the reason,
+so *no title* in Q1 would take it back. They stack on a window under 1,148 px
+(WILSON's window goes down to 1,024), or sooner if you widen the pages column: at
+1280 with that column at its widest the card is 774 px and they stack.
 
 **Generate outline's button, as D.O.G. opens and with six and two:**
 
@@ -89,15 +92,16 @@ chosen:** 68 → 17 percent at 1280, 72 → 21 at 1440, 80 → 44 at 1920, 86 �
 percent at 1920, 48 at 2560 (Q2).
 
 **Each sentence's lines:** at 1280, *Choose a project to reference…* takes 2 and
-every other sentence 1; from 1440 all take 1. **Add references, Core files only
+the other sentences 1 each; from 1440 all take 1. (The made-up project's own
+description takes 2 at every width, as it did.) **Add references, Core files only
 and Remove all references stay on one line at 1280** (they need 470 px of the
 column's 482; under a window of about 1,256 px Remove all takes its own line).
 Nothing scrolls sideways at 760, 860, 1280, 1440, 1920, 2560 or 3440.
 
 ### What to do
 
-On the beta after the merge, or the development copy (`session-b`). Resize the
-window, or use your laptop and your wide monitor.
+On the beta after the merge, or the development copy. Resize the window, or use
+your laptop and your wide monitor.
 
 | # | Do | You should see |
 |---|---|---|
@@ -127,17 +131,20 @@ In *94_dog_card_1 pictures*, beside this file, at 1280 × 800, 1440 × 900,
   the last run.
 - D.O.G.'s tests rewritten for the new order, and new ones for what the old
   layout could not break (the last upload's × with a reference listed, a middle
-  tile, the 20th upload from the keyboard). 44 deliberate breakages of the layout
+  tile, the 20th upload from the keyboard). 43 deliberate breakages of the layout
   and the keyboard rules each turned a test red.
-- Two reviews on Opus. The first found three things worth fixing on this card: the
-  Undo line (item 5 above), a hidden word that sat outside its tile and could
-  scroll the whole page out of place for a screen reader, and a long project name
-  in that line running past its column. All fixed. The second review's findings
-  are in the hand-off.
-- Recorded for you, not changed (OUTSTANDING DG6-02): the line *What goes to the
-  AI…* has its title now if you keep it; Project still shows three lines of words
-  before its dropdown; References still has no sentence under its title (and now
-  neither has Uploads, by design: both open with their button).
+- Two reviews. The first found three things worth fixing on this card: the Undo
+  line (item 5 above), a hidden word that sat outside its tile and could scroll
+  the whole page out of place for a screen reader, and a long project name in that
+  line running past its column. All fixed. The second found that a medium-length
+  line left Dismiss alone on a line (fixed), more ways round the tests (closed),
+  and several numbers in these notes (corrected).
+- Recorded for you, not changed, on the project's open list: the line *What goes
+  to the AI…* has its title now if you keep it; Project still shows three lines of
+  words before its dropdown; References still has no sentence under its title (and
+  now neither has Uploads, by design: both open with their button). A quick double
+  click on Undo lands its second click on Add references, which moves up under the
+  pointer when the line goes, and opens that window; Escape closes it.
 
 ### Questions
 
@@ -166,6 +173,8 @@ but it was fine."* Asked what to do, you chose *"Fix it in the D.O.G. session
 (Recommended)"*. It only ever warned; it still only warns. Nothing in WILSON cuts
 or refuses a file for this number.
 
+*Tokens* below are the AI's unit for counting what it reads, roughly a word.
+
 **What it read for a 110-page text PDF:**
 
 | | Before | Now |
@@ -189,8 +198,8 @@ model WILSON has no record of keeps the old 200,000.
 tokens of text, and a picture of the page on top. Your decks measured about 2,100
 all in. 3,000 is cautious for a text PDF like a script. **It can read low** for a
 PDF of dense or picture-heavy pages, up to about 7,800 a page by the provider's
-numbers, which is why the bar now says *an estimate* (recorded: OUTSTANDING
-DG7-01).
+numbers, which is why the bar now says *an estimate* (recorded on the project's
+open list).
 
 **Its words now:**
 
@@ -207,7 +216,7 @@ DG7-01).
   warning a chosen file's tile shows (it never did).
 - **It counts what the chosen mode sends.** A page request typed for Single page no
   longer counts in Full deck, and each mode's own fixed instructions now do (about
-  4,700 tokens for a full deck, about 3,300 for a page). So D.O.G. opening with
+  4,700 tokens for a full deck, about 3,400 for a page). So D.O.G. opening with
   nothing chosen is still *Less than 1%*.
 
 ### What to do
@@ -215,23 +224,25 @@ DG7-01).
 | # | Do | You should see |
 |---|---|---|
 | 1 | Upload your 110-page script | The bar about a third of the way, *About 34%… (an estimate)*; hover it for the tokens; no warning on the tile |
-| 2 | Generate, then read **WIL-6001** in the usage log | The real count, lower than the bar's |
+| 2 | Generate, then read that generation's row in the usage log | The real count, lower than the bar's |
 | 3 | Switch to Single page and type a page request | The bar's words or its hover move; back on Full deck they do not count |
 
 ### How it was checked
 
-Tests with 39 deliberate breakages, each red (the limit, the reserve, the page
+Tests with 33 deliberate breakages, each red (the limit, the reserve, the page
 figure, the words, the header, the page cap, the warning on an upload, the count by
 mode, the figures in the list). Each model's figure was read again from the
 documentation by a reviewer and a checker. No AI call was made, and neither the
 server's AI function nor its list of models was touched.
 
-**Recorded, not changed** (OUTSTANDING DG7-01 to DG7-06): the page cap counts a
-whole request, so two 400-page PDFs warn nowhere; the 32 MB PDF warning looks out
-of date too (the provider says 128 MB for a request); plain text is counted at 4
-characters a token where the provider's newer ratio is 2.5, so a very long text
-file can read low; in Single page the bar still measures against the full deck's
-model; a deck near the very top of the limit could stop short with no message.
+**Recorded, not changed**, on the project's open list: the page cap counts a whole
+request, so two 400-page PDFs warn nowhere; the 32 MB PDF warning looks out of date
+too (the provider says 128 MB for a request); plain text is counted at 4 characters
+a token where the provider's newer ratio is 2.5, so a very long text file can read
+low; in Single page the bar still measures against the full deck's model; a deck
+near the very top of the limit could stop short with no message; and a request
+truly past the model's limit shows D.O.G.'s general *Error generating full deck
+outline. Please try again.*, not the reason.
 
 ### Question
 

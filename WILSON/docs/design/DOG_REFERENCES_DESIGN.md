@@ -331,11 +331,11 @@ rules and the house's four characters to a token:
 | Source | Estimate |
 |---|---|
 | Words (items, notes, text files, the deck text, the project text) | characters ÷ 4 |
-| PDF | pages × 4,500 (1,500 to 3,000 text tokens a page plus the page as a picture), the pages read from the body's page tree, or from inside its compressed object streams; not counted, and said, until the body is in hand |
+| PDF | pages × 4,500, 3,000 since DG7 (§18) (1,500 to 3,000 text tokens a page plus the page as a picture), the pages read from the body's page tree, or from inside its compressed object streams; not counted, and said, until the body is in hand |
 | Picture | 4,000 each (the newest models cap a picture at 4,784) |
 | Video | 0 (never sent) |
 
-The limit is **200,000**, under the 232,275 of the real deck that worked, leaving
+The limit is **200,000** (until DG7, §18: the model's own), under the 232,275 of the real deck that worked, leaving
 room for the system prompt, the format and the pages already made. The bar shows
 the estimate against it; past it, amber and the warning, never a block.
 
@@ -456,7 +456,7 @@ their own modules and the component changes as little as it can.
 3. Changing project drops the old project's items and files from the list and
    keeps the notes, with a one-line notice, no dialog.
 4. A task's bid and logged days are not sent.
-5. The limit is 200,000 estimated tokens.
+5. The limit is 200,000 estimated tokens (until DG7, §18: the model's own).
 6. A reference that becomes unreadable stays in the list, greyed, until removed.
 7. Quick choices only tick; they never untick.
 8. An item sends more than the four fields her Q1 and Q3 options named (name,
@@ -489,7 +489,7 @@ their own modules and the component changes as little as it can.
     Function change; `OUTSTANDING.md`).
 17. **Remove all**, with one **Undo** in the notice; at most 200 rows drawn per
     list, then *"type in the search to narrow"*.
-18. The AI's per-file caps are said on each file's row (a PDF over 100 pages or
+18. The AI's per-file caps are said on each file's row (a PDF over 100 pages, 600 since DG7, §18, or
     32 MB, a picture over 10 MB): warnings, never blocks, as Q8.
 
 ---

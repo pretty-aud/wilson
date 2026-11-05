@@ -1340,7 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul DG7 (2026-11-05; `po/dg7-refs-uploads-side-by-side` into `feat/post-overhaul-edit-versioning`) — her ask, verbatim *"lets have references and the uploads be side by side in the card. this makes the card shorter and fills in the negative space a bit. when doing this, the uploads and references selected/uploaded files should show up on the list together showing what its reading."*, and on the limit bar *"Fix it in the D.O.G. session (Recommended)"*: card 1's References and Uploads two columns (416px to the 576px measure, 24 apart, no query), the first controls on one line, one list of every tile with the contract line and the meter under *The deck reads* (the brief's words, her Q1); `focusAfterRemove` by a tile's kind; card 1 68 to 227px shorter at 1280 to 2560 in every state but folded, 20 to 36 taller only where the columns stack with little listed (DG7-07); the meter: the model's input limit in the registry from the provider's documentation (Sonnet 5, 1,000,000, less the 16,384 reserved), a PDF page at 3,000, *(an estimate)* in its words and the number past the limit, the page cap 600 or 100 by the model and on an upload's tile, the count by mode; a 110-page text PDF 248 percent → 34; Help's step 1 in the card's order; two review rounds on Opus; 83 plants each red; no migration, no SQL, no Edge Function | DG7-01 to DG7-08 | DG6-03, MTR-01, MTR-02, MTR-03. Comment markers: 4 → 4. |
+| Post-overhaul DG7 (2026-11-05; `po/dg7-refs-uploads-side-by-side` into `feat/post-overhaul-edit-versioning`) — her ask, verbatim *"lets have references and the uploads be side by side in the card. this makes the card shorter and fills in the negative space a bit. when doing this, the uploads and references selected/uploaded files should show up on the list together showing what its reading."*, and on the limit bar *"Fix it in the D.O.G. session (Recommended)"*: card 1's References and Uploads two columns (416px to the 576px measure, 24 apart, no query), the first controls on one line, one list of every tile with the contract line and the meter under *The deck reads* (the brief's words, her Q1); `focusAfterRemove` by a tile's kind; card 1 40 to 227px shorter at 1280 to 2560 in every state measured but folded (34, unchanged), 20 to 36 taller only where the columns stack with little listed (DG7-07); the meter: the model's input limit in the registry from the provider's documentation (Sonnet 5, 1,000,000, less the 16,384 reserved), a PDF page at 3,000, *(an estimate)* in its words and the number past the limit, the page cap 600 or 100 by the model and on an upload's tile, the count by mode; a 110-page text PDF 248 percent → 34; Help's step 1 in the card's order; two review rounds on Opus; 76 plants each red; no migration, no SQL, no Edge Function | DG7-01 to DG7-08 | DG6-03, MTR-01, MTR-02, MTR-03. Comment markers: 4 → 4. |
 | Post-overhaul SB1 (2026-11-01, night 10; `po/sb1-resizable-sidebars` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim *"this divider line from the courses sidebar and the overall otter window should be expanding by grabbing and putting the line to the desired width of the courses sidebar. lets do the same with the sidebar in the dog tool"*: one handle on the kit Panel (`resizable`, `storageKey`, `minWidth`, `maxWidth`, `minBeside`): an 8px strip over the 1px hairline (24 for a finger) that takes no layout width, the line as drawn at rest and a 2px band of the signal on hover, a drag and focus, `role="separator"` with its values, the arrows ±8 and ±40, Home and End, a double-click back to the token, Escape abandoning a drag, the width remembered per device only while it differs from the token and drawn narrower where the row cannot hold it; O.T.T.E.R.'s courses 180 to 480 with 720 kept beside (304 at 1024), D.O.G.'s pages 160 to 480 with 560 kept (464 at 1024); the collapse, its rail and Ctrl/Cmd+\ unchanged, a reopened column at its width; measured at 1280, 1440, 1920 and 2560 (and 1024) before and after, the line and the column beside pixel-identical at rest; C4's preview pin passes at the default; 55 new tests, 50 red on the source before, 112 plants each killed; one design round and two review rounds on Opus (round 1's corrections: the band not drawn in forced colours, a press that changes nothing writes nothing, a window narrowed mid-drag holds the drag, a finger's 8px slop; round 2's: a moved drag owns the width while it lives, the forced-colours ring and the memory's clearing pinned, the Panel measured against its own row in both tools) (Fable's allowance spent until 2026-11-04); no migration, no SQL | SB1-01 to SB1-04 (the design round's three WCAG items: no single-pointer way to set a width, an 8px strip for a mouse, the hairline's 1.48:1 at rest; and the pet over the lesson's *Next* when the courses column is wide at 1280) | nothing |
 | AT1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`; `po/at1-admin-terminal-fit` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim in the brief (*"make it wider there is a lot empty space to the sides … the member details should fit and static not able to scroll … the pop up card asking to confirm should be in the center of the overall admin terminal not inside of the column"*): measured first at four sizes (margins 24/100/340/660; the panel 678 px of real content in 512 and 34 px sideways; every confirm 239 wide in the panel, the panel resting at `translateX(0)`, its transform the containing block); one design round on Opus (design-direction, laws-of-ux); the page edge to edge (the registry entry takes no measure), the panel 560 in two columns, no scroll from 1280x720, a compact roster beside it under 860, the confirms beside the panel and the panel at `transform: none`; no kit change; review round 1 on Opus (1 High, measured: one Escape closed the confirm and the panel, older than AT1, fixed; 1 Medium; 3 Low; 4 Notes), round 2 on Opus (1 Medium, measured: from 1160 to ~1265 the roster's search ran under the status chips, round 1's breakpoint move having opened it; the search to 120 and 80, the two columns from 1220; 4 Low, the layout effect untested, three numbers; 3 Notes); 26 plants each red; no migration, no SQL | AT1-01 to AT1-08 | — . Comment markers: 4 → 4. |
 | Post-overhaul F2, a third follow-up (2026-10-31; `po/f2-money-rules` into `feat/post-overhaul-edit-versioning`) — her answer to walkthrough 91's F2 Q6, relayed by the controller: a question back (verbatim in the walkthrough), then *"Yes, F2 builds it next (Recommended)"*: a bid version keeps each expense's estimate, at each save and as they are when the budget goes active; the Expenses tab shows the selected bid's figure, what is expected now and what was spent, with *Expected vs bid* and *Actual vs expected*, a sentence naming the bid, and for a budget active from before, *Keep today's estimates as its bid*; the table on the kit's compact cells (1280 holds it); measured before and after in Chromium on the fixtures (Locked bid $20,960, Expected now $21,260, +$300); 12 tests red on `1a36d9ad`'s source, 32 plants each killed; review round 1 on Opus (1 High — the bid froze at the last save, not at the lock: the lock writes them now; 3 Medium; 3 Low), round 2 on Opus (1 Medium — the lock wrote the whole snapshot from this window's copy: only the expenses now, on the stored one, its undo leaving a later save; 5 Low); no migration, no SQL | F2-11, F2-12, F2-13 | F2-10 (closed by measurement). Comment markers: 4 → 4. |
@@ -4250,12 +4250,14 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   own file.** READ: the provider's limit is 600 pages or images a request. Two
   400-page PDFs warn nowhere, and the request can be refused. Fix shape: sum the
   listed pages and pictures, and say it beside the meter. Owner: as DG7-01.
-- **DG7-03 · `PDF_BYTE_LIMIT`'s 32 MB has no current source.** MEASURED: a 40 MB PDF's
-  tile reads *40 MB: the AI may refuse a PDF over 32 MB*, on an upload's too since
-  MTR-02; its comment cites the provider's PDF page, which gives 128 MB for a whole
-  request on the first-party API, and D.O.G. sends a PDF through the file store.
-  Fix shape: check against `ai-files`' own path, then correct or remove. Owner: as
-  DG7-01.
+- **DG7-03 · `PDF_BYTE_LIMIT`'s 32 MB has no current source, nor the picture cap's
+  10 MB this road.** MEASURED: a 40 MB PDF's tile reads *40 MB: the AI may refuse a PDF
+  over 32 MB*, on an upload's too since MTR-02; its comment cites the provider's PDF
+  page, which gives 128 MB for a whole request on the first-party API, and D.O.G. sends
+  a PDF through the file store. `IMAGE_BYTE_LIMIT` compares raw bytes where the vision
+  page's 10 MB is base64 (an 8 MB picture, 10.7 encoded, stays silent), and pictures go
+  through the file store too. Fix shape: check both against `ai-files`' own path, then
+  correct or remove. Owner: as DG7-01.
 - **DG7-04 · Text counts 4 characters a token; the provider's newer ratio is 2.5.**
   MEASURED: a 3,000,000-character upload reads 77 percent with no warning (754,711),
   about 1,200,000 by the documented 2.5M characters per 1M tokens on the current
@@ -4271,14 +4273,18 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   READ: `FULL_DECK_ANSWER_TOKENS` covers one call; up to three continuations each add
   up to 16,384, and `model_context_window_exceeded` appears nowhere in `src/`, so the
   loop's other branch ends and a short deck passes as complete. Reachable from about
-  97 percent. Fix shape: treat that stop as the truncation it is, and say so. Owner:
-  as DG7-01.
+  95 percent (the loop makes four calls: 1,000,000 less 4 x 16,384). READ: input truly
+  past the window is a 400, and the screen says only *Error generating full deck
+  outline. Please try again.* Fix shape: treat that stop as the truncation it is, and
+  say both. Owner: as DG7-01.
 - **DG7-07 · Card 1 is taller than before where its two columns stack.** MEASURED:
-  on windows under 1,148px (Electron's minimum is 1,024) with little listed: +19.6 with
-  nothing chosen, +27.6 with a project, +35.6 with a project and one upload, +23.6
-  with 20 uploads; with six references and two uploads 67px shorter. The new title
-  and its 8px gap are the cost: 27.6. At 1,148 and up every state is shorter. Would
-  settle it: her Q1 (no title). Owner: Audrey.
+  on windows under 1,148px (Electron's minimum is 1,024), or sooner with the pages
+  column widened (at 1280 with it at 480 the card is 774 and they stack, 547.5 with
+  nothing chosen), with little listed: +19.6 with nothing chosen, +27.6 with a project,
+  +35.6 with a project and one upload, +23.6 with 20 uploads; with six references and
+  two uploads 67px shorter. The new title and its 8px gap are the cost: 27.6. With the
+  columns side by side every state measured is shorter. Would settle it: her Q1 (no
+  title). Owner: Audrey.
 - **DG7-08 · Small things seen, older or taste, recorded.** READ, not measured:
   Preview's `disabled={gone}` should drop focus to `<body>` if a list lands while it
   holds focus, as Chromium did for the Core box (DG4). MEASURED: the kit's IconButton
@@ -4287,4 +4293,13 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   rounding. Past the limit the header drops *N PDFs not counted*, so its percent is a
   floor; `previewSubtitle` says *about N tokens*, not *an estimate*. After a model is
   changed the bar follows at its next render. READ: `coreLine`'s comment still says
-  the dropdown is *in the project column beside it*.
+  the dropdown is *in the project column beside it*. MEASURED by DG7's round 2: a
+  double click on Undo lands its second click on Add references, which moves up under
+  the pointer when the notice goes, and opens the window (no notice before DG7 sat
+  over Add references' new place). An uploaded PDF whose pages cannot be told says *1
+  PDF not counted until read*, though its body is read and it is never counted, and
+  its tile says nothing. A chosen video past 100 MB says both *placed only, not read*
+  and *too large to place in a slide*. A reference and an upload of one name both read
+  *Remove X* (Remove's name is kept by the brief; the hidden word is the tile's). An
+  upload's size reads *(103424.0 KB)* where MB would serve. What a source pin cannot
+  see: a rule by tag (`li { float: left }`), another sheet.

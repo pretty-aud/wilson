@@ -240,7 +240,7 @@ No automated test covers the two-factor path end to end: re-run the first three 
 ## §E. D.O.G. (25 min · walkthroughs 75, 76, 77, 80, 81, 84, 89, 94)
 
 - No project: card **1 Project and references** reads *None chosen* and *What goes to the AI: what is listed here, the project’s
-  title and description, and what you write in step 2.*; **References** and `Uploads (0)` side by side on a window of 1,148 px or wider,
+  title and description, and what you write in step 2.*; **References** and `Uploads (0)` side by side on a window of 1,148 px or wider (the pages column at its usual width),
   **Add references** and **Choose file** on one line, which Tab reaches in that order; **Core files only** off, *Core files come from a
   project: choose one.* `[BLOCKING]`
 - **Choose a project** → **Add references** (*From <project>, and your notes*) → an item, a file and a note → **Done** → listed in

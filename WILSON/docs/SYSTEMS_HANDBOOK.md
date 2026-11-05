@@ -3930,8 +3930,8 @@ other sheets, are the pictures' and the probe's to catch);
 headings, and the Tab order; `ReferencesCard.test.jsx` the part's order and
 `focusAfterRemove`. Walkthrough 90, its DG6 section, has the measurements
 before and after at 1280, 1440, 1920 and 2560 and her answers. DG7 (below)
-supersedes the order of References and Uploads, the shelves' 32px and the heights
-here; the rest stands.
+supersedes, in this paragraph, the order of References and Uploads, the shelves'
+32px, the heights, the empty shares, Generate's place and the Tab order.
 
 **Card 1's References and Uploads side by side, one list (post-overhaul DG7,
 2026-11-05; her ask verbatim in `docs/sessions/briefs/po-dg7-refs-uploads-side-by-side.md`,
@@ -3939,14 +3939,15 @@ in walkthrough 94 and in `dog.css`, CARD 1's SECTIONS).** Under Project,
 `.dog-refs-pair` is a wrapping flex row of the two sections (`flex: 1 1 416px;
 max-width: var(--dog-measure)`, 24px apart): 482px each at 1280, 562 at 1440, 576
 from a 1468 window with the Uploads column at x 600, where the project's description
-starts; under a 1,148 window they stack, 32px apart, from the row's own width and
-no query. **References** holds the notice, Add references with Core files only and
+starts; under a 1,148 window (the pages column at its 240; a wider column stacks
+them sooner: at 1280 with it at 480 the card is 774) they stack, 32px apart, from the
+row's own width and no query. **References** holds the notice, Add references with Core files only and
 Remove all references (8px apart, the project row's gap: at 16 the row needs 486px
 against 482 at 1280), the *Choose a project…* note and Core's sentence; **Uploads
 (n)** holds Choose file, its hidden input, its sentence and its error. So each title
 has its first control right under it, and the two sit on one line while side by side
-(a notice comes first while it shows, and Choose file goes at 20 uploads). The
-notice stays before the actions: after them, the Tab from Add references (where
+(a notice comes first until Undo or Dismiss, 35 to 81px; Choose file goes at 20
+uploads). The notice stays before the actions: after them, the Tab from Add references (where
 Remove all leaves focus) to Undo crossed Core files only, where Enter ticks or
 makes a deck (review round 1, MEASURED). Under the row, `.dog-sec-foot`, titled *The
 deck reads* (`h3#dog-refs-reads`, the brief's words, her Q1), is always drawn: one
@@ -3959,7 +3960,7 @@ an upload say their kind in an `sr-only` word before the name (a tile is
 frame, whose overflow grew and scrolled the whole column, review round 1, MEASURED).
 Tab: Project, Add references, Core files only, Remove all references, Choose file,
 then each tile's Preview and Remove. `focusAfterRemove` finds neighbours by
-`data-kind`; the 20th upload's effect reads the list. Card 1 is 427 to 464px tall
+`data-kind`; the 20th upload's effect reads the list. Card 1 is 402 to 464px tall
 with nothing listed and 608, 608, 514 and 482 with six references and two uploads at
 1280, 1440, 1920 and 2560 (it was 528 or 532 or 470, and 803, 803, 709 and 709);
 folded 34. Generate is wholly on screen at 1440x900 as D.O.G. opens. Where the columns
@@ -6856,7 +6857,8 @@ side by side)**
   picture-heavy page can cost up to 7,784 by the provider's numbers (DG7-01), a page cap
   counts a whole request (DG7-02), text counts 4 characters a token where the newer
   ratio is 2.5 (DG7-04). It warns and never blocks, so a request past the model's window
-  fails at the provider, with its own message.
+  fails at the provider, and D.O.G. shows its general *Error generating full deck
+  outline. Please try again.*
 - **The limit is a dated copy of the documentation.** WILSON's client holds no key for
   the provider's Models API, so a model newer than the list has no recorded limit and
   measures against 200,000, as before. In Single page the bar still measures against the
