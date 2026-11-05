@@ -4162,3 +4162,50 @@ design round's three WCAG items, and one interplay measured for the pictures.
   the default width a 1100×760 window covers *Next* the same way (484 px²).
   Fix shape: the pet's place over the page (walkthrough 47's question), not
   the sidebar. Owner: the pet's (1.1).
+
+## D.O.G.'s reading meter (the controller's read-only measurement, 2026-11-05) — recorded
+
+Her words of 2026-11-05, verbatim: *"Also I added a 110 page script of a movie
+and it read it fine and the limit bar said we were more than 100% of what DOG
+can read. but it was fine. this is not related to the visual update"*. Read in
+the code at `283e65ea` and in staging's usage log; nothing was changed. What
+is done about it is her call (asked 2026-11-05).
+
+- **MTR-01 · The meter says "Past what D.O.G. can read for one deck" for a
+  deck that reads whole.** MEASURED (read; staging's `app_events`, tool `dog`,
+  read-only): the bar is an estimate that warns and never blocks (her Q8 of
+  2026-10-16, *"Meter, then warn"*; `meterState`, `meterSentence`). It counts
+  a PDF page at 4,500 tokens (`PDF_PAGE_TOKENS`) against a fixed 200,000
+  (`REFERENCE_TOKEN_LIMIT`, DG1, 2026-10-16: "under the 232,275-token deck
+  that worked"), so a 110-page PDF reads about 495,000, 248%; any PDF of 45
+  pages or more is past the limit by itself; and past it the sentence gives
+  no percentage. An upload goes whole to the AI's file store and travels by
+  its id: nothing in WILSON trims, samples or refuses it (`buildSourceParts`,
+  `ai-files`, `ai-proxy`). The log holds eight large D.O.G. requests in 45
+  days, 230,850 to 247,693 input tokens each, all completed on
+  `claude-sonnet-5`, the latest two on 2026-11-02 (235,175 and 233,533):
+  about 2,100 tokens a page if they were her 110-page script, under half the
+  meter's guess, and each above its ceiling. wilson-dev holds none. So the
+  guess for a text page is about double the measured cost, and the ceiling
+  sits below what has worked every time. No model's input limit is recorded
+  in the repo. Fix shape, smallest first: say in the sentence that it is a
+  cautious estimate, and show the percentage past 100; count a PDF page at a
+  measured figure; record the model's input limit in the model registry from
+  the provider's documentation and measure against that; show a run's real
+  `input_tokens` after it. Owner: her call.
+- **MTR-02 · An upload's row never shows the size warning a chosen file's
+  row shows, and the page cap that warning names has no source.** MEASURED
+  (read): `sizeWarning` is called for a chosen file's row and in the Add
+  references window, never for an upload's row, so an uploaded 110-page PDF
+  shows no "110 pages: the AI may refuse a PDF over 100" (the design's item
+  18 puts the AI's per-file caps on each file's row). The 100
+  (`PDF_PAGE_LIMIT`, "the provider's per-request page cap") has no cited
+  source in the code or the design, and the requests above went through.
+  Fix shape: check the cap against the provider's documentation, cite it or
+  remove it, then show the warning on both kinds of row. Owner: with MTR-01.
+- **MTR-03 · The meter counts the page request for a full deck, which does
+  not send it, and leaves out the full deck's fixed system prompt.**
+  MEASURED (read): `baseTokens` adds `pagePrompt` whatever the mode, and
+  `generateFullDeck` never sends it; `fullDeckSystemPrompt`, the prompt's
+  template and the file-roles block are not counted. Small beside a PDF's
+  estimate. Fix shape: count what the chosen mode sends. Owner: with MTR-01.
