@@ -19,12 +19,14 @@
 --       edit_history by a revoked function, file_events_restamp, once: only in the run that
 --       adds the column, so a re-run never touches a stamp the trigger wrote. edit_history
 --       keeps 90 days (wilson-purge-edit-history), so a row older than that, whose project's
---       flip may be gone, stays closed: the walk cannot prove it public.
+--       flip may be gone, stays closed: the walk cannot prove it public. Her second ruling of
+--       2026-11-05, asked what should happen to entries older than the record is kept,
+--       answered "Keep them hidden (Recommended)".
 --   §3  fn_file_events_capture, restated once from 0074: a project change writes moved_out
 --       under the old project and moved_in under the new one, with no paths, so neither
 --       side learns the other's locator; a person's folder change within a project writes
 --       refiled, and a foreign key emptying the folder of a file (a folder, scene or asset
---       deleted, a project purged) writes nothing, because nobody re-filed it;
+--       deleted) writes nothing, because nobody re-filed it;
 --       'moved' is a locator change within one project; an insert under the catalogue's
 --       marker writes catalogued; a purge certificate of an office-server row says where
 --       the real file went.
@@ -37,7 +39,11 @@
 -- -------------------------------------
 -- Nothing until 0117 and 0118 write the new terms. Then a build without their labels shows
 -- the term itself in a file's activity. A project made public no longer shows its private
--- time's file activity to people who could not see it then: this is her ruling.
+-- time's file activity to people who could not see it then: this is her ruling. And on the
+-- first run, a row older than 90 days, or older than its project, or under a project gone,
+-- leaves everyone's view but its project's creator's and the admins': nothing can prove it
+-- public. That is her second ruling; such a row may have been an ordinary one. The drawer
+-- shows fewer rows and no error. Measure the count first (the runbook's row).
 --
 -- A CHECK, not an enum, so one transaction. Re-runnable: a second run walks nothing. Suites
 -- 33, 78, 20, 95, 100, 101, 112 and 115.
@@ -65,7 +71,7 @@ BEGIN
 
   -- What is restated below is what it was lifted from, or this file's.
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_file_events_capture()'::regprocedure;
-  IF v_md5 IS DISTINCT FROM '17fe6af1bb8f710e747ab47b62647354' AND v_md5 IS DISTINCT FROM '5863f2d4c984107d30422d69b8943ff5' THEN
+  IF v_md5 IS DISTINCT FROM '17fe6af1bb8f710e747ab47b62647354' AND v_md5 IS DISTINCT FROM '8d0f8dbbc83b7efbbf5bd3d63f71b453' THEN
     RAISE EXCEPTION '0116 refused: fn_file_events_capture is neither 0074''s body nor this file''s (md5 %)', v_md5;
   END IF;
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure;
@@ -126,7 +132,8 @@ REVOKE ALL ON FUNCTION public.fn_file_events_private_snapshot() FROM PUBLIC, ano
 -- The rows already written, as a revoked function so suite 78 can prove the walk (0108's
 -- edit_history_restamp). Each arm in order:
 --   the project is gone: closed;
---   the row is older than the project: another holder's id, closed;
+--   the row is older than the project: another holder's id, closed (the policy's creator
+--   arm still reads it for that project's creator; 0110 and 0114 refuse a client the id);
 --   the row is older than the history keeps: a flip after it may be gone, so nothing proves
 --   it public, closed;
 --   the project's visibility never changed in what is kept: its live value, no walk;
@@ -171,7 +178,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                   WHERE table_schema = 'public' AND table_name = 'file_events' AND column_name = 'captured_private') THEN
     ALTER TABLE public.file_events ADD COLUMN captured_private boolean NOT NULL DEFAULT true;
-    PERFORM public.file_events_restamp();
+    RAISE NOTICE '0116: % rows walked open of %, the rest closed', public.file_events_restamp(),
+      (SELECT count(*) FROM public.file_events);
   END IF;
 END $$;
 
@@ -264,9 +272,9 @@ BEGIN
            public.file_event_is_financial(NEW.is_financial, OLD.storage_path, NEW.storage_path));
       END IF;
       -- 0116: the folder is a fact of its own, as the path is. Not a foreign key's: a folder,
-      -- scene or asset deleted, or a project purged, re-files nobody's file. The folder it
-      -- left being gone tells them apart; pg_trigger_depth() does not, because an AFTER
-      -- trigger under a foreign key's action fires at depth 1.
+      -- scene or asset deleted re-files nobody's file. The folder it left being gone tells
+      -- them apart; pg_trigger_depth() does not, because an AFTER trigger under a foreign
+      -- key's action fires at depth 1.
       IF OLD.folder_id IS DISTINCT FROM NEW.folder_id
          AND (NEW.folder_id IS NOT NULL
               OR EXISTS (SELECT 1 FROM public.folders fo WHERE fo.id = OLD.folder_id)) THEN
@@ -552,7 +560,7 @@ CREATE POLICY file_events_select ON public.file_events
 
 -- §6 COMMENTs ----------------------------------------------------------------------------
 COMMENT ON COLUMN public.file_events.captured_private IS
-  '0116, her ruling of 2026-11-05 (Keep them hidden): whether the row''s project was private when it was written. Such a row is read only by the project''s creator and the workspace admins, even after the project is made public (file_events_select). Set by trg_file_events_private for every writer, whatever the writer says. DEFAULT true: anything past the trigger fails closed.';
+  '0116, her ruling of 2026-11-05 (Keep them hidden): whether the row''s project was private when it was written, or, for a row older than this column, not provably public (older than 90 days, older than its project, or its project gone: her second ruling of 2026-11-05). Such a row is read only by the project''s creator and the workspace admins, even after the project is made public (file_events_select). Set by trg_file_events_private for every writer, whatever the writer says. DEFAULT true: anything past the trigger fails closed.';
 COMMENT ON FUNCTION public.fn_file_events_private_snapshot() IS
   '0116: BEFORE INSERT on file_events. captured_private is the project''s is_private now, or true when the project is gone. It overwrites: it is not the writer''s to say.';
 COMMENT ON FUNCTION public.file_events_restamp() IS
@@ -590,7 +598,7 @@ BEGIN
 
   -- The restated bodies and the policy are this file's.
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_file_events_capture()'::regprocedure)
-       IS DISTINCT FROM '5863f2d4c984107d30422d69b8943ff5' THEN
+       IS DISTINCT FROM '8d0f8dbbc83b7efbbf5bd3d63f71b453' THEN
     RAISE EXCEPTION '0116 post-condition: fn_file_events_capture is not this file''s body';
   END IF;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure)

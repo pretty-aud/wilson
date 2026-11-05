@@ -25,7 +25,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(80);
+SELECT plan(81);
 
 SELECT * FROM tests.rls_setup();
 
@@ -937,7 +937,25 @@ SELECT is(
   'uploaded|1', 'a folder''s delete empties the file''s folder and writes no refiled'
 );
 
--- 80: a project purged writes each filed file's certificate and no refiled.
+-- 80: a parent folder deleted takes its child with it, and the child's file is emptied the
+-- same way: the folder it left is gone by the time the capture fires.
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path) VALUES
+  ('33000000-0000-0000-0000-0000000000f4', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', '33000000-0000-0000-0000-0000000000f0', 'custom', 'parent', 'parent'),
+  ('33000000-0000-0000-0000-0000000000f5', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', '33000000-0000-0000-0000-0000000000f4', 'custom', 'child', 'parent/child');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003327', 'aaaa1111-0000-0000-0000-000000003303', 'in-the-child.png', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-in-the-child.png', 10, '33000000-0000-0000-0000-0000000000f5');
+DELETE FROM public.folders WHERE id = '33000000-0000-0000-0000-0000000000f4';
+SELECT is(
+  (SELECT string_agg(e.event, ',' ORDER BY e.event) || '|' || (SELECT count(*) FROM public.files f
+                                                                WHERE f.id = e.file_id AND f.folder_id IS NULL)
+     FROM public.file_events e
+    WHERE e.file_id = 'aaaa1111-0000-0000-0000-000000003327'
+    GROUP BY e.file_id),
+  'uploaded|1', 'a parent folder''s delete empties the file in its child and writes no refiled'
+);
+
+-- 81: a project purged writes each filed file's certificate. The file goes before any folder's
+-- key can empty it, so this holds the certificate and not the folder test.
 INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
   ('aaaa1111-0000-0000-0000-000000003304', '11111111-1111-1111-1111-111111111111', 'Purged', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path) VALUES
