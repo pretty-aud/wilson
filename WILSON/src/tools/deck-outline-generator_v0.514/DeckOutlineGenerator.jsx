@@ -30,7 +30,7 @@ import { enterIsDogs, enterStarts, deckContextWritten, ASK_FOR_CONTEXT } from '.
 import { useReferences } from './references/useReferences';
 import ReferencesCard, { useReferencePreview, ReferencePreviewDialog, ReferencesCount } from './references/ReferencesCard';
 import ReferencesPicker from './references/ReferencesPicker';
-import { bareAssetName, textTokens, uploadTokens, countPdfPages, sendsInline } from './references/referenceModel';
+import { bareAssetName, modeTokens, FULL_DECK_ANSWER_TOKENS, uploadTokens, countPdfPages, sendsInline } from './references/referenceModel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // What a deck reads (post-overhaul DG1, 2026-10-16).
@@ -361,20 +361,6 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
     }
   }, [uploadedFiles]);
 
-  // What else goes with the references, for the meter: the uploads, the deck
-  // text, the page request and the project's own words. An uploaded PDF whose
-  // pages cannot be told is not guessed; the meter says how many there are.
-  const { baseTokens, baseUncounted } = useMemo(() => {
-    let tokens = textTokens(systemPrompt) + textTokens(pagePrompt)
-      + textTokens(`${selectedProject?.title || ''} ${selectedProject?.description || ''}`);
-    let uncounted = 0;
-    for (const f of uploadedFiles) {
-      const t = uploadTokens(f, uploadPdfPages.get(f.id) || null);
-      if (t == null) uncounted++; else tokens += t;
-    }
-    return { baseTokens: tokens, baseUncounted: uncounted };
-  }, [uploadedFiles, uploadPdfPages, systemPrompt, pagePrompt, selectedProject]);
-
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
     setNewProjectTitle('');
@@ -520,6 +506,24 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // Editable Output Formats
   const [singlePageOutputFormat, setSinglePageOutputFormat] = useState(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT);
   const [fullDeckOutputFormat, setFullDeckOutputFormat] = useState(DEFAULT_FULL_DECK_OUTPUT_FORMAT);
+
+  // What else goes with the references, for the meter: the uploads and what the
+  // chosen mode sends (DG7, MTR-03; referenceModel.modeTokens says what). An
+  // uploaded PDF whose pages cannot be told is not guessed; the meter says how
+  // many there are.
+  const { baseTokens, baseUncounted } = useMemo(() => {
+    let tokens = modeTokens({
+      fullDeck: fullDeckMode, deckContext: systemPrompt, pageRequest: pagePrompt,
+      project: `${selectedProject?.title || ''} ${selectedProject?.description || ''}`,
+      fullDeckSystem: fullDeckSystemPrompt, singlePageSystem: singlePageSystemPrompt,
+    });
+    let uncounted = 0;
+    for (const f of uploadedFiles) {
+      const t = uploadTokens(f, uploadPdfPages.get(f.id) || null);
+      if (t == null) uncounted++; else tokens += t;
+    }
+    return { baseTokens: tokens, baseUncounted: uncounted };
+  }, [uploadedFiles, uploadPdfPages, fullDeckMode, systemPrompt, pagePrompt, selectedProject, fullDeckSystemPrompt, singlePageSystemPrompt]);
   
   // Settings Panel Lock States
   const [promptsTabLocked, setPromptsTabLocked] = useState(true);
@@ -2143,7 +2147,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
           // Sent only when a file block is actually present — an unnecessary
           // beta header is a needless difference between requests.
           ...(usedFileRefs ? { betas: FILES_BETA } : {}),
-          max_tokens: 16384,
+          max_tokens: FULL_DECK_ANSWER_TOKENS,
           system: fullDeckSystemPrompt,
           messages: currentMessages,
           tool: 'dog',
@@ -4275,7 +4279,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 extraUncounted={baseUncounted}
                 onAdd={() => setShowRefsPicker(true)}
                 onPreview={refPreview.open}
-                uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n }}
+                uploads={{ files: uploadedFiles, busy: isFileLoading, add: handleFileUpload, remove: removeFile, error: uploadErrorState?.text || '', errorKey: uploadErrorState?.n, pdfPages: uploadPdfPages }}
                 offline={projectsHeldOffline}
               />
             </div>

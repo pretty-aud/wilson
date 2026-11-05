@@ -47,7 +47,9 @@ import {
   Upload, Loader2,
 } from 'lucide-react';
 import { Button, IconButton, Badge, Dialog, Spinner } from '../../../ui';
-import { KIND_LABEL, meterState, sizeWarning } from './referenceModel';
+import { KIND_LABEL, meterState, sizeWarning, readingLimit, pdfPageLimit } from './referenceModel';
+import { resolveModel } from '../../../lib/aiModels';
+import { getModelSources } from '../../../lib/activeModel';
 
 export const KIND_GLYPH = {
   asset: Boxes, scene: Film, shot: Clapperboard, level: Gamepad2, experience: Sparkles,
@@ -66,12 +68,26 @@ export function rowLabel(s) {
 
 const mbOf = (bytes) => `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
 
-/** The meter's sentence, for the bar, the folded header and screen readers. */
+/**
+ * The model the bar speaks for: a full deck's (a person, a company or the
+ * platform can override it), read without modelFor's warnings, since this runs
+ * while the card draws. The bar, the header and the window's warnings all ask
+ * here, so the three say one number.
+ */
+export const deckModel = () => resolveModel('dog.fullDeck', getModelSources()).model;
+
+/**
+ * The meter's sentence, for the bar and screen readers. DG7 (MTR-01; her answer
+ * at the "Size: the meter" comment in referenceModel.js): it says it is an
+ * estimate, in the words and not only in the hover, and past the limit it still
+ * gives the number. As few of the words change as stay true; walkthrough 94 asks
+ * her about them. It warns and never blocks (her Q8).
+ */
 export function meterSentence(m, bytes = 0) {
   const pct = m.tokens > 0 && m.percent === 0 ? 'Less than 1%' : `About ${m.percent}%`;
   const head = m.over
-    ? 'Past what D.O.G. can read for one deck: generating may be slow, cost more, or fail.'
-    : `${pct} of what D.O.G. can read for one deck`;
+    ? `Past what D.O.G. can read for one deck (about ${m.percent}%, an estimate): generating may be slow, cost more, or fail.`
+    : `${pct} of what D.O.G. can read for one deck (an estimate)`;
   const extra = [];
   if (m.uncounted) extra.push(`${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted until read`);
   // What Generate will download, once it matters (review round 2, finding 3).
@@ -81,7 +97,7 @@ export function meterSentence(m, bytes = 0) {
 
 /** The bar, in the card and in the window's footer. */
 export function ReferencesMeter({ tokens, uncounted = 0, bytes = 0 }) {
-  const m = meterState(tokens, undefined, uncounted);
+  const m = meterState(tokens, readingLimit(deckModel()), uncounted);
   const sentence = meterSentence(m, bytes);
   return (
     <div className="dog-refs-meter" data-over={m.over}
@@ -228,8 +244,8 @@ function keyboardHeld(el) {
  */
 export function referencesCount({ refs, uploads = 0, extraTokens = 0, extraUncounted = 0 }) {
   const count = uploads + refs.chosenList.length;
-  const m = meterState(refs.chosenTokens + extraTokens, undefined, refs.chosenUncounted + extraUncounted);
-  const warn = m.over ? 'over the limit' : m.uncounted ? `${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted` : '';
+  const m = meterState(refs.chosenTokens + extraTokens, readingLimit(deckModel()), refs.chosenUncounted + extraUncounted);
+  const warn = m.over ? `over the limit, about ${m.percent}% (an estimate)` : m.uncounted ? `${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted` : '';
   return { text: count ? `${count} chosen` : 'None chosen', warn };
 }
 
@@ -283,7 +299,8 @@ export function coreLine({ projectChosen, core, coreOnly, setAside = 0 }) {
  * @param {() => void} props.onAdd      opens the window
  * @param {(s) => void} props.onPreview opens one reference's preview
  * @param {{ files: Array<{id, file: File, type: string}>, busy: boolean,
- *           add: (e) => void, remove: (id) => void }} props.uploads
+ *           add: (e) => void, remove: (id) => void,
+ *           pdfPages?: Map<*, number|null> }} props.uploads
  *        D.O.G.'s uploads (DG2): its `uploadedFiles`, `isFileLoading`,
  *        `handleFileUpload` and `removeFile`, drawn here: Choose file in the
  *        Uploads section, the files' tiles in the one list (DG7)
@@ -341,6 +358,7 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
   // files only, Remove all references, Choose file, then each tile's Preview
   // and Remove.
   const listed = LIST_ORDER.flatMap(test => rows.filter(test));
+  const pageLimit = pdfPageLimit(deckModel());
   return (
     <div ref={part} className="dog-refs">
       <div className="dog-refs-pair">
@@ -471,7 +489,7 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
               const Glyph = s.kind === 'file' ? fileGlyph(s.dogType) : KIND_GLYPH[s.kind];
               const gone = refs.unavailable.has(s.key);
               const label = rowLabel(s);
-              const warn = s.kind === 'file' ? sizeWarning(s.dogType, s.size, refs.pdfPages?.get(s.id) || null) : null;
+              const warn = s.kind === 'file' ? sizeWarning(s.dogType, s.size, refs.pdfPages?.get(s.id) || null, pageLimit) : null;
               return (
                 <li key={s.key} className="dog-refs-row" data-kind="reference" data-unavailable={gone || undefined}>
                   <Glyph className="dog-file-icon" aria-hidden="true" />
@@ -493,6 +511,9 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
             {uploadFiles.map(f => {
               const Glyph = fileGlyph(f.type);
               const name = f.file.name;
+              // MTR-02: the warning a chosen file's tile shows; an upload's
+              // pages are D.O.G.'s, counted when it arrived.
+              const warn = sizeWarning(f.type, f.file.size, uploads?.pdfPages?.get(f.id) || null, pageLimit);
               return (
                 <li key={`upload:${f.id}`} className="dog-refs-row" data-kind="upload">
                   <Glyph className="dog-file-icon" aria-hidden="true" />
@@ -500,6 +521,7 @@ export default function ReferencesCard({ refs, projectChosen, extraTokens = 0, e
                   <span className="dog-refs-name" title={name}>{name}</span>
                   <span className="dog-file-size">{uploadSize(f.file.size)}</span>
                   {f.type === 'video' && <span className="dog-refs-sub">placed only, not read</span>}
+                  {warn && <span className="dog-refs-warn">{warn}</span>}
                   <IconButton size="sm" icon={X} title={`Remove ${name}`} className="dog-refs-remove"
                     onClick={(e) => removing(e, () => uploads.remove(f.id))} />
                 </li>

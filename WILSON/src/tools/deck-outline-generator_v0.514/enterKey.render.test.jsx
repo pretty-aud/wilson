@@ -48,6 +48,9 @@ import { ToastProvider } from '../../ui'
 import { ASK_FOR_CONTEXT } from './enterGenerates'
 import { _resetOverlaysForTests } from '../../ui/overlay'
 import { setHeldSession } from '../../cloud/auth/heldSession'
+import { DEFAULT_FULL_DECK_SYSTEM } from './prompts/fullDeckPrompts'
+import { DEFAULT_SINGLE_PAGE_SYSTEM } from './prompts/singlePagePrompts'
+import { FULL_DECK_ANSWER_TOKENS, FULL_DECK_FIXED_TOKENS, SINGLE_PAGE_FIXED_TOKENS } from './references/referenceModel'
 
 const CONTEXT = 'A pitch deck for a watch launch, five pages.'
 
@@ -612,13 +615,17 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
 const PNG_1PX = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 const BRIEF = 'The brief: a watch launch.'
 const DECK = 'SLIDE #1 — Title Page\n═══════════════\n▸ TITLE:\nThe watch launch\n▸ SUBTITLE:\nA pitch\n'
-/** The meter with a text upload (BRIEF) and the picture, measured on the
-    code before the move (`bfea9fd6`, the upload block in card 1). */
-const METER_BEFORE = Object.freeze({
-  hover: 'An estimate: about 4,008 of 200,000 tokens',
-  words: 'About 2% of what D.O.G. can read for one deck',
-  valuetext: 'About 2% of what D.O.G. can read for one deck',
-  valuenow: '2',
+/** The meter with a text upload (BRIEF) and the picture. Before DG7 (`bfea9fd6`,
+    and until her answer of 2026-11-05): 'An estimate: about 4,008 of 200,000
+    tokens', 'About 2% of what D.O.G. can read for one deck'. Now the same 4,008,
+    the full deck's own words (MTR-03), the model's limit (MTR-01), and the word
+    estimate. */
+const FULL_DECK_OWN = Math.ceil(DEFAULT_FULL_DECK_SYSTEM.length / 4) + FULL_DECK_FIXED_TOKENS
+const METER_NOW = Object.freeze({
+  hover: `An estimate: about ${(4008 + FULL_DECK_OWN).toLocaleString()} of 983,616 tokens`,
+  words: 'About 1% of what D.O.G. can read for one deck (an estimate)',
+  valuetext: 'About 1% of what D.O.G. can read for one deck (an estimate)',
+  valuenow: '1',
   over: 'false',
 })
 // DG4: the references are card 1's lower part (`.dog-refs`), no card of their own.
@@ -708,7 +715,7 @@ describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card
     expect(chooseInput()).not.toBe(null)
   })
 
-  it('the meter\'s figure with two uploads is byte for byte what it was before the move', async () => {
+  it('the meter\'s figure with two uploads: the two uploads, the full deck\'s own words, the model\'s limit', async () => {
     const d = await openDog({ upload: false })
     await addUpload(d, new File([BRIEF], 'fx13-brief.txt', { type: 'text/plain' }))
     await addUpload(d, new File([PNG_1PX], 'picture-01.png', { type: 'image/png' }))
@@ -720,7 +727,58 @@ describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card
       valuetext: track.getAttribute('aria-valuetext'),
       valuenow: track.getAttribute('aria-valuenow'),
       over: meter.getAttribute('data-over'),
-    }).toEqual(METER_BEFORE)
+    }).toEqual(METER_NOW)
+  })
+
+  // DG7 (OUTSTANDING MTR-02 and MTR-01): her script. A PDF the page counter can
+  // read, by the same path an upload takes.
+  const scriptPdf = (pages, name = 'script.pdf') => new File([`%PDF-1.4\n1 0 obj\n<< /Type /Pages /Kids [] /Count ${pages} >>\nendobj\n`], name, { type: 'application/pdf' })
+  const meterTitle = () => refsBody().querySelector('.dog-refs-meter').getAttribute('title')
+
+  it('a 110-page PDF reads 330,000 of 983,616, not past the limit, with no warning on its tile', async () => {
+    const d = await openDog({ upload: false })
+    await addUpload(d, scriptPdf(110))
+    // The 1: with no project, the bar's project words are the one space.
+    await waitFor(() => expect(meterTitle()).toBe(`An estimate: about ${(330000 + FULL_DECK_OWN + 1).toLocaleString()} of 983,616 tokens`))
+    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('data-over')).toBe('false')
+    expect(refsBody().querySelector('.dog-refs-meter-words').textContent).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(uploadRows()[0].querySelector('.dog-refs-warn')).toBe(null)
+    expect(d.q('.dog-refs-count').textContent).toBe('1 chosen')
+  })
+
+  it('a PDF past the provider\'s page cap says so on its upload\'s tile, and the bar stays a warning', async () => {
+    const d = await openDog({ upload: false })
+    await addUpload(d, scriptPdf(700, 'very-long.pdf'))
+    await waitFor(() => expect(uploadRows()[0].querySelector('.dog-refs-warn')?.textContent).toBe('700 pages: the AI may refuse a PDF over 600'))
+    await type(d.box(), CONTEXT)
+    expect(fullDeckButton(d).disabled).toBe(false)
+  })
+
+  // MTR-03: the page request went into the bar whatever the mode.
+  it('the bar counts what the chosen mode sends: a page request moves it only on Single page', async () => {
+    const d = await openDog({ upload: false })
+    const before = meterTitle()
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.sw().getAttribute('aria-checked')).toBe('false')
+    const singleEmpty = meterTitle()
+    const singleOwn = Math.ceil(DEFAULT_SINGLE_PAGE_SYSTEM.length / 4) + SINGLE_PAGE_FIXED_TOKENS + 1
+    expect(before).toBe(`An estimate: about ${(FULL_DECK_OWN + 1).toLocaleString()} of 983,616 tokens`)
+    expect(singleEmpty).toBe(`An estimate: about ${singleOwn.toLocaleString()} of 983,616 tokens`)
+    await type(d.q('.dog-page-request'), 'r'.repeat(400))
+    expect(meterTitle()).toBe(`An estimate: about ${(singleOwn + 100).toLocaleString()} of 983,616 tokens`)
+    // Back on Full deck the words typed there do not count.
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.sw().getAttribute('aria-checked')).toBe('true')
+    expect(meterTitle()).toBe(before)
+  })
+
+  it('what a full deck reserves for its answer is what it asks for', async () => {
+    const d = await openDog()
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(callAI.mock.calls[0][0].max_tokens).toBe(FULL_DECK_ANSWER_TOKENS)
+    expect(1000000 - FULL_DECK_ANSWER_TOKENS).toBe(983616)
   })
 
   it('FX13\'s rule with the upload in References: the box empty, Enter asks; with words, Enter starts a full deck that carries the upload', async () => {
@@ -1476,7 +1534,7 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     // The meter counts what is listed: the text by its size, the picture at
     // its estimate, with the project's own words (Lantern test, its line).
     const expected = Math.ceil(40 / 4) + 4000 + Math.ceil(`${PROJECT.title} ${PROJECT.description}`.length / 4)
-    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('title')).toBe(`An estimate: about ${expected.toLocaleString()} of 200,000 tokens`)
+    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('title')).toBe(`An estimate: about ${(expected + FULL_DECK_OWN).toLocaleString()} of 983,616 tokens`)
     await type(d.box(), CONTEXT)
     await act(async () => { fireEvent.click(fullDeckButton(d)) })
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))

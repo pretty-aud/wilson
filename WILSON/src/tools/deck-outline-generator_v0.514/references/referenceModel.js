@@ -25,6 +25,7 @@
 import { isLegalFile } from '../../rabbit_v0.1.0/fileTags';
 import { dogTypeForRow } from '../../rabbit_v0.1.0/deckAttachments';
 import { humanizeStatus } from '../../../ui/StatusDot';
+import { inputLimitFor } from '../../../lib/aiModels';
 
 // ── Kinds ───────────────────────────────────────────────────────────────────
 
@@ -647,14 +648,50 @@ export function sendsInline(fileData, limit) {
 // hand (an upload, or a chosen file once read at Preview or Generate), and
 // until then it is NOT counted: the meter says how many PDFs it has not
 // counted rather than showing a number it cannot stand behind.
+//
+// DG7 (2026-11-05). Audrey, verbatim: "I added a 110 page script of a movie and
+// it read it fine and the limit bar said we were more than 100% of what DOG can
+// read. but it was fine." Asked what to do, "Fix it in the D.O.G. session
+// (Recommended)", whose words were: the bar counts a PDF page at its measured
+// cost, measures against the AI model's real limit, and says plainly that it is
+// an estimate. It still warns and never blocks (her Q8, "Meter, then warn"). A
+// 110-page PDF read 495,000 against 200,000, 248%; now 330,000 against 983,616,
+// 34%. Nothing in WILSON trims, samples or refuses a file for this number.
 
-/** The estimate's ceiling: under the 232,275-token deck that worked (2026-08-03). */
+/** The bar's ceiling for a model with no recorded limit (DG1's figure). */
 export const REFERENCE_TOKEN_LIMIT = 200000;
+/** What a full deck's request reserves for its answer: its `max_tokens`. */
+export const FULL_DECK_ANSWER_TOKENS = 16384;
+/**
+ * What the bar measures against: the model's input limit (the registry,
+ * aiModels.MODEL_INPUT_LIMITS, from the provider's documentation), less what
+ * the request reserves for its answer. No recorded limit: DG1's 200,000.
+ */
+export function readingLimit(model, reserve = FULL_DECK_ANSWER_TOKENS) {
+  const input = inputLimitFor(model);
+  return input ? input - reserve : REFERENCE_TOKEN_LIMIT;
+}
 export const IMAGE_TOKEN_ESTIMATE = 4000;
-/** One PDF page: text (1,500 to 3,000) plus the page as a picture. */
-export const PDF_PAGE_TOKENS = 4500;
-/** Past this a request may be refused (the provider's per-request page cap). */
-export const PDF_PAGE_LIMIT = 100;
+/**
+ * One PDF page, the figure the bar counts (MTR-01). The provider's PDF page gives
+ * 1,500 to 3,000 text tokens a page by density, and each page also goes as a
+ * picture. MEASURED: staging's usage log holds eight full decks of 230,850 to
+ * 247,693 input tokens, about 2,100 a page for a 110-page text PDF. DG1's 4,500
+ * was a dense page's text and picture, and more than twice that measurement. So
+ * the top of the documented range: about 1.4 times what a text page measured,
+ * cautious, and a dense scan may still cost more.
+ */
+export const PDF_PAGE_TOKENS = 3000;
+/**
+ * The provider's page cap on one request (MTR-02), which had no source here:
+ * its PDF page gives 600, and 100 when the request's context window is under 1M
+ * tokens. Past it a request may be refused. The cap counts the whole request,
+ * pictures too (OUTSTANDING DG7-01); a row's warning speaks for its own file.
+ */
+export const PDF_PAGE_LIMIT = 600;
+export const PDF_PAGE_LIMIT_SMALL = 100;
+/** The page cap for a model; with no recorded limit, the smaller one. */
+export const pdfPageLimit = (model) => ((inputLimitFor(model) || 0) >= 1000000 ? PDF_PAGE_LIMIT : PDF_PAGE_LIMIT_SMALL);
 /** The provider's request and picture caps (its PDF and vision pages). */
 export const PDF_BYTE_LIMIT = 32 * 1024 * 1024;
 export const IMAGE_BYTE_LIMIT = 10 * 1024 * 1024;
@@ -669,10 +706,10 @@ const mb = (n) => `${Math.ceil(n / (1024 * 1024))} MB`;
  * page or byte cap, a picture over the picture cap, a video too large to
  * place. `null` when none applies. Warnings, never blocks (Q8).
  */
-export function sizeWarning(dogType, bytes, pages = null) {
+export function sizeWarning(dogType, bytes, pages = null, pageLimit = PDF_PAGE_LIMIT) {
   const n = Number(bytes) || 0;
   if (dogType === 'pdf') {
-    if (pages && pages > PDF_PAGE_LIMIT) return `${pages} pages: the AI may refuse a PDF over ${PDF_PAGE_LIMIT}`;
+    if (pages && pages > pageLimit) return `${pages} pages: the AI may refuse a PDF over ${pageLimit}`;
     if (n > PDF_BYTE_LIMIT) return `${mb(n)}: the AI may refuse a PDF over ${mb(PDF_BYTE_LIMIT)}`;
   }
   if (dogType === 'image' && n > IMAGE_BYTE_LIMIT) return `${mb(n)}: the AI may refuse a picture over ${mb(IMAGE_BYTE_LIMIT)}`;
@@ -681,6 +718,29 @@ export function sizeWarning(dogType, bytes, pages = null) {
 }
 
 export const textTokens = (s) => Math.ceil(String(s || '').length / 4);
+
+/**
+ * The words a mode's request always carries beyond its system prompt, in tokens
+ * (MTR-03): the template, its wrapper and the file roles, measured from
+ * DeckOutlineGenerator.jsx and rounded up to the next 100 (a test holds the
+ * measurement to the source; Place visual's lines and the deck's earlier pages
+ * in Single page are not counted).
+ */
+export const FULL_DECK_FIXED_TOKENS = 3100;
+export const SINGLE_PAGE_FIXED_TOKENS = 2500;
+
+/**
+ * What the chosen mode sends besides the files and the references (MTR-03): the
+ * deck's text and the project's words in both; the page request only for a
+ * single page, which a full deck never sends; each mode's own system prompt and
+ * fixed words. The prompts can be edited in Settings, so they are read live.
+ */
+export function modeTokens({ fullDeck, deckContext = '', pageRequest = '', project = '', fullDeckSystem = '', singlePageSystem = '' }) {
+  const both = textTokens(deckContext) + textTokens(project);
+  return fullDeck
+    ? both + textTokens(fullDeckSystem) + FULL_DECK_FIXED_TOKENS
+    : both + textTokens(pageRequest) + textTokens(singlePageSystem) + SINGLE_PAGE_FIXED_TOKENS;
+}
 
 /**
  * A file's estimate from its kind and size, before its body is read; `null`

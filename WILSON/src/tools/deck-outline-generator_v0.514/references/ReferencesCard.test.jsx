@@ -31,7 +31,12 @@
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, screen, within } from '@testing-library/react'
-import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT, ReferencesCount, CORE_TITLE, focusAfterRemove } from './ReferencesCard'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT, ReferencesCount, ReferencesMeter, meterSentence, CORE_TITLE, focusAfterRemove } from './ReferencesCard'
+import { meterState } from './referenceModel'
+import { setModelSources } from '../../../lib/activeModel'
 
 afterEach(cleanup)
 
@@ -345,8 +350,31 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
 
   it('the header\'s number carries the meter\'s warning, so a folded card 1 still says it', () => {
     const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 250000 })} uploads={2} />)
-    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit')
-    expect(v.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit')
+    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen')
+    cleanup()
+    // DG7: past the limit it still gives the number and says it is an estimate.
+    const past = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 1200000 })} uploads={2} />)
+    expect(past.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit, about 122% (an estimate)')
+    expect(past.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit, about 122% (an estimate)')
+  })
+
+  it('an upload\'s tile shows the size warning a chosen file\'s tile shows, from D.O.G.\'s count of its pages', () => {
+    const files = [up('script.pdf', 'pdf', 1024 * 1024), up('huge.pdf', 'pdf', 40 * 1024 * 1024), up('long.pdf', 'pdf', 1024 * 1024)]
+    const uploads = { files, busy: false, add: vi.fn(), remove: vi.fn(), pdfPages: new Map([[files[0].id, 110], [files[1].id, 10], [files[2].id, 700]]) }
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={uploads} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    const words = [...view.container.querySelectorAll('.dog-refs-row[data-kind="upload"]')].map((r) => r.querySelector('.dog-refs-warn')?.textContent ?? null)
+    expect(words).toEqual([null, '40 MB: the AI may refuse a PDF over 32 MB', '700 pages: the AI may refuse a PDF over 600'])
+    // The same words on a chosen file's tile, for the same file.
+    cleanup()
+    const chosen = { key: 'file:f9', kind: 'file', name: 'long.pdf', dogType: 'pdf', id: 'f9', size: 1024 * 1024 }
+    const c = mount({ refs: fakeRefs([chosen], { pdfPages: new Map([['f9', 700]]) }) })
+    expect(c.refRows()[0].querySelector('.dog-refs-warn').textContent).toBe('700 pages: the AI may refuse a PDF over 600')
+  })
+
+  it('CONTROL: an upload\'s tile with no count of its pages warns of nothing a person has not been told', () => {
+    const files = [up('script.pdf', 'pdf', 1024 * 1024)]
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn() }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    expect(view.container.querySelector('.dog-refs-warn')).toBe(null)
   })
 
   it('DG4: this is card 1\'s lower part, with no header, title or fold of its own', () => {
@@ -421,6 +449,94 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(section.querySelector('.dog-refs-actions').nextElementSibling).toBe(notice)
     expect(notice.nextElementSibling.textContent).toMatch(/^Choose a project/)
     expect(notice.getAttribute('role')).toBe('status')
+  })
+})
+
+// =============================================================================
+// DG7, the meter (2026-11-05; her words at the "Size: the meter" comment in
+// referenceModel.js; OUTSTANDING MTR-01): it says it is an estimate, in the
+// sentence and not only in the hover; past the limit it still gives the number;
+// its limit is the model a full deck resolves to, less the answer's reserve.
+// =============================================================================
+describe('DG7: the reading meter says what is true', () => {
+  afterEach(() => { setModelSources({}) })
+  const limit = 1000000 - 16384
+  const words = (tokens, ...rest) => meterSentence(meterState(tokens, limit, ...rest))
+  const meter = (props) => {
+    const view = render(<ReferencesMeter {...props} />)
+    const el = view.container.querySelector('.dog-refs-meter')
+    return { el, words: el.querySelector('.dog-refs-meter-words').textContent, hover: el.getAttribute('title'), over: el.getAttribute('data-over'), track: el.querySelector('[role="meter"]') }
+  }
+
+  it('under the limit: today\'s words, and that it is an estimate', () => {
+    expect(words(330000)).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(words(100)).toBe('Less than 1% of what D.O.G. can read for one deck (an estimate)')
+    expect(words(0)).toBe('About 0% of what D.O.G. can read for one deck (an estimate)')
+  })
+
+  it('past the limit: today\'s words, the number, and that it is an estimate; it warns and does not block', () => {
+    expect(words(1200000)).toBe('Past what D.O.G. can read for one deck (about 122%, an estimate): generating may be slow, cost more, or fail.')
+  })
+
+  it('what it has not counted and what Generate downloads still follow, as they did', () => {
+    expect(words(330000, 2)).toBe('About 34% of what D.O.G. can read for one deck (an estimate) · 2 PDFs not counted until read')
+    expect(meterSentence(meterState(10, limit), 30 * 1024 * 1024)).toBe('Less than 1% of what D.O.G. can read for one deck (an estimate) · about 30 MB to download')
+  })
+
+  it('the bar measures against the model a full deck resolves to, less the answer\'s reserve: built in, Sonnet 5', () => {
+    const m = meter({ tokens: 330000 })
+    expect(m.hover).toBe('An estimate: about 330,000 of 983,616 tokens')
+    expect(m.words).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(m.over).toBe('false')
+    expect(m.track.getAttribute('aria-valuetext')).toBe(m.words)
+    expect(m.track.getAttribute('aria-valuenow')).toBe('34')
+  })
+
+  it('a person, a company or the platform choosing another model moves the limit', () => {
+    setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    expect(meter({ tokens: 330000 }).hover).toBe('An estimate: about 330,000 of 183,616 tokens')
+    cleanup()
+    setModelSources({ workspace: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    expect(meter({ tokens: 330000 }).over).toBe('true')
+    cleanup()
+    // Another function's choice is not the full deck's.
+    setModelSources({ user: { 'dog.pageOutline': 'claude-haiku-4-5-20251001' } })
+    expect(meter({ tokens: 330000 }).hover).toBe('An estimate: about 330,000 of 983,616 tokens')
+  })
+
+  it('a model with no recorded limit keeps 200,000', () => {
+    setModelSources({ platform: { 'dog.fullDeck': 'claude-future-9' } })
+    expect(meter({ tokens: 150000 }).hover).toBe('An estimate: about 150,000 of 200,000 tokens')
+  })
+
+  it('the header and the bar say one number: the same limit, the same model', () => {
+    setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 330000 })} uploads={0} />)
+    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('1 chosen · over the limit, about 180% (an estimate)')
+    expect(meter({ tokens: 330000 }).words).toBe('Past what D.O.G. can read for one deck (about 180%, an estimate): generating may be slow, cost more, or fail.')
+  })
+
+  it('the page cap on a tile follows the model too: a 200k model warns from 101 pages', () => {
+    setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    const files = [up('script.pdf', 'pdf', 1024 * 1024)]
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn(), pdfPages: new Map([[files[0].id, 110]]) }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    expect(view.container.querySelector('.dog-refs-warn').textContent).toBe('110 pages: the AI may refuse a PDF over 100')
+  })
+
+  // The Add references window draws from a pool this file does not build; its
+  // meter is ReferencesMeter (above), and its warning asks the same two functions.
+  it('the window says what the card says: its warning asks the same model\'s cap, its footer is this meter', () => {
+    const picker = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'ReferencesPicker.jsx'), 'utf8')
+    expect(picker).toContain('sizeWarning(f.dogType, f.size, refs.pdfPages?.get(f.id) || null, pdfPageLimit(deckModel()))')
+    expect(picker).toContain('<ReferencesMeter tokens={refs.chosenTokens + extraTokens}')
+    expect(picker).not.toMatch(/meterState|readingLimit|REFERENCE_TOKEN_LIMIT/)
+  })
+
+  it('never blocks: past the limit nothing is disabled and nothing else changes', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1), refs: fakeRefs([ITEM], { chosenTokens: 2000000 }) })
+    expect(c.body().querySelector('.dog-refs-meter').getAttribute('data-over')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(false)
+    expect(screen.getByRole('button', { name: 'Choose file' }).disabled).toBe(false)
   })
 })
 
