@@ -53,7 +53,7 @@
 
 BEGIN;
 
-SELECT plan(39);
+SELECT plan(83);
 
 SELECT * FROM tests.rls_setup();
 
@@ -400,6 +400,137 @@ SELECT is(
     WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
       AND object_path = 'clip-61.mov'),
   0, 'a local_server purge still enqueues nothing — its bodies are not the queue''s to drain');
+
+-- ── 0115: can_presign_object, the signer's question ─────────────────────────
+-- Fixture ids are hex. Project A (rls_setup) is shared; 61000000-…-01 is private and
+-- created by user_c. user_c holds a member seat on A; user_e is a plain user with a
+-- reviewer seat on A; user_n is inactive and their token still says they belong.
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user_c@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user_e@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('99999999-9999-9999-9999-999999999999', 'user_n@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', 'user_c', 'User C', true),
+  ('11111111-1111-1111-1111-111111111111', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user', 'user_e', 'User E', true),
+  ('11111111-1111-1111-1111-111111111111', '99999999-9999-9999-9999-999999999999', 'user', 'user_n', 'User N', false)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+INSERT INTO public.projects (id, workspace_id, title, is_private, created_by) VALUES
+  ('61000000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Private P', true, 'cccccccc-cccc-cccc-cccc-cccccccccccc');
+INSERT INTO public.project_members (project_id, user_id, project_role) VALUES
+  ('aaaa1111-0000-0000-0000-000000000001', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'member'),
+  ('aaaa1111-0000-0000-0000-000000000001', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'reviewer'),
+  ('aaaa1111-0000-0000-0000-000000000001', '99999999-9999-9999-9999-999999999999', 'member')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url, is_financial, deleted_at) VALUES
+  ('61000000-0000-0000-0000-00000000f001', 'aaaa1111-0000-0000-0000-000000000001', 'live.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin.jpg', false, NULL),
+  ('61000000-0000-0000-0000-00000000f002', 'aaaa1111-0000-0000-0000-000000000001', 'trashed.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f002/trashed.bin', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f002/trashed.bin.jpg', false, now()),
+  ('61000000-0000-0000-0000-00000000f003', '61000000-aaaa-0000-0000-000000000001', 'moved.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f003/moved.bin', NULL, false, NULL),
+  ('61000000-0000-0000-0000-00000000f004', '61000000-aaaa-0000-0000-000000000001', 'purged-moved.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', NULL, false, NULL),
+  ('61000000-0000-0000-0000-00000000f006', 'aaaa1111-0000-0000-0000-000000000001', 'no-picture.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin', NULL, false, NULL),
+  -- A Petal row: a company's own bucket holds nothing of it, so the key is unclaimed there.
+  ('61000000-0000-0000-0000-00000000f007', 'aaaa1111-0000-0000-0000-000000000001', 'petal.bin', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f007/petal.bin', NULL, false, NULL);
+DELETE FROM public.files WHERE id = '61000000-0000-0000-0000-00000000f004';
+
+CREATE FUNCTION pg_temp.t61_login(p_user uuid, p_ws uuid) RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', p_user, 'role', 'authenticated',
+    'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', 'user'))::text, true);
+  SET LOCAL ROLE authenticated;
+END;
+$$;
+CREATE FUNCTION pg_temp.t61_logout() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', '{}', true);
+  RESET ROLE;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION pg_temp.t61_login(uuid, uuid) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION pg_temp.t61_logout() TO PUBLIC;
+
+SELECT is((SELECT prosecdef FROM pg_proc WHERE oid = 'public.can_presign_object(text,text)'::regprocedure), false,
+  'can_presign_object runs as the caller');
+SELECT ok(has_function_privilege('authenticated', 'public.can_presign_object(text,text)', 'EXECUTE')
+          AND has_function_privilege('service_role', 'public.can_presign_object(text,text)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.can_presign_object(text,text)', 'EXECUTE'),
+  'open to a signed-in caller and the service role, not to anon');
+
+-- ── A plain reader of A, who cannot write it and cannot see P.
+SELECT pg_temp.t61_login('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'get'), true, 'a live s3 copy is signed for reading');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'head'), true, 'and for a look');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin.jpg', 'get'), true, 'and the picture its row names');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin.jpg', 'get'), false, 'not a picture its row does not name');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f002/trashed.bin', 'get'), false, 'a trashed copy is not signed');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f002/trashed.bin.jpg', 'head'), false, 'nor its picture');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f003/moved.bin', 'get'), false, 'a copy moved into a hidden project is not signed for a reader of the key''s project');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', 'get'), false, 'a purged moved copy is not signed while its queue row waits');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/connection-check/x/check', 'head'), true, 'a connection check keeps the old read answer');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/connection-check/x/check', 'put'), false, 'and the old write answer, which this reader does not pass');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'get'), true, 'a fresh key keeps the old read answer');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'put'), false, 'and the old write answer');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'del'), false, 'for removing too');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f007/petal.bin', 'get'), true, 'a Petal row does not claim a key in a company''s bucket');
+SELECT is(public.can_presign_object('projects/61000000-aaaa-0000-0000-000000000001/files/f009/fresh.bin', 'get'), false, 'a fresh key under a hidden project is not signed');
+SELECT is(public.can_presign_object('projects/bbbb2222-0000-0000-0000-000000000001/files/f009/fresh.bin', 'get'), false, 'nor under another company''s');
+SELECT is(public.can_presign_object('projects/not-a-uuid/files/f009/fresh.bin', 'get'), false, 'a key that names no project is not signed');
+SELECT is(public.can_presign_object(NULL, 'get'), false, 'a NULL key is false, never NULL');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', NULL), false, 'a NULL op is false, never NULL');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'patch'), false, 'an op it does not know is false');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'patch'), false, 'on a fresh key too');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', NULL), false, 'and a NULL op on a fresh key');
+SELECT pg_temp.t61_logout();
+
+-- ── A writer of A, the creator of P.
+SELECT pg_temp.t61_login('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'put'), false, 'nobody overwrites a claimed copy, a writer included');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'del'), false, 'nor removes it');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin.jpg', 'put'), false, 'nor overwrites its picture');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin.jpg', 'del'), false, 'nor removes that');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f002/trashed.bin', 'put'), false, 'a trashed key is not written over');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', 'put'), false, 'nor a purged moved key');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f003/moved.bin', 'get'), true, 'a copy moved into P is signed for P''s reader');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f003/moved.bin', 'put'), false, 'and not written over by them either');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/connection-check/x/check', 'put'), true, 'CONTROL: the connection check keeps the old write answer for a writer');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'put'), true, 'CONTROL: a fresh key too');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'del'), true, 'and for removing');
+SELECT is(public.can_presign_object('projects/61000000-aaaa-0000-0000-000000000001/files/f009/fresh.bin', 'get'), true, 'CONTROL: a fresh key under P is signed for its reader');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', NULL), false, 'a NULL op is false for a writer too, whose write answer is true');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'patch'), false, 'and so is an op it does not know');
+-- SEC-2: in a company's own bucket a body and its picture share names.
+SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                    VALUES ('61000000-0000-0000-0000-00000000f010', 'aaaa1111-0000-0000-0000-000000000001', 'k.jpg', 's3',
+                            'projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin.jpg') $$,
+  '42501', NULL, 'a new s3 row cannot take the name of another row''s picture');
+SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url)
+                    VALUES ('61000000-0000-0000-0000-00000000f011', 'aaaa1111-0000-0000-0000-000000000001', 'k', 's3',
+                            'projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin.jpg.jpg',
+                            'projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin.jpg.jpg.jpg') $$,
+  '42501', NULL, 'nor a name that is another row''s once .jpg is set aside');
+SELECT pg_temp.t61_logout();
+
+-- ── An inactive member, and a purge certificate on its own.
+SELECT pg_temp.t61_login('99999999-9999-9999-9999-999999999999', '11111111-1111-1111-1111-111111111111');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin', 'get'), false, 'an inactive member gets nothing signed');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'get'), false, 'on a fresh key either');
+SELECT pg_temp.t61_logout();
+DELETE FROM public.storage_gc_queue WHERE file_id = '61000000-0000-0000-0000-00000000f004';
+SELECT pg_temp.t61_login('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', 'get'), false, 'the queue row gone, the certificate still refuses to sign a read');
+SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', 'put'), false, 'and a write');
+SELECT pg_temp.t61_logout();
 
 SELECT * FROM finish();
 

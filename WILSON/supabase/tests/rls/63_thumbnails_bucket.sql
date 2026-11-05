@@ -40,7 +40,7 @@
 
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(25);
 
 SELECT * FROM tests.rls_setup();
 
@@ -358,6 +358,74 @@ SELECT is(
       AND object_path = 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a4-dailies.mov'),
   's3|byo-s3',
   'S37 regression: an s3 body still enqueues to the byo-s3 drain after 0053 rewrote the function');
+
+-- ══════════════════════════════════════════
+-- 0115: a picture answers to the file that names it
+-- ══════════════════════════════════════════
+
+-- 21-22: the base four ask who answers for a copy; the money four do not need to: a
+-- money key's second segment is its project for ever.
+SELECT is(
+  (SELECT array_agg(policyname::text ORDER BY policyname) FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects'
+      AND policyname LIKE 'rabbit_thumbnails%'
+      AND (coalesce(qual, '') || coalesce(with_check, '')) LIKE '%rabbit_private.storage_object_current_project%'),
+  ARRAY['rabbit_thumbnails_delete_own', 'rabbit_thumbnails_insert', 'rabbit_thumbnails_select', 'rabbit_thumbnails_update'],
+  'the four base thumbnail policies, and only those, ask who answers for a copy');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects'
+      AND policyname = 'rabbit_thumbnails_delete_own'
+      AND qual LIKE '%NOT rabbit_private.storage_object_claimed(%'),
+  0,
+  'an uploader may still take back a picture its row names: moveReceipt removes one it could not move');
+
+-- 23-25: a local_server body is not in the bucket, and its picture is. It answers to its row.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url, is_financial)
+VALUES ('aaaa1111-0000-0000-0000-0000000063a5',
+        'aaaa1111-0000-0000-0000-000000000001', 'local2.png', 'local_server',
+        'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a5-local.png',
+        'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a5-local.png.jpg', false);
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-thumbnails', 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a5-local.png.jpg',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"mimetype":"image/jpeg"}'::jsonb);
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE bucket_id = 'rabbit-thumbnails'
+      AND name = 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a5-local.png.jpg'),
+  1, 'CONTROL: a member reads the picture of a live local_server row');
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+UPDATE public.files SET deleted_at = now() WHERE id = 'aaaa1111-0000-0000-0000-0000000063a5';
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE bucket_id = 'rabbit-thumbnails'
+      AND name = 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a5-local.png.jpg'),
+  0, 'a trashed row''s picture is not read, whichever store holds the body');
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"mimetype":"image/jpeg","regenerated":true}'::jsonb
+   WHERE bucket_id = 'rabbit-thumbnails'
+     AND name = 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/63a5-local.png.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 0, 'and is not regenerated');
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
 
 SELECT finish();
 ROLLBACK;

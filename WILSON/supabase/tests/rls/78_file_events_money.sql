@@ -858,18 +858,15 @@ SELECT is(
   0, 'CONTROL: storage RLS IS applying — the member cannot read an object under the money segment');
                                                                             -- 59
 
--- 🚨 TRAP 2, MEASURED RATHER THAN ASSERTED. The row gate just closed for this
--- member — probe 58. The BLOB gate did not: the object still sits under the
--- `project` segment, so `rabbit_files_select` still serves it.
---
--- ⚠️ THIS PROBE IS EXPECTED TO FIND THE OBJECT READABLE. Green here means the
--- documented gap is still open; that is the limitation, not a failure, and it
--- is why a body-mover is still owed. The disposition is IN THE MESSAGE and not
--- only in this comment, because a comment is not printed in a CI log.
+-- 🚨 TRAP 2, MEASURED. The row gate closed for this member at probe 58. The BLOB
+-- gate closed with 0115: the object still sits under the `project` segment, but a
+-- key a row names now answers to that row as the caller reads it, so a member who
+-- cannot read the receipt's row cannot read its copy. Until 0115 this probe expected
+-- 1, on purpose, and said why in its message. Handbook §12.9 says so too.
 SELECT is(
   (SELECT count(*)::int FROM storage.objects
     WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
-  1, '🚨 TRAP 2 MEASURED (EXPECTED 1): the member who cannot read the receipt ROW can STILL read its BLOB. If this is 0 the blob gate was CLOSED — that is good news, and handbook §12.9, OUTSTANDING residual 1 and this probe must all be updated together');
+  0, '🚨 TRAP 2 CLOSED (0115): the member who cannot read the receipt ROW cannot read its BLOB either');
                                                                             -- 60
 
 -- 61 (0092, S4d review round 1): the PRESENCE CONTROL for probe 21's absence.
