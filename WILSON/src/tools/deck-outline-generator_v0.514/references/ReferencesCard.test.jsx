@@ -23,10 +23,20 @@
 // (References) into one card"): this is card 1's lower part now, with no
 // header or fold of its own (D.O.G. draws the card; ReferencesCount is its
 // header's number), and Core files only beside Add references (her note 4).
+//
+// DG7 (2026-11-05, Audrey: "lets have references and the uploads be side by
+// side in the card ... the uploads and references selected/uploaded files
+// should show up on the list together showing what its reading"): the two
+// sections hold their controls, and one list under them holds every tile.
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, screen, within } from '@testing-library/react'
-import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT, ReferencesCount, CORE_TITLE } from './ReferencesCard'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+import ReferencesCard, { UPLOAD_ACCEPT, UPLOAD_LIMIT, ReferencesCount, ReferencesMeter, meterSentence, CORE_TITLE, focusAfterRemove } from './ReferencesCard'
+import { meterState } from './referenceModel'
+import { setModelSources } from '../../../lib/activeModel'
 
 afterEach(cleanup)
 
@@ -56,14 +66,16 @@ function mount({ files = [], busy = false, chosen = [], projectChosen = true, re
     <ReferencesCard refs={r} uploads={uploads} projectChosen={projectChosen} onAdd={vi.fn()} onPreview={vi.fn()} />,
   )
   const body = () => view.container.querySelector('.dog-refs')
-  const groups = () => [...view.container.querySelectorAll('.dog-refs .dog-refs-group')]
   const uploadsGroup = () => view.container.querySelector('.dog-refs .dog-refs-uploads')
-  const uploadRows = () => [...view.container.querySelectorAll('.dog-refs .dog-refs-uploads .dog-refs-row')]
+  // DG7: the one list, in the last section; a tile says its own kind.
+  const list = () => view.container.querySelector('.dog-refs .dog-sec-foot > ul.dog-refs-rows')
+  const uploadRows = () => [...view.container.querySelectorAll('.dog-refs .dog-sec-foot .dog-refs-row[data-kind="upload"]')]
+  const refRows = () => [...view.container.querySelectorAll('.dog-refs .dog-sec-foot .dog-refs-row[data-kind="reference"]')]
   // DG3 (OUTSTANDING DG2-01): Choose file is a kit button beside the hidden
   // input (it was a <label> round it, which Tab never reached).
   const choose = () => uploadsGroup()?.querySelector('button.dog-upload') || null
   const chooseInput = () => uploadsGroup()?.querySelector('input[type=file]') || null
-  return { view, uploads, refs: r, body, groups, uploadsGroup, uploadRows, choose, chooseInput }
+  return { view, uploads, refs: r, body, list, uploadsGroup, uploadRows, refRows, choose, chooseInput }
 }
 const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
@@ -74,28 +86,86 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
   // Before: the contract line, Uploads, Items, Files, Notes, the meter, Add
   // references. After: the References section (Items, Files, Notes, Add
   // references), the Uploads section, then the contract line and the meter.
-  it('top to bottom: References (Items, Files, Notes, Add references), then Uploads, then the contract line and the meter; each section titled', () => {
+  // DG7 (her words at the head of this file). Before: the References section
+  // (Items, Files, Notes, Add references), the Uploads section (its rows, Choose
+  // file), then the contract line and the meter. After: the two sections with
+  // their controls side by side, then one section of the list, the contract line
+  // and the meter.
+  it('top to bottom: References and Uploads in one row, then one section of the list, the contract line and the meter; each section titled', () => {
     const c = mount({ files: UPLOADS().slice(0, 2), chosen: [NOTE, FILE, ITEM] })
     const titles = [...c.body().querySelectorAll('h3.dog-sec-title')].map((h) => h.textContent)
-    expect(titles).toEqual(['References', 'Uploads (2)'])
-    const labels = c.groups().map((g) => g.querySelector('.dog-refs-group-label, .dog-sec-title').textContent)
-    expect(labels).toEqual(['Items (1)', 'Files (1)', 'Notes (1)', 'Uploads (2)'])
-    expect(c.groups().map((g) => g.getAttribute('aria-label'))).toEqual(['Items', 'Files', 'Notes', 'Uploads'])
-    expect(c.groups()[3]).toBe(c.uploadsGroup())
+    expect(titles).toEqual(['References', 'Uploads (2)', 'The deck reads'])
     const add = screen.getByRole('button', { name: 'Add references' })
     const contract = c.body().querySelector('.dog-refs-contract')
     const meter = c.body().querySelector('.dog-refs-meter')
-    expect(before(c.groups()[2], add)).toBe(true)
     expect(before(add, c.uploadsGroup())).toBe(true)
-    expect(before(c.uploadsGroup(), contract)).toBe(true)
+    expect(before(c.uploadsGroup(), c.list())).toBe(true)
+    expect(before(c.list(), contract)).toBe(true)
     expect(before(contract, meter)).toBe(true)
-    // The two sections and the foot are the part's three children.
-    expect([...c.body().children].map((s) => s.className)).toEqual(['dog-sec dog-sec-refs', 'dog-sec dog-refs-group dog-refs-uploads', 'dog-sec dog-sec-foot'])
+    // The row and the last section are the part's two children; the row holds
+    // the two sections and nothing else.
+    expect([...c.body().children].map((s) => s.className)).toEqual(['dog-refs-pair', 'dog-sec dog-sec-foot'])
+    expect([...c.body().children[0].children].map((s) => s.className)).toEqual(['dog-sec dog-sec-refs', 'dog-sec dog-refs-uploads'])
+    // No list in either section: a tile is only ever in the one list.
+    expect(c.body().querySelector('.dog-sec-refs ul, .dog-refs-uploads ul')).toBe(null)
   })
 
-  it('the Uploads group is always drawn: nothing uploaded and nothing chosen, it still has its title, its hint and Choose file', () => {
+  it('the one list: items, then files, then notes, then the uploads, whatever order they were chosen in, and no group labels', () => {
+    const SCENE = { key: 'scene:s2', kind: 'scene', name: 'Scene two', id: 's2' }
+    const c = mount({ files: UPLOADS().slice(0, 2), chosen: [NOTE, FILE, ITEM, SCENE] })
+    expect([...c.list().children].map((r) => r.querySelector('.dog-refs-name').textContent))
+      .toEqual(['Scene · Scene one', 'Scene · Scene two', 'board-01.pdf', 'A note', 'note-01.txt', 'picture-01.png'])
+    expect(c.view.container.querySelectorAll('ul.dog-refs-rows')).toHaveLength(1)
+    // The labels Items (n), Files (n) and Notes (n) are gone, and their groups.
+    expect(c.body().querySelector('.dog-refs-group, .dog-refs-group-label')).toBe(null)
+    expect(c.body().textContent).not.toMatch(/Items \(|Files \(|Notes \(/)
+    expect(screen.queryByRole('group', { name: 'Items' })).toBe(null)
+    expect(screen.queryByRole('group', { name: 'Files' })).toBe(null)
+    expect(screen.queryByRole('group', { name: 'Notes' })).toBe(null)
+    // The list is named by its section's title.
+    expect(screen.getByRole('list', { name: 'The deck reads' })).toBe(c.list())
+    expect(document.getElementById(c.list().getAttribute('aria-labelledby'))).toBe(c.body().querySelector('.dog-sec-foot > h3'))
+  })
+
+  it('said, not only shown: a file, a note and an upload say their kind in a hidden word before the name; an item\'s words say it; Preview and Remove keep their names', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1), chosen: [ITEM, FILE, NOTE] })
+    const heard = [...c.list().children].map((r) => {
+      const hidden = r.querySelector('.sr-only')
+      if (hidden) expect(hidden.nextElementSibling).toBe(r.querySelector('.dog-refs-name'))
+      return [hidden?.textContent ?? null, r.querySelector('.dog-refs-name').textContent]
+    })
+    expect(heard).toEqual([[null, 'Scene · Scene one'], ['File', 'board-01.pdf'], ['Note', 'A note'], ['Upload', 'note-01.txt']])
+    for (const name of ['Preview Scene one', 'Remove Scene one', 'Preview board-01.pdf', 'Remove board-01.pdf', 'Preview A note', 'Remove A note', 'Remove note-01.txt']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy()
+    }
+    // CONTROL: the hidden word is not in the name a sighted person reads.
+    expect(c.list().children[1].querySelector('.dog-refs-name').textContent).not.toMatch(/^File/)
+  })
+
+  it('the Tab walk: Add references, Core files only, Remove all references, Choose file, then each tile\'s Preview and Remove', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1), chosen: [ITEM, NOTE] })
+    const stops = [...c.body().querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())
+    expect(stops).toEqual(['Add references', 'Core files only', 'Remove all references', 'Choose file',
+      'Preview Scene one', 'Remove Scene one', 'Preview A note', 'Remove A note', 'Remove note-01.txt'])
+  })
+
+  it('each section\'s first control comes right under its title, with no project and with one, so the two sit on one line beside each other; the sentences follow', () => {
+    for (const opts of [{}, { projectChosen: false }, { files: UPLOADS().slice(0, 1) }, { refs: fakeRefs([ITEM, NOTE], { core: { state: 'none', count: 0, legacy: 0 } }) }]) {
+      const c = mount(opts)
+      const refsTitle = c.body().querySelector('.dog-sec-refs > h3')
+      const upTitle = c.uploadsGroup().querySelector(':scope > h3')
+      expect(refsTitle.nextElementSibling).toBe(c.body().querySelector('.dog-refs-actions'))
+      expect(upTitle.nextElementSibling).toBe(c.choose())
+      expect(c.choose().nextElementSibling).toBe(c.chooseInput())
+      expect(c.chooseInput().nextElementSibling.textContent).toBe('Source material for generating slide content (max 20 files)')
+      cleanup()
+    }
+  })
+
+  it('the Uploads group is always drawn: nothing uploaded and nothing chosen, it still has its title, its hint and Choose file; the last section is drawn too, with no empty list', () => {
     const c = mount({ files: [], chosen: [] })
-    expect(c.groups()).toHaveLength(1)
+    expect(c.list()).toBe(null)
+    expect(c.body().querySelector('.dog-sec-foot > h3').textContent).toBe('The deck reads')
     const g = c.uploadsGroup()
     expect(g.getAttribute('role')).toBe('group')
     // DG6's follow-up: its label is the section's title, an h3 (was a
@@ -172,7 +242,7 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     const c = mount({ files })
     const rows = c.uploadRows()
     expect(rows).toHaveLength(4)
-    expect(rows.every((r) => r.tagName === 'LI' && r.parentElement.matches('ul.dog-refs-rows'))).toBe(true)
+    expect(rows.every((r) => r.tagName === 'LI' && r.parentElement === c.list())).toBe(true)
     const glyph = (r) => r.querySelector('svg.dog-file-icon')
     expect(glyph(rows[0]).classList.contains('lucide-file-text')).toBe(true)
     expect(glyph(rows[1]).classList.contains('lucide-image')).toBe(true)
@@ -199,7 +269,8 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
 
   it('no Preview on an upload (it is the person\'s own file, in memory): the eye is the references\' alone', () => {
     const c = mount({ files: UPLOADS(), chosen: [ITEM] })
-    expect(within(c.uploadsGroup()).queryAllByRole('button', { name: /^Preview/ })).toHaveLength(0)
+    expect(c.uploadRows()).toHaveLength(4)
+    expect(c.uploadRows().flatMap((r) => within(r).queryAllByRole('button', { name: /^Preview/ }))).toHaveLength(0)
     expect(screen.getByRole('button', { name: 'Preview Scene one' })).toBeTruthy()
   })
 
@@ -213,18 +284,16 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(c.refs.removeAll).not.toHaveBeenCalled()
   })
 
-  it('Choose file sits at the group\'s foot and hands the picked file to D.O.G.\'s handler', () => {
+  it('Choose file sits under its title, its hidden input after it, and hands the picked file to D.O.G.\'s handler', () => {
     const c = mount({ files: UPLOADS().slice(0, 2) })
     const choose = c.choose()
     expect(choose.parentElement).toBe(c.uploadsGroup())
-    expect(before(c.uploadsGroup().querySelector('ul'), choose)).toBe(true)
-    // The rows just before it, and the hidden input just after it, outside
-    // the button and the group's last child (DG3; DG6's follow-up moved the
-    // input after the button, which it was just before, so the button is the
-    // rows' next sibling and sits 8px under them).
-    expect(choose.previousElementSibling).toBe(c.uploadsGroup().querySelector('ul'))
+    // DG7: the tiles left this section, so the button is the title's next
+    // sibling, and the sentence follows the hidden input.
+    expect(choose.previousElementSibling).toBe(c.uploadsGroup().querySelector('h3'))
     expect(choose.nextElementSibling).toBe(c.chooseInput())
-    expect(c.chooseInput()).toBe(c.uploadsGroup().lastElementChild)
+    expect(c.chooseInput().nextElementSibling).toBe(c.uploadsGroup().querySelector('.dog-sec-desc'))
+    expect(c.uploadsGroup().querySelector('ul, .dog-refs-row')).toBe(null)
     fireEvent.change(c.chooseInput(), { target: { files: [] } })
     expect(c.uploads.add).toHaveBeenCalledTimes(1)
   })
@@ -281,8 +350,45 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
 
   it('the header\'s number carries the meter\'s warning, so a folded card 1 still says it', () => {
     const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 250000 })} uploads={2} />)
-    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit')
-    expect(v.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit')
+    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen')
+    cleanup()
+    // DG7: past the limit it still gives the number and says it is an estimate.
+    const past = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 1200000 })} uploads={2} />)
+    expect(past.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit, about 122% (an estimate)')
+    expect(past.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit, about 122% (an estimate)')
+  })
+
+  it('an upload\'s tile shows the size warning a chosen file\'s tile shows, from D.O.G.\'s count of its pages', () => {
+    const files = [up('script.pdf', 'pdf', 1024 * 1024), up('huge.pdf', 'pdf', 40 * 1024 * 1024), up('long.pdf', 'pdf', 1024 * 1024)]
+    const uploads = { files, busy: false, add: vi.fn(), remove: vi.fn(), pdfPages: new Map([[files[0].id, 110], [files[1].id, 10], [files[2].id, 700]]) }
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={uploads} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    const words = [...view.container.querySelectorAll('.dog-refs-row[data-kind="upload"]')].map((r) => r.querySelector('.dog-refs-warn')?.textContent ?? null)
+    expect(words).toEqual([null, '40 MB: the AI may refuse a PDF over 32 MB', '700 pages: the AI may refuse a PDF over 600'])
+    // The same words on a chosen file's tile, for the same file.
+    cleanup()
+    const chosen = { key: 'file:f9', kind: 'file', name: 'long.pdf', dogType: 'pdf', id: 'f9', size: 1024 * 1024 }
+    const c = mount({ refs: fakeRefs([chosen], { pdfPages: new Map([['f9', 700]]) }) })
+    expect(c.refRows()[0].querySelector('.dog-refs-warn').textContent).toBe('700 pages: the AI may refuse a PDF over 600')
+  })
+
+  // Review round 1 (READ: placementFrom has no size check; an upload is in
+  // memory): "too large to place" is a stored file's rule, and was false here.
+  it('a video upload past the placing cap says nothing of being too large; a chosen video does', () => {
+    const big = 300 * 1024 * 1024
+    const files = [up('clip.mp4', 'video', big)]
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn() }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    const tile = view.container.querySelector('.dog-refs-row[data-kind="upload"]')
+    expect(tile.querySelector('.dog-refs-warn')).toBe(null)
+    expect(tile.querySelector('.dog-refs-sub').textContent).toBe('placed only, not read')
+    cleanup()
+    const c = mount({ chosen: [{ key: 'file:v1', kind: 'file', name: 'clip.mp4', dogType: 'video', id: 'v1', size: big }] })
+    expect(c.refRows()[0].querySelector('.dog-refs-warn').textContent).toBe('300 MB: too large to place in a slide')
+  })
+
+  it('CONTROL: an upload\'s tile with no count of its pages warns of nothing a person has not been told', () => {
+    const files = [up('script.pdf', 'pdf', 1024 * 1024)]
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn() }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    expect(view.container.querySelector('.dog-refs-warn')).toBe(null)
   })
 
   it('DG4: this is card 1\'s lower part, with no header, title or fold of its own', () => {
@@ -326,8 +432,10 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(alert.textContent).toBe('Please upload a PDF, Markdown, Text, Image, or Video file')
     expect(alert.getAttribute('data-tone')).toBe('danger')
     expect(before(group.querySelector('button.dog-upload'), alert)).toBe(true)
-    // Under Choose file, with only its hidden input between (DG6's follow-up).
-    expect(group.querySelector('button.dog-upload').nextElementSibling.nextElementSibling).toBe(alert)
+    // Under Choose file and its sentence, last in the section (DG7): the
+    // sentence stays where it is when a refusal arrives.
+    expect(group.querySelector('.dog-sec-desc').nextElementSibling).toBe(alert)
+    expect(group.lastElementChild).toBe(alert)
     cleanup()
     const many = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
     const full = render(<ReferencesCard refs={fakeRefs()} uploads={{ ...uploads, files: many, error: 'Maximum 20 files allowed' }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
@@ -335,17 +443,125 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     expect(full.container.querySelector('.dog-refs-uploads [role="alert"]').textContent).toBe('Maximum 20 files allowed')
   })
 
-  // Before DG6's follow-up the note sat under the uploads group, above the
-  // references; now Uploads follows the references, and the note opens the
-  // References section, under its title, above its groups.
-  it('with no project, the "Choose a project" note opens the References section, under its title and above its groups and Uploads', () => {
+  // Before DG7 the note opened the References section, under its title, so with
+  // no project Add references sat lower than Choose file; now it follows the
+  // actions, before Core's sentence, its words the same.
+  it('with no project, the "Choose a project" note follows the actions in the References section, in its own words, before Core\'s sentence', () => {
     const c = mount({ files: UPLOADS().slice(0, 1), chosen: [NOTE], projectChosen: false })
     const note = [...c.body().querySelectorAll('.dog-details-note')].find((p) => /^Choose a project/.test(p.textContent))
     expect(note.textContent).toBe('Choose a project to reference its items and files. Your notes can be referenced without one.')
     const section = c.body().querySelector('.dog-sec-refs')
-    expect(section.querySelector('.dog-sec-title').nextElementSibling).toBe(note)
-    expect(before(note, c.groups()[0])).toBe(true)
+    expect(note.parentElement).toBe(section)
+    expect(section.querySelector('.dog-refs-actions').nextElementSibling).toBe(note)
     expect(before(note, c.uploadsGroup())).toBe(true)
+  })
+
+  // DG7 review round 1 (MEASURED in Chromium): after the actions, the Tab from
+  // Add references to Undo crossed Core files only, where Enter ticks or makes a
+  // deck. Remove all leaves focus on Add references, so one Shift+Tab reaches it.
+  it('the notice opens the References section: Undo and Dismiss come before Add references, and no Tab from Add references to Undo crosses the Core files only box', () => {
+    const c = mount({ projectChosen: false, refs: fakeRefs([ITEM, NOTE], { notice: '2 references removed.', undoable: true }) })
+    const section = c.body().querySelector('.dog-sec-refs')
+    const notice = section.querySelector('.dog-refs-notice')
+    expect(section.querySelector('h3').nextElementSibling).toBe(notice)
+    expect(notice.nextElementSibling).toBe(section.querySelector('.dog-refs-actions'))
+    expect(section.querySelector('.dog-refs-actions').nextElementSibling.textContent).toMatch(/^Choose a project/)
+    expect(notice.getAttribute('role')).toBe('status')
+    const stops = [...c.body().querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())
+    expect(stops.slice(0, 5)).toEqual(['Undo', 'Dismiss', 'Add references', 'Core files only', 'Remove all references'])
+    // CONTROL: the same walk with the notice after the actions has the box between.
+    const moved = section.cloneNode(true)
+    moved.append(moved.querySelector('.dog-refs-notice'))
+    const walk = [...moved.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())
+    expect(walk.indexOf('Undo')).toBeGreaterThan(walk.indexOf('Core files only'))
+  })
+})
+
+// =============================================================================
+// DG7, the meter (2026-11-05; her words at the "Size: the meter" comment in
+// referenceModel.js; OUTSTANDING MTR-01): it says it is an estimate, in the
+// sentence and not only in the hover; past the limit it still gives the number;
+// its limit is the model a full deck resolves to, less the answer's reserve.
+// =============================================================================
+describe('DG7: the reading meter says what is true', () => {
+  afterEach(() => { setModelSources({}) })
+  const limit = 1000000 - 16384
+  const words = (tokens, ...rest) => meterSentence(meterState(tokens, limit, ...rest))
+  const meter = (props) => {
+    const view = render(<ReferencesMeter {...props} />)
+    const el = view.container.querySelector('.dog-refs-meter')
+    return { el, words: el.querySelector('.dog-refs-meter-words').textContent, hover: el.getAttribute('title'), over: el.getAttribute('data-over'), track: el.querySelector('[role="meter"]') }
+  }
+
+  it('under the limit: today\'s words, and that it is an estimate', () => {
+    expect(words(330000)).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(words(100)).toBe('Less than 1% of what D.O.G. can read for one deck (an estimate)')
+    expect(words(0)).toBe('About 0% of what D.O.G. can read for one deck (an estimate)')
+  })
+
+  it('past the limit: today\'s words, the number, and that it is an estimate; it warns and does not block', () => {
+    expect(words(1200000)).toBe('Past what D.O.G. can read for one deck (about 122%, an estimate): generating may be slow, cost more, or fail.')
+  })
+
+  it('what it has not counted and what Generate downloads still follow, as they did', () => {
+    expect(words(330000, 2)).toBe('About 34% of what D.O.G. can read for one deck (an estimate) · 2 PDFs not counted until read')
+    expect(meterSentence(meterState(10, limit), 30 * 1024 * 1024)).toBe('Less than 1% of what D.O.G. can read for one deck (an estimate) · about 30 MB to download')
+  })
+
+  it('the bar measures against the model a full deck resolves to, less the answer\'s reserve: built in, Sonnet 5', () => {
+    const m = meter({ tokens: 330000 })
+    expect(m.hover).toBe('An estimate: about 330,000 of 983,616 tokens')
+    expect(m.words).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(m.over).toBe('false')
+    expect(m.track.getAttribute('aria-valuetext')).toBe(m.words)
+    expect(m.track.getAttribute('aria-valuenow')).toBe('34')
+  })
+
+  it('a person, a company or the platform choosing another model moves the limit', () => {
+    setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    expect(meter({ tokens: 330000 }).hover).toBe('An estimate: about 330,000 of 183,616 tokens')
+    cleanup()
+    setModelSources({ workspace: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    expect(meter({ tokens: 330000 }).over).toBe('true')
+    cleanup()
+    // Another function's choice is not the full deck's.
+    setModelSources({ user: { 'dog.pageOutline': 'claude-haiku-4-5-20251001' } })
+    expect(meter({ tokens: 330000 }).hover).toBe('An estimate: about 330,000 of 983,616 tokens')
+  })
+
+  it('a model with no recorded limit keeps 200,000', () => {
+    setModelSources({ platform: { 'dog.fullDeck': 'claude-future-9' } })
+    expect(meter({ tokens: 150000 }).hover).toBe('An estimate: about 150,000 of 200,000 tokens')
+  })
+
+  it('the header and the bar say one number: the same limit, the same model', () => {
+    setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 330000 })} uploads={0} />)
+    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('1 chosen · over the limit, about 180% (an estimate)')
+    expect(meter({ tokens: 330000 }).words).toBe('Past what D.O.G. can read for one deck (about 180%, an estimate): generating may be slow, cost more, or fail.')
+  })
+
+  it('the page cap on a tile follows the model too: a 200k model warns from 101 pages', () => {
+    setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
+    const files = [up('script.pdf', 'pdf', 1024 * 1024)]
+    const view = render(<ReferencesCard refs={fakeRefs()} uploads={{ files, busy: false, add: vi.fn(), remove: vi.fn(), pdfPages: new Map([[files[0].id, 110]]) }} projectChosen onAdd={vi.fn()} onPreview={vi.fn()} />)
+    expect(view.container.querySelector('.dog-refs-warn').textContent).toBe('110 pages: the AI may refuse a PDF over 100')
+  })
+
+  // The Add references window draws from a pool this file does not build; its
+  // meter is ReferencesMeter (above), and its warning asks the same two functions.
+  it('the window says what the card says: its warning asks the same model\'s cap, its footer is this meter', () => {
+    const picker = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'ReferencesPicker.jsx'), 'utf8')
+    expect(picker).toContain('sizeWarning(f.dogType, f.size, refs.pdfPages?.get(f.id) || null, pdfPageLimit(deckModel()))')
+    expect(picker).toContain('<ReferencesMeter tokens={refs.chosenTokens + extraTokens}')
+    expect(picker).not.toMatch(/meterState|readingLimit|REFERENCE_TOKEN_LIMIT/)
+  })
+
+  it('never blocks: past the limit nothing is disabled and nothing else changes', () => {
+    const c = mount({ files: UPLOADS().slice(0, 1), refs: fakeRefs([ITEM], { chosenTokens: 2000000 }) })
+    expect(c.body().querySelector('.dog-refs-meter').getAttribute('data-over')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Add references' }).disabled).toBe(false)
+    expect(screen.getByRole('button', { name: 'Choose file' }).disabled).toBe(false)
   })
 })
 
@@ -359,7 +575,7 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
 // =============================================================================
 describe('DG4: Core files only, beside Add references', () => {
   const box = () => screen.getByRole('checkbox', { name: 'Core files only' })
-  const said = (c) => c.body().querySelector('.dog-refs-core-said')
+  const said = (c) => c.body().querySelector('#dog-refs-core-said')
   const add = () => screen.getByRole('button', { name: 'Add references' })
   // Off is `aria-disabled`, never `disabled` (review round 2, finding 1): a
   // disabled button loses focus in Chromium, to <body>.
@@ -419,13 +635,11 @@ describe('DG4: Core files only, beside Add references', () => {
     expect(box().querySelector('svg.dog-check-glyph')).not.toBe(null)
     expect(add().disabled).toBe(true)
     expect(screen.queryByRole('button', { name: /^Remove all/ })).toBe(null)
-    const files = c.groups().find((g) => g.getAttribute('aria-label') === 'Files')
-    expect(files.querySelector('.dog-refs-group-label').textContent).toBe('Files (2)')
-    expect([...files.querySelectorAll('.dog-refs-row')].map((r) => r.querySelector('.dog-refs-core')?.textContent)).toEqual(['Core', 'Core'])
-    expect(within(files).queryAllByRole('button', { name: /^Remove/ })).toHaveLength(0)
-    expect(within(files).getAllByRole('button', { name: /^Preview/ })).toHaveLength(2)
+    expect(c.refRows().map((r) => r.querySelector('.dog-refs-core')?.textContent)).toEqual(['Core', 'Core'])
+    expect(c.refRows().flatMap((r) => within(r).queryAllByRole('button', { name: /^Remove/ }))).toHaveLength(0)
+    expect(c.refRows().flatMap((r) => within(r).getAllByRole('button', { name: /^Preview/ }))).toHaveLength(2)
     // The upload keeps its Remove: uploads still go.
-    expect(within(c.uploadsGroup()).getAllByRole('button', { name: /^Remove/ })).toHaveLength(1)
+    expect(c.uploadRows().flatMap((r) => within(r).getAllByRole('button', { name: /^Remove/ }))).toHaveLength(1)
     expect(said(c).textContent).toBe('Your 2 chosen references are set aside while this is ticked; they come back when you clear it.')
     fireEvent.click(box())
     expect(c.refs.setCoreOnly).toHaveBeenCalledWith(false)
@@ -495,9 +709,8 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
   const removeOf = (name) => screen.getByRole('button', { name: `Remove ${name}` })
   const press = (b) => { b.focus(); fireEvent.keyDown(b, { key: 'Enter' }); fireEvent.click(b) }
 
-  // DG6's follow-up: Uploads is its own section after the references, so a
-  // Remove stays in its own section (before, the next row was the next one
-  // in the card, the uploads then Items' first).
+  // DG6's follow-up: a Remove stays in its own section. DG7: the tiles are one
+  // list, so it stays among its own kind (`data-kind`).
   it('an upload\'s Remove: focus goes to the next upload\'s Remove, else the previous one\'s; never across to the references', () => {
     const files = UPLOADS().slice(0, 2)
     const c = mount({ files, chosen: [ITEM] })
@@ -537,6 +750,93 @@ describe('DG2 review round 1: a Remove from the keyboard keeps focus in the list
     mount({ files: [], chosen: [ITEM] })
     press(removeOf('Scene one'))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+  })
+
+  // DG7 (the brief: the test today's suite lacks): with the tiles in one list a
+  // scope by section finds the other kind's tile; these fail with that scope.
+  it('the last upload\'s Remove with a reference listed goes to Choose file, never to the reference\'s Remove', () => {
+    const files = UPLOADS().slice(0, 1)
+    mount({ files, chosen: [ITEM] })
+    press(removeOf(files[0].file.name))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose file' }))
+    expect(document.activeElement).not.toBe(removeOf('Scene one'))
+  })
+
+  it('the last reference\'s Remove with an upload listed goes to Add references, never to the upload\'s Remove', () => {
+    const files = UPLOADS().slice(0, 1)
+    mount({ files, chosen: [ITEM] })
+    press(removeOf('Scene one'))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add references' }))
+    expect(document.activeElement).not.toBe(removeOf(files[0].file.name))
+  })
+
+  // Review round 1 (MEASURED: previous-first passed every test, none pressed a
+  // middle tile): next, else previous.
+  it('a middle tile\'s Remove goes to the next of its kind, not the previous', () => {
+    const files = UPLOADS().slice(0, 3)
+    mount({ files, chosen: [ITEM, FILE, NOTE] })
+    press(removeOf('board-01.pdf'))
+    expect(document.activeElement).toBe(removeOf('A note'))
+    press(removeOf(files[1].file.name))
+    expect(document.activeElement).toBe(removeOf(files[2].file.name))
+  })
+
+  it('a reference\'s first Remove goes to the next reference\'s, over nothing else; the last upload\'s goes back over no reference', () => {
+    const files = UPLOADS().slice(0, 2)
+    mount({ files, chosen: [ITEM, FILE, NOTE] })
+    press(removeOf('Scene one'))
+    expect(document.activeElement).toBe(removeOf('board-01.pdf'))
+    press(removeOf(files[1].file.name))
+    expect(document.activeElement).toBe(removeOf(files[0].file.name))
+  })
+
+  // "Else the other's": no state of the card reaches it today (Core files only
+  // takes the references' Removes away with Add references, and Choose file goes
+  // only at 20 uploads, when an upload has a neighbour), so it is pinned on the
+  // function itself, on a part built by hand.
+  it('else the other\'s way to add: a kind with no tile left and no way of its own hands focus to the other kind\'s', () => {
+    const part = document.createElement('div')
+    part.className = 'dog-refs'
+    part.innerHTML = '<div class="dog-refs-actions"><button class="ui-btn">Add references</button></div><div class="dog-refs-uploads"><button class="ui-btn dog-upload">Choose file</button></div><ul><li class="dog-refs-row" data-kind="upload"><button class="dog-refs-remove">x</button></li><li class="dog-refs-row" data-kind="reference"><button class="dog-refs-remove">x</button></li></ul>'
+    const view = render(<div ref={(el) => { el?.append(part) }} />)
+    const [upload, reference] = part.querySelectorAll('.dog-refs-remove')
+    const add = part.querySelector('.dog-refs-actions button')
+    const chooseFile = part.querySelector('button.dog-upload')
+    upload.focus()
+    expect(focusAfterRemove(upload)).toBe(chooseFile)
+    reference.focus()
+    expect(focusAfterRemove(reference)).toBe(add)
+    chooseFile.remove()
+    upload.focus()
+    expect(focusAfterRemove(upload)).toBe(add)
+    part.querySelector('.dog-refs-uploads').append(chooseFile)
+    add.disabled = true
+    reference.focus()
+    expect(focusAfterRemove(reference)).toBe(chooseFile)
+    view.unmount()
+  })
+
+  // The brief's two nevers, over every Remove in the states that take a way to
+  // add away: Core files only ticked (Add references off), the 20th upload
+  // (Choose file gone), and both.
+  it('never the Core files only box and never the page, in any of the states a Remove can leave', () => {
+    const many = Array.from({ length: UPLOAD_LIMIT }, (_, i) => up(`note-${String(i + 1).padStart(2, '0')}.txt`, 'text', 100))
+    for (const opts of [
+      { files: UPLOADS().slice(0, 1), chosen: [ITEM] },
+      { files: UPLOADS().slice(0, 1), refs: fakeRefs([], { coreOnly: true }) },
+      { files: many, chosen: [ITEM] },
+      { files: many, refs: fakeRefs([], { coreOnly: true }) },
+      { files: [], chosen: [ITEM, NOTE] },
+    ]) {
+      const c = mount(opts)
+      for (const b of [...c.body().querySelectorAll('.dog-refs-remove')]) {
+        press(b)
+        expect(document.activeElement).not.toBe(document.body)
+        expect(document.activeElement.matches('.dog-check')).toBe(false)
+        expect(document.activeElement).not.toBe(b)
+      }
+      cleanup()
+    }
   })
 
   // DG4: Core files only ticked holds Add references off, so focus goes to

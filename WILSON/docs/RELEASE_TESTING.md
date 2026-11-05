@@ -237,14 +237,19 @@ No automated test covers the two-factor path end to end: re-run the first three 
   older than 24 hours, across every company of this environment?* and answers *Deleted N file(s) across M companies.*, with a
   `blob.purged` row in Audit. **On the beta before 2026-11-09** (OUTSTANDING FX12-01; walkthrough 76 part C). `[BLOCKING]`
 
-## §E. D.O.G. (25 min · walkthroughs 75, 76, 77, 80, 81, 84, 89)
+## §E. D.O.G. (25 min · walkthroughs 75, 76, 77, 80, 81, 84, 89, 94)
 
 - No project: card **1 Project and references** reads *None chosen* and *What goes to the AI: what is listed here, the project’s
-  title and description, and what you write in step 2.*; `Uploads (0)` with **Choose file**, which Tab reaches; **Core files only**
-  off, *Core files come from a project: choose one.* `[BLOCKING]`
+  title and description, and what you write in step 2.*; **References** and `Uploads (0)` side by side on a window of 1,148 px or wider (the pages column at its usual width),
+  **Add references** and **Choose file** on one line, which Tab reaches in that order; **Core files only** off, *Core files come from a
+  project: choose one.* `[BLOCKING]`
 - **Choose a project** → **Add references** (*From <project>, and your notes*) → an item, a file and a note → **Done** → listed in
-  groups; the meter *Less than 1% of what D.O.G. can read for one deck* (or *About N% …*); two or more give **Remove all
-  references**, with Undo. `[BLOCKING]`
+  one list under both, with any upload after them; the meter *Less than 1% of what D.O.G. can read for one deck (an estimate)* (or *About
+  N% …*); two or more give **Remove all references**, with Undo. `[BLOCKING]`
+- A 110-page PDF uploaded: the meter *About 34% of what D.O.G. can read for one deck (an estimate)*, no warning on its tile; a PDF of
+  more than 600 pages: *N pages: the AI may refuse a PDF over 600* on its tile, the bar a warning only. `[NOTE]`
+- From the keyboard: an upload's × with a reference listed goes to the next upload's ×, else **Choose file**; **Remove all
+  references** leaves focus on **Add references**, Shift+Tab reaches **Dismiss** and **Undo**. `[BLOCKING]`
 - **Core files only** → the rows become the project's Core files (Step 7.4) and **Add references** greys: *Your N chosen references
   are set aside while this is ticked; they come back when you clear it.*; clearing it brings them back. `[BLOCKING]`
 - Card **2 Generate outline** has exactly **Place visual** and **Theme generator**, in both modes. `[BLOCKING]`

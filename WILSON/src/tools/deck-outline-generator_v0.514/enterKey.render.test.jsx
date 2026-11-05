@@ -48,6 +48,9 @@ import { ToastProvider } from '../../ui'
 import { ASK_FOR_CONTEXT } from './enterGenerates'
 import { _resetOverlaysForTests } from '../../ui/overlay'
 import { setHeldSession } from '../../cloud/auth/heldSession'
+import { DEFAULT_FULL_DECK_SYSTEM } from './prompts/fullDeckPrompts'
+import { DEFAULT_SINGLE_PAGE_SYSTEM } from './prompts/singlePagePrompts'
+import { FULL_DECK_ANSWER_TOKENS, FULL_DECK_FIXED_TOKENS, SINGLE_PAGE_FIXED_TOKENS } from './references/referenceModel'
 
 const CONTEXT = 'A pitch deck for a watch launch, five pages.'
 
@@ -612,18 +615,23 @@ describe('FX14 on the rendered D.O.G.: the card title bars fold from the keyboar
 const PNG_1PX = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 const BRIEF = 'The brief: a watch launch.'
 const DECK = 'SLIDE #1 — Title Page\n═══════════════\n▸ TITLE:\nThe watch launch\n▸ SUBTITLE:\nA pitch\n'
-/** The meter with a text upload (BRIEF) and the picture, measured on the
-    code before the move (`bfea9fd6`, the upload block in card 1). */
-const METER_BEFORE = Object.freeze({
-  hover: 'An estimate: about 4,008 of 200,000 tokens',
-  words: 'About 2% of what D.O.G. can read for one deck',
-  valuetext: 'About 2% of what D.O.G. can read for one deck',
-  valuenow: '2',
+/** The meter with a text upload (BRIEF) and the picture. Before DG7 (`bfea9fd6`,
+    and until her answer of 2026-11-05): 'An estimate: about 4,008 of 200,000
+    tokens', 'About 2% of what D.O.G. can read for one deck'. Now the same 4,008,
+    the full deck's own words (MTR-03), the model's limit (MTR-01), and the word
+    estimate. */
+const FULL_DECK_OWN = Math.ceil(DEFAULT_FULL_DECK_SYSTEM.length / 4) + FULL_DECK_FIXED_TOKENS
+const METER_NOW = Object.freeze({
+  hover: `An estimate: about ${(4008 + FULL_DECK_OWN).toLocaleString()} of 983,616 tokens`,
+  words: 'About 1% of what D.O.G. can read for one deck (an estimate)',
+  valuetext: 'About 1% of what D.O.G. can read for one deck (an estimate)',
+  valuenow: '1',
   over: 'false',
 })
 // DG4: the references are card 1's lower part (`.dog-refs`), no card of their own.
 const refsBody = () => document.querySelector('#dog-card1-body .dog-refs')
-const uploadRows = () => [...document.querySelectorAll('#dog-card1-body .dog-refs-uploads .dog-refs-row')]
+// DG7: the tiles are one list under the two sections; a tile says its own kind.
+const uploadRows = () => [...document.querySelectorAll('#dog-card1-body .dog-sec-foot .dog-refs-row[data-kind="upload"]')]
 const chooseInput = () => document.querySelector('#dog-card1-body .dog-refs-uploads input[type=file]')
 async function addUpload(d, file) {
   await act(async () => { fireEvent.change(d.q('input[type=file][accept*=".txt"]'), { target: { files: [file] } }) })
@@ -654,7 +662,7 @@ describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card
     const inputs = d.view.container.querySelectorAll('.dog-main input[type=file]')
     expect(inputs).toHaveLength(1)
     expect(inputs[0]).toBe(chooseInput())
-    expect(inputs[0].closest('.dog-refs-group')).toBe(refsBody().querySelector('.dog-refs-uploads'))
+    expect(inputs[0].closest('[role="group"]')).toBe(refsBody().querySelector('.dog-refs-uploads'))
   })
 
   it('an upload is a row in References with its size as the chip said it; its Remove takes it out, and the header\'s one number follows', async () => {
@@ -707,7 +715,7 @@ describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card
     expect(chooseInput()).not.toBe(null)
   })
 
-  it('the meter\'s figure with two uploads is byte for byte what it was before the move', async () => {
+  it('the meter\'s figure with two uploads: the two uploads, the full deck\'s own words, the model\'s limit', async () => {
     const d = await openDog({ upload: false })
     await addUpload(d, new File([BRIEF], 'fx13-brief.txt', { type: 'text/plain' }))
     await addUpload(d, new File([PNG_1PX], 'picture-01.png', { type: 'image/png' }))
@@ -719,7 +727,58 @@ describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card
       valuetext: track.getAttribute('aria-valuetext'),
       valuenow: track.getAttribute('aria-valuenow'),
       over: meter.getAttribute('data-over'),
-    }).toEqual(METER_BEFORE)
+    }).toEqual(METER_NOW)
+  })
+
+  // DG7 (OUTSTANDING MTR-02 and MTR-01): her script. A PDF the page counter can
+  // read, by the same path an upload takes.
+  const scriptPdf = (pages, name = 'script.pdf') => new File([`%PDF-1.4\n1 0 obj\n<< /Type /Pages /Kids [] /Count ${pages} >>\nendobj\n`], name, { type: 'application/pdf' })
+  const meterTitle = () => refsBody().querySelector('.dog-refs-meter').getAttribute('title')
+
+  it('a 110-page PDF reads 330,000 of 983,616, not past the limit, with no warning on its tile', async () => {
+    const d = await openDog({ upload: false })
+    await addUpload(d, scriptPdf(110))
+    // The 1: with no project, the bar's project words are the one space.
+    await waitFor(() => expect(meterTitle()).toBe(`An estimate: about ${(330000 + FULL_DECK_OWN + 1).toLocaleString()} of 983,616 tokens`))
+    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('data-over')).toBe('false')
+    expect(refsBody().querySelector('.dog-refs-meter-words').textContent).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(uploadRows()[0].querySelector('.dog-refs-warn')).toBe(null)
+    expect(d.q('.dog-refs-count').textContent).toBe('1 chosen')
+  })
+
+  it('a PDF past the provider\'s page cap says so on its upload\'s tile, and the bar stays a warning', async () => {
+    const d = await openDog({ upload: false })
+    await addUpload(d, scriptPdf(700, 'very-long.pdf'))
+    await waitFor(() => expect(uploadRows()[0].querySelector('.dog-refs-warn')?.textContent).toBe('700 pages: the AI may refuse a PDF over 600'))
+    await type(d.box(), CONTEXT)
+    expect(fullDeckButton(d).disabled).toBe(false)
+  })
+
+  // MTR-03: the page request went into the bar whatever the mode.
+  it('the bar counts what the chosen mode sends: a page request moves it only on Single page', async () => {
+    const d = await openDog({ upload: false })
+    const before = meterTitle()
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.sw().getAttribute('aria-checked')).toBe('false')
+    const singleEmpty = meterTitle()
+    const singleOwn = Math.ceil(DEFAULT_SINGLE_PAGE_SYSTEM.length / 4) + SINGLE_PAGE_FIXED_TOKENS + 1
+    expect(before).toBe(`An estimate: about ${(FULL_DECK_OWN + 1).toLocaleString()} of 983,616 tokens`)
+    expect(singleEmpty).toBe(`An estimate: about ${singleOwn.toLocaleString()} of 983,616 tokens`)
+    await type(d.q('.dog-page-request'), 'r'.repeat(400))
+    expect(meterTitle()).toBe(`An estimate: about ${(singleOwn + 100).toLocaleString()} of 983,616 tokens`)
+    // Back on Full deck the words typed there do not count.
+    await act(async () => { fireEvent.click(d.sw()) })
+    expect(d.sw().getAttribute('aria-checked')).toBe('true')
+    expect(meterTitle()).toBe(before)
+  })
+
+  it('what a full deck reserves for its answer is what it asks for', async () => {
+    const d = await openDog()
+    await type(d.box(), CONTEXT)
+    await act(async () => { fireEvent.click(fullDeckButton(d)) })
+    await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
+    expect(callAI.mock.calls[0][0].max_tokens).toBe(FULL_DECK_ANSWER_TOKENS)
+    expect(1000000 - FULL_DECK_ANSWER_TOKENS).toBe(983616)
   })
 
   it('FX13\'s rule with the upload in References: the box empty, Enter asks; with words, Enter starts a full deck that carries the upload', async () => {
@@ -1191,8 +1250,9 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
   // (her words of 2026-10-31: "below the references should be the upload
   // option"): Uploads follows the references' actions, so the stop before
   // Choose file is Core files only (before: New project, and Add references
-  // after it), and the uploads' Removes come after Core files only.
-  it('Choose file is a Tab stop in Uploads, after Core files only and before card 2; with two uploads, after their Removes; the file input never is', async () => {
+  // after it). DG7: the tiles are one list under the two sections, so each
+  // upload's Remove comes after Choose file (before: before it, in its section).
+  it('Choose file is a Tab stop in Uploads, after Core files only and before card 2; with two uploads, before their Removes; the file input never is', async () => {
     const d = await openDog({ upload: false })
     let stops = tabStops(d)
     const at = (el) => stops.indexOf(el)
@@ -1206,7 +1266,7 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
     stops = tabStops(d)
     const names = stops.slice(at(core), at(headButton('Generate outline')) + 1)
       .map((el) => el.getAttribute('aria-label') || document.getElementById(el.getAttribute('aria-labelledby'))?.textContent.trim() || el.textContent.trim())
-    expect(names).toEqual(['Core files only', 'Remove note-01.txt', 'Remove note-02.txt', 'Choose file', 'Generate outline'])
+    expect(names).toEqual(['Core files only', 'Choose file', 'Remove note-01.txt', 'Remove note-02.txt', 'Generate outline'])
   })
 
   for (const words of [false, true]) {
@@ -1284,14 +1344,14 @@ function withProject(files) {
 const coreBox = () => screen.getByRole('checkbox', { name: 'Core files only' })
 // Off is aria-disabled, never disabled (DG4 review round 2, finding 1).
 const coreIsOff = () => { expect(coreBox().disabled).toBe(false); return coreBox().getAttribute('aria-disabled') === 'true' }
-const coreSaid = () => document.querySelector('#dog-card1-body .dog-refs-core-said')
+const coreSaid = () => document.querySelector('#dog-card1-body #dog-refs-core-said')
 /** Choose the project and wait for its list (the checkbox's "Looking for…" gone). */
 async function chooseProject(d) {
   await act(async () => { fireEvent.change(d.q('select.dog-project-select'), { target: { value: PROJECT.id } }) })
   await waitFor(() => expect(coreSaid()?.textContent || '').not.toMatch(/^Looking for/))
   await act(async () => {})
 }
-const refNames = () => [...refsBody().querySelectorAll('.dog-refs-group:not(.dog-refs-uploads) .dog-refs-name')].map((n) => n.textContent)
+const refNames = () => [...refsBody().querySelectorAll('.dog-sec-foot .dog-refs-row[data-kind="reference"] .dog-refs-name')].map((n) => n.textContent)
 
 describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note 5)', () => {
   // DG6's follow-up (Audrey, 2026-10-31, verbatim: "project select needs to
@@ -1303,16 +1363,19 @@ describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note
   // dropdown, New project), References (its title, the no-project note, Add
   // references, Core files only, its sentence), Uploads (its title), then
   // the contract line and the meter.
-  it('the project first, then the references, then the uploads, each under its title, the contract line and the meter last; Core files only beside Add references; the steps read 1 and 2', async () => {
+  // DG7 (Audrey, 2026-11-05: "lets have references and the uploads be side by
+  // side in the card"): a section's first control comes right under its title
+  // and its sentences after it, and the last section has a title of its own.
+  it('the project first, then the references, then the uploads, each under its title, then the list\'s section with the contract line and the meter; Core files only beside Add references; the steps read 1 and 2', async () => {
     const d = await openDog({ upload: false })
     expect(d.q('#dog-refs-body')).toBe(null)
     expect(screen.queryByRole('button', { name: 'References' })).toBe(null)
     expect([...d.view.container.querySelectorAll('.dog-main .dog-step-title')].map((h) => h.textContent)).toEqual(['1Project and references', '2Generate outline'])
     const card1 = d.q('#dog-card1-body')
-    // The three sections' titles are headings under the card's, in order.
-    expect([...card1.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)'])
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)'])
-    const [project, references, uploads] = [...card1.querySelectorAll('h3')]
+    // The four sections' titles are headings under the card's, in order.
+    expect([...card1.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)', 'The deck reads'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)', 'The deck reads'])
+    const [project, references, uploads, reads] = [...card1.querySelectorAll('h3')]
     const order = [
       project,
       card1.querySelector('.dog-sec-project .dog-sec-desc'),
@@ -1320,12 +1383,14 @@ describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note
       d.q('select.dog-project-select'),
       within(card1).getByRole('button', { name: 'New project' }),
       references,
-      [...card1.querySelectorAll('.dog-details-note')].find((p) => /^Choose a project to reference/.test(p.textContent)),
       within(card1).getByRole('button', { name: 'Add references' }),
       coreBox(),
+      [...card1.querySelectorAll('.dog-details-note')].find((p) => /^Choose a project to reference/.test(p.textContent)),
       coreSaid(),
       uploads,
       card1.querySelector('.dog-refs-uploads button.dog-upload'),
+      card1.querySelector('.dog-refs-uploads .dog-sec-desc'),
+      reads,
       card1.querySelector('.dog-refs-contract'),
       card1.querySelector('.dog-refs-meter'),
     ]
@@ -1469,7 +1534,7 @@ describe('DG4 on the rendered D.O.G.: Core files only (note 4)', () => {
     // The meter counts what is listed: the text by its size, the picture at
     // its estimate, with the project's own words (Lantern test, its line).
     const expected = Math.ceil(40 / 4) + 4000 + Math.ceil(`${PROJECT.title} ${PROJECT.description}`.length / 4)
-    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('title')).toBe(`An estimate: about ${expected.toLocaleString()} of 200,000 tokens`)
+    expect(refsBody().querySelector('.dog-refs-meter').getAttribute('title')).toBe(`An estimate: about ${(expected + FULL_DECK_OWN).toLocaleString()} of 983,616 tokens`)
     await type(d.box(), CONTEXT)
     await act(async () => { fireEvent.click(fullDeckButton(d)) })
     await waitFor(() => expect(callAI).toHaveBeenCalledTimes(1))
@@ -1662,13 +1727,16 @@ describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
 // titled sections in her order. jsdom lays nothing out, so this pins what the
 // layout rests on: the column holds card 1, card 2 and the output card, in
 // that order, as its own children, with nothing round the cards; card 1's
-// body is the Project section, then the references' part, whose sections are
-// References, Uploads and the line of what goes to the AI with its meter.
+// body is the Project section, then the references' part: the row of the
+// References and Uploads sections (DG7), then the section of the one list, the
+// line of what goes to the AI and its meter.
 // The DG4 cases above (card 1's order, the fold, the count, the Tab stops)
 // pin the rest.
 describe('DG6 on the rendered D.O.G.: the two input cards and the output card are the column\'s own children, and card 1 is titled sections in her order', () => {
   const kids = (main) => [...main.children].filter((c) => c.matches('.dog-card')).map((c) => (c.matches('.dog-card-project') ? 1 : c.matches('.dog-s2') ? 2 : c.matches('.dog-output') ? 'out' : c.className))
-  const sections = (body) => [...body.querySelectorAll(':scope > .dog-sec, :scope > .dog-refs > .dog-sec')].map((s) => s.querySelector(':scope > .dog-sec-title')?.textContent ?? (s.matches('.dog-sec-foot') ? 'foot' : s.className))
+  const sections = (body) => [...body.querySelectorAll(':scope > .dog-sec, :scope > .dog-refs > .dog-refs-pair > .dog-sec, :scope > .dog-refs > .dog-sec')].map((s) => s.querySelector(':scope > .dog-sec-title')?.textContent ?? s.className)
+  const READS = ['Project', 'References', 'Uploads (0)', 'The deck reads']
+  const beside = (body) => [...body.querySelectorAll(':scope > .dog-refs > .dog-refs-pair > .dog-sec > .dog-sec-title')].map((h) => h.textContent)
 
   it('the column holds card 1, card 2 and the output card, in that order, with no wrapper round the cards', async () => {
     const d = await openDog({ upload: false })
@@ -1679,13 +1747,15 @@ describe('DG6 on the rendered D.O.G.: the two input cards and the output card ar
     expect(d.q('.dog-s2').parentElement).toBe(main)
   })
 
-  it('card 1 is Project, References, Uploads and the foot, in her order; the titles are headings', async () => {
+  it('card 1 is Project, References beside Uploads, and the section of what the deck reads, in her order; the titles are headings', async () => {
     withProject(CORE())
     const d = await openDog({ upload: false })
     const body = d.q('#dog-card1-body')
-    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    expect(sections(body)).toEqual(READS)
+    expect(beside(body)).toEqual(['References', 'Uploads (0)'])
     await chooseProject(d)
-    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    expect(sections(body)).toEqual(READS)
+    expect(beside(body)).toEqual(['References', 'Uploads (0)'])
     // The chosen project's description joins the Project section.
     expect(body.querySelector('.dog-sec-project .dog-project-details').textContent).toContain('A made-up project.')
   })
@@ -1695,15 +1765,19 @@ describe('DG6 on the rendered D.O.G.: the two input cards and the output card ar
     main.innerHTML = '<div class="dog-inputs"><div class="dog-card dog-card-project"></div><div class="dog-card dog-s2"></div></div><div class="dog-card dog-output"></div>'
     expect(kids(main)).not.toEqual([1, 2, 'out'])
     const body = document.createElement('div')
-    body.innerHTML = '<div class="dog-sec"><h3 class="dog-sec-title">Project</h3></div><div class="dog-refs"><div class="dog-sec"><h3 class="dog-sec-title">References</h3></div><div class="dog-sec"><h3 class="dog-sec-title">Uploads (0)</h3></div><div class="dog-sec dog-sec-foot"></div></div>'
-    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    body.innerHTML = '<div class="dog-sec"><h3 class="dog-sec-title">Project</h3></div><div class="dog-refs"><div class="dog-refs-pair"><div class="dog-sec"><h3 class="dog-sec-title">References</h3></div><div class="dog-sec"><h3 class="dog-sec-title">Uploads (0)</h3></div></div><div class="dog-sec dog-sec-foot"><h3 class="dog-sec-title">The deck reads</h3></div></div>'
+    expect(sections(body)).toEqual(READS)
     const swapped = body.cloneNode(true)
-    const refs = swapped.querySelector('.dog-refs')
-    refs.prepend(refs.children[1])
-    expect(sections(swapped)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    const pair = swapped.querySelector('.dog-refs-pair')
+    pair.prepend(pair.children[1])
+    expect(sections(swapped)).not.toEqual(READS)
     const untitled = body.cloneNode(true)
-    untitled.querySelector('.dog-refs .dog-sec-title').remove()
-    expect(sections(untitled)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    untitled.querySelector('.dog-sec-foot .dog-sec-title').remove()
+    expect(sections(untitled)).not.toEqual(READS)
+    // The row taken away, the two sections one under the other again.
+    const stacked = body.cloneNode(true)
+    stacked.querySelector('.dog-refs-pair').replaceWith(...stacked.querySelector('.dog-refs-pair').children)
+    expect(beside(stacked)).not.toEqual(['References', 'Uploads (0)'])
   })
 })
 

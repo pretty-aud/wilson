@@ -12,8 +12,10 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
-  BUILTIN, REGISTRY, BY_KEY, RETIRED,
+  BUILTIN, REGISTRY, BY_KEY, RETIRED, MODEL_INPUT_LIMITS, inputLimitFor,
   isWellFormedModelId, resolveModel, registryByTool,
 } from './aiModels'
 
@@ -48,6 +50,47 @@ describe('REGISTRY integrity', () => {
     // Deliberate: every call site on Haiku kept working through the outage.
     // A change here should be a decision, not a drive-by modernisation.
     expect(BUILTIN.FAST).toBe('claude-haiku-4-5-20251001')
+  })
+})
+
+// DG7 (2026-11-05, her answer "Fix it in the D.O.G. session (Recommended)"; the
+// source is on MODEL_INPUT_LIMITS): the bar measures against the model's limit.
+describe('MODEL_INPUT_LIMITS: read from the provider\'s documentation', () => {
+  const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8')
+  const SEEDS = [...read('../../supabase/migrations/0031_model_control_plane.sql').matchAll(/\('(claude-[a-z0-9.-]+)', '/g)].map((m) => m[1])
+
+  it('every built-in, and every model the catalogue seeds, has a limit', () => {
+    expect(SEEDS).toEqual(['claude-opus-5', 'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'])
+    for (const model of [...Object.values(BUILTIN), ...SEEDS]) expect(inputLimitFor(model), model).toBeGreaterThan(0)
+  })
+
+  // Every id, whole: review round 1 (READ) found only some held to their figure,
+  // and (MEASURED) a documented 1M model missing, whose 110 pages read past the limit.
+  it('the figures the documentation gives, every id: 1M, and 200k for the older models', () => {
+    expect(MODEL_INPUT_LIMITS).toEqual({
+      'claude-fable-5-1': 1000000, 'claude-mythos-5-1': 1000000, 'claude-fable-5': 1000000, 'claude-mythos-5': 1000000, 'claude-mythos-preview': 1000000,
+      'claude-opus-5-5': 1000000, 'claude-opus-5': 1000000, 'claude-opus-4-8': 1000000, 'claude-opus-4-7': 1000000, 'claude-opus-4-6': 1000000,
+      'claude-sonnet-5-5': 1000000, 'claude-sonnet-5': 1000000, 'claude-sonnet-4-6': 1000000, 'claude-haiku-5-5': 1000000,
+      'claude-opus-4-5-20251101': 200000, 'claude-opus-4-5': 200000, 'claude-sonnet-4-5-20250929': 200000, 'claude-sonnet-4-5': 200000, 'claude-haiku-4-5-20251001': 200000, 'claude-haiku-4-5': 200000,
+    })
+    expect(inputLimitFor(BUILTIN.FAST)).toBe(200000)
+  })
+
+  it('the eight measured requests are a floor: claude-sonnet-5 took 247,693 input tokens, so its limit is no less', () => {
+    expect(inputLimitFor(BUILTIN.REASONING)).toBeGreaterThanOrEqual(247693)
+    expect(BUILTIN.REASONING).toBe('claude-sonnet-5')
+  })
+
+  it('no retired model has a limit; a model with none says so, whatever the text', () => {
+    for (const model of Object.keys(RETIRED)) expect(MODEL_INPUT_LIMITS[model]).toBeUndefined()
+    expect(inputLimitFor('claude-future-9')).toBe(null)
+    expect(inputLimitFor('')).toBe(null)
+    expect(inputLimitFor(undefined)).toBe(null)
+    expect(inputLimitFor(' claude-sonnet-5 ')).toBe(1000000)
+  })
+
+  it('every id it names is well formed', () => {
+    for (const model of Object.keys(MODEL_INPUT_LIMITS)) expect(isWellFormedModelId(model), model).toBe(true)
   })
 })
 

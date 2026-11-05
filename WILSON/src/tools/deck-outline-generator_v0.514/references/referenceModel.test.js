@@ -14,8 +14,12 @@ import {
   fileTokens, uploadTokens, textTokens, meterState, REFERENCE_TOKEN_LIMIT,
   refKey, kindOfKey, pdfPagesFromBinary, countPdfPages, PDF_PAGE_TOKENS, readableType,
   notesText, sizeWarning, noteKeysDatedBetween as notesBetween, sendsInline,
+  readingLimit, pdfPageLimit, modeTokens, FULL_DECK_ANSWER_TOKENS, FULL_DECK_FIXED_TOKENS, SINGLE_PAGE_FIXED_TOKENS,
+  PDF_PAGE_LIMIT, PDF_PAGE_LIMIT_SMALL,
 } from './referenceModel';
 import { deflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const P = '11111111-2222-3333-4444-555555555555';
 const file = (over = {}) => ({
@@ -382,6 +386,89 @@ describe('the meter (Q8): it warns, it never blocks', () => {
     expect(meterState(50000).percent).toBe(25);
     expect(meterState(10, undefined, 2).uncounted).toBe(2);
   });
+
+  // DG7 (OUTSTANDING MTR-01; her answer is at the "Size: the meter" comment).
+  // Before: a fixed 200,000, and any PDF of 45 pages past it by itself.
+  it('the limit is the model\'s, less what a full deck reserves for its answer; a model with no recorded limit keeps 200,000', () => {
+    expect(FULL_DECK_ANSWER_TOKENS).toBe(16384);
+    expect(readingLimit('claude-sonnet-5')).toBe(1000000 - 16384);
+    expect(readingLimit('claude-haiku-4-5-20251001')).toBe(200000 - 16384);
+    expect(readingLimit('claude-future-9')).toBe(REFERENCE_TOKEN_LIMIT);
+    expect(REFERENCE_TOKEN_LIMIT).toBe(200000);
+    expect(readingLimit(undefined)).toBe(200000);
+    expect(readingLimit('claude-sonnet-5', 0)).toBe(1000000);
+  });
+
+  it('what the full deck\'s request sends is what it reserves: its max_tokens is this figure, not a second one', () => {
+    const src = readFileSync(fileURLToPath(new URL('../DeckOutlineGenerator.jsx', import.meta.url)), 'utf8');
+    const call = src.slice(src.indexOf("model: modelFor('dog.fullDeck')"), src.indexOf('system: fullDeckSystemPrompt,'));
+    expect(call).toMatch(/max_tokens: FULL_DECK_ANSWER_TOKENS,/);
+  });
+
+  it('a PDF page counts 3,000: the top of the documented 1,500 to 3,000, above the 2,100 measured and below DG1\'s 4,500', () => {
+    expect(PDF_PAGE_TOKENS).toBe(3000);
+    expect(PDF_PAGE_TOKENS).toBeGreaterThan(2100);
+    // Her script: 110 pages read 495,000, 248% of 200,000, and past the limit.
+    const script = fileTokens('pdf', 1e6, 110);
+    expect(script).toBe(330000);
+    const m = meterState(script, readingLimit('claude-sonnet-5'));
+    expect(m.percent).toBe(34);
+    expect(m.over).toBe(false);
+    // CONTROL: what it read before DG7.
+    const before = meterState(110 * 4500);
+    expect([before.tokens, before.percent, before.over]).toEqual([495000, 248, true]);
+  });
+
+  // MTR-03: baseTokens added the page request whatever the mode, and left out
+  // the full deck's system prompt, its template and the file roles.
+  describe('what the chosen mode sends', () => {
+    const WORDS = { deckContext: 'd'.repeat(40), pageRequest: 'p'.repeat(400), project: 'r'.repeat(80), fullDeckSystem: 'f'.repeat(4000), singlePageSystem: 's'.repeat(2000) };
+
+    it('a full deck: its system prompt and fixed words, never the page request', () => {
+      expect(modeTokens({ fullDeck: true, ...WORDS })).toBe(10 + 20 + 1000 + FULL_DECK_FIXED_TOKENS);
+      expect(modeTokens({ fullDeck: true, ...WORDS })).toBe(modeTokens({ fullDeck: true, ...WORDS, pageRequest: '' }));
+      expect(modeTokens({ fullDeck: true, ...WORDS })).not.toBe(modeTokens({ fullDeck: true, ...WORDS, singlePageSystem: '' }) + 500);
+    });
+
+    it('a single page: its system prompt and fixed words, and the page request', () => {
+      expect(modeTokens({ fullDeck: false, ...WORDS })).toBe(10 + 20 + 100 + 500 + SINGLE_PAGE_FIXED_TOKENS);
+      expect(modeTokens({ fullDeck: false, ...WORDS })).toBe(modeTokens({ fullDeck: false, ...WORDS, fullDeckSystem: '' }));
+    });
+
+    // Each template is a literal inside its generate function, so its size is
+    // read here from the source: the words a request always carries, rounded up
+    // to the next 100. A longer template fails this, not a person's bar.
+    const SRC = readFileSync(fileURLToPath(new URL('../DeckOutlineGenerator.jsx', import.meta.url)), 'utf8').split(String.fromCharCode(13)).join('');
+    const between = (a, b) => {
+      const i = SRC.indexOf(a);
+      const j = SRC.indexOf(b, i);
+      expect(i, a).toBeGreaterThan(-1);
+      expect(j, b).toBeGreaterThan(-1);
+      return SRC.slice(i, j + b.length);
+    };
+    const ROLES = [...SRC.matchAll(/parts\.push\('((?:FILE ROLES|Files tagged)[^\n]*)'\);/g)].map((m) => m[1]).join('');
+    const fixed = (template, intro) => Math.ceil((textTokens(template) + textTokens(intro) + textTokens(ROLES)) / 100) * 100;
+
+    it('the fixed words are the source\'s: the full deck\'s', () => {
+      expect(ROLES.length).toBeGreaterThan(200);
+      const template = between('Generate a complete deck outline with multiple slides.', 'Generate the complete deck now:');
+      expect(template).not.toContain('${');
+      const intro = between('You are a presentation deck outline generator. Create a complete deck', 'markdown # headers.');
+      expect(fixed(template, intro)).toBe(FULL_DECK_FIXED_TOKENS);
+    });
+
+    it('the fixed words are the source\'s: the single page\'s', () => {
+      const template = between("Generate a slide outline based on the project documentation and user's request.", 'Generate the outline now:');
+      const intro = between('You are a presentation deck outline generator. Create a single slide', 'markdown # headers.');
+      expect(fixed(template, intro)).toBe(SINGLE_PAGE_FIXED_TOKENS);
+    });
+
+    it('CONTROL: a template a thousand characters longer would move the figure', () => {
+      const template = between('Generate a complete deck outline with multiple slides.', 'Generate the complete deck now:');
+      const intro = between('You are a presentation deck outline generator. Create a complete deck', 'markdown # headers.');
+      expect(fixed(`${template}${'x'.repeat(1000)}`, intro)).not.toBe(FULL_DECK_FIXED_TOKENS);
+    });
+  });
 });
 
 describe("a PDF's pages", () => {
@@ -470,12 +557,27 @@ describe('a picture whose type is blank, open-ended dates, size warnings, the no
   });
 
   it("says when a file is over the AI's caps, and nothing otherwise", () => {
-    expect(sizeWarning('pdf', 1e6, 140)).toMatch(/^140 pages: the AI may refuse a PDF over 100$/);
+    // DG7 (MTR-02): the cap the provider's PDF page gives: 600 pages a request,
+    // 100 when the context window is under 1M tokens. It was a flat 100, cited
+    // nowhere, and her 110-page script passed it.
+    expect(sizeWarning('pdf', 1e6, 601)).toMatch(/^601 pages: the AI may refuse a PDF over 600$/);
+    expect(sizeWarning('pdf', 1e6, 600)).toBeNull();
+    expect(sizeWarning('pdf', 1e6, 140)).toBeNull();
+    expect(sizeWarning('pdf', 1e6, 140, 100)).toMatch(/^140 pages: the AI may refuse a PDF over 100$/);
     expect(sizeWarning('pdf', 40 * 1024 * 1024, 10)).toMatch(/^40 MB: the AI may refuse a PDF over 32 MB$/);
     expect(sizeWarning('image', 12 * 1024 * 1024)).toMatch(/^12 MB: the AI may refuse a picture over 10 MB$/);
     expect(sizeWarning('video', 300 * 1024 * 1024)).toMatch(/^300 MB: too large to place in a slide$/);
     expect(sizeWarning('pdf', 1e6, 12)).toBeNull();
     expect(sizeWarning('text', 9e9)).toBeNull();
+  });
+
+  it('the page cap follows the model: 600 from a 1M window, 100 under it and for a model with no recorded limit', () => {
+    expect([PDF_PAGE_LIMIT, PDF_PAGE_LIMIT_SMALL]).toEqual([600, 100]);
+    expect(pdfPageLimit('claude-sonnet-5')).toBe(600);
+    expect(pdfPageLimit('claude-opus-5')).toBe(600);
+    expect(pdfPageLimit('claude-haiku-4-5-20251001')).toBe(100);
+    expect(pdfPageLimit('claude-future-9')).toBe(100);
+    expect(pdfPageLimit(undefined)).toBe(100);
   });
 
   it('the notes travel in their own block', () => {

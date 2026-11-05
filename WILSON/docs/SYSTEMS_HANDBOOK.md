@@ -3657,7 +3657,8 @@ offered (`isDeckReferenceFile`), nor a file D.O.G. cannot read
 (`readableType`: PDF, text, JPEG/PNG/GIF/WebP, video for placement). Nothing
 chosen is written to the computer. The items' and notes' words travel as one
 text source through `buildSourceParts`. A meter estimates the size (a PDF by
-its pages) and warns past 200,000 tokens; it never blocks. The two Core
+its pages) and warns past what the full deck's model can take (DG7, below; a
+fixed 200,000 tokens until then); it never blocks. The two Core
 polarities moved with the readers into `referenceModel.js`, unchanged; D.O.G.
 no longer writes a file's Core mark (R.A.B.B.I.T.'s Files table does). Design:
 `docs/design/DOG_REFERENCES_DESIGN.md`; walkthrough 75.
@@ -3750,7 +3751,9 @@ clicks, `UPLOAD_ACCEPT`, follows it since DG6's follow-up; in DG2 it was a
 upload. Since DG6's follow-up (her words of 2026-10-31: *"below the references
 should be the upload option"*) Uploads is its own titled section after the
 References section (the *Choose a project…* note, Items, Files, Notes, Add
-references); DG2 to DG6 had it first. The contract sentence reads *"What goes
+references); DG2 to DG6 had it first; since DG7 (below) it sits beside References
+with Choose file and its sentence, and an upload's row is a tile in the one list.
+The contract sentence reads *"What goes
 to the AI: what is listed here, the project's title and description, and what
 you write in step 2."* (DG5, her walkthrough 89 Q1; until the Generate outline
 card moved beside card 1 it ended *"…with what you write below."*); since
@@ -3759,9 +3762,10 @@ project, the references and the uploads;
 the header's count is the uploads and the references, one number; *Remove all
 references* (was *Remove all*) removes the chosen references only. A control
 in the card that takes itself away, pressed from the keyboard, moves focus on:
-a row's Remove to the next Remove in its own section, else the previous, else
-its section's way to add (Choose file for an upload, Add references for a
-reference; DG6's follow-up), else the other's; Remove all references and the
+a tile's Remove to the next Remove of its own kind (`data-kind`, DG7; of its
+own section from DG6's follow-up), else the previous, else
+its kind's way to add (Choose file for an upload, Add references for a
+reference), else the other's; Remove all references and the
 notice's Undo and Dismiss to Add
 references (`focusAfterRemove`, keyboard only by `:focus-visible`), so focus
 does not fall to the page where D.O.G.'s Enter would start a deck; a click is
@@ -3813,7 +3817,8 @@ Audrey's five notes, verbatim in `docs/sessions/briefs/po-dg4-dog-project-refere
 Cards 1 and 2 are one card, **1 Project and references** (`#dog-card1-title`,
 `#dog-card1-body`, the fold `section1Collapsed`, now an updater): the project
 first, then what the deck reads; since DG6's follow-up in titled sections,
-Project, References, Uploads, then the contract line and the meter (below).
+and since DG7 Project, then References and Uploads side by side, then the one
+list with the contract line and the meter (below).
 `ReferencesCard.jsx`
 is that lower part (`.dog-refs`), with no card, header or fold of its own; its
 `ReferencesCount` is the header's number (*None chosen* / *N chosen*, the
@@ -3826,7 +3831,7 @@ house measure was within a few pixels (66ch is 700px at the meter's 16px). The
 meter in the card is that fixed width, never a share of the card (it was the
 card's whole width: 998px at 1280, 2278px at 2560); the track is 8px, was
 6px; the window's footer meter keeps `flex: 1`. How the card lays out at
-every width is DG6's (below). **Place visual** (was *Use visual assets*, its
+every width is DG6's and DG7's (below). **Place visual** (was *Use visual assets*, its
 subtitle gone, its meaning on the hover) is the one placement box:
 `placementFrom` places the uploads' pictures and videos and the listed
 references' alike, and a listed reference's video is read only then;
@@ -3924,7 +3929,66 @@ other sheets, are the pictures' and the probe's to catch);
 `enterKey.render.test.jsx` pins the column's children, the sections' order and
 headings, and the Tab order; `ReferencesCard.test.jsx` the part's order and
 `focusAfterRemove`. Walkthrough 90, its DG6 section, has the measurements
-before and after at 1280, 1440, 1920 and 2560 and her answers.
+before and after at 1280, 1440, 1920 and 2560 and her answers. DG7 (below)
+supersedes, in this paragraph, the order of References and Uploads, the shelves'
+32px, the heights, the empty shares, Generate's place and the Tab order.
+
+**Card 1's References and Uploads side by side, one list (post-overhaul DG7,
+2026-11-05; her ask verbatim in `docs/sessions/briefs/po-dg7-refs-uploads-side-by-side.md`,
+in walkthrough 94 and in `dog.css`, CARD 1's SECTIONS).** Under Project,
+`.dog-refs-pair` is a wrapping flex row of the two sections (`flex: 1 1 416px;
+max-width: var(--dog-measure)`, 24px apart): 482px each at 1280, 562 at 1440, 576
+from a 1468 window with the Uploads column at x 600, where the project's description
+starts; under a 1,148 window (the pages column at its 240; a wider column stacks
+them sooner: at 1280 with it at 480 the card is 774) they stack, 32px apart, from the
+row's own width and no query. **References** holds the notice, Add references with Core files only and
+Remove all references (8px apart, the project row's gap: at 16 the row needs 486px
+against 482 at 1280), the *Choose a project…* note and Core's sentence; **Uploads
+(n)** holds Choose file, its hidden input, its sentence and its error. So each title
+has its first control right under it, and the two sit on one line while side by side
+(a notice comes first until Undo or Dismiss, 35 to 81px; Choose file goes at 20
+uploads). The notice stays before the actions: after them, the Tab from Add references (where
+Remove all leaves focus) to Undo crossed Core files only, where Enter ticks or
+makes a deck (review round 1, MEASURED). Under the row, `.dog-sec-foot`, titled *The
+deck reads* (`h3#dog-refs-reads`, the brief's words, her Q1), is always drawn: one
+`ul.dog-refs-rows`, named by that title and drawn when it has a tile, every chosen
+reference (items, files, notes) and then every upload in one grid of shelves 24px
+apart, then the contract line and the meter. The labels Items (n), Files (n) and
+Notes (n) are gone; `li[data-kind]` says reference or upload, and a file, a note and
+an upload say their kind in an `sr-only` word before the name (a tile is
+`position: relative`, so the word stays in it: its box was the app's unscrolled
+frame, whose overflow grew and scrolled the whole column, review round 1, MEASURED).
+Tab: Project, Add references, Core files only, Remove all references, Choose file,
+then each tile's Preview and Remove. `focusAfterRemove` finds neighbours by
+`data-kind`; the 20th upload's effect reads the list. Card 1 is 402 to 464px tall
+with nothing listed and 608, 608, 514 and 482 with six references and two uploads at
+1280, 1440, 1920 and 2560 (it was 528 or 532 or 470, and 803, 803, 709 and 709);
+folded 34. Generate is wholly on screen at 1440x900 as D.O.G. opens. Where the columns
+stack it is 20 to 36px taller with little listed (OUTSTANDING DG7-07). Walkthrough 94.
+
+**D.O.G.'s reading meter (post-overhaul DG7, 2026-11-05; her words and her answer
+*"Fix it in the D.O.G. session (Recommended)"* at the "Size: the meter" comment in
+`references/referenceModel.js`).** The bar measures against
+`readingLimit(deckModel())`: `deckModel` (`ReferencesCard.jsx`) is the model
+`dog.fullDeck` resolves to, read with `resolveModel`, not `modelFor`, since it runs
+while the card draws; the limit is `MODEL_INPUT_LIMITS` (`src/lib/aiModels.js`, every
+id the provider's documentation gives a window for, read 2026-11-05, the source
+beside it), less `FULL_DECK_ANSWER_TOKENS` (16,384, the request's own `max_tokens`):
+983,616 on Sonnet 5, 183,616 on Haiku 4.5, and 200,000 for a model with no recorded
+limit. The eight requests in staging's log (230,850 to 247,693 input tokens) are the
+floor a test holds Sonnet 5's limit to. A PDF page counts 3,000 (`PDF_PAGE_TOKENS`):
+the top of the documented text range and about 1.4 times the 2,100 measured, so a
+110-page text PDF reads 330,000, 34 percent (DG1's 4,500 and 200,000 read 495,000, 248
+percent); dense or picture-heavy pages can cost up to 7,784 (OUTSTANDING DG7-01).
+`modeTokens` counts what the chosen mode sends: the deck's text and the project's words
+in both, each mode's system prompt and fixed words (`FULL_DECK_FIXED_TOKENS`,
+`SINGLE_PAGE_FIXED_TOKENS`, measured from the source by a test), the page request only
+for a single page. `meterSentence` and `referencesCount` say *(an estimate)* and, past
+the limit, the number; the bar, the window's footer and the header ask the same limit.
+`pdfPageLimit` is the provider's 600 pages a request, 100 under a 1M window; a chosen
+file's tile, the window's rows and now an upload's tile show `sizeWarning` (not a
+video upload's, which is placed whatever its size). It warns and never blocks (her Q8);
+nothing trims, samples or refuses a file. Walkthrough 94, its limit bar section.
 
 **D.O.G.'s pages sidebar resizes by its edge (SB1, night 10, 2026-11-01;
 Audrey, *"lets do the same with the sidebar in the dog tool"*).** The kit
@@ -6767,31 +6831,38 @@ documentation and starts being wrong answers.
   *"Q1. a"* (the migration report keeps naming the clips left behind:
   OUTSTANDING D2-01 closed in words).
 
-**D.O.G.'s card 1 at a wide window (DG6 and its follow-up, 2026-10-31; §13.1, the two input cards and card 1's sections)**
+**D.O.G.'s card 1 at a wide window (DG6 and its follow-up, 2026-10-31; DG7,
+2026-11-05; §13.1, the two input cards, card 1's sections, and References and Uploads
+side by side)**
 
-- **A section holding one control ends where the control ends, by her
-  ruling.** The cards run the column's full width; inside card 1, text and
-  single controls keep the 576px measure and only lists of rows spread out.
-  So with nothing chosen card 1 is 42, 50, 64 and 74 percent empty on its
-  right at 1280, 1440, 1920 and 2560 (81 at 3440), and with six references
-  1 percent to 1920 and 41 at 2560, where three items take three of the five
-  tiles a row holds (measured, Chromium). Asked in plain words, with the
-  stretched controls and the side-by-side sections as the other options, she
-  chose *"Keep it (Recommended)"* (2026-10-31), on the design round's
-  sketch and again on the built pictures and numbers (shown at 1280 and
-  2560; 3440's 81 percent is by measurement).
-- **With references listed, Generate needs a scroll in windows shorter than
-  about 1,450px.** Card 1's titled sections stack their content under each
-  title, so with six references it is 763px tall at 1280 and 1440 and 669
-  from 1920: Generate's top is at y 1,173 at 1280x800 and 1440x900 and
-  1,079 at 1920x1080, where its button ends 35px under the fold; in view at
-  2560x1440. Her walkthrough 90
-  Q1's option said Generate would drop below the window on a 1920 monitor
-  once references are listed. With nothing chosen card 1 is 528px tall (424
-  before the sections: the three titles about 56px, the 32px section spacing
-  about 48), so at 1440x900 Generate opens at y 938, just under the fold, and
-  about 74px would bring it wholly on screen (review rounds 1 and 2,
-  measured).
+- **A control keeps its width, by her ruling.** The cards run the column's full width;
+  inside card 1, text and single controls keep the 576px measure and only the list of
+  tiles spreads out. Her *"Keep it (Recommended)"* of 2026-10-31 stands for that;
+  her words of 2026-11-05 set References and Uploads side by side. So to the right of
+  the two columns the row is empty for 28 percent of the card at 1920 and 48 at 2560
+  (none at 1280 and 1440; measured, Chromium); to the right of Uploads with nothing
+  chosen, 17, 21, 44 and 60 percent at 1280, 1440, 1920 and 2560 (it was 68, 72, 80
+  and 86). Whether the columns stay at the measure is her walkthrough 94 Q2.
+- **With references listed, Generate can still need a scroll on a laptop.** With six
+  references and two uploads card 1 is 608px tall at 1280 and 1440 (it was 803), so
+  Generate's button ends 254px under a 1280x800 window and 154 under a 1440x900; it is
+  in view from 1920x1080 (it was 75 under). With nothing chosen it opens on screen at
+  1440x900 (it was 74 under) and 92 under at 1280x800 (it was 174).
+- **Where the two columns stack, card 1 is taller than before with little listed**: 20
+  to 36px on a window under 1,148px, the new title's cost (OUTSTANDING DG7-07).
+
+**D.O.G.'s reading meter (DG7, 2026-11-05; §13.1)**
+
+- **It is an estimate, and can read low.** A PDF page counts 3,000 tokens; a dense or
+  picture-heavy page can cost up to 7,784 by the provider's numbers (DG7-01), a page cap
+  counts a whole request (DG7-02), text counts 4 characters a token where the newer
+  ratio is 2.5 (DG7-04). It warns and never blocks, so a request past the model's window
+  fails at the provider, and D.O.G. shows its general *Error generating full deck
+  outline. Please try again.*
+- **The limit is a dated copy of the documentation.** WILSON's client holds no key for
+  the provider's Models API, so a model newer than the list has no recorded limit and
+  measures against 200,000, as before. In Single page the bar still measures against the
+  full deck's model (DG7-05).
 
 **The Edge Functions' type check (F1, 2026-10-31; §7.1)**
 
