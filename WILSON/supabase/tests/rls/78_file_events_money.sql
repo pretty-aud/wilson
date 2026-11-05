@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(61);
+SELECT plan(62);
 
 SELECT * FROM tests.rls_setup();
 
@@ -754,11 +754,11 @@ SELECT is(
     WHERE id = 'aaaa1111-0000-0000-0000-000000007613'),
   false, 'BLAST RADIUS: a project file no expense references is untouched');  -- 54
 
--- TRAP 2, pinned as a fact rather than left in a comment: the row is gated and
--- the BLOB is not. The receipt's body is still under its container segment, so
--- the FOUR base storage policies still serve it to anyone holding the path.
--- 0076 cannot move bytes; these probes are the standing record of what it did
--- not close, next to the thing it did.
+-- TRAP 2, pinned as a fact rather than left in a comment: until 0115 the row was
+-- gated and the BLOB was not. The receipt's body is still under its container
+-- segment; until 0115 the FOUR base storage policies served it to anyone holding
+-- the path. 0076 cannot move bytes; these probes are the standing record of what
+-- it did not close, next to the thing it did. 0115 closed it (probes 60 and 62).
 --
 -- 🚨 PROBE 55 IS A SHAPE ASSERTION AND PROBE 60 IS THE ACCESS ONE. Read them
 -- as a pair, and do not mistake the first for the second.
@@ -862,7 +862,7 @@ SELECT is(
 -- gate closed with 0115: the object still sits under the `project` segment, but a
 -- key a row names now answers to that row as the caller reads it, so a member who
 -- cannot read the receipt's row cannot read its copy. Until 0115 this probe expected
--- 1, on purpose, and said why in its message. Handbook §12.9 says so too.
+-- 1, on purpose, and said why in its message. Probe 62 shows the object is there.
 SELECT is(
   (SELECT count(*)::int FROM storage.objects
     WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
@@ -883,6 +883,20 @@ SELECT is(
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000007801' AND event = 'purged'),
   1, 'PRESENCE CONTROL for 21: the plain member reads the plain file''s deletion certificate');
                                                                             -- 61
+
+-- 62: the PRESENCE CONTROL for probe 60. The object is there, and a money reader of
+-- the project reads it, so the member's 0 is a refusal and not an empty bucket.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  '11111111-1111-1111-1111-111111111111'
+);
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
+  1, 'PRESENCE CONTROL for 60: a money reader reads the receipt''s copy, so the member''s 0 is a refusal');
+                                                                            -- 62
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -53,7 +53,7 @@
 
 BEGIN;
 
-SELECT plan(83);
+SELECT plan(89);
 
 SELECT * FROM tests.rls_setup();
 
@@ -437,6 +437,11 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   ('61000000-0000-0000-0000-00000000f003', '61000000-aaaa-0000-0000-000000000001', 'moved.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f003/moved.bin', NULL, false, NULL),
   ('61000000-0000-0000-0000-00000000f004', '61000000-aaaa-0000-0000-000000000001', 'purged-moved.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', NULL, false, NULL),
   ('61000000-0000-0000-0000-00000000f006', 'aaaa1111-0000-0000-0000-000000000001', 'no-picture.bin', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin', NULL, false, NULL),
+  -- Moved into A: out of hidden P, and out of a project that no longer exists. The destination alone decides.
+  ('61000000-0000-0000-0000-00000000f012', 'aaaa1111-0000-0000-0000-000000000001', 'from-hidden.bin', 's3', 'projects/61000000-aaaa-0000-0000-000000000001/files/f012/from-hidden.bin', NULL, false, NULL),
+  ('61000000-0000-0000-0000-00000000f013', 'aaaa1111-0000-0000-0000-000000000001', 'from-gone.bin', 's3', 'projects/61000000-eeee-0000-0000-000000000001/files/f013/from-gone.bin', NULL, false, NULL),
+  -- A body whose own name ends .jpg: the bare name beside it is its picture's body.
+  ('61000000-0000-0000-0000-00000000f008', 'aaaa1111-0000-0000-0000-000000000001', 'k.mov.jpg', 's3', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f008/k.mov.jpg', NULL, false, NULL),
   -- A Petal row: a company's own bucket holds nothing of it, so the key is unclaimed there.
   ('61000000-0000-0000-0000-00000000f007', 'aaaa1111-0000-0000-0000-000000000001', 'petal.bin', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f007/petal.bin', NULL, false, NULL);
 DELETE FROM public.files WHERE id = '61000000-0000-0000-0000-00000000f004';
@@ -477,6 +482,10 @@ SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-0000000000
 SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f002/trashed.bin.jpg', 'head'), false, 'nor its picture');
 SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f003/moved.bin', 'get'), false, 'a copy moved into a hidden project is not signed for a reader of the key''s project');
 SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f004/purged-moved.bin', 'get'), false, 'a purged moved copy is not signed while its queue row waits');
+SELECT is(public.can_presign_object('projects/61000000-aaaa-0000-0000-000000000001/files/f012/from-hidden.bin', 'get'), true, 'a copy moved into A from a project hidden from this reader is signed: the destination alone decides');
+SELECT is(public.can_presign_object('projects/61000000-aaaa-0000-0000-000000000001/files/f012/from-hidden.bin', 'put'), false, 'and not written over');
+SELECT is(public.can_presign_object('projects/61000000-eeee-0000-0000-000000000001/files/f013/from-gone.bin', 'get'), true, 'a copy moved into A from a project that no longer exists is signed too');
+SELECT is(public.can_presign_object('projects/61000000-eeee-0000-0000-000000000001/files/f014/nothing.bin', 'get'), false, 'CONTROL: nothing else under that id is');
 SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/connection-check/x/check', 'head'), true, 'a connection check keeps the old read answer');
 SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/connection-check/x/check', 'put'), false, 'and the old write answer, which this reader does not pass');
 SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-000000000001/files/f009/fresh.bin', 'get'), true, 'a fresh key keeps the old read answer');
@@ -513,12 +522,22 @@ SELECT is(public.can_presign_object('projects/aaaa1111-0000-0000-0000-0000000000
 SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
                     VALUES ('61000000-0000-0000-0000-00000000f010', 'aaaa1111-0000-0000-0000-000000000001', 'k.jpg', 's3',
                             'projects/aaaa1111-0000-0000-0000-000000000001/files/f001/live.bin.jpg') $$,
-  '42501', NULL, 'a new s3 row cannot take the name of another row''s picture');
+  '42501', 'This file''s stored copy is not one this project can claim.', 'a new s3 row cannot take the name of another row''s picture');
 SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url)
                     VALUES ('61000000-0000-0000-0000-00000000f011', 'aaaa1111-0000-0000-0000-000000000001', 'k', 's3',
                             'projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin.jpg.jpg',
                             'projects/aaaa1111-0000-0000-0000-000000000001/files/f006/no-picture.bin.jpg.jpg.jpg') $$,
-  '42501', NULL, 'nor a name that is another row''s once .jpg is set aside');
+  '42501', 'This file''s stored copy is not one this project can claim.', 'nor a name that is another row''s once .jpg is set aside');
+SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url)
+                    VALUES ('61000000-0000-0000-0000-00000000f015', 'aaaa1111-0000-0000-0000-000000000001', 'k.mov', 's3',
+                            'projects/aaaa1111-0000-0000-0000-000000000001/files/f008/k.mov',
+                            'projects/aaaa1111-0000-0000-0000-000000000001/files/f008/k.mov.jpg') $$,
+  '42501', 'This file''s stored copy is not one this project can claim.', 'nor the bare name, beside a row whose body has it with .jpg, the other way round');
+SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url)
+                   VALUES ('61000000-0000-0000-0000-00000000f016', 'aaaa1111-0000-0000-0000-000000000001', 'free.mov', 's3',
+                           'projects/aaaa1111-0000-0000-0000-000000000001/files/f016/free.mov',
+                           'projects/aaaa1111-0000-0000-0000-000000000001/files/f016/free.mov.jpg') $$,
+  'CONTROL: a key nothing has is this writer''s to claim');
 SELECT pg_temp.t61_logout();
 
 -- ── An inactive member, and a purge certificate on its own.

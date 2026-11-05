@@ -34,7 +34,7 @@
 -- The re-key and follow calls go through pg_temp.t115_ask, which answers text, error
 -- and detail included: a top-level statement that raises would end the whole run.
 --
--- Nothing deletes from storage.objects (protect_delete forbids it). Fixture ids are hex:
+-- Only section M deletes from storage.objects, under storage.allow_delete_query. Fixture ids are hex:
 -- projects 11500000-aaaa-…-00000000000n (S and T shared, P private and created by
 -- user_c, Q user_c's personal space, E user_e's, D binned), 11500000-bbbb-… another
 -- company's, 11500000-dddd-… ids no project holds yet; folders 11500000-…-0000000000fx;
@@ -50,7 +50,7 @@
 
 BEGIN;
 
-SELECT plan(567);
+SELECT plan(613);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1968,8 +1968,19 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   -- user_c uploaded these: a named body and picture, a trashed row's picture.
   ('11500000-0000-0000-0000-00000000a625', '11500000-aaaa-0000-0000-000000000001', 'own-named.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a625/own-named.txt', 'projects/11500000-aaaa-0000-0000-000000000001/files/a625/own-named.txt.jpg', false, NULL),
   ('11500000-0000-0000-0000-00000000a626', '11500000-aaaa-0000-0000-000000000001', 'own-trashed.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a626/own-trashed.txt', 'projects/11500000-aaaa-0000-0000-000000000001/files/a626/own-trashed.txt.jpg', false, now()),
-  -- An invoice: the money policies answer, whatever the row says.
-  ('11500000-0000-0000-0000-00000000a627', '11500000-aaaa-0000-0000-000000000001', 'invoice.pdf', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf', NULL, true, NULL);
+  -- An invoice: the money policies answer, whatever the row says. And one trashed: they do not read the row.
+  ('11500000-0000-0000-0000-00000000a627', '11500000-aaaa-0000-0000-000000000001', 'invoice.pdf', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf', NULL, true, NULL),
+  ('11500000-0000-0000-0000-00000000a655', '11500000-aaaa-0000-0000-000000000001', 'invoice-trashed.pdf', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a655/invoice-trashed.pdf', NULL, true, now()),
+  -- Moved out of hidden G into S, with nothing stored yet: a writer of S makes its copy and its picture.
+  ('11500000-0000-0000-0000-00000000a628', '11500000-aaaa-0000-0000-000000000001', 'from-hidden.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000007/files/a628/from-hidden.txt', 'projects/11500000-aaaa-0000-0000-000000000007/files/a628/from-hidden.txt.jpg', false, NULL),
+  -- Moved out of T into S, its picture uploaded by a writer of T.
+  ('11500000-0000-0000-0000-00000000a646', '11500000-aaaa-0000-0000-000000000001', 'out-of-t-2.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000002/files/a646/out-of-t-2.txt', 'projects/11500000-aaaa-0000-0000-000000000002/files/a646/out-of-t-2.txt.jpg', false, NULL),
+  -- Planted before 0114, when thumbnail_url took any text: a name under another project.
+  -- Another company's picture its own row names; a hidden project's; another company's nothing names.
+  ('11500000-0000-0000-0000-00000000a650', '11500000-aaaa-0000-0000-000000000001', 'names-theirs.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a650/names-theirs.txt', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg', false, NULL),
+  ('11500000-0000-0000-0000-00000000a651', '11500000-aaaa-0000-0000-000000000001', 'names-hidden.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a651/names-hidden.txt', 'projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt.jpg', false, NULL),
+  ('11500000-0000-0000-0000-00000000a652', '11500000-aaaa-0000-0000-000000000007', 'hidden.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt', 'projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt.jpg', false, NULL),
+  ('11500000-0000-0000-0000-00000000a654', '11500000-aaaa-0000-0000-000000000001', 'names-unnamed.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a654/names-unnamed.txt', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg', false, NULL);
 
 INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
 SELECT b, k, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":1}'::jsonb
@@ -2014,7 +2025,10 @@ SELECT b, k, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":1}'::jsonb
     ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000006/files/a635/binned.txt'),
     ('rabbit-files', 'projects/11500000-bbbb-0000-0000-000000000001/files/a636/orphan.txt'),
     ('rabbit-files', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt'),
-    ('rabbit-thumbnails', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt.jpg')
+    ('rabbit-thumbnails', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt.jpg'),
+    ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a655/invoice-trashed.pdf'),
+    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt.jpg'),
+    ('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg')
   ) AS v(b, k);
 INSERT INTO storage.objects (bucket_id, name, owner_id, metadata, created_at)
 SELECT b, k, 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb, t
@@ -2027,6 +2041,14 @@ SELECT b, k, 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb, t
     ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt', now() - interval '2 hours'),
     ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt.jpg', now() - interval '2 hours')
   ) AS v(b, k, t);
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+SELECT b, k, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '{"size":1}'::jsonb
+  FROM (VALUES
+    -- user_e uploaded these: under S, which they read and do not write; a picture of a file moved out of T into S.
+    ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a645/e-own.txt'),
+    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a645/e-own.txt.jpg'),
+    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000002/files/a646/out-of-t-2.txt.jpg')
+  ) AS v(b, k);
 
 -- The new arm, on its own.
 SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a612/old-picture.png'), true, 'a row claims the picture only its thumbnail_url names, whatever its ending');
@@ -2036,6 +2058,8 @@ SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/1
 SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a617/petal-picture.jpg'), false, 'nor does a Drive row''s');
 SELECT is(rabbit_private.storage_object_claimed('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a612/old-picture.png'), false, 'and a thumbnail_url claims nothing in the body bucket');
 SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/bin_files/a622/poster.jpg'), false, 'a row-less shape stays row-less though a row names it');
+SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg'), false, 'a thumbnail_url under another project claims nothing: a client could write any text there before 0114');
+SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg'), true, 'CONTROL: the picture''s own row still claims it');
 SELECT is(pg_get_indexdef('public.files_thumbnail_url_idx'::regclass),
   'CREATE INDEX files_thumbnail_url_idx ON public.files USING btree (thumbnail_url) WHERE ((thumbnail_url IS NOT NULL) AND (storage_provider = ANY (ARRAY[''supabase''::storage_provider, ''local_server''::storage_provider])))',
   'the picture arm has its partial index');
@@ -2074,6 +2098,7 @@ SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-00
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000006/files/a635/binned.txt'), 0, 'nor a binned project''s');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-bbbb-0000-0000-000000000001/files/a636/orphan.txt'), 0, 'nor another company''s');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf'), 0, 'an invoice is not a non-money reader''s');
+SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a655/invoice-trashed.pdf'), 0, 'nor a trashed one');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt'), 0, 'a key outside projects/ reads for nobody');
 SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt.jpg'), 0, 'nor a picture');
 
@@ -2086,6 +2111,35 @@ SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-00
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000003/files/a634/orphan.txt'), 1, 'and a copy nothing names under P');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a604/trashed.txt'), 0, 'trashed is trashed for a writer too');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a605/receipt.pdf'), 0, 'and a receipt is not a writer''s without money');
+-- Their row names a picture that is not theirs, planted before 0114. It opens nothing.
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg'), 0, 'a row in S naming another company''s picture does not read it');
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt.jpg'), 0, 'nor a hidden project''s');
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg'), 0, 'nor one nothing else names');
+SELECT is(rabbit_private.storage_object_current_project('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg'), NULL::uuid, 'the row does not answer for it');
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"size":9}'::jsonb
+   WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 0, 'and it does not overwrite it');
+SELECT throws_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                    VALUES ('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/never-there.jpg', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  '42501', 'new row violates row-level security policy for table "objects"', 'CONTROL: nor write beside it, under another company''s project');
+-- A new row cannot take a picture another row names: this caller sees only their own, so
+-- they would be answered for both. The same key on another provider, the same refusal.
+SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                    VALUES ('11500000-0000-0000-0000-00000000a660', '11500000-aaaa-0000-0000-000000000001', 'x', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a614/old-picture') $$,
+  '42501', 'This file''s stored copy is not one this project can claim.', 'a writer cannot take the key whose picture a flagged row hidden from them names');
+SELECT throws_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                    VALUES ('11500000-0000-0000-0000-00000000a661', '11500000-aaaa-0000-0000-000000000001', 'x', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a613/old-picture') $$,
+  '42501', 'This file''s stored copy is not one this project can claim.', 'nor a trashed row''s');
+SELECT is(pg_temp.t115_ask($$ SELECT public.rekey_file_body('11500000-0000-0000-0000-00000000a625', 'projects/11500000-aaaa-0000-0000-000000000001/files/a625/own-named.txt', 'projects/11500000-aaaa-0000-0000-000000000001/files/a614/old-picture', 'projects/11500000-aaaa-0000-0000-000000000001/files/a625/own-named.txt.jpg', NULL, false) $$),
+  '42501: file not found or not writable', 'and a re-key cannot reach it either');
+SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                   VALUES ('11500000-0000-0000-0000-00000000a662', '11500000-aaaa-0000-0000-000000000001', 'x', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a614/old-picture') $$,
+  'CONTROL: an s3 row keeps its picture in the company''s own bucket, so that key is free for it');
+SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                   VALUES ('11500000-0000-0000-0000-00000000a663', '11500000-aaaa-0000-0000-000000000001', 'x', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a614/another-picture') $$,
+  'CONTROL: and a key whose picture nothing names is free');
 
 -- ── A manager of S: money, and no way into P.
 SELECT pg_temp.t115_logout();
@@ -2097,6 +2151,7 @@ SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-00
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf'), 1, 'CONTROL: and an invoice, through the money policies');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a602/to-private.txt'), 0, 'a manager of the old project reads nothing of a file moved out to a hidden one');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a604/trashed.txt'), 0, 'trashed is trashed for a manager too');
+SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a655/invoice-trashed.pdf'), 1, 'but the money policies do not read the row: a trashed invoice stays open to whoever may restore it');
 
 -- ── The company's admin reads everything visible, and still nothing trashed.
 SELECT pg_temp.t115_logout();
@@ -2116,7 +2171,11 @@ SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-00
 SELECT pg_temp.t115_logout();
 SELECT pg_temp.t115_login('dddddddd-dddd-dddd-dddd-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'user');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt'), 1, 'CONTROL: a member of the other company reads their own file');
-SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg'), 1, 'and its picture');
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg'), 1, 'and its picture, whatever a row elsewhere says of it');
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg'), 1, 'and a picture nothing of theirs names, though a row elsewhere names it');
+SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                   VALUES ('11500000-0000-0000-0000-00000000a664', '11500000-bbbb-0000-0000-000000000001', 'x', 'local_server', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed') $$,
+  'and a row elsewhere cannot keep them from a key: a name under another project claims nothing');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a601/plain.txt'), 0, 'and nothing of this company''s');
 
 -- ── X is purged: what was moved out of it answers to where it went.
@@ -2144,15 +2203,27 @@ SELECT pg_temp.t115_logout();
 SELECT pg_temp.t115_login('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'admin');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/out-of-x.txt'), 0, 'nor does that company''s admin read it');
 SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/out-of-x.txt.jpg'), 0, 'nor its picture');
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/fresh-picture.jpg'), 1, 'CONTROL: that admin reads what nothing names under the id it holds');
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"size":9}'::jsonb
+   WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/fresh-picture.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'CONTROL: and writes it');
 WITH upd AS (
   UPDATE storage.objects SET metadata = '{"size":9}'::jsonb
    WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/out-of-x.txt.jpg'
   RETURNING 1)
-SELECT is((SELECT count(*)::int FROM upd), 0, 'and that admin, who writes every project of theirs, cannot overwrite it');
+SELECT is((SELECT count(*)::int FROM upd), 0, 'and cannot overwrite what the other company''s file names');
+-- A statement that names no row: the UPDATE policy alone decides (a WHERE on a column
+-- brings the SELECT policy in as well). What it reached is read back below.
+SELECT lives_ok($$ UPDATE storage.objects SET metadata = '{"size":77}'::jsonb $$, 'a blanket UPDATE by that admin is not refused');
 SELECT pg_temp.t115_logout();
 SELECT pg_temp.t115_login('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'user');
 SELECT is(pg_temp.t115_sees('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/out-of-x.txt'), 1, 'CONTROL: the file''s own readers are not disturbed by that');
 SELECT pg_temp.t115_logout();
+SELECT is((SELECT metadata ->> 'size' FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/out-of-x.txt.jpg'), '1', 'the blanket UPDATE did not reach the picture the other company''s file names');
+SELECT is((SELECT metadata ->> 'size' FROM storage.objects WHERE bucket_id = 'rabbit-files' AND name = 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/out-of-x.txt'), '1', 'nor its copy');
+SELECT is((SELECT metadata ->> 'size' FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000008/files/a607/fresh-picture.jpg'), '77', 'CONTROL: it did reach what nothing names under the id that admin holds');
 
 -- ── A purged moved copy: the queue claims it, then the certificate does.
 SELECT pg_temp.t115_login('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'user');
@@ -2185,7 +2256,7 @@ SELECT lives_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metad
                    VALUES ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a611/carried-again.txt', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
   'but a key purged where it was made can be carried again once it is drained');
 
--- ── A bin's poster replaced: its queue row names no file, so it claims nothing.
+-- ── A queue row that names no file claims nothing (arm 2's file_id filter).
 SELECT pg_temp.t115_logout();
 INSERT INTO public.storage_gc_queue (bucket_id, object_path, workspace_id, file_id, reason, provider, kind, status) VALUES
   ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt.jpg', '11111111-1111-1111-1111-111111111111', NULL, 'orphan-scan', 'supabase', 'body', 'pending');
@@ -2193,6 +2264,14 @@ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata) VALUES
   ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt.jpg', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":1}'::jsonb);
 SELECT pg_temp.t115_login('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'user');
 SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt.jpg'), 1, 'a queue row that names no file does not take a copy from its readers');
+-- A bin's poster replaced, then restored to the older key while its queue row waits (SFB-02):
+-- the row the real trigger writes (0091), and the poster still reads.
+SELECT pg_temp.t115_logout();
+INSERT INTO public.storage_gc_queue (bucket_id, object_path, workspace_id, file_id, reason, provider, kind, status) VALUES
+  ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/bin_files/a631/poster.jpg', '11111111-1111-1111-1111-111111111111', NULL, 'file-purged', 'supabase', 'thumbnail', 'pending');
+SELECT is(rabbit_private.storage_object_claimed('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/bin_files/a631/poster.jpg'), false, 'a replaced poster''s queue row does not claim it');
+SELECT pg_temp.t115_login('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'user');
+SELECT is(pg_temp.t115_sees('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/bin_files/a631/poster.jpg'), 1, 'and it reads as it did');
 
 -- ── Writes. user_c writes S and not T. user_e writes T and not S.
 SELECT pg_temp.t115_logout();
@@ -2225,6 +2304,46 @@ WITH upd AS (
    WHERE bucket_id = 'rabbit-files' AND name = 'projects/11500000-aaaa-0000-0000-000000000002/files/a623/out-of-t.txt'
   RETURNING 1)
 SELECT is((SELECT count(*)::int FROM upd), 1, 'the same in the body bucket');
+-- Out of a project hidden from this writer, into S: the key's own project does not decide.
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"size":2}'::jsonb
+   WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000007/files/a603/from-private.txt.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'a writer of S regenerates the picture of a file moved in from a project hidden from them');
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"size":2}'::jsonb
+   WHERE bucket_id = 'rabbit-files' AND name = 'projects/11500000-aaaa-0000-0000-000000000007/files/a603/from-private.txt'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'the same in the body bucket');
+SELECT lives_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                   VALUES ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000007/files/a628/from-hidden.txt', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  'a writer of S makes the copy of a file moved in from a project hidden from them');
+SELECT lives_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                   VALUES ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000007/files/a628/from-hidden.txt.jpg', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  'and its picture');
+-- A key nothing names: the rule it always had.
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"size":2}'::jsonb
+   WHERE bucket_id = 'rabbit-files' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a640/fresh.txt'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'a writer of S updates a copy nothing names');
+WITH upd AS (
+  UPDATE storage.objects SET metadata = '{"size":2}'::jsonb
+   WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a640/fresh.txt.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'and a picture');
+SELECT throws_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                    VALUES ('rabbit-files', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a644/outside.txt', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  '42501', 'new row violates row-level security policy for table "objects"', 'nobody uploads outside projects/');
+SELECT throws_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                    VALUES ('rabbit-thumbnails', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a644/outside.txt.jpg', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  '42501', 'new row violates row-level security policy for table "objects"', 'nor a picture');
+SELECT throws_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                    VALUES ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000006/files/a644/binned.txt', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  '42501', 'new row violates row-level security policy for table "objects"', 'nor under a binned project');
+SELECT throws_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+                    VALUES ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000006/files/a644/binned.txt.jpg', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb) $$,
+  '42501', 'new row violates row-level security policy for table "objects"', 'nor a picture');
 -- A rename onto a key under a project this writer cannot write: WITH CHECK refuses.
 SELECT throws_ok($$ UPDATE storage.objects SET name = 'projects/11500000-aaaa-0000-0000-000000000002/files/a642/renamed.txt'
                      WHERE bucket_id = 'rabbit-files' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a601/plain.txt' $$,
@@ -2269,6 +2388,44 @@ SELECT throws_ok($$ INSERT INTO storage.objects (bucket_id, name, owner_id, meta
   '42501', 'new row violates row-level security policy for table "objects"', 'nor write a copy at its key, which names their project');
 SELECT pg_temp.t115_logout();
 
+-- ── A statement that names no row: the UPDATE policy alone decides.
+SELECT pg_temp.t115_login('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'user');
+SELECT lives_ok($$ UPDATE storage.objects SET metadata = '{"size":88}'::jsonb $$, 'a blanket UPDATE by a writer of S is not refused');
+SELECT pg_temp.t115_logout();
+SELECT is((SELECT array_agg(k ORDER BY k) FROM unnest(ARRAY[
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a604/trashed.txt',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a604/trashed.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a605/receipt.pdf',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a605/receipt.pdf.jpg',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a613/old-picture.jpg',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a614/old-picture.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/FINANCE/RATES.json',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf',
+    'rabbit-thumbnails projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg',
+    'rabbit-files projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt',
+    'rabbit-thumbnails projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000002/files/a643/fresh.txt',
+    'rabbit-files elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt',
+    'rabbit-thumbnails elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000006/files/a635/binned.txt'
+  ]) AS k
+   JOIN storage.objects o ON o.bucket_id || ' ' || o.name = k
+  WHERE o.metadata ->> 'size' = '88'), NULL::text[],
+  'it reached nothing trashed, flagged, money, hidden, binned, outside, another project''s or another company''s');
+SELECT is((SELECT count(*)::int FROM unnest(ARRAY[
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a601/plain.txt',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a601/plain.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000002/files/a623/out-of-t.txt',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000002/files/a623/out-of-t.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000007/files/a603/from-private.txt',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/PROJECT.json',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt'
+  ]) AS k
+   JOIN storage.objects o ON o.bucket_id || ' ' || o.name = k
+  WHERE o.metadata ->> 'size' = '88'), 7,
+  'CONTROL: it reached the ordinary files, the ones moved into S, a manifest and a copy nothing names');
+
 -- ── An uploader's clean-up. A real DELETE: storage.protect_delete() lets the statement through
 -- under the Storage API's own setting, so the policy decides (suite 94's reasoning).
 SELECT pg_temp.t115_login('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'user');
@@ -2289,8 +2446,45 @@ WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' A
 SELECT is((SELECT count(*)::int FROM del), 1, 'CONTROL: and a picture nothing names goes too');
 WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt.jpg' RETURNING 1)
 SELECT is((SELECT count(*)::int FROM del), 0, 'but not after the hour');
+WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt.jpg' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 0, 'and not someone else''s');
+WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000007/files/a628/from-hidden.txt.jpg' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 1, 'the picture they made of a file moved in from a project hidden from them goes');
 SELECT set_config('storage.allow_delete_query', 'false', true);
 SELECT pg_temp.t115_logout();
+-- user_e reads S and does not write it; they write T, and a file moved out of T is not theirs.
+SELECT pg_temp.t115_login('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'user');
+SELECT set_config('storage.allow_delete_query', 'true', true);
+WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-files' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a645/e-own.txt' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 0, 'someone who no longer writes the project cannot remove even an upload nothing names');
+WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000001/files/a645/e-own.txt.jpg' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 0, 'nor a picture');
+WITH del AS (DELETE FROM storage.objects WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/11500000-aaaa-0000-0000-000000000002/files/a646/out-of-t-2.txt.jpg' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 0, 'a writer of the old project cannot remove the picture of a file moved out of it, though they uploaded it');
+SELECT set_config('storage.allow_delete_query', 'false', true);
+SELECT pg_temp.t115_logout();
+-- A statement that names no row: the DELETE policy alone decides.
+SELECT pg_temp.t115_login('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'user');
+SELECT set_config('storage.allow_delete_query', 'true', true);
+SELECT lives_ok($$ DELETE FROM storage.objects $$, 'a blanket DELETE by a writer of S is not refused');
+SELECT set_config('storage.allow_delete_query', 'false', true);
+SELECT pg_temp.t115_logout();
+SELECT is((SELECT count(*)::int FROM unnest(ARRAY[
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a625/own-named.txt',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a626/own-trashed.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt.jpg',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a601/plain.txt',
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000002/files/a643/fresh.txt'
+  ]) AS k
+   JOIN storage.objects o ON o.bucket_id || ' ' || o.name = k), 8,
+  'it removed no named copy, no trashed row''s picture, nothing past the hour and nothing of anyone else''s');
+SELECT is((SELECT count(*)::int FROM storage.objects o
+            WHERE (o.bucket_id, o.name) IN (('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a640/fresh.txt'),
+                                            ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a640/fresh.txt.jpg'))), 0,
+  'CONTROL: it removed their own uploads nothing names');
 
 -- ── The policies' text. The probes above read what they do; these read what they are.
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname LIKE 'rabbit\_files%'), 8, 'eight rabbit_files policies');

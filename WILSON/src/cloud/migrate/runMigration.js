@@ -71,7 +71,7 @@ import { getStorageProvider, activeWorkspaceProvider, fileProviderFor, WORKSPACE
 import { getWorkspaceStorageCached } from '../workspaceStorage'
 import { RESUMABLE_THRESHOLD_BYTES } from '../../tools/rabbit_v0.1.0/storage/resumableUpload.js'
 import { S3_MAX_SINGLE_PUT_BYTES } from '../../tools/rabbit_v0.1.0/storage/uploadNotices.js'
-import { canThumbnail, generateThumbnail, thumbnailKeyFor, putThumbnailTo, THUMBNAIL_BUCKET } from '../../tools/rabbit_v0.1.0/storage/thumbnails.js'
+import { canThumbnail, generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom, THUMBNAIL_BUCKET } from '../../tools/rabbit_v0.1.0/storage/thumbnails.js'
 // D2 (night 6): an actual's period, as the budget's Crew/team and Talent tabs
 // print their headers.
 import { periodLabel } from '../../tools/rabbit_v0.1.0/views/budget/periodLabel'
@@ -2573,6 +2573,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           if (folderId) counts.placed++
           counts.letGo += letGoHere
           if (shaped.versionLeft) counts.versions++
+        } else if (uploaded) {
+          // MO1 (0115): the id is taken by a row this account cannot see (in the bin),
+          // whose copy the list above could not see either. What this run just put up
+          // belongs to nothing, so it comes back down; an orphan scan is the backstop
+          // for the body, and nothing sweeps the picture.
+          try { await getStorageProvider(rule.provider).del(key) } catch { /* the orphan scan */ }
+          if (thumbnailUrl) {
+            try {
+              await removeThumbnailFrom(rule.provider, thumbnailUrl, { client: supabase })
+            } catch (rmErr) {
+              console.warn('[migrate] stranded thumbnail not removed:', rmErr?.message || rmErr)
+            }
+          }
         }
       } catch (err) {
         report.errors.push({ scope: 'managed_file', projectId, id: mf.id, message: `${name}: ${err.message}` })
@@ -2714,17 +2727,24 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     const now = again.row
     if (now && now.storage_path === to && now.is_financial === true) return true
+    // A row this account cannot see any more (in the bin or removed meanwhile) keeps its
+    // old key claimed, so the storage policies refuse the way back (0115): nothing moves.
+    if (!now) {
+      const sits = bodyAway ? `: the copy now sits at ${to}` : pictureAway ? `: the picture now sits at ${thumbTo}` : ''
+      const message = `${failed}, and its row is not visible to this account any more (in the bin or removed meanwhile), so nothing was moved back${sits}`
+      throw bodyAway ? strandedError(message) : new Error(message)
+    }
     // The body first, the reverse of the way it came: a picture is never left open
     // beside a body behind the gate.
     if (bodyAway) {
-      if (now && now.storage_path !== from) throw strandedError(`${failed}: its row now says ${now.storage_path}, so the copy was left at ${to}`)
+      if (now.storage_path !== from) throw strandedError(`${failed}: its row now says ${now.storage_path}, so the copy was left at ${to}`)
       try {
         await moveBackVerified(bucket, to, from)
       } catch (back) {
         throw strandedError(`${failed}, and its body could not be moved back: ${back.message}; its row still says ${from} (run again)`)
       }
     }
-    if (pictureAway && (!now || now.thumbnail_url === already.thumbnail_url)) {
+    if (pictureAway && now.thumbnail_url === already.thumbnail_url) {
       try {
         await moveBackVerified(thumbs, thumbTo, already.thumbnail_url)
       } catch (back) {

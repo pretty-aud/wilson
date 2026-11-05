@@ -558,7 +558,7 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(client.log.filter(e => e[0] === 'move' && e[3].endsWith('1-board.png'))).toHaveLength(1)
   })
 
-  it('a row trashed meanwhile: rekey_file_body refuses it (42501, one answer for every failure of authority), the read after does not see it either, the object goes back and the shot is left with a plain reason', async () => {
+  it('a row trashed meanwhile: rekey_file_body refuses it (42501, one answer for every failure of authority), the read after does not find it, and its old key stays claimed (0115): the object stays at its new key and the reason says where', async () => {
     const { tables, objects } = fixture()
     const hidden = new Set()
     const client = makeClient({
@@ -569,9 +569,10 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
-    expect(res.left[0].reason).toBe('“board.png” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile); run it again to move the rest')
-    expect(objects['rabbit-files'].has(OLD.board)).toBe(true)
-    expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
+    expect(res.left[0].reason).toBe(`“board.png” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile), and its copy now sits at ${NEW.board}; run it again to move the rest`)
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+    expect(objects['rabbit-files'].has(OLD.board)).toBe(false)
+    expect(client.log.filter(e => e[0] === 'move' && e[3].endsWith('1-board.png'))).toHaveLength(1)
     expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(OLD.board)
     expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
   })

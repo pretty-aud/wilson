@@ -8,7 +8,12 @@
 --   §1  A picture named only by files.thumbnail_url is claimed too, with its index:
 --       a legacy picture, or a re-file stopped between its two phases. 0114's review
 --       round left the choice here; taken, because otherwise a trashed or hidden file's
---       picture stays readable by key.
+--       picture stays readable by key. Only under the row's own project: until 0114 a
+--       client could write any text in that column, so a name under another project
+--       claims nothing. And one picture has one namer: the pre-flight refuses a picture
+--       two rows name, and file_key_admissible refuses a new key whose picture another
+--       row's thumbnail_url names, because a caller who could see only one of the two
+--       would be answered for both.
 --   §2  The eight base storage policies, restated whole: wherever a key is claimed, the
 --       project that answers is the one the file row names, read as the caller, so a
 --       trashed file, a hidden project or a money row the caller may not see answers
@@ -25,8 +30,17 @@
 -- -------------------------------------
 -- Nothing a build asks for today, unless it asks for a trashed file's copy, or for a
 -- money-flagged file's copy under an ordinary key without money access: those stop
--- being served, on purpose. No file row names another project's key until 0118, so every
--- other claimed key answers as it did.
+-- being served, on purpose. A trashed copy under a money or Legal key stays open to its
+-- cleared audience, who can restore it anyway: those policies do not read the row (SB-7).
+-- A put-back onto a key a row trashed meanwhile names is refused too, so the copy stays
+-- at its new key: this build's re-file and receipt move say so; an old build says "could
+-- not be moved back". Nothing else moves: no file row names another project's key until
+-- 0118, so every other claimed key answers as it did.
+--
+-- A storage list costs more. Supabase's search runs the policies before its name filter,
+-- so one list reads every object in the bucket, whichever company's: measured on dev,
+-- about 0.15 ms an object before this file and 1.2 ms after. A signed URL looks up one
+-- object and costs about a millisecond more.
 --
 -- THE ORDER ON EACH ENVIRONMENT
 -- -----------------------------
@@ -35,6 +49,10 @@
 -- =============================================================================
 
 -- §0 Pre-flight -----------------------------------------------------------------
+-- A long reader of storage.objects (a list, the nightly dump) would hold this file, and
+-- every storage read queued behind it. It fails instead, and can be run again.
+SET LOCAL lock_timeout = '15s';
+
 DO $$
 DECLARE
   r     RECORD;
@@ -54,8 +72,9 @@ BEGIN
   -- Another migration may have moved it: a restatement would drop what it does not name.
   FOR r IN
     SELECT * FROM (VALUES
-      ('rabbit_private.storage_object_claimed(text,text)', 'c9ec112c76dc7ee9a5d68af5f778f22d', '72fcbf8f72bbaa184755ecb06c964b08'),
-      ('rabbit_private.storage_object_current_project(text,text)', '4fab75f34d497a1b763b164cc741c770', 'bd9f56b2f7c309ec46cada3f367d8e5b'),
+      ('rabbit_private.storage_object_claimed(text,text)', 'c9ec112c76dc7ee9a5d68af5f778f22d', '56312e6777efce1cc8dfe8e4f3bb2f38'),
+      ('rabbit_private.storage_object_current_project(text,text)', '4fab75f34d497a1b763b164cc741c770', 'f7d3ce6f636f8ce7f6dabd0ed87ff944'),
+      ('rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)', '5b404b21879e1b25df7b7c18080ac747', 'c2307ece6296a6fd6643606b4801b74e'),
       ('public.workspace_petal_committed_bytes(uuid)', '4e9da5709bc29c10ad52e5d73be22cfe', '96b8fb43380056a2e9925fc28a09c458')
     ) AS t(sig, was, now)
   LOOP
@@ -83,6 +102,13 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- Taken before the counts, so nothing lands between them and the guard below. The
+  -- DROP POLICYs then take ACCESS EXCLUSIVE on storage.objects. A one-statement write to
+  -- files holds ROW EXCLUSIVE before its trigger reads storage.objects, so this order
+  -- cannot deadlock with it. rekey_file_body can: it reads storage.objects before it
+  -- writes files. One side then gets 40P01 and rolls back whole. Run it again.
+  LOCK TABLE public.files IN SHARE ROW EXCLUSIVE MODE;
+
   -- An index cannot hold a very long value, and its own error counts nothing (0114's lesson).
   SELECT count(*) INTO v_n FROM public.files
    WHERE thumbnail_url IS NOT NULL AND storage_provider::text IN ('supabase', 'local_server')
@@ -91,29 +117,50 @@ BEGIN
     RAISE EXCEPTION '0115 refused: % file row(s) have a picture name too long to index', v_n;
   END IF;
 
-  -- Counted, not refused (db query drops a NOTICE; the rehearsal measures them).
+  -- A non-zero count stops here: someone decides each row. Nothing repairs itself. A
+  -- caller who could see only one of the two rows would be answered for the picture.
   SELECT count(*) INTO v_n FROM (
     SELECT thumbnail_url FROM public.files
-     WHERE thumbnail_url IS NOT NULL AND storage_provider::text IN ('supabase', 'local_server')
+     WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND storage_provider::text IN ('supabase', 'local_server')
+       AND lower(split_part(thumbnail_url, '/', 2)) = project_id::text
      GROUP BY thumbnail_url HAVING count(*) > 1) x;
-  RAISE NOTICE '0115: % picture(s) named by more than one row, which nobody can read from here on', v_n;
+  IF v_n > 0 THEN
+    RAISE EXCEPTION '0115 refused: % picture(s) are named by the thumbnail_url of more than one row', v_n;
+  END IF;
+  SELECT count(*) INTO v_n FROM public.files a
+    JOIN public.files b ON b.thumbnail_url = a.storage_path || '.jpg' AND b.id <> a.id
+   WHERE a.storage_provider::text IN ('supabase', 'local_server')
+     AND b.storage_provider::text IN ('supabase', 'local_server')
+     AND lower(split_part(b.thumbnail_url, '/', 2)) = b.project_id::text;
+  IF v_n > 0 THEN
+    RAISE EXCEPTION '0115 refused: % picture(s) are one row''s by its key and another''s by its thumbnail_url', v_n;
+  END IF;
+
+  -- Counted, not refused (db query drops a NOTICE; the rehearsal measures them).
   SELECT count(*) INTO v_n FROM public.files
-   WHERE thumbnail_url IS NOT NULL AND thumbnail_url <> storage_path || '.jpg'
-     AND storage_provider::text IN ('supabase', 'local_server');
+   WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND thumbnail_url <> storage_path || '.jpg'
+     AND storage_provider::text IN ('supabase', 'local_server')
+     AND lower(split_part(thumbnail_url, '/', 2)) = project_id::text;
   RAISE NOTICE '0115: % picture(s) named only by thumbnail_url, claimed from here on', v_n;
+  SELECT count(*) INTO v_n FROM public.files
+   WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND thumbnail_url <> storage_path || '.jpg'
+     AND storage_provider::text IN ('supabase', 'local_server')
+     AND lower(split_part(thumbnail_url, '/', 2)) <> project_id::text;
+  RAISE NOTICE '0115: % picture name(s) under another project, a client wrote them before 0114: look at each, they claim nothing', v_n;
+  SELECT count(*) INTO v_n FROM public.files
+   WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND thumbnail_url <> storage_path || '.jpg'
+     AND storage_provider::text NOT IN ('supabase', 'local_server');
+  RAISE NOTICE '0115: % row(s) on another provider whose picture is not their key''s: it stays on the prefix rule', v_n;
 END $$;
 
 -- §1 A picture named only by thumbnail_url -------------------------------------------
--- Before the policies: it takes SHARE on files, and the DROP POLICY below takes ACCESS
--- EXCLUSIVE on storage.objects. A client's write to files reads storage.objects from
--- inside its trigger, so this order cannot deadlock with one.
 CREATE INDEX IF NOT EXISTS files_thumbnail_url_idx
   ON public.files (thumbnail_url)
   WHERE thumbnail_url IS NOT NULL AND storage_provider IN ('supabase', 'local_server');
 
 -- SB-4, from 0114 with one arm: a row claims the picture its thumbnail_url names, as well
--- as the one its storage_path implies. Across every company, because a stored copy can
--- outlive its project.
+-- as the one its storage_path implies, when that name is under the row's own project.
+-- Across every company, because a stored copy can outlive its project.
 CREATE OR REPLACE FUNCTION rabbit_private.storage_object_claimed(p_bucket text, p_name text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -146,7 +193,8 @@ BEGIN
       RETURN true;
     END IF;
     IF EXISTS (SELECT 1 FROM public.files f
-                WHERE f.thumbnail_url = p_name AND f.storage_provider IN ('supabase', 'local_server')) THEN
+                WHERE f.thumbnail_url = p_name AND f.storage_provider IN ('supabase', 'local_server')
+                  AND lower(split_part(f.thumbnail_url, '/', 2)) = f.project_id::text) THEN
       RETURN true;
     END IF;
   ELSIF p_bucket = 'byo-s3' THEN
@@ -204,7 +252,7 @@ BEGIN
     SELECT count(*), (array_agg(f.project_id))[1] INTO v_n, v_project
       FROM public.files f
      WHERE (f.storage_path = CASE WHEN right(p_name, 4) = '.jpg' THEN left(p_name, -4) END
-            OR f.thumbnail_url = p_name)
+            OR (f.thumbnail_url = p_name AND lower(split_part(f.thumbnail_url, '/', 2)) = f.project_id::text))
        AND f.storage_provider IN ('supabase', 'local_server');
   ELSIF p_bucket = 'byo-s3' THEN
     SELECT count(*), (array_agg(f.project_id))[1] INTO v_n, v_project
@@ -219,12 +267,114 @@ $$;
 REVOKE EXECUTE ON FUNCTION rabbit_private.storage_object_current_project(text, text) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION rabbit_private.storage_object_current_project(text, text) TO authenticated, service_role;
 
+-- SB-9. A new row can vouch only for a never-claimed object under its own project,
+-- which that project's readers could already read. Money is judged before any
+-- existence probe, so its refusal says nothing about what exists (SEC-7). The same
+-- id is excluded because a BEFORE trigger fires ahead of ON CONFLICT: the migration's
+-- insertOrSkip reruns must reach their 23505.
+CREATE OR REPLACE FUNCTION rabbit_private.file_key_admissible(
+  p_provider text, p_path text, p_project uuid, p_file uuid, p_folder uuid, p_financial boolean)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_ws    UUID := public.current_workspace_id();
+  v_third TEXT := split_part(COALESCE(p_path, ''), '/', 3);
+BEGIN
+  IF p_provider IS NULL OR p_path IS NULL OR p_project IS NULL OR v_ws IS NULL THEN
+    RETURN false;
+  END IF;
+  -- 1. The caller's rights on the project.
+  IF NOT EXISTS (SELECT 1 FROM public.projects p
+                  WHERE p.id = p_project AND p.workspace_id = v_ws AND p.deleted_at IS NULL)
+     OR NOT COALESCE(public.has_active_membership(v_ws), false)
+     OR NOT COALESCE(public.passes_project_privacy(p_project), false)
+     OR NOT COALESCE(public.can_write_project(p_project), false) THEN
+    RETURN false;
+  END IF;
+  -- 2. Money and Legal.
+  IF public.rabbit_legal_segment(v_third) THEN
+    IF NOT COALESCE(public.can_access_project_legal(p_project), false) THEN
+      RETURN false;
+    END IF;
+  ELSIF COALESCE(p_financial, false) OR public.rabbit_money_segment(v_third) THEN
+    IF NOT COALESCE(public.can_access_project_money(p_project), false) THEN
+      RETURN false;
+    END IF;
+  END IF;
+  -- 3. The shape, under this project.
+  IF NOT rabbit_private.file_key_shape_ok(p_path)
+     OR lower(split_part(p_path, '/', 2)) <> p_project::text THEN
+    RETURN false;
+  END IF;
+  -- 4. No other row names it, in any trash state.
+  IF EXISTS (SELECT 1 FROM public.files f
+              WHERE f.storage_path = p_path
+                AND f.storage_provider IN ('supabase', 's3', 'local_server')
+                AND f.id IS DISTINCT FROM p_file) THEN
+    RETURN false;
+  END IF;
+  IF p_provider = 's3'
+     AND EXISTS (SELECT 1 FROM public.files f
+                  WHERE f.storage_provider = 's3'
+                    AND regexp_replace(f.storage_path, '(\.jpg)+$', '') = regexp_replace(p_path, '(\.jpg)+$', '')
+                    AND f.id IS DISTINCT FROM p_file) THEN
+    RETURN false;
+  END IF;
+  -- 0115: nor is its picture another row's by name (a legacy picture, or a re-file stopped
+  -- between its phases). The caller might see only the new row, and be answered for both.
+  IF p_provider IN ('supabase', 'local_server')
+     AND EXISTS (SELECT 1 FROM public.files f
+                  WHERE f.thumbnail_url = p_path || '.jpg'
+                    AND f.storage_provider IN ('supabase', 'local_server')
+                    AND lower(split_part(f.thumbnail_url, '/', 2)) = f.project_id::text
+                    AND f.id IS DISTINCT FROM p_file) THEN
+    RETURN false;
+  END IF;
+  -- 5. Neither it nor its picture is waiting to be purged, or certified as purged.
+  IF EXISTS (SELECT 1 FROM public.storage_gc_queue q
+              WHERE q.bucket_id IN ('rabbit-files', 'rabbit-thumbnails', 'byo-s3')
+                AND q.object_path IN (p_path, p_path || '.jpg')
+                AND q.file_id IS NOT NULL AND q.status IN ('pending', 'failed'))
+     OR EXISTS (SELECT 1 FROM public.file_events e
+                 WHERE e.event = 'purged'
+                   AND e.old_path IN (p_path, p_path || '.jpg')
+                   AND e.project_id IS DISTINCT FROM public.fn_try_uuid(split_part(e.old_path, '/', 2))) THEN
+    RETURN false;
+  END IF;
+  -- 6. For Supabase, the object is there.
+  IF p_provider = 'supabase'
+     AND NOT EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id = 'rabbit-files' AND o.name = p_path) THEN
+    RETURN false;
+  END IF;
+  -- 7. The folder is this project's, and an ordinary file is not filed in a money one.
+  IF p_folder IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM public.folders fo WHERE fo.id = p_folder AND fo.project_id = p_project) THEN
+      RETURN false;
+    END IF;
+    IF public.moth_folder_chain_locked(v_ws, p_folder)
+       AND NOT public.file_row_is_money(p_financial, p_path) THEN
+      RETURN false;
+    END IF;
+  END IF;
+  RETURN true;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION rabbit_private.file_key_admissible(text, text, uuid, uuid, uuid, boolean) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION rabbit_private.file_key_admissible(text, text, uuid, uuid, uuid, boolean) TO authenticated, service_role;
+
 -- §2 The eight base storage policies -------------------------------------------------
 -- 0042's four and 0053's four, every predicate word for word; each project argument is
 -- now the CASE. DROP + CREATE, never a narrower policy added alongside: permissive
 -- policies OR together, so leaving the old one in place would change nothing at all.
 -- The money policies and the bin-poster policies are not touched (§6 pins their text):
 -- a money key's second segment is its project for ever, and a poster's key is row-less.
+-- So a trashed or queued copy under a money or Legal key stays open to its cleared
+-- audience, who can restore it anyway.
 
 DROP POLICY IF EXISTS rabbit_files_select ON storage.objects;
 CREATE POLICY rabbit_files_select ON storage.objects
@@ -297,8 +447,9 @@ CREATE POLICY rabbit_files_update ON storage.objects
                                       ELSE public.fn_try_uuid((storage.foldername(name))[2]) END)
   );
 
--- An upload whose row was refused cleans up after itself. A body a record names is not
--- its uploader's to remove, for the hour or any other time (SFB-06).
+-- An upload whose row was refused cleans up after itself. A direct clean-up cannot
+-- remove a body a record names (SFB-06). This is no limit on a project's writer, who can
+-- still rename or overwrite it through the UPDATE arm, as they always could.
 DROP POLICY IF EXISTS rabbit_files_delete_own ON storage.objects;
 CREATE POLICY rabbit_files_delete_own ON storage.objects
   FOR DELETE USING (
@@ -417,7 +568,8 @@ CREATE POLICY rabbit_thumbnails_delete_own ON storage.objects
 -- §3 The signer's question for a company's own bucket ----------------------------------
 -- SB-14. INVOKER: storage-presign calls it with the caller's own token, so every answer
 -- is the caller's. A claimed key is never signed for writing or removing: nobody can PUT
--- over or DELETE a copy a record names. An unclaimed key keeps 0051's rule.
+-- over or DELETE a copy a record names. In a company's own bucket a record names a key
+-- and that key's own .jpg (SB-4). An unclaimed key keeps 0051's rule.
 CREATE OR REPLACE FUNCTION public.can_presign_object(p_path text, p_op text)
 RETURNS boolean
 LANGUAGE sql
@@ -487,7 +639,9 @@ GRANT EXECUTE ON FUNCTION public.workspace_petal_committed_bytes(UUID) TO servic
 
 -- §5 COMMENTs ----------------------------------------------------------------------------
 COMMENT ON FUNCTION rabbit_private.storage_object_claimed(text, text) IS
-  'True when any record names this stored copy, whichever company it belongs to: a files row in any trash state (for a picture, by the key its body implies or by its thumbnail_url), an undrained purge-queue row naming a file, or the purge certificate of a moved copy. False for row-less shapes. A definer, with row security off.';
+  'True when any record names this stored copy, whichever company it belongs to: a files row in any trash state (for a picture, by the key its body implies, or by a thumbnail_url under the row''s own project), an undrained purge-queue row naming a file, or the purge certificate of a moved copy. False for row-less shapes. A definer, with row security off.';
+COMMENT ON FUNCTION rabbit_private.file_key_admissible(text, text, uuid, uuid, uuid, boolean) IS
+  'May this caller''s new row claim this key? The caller''s rights first, then money and Legal, then shape, other rows (by key, and for a picture by thumbnail_url), purge claims, the object, and the folder. Never NULL. Called by fn_files_body_guard, rekey_file_body and files_body_follow.';
 COMMENT ON FUNCTION rabbit_private.storage_object_current_project(text, text) IS
   'The project that answers for this stored copy, read as the caller, so files_select decides. NULL unless exactly one visible row names it. Must stay INVOKER.';
 COMMENT ON FUNCTION public.can_presign_object(text, text) IS
@@ -507,8 +661,9 @@ BEGIN
   -- The restated bodies are this file's.
   FOR r IN
     SELECT * FROM (VALUES
-      ('rabbit_private.storage_object_claimed(text,text)', '72fcbf8f72bbaa184755ecb06c964b08'),
-      ('rabbit_private.storage_object_current_project(text,text)', 'bd9f56b2f7c309ec46cada3f367d8e5b'),
+      ('rabbit_private.storage_object_claimed(text,text)', '56312e6777efce1cc8dfe8e4f3bb2f38'),
+      ('rabbit_private.storage_object_current_project(text,text)', 'f7d3ce6f636f8ce7f6dabd0ed87ff944'),
+      ('rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)', 'c2307ece6296a6fd6643606b4801b74e'),
       ('public.workspace_petal_committed_bytes(uuid)', '96b8fb43380056a2e9925fc28a09c458')
     ) AS t(sig, now)
   LOOP
@@ -544,6 +699,16 @@ BEGIN
      OR NOT has_function_privilege('service_role', 'public.can_presign_object(text,text)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION '0115 post-condition: a helper has the wrong grants';
+  END IF;
+
+  -- 0114's schema holds what it held: nothing new reaches a client by this file.
+  IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'rabbit_private'::regnamespace) <> 8 THEN
+    RAISE EXCEPTION '0115 post-condition: rabbit_private does not hold its 8 functions';
+  END IF;
+  IF has_function_privilege('anon', 'rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)', 'EXECUTE')
+     OR NOT (SELECT prosecdef FROM pg_proc WHERE oid = 'rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)'::regprocedure) THEN
+    RAISE EXCEPTION '0115 post-condition: file_key_admissible has the wrong grants or runs as the wrong role';
   END IF;
 
   -- The index.

@@ -1468,7 +1468,10 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 //      what this run read, puts the object back, but only after RE-READING the
 //      row, successfully, and only while it still names the old key: a call
 //      that committed and lost its answer is left as it committed, and when
-//      the read fails too nothing is moved (round 2, item 4). An object
+//      the read fails too nothing is moved (round 2, item 4). A row this
+//      account cannot see any more keeps its old key claimed, so the object
+//      could not go back (0115): it stays at its new key and the reason says
+//      so. An object
 //      already at its new key with nothing at the old one is a move that
 //      landed on an earlier run and is counted done; an object at BOTH keys
 //      is left alone and reported (a move never overwrites and nothing here
@@ -1613,9 +1616,11 @@ async function rereadFileRow(client, id) {
  * The row rewritten to say where its object now is. An error, or a false
  * answer (the row no longer says what this run read), puts the object back —
  * but only after the row has been READ AGAIN, successfully, and still names
- * the old key (or cannot be seen at all): a call that committed and lost its
- * answer stays as it committed; a row someone else changed meanwhile is left
- * to them; and when the read fails too, nothing is known, so nothing is moved
+ * the old key: a call that committed and lost its answer stays as it committed;
+ * a row someone else changed meanwhile is left to them; a row this account
+ * cannot see any more (binned or removed meanwhile) keeps its old key claimed,
+ * so the storage policies refuse the way back (0115) and the object stays;
+ * and when the read fails too, nothing is known, so nothing is moved
  * — the object stays at its new key, the shot is left with "run it again",
  * and the next run finds it (the row still old: landed earlier; the row new:
  * done) while storage-gc keeps it (its twin key is named either way).
@@ -1650,7 +1655,8 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
   }
   const now = again.row;
   if (now && now[column] === to) return;
-  const movedBack = !now || now[column] === from;
+  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile), and its copy now sits at ${to}; run it again to move the rest`);
+  const movedBack = now[column] === from;
   if (movedBack) {
     try {
       await putBack();
@@ -1658,7 +1664,6 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
       throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and it could not be moved back (${back?.message || back}); its record still says ${from}`);
     }
   }
-  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile); run it again to move the rest`);
   // Only of the body's own phase: by the picture's, the body has moved already.
   throw new Error(`“${row.name}” could not be re-filed: ${absent && movedBack && body ? REKEY_ABSENT : failed}`);
 }

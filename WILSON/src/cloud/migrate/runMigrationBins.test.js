@@ -3382,12 +3382,12 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${MISSED}: its row now says ${elsewhere}, so the copy was left at ${to}` })])
   })
 
-  it('a row no longer visible (put in the bin as the call arrived) has its body put back', async () => {
+  it('a row no longer visible (put in the bin as the call arrived) keeps its old key claimed (0115), so nothing goes back, and the sentence says where the copy sits', async () => {
     const { id, name, from, to } = setUp()
     fake.state.afterRekey = () => { fake.state.lists.files = fake.state.lists.files.filter(f => f.id !== id) }
     const report = await run()
-    expect(fake.state.moves).toEqual([...forward(from, to), ...back(from, to)])
-    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${OPEN} — ${NOT_BEHIND}` })])
+    expect(fake.state.moves).toEqual(forward(from, to))
+    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${NOT_BEHIND}, and its row is not visible to this account any more (in the bin or removed meanwhile), so nothing was moved back: the copy now sits at ${to}` })])
   })
 
   it('a body an earlier run left at the new key goes back too: what matters is where the row still says it is', async () => {
@@ -4143,6 +4143,19 @@ describe('M3: the round trip on the fixtures — the team, the files kept with r
     expect(real.projectMembers.inserted).toBe(dry.projectMembers.inserted)
     expect(real.projectMembers.skipped).toBe(dry.projectMembers.skipped)
     expect(real.assetTemplatesLinked).toBe(dry.assetTemplatesLinked)
+  })
+
+  it('a file kept with a row whose id is in the bin, its row and its copy hidden from this account (0115): the run uploads, the id is taken, and what it put up comes back down', async () => {
+    const b = withManaged(desktopFixtures())
+    b.managedFiles = b.managedFiles.filter(f => f.id === MANAGED.small.id)
+    serveM3([b])
+    fake.state.failWith = (table, row) => (table === 'files' && row.id === MANAGED.small.id ? { code: '23505', message: 'duplicate key value violates unique constraint "files_pkey"' } : null)
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const body = fake.state.uploads.map(u => u.path).find(k => k.startsWith(`projects/${PROJECT.id}/files/${MANAGED.small.id}/`) && k.endsWith('-plate.png'))
+    expect(body, 'the run did upload it').toBeTruthy()
+    expect(fake.state.removed).toContain(body)
+    expect(fake.state.objects.some(o => o.name === body)).toBe(false)
+    expect(report.managedFiles).toMatchObject({ skipped: 1, inserted: 0, uploaded: 0, failed: 0 })
   })
 
   it('CONTROL: the desktop\'s rows as it keeps them are refused as wilson-dev refused them, and the runner never sends one so', async () => {
