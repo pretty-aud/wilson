@@ -663,11 +663,14 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  /* DG7: it lives in a column of 416px or more now, and can name a project: a
-     long title wraps and its Undo and Dismiss take the next line (review round
-     1, MEASURED: a 71-character title ran 168px into the Uploads column). */
-  .dog-refs-notice { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; overflow-wrap: anywhere; }
+  /* DG7: it lives in a column of 416px or more now, and can name a project, so
+     it is one run of words that wraps, Undo and Dismiss in it (review round 1,
+     MEASURED: as a flex row a 71-character title ran 168px into the Uploads
+     column; round 2, MEASURED: as a wrapping flex row a medium one left Dismiss
+     alone on a line). */
+  .dog-refs-notice { overflow-wrap: anywhere; }
   .dog-refs-dismiss {
+    margin-left: 8px;
     padding: 0;
     border: 0;
     background: transparent;

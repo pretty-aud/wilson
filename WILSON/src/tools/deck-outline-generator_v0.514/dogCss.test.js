@@ -179,10 +179,10 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   const at = (r) => norm(r.parents[r.parents.length - 1] || '')
   // What lays a box out: its display, place, size (and its logical names),
   // flow and the gaps in it.
-  const LAYOUT = /^(display|position|float|order|inset|gap|row-gap|column-gap|columns|column-count|column-width|direction|overflow(-[xy]|-wrap)?|(min-|max-)?(width|inline-size|block-size)|flex(-[a-z]+)?|grid(-[a-z]+)*|justify-[a-z]+|align-[a-z]+|place-[a-z]+)$/
+  const LAYOUT = /^(display|position|float|order|inset(-[a-z-]+)?|top|right|bottom|left|gap|row-gap|column-gap|columns|column-count|column-width|direction|writing-mode|white-space|zoom|overflow(-[a-z]+)?|(min-|max-)?(width|height|inline-size|block-size)|flex(-[a-z]+)?|grid(-[a-z]+)*|justify-[a-z]+|align-[a-z]+|place-[a-z]+)$/
   // The two cards and their parts (card 1's sections, the project pair, the
   // shelves of rows), by their classes or ids anywhere in a selector.
-  const PARTS = /\.dog-(card|card-project|s2|card-body|refs|project-details|mode|checks|field-row|context-prompt|page-request|generate|project-select|select|sec|sec-[a-z]+|project-pair|project-field|refs-pair|refs-actions|refs-notice|refs-rows|refs-row|refs-uploads|upload|check-row)(?![-\w])|#dog-(card1-body|card3-body|project)(?![-\w])/
+  const PARTS = /\.dog-(card|card-project|s2|card-body|refs|project-details|mode|checks|field-row|context-prompt|page-request|generate|project-select|select|sec|sec-[a-z]+|project-pair|project-field|refs-pair|refs-actions|refs-notice|refs-dismiss|refs-rows|refs-row|refs-name|refs-remove|refs-meter|refs-uploads|upload|check|check-row)(?![-\w])|#dog-(card1-body|card3-body|project)(?![-\w])/
   // What can reach inside card 1's body (DG6's follow-up, review round 1,
   // finding 4: lines, gaps and the titles' look were read only by the
   // selectors that drew them first): the body by its id, the card, its
@@ -192,7 +192,7 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   // and an attribute selector passed) added the cards' body class, the notes
   // and any class written as an attribute; (finding 8) a selector naming
   // another card, a dialog or the Add references window is not card 1's.
-  const REACH = /\.dog-sec(?![\w])|\.dog-refs(?![-\w])|\.dog-refs-(pair|uploads|upload-error|contract|group|group-label|rows|row|actions|notice)(?![-\w])|\.dog-(upload|check-row)(?![-\w])|#dog-card1-body|\.dog-card-project|\.dog-card-body|\.dog-details-note|\.dog-project-(pair|field|details)(?![-\w])|\[class[~*^$|]?=|(^|[\s>+~(,])h3(?![-\w])/
+  const REACH = /\.dog-sec(?![\w])|\.dog-refs(?![-\w])|\.dog-refs-(pair|uploads|upload-error|contract|group|group-label|rows|row|actions|notice|dismiss)(?![-\w])|\.dog-(upload|check-row)(?![-\w])|#dog-card1-body|\.dog-card-project|\.dog-card-body|\.dog-details-note|\.dog-project-(pair|field|details)(?![-\w])|\[class[~*^$|]?=|(^|[\s>+~(,])h3(?![-\w])/
   const OTHER = /\.dog-(output|s2)(?![-\w])|dialog|\.dog-refs-(layout|rail|pick|foot|preview|search)/
   const reach = (css, re) => allRules(css).flatMap((r) => splitTop(r.sel).map(norm).filter((sel) => REACH.test(sel) && !OTHER.test(sel))
     .flatMap((sel) => decls(r.body).filter(([prop]) => re.test(prop)).map(([prop, v]) => `${at(r)} ${sel} { ${prop}: ${v} }`)))
@@ -276,22 +276,36 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     `${L} .dog-field-row { display: flex }`,
     `${L} .dog-field-row { align-items: flex-start }`,
     `${L} .dog-field-row { gap: 16px }`,
+    `${L} .ui-input.dog-context-prompt { height: 80px }`,
+    `${L} .ui-input.dog-context-prompt[data-focused='true'] { height: 160px }`,
+    `${L} .ui-input.dog-page-request { height: 96px }`,
+    `${L} .ui-input.dog-page-request[data-focused='true'] { height: 160px }`,
     `${L} .dog-generate { width: 100% }`,
+    `${L} .dog-check { display: inline-flex }`,
+    `${L} .dog-check { align-items: center }`,
+    `${L} .dog-check { justify-content: center }`,
+    `${L} .dog-check { width: 14px }`,
+    `${L} .dog-check { height: 14px }`,
     `${L} .dog-refs-actions { display: flex }`,
     `${L} .dog-refs-actions { flex-wrap: wrap }`,
     `${L} .dog-refs-actions { align-items: center }`,
     `${L} .dog-refs-actions { gap: 8px }`,
-    `${L} .dog-refs-notice { display: flex }`,
-    `${L} .dog-refs-notice { flex-wrap: wrap }`,
-    `${L} .dog-refs-notice { align-items: baseline }`,
-    `${L} .dog-refs-notice { gap: 8px }`,
     `${L} .dog-refs-notice { overflow-wrap: anywhere }`,
     `${L} .dog-refs-row { display: flex }`,
     `${L} .dog-refs-row { align-items: center }`,
     `${L} .dog-refs-row { gap: 8px }`,
+    `${L} .dog-refs-row { min-height: 32px }`,
+    `${L} .dog-refs-name { flex: 0 1 auto }`,
+    `${L} .dog-refs-name { min-width: 0 }`,
+    `${L} .dog-refs-name { overflow: hidden }`,
+    `${L} .dog-refs-name { white-space: nowrap }`,
     `${L} .dog-refs-row .dog-refs-name { flex: 1 }`,
+    `${L} .dog-refs-meter { display: flex }`,
+    `${L} .dog-refs-meter { flex-direction: column }`,
+    `${L} .dog-refs-meter { gap: 4px }`,
     `${L} .dog-refs .dog-refs-meter { width: var(--dog-measure) }`,
     `${L} .dog-refs .dog-refs-meter { max-width: 100% }`,
+    `${L} .dog-refs-foot .dog-refs-meter { flex: 1 }`,
     `${L} .dog-mode { display: flex }`,
     `${L} .dog-mode { align-items: center }`,
     `${L} .dog-mode { gap: 8px }`,
@@ -310,6 +324,9 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   const LINES_NOW = [
     `${L} .dog-project-details { background-color: var(--color-paper-recessed) }`,
     `${L} .dog-project-details { border: 1px solid var(--color-rule) }`,
+    `${L} .dog-refs-dismiss { border: 0 }`,
+    `${L} .dog-refs-dismiss { background: transparent }`,
+    `${L} .dog-refs-dismiss { text-decoration: underline }`,
     `${L} .dog-refs-row { border-bottom: 1px solid var(--color-rule) }`,
     `${L} .dog-refs-row[data-unavailable='true'] .dog-refs-name { text-decoration: line-through }`,
   ]
@@ -336,6 +353,8 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     `${L} .dog-project-details { margin-top: 8px }`,
     `${L} .dog-project-details { padding: 8px 12px }`,
     `${L} .dog-details-note { margin-bottom: 8px }`,
+    `${L} .dog-refs-dismiss { margin-left: 8px }`,
+    `${L} .dog-refs-dismiss { padding: 0 }`,
     `${L} .dog-refs-group-label { margin-bottom: 4px }`,
     `${L} .dog-refs-rows { margin: 0 }`,
     `${L} .dog-refs-rows { padding: 0 }`,
@@ -351,6 +370,8 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     `${L} .dog-details-note { line-height: var(--text-dense--line-height) }`,
     `${L} .dog-details-note { color: var(--color-ink-3) }`,
     `${L} .dog-details-note[data-tone='danger'] { color: var(--color-danger) }`,
+    `${L} .dog-refs-dismiss { font: inherit }`,
+    `${L} .dog-refs-dismiss { color: var(--color-ink-2) }`,
     `${L} .dog-refs-row[data-unavailable='true'] .dog-refs-name { color: var(--color-ink-3) }`,
   ]
   // Card 1's sections as built, and the stacks the earlier merges had, for
@@ -615,6 +636,21 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
       '.dog-refs-pair { direction: rtl; }',
       '.dog-refs-pair { overflow-x: auto; }',
       '.dog-card-project .dog-refs-row { position: static; }',
+      // Review round 2 (READ: 29 more wrong rules passed): a tile moved or sized
+      // now it is positioned, the notice's wrap undone, a name or a control gone.
+      '.dog-refs-row { left: 300px; }',
+      '.dog-refs-row { top: 40px; }',
+      '.dog-refs-row { min-height: 64px; }',
+      '.dog-refs-notice { white-space: nowrap; }',
+      '.dog-refs-notice { display: flex; align-items: baseline; }',
+      '.dog-refs-name { white-space: normal; }',
+      '.dog-refs-remove { display: none; }',
+      '.dog-refs-dismiss { display: none; }',
+      '.dog-check { display: none; }',
+      '.dog-refs-meter { display: none; }',
+      '.dog-refs-pair { writing-mode: vertical-rl; }',
+      '.dog-sec-foot { zoom: 0.8; }',
+      '.dog-refs-rows { overflow-inline: auto; }',
     ]) expect(add(plant).layout, plant).not.toEqual(LAYOUT_NOW)
     expect(swap(GUTTER, `container-type: inline-size;\n    ${GUTTER}`).containers).not.toEqual([])
     // The dropdown's and the cards' markup: a cap or a width by a class or a

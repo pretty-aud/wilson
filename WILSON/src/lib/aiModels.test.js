@@ -71,7 +71,7 @@ describe('MODEL_INPUT_LIMITS: read from the provider\'s documentation', () => {
       'claude-fable-5-1': 1000000, 'claude-mythos-5-1': 1000000, 'claude-fable-5': 1000000, 'claude-mythos-5': 1000000, 'claude-mythos-preview': 1000000,
       'claude-opus-5-5': 1000000, 'claude-opus-5': 1000000, 'claude-opus-4-8': 1000000, 'claude-opus-4-7': 1000000, 'claude-opus-4-6': 1000000,
       'claude-sonnet-5-5': 1000000, 'claude-sonnet-5': 1000000, 'claude-sonnet-4-6': 1000000, 'claude-haiku-5-5': 1000000,
-      'claude-opus-4-5-20251101': 200000, 'claude-sonnet-4-5-20250929': 200000, 'claude-haiku-4-5-20251001': 200000, 'claude-haiku-4-5': 200000,
+      'claude-opus-4-5-20251101': 200000, 'claude-opus-4-5': 200000, 'claude-sonnet-4-5-20250929': 200000, 'claude-sonnet-4-5': 200000, 'claude-haiku-4-5-20251001': 200000, 'claude-haiku-4-5': 200000,
     })
     expect(inputLimitFor(BUILTIN.FAST)).toBe(200000)
   })
