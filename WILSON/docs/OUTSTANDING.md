@@ -4168,8 +4168,9 @@ design round's three WCAG items, and one interplay measured for the pictures.
 Her words of 2026-11-05, verbatim: *"Also I added a 110 page script of a movie
 and it read it fine and the limit bar said we were more than 100% of what DOG
 can read. but it was fine. this is not related to the visual update"*. Read in
-the code at `283e65ea` and in staging's usage log; nothing was changed. What
-is done about it is her call (asked 2026-11-05).
+the code at `283e65ea` and in staging's usage log; nothing was changed. Her
+answer the same hour, verbatim: *"Fix it in the D.O.G. session (Recommended)"*:
+DG7's brief carries it as its item 5.
 
 - **MTR-01 · The meter says "Past what D.O.G. can read for one deck" for a
   deck that reads whole.** MEASURED (read; staging's `app_events`, tool `dog`,
@@ -4192,7 +4193,7 @@ is done about it is her call (asked 2026-11-05).
   cautious estimate, and show the percentage past 100; count a PDF page at a
   measured figure; record the model's input limit in the model registry from
   the provider's documentation and measure against that; show a run's real
-  `input_tokens` after it. Owner: her call.
+  `input_tokens` after it. Owner: DG7.
 - **MTR-02 · An upload's row never shows the size warning a chosen file's
   row shows, and the page cap that warning names has no source.** MEASURED
   (read): `sizeWarning` is called for a chosen file's row and in the Add
