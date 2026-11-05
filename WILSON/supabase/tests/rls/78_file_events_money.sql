@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(85);
+SELECT plan(90);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1006,7 +1006,7 @@ SELECT is(
 SELECT ok(
   (SELECT qual LIKE '%captured_private%' AND qual LIKE '%created_by = auth.uid()%'
      FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events'),
-  'file_events_select carries the private-time arm (suites 90 and 95 pin the whole text)'); -- 67
+  'file_events_select carries the private-time arm (suite 95 pins the whole text)'); -- 67
 
 -- ── The stamp, for every writer ──
 SELECT is(
@@ -1084,8 +1084,19 @@ SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
-SELECT ok((SELECT pg_temp.seen78() LIKE '%7891%' AND pg_temp.seen78() LIKE '%7892%' AND pg_temp.seen78() LIKE '%7895%'),
-  'the project''s creator, with no admin claim, reads the private time');              -- 77
+SELECT is(pg_temp.seen78(), '7891,7892,7894,7895',
+  'the project''s creator, with no admin claim and no seat, reads the private time, and no money'); -- 77
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- A real creator holds a seat (a client's project is staffed by its creator): both arms pass.
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1111-0000-0000-0000-000000007890', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+   '11111111-1111-1111-1111-111111111111', 'manager')
+ON CONFLICT (project_id, user_id) DO UPDATE SET project_role = 'manager';
+SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7892,7893,7894,7895,7896',
+  'the creator as the project''s manager reads the private-time invoice too');         -- 78
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
@@ -1096,14 +1107,14 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 )::text, true);
 SET LOCAL ROLE authenticated;
 SELECT is(pg_temp.seen78(), '7891,7892,7893,7894,7895,7896',
-  'an admin who did not create the project reads all of it');                          -- 78
+  'an admin who did not create the project reads all of it');                          -- 79
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 -- The same person without the claim: the arm is the role, not the name.
 SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
 SELECT is(pg_temp.seen78(), '7891,7895',
-  'the same person with no admin claim reads the public time only');                   -- 79
+  'the same person with no admin claim reads the public time only');                   -- 80
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
@@ -1113,21 +1124,28 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
     'workspace_id','22222222-2222-2222-2222-222222222222','app_role','admin')
 )::text, true);
 SET LOCAL ROLE authenticated;
-SELECT is(pg_temp.seen78(), 'none', 'another company''s admin reads none of it');      -- 80
+SELECT is(pg_temp.seen78(), 'none', 'another company''s admin reads none of it');      -- 81
 
 -- ── The rows already written (file_events_restamp) ──
 SELECT throws_ok($$ SELECT public.file_events_restamp() $$, '42501', NULL,
-  'a client cannot call the restamp');                                                 -- 81
+  'a client cannot call the restamp');                                                 -- 82
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 -- created_at is the transaction's start, so the suite sets the moments by hand: made
 -- private five days ago, opened again three days ago.
-INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+INSERT INTO public.projects (id, workspace_id, title, created_by, created_at) VALUES
   ('aaaa1111-0000-0000-0000-000000007898', '11111111-1111-1111-1111-111111111111',
-   'Walked back', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
+   'Walked back', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
   ('aaaa1111-0000-0000-0000-000000007899', '11111111-1111-1111-1111-111111111111',
-   'Never flipped', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+   'Never flipped', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007888', '11111111-1111-1111-1111-111111111111',
+   'A walk with no answer', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007887', '11111111-1111-1111-1111-111111111111',
+   'Flipped, then gone', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007886', '11111111-1111-1111-1111-111111111111',
+   'Holds an old id', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '1 day');
+UPDATE public.projects SET created_at = now() - interval '200 days' WHERE id = 'aaaa1111-0000-0000-0000-000000007897';
 UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007898';
 UPDATE public.edit_history SET created_at = now() - interval '5 days'
  WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007898'
@@ -1137,7 +1155,30 @@ UPDATE public.edit_history SET created_at = now() - interval '3 days'
  WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007898'
    AND action = 'update' AND diff -> 'is_private' ->> 'new' = 'false';
 
+-- The flip of 7888 whose old side reads nothing, and 7887's flip with the project then gone.
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007888';
+UPDATE public.edit_history SET created_at = now() - interval '3 days', diff = '{"is_private": {"old": null, "new": true}}'::jsonb
+ WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007888'
+   AND action = 'update' AND diff ? 'is_private';
+UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000007888';
+DELETE FROM public.edit_history
+ WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007888'
+   AND action = 'update' AND diff -> 'is_private' ->> 'new' = 'false';
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007887';
+UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000007887';
+DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000007887';
+
 INSERT INTO public.file_events (workspace_id, project_id, file_id, event, created_at) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
+   'aaaa1111-0000-0000-0000-0000000078c1', 'relinked', now() - interval '120 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007899',
+   'aaaa1111-0000-0000-0000-0000000078c2', 'relinked', now() - interval '120 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007886',
+   'aaaa1111-0000-0000-0000-0000000078c3', 'relinked', now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007888',
+   'aaaa1111-0000-0000-0000-0000000078c4', 'relinked', now() - interval '4 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007887',
+   'aaaa1111-0000-0000-0000-0000000078c5', 'relinked', now() - interval '2 days'),
   ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
    'aaaa1111-0000-0000-0000-0000000078b1', 'relinked', now() - interval '6 days'),
   ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
@@ -1150,26 +1191,45 @@ INSERT INTO public.file_events (workspace_id, project_id, file_id, event, create
    'aaaa1111-0000-0000-0000-0000000078b5', 'relinked', now() - interval '2 days'),
   ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-0000000078ff',
    'aaaa1111-0000-0000-0000-0000000078b6', 'relinked', now() - interval '2 days');
--- Every one wrong, the way a row could read before the walk.
-UPDATE public.file_events SET captured_private = NOT captured_private
- WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b1', 'aaaa1111-0000-0000-0000-0000000078b2',
-                   'aaaa1111-0000-0000-0000-0000000078b3', 'aaaa1111-0000-0000-0000-0000000078b4',
-                   'aaaa1111-0000-0000-0000-0000000078b5', 'aaaa1111-0000-0000-0000-0000000078b6');
-SELECT ok(public.file_events_restamp() >= 6, 'the restamp changes the rows that read wrong'); -- 82
+-- Every one wrong, the opposite of what the walk must answer.
+UPDATE public.file_events SET captured_private = true
+ WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b1', 'aaaa1111-0000-0000-0000-0000000078b3',
+                   'aaaa1111-0000-0000-0000-0000000078b4');
+UPDATE public.file_events SET captured_private = false
+ WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b2', 'aaaa1111-0000-0000-0000-0000000078b5',
+                   'aaaa1111-0000-0000-0000-0000000078b6', 'aaaa1111-0000-0000-0000-0000000078c1',
+                   'aaaa1111-0000-0000-0000-0000000078c2', 'aaaa1111-0000-0000-0000-0000000078c3',
+                   'aaaa1111-0000-0000-0000-0000000078c4', 'aaaa1111-0000-0000-0000-0000000078c5');
+SELECT ok(public.file_events_restamp() >= 11, 'the restamp changes the eleven rows that read wrong'); -- 83
 SELECT is(
   (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
      FROM public.file_events
     WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b1', 'aaaa1111-0000-0000-0000-0000000078b2',
                       'aaaa1111-0000-0000-0000-0000000078b3')),
-  'b1:false b2:true b3:false', '🚨 the walk: what the project was at each row''s moment'); -- 83
+  'b1:false b2:true b3:false', '🚨 the walk: what the project was at each row''s moment'); -- 84
 SELECT is(
   (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
      FROM public.file_events
     WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b4', 'aaaa1111-0000-0000-0000-0000000078b5',
                       'aaaa1111-0000-0000-0000-0000000078b6')),
   'b4:false b5:true b6:true',
-  'no flip: the live value, public false and private true; a project gone: closed');    -- 84
-SELECT is(public.file_events_restamp(), 0::bigint, 'run again, the restamp changes nothing'); -- 85
+  'no flip: the live value, public false and private true; a project gone: closed');    -- 85
+SELECT is(
+  (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
+     FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078c1', 'aaaa1111-0000-0000-0000-0000000078c2')),
+  'c1:true c2:true',
+  '🚨 older than the history keeps: closed, with a flip kept or none: its flip may be gone'); -- 86
+SELECT is(
+  (SELECT captured_private FROM public.file_events WHERE file_id = 'aaaa1111-0000-0000-0000-0000000078c3'),
+  true, 'a row older than its project is another holder''s: closed');                  -- 87
+SELECT is(
+  (SELECT captured_private FROM public.file_events WHERE file_id = 'aaaa1111-0000-0000-0000-0000000078c4'),
+  true, 'a walk with no answer: closed');                                               -- 88
+SELECT is(
+  (SELECT captured_private FROM public.file_events WHERE file_id = 'aaaa1111-0000-0000-0000-0000000078c5'),
+  true, 'a project flipped and then gone: closed, as one never flipped is');            -- 89
+SELECT is(public.file_events_restamp(), 0::bigint, 'run again at once, the restamp changes nothing'); -- 90
 
 SELECT * FROM finish();
 ROLLBACK;

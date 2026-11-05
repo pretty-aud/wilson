@@ -15,11 +15,16 @@
 --       to the whole company, should the newly admitted people see the log entries from
 --       its private time?", answered "Keep them hidden (Recommended)". The rule
 --       edit_history has since 0108. A BEFORE INSERT trigger sets it for every writer, the
---       way is_financial's already does, and the rows already written are walked back
---       through edit_history by a revoked function, file_events_restamp.
+--       way is_financial's already does. The rows already written are walked back through
+--       edit_history by a revoked function, file_events_restamp, once: only in the run that
+--       adds the column, so a re-run never touches a stamp the trigger wrote. edit_history
+--       keeps 90 days (wilson-purge-edit-history), so a row older than that, whose project's
+--       flip may be gone, stays closed: the walk cannot prove it public.
 --   §3  fn_file_events_capture, restated once from 0074: a project change writes moved_out
 --       under the old project and moved_in under the new one, with no paths, so neither
---       side learns the other's locator; a folder change within a project writes refiled;
+--       side learns the other's locator; a person's folder change within a project writes
+--       refiled, and a foreign key emptying the folder of a file (a folder, scene or asset
+--       deleted, a project purged) writes nothing, because nobody re-filed it;
 --       'moved' is a locator change within one project; an insert under the catalogue's
 --       marker writes catalogued; a purge certificate of an office-server row says where
 --       the real file went.
@@ -34,8 +39,8 @@
 -- the term itself in a file's activity. A project made public no longer shows its private
 -- time's file activity to people who could not see it then: this is her ruling.
 --
--- A CHECK, not an enum, so one transaction. Re-runnable. Suites 33, 78, 20, 95, 99, 100,
--- 101, 104 and 112.
+-- A CHECK, not an enum, so one transaction. Re-runnable: a second run walks nothing. Suites
+-- 33, 78, 20, 95, 100, 101, 112 and 115.
 -- =============================================================================
 
 -- ALTER TABLE, the trigger and the policy need ACCESS EXCLUSIVE on file_events: refuse
@@ -60,7 +65,7 @@ BEGIN
 
   -- What is restated below is what it was lifted from, or this file's.
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_file_events_capture()'::regprocedure;
-  IF v_md5 IS DISTINCT FROM '17fe6af1bb8f710e747ab47b62647354' AND v_md5 IS DISTINCT FROM '01f0368e1db63b4e8844174059b9cb78' THEN
+  IF v_md5 IS DISTINCT FROM '17fe6af1bb8f710e747ab47b62647354' AND v_md5 IS DISTINCT FROM '5863f2d4c984107d30422d69b8943ff5' THEN
     RAISE EXCEPTION '0116 refused: fn_file_events_capture is neither 0074''s body nor this file''s (md5 %)', v_md5;
   END IF;
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure;
@@ -103,11 +108,6 @@ ALTER TABLE public.file_events
      'refiled'));
 
 -- §2 A file's log from a project's private time --------------------------------------
--- DEFAULT true, so anything that writes past the trigger fails closed (edit_history's
--- lesson, 0108's review round 1).
-ALTER TABLE public.file_events
-  ADD COLUMN IF NOT EXISTS captured_private boolean NOT NULL DEFAULT true;
-
 -- Every row, whoever writes it: the capture, the downloads, the sweep, the gateway. Not the
 -- writer's to say, so it overwrites. A project already gone has no audience but the admins.
 CREATE OR REPLACE FUNCTION public.fn_file_events_private_snapshot()
@@ -124,9 +124,13 @@ $$;
 REVOKE ALL ON FUNCTION public.fn_file_events_private_snapshot() FROM PUBLIC, anon, authenticated;
 
 -- The rows already written, as a revoked function so suite 78 can prove the walk (0108's
--- edit_history_restamp): what the project was at that moment, walked back through its
--- history; a project whose visibility never changed is its live value, no walk; a project
--- already gone, or a walk with no answer, is closed. Run again it changes nothing.
+-- edit_history_restamp). Each arm in order:
+--   the project is gone: closed;
+--   the row is older than the project: another holder's id, closed;
+--   the row is older than the history keeps: a flip after it may be gone, so nothing proves
+--   it public, closed;
+--   the project's visibility never changed in what is kept: its live value, no walk;
+--   else what the project was at that moment, walked back; a walk with no answer is closed.
 CREATE OR REPLACE FUNCTION public.file_events_restamp()
 RETURNS bigint
 LANGUAGE plpgsql
@@ -141,23 +145,35 @@ BEGIN
      SET captured_private = x.priv
     FROM (SELECT e.id,
                  CASE
-                   WHEN NOT EXISTS (SELECT 1 FROM public.edit_history f
-                                     WHERE f.entity_type = 'projects' AND f.entity_id = e.project_id
-                                       AND f.action = 'update' AND f.diff ? 'is_private')
-                     THEN COALESCE((SELECT p.is_private FROM public.projects p WHERE p.id = e.project_id), true)
+                   WHEN p.id IS NULL THEN true
+                   WHEN e.created_at < p.created_at THEN true
+                   WHEN e.created_at < now() - interval '90 days' THEN true
+                   WHEN f.entity_id IS NULL THEN p.is_private
                    ELSE COALESCE(public.edit_history_value_at('projects', e.project_id, 'is_private', e.created_at)::boolean, true)
                  END AS priv
-            FROM public.file_events e) x
+            FROM public.file_events e
+            LEFT JOIN public.projects p ON p.id = e.project_id
+            LEFT JOIN (SELECT DISTINCT h.entity_id FROM public.edit_history h
+                        WHERE h.entity_type = 'projects' AND h.action = 'update' AND h.diff ? 'is_private') f
+              ON f.entity_id = e.project_id) x
    WHERE fe.id = x.id
      AND fe.captured_private IS DISTINCT FROM x.priv;
   GET DIAGNOSTICS v_changed = ROW_COUNT;
   RETURN v_changed;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.file_events_restamp() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.file_events_restamp() TO service_role;
+REVOKE ALL ON FUNCTION public.file_events_restamp() FROM PUBLIC, anon, authenticated, service_role;
 
-SELECT public.file_events_restamp();
+-- Only the run that adds the column walks. DEFAULT true, so anything that writes past the
+-- trigger fails closed (edit_history's lesson, 0108's review round 1).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'file_events' AND column_name = 'captured_private') THEN
+    ALTER TABLE public.file_events ADD COLUMN captured_private boolean NOT NULL DEFAULT true;
+    PERFORM public.file_events_restamp();
+  END IF;
+END $$;
 
 DROP TRIGGER IF EXISTS trg_file_events_private ON public.file_events;
 CREATE TRIGGER trg_file_events_private
@@ -247,8 +263,13 @@ BEGIN
            -- an invoice moved OUT of INVOICES/ is still an invoice's history.
            public.file_event_is_financial(NEW.is_financial, OLD.storage_path, NEW.storage_path));
       END IF;
-      -- 0116: the folder is a fact of its own, as the path is.
-      IF OLD.folder_id IS DISTINCT FROM NEW.folder_id THEN
+      -- 0116: the folder is a fact of its own, as the path is. Not a foreign key's: a folder,
+      -- scene or asset deleted, or a project purged, re-files nobody's file. The folder it
+      -- left being gone tells them apart; pg_trigger_depth() does not, because an AFTER
+      -- trigger under a foreign key's action fires at depth 1.
+      IF OLD.folder_id IS DISTINCT FROM NEW.folder_id
+         AND (NEW.folder_id IS NOT NULL
+              OR EXISTS (SELECT 1 FROM public.folders fo WHERE fo.id = OLD.folder_id)) THEN
         INSERT INTO public.file_events
           (workspace_id, project_id, file_id, file_name, storage_provider,
            event, size_bytes, actor_user_id, actor_label, details, is_financial)
@@ -535,7 +556,7 @@ COMMENT ON COLUMN public.file_events.captured_private IS
 COMMENT ON FUNCTION public.fn_file_events_private_snapshot() IS
   '0116: BEFORE INSERT on file_events. captured_private is the project''s is_private now, or true when the project is gone. It overwrites: it is not the writer''s to say.';
 COMMENT ON FUNCTION public.file_events_restamp() IS
-  '0116: (re)derives file_events.captured_private for every row from the project''s history (edit_history_value_at), or its live value when its visibility never changed, or true when the project is gone. Returns the rows changed; a second run changes none. Revoked from clients.';
+  '0116: derives file_events.captured_private for every row: true when the project is gone, when the row is older than its project, or when it is older than edit_history keeps (90 days, so a flip after it may be gone); else the project''s live value when its visibility never changed in what is kept, else walked back through edit_history_value_at, true when the walk has no answer. Run once, by the run of 0116 that adds the column: a later run could close a row the trigger stamped open once it passes 90 days. Returns the rows changed. Revoked from every role but its owner.';
 COMMENT ON POLICY file_events_select ON public.file_events IS
   'Track C / 0074 restating 0027, then 0088, 0092, 0093 and 0116: project readers and workspace admins read the stream; a financial row (is_financial — an invoice, receipt or Legal file), its purged certificate INCLUDED, is read only by a workspace admin, the project''s managers (can_access_project_money) or — for a Legal file''s (file_event_is_legal) — the Legal audience (can_access_project_legal); a viewed_remote row (a viewing through the file gateway''s outside door, 0093) only by a LIVE workspace admin (is_live_workspace_admin); a row written while the project was private (captured_private) only by a workspace admin or the project''s creator. Every arm is in this one definition — re-run 0116 after any replay of 0027, 0074, 0088, 0092 or 0093.';
 
@@ -569,7 +590,7 @@ BEGIN
 
   -- The restated bodies and the policy are this file's.
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_file_events_capture()'::regprocedure)
-       IS DISTINCT FROM '01f0368e1db63b4e8844174059b9cb78' THEN
+       IS DISTINCT FROM '5863f2d4c984107d30422d69b8943ff5' THEN
     RAISE EXCEPTION '0116 post-condition: fn_file_events_capture is not this file''s body';
   END IF;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure)
@@ -607,19 +628,13 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.fn_file_events_capture()', 'EXECUTE')
      OR has_function_privilege('anon', 'public.fn_file_events_capture()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.file_events_restamp()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.file_events_restamp()', 'EXECUTE') THEN
-    RAISE EXCEPTION '0116 post-condition: a client may call a trigger function or the restamp';
+     OR has_function_privilege('anon', 'public.file_events_restamp()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.file_events_restamp()', 'EXECUTE') THEN
+    RAISE EXCEPTION '0116 post-condition: a client may call a trigger function, or anyone but the owner the restamp';
   END IF;
   IF NOT (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_file_events_private_snapshot()'::regprocedure)
      OR NOT (SELECT r2.rolbypassrls FROM pg_proc p JOIN pg_roles r2 ON r2.oid = p.proowner WHERE p.oid = 'public.fn_file_events_private_snapshot()'::regprocedure) THEN
     RAISE EXCEPTION '0116 post-condition: fn_file_events_private_snapshot must be a definer whose owner bypasses row security';
-  END IF;
-
-  -- The rows already written were walked: a second walk changes none. No writer can land
-  -- between the two: this transaction holds ACCESS EXCLUSIVE on file_events since §1.
-  v_n := public.file_events_restamp();
-  IF v_n <> 0 THEN
-    RAISE EXCEPTION '0116 post-condition: the restamp changed % rows on a second run: the rows already written were not walked', v_n;
   END IF;
 
   RAISE NOTICE '0116 OK: 13 terms, one capture, the broadcast''s early return, a file''s log from a private time stays private';

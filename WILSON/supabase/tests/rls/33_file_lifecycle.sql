@@ -25,7 +25,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(72);
+SELECT plan(80);
 
 SELECT * FROM tests.rls_setup();
 
@@ -866,6 +866,91 @@ SELECT ok(
       AND prosrc LIKE '%EXCEPTION WHEN OTHERS THEN%'
      FROM pg_proc WHERE oid = 'public.fn_file_events_capture()'::regprocedure),
   'seven INSERTs, eight rows, eight classifications, and the EXCEPTION idiom kept'
+);
+
+-- 73-75: the money flag on the rows that carry no path for the money trigger to read:
+-- a flag on a plain path moved across projects, a key under a money segment re-filed, a
+-- flag on a plain path re-filed.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id, is_financial) VALUES
+  ('aaaa1111-0000-0000-0000-000000003317', 'aaaa1111-0000-0000-0000-000000003303', 'flagged-move.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-flagged-move.pdf', 10, NULL, true),
+  ('aaaa1111-0000-0000-0000-000000003318', 'aaaa1111-0000-0000-0000-000000003303', 'invoice-refile.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/INVOICES/x/1-invoice-refile.pdf', 10, '33000000-0000-0000-0000-0000000000f1', false),
+  ('aaaa1111-0000-0000-0000-000000003319', 'aaaa1111-0000-0000-0000-000000003303', 'flagged-refile.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-flagged-refile.pdf', 10, '33000000-0000-0000-0000-0000000000f1', true);
+UPDATE public.files SET project_id = 'aaaa1111-0000-0000-0000-000000003302'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003317';
+UPDATE public.files SET folder_id = '33000000-0000-0000-0000-0000000000f2'
+ WHERE id IN ('aaaa1111-0000-0000-0000-000000003318', 'aaaa1111-0000-0000-0000-000000003319');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003317' AND event IN ('moved_out', 'moved_in') AND is_financial),
+  2, 'a flag on a plain path moved across projects flags both rows'
+);
+SELECT is(
+  (SELECT is_financial FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003318' AND event = 'refiled'),
+  true, 'a file under a money segment, re-filed: its refiled row is flagged'
+);
+SELECT is(
+  (SELECT is_financial FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003319' AND event = 'refiled'),
+  true, 'a flagged file on a plain path, re-filed: its refiled row is flagged'
+);
+
+-- 76-77: and a plain member reads none of it, with the presence control beside it.
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-000000003317', 'aaaa1111-0000-0000-0000-000000003318',
+                      'aaaa1111-0000-0000-0000-000000003319')),
+  0, 'a plain member reads no row of the three, the moves and the re-filings included'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003313' AND event = 'refiled'),
+  1, 'PRESENCE CONTROL for 76: the same member reads a plain file''s refiled row'
+);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- 78: a move to the project's top level, its folder still standing, is a re-filing.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003326', 'aaaa1111-0000-0000-0000-000000003303', 'to-the-top.png', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-to-the-top.png', 10, '33000000-0000-0000-0000-0000000000f1');
+UPDATE public.files SET folder_id = NULL WHERE id = 'aaaa1111-0000-0000-0000-000000003326';
+SELECT is(
+  (SELECT details FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003326' AND event = 'refiled'),
+  jsonb_build_object('from_folder_id', '33000000-0000-0000-0000-0000000000f1', 'to_folder_id', NULL),
+  'a move to the top level, the folder still there, writes refiled with to_folder_id null'
+);
+
+-- 79: a folder deleted empties its files' folder through the foreign key: nobody re-filed them.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003324', 'aaaa1111-0000-0000-0000-000000003303', 'orphaned.png', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-orphaned.png', 10, '33000000-0000-0000-0000-0000000000f1');
+DELETE FROM public.folders WHERE id = '33000000-0000-0000-0000-0000000000f1';
+SELECT is(
+  (SELECT string_agg(e.event, ',' ORDER BY e.event) || '|' || (SELECT count(*) FROM public.files f
+                                                                WHERE f.id = e.file_id AND f.folder_id IS NULL)
+     FROM public.file_events e
+    WHERE e.file_id = 'aaaa1111-0000-0000-0000-000000003324'
+    GROUP BY e.file_id),
+  'uploaded|1', 'a folder''s delete empties the file''s folder and writes no refiled'
+);
+
+-- 80: a project purged writes each filed file's certificate and no refiled.
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+  ('aaaa1111-0000-0000-0000-000000003304', '11111111-1111-1111-1111-111111111111', 'Purged', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path) VALUES
+  ('33000000-0000-0000-0000-0000000000f3', 'aaaa1111-0000-0000-0000-000000003304', '11111111-1111-1111-1111-111111111111', NULL, 'root', 'purged', '');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003325', 'aaaa1111-0000-0000-0000-000000003304', 'purged.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003304/project/aaaa1111-0000-0000-0000-000000003304/1-purged.png', 10,
+   '33000000-0000-0000-0000-0000000000f3');
+DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000003304';
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003325'),
+  'purged,uploaded', 'a project''s purge writes the certificate and no refiled'
 );
 
 SELECT * FROM finish();
