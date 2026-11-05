@@ -1655,7 +1655,7 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
   }
   const now = again.row;
   if (now && now[column] === to) return;
-  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile), and its copy now sits at ${to}; run it again to move the rest`);
+  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile)${to ? `, and its copy now sits at ${to}` : ''}; run it again to move the rest`);
   const movedBack = now[column] === from;
   if (movedBack) {
     try {

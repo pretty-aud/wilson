@@ -2624,10 +2624,12 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // MO1 (0114): a call that does not take puts the object back, as the shot
   // re-file's rewriteFileRow does, because a body at its INVOICES key that no row
   // names is deleted by an admin's Cleanup run once it is 24 hours old (storage-gc's
-  // orphan scan: admin-invoked, never a cron; the twin rule is for shots). A thrown
-  // Error marked `stranded` is one whose copy is not where its row says: its
-  // sentence says where it is, it is not said to be "still open", and it is counted
-  // apart (RECEIPTS_STRANDED).
+  // orphan scan: admin-invoked, never a cron; the twin rule is for shots). The one
+  // exception (0115): a row this account cannot see any more keeps its old key
+  // claimed, so nothing can go back, and the sentence says where it is and what the
+  // Cleanup would do. A thrown Error marked `stranded` is one whose copy is not where
+  // its row says, or whose row has gone from view: its sentence says where it is, it is
+  // not said to be "still open", and it is counted apart (RECEIPTS_STRANDED).
   const existsAt = async (bucket, key) => {
     const slash = key.lastIndexOf('/')
     const { data, error } = await bucket.list(key.slice(0, slash), { search: key.slice(slash + 1), limit: 100 })
@@ -2730,9 +2732,9 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // A row this account cannot see any more (in the bin or removed meanwhile) keeps its
     // old key claimed, so the storage policies refuse the way back (0115): nothing moves.
     if (!now) {
-      const sits = bodyAway ? `: the copy now sits at ${to}` : pictureAway ? `: the picture now sits at ${thumbTo}` : ''
-      const message = `${failed}, and its row is not visible to this account any more (in the bin or removed meanwhile), so nothing was moved back${sits}`
-      throw bodyAway ? strandedError(message) : new Error(message)
+      const sits = [bodyAway && `the copy now sits at ${to}`, pictureAway && `the picture now sits at ${thumbTo}`].filter(Boolean).join(' and ')
+      const hazard = bodyAway ? `; restore it from the bin and run again, because an admin's Cleanup can delete that copy once it is 24 hours old` : ''
+      throw strandedError(`${failed}, and its row is not visible to this account any more (in the bin or removed meanwhile), so nothing was moved back${sits ? `: ${sits}` : ''}${hazard}`)
     }
     // The body first, the reverse of the way it came: a picture is never left open
     // beside a body behind the gate.

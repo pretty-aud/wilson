@@ -3387,7 +3387,8 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     fake.state.afterRekey = () => { fake.state.lists.files = fake.state.lists.files.filter(f => f.id !== id) }
     const report = await run()
     expect(fake.state.moves).toEqual(forward(from, to))
-    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${NOT_BEHIND}, and its row is not visible to this account any more (in the bin or removed meanwhile), so nothing was moved back: the copy now sits at ${to}` })])
+    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${NOT_BEHIND}, and its row is not visible to this account any more (in the bin or removed meanwhile), so nothing was moved back: the copy now sits at ${to} and the picture now sits at ${to}.jpg; restore it from the bin and run again, because an admin's Cleanup can delete that copy once it is 24 hours old` })])
+    expect(report.files.receiptsStranded).toBe(1)
   })
 
   it('a body an earlier run left at the new key goes back too: what matters is where the row still says it is', async () => {

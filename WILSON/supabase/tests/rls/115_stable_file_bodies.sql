@@ -50,7 +50,7 @@
 
 BEGIN;
 
-SELECT plan(613);
+SELECT plan(615);
 
 SELECT * FROM tests.rls_setup();
 
@@ -2027,6 +2027,10 @@ SELECT b, k, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":1}'::jsonb
     ('rabbit-files', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt'),
     ('rabbit-thumbnails', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a639/outside.txt.jpg'),
     ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a655/invoice-trashed.pdf'),
+    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf.jpg'),
+    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a649/unnamed.pdf.jpg'),
+    ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/shots/a615/take-1/refiled.mov'),
+    ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a614/old-picture'),
     ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000007/files/a652/hidden.txt.jpg'),
     ('rabbit-thumbnails', 'projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg')
   ) AS v(b, k);
@@ -2039,7 +2043,9 @@ SELECT b, k, 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"size":1}'::jsonb, t
     ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a637/own-unnamed.txt', now()),
     ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a637/own-unnamed.txt.jpg', now()),
     ('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt', now() - interval '2 hours'),
-    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt.jpg', now() - interval '2 hours')
+    ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a638/own-old.txt.jpg', now() - interval '2 hours'),
+    ('rabbit-files', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a648/own-outside.txt', now()),
+    ('rabbit-thumbnails', 'elsewhere/11500000-aaaa-0000-0000-000000000001/files/a648/own-outside.txt.jpg', now())
   ) AS v(b, k, t);
 INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
 SELECT b, k, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '{"size":1}'::jsonb
@@ -2140,6 +2146,11 @@ SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provi
 SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
                    VALUES ('11500000-0000-0000-0000-00000000a663', '11500000-aaaa-0000-0000-000000000001', 'x', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a614/another-picture') $$,
   'CONTROL: and a key whose picture nothing names is free');
+SELECT lives_ok($$ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
+                   VALUES ('11500000-0000-0000-0000-00000000a665', '11500000-aaaa-0000-0000-000000000001', 'x', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a616/petal-picture') $$,
+  'and a thumbnail_url on another provider''s row keeps no key from anyone: it claims nothing here');
+SELECT is(pg_temp.t115_ask($$ SELECT public.rekey_file_body('11500000-0000-0000-0000-00000000a615', 'projects/11500000-aaaa-0000-0000-000000000001/shots/a615/take-2/refiled.mov', 'projects/11500000-aaaa-0000-0000-000000000001/shots/a615/take-1/refiled.mov', 'projects/11500000-aaaa-0000-0000-000000000001/shots/a615/take-1/refiled.mov.jpg', 'projects/11500000-aaaa-0000-0000-000000000001/shots/a615/take-1/refiled.mov.jpg', false) $$),
+  'true', 'a re-file stopped between its phases can go back: the picture its own row names keeps nothing from that row');
 
 -- ── A manager of S: money, and no way into P.
 SELECT pg_temp.t115_logout();
@@ -2401,6 +2412,8 @@ SELECT is((SELECT array_agg(k ORDER BY k) FROM unnest(ARRAY[
     'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a614/old-picture.jpg',
     'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/FINANCE/RATES.json',
     'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a627/invoice.pdf.jpg',
+    'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a649/unnamed.pdf.jpg',
     'rabbit-thumbnails projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt.jpg',
     'rabbit-files projects/11500000-bbbb-0000-0000-000000000001/files/a606/theirs.txt',
     'rabbit-thumbnails projects/11500000-bbbb-0000-0000-000000000001/files/a653/unnamed.jpg',
@@ -2477,10 +2490,12 @@ SELECT is((SELECT count(*)::int FROM unnest(ARRAY[
     'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt',
     'rabbit-thumbnails projects/11500000-aaaa-0000-0000-000000000001/files/a633/orphan.txt.jpg',
     'rabbit-files projects/11500000-aaaa-0000-0000-000000000001/files/a601/plain.txt',
-    'rabbit-files projects/11500000-aaaa-0000-0000-000000000002/files/a643/fresh.txt'
+    'rabbit-files projects/11500000-aaaa-0000-0000-000000000002/files/a643/fresh.txt',
+    'rabbit-files elsewhere/11500000-aaaa-0000-0000-000000000001/files/a648/own-outside.txt',
+    'rabbit-thumbnails elsewhere/11500000-aaaa-0000-0000-000000000001/files/a648/own-outside.txt.jpg'
   ]) AS k
-   JOIN storage.objects o ON o.bucket_id || ' ' || o.name = k), 8,
-  'it removed no named copy, no trashed row''s picture, nothing past the hour and nothing of anyone else''s');
+   JOIN storage.objects o ON o.bucket_id || ' ' || o.name = k), 10,
+  'it removed no named copy, no trashed row''s picture, nothing past the hour, nothing outside projects/ and nothing of anyone else''s');
 SELECT is((SELECT count(*)::int FROM storage.objects o
             WHERE (o.bucket_id, o.name) IN (('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000001/files/a640/fresh.txt'),
                                             ('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a640/fresh.txt.jpg'))), 0,

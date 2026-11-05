@@ -9,11 +9,11 @@
 --       a legacy picture, or a re-file stopped between its two phases. 0114's review
 --       round left the choice here; taken, because otherwise a trashed or hidden file's
 --       picture stays readable by key. Only under the row's own project: until 0114 a
---       client could write any text in that column, so a name under another project
---       claims nothing. And one picture has one namer: the pre-flight refuses a picture
---       two rows name, and file_key_admissible refuses a new key whose picture another
---       row's thumbnail_url names, because a caller who could see only one of the two
---       would be answered for both.
+--       client could write any text in that column, so the pre-flight refuses a name
+--       under another project, and such a name claims nothing. And one picture has one
+--       namer: the pre-flight refuses a picture two rows name, and file_key_admissible
+--       refuses a new key whose picture another row's thumbnail_url names, because a
+--       caller who could see only one of the two would be answered for both.
 --   §2  The eight base storage policies, restated whole: wherever a key is claimed, the
 --       project that answers is the one the file row names, read as the caller, so a
 --       trashed file, a hidden project or a money row the caller may not see answers
@@ -33,9 +33,10 @@
 -- being served, on purpose. A trashed copy under a money or Legal key stays open to its
 -- cleared audience, who can restore it anyway: those policies do not read the row (SB-7).
 -- A put-back onto a key a row trashed meanwhile names is refused too, so the copy stays
--- at its new key: this build's re-file and receipt move say so; an old build says "could
--- not be moved back". Nothing else moves: no file row names another project's key until
--- 0118, so every other claimed key answers as it did.
+-- at its new key, which nothing claims, so its project's readers can read it by key until
+-- the file is restored and the move run again: this build's re-file and receipt move say
+-- where it is; an old build says "could not be moved back". Nothing else moves: no file
+-- row names another project's key until 0118, so every other claimed key answers as it did.
 --
 -- A storage list costs more. Supabase's search runs the policies before its name filter,
 -- so one list reads every object in the bucket, whichever company's: measured on dev,
@@ -117,8 +118,20 @@ BEGIN
     RAISE EXCEPTION '0115 refused: % file row(s) have a picture name too long to index', v_n;
   END IF;
 
-  -- A non-zero count stops here: someone decides each row. Nothing repairs itself. A
-  -- caller who could see only one of the two rows would be answered for the picture.
+  -- A non-zero count stops here: someone decides each row. Nothing repairs itself.
+  -- A name under another project, which a client could write before 0114: it claims nothing
+  -- below, but a purge queues what the row names (0054's trigger) and a move retires it
+  -- (0114's files_body_follow), so it could still remove someone else's picture. From 0114
+  -- no client can write a new one, so clearing these closes it for good. A name not under
+  -- projects/ names no object anyone holds. An s3 row's picture is in its own company's bucket.
+  SELECT count(*) INTO v_n FROM public.files
+   WHERE thumbnail_url LIKE 'projects/%' AND thumbnail_url <> storage_path || '.jpg'
+     AND storage_provider::text <> 's3'
+     AND lower(split_part(thumbnail_url, '/', 2)) <> project_id::text;
+  IF v_n > 0 THEN
+    RAISE EXCEPTION '0115 refused: % file row(s) have a picture name under another project, which a client wrote before 0114', v_n;
+  END IF;
+  -- A caller who could see only one of two rows would be answered for the picture.
   SELECT count(*) INTO v_n FROM (
     SELECT thumbnail_url FROM public.files
      WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND storage_provider::text IN ('supabase', 'local_server')
@@ -142,11 +155,6 @@ BEGIN
      AND storage_provider::text IN ('supabase', 'local_server')
      AND lower(split_part(thumbnail_url, '/', 2)) = project_id::text;
   RAISE NOTICE '0115: % picture(s) named only by thumbnail_url, claimed from here on', v_n;
-  SELECT count(*) INTO v_n FROM public.files
-   WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND thumbnail_url <> storage_path || '.jpg'
-     AND storage_provider::text IN ('supabase', 'local_server')
-     AND lower(split_part(thumbnail_url, '/', 2)) <> project_id::text;
-  RAISE NOTICE '0115: % picture name(s) under another project, a client wrote them before 0114: look at each, they claim nothing', v_n;
   SELECT count(*) INTO v_n FROM public.files
    WHERE btrim(COALESCE(thumbnail_url, '')) <> '' AND thumbnail_url <> storage_path || '.jpg'
      AND storage_provider::text NOT IN ('supabase', 'local_server');
