@@ -208,39 +208,46 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     return ''
   }
   const tagOf = (src, marker) => { const at = src.indexOf(marker); return at < 0 ? '' : openTag(src, src.lastIndexOf('<', at)) }
+  // Each pin is read when it is asked for: a control plants dozens of rules and
+  // asks one pin of each, and reading the whole sheet some 18 times a plant ran
+  // past the 5s a test has on CI (DG7, MEASURED: run 42111229106).
   const pins = (css) => ({
-    padding: decl(css, '.dog-main').padding,
-    main: decl(css, '.dog-main'),
+    get padding() { return decl(css, '.dog-main').padding },
+    get main() { return decl(css, '.dog-main') },
     // Every container query in the sheet, by its head, and every
     // declaration that makes a box a container.
-    queries: allRules(css).map((r) => norm(r.sel)).filter((h) => /^@container\b/.test(h)),
-    containers: allRules(css).flatMap((r) => decls(r.body).filter(([prop]) => /^container(-type|-name)?$/.test(prop)).map(([prop, v]) => `${norm(r.sel)} { ${prop}: ${v} }`)),
+    get queries() { return allRules(css).map((r) => norm(r.sel)).filter((h) => /^@container\b/.test(h)) },
+    get containers() { return allRules(css).flatMap((r) => decls(r.body).filter(([prop]) => /^container(-type|-name)?$/.test(prop)).map(([prop, v]) => `${norm(r.sel)} { ${prop}: ${v} }`)) },
     // Any rule that names the wrapper DG5 and DG6 had round the cards.
-    wrapper: allRules(css).filter((r) => /dog-inputs/.test(r.sel)).map((r) => norm(r.sel)),
+    get wrapper() { return allRules(css).filter((r) => /dog-inputs/.test(r.sel)).map((r) => norm(r.sel)) },
     // The layout census: every layout declaration of every rule whose
     // selector names a child of the main column, or a card or one of its
     // parts, with the head of the block it sits in (so the same rule under
     // @media, or under a query, is a new line).
-    layout: allRules(css).flatMap((r) => splitTop(r.sel).map(norm)
-      .filter((s) => /dog-inputs/.test(s) || /\.dog-main\s*>/.test(s) || PARTS.test(s))
-      .flatMap((s) => decls(r.body).filter(([prop]) => LAYOUT.test(prop)).map(([prop, v]) => `${at(r)} ${s} { ${prop}: ${v} }`))),
+    get layout() {
+      return allRules(css).flatMap((r) => splitTop(r.sel).map(norm)
+        .filter((s) => /dog-inputs/.test(s) || /\.dog-main\s*>/.test(s) || PARTS.test(s))
+        .flatMap((s) => decls(r.body).filter(([prop]) => LAYOUT.test(prop)).map(([prop, v]) => `${at(r)} ${s} { ${prop}: ${v} }`)))
+    },
     // Every line that can be drawn inside card 1's body (her "remove the
     // dividing lines"), every gap set there, and every type rule there.
-    lines: reach(css, /^(border(?!-radius)|outline|box-shadow|background|text-decoration)/),
-    spacing: reach(css, /^(margin|padding)/),
-    type: reach(css, /^(font|line-height|color|letter-spacing|text-transform)/),
+    get lines() { return reach(css, /^(border(?!-radius)|outline|box-shadow|background|text-decoration)/) },
+    get spacing() { return reach(css, /^(margin|padding)/) },
+    get type() { return reach(css, /^(font|line-height|color|letter-spacing|text-transform)/) },
     // The spacing that divides the sections, and the title's look.
-    between: [decl(css, '.dog-card-project > .dog-card-body > * + *')['margin-top'], decl(css, '.dog-refs > * + *')['margin-top']],
-    within: decl(css, '.dog-sec > * + *')['margin-top'],
-    title: decl(css, '.dog-sec-title'),
-    measure: decl(css, '.dog-card-project')['--dog-measure'],
-    meter: decl(css, '.dog-refs .dog-refs-meter').width,
-    track: decl(css, '.dog-refs-meter-track').height,
-    foot: decl(css, '.dog-refs-foot .dog-refs-meter'),
+    get between() { return [decl(css, '.dog-card-project > .dog-card-body > * + *')['margin-top'], decl(css, '.dog-refs > * + *')['margin-top']] },
+    get within() { return decl(css, '.dog-sec > * + *')['margin-top'] },
+    get title() { return decl(css, '.dog-sec-title') },
+    get measure() { return decl(css, '.dog-card-project')['--dog-measure'] },
+    get meter() { return decl(css, '.dog-refs .dog-refs-meter').width },
+    get track() { return decl(css, '.dog-refs-meter-track').height },
+    get foot() { return decl(css, '.dog-refs-foot .dog-refs-meter') },
     // Every declaration of a D.O.G. measure, anywhere in the sheet.
-    measures: allRules(css).flatMap((r) => decls(r.body)
-      .filter(([prop]) => /^--dog-(refs-)?measure$/.test(prop))
-      .map(([prop, v]) => `${norm(r.sel)} { ${prop}: ${v} }`)),
+    get measures() {
+      return allRules(css).flatMap((r) => decls(r.body)
+        .filter(([prop]) => /^--dog-(refs-)?measure$/.test(prop))
+        .map(([prop, v]) => `${norm(r.sel)} { ${prop}: ${v} }`))
+    },
   })
   const px = (v) => Number(/^(\d+(?:\.\d+)?)px$/.exec(v || '')?.[1])
   const L = '@layer components'
