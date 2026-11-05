@@ -82,9 +82,10 @@ describe('rls.yml\'s failure-replay list', () => {
     // policy on tables with suites of their own; 0109's, suite 112, functions
     // and realtime policies, no table; 0111's, suite 113, functions, a trigger
     // and an index, no table; 0113's, suite 114, the file_moves table, which
-    // is in RLS_TABLES too; and 0114's, suite 115, helpers, a guard and a
-    // re-key, no table.
-    expect(listed.slice(-5)).toEqual(['111_private_project_money_and_history.sql', '112_private_project_channels.sql', '113_moth_read_path.sql', '114_file_moves.sql', '115_stable_file_bodies.sql'])
+    // is in RLS_TABLES too; 0114's, suite 115, helpers, a guard and a re-key, no
+    // table; and 0117's: suites 116 and 117, network_share_checks and
+    // network_share_ops, both in RLS_TABLES too, and suite 118, no table.
+    expect(listed.slice(-5)).toEqual(['114_file_moves.sql', '115_stable_file_bodies.sql', '116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql'])
   })
 })
 
@@ -125,12 +126,14 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
   // 112_private_project_channels.sql (0109) was;
   // 113_moth_read_path.sql (0111) was;
   // 114_file_moves.sql (0113) was;
-  // 115_stable_file_bodies.sql (0114) is.
-  it('over the real directory, every suite once, 110, 111, 112, 113, 114 then 115 last', () => {
+  // 115_stable_file_bodies.sql (0114) was;
+  // 116_network_share_checks.sql, 117_network_share_ops.sql and
+  // 118_network_share_catalogue.sql (0117) are.
+  it('over the real directory, every suite once, 113, 114, 115, 116, 117 then 118 last', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-6)).toEqual(['110_private_project_write_hops.sql', '111_private_project_money_and_history.sql', '112_private_project_channels.sql', '113_moth_read_path.sql', '114_file_moves.sql', '115_stable_file_bodies.sql'])
+    expect(picked.slice(-6)).toEqual(['113_moth_read_path.sql', '114_file_moves.sql', '115_stable_file_bodies.sql', '116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })

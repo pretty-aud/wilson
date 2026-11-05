@@ -813,7 +813,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
 SELECT set_config('wilson.network_share_writer', '', true);
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at, share_bin_path) VALUES
   ('aaaa1111-0000-0000-0000-000000003323', 'aaaa1111-0000-0000-0000-000000003303', 'binned.mov', 'network_share',
-   'nas:Shared S/3323/binned.mov', 10, 'video/mp4', '2026-01-01', 'nas:Shared S/.wilson-bin/3323/binned.mov');
+   'nas:Shared S/3323/binned.mov', 10, 'video/mp4', '2026-01-01', 'Shared S/.wilson-bin/aaaa1111-0000-0000-0000-000000003323/binned.mov');
 SELECT is(
   (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000003320'),

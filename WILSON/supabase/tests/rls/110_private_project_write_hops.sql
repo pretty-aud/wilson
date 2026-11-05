@@ -156,6 +156,9 @@ SELECT s.tbl, s.col
       FROM pg_constraint c
      WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace AND cardinality(c.conkey) = 1
        AND c.confrelid <> 'public.projects'::regclass
+       -- 0117's journal: its project_id says where the file was, it changes with no move, and
+       -- only definers write it.
+       AND c.conrelid::regclass::text <> 'network_share_ops'
        AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.conrelid AND a.attname = 'project_id' AND NOT a.attisdropped)
        AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.confrelid AND a.attname = 'project_id' AND NOT a.attisdropped)
   ) s,

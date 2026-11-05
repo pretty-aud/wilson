@@ -402,7 +402,7 @@ describe('D3 — the preload: a dropped file\'s place only for a page the main p
 // run time from a variable (`x[name]`); the rules above are what keep such a
 // listener from reaching Electron's ipcMain in the first place, and a second
 // listener for a channel main.cjs already registers is caught by the count of
-// registrations (46) and, at load, by the gate itself, which refuses a second
+// registrations (47) and, at load, by the gate itself, which refuses a second
 // listener for one channel (build review round 2, F4). The repo only: a
 // library in node_modules (Sentry, with a DSN) is OUTSTANDING D3-01.
 //
@@ -606,12 +606,12 @@ describe('D3 — the reader: every source file, sub-folders included (round 1, F
 })
 
 describe('D3 — the source: no channel is registered past the gate', () => {
-  it('every source file under electron/, parsed: no problem; 46 registrations in main.cjs, 7 in updater.cjs, 50 channels, the preload\'s 50 the same', () => {
+  it('every source file under electron/, parsed: no problem; 47 registrations in main.cjs, 7 in updater.cjs, 51 channels, the preload\'s 51 the same', () => {
     const r = checkElectron(ELECTRON_FILES)
     expect(r.problems).toEqual([])
-    expect(r.counts).toEqual({ main: 46, updater: 7 })
-    expect(r.channels).toBe(50)
-    expect(r.preloadChannels).toBe(50)
+    expect(r.counts).toEqual({ main: 47, updater: 7 })
+    expect(r.channels).toBe(51)
+    expect(r.preloadChannels).toBe(51)
     expect(Object.keys(ELECTRON_FILES)).toEqual(expect.arrayContaining(['ipcGate.cjs', 'main.cjs', 'updater.cjs', 'preload.cjs']))
   })
 
@@ -679,7 +679,7 @@ describe('D3 — the source: no channel is registered past the gate', () => {
     it('and a registration written in a comment is not code: nothing counted, nothing wrong', () => {
       const r = checkElectron(swap('main.cjs', MAIN_ANCHOR, `// ipcMain.handle('d3-in-a-comment', () => 1)\n/* electronIpcMain.on('d3-in-a-block', () => {}) */\n${MAIN_ANCHOR}`))
       expect(r.problems).toEqual([])
-      expect(r.counts.main).toBe(46)
+      expect(r.counts.main).toBe(47)
     })
   })
 })

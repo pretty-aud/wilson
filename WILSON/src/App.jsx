@@ -1582,6 +1582,14 @@ export default function App() {
     // company's root reaches the main process once the cloud answers (§11.9).
   }, [perms.ready, perms.workspaceId, perms.offline]);
 
+  // MO1 (PS-7): who is signed in, for the office-server add route, which writes only into
+  // that person's own folder. Main has no Supabase client, as above; null when signed out.
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.electronAPI?.rabbit : null;
+    if (!bridge?.setSignedInUser) return;
+    bridge.setSignedInUser({ userId: perms.ready ? (perms.userId || null) : null }).catch(() => {});
+  }, [perms.ready, perms.userId]);
+
   // Decay timer — runs every 30 seconds
   useEffect(() => {
     if (!petData) return;

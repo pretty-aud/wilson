@@ -52,6 +52,13 @@ BEGIN;
 
 SELECT plan(615);
 
+-- This suite proves 0114's guard and 0115's helpers on their own, with rows 0117's CHECKs now
+-- refuse: a key under network_share, the share columns on another provider's row. Suite 118 holds
+-- the CHECKs. This transaction lifts them (suite 113's precedent).
+ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_network_share_namespace_chk;
+ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_network_share_shape_chk;
+ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_network_share_extra_chk;
+
 SELECT * FROM tests.rls_setup();
 
 INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
@@ -1889,8 +1896,10 @@ SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
 SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
               AND p.prosrc LIKE '%wilson.network_share_writer%'),
-  ARRAY['fn_file_events_capture', 'fn_files_body_guard', 'fn_realtime_broadcast'],
-  'wilson.network_share_writer is read by the guard and, since 0116, by the capture and the broadcast, and named by nothing else');
+  ARRAY['fn_file_events_capture', 'fn_files_body_guard', 'fn_realtime_broadcast',
+        'network_share_catalogue_apply', 'network_share_record_added', 'network_share_restore',
+        'network_share_settle', 'network_share_trash'],
+  'wilson.network_share_writer is read by the guard and, since 0116, by the capture and the broadcast, set by 0117''s five writers, and named by nothing else');
 
 -- ── M. 0115: who reaches a stored copy, as the storage policies read it ─────────────
 -- Real reads and writes on storage.objects, each as the person named. Added here:

@@ -234,6 +234,11 @@ const userAuthorizedImages = new Set();
 // falls through to the per-machine defaultRootDir exactly as before.
 let workspaceRootDir = null;
 
+// MO1 (PS-7): who is signed in, pushed the same way and for the same reason, and only
+// for the office-server add route (networkShare.cjs), which writes into that person's
+// own folder and nobody else's. MEMORY-ONLY, and null when signed out.
+let signedInUserId = null;
+
 // Post-overhaul S4a: set inside startLocalServer (it needs the bundle
 // readers that live there) and read by the rabbit:open-path IPC.
 let rabbitFileLocator = null;
@@ -2465,6 +2470,12 @@ function startLocalServer(distPath) {
     // MO1: its two routes, and the guards that run ahead of the project routes
     // below, so those stay as they were (several tests lift their bodies).
     mountPersonalSpace(expressApp, { space: personalSpace, emptyBundle, readRabbitBundle, writeRabbitBundle });
+    // MO1 (PS-7): a company on an office server keeps a personal space's files there.
+    require('./networkShare.cjs').mountNetworkShare(expressApp, {
+      getWorkspaceRoot: () => workspaceRootDir,
+      getSignedInUserId: () => signedInUserId,
+      log: (line) => console.warn(line),
+    });
 
     expressApp.get('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
@@ -5417,6 +5428,14 @@ ipcMain.handle('local-demo:open-in-explorer', async () => {
 // own origin only and every /api route needs the per-launch token (header
 // or httpOnly cookie); IPC still stands, because any script on the
 // renderer's origin carries that cookie and an Express route would answer it.
+// MO1 (PS-7): App.jsx pushes the signed-in person's id, and null when nobody is.
+// Anything that is not an id clears it, so a bad push can only refuse an add.
+ipcMain.handle('rabbit:set-signed-in-user', (_event, opts) => {
+  const id = opts && typeof opts.userId === 'string' ? opts.userId.trim().toLowerCase() : '';
+  signedInUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id) ? id : null;
+  return { ok: true };
+});
+
 ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
   const raw = opts && typeof opts.rootPath === 'string' ? opts.rootPath.trim() : null;
   const kind = opts && typeof opts.rootKind === 'string' ? opts.rootKind : null;
