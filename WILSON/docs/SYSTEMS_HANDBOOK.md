@@ -739,6 +739,7 @@ below.
 | `platform_audit` | Has a `workspace_id` column but **no FK**, and snapshots slug + name as text | A `workspace.teardown` certificate must still name the company after the row is gone. A migration post-condition fails the deploy if an FK ever appears. |
 | `workspace_ai_keys`, `edge_rate_limits`, `storage_gc_queue` | **Zero policies at all** | Tenancy is enforced by the absence of any client grant. Service-role only. |
 | `file_moves` (MO1, 0113) | **Zero policies at all**, RLS forced, no client grants | The move journal. Only definers write it and nobody reads it, so the private ids it records leak nothing. `fn_checked_move_admits` admits a row change only for the row the marker names, written in this transaction, by this person, with a matching item. |
+| `files` (MO1, 0114) | `fn_files_body_guard`, a BEFORE trigger that is **not** a definer | A client never changes a file's project, company, folder, provider, key, picture, money flag or the two office-server columns, and a new row may claim only a never-claimed key under its own project (`rabbit_private.file_key_admissible`). A definer a client calls changes them only under `fn_checked_move_admits`, `wilson.body_rekey` or `wilson.network_share_writer`, each bound to one row. Nobody reached through the API changes a file's id. Migrations, cron and service_role pass. 🚨 **A definer's INSERT is not judged: any new definer that inserts into `files` validates the row itself.** `rekey_file_body` is the one client path that changes a stored key after insert (the shot re-file, the migration's receipt move). |
 | `notes`, `note_subjects`, `otter_progress`, `otter_quiz_attempts` | Tenancy **plus** `owner_id = auth.uid()` (`user_id = auth.uid()` on the two O.T.T.E.R. tables, which have no `owner_id` column), with **no admin bypass** | Private personal content. A workspace admin cannot read another member's notes, study progress or quiz marks. |
 | `otter_quiz_attempts` (again) | **No UPDATE policy at all**, and a 30-day window inside the SELECT policy | An attempt records something that happened, so immutability is enforced by the ABSENCE of a policy (RLS default-denies an unpoliced verb) rather than by a CHECK anyone could forget. 🚨 The window is why `otter_prune_quiz_attempts()` must be SECURITY DEFINER — see §15. |
 | `otter_courses` (personal tier) | No `current_app_role()` in the SELECT policy at all | Enforced by a post-condition that fails the migration if any SELECT policy on `otter_courses`/`otter_progress` ever mentions it. |
@@ -1125,6 +1126,8 @@ those accounts and an admin must reset instead; the response carries an
 | `rabbit-files` | 0027, raised by **0057** | no (private) | **50 GiB**, any mime | `projects/{project_id}/{entity}/{entity_id}/{ts}-{filename}` |
 | `rabbit-thumbnails` | 0053 | no (private) | **256 KB, `image/jpeg` only** | the same key as its source **plus `.jpg`** |
 
+**A stored key stays where it was made (MO1, 0114).** A key has one row across every trash state (`files_storage_path_key_uidx`), and in a company's own bucket a body and its picture share one name (`files_s3_namespace_uidx`). From 0118 a key's prefix says where a file was created, not where it is now: group by `files.project_id`, never by the key. `rabbit_private` holds the helpers and is never exposed through the API. A project id is refused while any stored copy still sits under it with no project holding it, because the key alone authorises a manifest and a rate card.
+
 🚨 **THE BUCKET CAP IS NOT THE CEILING THAT BINDS.** Supabase caps every bucket
 at a PROJECT-LEVEL global limit set in the dashboard (Project Settings →
 Storage), not in the database and not in any migration — "the global limit takes
@@ -1244,6 +1247,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0107` **or** `0110` | `0114` | **(MO1)** 0114 restates `fn_same_project_refs_guard` (0107) without its skip, and `fn_projects_owner_guard` (0110) with the id-tied arm. Re-running either without 0114 brings the skip back or loses the arm, and 0114's preflight pins both bodies by md5. |
 | `0013`, `0084` **or** `0107` | `0110` | **(MO1)** 0110 restates `projects_insert` and `projects_delete` and the four write helpers (`can_write_project`, `can_comment_project`, `can_manage_project_roster` from 0013, `can_edit_shot_lists` from 0084) with the personal arm, and `projects_update` and `fn_projects_owner_guard` (0107) with the personal and id-reuse arms. A replay of any of them puts back a body that lets an admin write into someone's personal space, silently. 0110's pre-flight accepts 0107's guard (md5 `ab21a087…`) or its own (`b6b800f4448eb9723f4afab2e6d97ec0`), so it refuses once 0114 or 0117 have restated the guard: re-run 0107, then 0110, then those |
 | `0016`, `0018`, `0098` **or** `0101` | `0109` | **(MO1)** 0109 restates the two project-topic `realtime.messages` policies (0016) with `project_topic_matches`, `fn_workspace_realtime_broadcast` (0018) with the side flags and `AUDIENCE`, `fn_realtime_broadcast` (0098) with each side to its own project's topic, and `fn_budget_versions_broadcast` (0101) with `project_topic`. A replay of any of them puts back a channel that carries private rows, silently. 🚨 **0098 refuses after 0109** (its pre-flight accepts only 0096's body or its own): a replay of 0098 needs 0096's body back first, then 0098, then 0109 (whose pre-flight accepts 0098's md5 or its own, `cb26163e64f063de4da39c4eb316de4b`) |
 | `0012`, `0037`, `0061`, `0082`, `0088` **or** `0092` | `0108` | **(MO1)** 0108 restates `can_access_project_money` (0037) with the privacy arm, `fn_edit_history_capture` (0061) with both sides' projects and `captured_private`, `fn_edit_history_money_snapshot` (0092) with the move and gone lines, and `edit_history_select` (0012 / 0088 / 0092) with the project audience. A bare re-run of 0037 puts the money gate back without the privacy arm (a manager seat on a private project opens its money again); of 0061, the capture back without projects (new rows NULL: admins only, fails closed); of **0088 or 0092**, silently, the policy without the project arm and the snapshot without the move line, so every workspace manager reads every private project's history again. 🚨 **0092 is not re-runnable after 0108** (its post-condition 12 pins 0037's money body, post-condition 10 the old policy): the order that restores everything is 0037, then 0092, then 0108. Re-running 0108 also re-runs `edit_history_restamp()` (about 0.13 ms per history row while the table is locked); suite 111 fails meanwhile. |
@@ -5651,10 +5655,9 @@ of a session — this section is limits by design, that file is faults.
   per-provider columns, and its CHECK is written as the general rule (petal and
   network take none; anything else must be a JSON object), so widening the
   provider CHECK permits a config with no edit here.
-- **`updateFile` still allows `storage_provider` and `storage_path` through
-  `FILE_COLUMNS`** while the Express PATCH route strips both — an S14
-  hardening applied on one backend only. Since 0050 the money invariant is
-  safe regardless (a CHECK re-validates on UPDATE), but the asymmetry stands.
+- **`updateFile` strips `storage_provider`, `storage_path` and the other guarded
+  columns (MO1, 0114)**, as the Express PATCH routes do, and the database refuses
+  them from a client (`fn_files_body_guard`). The asymmetry S14 left is gone.
 
 **Thumbnails (S39 migration 0053; ROUTING REVERSED BY S44, migration 0054)**
 
