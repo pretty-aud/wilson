@@ -36,7 +36,7 @@
 
 BEGIN;
 
-SELECT plan(40);
+SELECT plan(46);
 
 SELECT * FROM tests.rls_setup();
 
@@ -200,8 +200,9 @@ SELECT ok(
 
 SELECT is(
   (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure),
-  'cb26163e64f063de4da39c4eb316de4b',
-  'fn_realtime_broadcast is 0109''s body, the one its pre-flight names'); -- 4
+  -- MO1 (0116): 0109's body with one early return (probes 41-46).
+  '34686e6bbb9ba89ecf012e003856e6da',
+  'fn_realtime_broadcast is 0116''s restatement of 0109''s body, the one 0116''s pre-flight names'); -- 4
 
 SELECT ok(
   (SELECT strpos(b, 'is_private') > 0 AND strpos(b, '''rabbit:workspace:''') > 0
@@ -453,6 +454,49 @@ SELECT pg_temp.capture('bid_version', $$INSERT INTO public.budget_versions (id, 
   ARRAY['S0', 'S1']);
 SELECT is(pg_temp.got('bid_version'), pg_temp.want('bid_version', 'S1:INSERT'),
   'a bid version''s thin event reaches the project''s current topic only'); -- 40
+
+-- ── MO1 (0116): a catalogue check does not put each row it writes on the channel ──
+-- The early return bites only on this project's own 'check:' marker, on every operation.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT pg_temp.capture('file_plain', $$INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at)
+  VALUES ('aaaa1111-0000-0000-0000-000000011201', 'aaaa1111-0000-0000-0000-000000000122', 'plain.mov', 'network_share', 'nas:Shared S/11201/plain.mov', 10, 'video/mp4', '2026-01-01')$$,
+  ARRAY[public.project_topic('aaaa1111-0000-0000-0000-000000000122')], ARRAY['F']);
+SELECT is(pg_temp.got('file_plain'), pg_temp.want('file_plain', 'F:INSERT'),
+  'CONTROL: with no marker a file''s insert lands on the project''s topic'); -- 41
+
+SELECT set_config('wilson.network_share_writer', 'check:aaaa1111-0000-0000-0000-000000000122', true);
+SELECT pg_temp.capture('file_check_insert', $$INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at)
+  VALUES ('aaaa1111-0000-0000-0000-000000011202', 'aaaa1111-0000-0000-0000-000000000122', 'found.mov', 'network_share', 'nas:Shared S/11202/found.mov', 10, 'video/mp4', '2026-01-01')$$,
+  ARRAY[public.project_topic('aaaa1111-0000-0000-0000-000000000122')], ARRAY['F']);
+SELECT is(pg_temp.got('file_check_insert'), pg_temp.want('file_check_insert', 'nothing'),
+  'under this project''s check an insert sends nothing'); -- 42
+SELECT pg_temp.capture('file_check_update', $$UPDATE public.files SET size_bytes = 11
+  WHERE id = 'aaaa1111-0000-0000-0000-000000011202'$$,
+  ARRAY[public.project_topic('aaaa1111-0000-0000-0000-000000000122')], ARRAY['F']);
+SELECT is(pg_temp.got('file_check_update'), pg_temp.want('file_check_update', 'nothing'),
+  'under this project''s check an update sends nothing'); -- 43
+SELECT pg_temp.capture('file_check_delete', $$DELETE FROM public.files
+  WHERE id = 'aaaa1111-0000-0000-0000-000000011202'$$,
+  ARRAY[public.project_topic('aaaa1111-0000-0000-0000-000000000122')], ARRAY['F']);
+SELECT is(pg_temp.got('file_check_delete'), pg_temp.want('file_check_delete', 'nothing'),
+  'under this project''s check a delete sends nothing'); -- 44
+
+SELECT set_config('wilson.network_share_writer', 'check:aaaa1111-0000-0000-0000-000000000121', true);
+SELECT pg_temp.capture('file_other_check', $$INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at)
+  VALUES ('aaaa1111-0000-0000-0000-000000011203', 'aaaa1111-0000-0000-0000-000000000122', 'other.mov', 'network_share', 'nas:Shared S/11203/other.mov', 10, 'video/mp4', '2026-01-01')$$,
+  ARRAY[public.project_topic('aaaa1111-0000-0000-0000-000000000122')], ARRAY['F']);
+SELECT is(pg_temp.got('file_other_check'), pg_temp.want('file_other_check', 'F:INSERT'),
+  'another project''s check is not this project''s: it still lands'); -- 45
+
+SELECT set_config('wilson.network_share_writer', 'op:aaaa1111-0000-0000-0000-000000011204', true);
+SELECT pg_temp.capture('file_op', $$INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at)
+  VALUES ('aaaa1111-0000-0000-0000-000000011204', 'aaaa1111-0000-0000-0000-000000000122', 'added.mov', 'network_share', 'nas:Shared S/11204/added.mov', 10, 'video/mp4', '2026-01-01')$$,
+  ARRAY[public.project_topic('aaaa1111-0000-0000-0000-000000000122')], ARRAY['F']);
+SELECT is(pg_temp.got('file_op'), pg_temp.want('file_op', 'F:INSERT'),
+  'an add through WILSON (the op marker) still lands'); -- 46
+SELECT set_config('wilson.network_share_writer', '', true);
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -347,8 +347,10 @@ SELECT is(
   -- 0093 (GW1) restated every arm below and added ONE conjunct: a
   -- viewed_remote row is a LIVE admin's. The arms this suite pins are
   -- unchanged; suite 96 re-proves each of them caller by caller.
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)))',
-  '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1); 0093''s live-admin conjunct for remote viewings'); -- 18
+  -- MO1 (0116, her ruling of 2026-11-05) adds one more: a row written while the project
+  -- was private stays with its creator and the admins; suite 78 proves it caller by caller.
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)) AND ((NOT captured_private) OR (current_app_role() = ''admin''::text) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = file_events.project_id) AND (p.created_by = auth.uid()))))))',
+  '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1); 0093''s live-admin conjunct for remote viewings; 0116''s private-time conjunct'); -- 18
 
 -- A19-A20: edit_history's is_legal snapshot column, the classifier's three
 -- answers, the trigger; the DEFINER pieces closed to clients.
@@ -1561,17 +1563,17 @@ SELECT is(
   btrim(regexp_replace(substring(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure)
                                  from 'WHEN ''files'' THEN.*?v_project := \(v_row ->> ''project_id''\)::uuid;'),
                        '\s+', ' ', 'g')),
-  'WHEN ''files'' THEN IF public.file_row_is_money((to_jsonb(NEW) ->> ''is_financial'')::boolean, to_jsonb(NEW) ->> ''storage_path'') OR public.file_row_is_money((to_jsonb(OLD) ->> ''is_financial'')::boolean, to_jsonb(OLD) ->> ''storage_path'') THEN RETURN NULL; END IF; v_project := (v_row ->> ''project_id'')::uuid;',
-  '🚨 the files arm of fn_realtime_broadcast is 0088''s, whole: every money row — a Legal row included — returns before the broadcast'); -- 170
+  'WHEN ''files'' THEN IF public.file_row_is_money((to_jsonb(NEW) ->> ''is_financial'')::boolean, to_jsonb(NEW) ->> ''storage_path'') OR public.file_row_is_money((to_jsonb(OLD) ->> ''is_financial'')::boolean, to_jsonb(OLD) ->> ''storage_path'') THEN RETURN NULL; END IF; -- 0116: a catalogue check writes many rows and says so once (0117): none of them -- goes on the channel. An ordinary file''s marker is never this. IF COALESCE(current_setting(''wilson.network_share_writer'', true), '''') = ''check:'' || (v_row ->> ''project_id'') THEN RETURN NULL; END IF; v_project := (v_row ->> ''project_id'')::uuid;',
+  '🚨 the files arm of fn_realtime_broadcast is 0088''s, whole: every money row — a Legal row included — returns before the broadcast; and 0116''s early return for a catalogue check'); -- 170
 
 -- The audit tables carry exactly their one trigger each, and the
 -- fixed-at-add trigger on files is ENABLED (a disabled one exists and lets a
 -- Legal row leave LEGAL in one UPDATE — review round 2, finding 5).
 SELECT ok(
   (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.edit_history'::regclass AND NOT tgisinternal) = 'trg_edit_history_money'
-  AND (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.file_events'::regclass AND NOT tgisinternal) = 'trg_file_events_money'
+  AND (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.file_events'::regclass AND NOT tgisinternal) = 'trg_file_events_money, trg_file_events_private'
   AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.files'::regclass AND tgname = 'trg_files_legal_fixed' AND tgenabled = 'O'),
-  'edit_history and file_events carry exactly their one snapshot trigger each; trg_files_legal_fixed is enabled');            -- 171
+  'edit_history carries its one snapshot trigger, file_events its two (0088''s money, 0116''s private time); trg_files_legal_fixed is enabled');            -- 171
 
 -- No storage.objects policy outside the sixteen names Legal, a Legal
 -- classifier or a gate; every PERMISSIVE one outside them that reads a key's

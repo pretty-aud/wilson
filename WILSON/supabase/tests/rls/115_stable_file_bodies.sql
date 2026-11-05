@@ -1889,8 +1889,8 @@ SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
 SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
               AND p.prosrc LIKE '%wilson.network_share_writer%'),
-  ARRAY['fn_files_body_guard'],
-  'wilson.network_share_writer is named by fn_files_body_guard and nothing else');
+  ARRAY['fn_file_events_capture', 'fn_files_body_guard', 'fn_realtime_broadcast'],
+  'wilson.network_share_writer is read by the guard and, since 0116, by the capture and the broadcast, and named by nothing else');
 
 -- ── M. 0115: who reaches a stored copy, as the storage policies read it ─────────────
 -- Real reads and writes on storage.objects, each as the person named. Added here:
