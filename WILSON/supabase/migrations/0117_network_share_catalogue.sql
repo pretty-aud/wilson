@@ -58,8 +58,6 @@
 -- ALTER TABLE on projects and files needs ACCESS EXCLUSIVE: refuse rather than queue every
 -- writer behind a long reader. A refusal here is safe; run it again.
 SET LOCAL lock_timeout = '15s';
-LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;
-LOCK TABLE public.files IN SHARE ROW EXCLUSIVE MODE;
 
 -- §0 Pre-flight -----------------------------------------------------------------
 DO $$
@@ -67,6 +65,11 @@ DECLARE
   v_md5 TEXT;
   v_n   BIGINT;
 BEGIN
+  -- Inside this block: the CLI that builds a fresh stack runs a file's statements one by one, and
+  -- a bare LOCK TABLE there refuses ("can only be used in transaction blocks").
+  LOCK TABLE public.projects IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.files IN SHARE ROW EXCLUSIVE MODE;
+
   IF NOT EXISTS (SELECT 1 FROM pg_enum e
                    JOIN pg_type t ON t.oid = e.enumtypid
                    JOIN pg_namespace n ON n.oid = t.typnamespace
