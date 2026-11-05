@@ -3959,7 +3959,8 @@ an upload say their kind in an `sr-only` word before the name (a tile is
 `position: relative`, so the word stays in it: its box was the app's unscrolled
 frame, whose overflow grew and scrolled the whole column, review round 1, MEASURED).
 Tab: Project, Add references, Core files only, Remove all references, Choose file,
-then each tile's Preview and Remove. `focusAfterRemove` finds neighbours by
+then each reference's Preview and Remove and each upload's Remove (while the notice
+shows, its Undo and Dismiss come before Add references). `focusAfterRemove` finds neighbours by
 `data-kind`; the 20th upload's effect reads the list. Card 1 is 402 to 464px tall
 with nothing listed and 608, 608, 514 and 482 with six references and two uploads at
 1280, 1440, 1920 and 2560 (it was 528 or 532 or 470, and 803, 803, 709 and 709);

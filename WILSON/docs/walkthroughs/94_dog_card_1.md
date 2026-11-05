@@ -106,9 +106,9 @@ your laptop and your wide monitor.
 | # | Do | You should see |
 |---|---|---|
 | 1 | Open D.O.G. | Project; under it **References** and **Uploads (0)** side by side, Add references and Choose file on one line; then **The deck reads**, the line *What goes to the AI…* and the bar |
-| 2 | Choose a project, list some references (**Add references**, tick, **Done**), upload a file | One list under both columns, references first, the upload after them, no Items or Files labels; **Uploads (1)** counts it beside Choose file |
+| 2 | Choose a project, list some references (**Add references**, tick, **Done**), upload a file | One list under both columns, references first, the upload after them, no Items or Files labels; the Uploads title, above Choose file, reads **Uploads (1)** |
 | 3 | Press Tab from the top of D.O.G. | The order above: the buttons first, then the tiles |
-| 4 | Tab to an upload's ×, press Enter | The next upload's ×, or Choose file if it was the last; never a reference's × |
+| 4 | Tab to an upload's ×, press Enter | The next upload's ×; from the last upload in the list, the one before it; **Choose file** once no upload is left; never a reference's × |
 | 5 | Press **Remove all references** with the keyboard | *N references removed. Undo Dismiss* opens the column; focus on Add references; Shift+Tab reaches Dismiss, again Undo |
 | 6 | Fold card 1 | Its header bar with its count, as before |
 
@@ -169,7 +169,7 @@ In *94_dog_card_1 pictures*, beside this file, at 1280 × 800, 1440 × 900,
 
 Your words of 2026-11-05: *"Also I added a 110 page script of a movie and it
 read it fine and the limit bar said we were more than 100% of what DOG can read.
-but it was fine."* Asked what to do, you chose *"Fix it in the D.O.G. session
+but it was fine. this is not related to the visual update"* Asked what to do, you chose *"Fix it in the D.O.G. session
 (Recommended)"*. It only ever warned; it still only warns. Nothing in WILSON cuts
 or refuses a file for this number.
 
@@ -206,14 +206,18 @@ open list).
 - Under the limit: *About 34% of what D.O.G. can read for one deck (an estimate)*.
 - Past it: *Past what D.O.G. can read for one deck (about 248%, an estimate):
   generating may be slow, cost more, or fail.* It used to give no number there.
-- Folded, in card 1's header: *over the limit, about 248% (an estimate)*.
+  (248 is the number in the picture, where two made-up PDFs hold 810 pages together.
+  It equals your script's old reading only by chance: your script now reads about 34%.)
+- In card 1's header, with the card open or folded: *over the limit, about 248% (an estimate)*.
 
 **Two smaller fixes.**
 
 - **The page warning.** *The AI may refuse a PDF over 100* had no source and your
   script passed it. The provider's limit is 600 pages a request (100 on the smaller
   models), so it now says 600 for Sonnet 5. An upload's tile now shows the same
-  warning a chosen file's tile shows (it never did).
+  warning a chosen file's tile shows (it never did). One exception: a video's
+  *too large to place in a slide* stays off an upload's tile, because it is not
+  true of an upload.
 - **It counts what the chosen mode sends.** A page request typed for Single page no
   longer counts in Full deck, and each mode's own fixed instructions now do (about
   4,700 tokens for a full deck, about 3,400 for a page). So D.O.G. opening with

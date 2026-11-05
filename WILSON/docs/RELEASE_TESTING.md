@@ -248,7 +248,7 @@ No automated test covers the two-factor path end to end: re-run the first three 
   N% …*); two or more give **Remove all references**, with Undo. `[BLOCKING]`
 - A 110-page PDF uploaded: the meter *About 34% of what D.O.G. can read for one deck (an estimate)*, no warning on its tile; a PDF of
   more than 600 pages: *N pages: the AI may refuse a PDF over 600* on its tile, the bar a warning only. `[NOTE]`
-- From the keyboard: an upload's × with a reference listed goes to the next upload's ×, else **Choose file**; **Remove all
+- From the keyboard: an upload's × with a reference listed goes to the next upload's ×, else the upload before it, else **Choose file**; **Remove all
   references** leaves focus on **Add references**, Shift+Tab reaches **Dismiss** and **Undo**. `[BLOCKING]`
 - **Core files only** → the rows become the project's Core files (Step 7.4) and **Add references** greys: *Your N chosen references
   are set aside while this is ticked; they come back when you clear it.*; clearing it brings them back. `[BLOCKING]`

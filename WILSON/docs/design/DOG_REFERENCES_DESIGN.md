@@ -709,8 +709,9 @@ labels Items, Files and Notes are gone (§2.2's; a file, a note and an upload sa
 their kind in a hidden word). This supersedes §17's *First, above the chosen items*
 as DG6's follow-up had; an upload's tile is still the row she chose there.
 
-**The meter's limit.** Her words: *"I added a 110 page script of a movie and it read
-it fine and the limit bar said we were more than 100% of what DOG can read."* Her
+**The meter's limit.** Her words: *"Also I added a 110 page script of a movie and it read
+it fine and the limit bar said we were more than 100% of what DOG can read. but it was
+fine. this is not related to the visual update"* Her
 answer: *"Fix it in the D.O.G. session (Recommended)"*. §2.2's 200,000 was DG1's
 figure, set under the 232,275-token deck that had worked; it stays only for a model
 with no recorded limit. The ceiling is now the input limit of the model `dog.fullDeck`

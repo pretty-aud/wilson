@@ -4303,3 +4303,49 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   *Remove X* (Remove's name is kept by the brief; the hidden word is the tile's). An
   upload's size reads *(103424.0 KB)* where MB would serve. What a source pin cannot
   see: a rule by tag (`li { float: left }`), another sheet.
+
+## DG7, the controller's second look (2026-11-05) — recorded
+
+Four read-only reviewers on Opus 5.5 read the merged change (`d87cc733`): the
+meter, the keyboard, the layout, the documents. No defect in the product. The
+false lines they found in RELEASE_TESTING §E, walkthrough 94, the handbook's
+§13.1 and the design's §18 were corrected by the controller in the commit that
+adds this section, each after reading the code. What is left, none fixed:
+
+- **DG7-09 · The references-warning line's × leaves focus on the page.** READ,
+  not measured; older than DG7. The amber *Not sent: …* line above card 1
+  (`DeckOutlineGenerator.jsx`, `refsWarning`) is dismissed by an icon button
+  that removes its own line and hands focus to nothing, the pattern
+  `focusAfterRemove` guards against inside card 1 (DG2 to DG4). While the
+  outline is still empty (the line shows after a generation, so: after one
+  that failed) and step 2 has its words, the next Enter can start a deck. Fix
+  shape: hand focus to Add references, as the notice's buttons do. Owner: any
+  D.O.G. session the controller names.
+- **DG7-10 · A model with no recorded limit keeps 200,000 whole.** READ:
+  `readingLimit` takes the answer's 16,384 from a recorded limit and nothing
+  from the fallback, so a 200,000 model the registry names reads 183,616 and
+  one it does not name reads 200,000. It needs a company or a person to choose
+  such a model for the full deck; the default (Sonnet 5) is not touched. Fix
+  shape: take the reserve from the fallback too. Owner: as DG7-01.
+- **DG7-11 · Two tests that look as if they can fail and cannot.** READ:
+  `ReferencesCard.test.jsx`'s *never the page* check presses each Remove with
+  fakes that never draw again, so nothing leaves the page and its
+  `not.toBe(document.body)` always passes (its other two checks can fail); no
+  full-render test presses a reference's ×, Remove all references, Undo or
+  Dismiss with real state (the uploads' paths are covered). `dogCss.test.js`'s
+  layout census (`PARTS`) leaves out nine parts that have rules: a tile's icon,
+  size, warning and gone words, the sub line, the Core mark, the upload error,
+  the upload hint and the notice's base class, so a width or a no-wrap on one
+  of them passes every pin. Nothing is wrong today. Owner: as DG7-09.
+- **DG7-12 · Small things read, recorded.** The notice's `role="status"`
+  element mounts together with its words, so a screen reader may not announce
+  it, and the same words a second time change nothing in the page and are not
+  announced (older than DG7). Wrapped onto a new line, Undo or Dismiss keeps
+  its 8px left margin (from the CSS, not drawn). `referenceModel.js`'s comment
+  calls her remark verbatim and drops its first word, and its file-roles
+  comment says about 95 tokens where the strings come to 105. Six classes in
+  `dog.css` match no markup (`.dog-roles`, `.dog-roles-label`,
+  `.dog-role-name`, `.dog-role-chip`, `.dog-role-source`, `.dog-chevron`;
+  older than DG7). The session row's *40 to 227px shorter* takes its lower
+  bound from a state the walkthrough's table does not show: 20 uploads, 816 to
+  775.2, measured by DG7's second review round and not measured again.
