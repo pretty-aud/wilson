@@ -1191,6 +1191,21 @@ FINANCE object for the money audience alone; the eight base policies still
 negate the one list and were not touched. 0092's post-condition 5 pins all
 eight money policies WHOLE and the eight base ones by shape.
 
+Since **0115 (MO1)** the eight BASE policies on both buckets follow the file, not
+the key. Wherever a key is **claimed** (`rabbit_private.storage_object_claimed`: a
+`files` row in any trash state names it, an undrained purge-queue row naming a file,
+or the purge certificate of a moved copy), the project that answers is the one the
+row names, read **as the caller** (`storage_object_current_project`, an INVOKER), so
+`files_select` decides: a trashed file, a hidden project or a money row the caller may
+not see answers nothing, not even to an admin. An unclaimed key (a manifest, a rate
+card, a bin's poster, a fresh upload) keeps the rule it had, its second segment. For a
+picture a row names by `thumbnail_url`, only a name under the row's own project counts:
+until 0114 a client could write any text there. A picture has one namer; the pre-flight
+refuses two, and `file_key_admissible` refuses a new key whose picture another row names.
+The money and bin-poster policies were not touched (their md5s are pinned, suite 115): a
+money key's second segment is its project for ever, so a trashed invoice stays open to
+whoever may restore it.
+
 ⚠️ **`rabbit_files_invoices_select` NO LONGER EXISTS.** 0038 created the
 `rabbit_files_invoices_*` trio, 0039 rewrote them for case, and **0042 dropped
 all three explicitly** and replaced them with the money four. Any document still
@@ -1210,7 +1225,11 @@ uploader's own objects **created within the last hour**. It exists for exactly
 one flow: an upload whose `files` row insert was then refused, cleaning up after
 itself. The unbounded version — caught in review — would have let any past
 uploader destroy or silently replace live blobs, unaudited. All other blob
-deletion goes through the GC function as `service_role`.
+deletion goes through the GC function as `service_role`. Since 0115 it also says
+`NOT storage_object_claimed`: a direct clean-up cannot remove a body a record names. It
+is no limit on a project's writer, who can rename or overwrite one through the UPDATE
+arm, as they always could. `rabbit_thumbnails_delete_own` has no such clause:
+`moveReceipt` removes a picture it could not move while its row still names it.
 
 ### 4.8 Scheduled jobs (pg_cron, all three environments)
 
@@ -1247,6 +1266,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0042`, `0053`, `0073` **or** `0114` | `0115` | **(MO1)** 0115 restates the eight base storage policies (0042, 0053), `workspace_petal_committed_bytes` (0073) and three of 0114's helpers (`storage_object_claimed`, `storage_object_current_project`, `file_key_admissible`). Re-running any of those without 0115 puts the key's prefix back in charge of every stored copy, or loses the moved-copies arm or the picture's arm, and 0115's pre-flight pins each by md5. |
 | `0107` **or** `0110` | `0114` | **(MO1)** 0114 restates `fn_same_project_refs_guard` (0107) without its skip, and `fn_projects_owner_guard` (0110) with the id-tied arm. Re-running either without 0114 brings the skip back or loses the arm, and 0114's preflight pins both bodies by md5. |
 | `0013`, `0084` **or** `0107` | `0110` | **(MO1)** 0110 restates `projects_insert` and `projects_delete` and the four write helpers (`can_write_project`, `can_comment_project`, `can_manage_project_roster` from 0013, `can_edit_shot_lists` from 0084) with the personal arm, and `projects_update` and `fn_projects_owner_guard` (0107) with the personal and id-reuse arms. A replay of any of them puts back a body that lets an admin write into someone's personal space, silently. 0110's pre-flight accepts 0107's guard (md5 `ab21a087…`) or its own (`b6b800f4448eb9723f4afab2e6d97ec0`), so it refuses once 0114 or 0117 have restated the guard: re-run 0107, then 0110, then those |
 | `0016`, `0018`, `0098` **or** `0101` | `0109` | **(MO1)** 0109 restates the two project-topic `realtime.messages` policies (0016) with `project_topic_matches`, `fn_workspace_realtime_broadcast` (0018) with the side flags and `AUDIENCE`, `fn_realtime_broadcast` (0098) with each side to its own project's topic, and `fn_budget_versions_broadcast` (0101) with `project_topic`. A replay of any of them puts back a channel that carries private rows, silently. 🚨 **0098 refuses after 0109** (its pre-flight accepts only 0096's body or its own): a replay of 0098 needs 0096's body back first, then 0098, then 0109 (whose pre-flight accepts 0098's md5 or its own, `cb26163e64f063de4da39c4eb316de4b`) |
@@ -3429,13 +3449,13 @@ the activity stream cannot serve the history of a row the reader can no longer
 see. Two residuals remain, both **counted and reported by the migration at
 apply time** rather than left invisible, and both empty on dev and staging:
 
-1. **Row gated, blob not.** The base storage policies key on the PATH segment
-   and never consult `is_financial`, so a pre-existing receipt's object stays
-   under its container segment. The path can no longer be DISCOVERED (the
-   `files` row carrying it is now manager-only), but anyone already holding one
-   keeps object-level read access. Moving bytes is not a migration's job —
-   `storage.objects.name` IS the S3 key — so this needs a one-time client-side
-   mover in the shape of C3's `runAttachmentMigration`.
+1. **Row gated, blob not. Closed by 0115 (MO1).** Until then the base storage
+   policies keyed on the PATH segment and never consulted `is_financial`, so a
+   pre-existing receipt's object stayed readable under its container segment by
+   anyone already holding the path. Since 0115 a key a row names answers to that
+   row as the caller reads it, so a member who cannot read the receipt's row cannot
+   read its copy (suite 78 probes 60 and 62). The object still sits under its
+   container segment; nothing needs to move it for this.
 2. **A receipt on a customer's bucket cannot be flagged at all.**
    `files_money_provider_chk` refuses a financial row outside Supabase, so the
    backfill is scoped to `storage_provider = 'supabase'`. Without that scoping
@@ -3463,7 +3483,8 @@ documented, accepted state.
 - **`ungated_on_customer_bucket` must be 0** on any environment whose receipts
   all live in Supabase. Non-zero is residual 2: those rows need their body
   moved before they can be gated at all.
-- **`blob_outside_money_segment` is the SIZE of residual 1, not a fault.** Every
+- **`blob_outside_money_segment` counts receipts still under a container segment,
+  not a fault, and since 0115 not an exposure either.** Every
   receipt 0076 backfills lands in this count by construction — 0076 computes
   exactly it as `v_blob_outside` and **reports it as expected output**, and
   suite 78 probe 55 asserts it is true of a backfilled receipt while probe 59
@@ -5329,6 +5350,15 @@ Everything below is *known*, not discovered by a reader. The live list is
 human actions live in `docs/OWED_AUDREY.md`; **everything currently broken and
 unfixed is `docs/OUTSTANDING.md`** (S19), which is the one to read at the start
 of a session — this section is limits by design, that file is faults.
+
+**Storage (MO1, 0115)**
+
+- **One `.list()` as a signed-in person reads the whole bucket, every company's.**
+  `storage.search` runs row security before its name filter (`LIKE` is not leakproof).
+  Measured on dev after 0115: about 1.2 ms an object, so a bucket of 5,000 objects takes
+  about 6 s a list. A signed URL looks up one object and costs about a millisecond more.
+  So nothing that runs often should list: an exact-name check is `exists()`. The shot
+  re-file and the receipt move still list (MOTH_DESIGN.md's note on 0115).
 
 **AI generation (S19)**
 
