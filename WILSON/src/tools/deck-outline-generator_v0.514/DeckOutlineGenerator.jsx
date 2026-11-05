@@ -4159,9 +4159,11 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               DG6's follow-up (Audrey, 2026-10-31, with a picture of the
               beta, her words verbatim in dog.css, CARD 1's SECTIONS): the
               two cards fill the column (DG5's wrapper and DG6's cap are
-              gone), and card 1 is three titled sections in her order,
-              Project, then References with Add references, then Uploads,
-              and the line of what goes to the AI with its meter last. */}
+              gone), and card 1 is titled sections in her order.
+              DG7 (Audrey, 2026-11-05, verbatim in dog.css, CARD 1's
+              SECTIONS): Project; under it References and Uploads side by
+              side; under both one list of every reference and upload, with
+              the line of what goes to the AI and its meter last. */}
           <Card pad={false} className="dog-card dog-card-project">
             <header
               className="ui-panel-head dog-card-head"
@@ -4263,9 +4265,9 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               </div>
 
               {/* What the deck reads (DG1; ./references/): its References
-                  and Uploads sections and the line of what goes to the AI
-                  with the meter (DG6's follow-up; Core files only beside Add
-                  references, DG4). */}
+                  and Uploads sections side by side, then the one list, the
+                  line of what goes to the AI and the meter (DG7; Core files
+                  only beside Add references, DG4). */}
               <ReferencesCard
                 refs={refs}
                 projectChosen={!!selectedProject}

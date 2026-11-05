@@ -159,6 +159,12 @@ describe('dog.css + DeckOutlineGenerator: the checkboxes\' words are sentence ca
 // boxes; paths to the main column's children other than `.dog-main >`;
 // another sheet reaching them. The pictures and the probe are the check on
 // those.
+//
+// DG7 (Audrey, 2026-11-05, verbatim in dog.css, CARD 1's SECTIONS: "lets have
+// references and the uploads be side by side in the card"): these pins held the
+// opposite on purpose until her words. Now References and Uploads are two
+// columns in one wrapping row (each 416px to the measure, 24px apart, no query),
+// and one list of tiles runs under both, its shelves 24px apart.
 // =============================================================================
 describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure and meter in them', () => {
   const INDEX = read('../../index.css')
@@ -176,7 +182,7 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   const LAYOUT = /^(display|position|float|order|inset|gap|row-gap|column-gap|columns|column-count|column-width|(min-|max-)?(width|inline-size|block-size)|flex(-[a-z]+)?|grid(-[a-z]+)*|justify-[a-z]+|align-[a-z]+|place-[a-z]+)$/
   // The two cards and their parts (card 1's sections, the project pair, the
   // shelves of rows), by their classes or ids anywhere in a selector.
-  const PARTS = /\.dog-(card|card-project|s2|card-body|refs|project-details|mode|checks|field-row|context-prompt|page-request|generate|project-select|select|sec|sec-[a-z]+|project-pair|project-field|refs-rows|refs-uploads)(?![-\w])|#dog-(card1-body|card3-body|project)(?![-\w])/
+  const PARTS = /\.dog-(card|card-project|s2|card-body|refs|project-details|mode|checks|field-row|context-prompt|page-request|generate|project-select|select|sec|sec-[a-z]+|project-pair|project-field|refs-pair|refs-actions|refs-rows|refs-uploads)(?![-\w])|#dog-(card1-body|card3-body|project)(?![-\w])/
   // What can reach inside card 1's body (DG6's follow-up, review round 1,
   // finding 4: lines, gaps and the titles' look were read only by the
   // selectors that drew them first): the body by its id, the card, its
@@ -186,7 +192,7 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   // and an attribute selector passed) added the cards' body class, the notes
   // and any class written as an attribute; (finding 8) a selector naming
   // another card, a dialog or the Add references window is not card 1's.
-  const REACH = /\.dog-sec(?![\w])|\.dog-refs(?![-\w])|\.dog-refs-(uploads|contract|group|group-label|rows|actions|core-said|notice)(?![-\w])|#dog-card1-body|\.dog-card-project|\.dog-card-body|\.dog-details-note|\.dog-project-(pair|field|details)(?![-\w])|\[class[~*^$|]?=|(^|[\s>+~(,])h3(?![-\w])/
+  const REACH = /\.dog-sec(?![\w])|\.dog-refs(?![-\w])|\.dog-refs-(pair|uploads|upload-error|contract|group|group-label|rows|actions|core-said|notice)(?![-\w])|#dog-card1-body|\.dog-card-project|\.dog-card-body|\.dog-details-note|\.dog-project-(pair|field|details)(?![-\w])|\[class[~*^$|]?=|(^|[\s>+~(,])h3(?![-\w])/
   const OTHER = /\.dog-(output|s2)(?![-\w])|dialog|\.dog-refs-(layout|rail|pick|foot|preview|search)/
   const reach = (css, re) => allRules(css).flatMap((r) => splitTop(r.sel).map(norm).filter((sel) => REACH.test(sel) && !OTHER.test(sel))
     .flatMap((sel) => decls(r.body).filter(([prop]) => re.test(prop)).map(([prop, v]) => `${at(r)} ${sel} { ${prop}: ${v} }`)))
@@ -224,7 +230,7 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     spacing: reach(css, /^(margin|padding)/),
     type: reach(css, /^(font|line-height|color|letter-spacing|text-transform)/),
     // The spacing that divides the sections, and the title's look.
-    between: [decl(css, '.dog-card-project > .dog-card-body > * + *')['margin-top'], decl(css, '.dog-refs > .dog-sec + .dog-sec')['margin-top']],
+    between: [decl(css, '.dog-card-project > .dog-card-body > * + *')['margin-top'], decl(css, '.dog-refs > * + *')['margin-top']],
     within: decl(css, '.dog-sec > * + *')['margin-top'],
     title: decl(css, '.dog-sec-title'),
     measure: decl(css, '.dog-card-project')['--dog-measure'],
@@ -239,8 +245,9 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   const px = (v) => Number(/^(\d+(?:\.\d+)?)px$/.exec(v || '')?.[1])
   const L = '@layer components'
   const SHELF = 'repeat(auto-fill, minmax(min(100%, 416px), 1fr))'
-  // The census as DG6's follow-up leaves it: card 1's sections (the
-  // project pair, the shelves), and the parts' own layouts as DG4 left them.
+  // The census as DG7 leaves it: card 1's sections (the project pair, the row
+  // of References and Uploads, the shelves), and the parts' own layouts as DG4
+  // left them, the actions' gap DG7's.
   const LAYOUT_NOW = [
     `${L} .dog-sec-desc { max-width: var(--dog-measure) }`,
     `${L} .dog-project-pair { display: flex }`,
@@ -251,9 +258,15 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     `${L} .dog-project-field { min-width: 0 }`,
     `${L} .dog-card-project .dog-project-details { flex: 0 1 var(--dog-measure) }`,
     `${L} .dog-card-project .dog-project-details { min-width: 0 }`,
+    `${L} .dog-refs-pair { display: flex }`,
+    `${L} .dog-refs-pair { flex-wrap: wrap }`,
+    `${L} .dog-refs-pair { gap: 32px 24px }`,
+    `${L} .dog-refs-pair > .dog-sec { flex: 1 1 416px }`,
+    `${L} .dog-refs-pair > .dog-sec { min-width: 0 }`,
+    `${L} .dog-refs-pair > .dog-sec { max-width: var(--dog-measure) }`,
     `${L} .dog-card-project .dog-refs-rows { display: grid }`,
     `${L} .dog-card-project .dog-refs-rows { grid-template-columns: ${SHELF} }`,
-    `${L} .dog-card-project .dog-refs-rows { column-gap: 32px }`,
+    `${L} .dog-card-project .dog-refs-rows { column-gap: 24px }`,
     `${L} .dog-card-project .dog-refs-row { flex-wrap: wrap }`,
     `${L} .dog-card-project .dog-refs-row { row-gap: 0 }`,
     `${L} .dog-card-project .dog-refs-row { align-content: flex-start }`,
@@ -263,6 +276,10 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     `${L} .dog-field-row { align-items: flex-start }`,
     `${L} .dog-field-row { gap: 16px }`,
     `${L} .dog-generate { width: 100% }`,
+    `${L} .dog-refs-actions { display: flex }`,
+    `${L} .dog-refs-actions { flex-wrap: wrap }`,
+    `${L} .dog-refs-actions { align-items: center }`,
+    `${L} .dog-refs-actions { gap: 8px }`,
     `${L} .dog-refs .dog-refs-meter { width: var(--dog-measure) }`,
     `${L} .dog-refs .dog-refs-meter { max-width: 100% }`,
     `${L} .dog-mode { display: flex }`,
@@ -282,7 +299,7 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
   ]
   const SPACING_NOW = [
     `${L} .dog-card-project > .dog-card-body > * + * { margin-top: 32px }`,
-    `${L} .dog-refs > .dog-sec + .dog-sec { margin-top: 32px }`,
+    `${L} .dog-refs > * + * { margin-top: 32px }`,
     `${L} .dog-sec > * + * { margin-top: 16px }`,
     `${L} .dog-sec-title { margin: 0 }`,
     `${L} .dog-sec > .dog-sec-title + * { margin-top: 8px }`,
@@ -292,8 +309,10 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     // The tiles' status line starts under the name: the glyph and the gap in
     // (review round 2, finding 9: it was a bare 22px).
     `${L} .dog-card-project .dog-refs-row > :is(.dog-refs-warn, .dog-refs-gone, .dog-refs-sub) { padding: 0 0 8px calc(var(--icon-sm) + 8px) }`,
-    `${L} .dog-sec > .dog-refs-core-said { margin-top: 8px }`,
-    `${L} .dog-refs-uploads > .dog-refs-rows + .dog-upload { margin-top: 8px }`,
+    `${L} .dog-sec-refs > .dog-details-note { margin-bottom: 0 }`,
+    `${L} .dog-refs-uploads > .dog-refs-upload-error { margin-bottom: 0 }`,
+    `${L} .dog-sec-refs > .dog-details-note { margin-top: 8px }`,
+    `${L} .dog-refs-uploads > .dog-sec-desc { margin-top: 8px }`,
     `${L} .dog-refs-uploads > .dog-refs-upload-error { margin-top: 8px }`,
     `${L} .dog-sec-foot > .dog-refs-meter { margin-top: 8px }`,
     `${L} .dog-card-body { padding: 12px }`,
@@ -301,7 +320,6 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     `${L} .dog-project-details { margin-top: 8px }`,
     `${L} .dog-project-details { padding: 8px 12px }`,
     `${L} .dog-details-note { margin-bottom: 8px }`,
-    `${L} .dog-refs-notice { margin-bottom: 0 }`,
     `${L} .dog-refs-group-label { margin-bottom: 4px }`,
     `${L} .dog-refs-rows { margin: 0 }`,
     `${L} .dog-refs-rows { padding: 0 }`,
@@ -401,22 +419,39 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     expect(JSX).toContain('<h3 className="dog-sec-title">Project</h3>')
     expect(REFS).toContain('<h3 className="dog-sec-title">References</h3>')
     expect(REFS).toContain('<h3 className="dog-sec-title">{`Uploads (${uploadFiles.length})`}</h3>')
-    expect(REFS.indexOf('dog-sec dog-sec-refs')).toBeLessThan(REFS.indexOf('dog-sec dog-refs-group dog-refs-uploads'))
-    expect(REFS.indexOf('dog-sec dog-refs-group dog-refs-uploads')).toBeLessThan(REFS.indexOf('dog-sec dog-sec-foot'))
+    expect(REFS).toContain('<h3 id="dog-refs-reads" className="dog-sec-title">The deck reads</h3>')
+    const order = ['className="dog-refs-pair"', 'dog-sec dog-sec-refs', 'dog-sec dog-refs-uploads', 'dog-sec dog-sec-foot', 'ul className="dog-refs-rows"', 'dog-refs-contract', '<ReferencesMeter tokens']
+    for (let i = 1; i < order.length; i++) expect(REFS.indexOf(order[i - 1]), order[i]).toBeLessThan(REFS.indexOf(order[i]))
+    expect(REFS.indexOf(order[0])).toBeGreaterThan(0)
+    // One list: the only `ul` of the card, every tile in it.
+    expect(REFS.match(/<ul\b/g)).toHaveLength(1)
+    expect(REFS.match(/className="dog-refs-row"/g)).toHaveLength(2)
   })
 
-  it('one column of sections at every width, the rows in shelves of 416px or more; nothing sets a card or a section beside another', () => {
+  it('References and Uploads side by side, from the row\'s own width and never a query; the tiles in one list of shelves of 416px or more; nothing else sets a card or a section beside another', () => {
     const p = pins(DOG)
-    // Her walkthrough 90 Q1, "One column always": sections one under the
-    // other; only the rows of a list sit side by side, in a shelf.
+    // Her words of 2026-11-05 amend walkthrough 90's Q1, "One column always",
+    // for these two sections: the row wraps them; Project and the list's
+    // section stay one under the other, and only the tiles share a shelf.
     expect(p.layout).toEqual(LAYOUT_NOW)
     expect(decl(DOG, '.dog-card-project > .dog-card-body')).toEqual({})
     expect(decl(DOG, '.dog-refs')).toEqual({})
+    expect(decl(DOG, '.dog-sec-foot')).toEqual({})
     expect(DOG).not.toMatch(/min-width: (1148|1202|1708)px/)
-    // A row's floor: 416 = 52 x 8, and the shelf's gap the rule of 8.
+    // A tile's floor and a column's: 416 = 52 x 8, and the shelf's gap the rule of 8.
     const floor = Number(/minmax\(min\(100%, (\d+)px\)/.exec(SHELF)[1])
     expect(floor % 8).toBe(0)
     expect(floor).toBe(416)
+    expect(decl(DOG, '.dog-refs-pair > .dog-sec').flex).toBe(`1 1 ${floor}px`)
+    // The columns' gap, the shelves' and the project pair's are one, so the
+    // second tile starts under the Uploads column at 1280 and 1440, and from a
+    // 1468 window the Uploads column starts where the project's description does.
+    const across = (rule) => rule.gap.split(' ')[1]
+    expect(across(decl(DOG, '.dog-refs-pair'))).toBe('24px')
+    expect(decl(DOG, '.dog-card-project .dog-refs-rows')['column-gap']).toBe('24px')
+    expect(across(decl(DOG, '.dog-project-pair'))).toBe('24px')
+    // Stacked, the two sections keep the 32 between sections.
+    expect(decl(DOG, '.dog-refs-pair').gap.split(' ')[0]).toBe(p.between[0])
   })
 
   it('the width is the measure\'s arithmetic, and the project row fills its field', () => {
@@ -483,6 +518,9 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     for (const plant of [
       '.dog-refs > div + div { background: linear-gradient(var(--color-rule), var(--color-rule)) top / 100% 1px no-repeat; }',
       '.dog-card-body > .dog-sec + * { border-top: 1px solid var(--color-rule); }',
+      // DG7: a line between the two columns, or over the list.
+      '.dog-refs-pair > .dog-sec + .dog-sec { border-left: 1px solid var(--color-rule); }',
+      '.dog-refs-pair { border-bottom: 1px solid var(--color-rule); }',
     ]) expect(add(plant).lines, plant).not.toEqual(LINES_NOW)
     // A gap or a title's look changed by another selector, by padding, or
     // through a note.
@@ -493,6 +531,12 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
       '.dog-sec-title { padding-bottom: 30px; }',
       '.dog-sec-refs > .dog-details-note:last-child { margin-bottom: 48px; }',
       '.dog-card-project .dog-refs-row > :is(.dog-refs-warn, .dog-refs-gone, .dog-refs-sub) { padding-left: 0; }',
+      // DG7: the row pushed off, a column padded, the list's section padded, a
+      // sentence's gap or a note's margin back.
+      '.dog-refs-pair { margin-bottom: 16px; }',
+      '.dog-refs-pair > .dog-sec { padding-right: 24px; }',
+      '.dog-sec-foot { padding-top: 16px; }',
+      '.dog-refs-upload-error { margin-bottom: 8px; }',
     ]) expect(add(plant).spacing, plant).not.toEqual(SPACING_NOW)
     for (const plant of [
       '#dog-card1-body h3 { font-size: var(--text-caption); color: var(--color-ink-3); }',
@@ -503,7 +547,7 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
     const outside = add('.dog-output h3 { margin: 0 0 4px; font-size: var(--text-caption); }')
     expect([outside.spacing, outside.type]).toEqual([SPACING_NOW, TYPE_NOW])
     // The sections' spacing flattened, and the title made a label again.
-    expect(swap('.dog-refs > .dog-sec + .dog-sec { margin-top: 32px; }', '.dog-refs > .dog-sec + .dog-sec { margin-top: 16px; }').between).toEqual(['16px', '16px'])
+    expect(swap('.dog-refs > * + * { margin-top: 32px; }', '.dog-refs > * + * { margin-top: 16px; }').between).toEqual(['16px', '16px'])
     expect(swap('font-size: var(--text-h3);', 'font-size: var(--text-caption);').title['font-size']).toBe('var(--text-caption)')
     // Each must change the census: a title rail (the design round's first
     // sketch), sections side by side, the cap or a query back, the wrapper
@@ -526,6 +570,19 @@ describe('dog.css: card 1\'s sections (DG6\'s follow-up), with DG4\'s measure an
       '.dog-project-select { max-width: 360px; }',
       '.dog-card-project { max-inline-size: 1202px; }',
       '@container dog-main (min-width: 1202px) { .dog-card-project { max-width: 1202px; } }',
+      // DG7: the two columns stacked again, stretched past the measure, under
+      // the floor, one of them fixed, the row in a grid; the shelves' gap back
+      // to 32; the actions' gap back to 16, where Remove all wraps at 1280; the
+      // list's section laid out beside the row.
+      '.dog-refs-pair { display: block; }',
+      '.dog-refs-pair > .dog-sec { flex-basis: 100%; }',
+      '.dog-refs-pair > .dog-sec { max-width: none; }',
+      '.dog-refs-pair > .dog-sec { flex: 1 1 240px; }',
+      '.dog-refs-uploads { flex: 0 0 300px; }',
+      '.dog-refs-pair { display: grid; grid-template-columns: 1fr 1fr; }',
+      '.dog-card-project .dog-refs-rows { column-gap: 32px; }',
+      '.dog-refs-actions { gap: 8px 16px; }',
+      '.dog-sec-foot { display: grid; grid-template-columns: 1fr 1fr; }',
     ]) expect(add(plant).layout, plant).not.toEqual(LAYOUT_NOW)
     expect(swap(GUTTER, `container-type: inline-size;\n    ${GUTTER}`).containers).not.toEqual([])
     // The dropdown's and the cards' markup: a cap or a width by a class or a

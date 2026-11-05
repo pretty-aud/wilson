@@ -623,7 +623,8 @@ const METER_BEFORE = Object.freeze({
 })
 // DG4: the references are card 1's lower part (`.dog-refs`), no card of their own.
 const refsBody = () => document.querySelector('#dog-card1-body .dog-refs')
-const uploadRows = () => [...document.querySelectorAll('#dog-card1-body .dog-refs-uploads .dog-refs-row')]
+// DG7: the tiles are one list under the two sections; a tile says its own kind.
+const uploadRows = () => [...document.querySelectorAll('#dog-card1-body .dog-sec-foot .dog-refs-row[data-kind="upload"]')]
 const chooseInput = () => document.querySelector('#dog-card1-body .dog-refs-uploads input[type=file]')
 async function addUpload(d, file) {
   await act(async () => { fireEvent.change(d.q('input[type=file][accept*=".txt"]'), { target: { files: [file] } }) })
@@ -654,7 +655,7 @@ describe('DG2 on the rendered D.O.G.: the uploads are a part of References (card
     const inputs = d.view.container.querySelectorAll('.dog-main input[type=file]')
     expect(inputs).toHaveLength(1)
     expect(inputs[0]).toBe(chooseInput())
-    expect(inputs[0].closest('.dog-refs-group')).toBe(refsBody().querySelector('.dog-refs-uploads'))
+    expect(inputs[0].closest('[role="group"]')).toBe(refsBody().querySelector('.dog-refs-uploads'))
   })
 
   it('an upload is a row in References with its size as the chip said it; its Remove takes it out, and the header\'s one number follows', async () => {
@@ -1191,8 +1192,9 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
   // (her words of 2026-10-31: "below the references should be the upload
   // option"): Uploads follows the references' actions, so the stop before
   // Choose file is Core files only (before: New project, and Add references
-  // after it), and the uploads' Removes come after Core files only.
-  it('Choose file is a Tab stop in Uploads, after Core files only and before card 2; with two uploads, after their Removes; the file input never is', async () => {
+  // after it). DG7: the tiles are one list under the two sections, so each
+  // upload's Remove comes after Choose file (before: before it, in its section).
+  it('Choose file is a Tab stop in Uploads, after Core files only and before card 2; with two uploads, before their Removes; the file input never is', async () => {
     const d = await openDog({ upload: false })
     let stops = tabStops(d)
     const at = (el) => stops.indexOf(el)
@@ -1206,7 +1208,7 @@ describe('DG3 on the rendered D.O.G.: Choose file by keyboard (OUTSTANDING DG2-0
     stops = tabStops(d)
     const names = stops.slice(at(core), at(headButton('Generate outline')) + 1)
       .map((el) => el.getAttribute('aria-label') || document.getElementById(el.getAttribute('aria-labelledby'))?.textContent.trim() || el.textContent.trim())
-    expect(names).toEqual(['Core files only', 'Remove note-01.txt', 'Remove note-02.txt', 'Choose file', 'Generate outline'])
+    expect(names).toEqual(['Core files only', 'Choose file', 'Remove note-01.txt', 'Remove note-02.txt', 'Generate outline'])
   })
 
   for (const words of [false, true]) {
@@ -1291,7 +1293,7 @@ async function chooseProject(d) {
   await waitFor(() => expect(coreSaid()?.textContent || '').not.toMatch(/^Looking for/))
   await act(async () => {})
 }
-const refNames = () => [...refsBody().querySelectorAll('.dog-refs-group:not(.dog-refs-uploads) .dog-refs-name')].map((n) => n.textContent)
+const refNames = () => [...refsBody().querySelectorAll('.dog-sec-foot .dog-refs-row[data-kind="reference"] .dog-refs-name')].map((n) => n.textContent)
 
 describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note 5)', () => {
   // DG6's follow-up (Audrey, 2026-10-31, verbatim: "project select needs to
@@ -1303,16 +1305,19 @@ describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note
   // dropdown, New project), References (its title, the no-project note, Add
   // references, Core files only, its sentence), Uploads (its title), then
   // the contract line and the meter.
-  it('the project first, then the references, then the uploads, each under its title, the contract line and the meter last; Core files only beside Add references; the steps read 1 and 2', async () => {
+  // DG7 (Audrey, 2026-11-05: "lets have references and the uploads be side by
+  // side in the card"): a section's first control comes right under its title
+  // and its sentences after it, and the last section has a title of its own.
+  it('the project first, then the references, then the uploads, each under its title, then the list\'s section with the contract line and the meter; Core files only beside Add references; the steps read 1 and 2', async () => {
     const d = await openDog({ upload: false })
     expect(d.q('#dog-refs-body')).toBe(null)
     expect(screen.queryByRole('button', { name: 'References' })).toBe(null)
     expect([...d.view.container.querySelectorAll('.dog-main .dog-step-title')].map((h) => h.textContent)).toEqual(['1Project and references', '2Generate outline'])
     const card1 = d.q('#dog-card1-body')
-    // The three sections' titles are headings under the card's, in order.
-    expect([...card1.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)'])
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)'])
-    const [project, references, uploads] = [...card1.querySelectorAll('h3')]
+    // The four sections' titles are headings under the card's, in order.
+    expect([...card1.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)', 'The deck reads'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Project', 'References', 'Uploads (0)', 'The deck reads'])
+    const [project, references, uploads, reads] = [...card1.querySelectorAll('h3')]
     const order = [
       project,
       card1.querySelector('.dog-sec-project .dog-sec-desc'),
@@ -1320,12 +1325,14 @@ describe('DG4 on the rendered D.O.G.: one card, "1 Project and references" (note
       d.q('select.dog-project-select'),
       within(card1).getByRole('button', { name: 'New project' }),
       references,
-      [...card1.querySelectorAll('.dog-details-note')].find((p) => /^Choose a project to reference/.test(p.textContent)),
       within(card1).getByRole('button', { name: 'Add references' }),
       coreBox(),
+      [...card1.querySelectorAll('.dog-details-note')].find((p) => /^Choose a project to reference/.test(p.textContent)),
       coreSaid(),
       uploads,
       card1.querySelector('.dog-refs-uploads button.dog-upload'),
+      card1.querySelector('.dog-refs-uploads .dog-sec-desc'),
+      reads,
       card1.querySelector('.dog-refs-contract'),
       card1.querySelector('.dog-refs-meter'),
     ]
@@ -1662,13 +1669,16 @@ describe('DG4 on the rendered D.O.G.: the Tab order, before and after', () => {
 // titled sections in her order. jsdom lays nothing out, so this pins what the
 // layout rests on: the column holds card 1, card 2 and the output card, in
 // that order, as its own children, with nothing round the cards; card 1's
-// body is the Project section, then the references' part, whose sections are
-// References, Uploads and the line of what goes to the AI with its meter.
+// body is the Project section, then the references' part: the row of the
+// References and Uploads sections (DG7), then the section of the one list, the
+// line of what goes to the AI and its meter.
 // The DG4 cases above (card 1's order, the fold, the count, the Tab stops)
 // pin the rest.
 describe('DG6 on the rendered D.O.G.: the two input cards and the output card are the column\'s own children, and card 1 is titled sections in her order', () => {
   const kids = (main) => [...main.children].filter((c) => c.matches('.dog-card')).map((c) => (c.matches('.dog-card-project') ? 1 : c.matches('.dog-s2') ? 2 : c.matches('.dog-output') ? 'out' : c.className))
-  const sections = (body) => [...body.querySelectorAll(':scope > .dog-sec, :scope > .dog-refs > .dog-sec')].map((s) => s.querySelector(':scope > .dog-sec-title')?.textContent ?? (s.matches('.dog-sec-foot') ? 'foot' : s.className))
+  const sections = (body) => [...body.querySelectorAll(':scope > .dog-sec, :scope > .dog-refs > .dog-refs-pair > .dog-sec, :scope > .dog-refs > .dog-sec')].map((s) => s.querySelector(':scope > .dog-sec-title')?.textContent ?? s.className)
+  const READS = ['Project', 'References', 'Uploads (0)', 'The deck reads']
+  const beside = (body) => [...body.querySelectorAll(':scope > .dog-refs > .dog-refs-pair > .dog-sec > .dog-sec-title')].map((h) => h.textContent)
 
   it('the column holds card 1, card 2 and the output card, in that order, with no wrapper round the cards', async () => {
     const d = await openDog({ upload: false })
@@ -1679,13 +1689,15 @@ describe('DG6 on the rendered D.O.G.: the two input cards and the output card ar
     expect(d.q('.dog-s2').parentElement).toBe(main)
   })
 
-  it('card 1 is Project, References, Uploads and the foot, in her order; the titles are headings', async () => {
+  it('card 1 is Project, References beside Uploads, and the section of what the deck reads, in her order; the titles are headings', async () => {
     withProject(CORE())
     const d = await openDog({ upload: false })
     const body = d.q('#dog-card1-body')
-    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    expect(sections(body)).toEqual(READS)
+    expect(beside(body)).toEqual(['References', 'Uploads (0)'])
     await chooseProject(d)
-    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    expect(sections(body)).toEqual(READS)
+    expect(beside(body)).toEqual(['References', 'Uploads (0)'])
     // The chosen project's description joins the Project section.
     expect(body.querySelector('.dog-sec-project .dog-project-details').textContent).toContain('A made-up project.')
   })
@@ -1695,15 +1707,19 @@ describe('DG6 on the rendered D.O.G.: the two input cards and the output card ar
     main.innerHTML = '<div class="dog-inputs"><div class="dog-card dog-card-project"></div><div class="dog-card dog-s2"></div></div><div class="dog-card dog-output"></div>'
     expect(kids(main)).not.toEqual([1, 2, 'out'])
     const body = document.createElement('div')
-    body.innerHTML = '<div class="dog-sec"><h3 class="dog-sec-title">Project</h3></div><div class="dog-refs"><div class="dog-sec"><h3 class="dog-sec-title">References</h3></div><div class="dog-sec"><h3 class="dog-sec-title">Uploads (0)</h3></div><div class="dog-sec dog-sec-foot"></div></div>'
-    expect(sections(body)).toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    body.innerHTML = '<div class="dog-sec"><h3 class="dog-sec-title">Project</h3></div><div class="dog-refs"><div class="dog-refs-pair"><div class="dog-sec"><h3 class="dog-sec-title">References</h3></div><div class="dog-sec"><h3 class="dog-sec-title">Uploads (0)</h3></div></div><div class="dog-sec dog-sec-foot"><h3 class="dog-sec-title">The deck reads</h3></div></div>'
+    expect(sections(body)).toEqual(READS)
     const swapped = body.cloneNode(true)
-    const refs = swapped.querySelector('.dog-refs')
-    refs.prepend(refs.children[1])
-    expect(sections(swapped)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    const pair = swapped.querySelector('.dog-refs-pair')
+    pair.prepend(pair.children[1])
+    expect(sections(swapped)).not.toEqual(READS)
     const untitled = body.cloneNode(true)
-    untitled.querySelector('.dog-refs .dog-sec-title').remove()
-    expect(sections(untitled)).not.toEqual(['Project', 'References', 'Uploads (0)', 'foot'])
+    untitled.querySelector('.dog-sec-foot .dog-sec-title').remove()
+    expect(sections(untitled)).not.toEqual(READS)
+    // The row taken away, the two sections one under the other again.
+    const stacked = body.cloneNode(true)
+    stacked.querySelector('.dog-refs-pair').replaceWith(...stacked.querySelector('.dog-refs-pair').children)
+    expect(beside(stacked)).not.toEqual(['References', 'Uploads (0)'])
   })
 })
 
