@@ -13,6 +13,7 @@
 // upload key, and ensureEntityFolder's nesting on this adapter.
 // =============================================================================
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   get supabase() { return globalThis.__testSupabase },
@@ -24,7 +25,7 @@ vi.mock('../../../lib/localData', () => ({
   hasLocalServer: () => globalThis.__testLocalServer === true,
 }))
 
-const { supabaseAdapter, resetSupabaseAdapter } = await import('./supabaseAdapter')
+const { supabaseAdapter, resetSupabaseAdapter, REKEY_ABSENT } = await import('./supabaseAdapter')
 const { registerStorageProvider, FILE_PROVIDERS } = await import('../storage')
 
 const PID = 'aaaa1111-0000-0000-0000-000000000001'
@@ -68,8 +69,11 @@ function likeToRegExp(pattern) {
  * 'file not found or not writable'; a path or picture that is no longer what the
  * caller read gives false. failUpdate('files', { the column it changes }, [row])
  * speaks for it: a message refuses it, 'filtered' answers false, and
- * 'committed:<msg>' applies it and answers the error.
+ * 'committed:<msg>' applies it and answers the error. Asked with the nil uuid, it
+ * answers 42501 as the function does, logged as 'probe'. rekeyAnswer(args), when
+ * it returns anything, answers instead: a database without the function.
  */
+const NIL_ID = '00000000-0000-0000-0000-000000000000'
 const GUARDED_FILE_COLUMNS = ['project_id', 'workspace_id', 'folder_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial']
 const KEY_THIRD_SEGMENTS = ['scenes', 'shots', 'levels', 'experiences', 'assets', 'tasks', 'phases', 'project', 'files', 'invoices', 'legal']
 /** rabbit_private.file_key_shape_ok (0114), as the fake's rekey applies it. */
@@ -80,7 +84,7 @@ function fileKeyShapeOk(key) {
     && segs.every(seg => /^[A-Za-z0-9._-]+$/.test(seg) && seg !== '.' && seg !== '..')
 }
 
-function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, failDelete = () => null, dropLanding = () => false, onMove = () => {}, failRead = () => null, failList = () => null, hidden = new Set() } = {}) {
+function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, failDelete = () => null, dropLanding = () => false, onMove = () => {}, failRead = () => null, failList = () => null, hidden = new Set(), rekeyAnswer = () => null } = {}) {
   const log = []
   let seq = 0
   let rotateSeq = 0
@@ -189,6 +193,10 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
   }
   const rekeyFileBody = (args) => {
     const noAuthority = { data: null, error: { code: '42501', message: 'file not found or not writable' } }
+    if (args.p_file === NIL_ID) {
+      log.push(['probe', 'files', [], {}, { ...args }])
+      return noAuthority
+    }
     const row = (tables.files || []).find(r => r.id === args.p_file)
     if (!row || row.deleted_at || hidden.has(row.id)) {
       log.push(['rekey-refused', 'files', [args.p_file], {}, { ...args }])
@@ -223,7 +231,15 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
     auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
     from: table,
     storage,
-    rpc: async (fn, args) => (fn === 'rekey_file_body' ? rekeyFileBody(args) : { data: null, error: null }),
+    rpc: async (fn, args) => {
+      if (fn !== 'rekey_file_body') return { data: null, error: null }
+      const answer = rekeyAnswer(args)
+      if (answer) {
+        log.push([args.p_file === NIL_ID ? 'probe' : 'rekey-answered', 'files', [args.p_file], {}, { ...args }])
+        return answer
+      }
+      return rekeyFileBody(args)
+    },
   }
 }
 
@@ -542,7 +558,7 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(client.log.filter(e => e[0] === 'move' && e[3].endsWith('1-board.png'))).toHaveLength(1)
   })
 
-  it('a row trashed meanwhile: rekey_file_body refuses it (42501, one answer for every failure of authority), the read after does not see it either, the object goes back and the shot is left with the reason', async () => {
+  it('a row trashed meanwhile: rekey_file_body refuses it (42501, one answer for every failure of authority), the read after does not see it either, the object goes back and the shot is left with a plain reason', async () => {
     const { tables, objects } = fixture()
     const hidden = new Set()
     const client = makeClient({
@@ -553,7 +569,7 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
-    expect(res.left[0].reason).toContain('could not be re-filed: file not found or not writable')
+    expect(res.left[0].reason).toBe('“board.png” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile); run it again to move the rest')
     expect(objects['rabbit-files'].has(OLD.board)).toBe(true)
     expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
     expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(OLD.board)
@@ -823,6 +839,142 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(localObjects.has(`projects/${PID}/shots/sh2/1-board.png`)).toBe(false)
     expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
     expect(client.log.some(e => e[0] === 'move' && e[1] === 'rabbit-files' && e[2].endsWith('1-board.png'))).toBe(false)
+  })
+})
+
+describe('refileShotFolders on a database without rekey_file_body (0114, review)', () => {
+  const PGRST202 = { code: 'PGRST202', message: 'Could not find the function public.rekey_file_body(p_file, p_from_path, p_to_path, p_from_thumb, p_to_thumb, p_financial) in the schema cache' }
+  const absent = (error = PGRST202) => () => ({ data: null, error })
+
+  for (const [label, error] of [
+    ['PGRST202', PGRST202],
+    ['a 42883 that names it', { code: '42883', message: 'function public.rekey_file_body(uuid, text, text, text, text, boolean) does not exist' }],
+  ]) {
+    it(`${label}: nothing moves and no row or folder changes, and each shot is left with the one sentence`, async () => {
+      const { tables, objects } = fixture()
+      const before = JSON.stringify(tables.files)
+      const client = makeClient({ tables, objects, rekeyAnswer: absent(error) })
+      const res = await run(client)
+      expect(REKEY_ABSENT).toBe('this company\'s database does not have this update yet, so nothing was moved')
+      expect(res.moved).toEqual([])
+      expect(res.left.map(l => [l.name, l.reason])).toEqual([['The-Cold-Lamp', REKEY_ABSENT], ['The-Door', REKEY_ABSENT]])
+      expect(client.log.filter(e => e[0] === 'move' || e[0] === 'guard-refused' || e[0] === 'rekey')).toEqual([])
+      expect(JSON.stringify(tables.files)).toBe(before)
+      expect(objects['rabbit-files'].has(OLD.board)).toBe(true)
+      expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SHOTS/The-Door')
+      expect(res.removedShotsCategory).toBe(false)
+    })
+  }
+
+  it('the question is asked once, its answer remembered, forgotten by resetSupabaseAdapter (an auth event), and a database migrated since is picked up', async () => {
+    const { tables, objects } = fixture()
+    let there = false
+    const client = makeClient({ tables, objects, rekeyAnswer: () => (there ? null : absent()()) })
+    await run(client)
+    const asked = () => client.log.filter(e => e[0] === 'probe').length
+    expect(asked()).toBe(1)
+    await run(client)
+    expect(asked()).toBe(1)
+    there = true
+    resetSupabaseAdapter()
+    const res = await run(client)
+    expect(asked()).toBe(2)
+    expect(res.left).toEqual([])
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
+    // And present is remembered too: the moves above asked once between them.
+    expect(asked()).toBe(2)
+  })
+
+  it('a question that gets no answer says nothing about the function: nothing moves, the shot says so in its own words, not remembered', async () => {
+    const { tables, objects } = fixture()
+    let down = true
+    const client = makeClient({ tables, objects, rekeyAnswer: (args) => (down && args.p_file === NIL_ID ? { data: null, error: { message: 'TypeError: Failed to fetch' } } : null) })
+    const res = await run(client)
+    expect(res.moved).toEqual([])
+    expect(res.left[0].reason).toBe('could not ask this company\'s database whether it has this update (TypeError: Failed to fetch), so nothing was moved')
+    expect(client.log.some(e => e[0] === 'move')).toBe(false)
+    down = false
+    expect((await run(client)).left).toEqual([])
+  })
+
+  it('PGRST202 at the call itself (the probe said yes): the object goes back, the same sentence, and the shots after it are refused before they move', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects, rekeyAnswer: (args) => (args.p_file === NIL_ID ? null : absent()()) })
+    const res = await run(client)
+    expect(res.moved).toEqual([])
+    expect(res.left.map(l => [l.name, l.reason])).toEqual([
+      ['The-Cold-Lamp', `“board.png” could not be re-filed: ${REKEY_ABSENT}`],
+      ['The-Door', REKEY_ABSENT],
+    ])
+    expect(objects['rabbit-files'].has(OLD.board)).toBe(true)
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
+    expect(client.log.filter(e => e[0] === 'move').map(e => e[2])).toEqual([OLD.board, NEW.board])
+    expect(objects['rabbit-files'].has(OLD.plate)).toBe(true)
+  })
+
+  it('PGRST202 at the call, and the object cannot go back: it says so, and never that nothing was moved', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({
+      tables, objects,
+      rekeyAnswer: (args) => (args.p_file === NIL_ID ? null : absent()()),
+      failMove: (bucket, from) => (from === NEW.board ? 'denied' : null),
+    })
+    const res = await run(client)
+    expect(res.left[0].reason).toBe(`“board.png” was moved to ${NEW.board} but its record could not be updated (this company's database does not have this update yet) and it could not be moved back (“board.png” could not be moved in rabbit-files: denied); its record still says ${OLD.board}`)
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+  })
+
+  it('PGRST202 at the picture\'s phase: the picture goes back, and the sentence does not say nothing was moved, because the body has', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({
+      tables, objects,
+      rekeyAnswer: (args) => (args.p_file === 'f1' && args.p_to_thumb === NEW.plateThumb ? absent()() : null),
+    })
+    const res = await run(client)
+    const door = res.left.find(l => l.name === 'The-Door')
+    expect(door.reason).toBe('“plate.exr” could not be re-filed: this company\'s database does not have this update yet')
+    expect(objects['rabbit-thumbnails'].has(OLD.plateThumb)).toBe(true)
+    expect(objects['rabbit-files'].has(NEW.plate)).toBe(true)
+    expect(tables.files.find(f => f.id === 'f1').storage_path).toBe(NEW.plate)
+  })
+
+  it('PGRST202 at the call with the row at a third key: left to whoever moved it, and the sentence does not say nothing was moved', async () => {
+    const { tables, objects } = fixture()
+    const elsewhere = `projects/${PID}/shots/sh2/2-board-replaced.png`
+    const client = makeClient({
+      tables, objects,
+      rekeyAnswer: (args) => (args.p_file === NIL_ID ? null : absent()()),
+      onMove: (bucket, from) => { if (from === OLD.board) tables.files.find(f => f.id === 'f3').storage_path = elsewhere },
+    })
+    const res = await run(client)
+    expect(res.left[0].reason).toBe('“board.png” could not be re-filed: this company\'s database does not have this update yet')
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+  })
+
+  it('CONTROL: a shot with nothing to move asks nothing and still goes, as it would on the old database', async () => {
+    const { tables, objects } = fixture()
+    tables.files = tables.files.filter(f => f.shot_id !== 'sh2')
+    tables.files = tables.files.filter(f => f.shot_id !== 'sh1')
+    const client = makeClient({ tables, objects, rekeyAnswer: absent() })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.moved.map(m => m.files)).toEqual([0, 0])
+    expect(client.log.some(e => e[0] === 'probe')).toBe(false)
+  })
+
+  it('the names the probe and both phases send are the function\'s own: PGRST202 is also PostgREST\'s answer to a wrong name', async () => {
+    const sql = readFileSync(new URL('../../../../supabase/migrations/0114_stable_file_bodies.sql', import.meta.url), 'utf8')
+    const signature = /FUNCTION public\.rekey_file_body\(([^)]*)\)/.exec(sql)
+    expect(signature, 'rekey_file_body is no longer declared this way: fix this reader').toBeTruthy()
+    const names = signature[1].split(',').map(p => p.trim().split(/\s+/)[0]).sort()
+    expect(names).toEqual(['p_file', 'p_financial', 'p_from_path', 'p_from_thumb', 'p_to_path', 'p_to_thumb'])
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects })
+    await run(client)
+    const sent = client.log.filter(e => e[0] === 'probe' || e[0] === 'rekey')
+    expect(sent.map(e => e[0])).toEqual(['probe', 'rekey', 'rekey', 'rekey'])
+    for (const e of sent) expect(Object.keys(e[4]).sort()).toEqual(names)
+    expect(sent[0][4]).toEqual({ p_file: NIL_ID, p_from_path: null, p_to_path: null, p_from_thumb: null, p_to_thumb: null, p_financial: false })
   })
 })
 

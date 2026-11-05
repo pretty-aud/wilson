@@ -41,7 +41,7 @@
 import { supabase } from '../auth/supabaseClient'
 // The edge tables' routing rule and column allowlist come from the adapter
 // that owns them — one vocabulary, not a restatement (Track A A2, 2026-09-06).
-import { DEPENDENCY_TABLE, dependencyKind, toColumns, supabaseAdapter } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
+import { DEPENDENCY_TABLE, dependencyKind, toColumns, supabaseAdapter, rekeyFileBodyAvailable, rekeyFileBodyMissing, REKEY_ABSENT, REKEY_ABSENT_WHY } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
 // B3 (Track B): the desktop loopback API refuses /api without the per-launch
 // token; localFetch attaches it (same-origin URLs only).
 import { localFetch } from '../../lib/localServerFetch.js'
@@ -147,8 +147,14 @@ export const INVOICES_FILED = (n) => `${n} ${n === 1 ? 'invoice or receipt' : 'i
 // folder (fileLeavesLockedFolder).
 export const FILES_LEFT_AT_TOP = (n) => `${plural(n, 'file')} filed under INVOICES, FINANCE or LEGAL on this computer ${n === 1 ? 'is' : 'are'} not money or Legal, so ${n === 1 ? 'it goes' : 'they go'} to the project's top level in the cloud`
 // MO1 (0115, SFB-09): the body refused by row security, the row's id taken: the
-// cloud keeps the file, and a file in its trash is hidden from this person.
-export const FILES_IN_CLOUD_BIN = (n) => `${plural(n, 'file')} already in the cloud, perhaps in its bin, so not uploaded again`
+// cloud keeps the file, and a file in its trash is hidden from this person. Named,
+// the first twenty, as RemovedLines names what it lists.
+export const FILES_IN_CLOUD_BIN = (n, names = []) => {
+  const more = names.length > 20 ? ` and ${names.length - 20} more` : ''
+  const named = names.length ? ` (${names.slice(0, 20).join(', ')}${more})` : ''
+  const it = n === 1 ? 'it' : 'them'
+  return `${plural(n, 'file')} already in the cloud, perhaps in its bin, so not uploaded again${named}: if you still want ${it}, look in Recently deleted or ask whoever removed ${it}, before clearing this computer`
+}
 export const ARCHIVED_AGAIN = (labels) => `Archived on this computer, so archived in the cloud once carried: ${labels.join(', ')} (a workspace admin or the project's manager can; anyone else, only a list or edit nobody has saved or built on)`
 export const LIVE_IN_CLOUD = (n) => `${n} ${n === 1 ? 'shot list or edit' : 'shot lists or edits'} archived on this computer ${n === 1 ? 'is' : 'are'} live in the cloud: a run archives only what it carries (archive ${n === 1 ? 'it' : 'them'} on the Scenes tab)`
 export const SHOT_LIST_NAME_TAKEN = (label) => `a shot list called "${label}" is already in the cloud under another id (made there since), so this one was not carried: rename it on this computer and run again`
@@ -210,6 +216,10 @@ export const RATES_TAKEN = (n) => `${plural(n, 'rate')} not carried: the cloud h
 // M3: the move behind the gate is made (moveReceipt); one that did not take
 // is said with its reason among the errors, and this line stays.
 export const RECEIPTS_LEFT_OPEN = (n) => `${plural(n, 'receipt')} an earlier run carried as ${n === 1 ? 'an ordinary file' : 'ordinary files'} ${n === 1 ? 'is' : 'are'} still open to every member of the project in the cloud: the move behind the money gate did not take this run (the errors say why) — run again, or a workspace admin can remove ${n === 1 ? 'it' : 'them'} there, and no later run brings ${n === 1 ? 'it' : 'them'} back`
+// MO1 (0114, review): a receipt whose move stopped partway, its copy not where its
+// row says. Removing the row is the wrong step here, so it is said apart: it may
+// or may not still be open (the errors say), and the next run takes it from there.
+export const RECEIPTS_STRANDED = (n) => `${plural(n, 'receipt')} an earlier run carried as ${n === 1 ? 'an ordinary file' : 'ordinary files'} stopped partway on ${n === 1 ? 'its' : 'their'} way behind the money gate: the errors say where ${n === 1 ? 'its copy is' : 'their copies are'} — run again, and do not remove ${n === 1 ? 'its row' : 'their rows'} (a copy no row names is deleted by an admin's Cleanup run once it is 24 hours old)`
 // M3 (night 5): the people, the roster, the rate cards, the templates, the
 // files kept with rows, the receipts moved (the panel and the tests quote
 // them). A person is named by their desktop name, never their email.
@@ -419,7 +429,7 @@ async function insertOrSkip(table, row, ours = null, keys = null) {
     err.notOurs = true
     throw err
   }
-  throw new Error(`${table}: ${error.message}`)
+  throw Object.assign(new Error(`${table}: ${error.message}`), { code: error.code })
 }
 
 /** The unique key a 23505 names ("…violates unique constraint "shot_lists_pkey""), or null. */
@@ -671,8 +681,9 @@ function makeReport() {
     rateOverrides: { total: 0, inserted: 0, skipped: 0, failed: 0, taken: 0 },
     // `receiptsOpen` (review round 1): receipts an earlier build carried as
     // ordinary files, said on every run (RECEIPTS_LEFT_OPEN). MO1 (0114):
-    // `leftAtTop` (FILES_LEFT_AT_TOP) and `inCloudBin` (FILES_IN_CLOUD_BIN).
-    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, invoicesFiled: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 0, leftAtTop: 0, inCloudBin: 0 },
+    // `leftAtTop` (FILES_LEFT_AT_TOP), `inCloudBin` and its names
+    // (FILES_IN_CLOUD_BIN), `receiptsStranded` (RECEIPTS_STRANDED).
+    files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0, placed: 0, invoicesFiled: 0, linksLetGo: 0, receiptsGated: 0, receiptsOpen: 0, receiptsStranded: 0, leftAtTop: 0, inCloudBin: 0, inCloudBinNames: [] },
     // BC3 (B9): the bins' part. `binFiles.leftBehind` counts the clips whose
     // root nobody named (listed in `clipsLeftBehind`, never dropped);
     // `posters` counts the pictures (uploaded only while the switch is on).
@@ -2599,9 +2610,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   //
   // MO1 (0114): a call that does not take puts the object back, as the shot
   // re-file's rewriteFileRow does, because a body at its INVOICES key that no row
-  // names is deleted by storage-gc's orphan scan after 24 hours (the twin rule is
-  // for shots). A thrown Error marked `stranded` is one whose copy did not go
-  // back: its sentence says where it sits, and it is no longer "still open".
+  // names is deleted by an admin's Cleanup run once it is 24 hours old (storage-gc's
+  // orphan scan: admin-invoked, never a cron; the twin rule is for shots). A thrown
+  // Error marked `stranded` is one whose copy is not where its row says: its
+  // sentence says where it is, it is not said to be "still open", and it is counted
+  // apart (RECEIPTS_STRANDED).
   const existsAt = async (bucket, key) => {
     const slash = key.lastIndexOf('/')
     const { data, error } = await bucket.list(key.slice(0, slash), { search: key.slice(slash + 1), limit: 100 })
@@ -2626,7 +2639,19 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     if (!seen) throw new Error(`it was not seen at ${back} after the move`)
   }
   const strandedError = (message) => Object.assign(new Error(message), { stranded: true })
+  // Review of 0114: a receipt whose cloud copy is at neither key. Nobody can open
+  // it, so it is not "still open", and the row would go on naming nothing. The
+  // body is on this computer, so it goes up behind the gate and the row follows.
+  const uploadReceiptAgain = async (projectId, f, bucket, to) => {
+    const { blob, status } = await fetchLocalFileBlob(projectId, f.id).catch((err) => ({ blob: null, status: err.message }))
+    if (!blob) throw strandedError(`its copy in the cloud is gone, and this computer could not read the file just now (${typeof status === 'number' ? `HTTP ${status}` : status}): make the file reachable here and run again, and the copy goes back up behind the gate`)
+    const { error } = await bucket.upload(to, blob, { cacheControl: '3600', upsert: false, contentType: f.mime_type || blob.type || 'application/octet-stream' })
+    if (error && !/already exists/i.test(error.message)) throw strandedError(`its copy in the cloud is gone, and the file on this computer could not be uploaded in its place (${error.message}): this computer still holds the file, so run again`)
+    if (!error) report.files.bytes += blob.size ?? 0
+  }
   const moveReceipt = async (projectId, f, already, to) => {
+    // Before anything moves: without the function the row cannot follow (0114).
+    if (!(await rekeyFileBodyAvailable(supabase))) throw new Error(REKEY_ABSENT)
     const from = already.storage_path
     const bucket = supabase.storage.from(RABBIT_FILES_BUCKET)
     const thumbs = supabase.storage.from(THUMBNAIL_BUCKET)
@@ -2650,7 +2675,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     if (from !== to) {
       if (!(await existsAt(bucket, to))) {
         const { error } = await bucket.move(from, to)
-        if (error) throw new Error(`its body could not be moved behind the gate: ${error.message}`)
+        if (error) {
+          // A refusal leaves the body where it was. A list that fails proves nothing.
+          if (await existsAt(bucket, from).catch(() => true)) throw new Error(`its body could not be moved behind the gate: ${error.message}`)
+          await uploadReceiptAgain(projectId, f, bucket, to)
+        }
       } else if (await existsAt(bucket, from)) {
         throw new Error('its body is at both its old and its new place in the cloud; both were left')
       }
@@ -2669,7 +2698,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       p_financial: true,
     })
     if (!error && data === true) return true
-    const failed = error ? `its row could not be put behind the gate: ${error.message}` : 'its row was not changed (changed by someone else meanwhile)'
+    const absent = rekeyFileBodyMissing(error)
+    const failed = absent ? REKEY_ABSENT_WHY : error ? `its row could not be put behind the gate: ${error.message}` : 'its row was not changed (changed by someone else meanwhile)'
     // The row read again decides, as in rewriteFileRow. A call that committed and
     // lost its answer stands; a row someone else moved on is left to them; and when
     // the read fails too nothing is known, so nothing moves. By here a body whose
@@ -2701,7 +2731,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         throw new Error(`${failed}, and its picture could not be moved back: ${back.message} (run again)`)
       }
     }
-    throw new Error(failed)
+    throw new Error(absent ? REKEY_ABSENT : failed)
   }
   // The dry run's count of the receipts the real run will move: the bundle's
   // money files already in the cloud whose row says ordinary.
@@ -3398,9 +3428,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     let linksLetGo = 0
     let receiptsGated = 0
     let receiptsOpen = 0
+    let receiptsStranded = 0
     let receiptsMoved = 0
     let leftAtTop = 0
     let inCloudBin = 0
+    const inCloudBinNames = []
     for (const f of bundle.files ?? []) {
       // M2: money (an invoice, or a receipt an expense or an actual names,
       // whatever its own flag) goes up behind the money gate, or — when the
@@ -3458,7 +3490,10 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
               receiptsMoved++
               rc.add('files', f.id)
             } catch (err) {
-              receiptsOpen++
+              // In the record either way, so a resume finds it; said apart when
+              // its copy is not where its row says (RECEIPTS_STRANDED).
+              if (err.stranded) receiptsStranded++
+              else receiptsOpen++
               rc.add('receipts_open', f.id)
               report.errors.push({ scope: 'file', projectId, id: f.id, message: err.stranded ? `${f.name || f.id}: ${err.message}` : `${f.name || f.id}: still open to every member of the project in the cloud — ${err.message}` })
             }
@@ -3564,15 +3599,22 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // file is there, perhaps in the bin. Any other answer is a failure, said,
         // so a clean report never offers to clear this computer's copy over it.
         if (bodyRefused) {
+          // Review of 0114: only the guard makes a row's object certain. Without
+          // it (or with no answer) a row would land naming nothing, the next run
+          // would skip it, and the report would offer to clear this computer: so
+          // the old answer stands, and no row is written.
+          if (!(await rekeyFileBodyAvailable(supabase).catch(() => false))) throw new Error(`storage upload: ${bodyRefused}`)
           let answer
           try {
             answer = await insertOrSkip('files', row)
           } catch (err) {
+            if (err.code === '42501') throw new Error(`${f.name || f.id}: you may not add this file to this project: the cloud refused both its body and its record`)
             throw new Error(`${f.name || f.id}: the cloud refused its body (${bodyRefused}) and its record (${err.message})`)
           }
           if (answer.status !== 'skipped') throw new Error(`${f.name || f.id}: the cloud took its record but refused its body (${bodyRefused}): check the file there`)
           bumpSkipped(report.files)
           inCloudBin++
+          inCloudBinNames.push(f.name || f.id)
           continue
         }
         // Not there a moment ago: a duplicate now is a row this person cannot
@@ -3599,13 +3641,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     report.files.leftAtTop += leftAtTop
     if (leftAtTop) note(`  ${FILES_LEFT_AT_TOP(leftAtTop)}`)
     report.files.inCloudBin += inCloudBin
-    if (inCloudBin) note(`  ${FILES_IN_CLOUD_BIN(inCloudBin)}`)
+    report.files.inCloudBinNames.push(...inCloudBinNames)
+    if (inCloudBin) note(`  ${FILES_IN_CLOUD_BIN(inCloudBin, inCloudBinNames)}`)
     report.files.linksLetGo += linksLetGo
     if (linksLetGo) note(`  ${FILE_LINKS_LET_GO(linksLetGo)}`)
     report.files.receiptsGated += receiptsGated
     if (receiptsGated) note(`  ${RECEIPTS_GATED(receiptsGated)}`)
     report.files.receiptsOpen += receiptsOpen
     if (receiptsOpen) note(`  ${RECEIPTS_LEFT_OPEN(receiptsOpen)}`)
+    report.files.receiptsStranded += receiptsStranded
+    if (receiptsStranded) note(`  ${RECEIPTS_STRANDED(receiptsStranded)}`)
     report.receiptsMoved += receiptsMoved
     if (receiptsMoved) note(`  ${RECEIPTS_MOVED(receiptsMoved)}`)
     // M3: the files the desktop keeps with its rows, after the ordinary files

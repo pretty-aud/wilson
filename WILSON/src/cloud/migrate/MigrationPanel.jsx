@@ -42,7 +42,7 @@ import {
   FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN, FILES_PLACED, INVOICES_FILED, FILES_LEFT_AT_TOP, FILES_IN_CLOUD_BIN, LIVE_IN_CLOUD, ARCHIVED_IN_CLOUD,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, removedWords, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS,
-  RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
+  RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, RECEIPTS_LEFT_OPEN, RECEIPTS_STRANDED, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
   PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, ROLES_LEFT, PEOPLE_SET,
   RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, DEFAULTS_LEFT, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
   MANAGED_FILES_WILL_UPLOAD, MANAGED_FILES_UPLOADED, SERVER_MEDIA_STAY, PRIVATE_MEDIA_STAY, BODIES_GONE, MANAGED_OVER_CAP, MANAGED_OVER_BOUND, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
@@ -384,12 +384,13 @@ function CarriedLines({ r }) {
     ['money-gate-left', r.moneyLeft?.projects, (n) => MONEY_GATE_LEFT(n, r.moneyLeft.rows)],
     // Review round 1: what is open in the cloud that should not be, next.
     ['receipts-left-open', r.files?.receiptsOpen, RECEIPTS_LEFT_OPEN],
+    ['receipts-stranded', r.files?.receiptsStranded, RECEIPTS_STRANDED],
     ['record-not-kept', r.recordKept === false ? 1 : 0, () => RECORD_NOT_KEPT('the desktop did not take it')],
     ['files-placed', r.files?.placed, FILES_PLACED],
     ['invoices-filed', r.files?.invoicesFiled, INVOICES_FILED],
     // MO1 (0114): SFB-07's and SFB-09's one sentence each.
     ['files-left-at-top', r.files?.leftAtTop, FILES_LEFT_AT_TOP],
-    ['files-in-cloud-bin', r.files?.inCloudBin, FILES_IN_CLOUD_BIN],
+    ['files-in-cloud-bin', r.files?.inCloudBin, (n) => FILES_IN_CLOUD_BIN(n, r.files.inCloudBinNames)],
     ['receipts-gated', r.files?.receiptsGated, RECEIPTS_GATED],
     ['line-pcts-left-out', r.budgetLines?.pctsLeftOut, LINE_PCTS_LEFT_OUT],
     ['actuals-taken', r.budgetActuals?.taken, ACTUALS_TAKEN],

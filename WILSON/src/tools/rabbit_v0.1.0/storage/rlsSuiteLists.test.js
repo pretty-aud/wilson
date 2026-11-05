@@ -168,9 +168,11 @@ describe('supabase/config.toml keeps rabbit_private out of the API (0114, SFB-10
 
 // SB-8: a client never changes where a file is kept or filed. updateFile strips
 // those columns from its patch and rekey_file_body is the one way to change a key,
-// so a `.from('files').update(` that names one is a write the guard will refuse
-// (42501) once 0114 is on. A computed key is refused with them: the old re-file
-// wrote `{ [column]: to }`, and this scan cannot read what `column` holds.
+// so a `.from('files').update(` or `.upsert(` that names one is a write the guard
+// will refuse (42501) once 0114 is on. A computed key is refused with them: the old
+// re-file wrote `{ [column]: to }`, and this scan cannot read what `column` holds.
+// A builder kept in a variable or handed on is refused too, because the scan could
+// not follow it. What it cannot see is a table name in a variable, `.from(table)`.
 describe('no client source patches a file\'s guarded columns (0114, SB-8)', () => {
   const GUARD_SQL = readFileSync(join(APP, 'supabase', 'migrations', '0114_stable_file_bodies.sql'), 'utf8')
   // The list is read from the guard's own Arm 1, so the two cannot drift apart.
@@ -178,21 +180,35 @@ describe('no client source patches a file\'s guarded columns (0114, SB-8)', () =
   const GUARDED = [...armOne.matchAll(/NEW\.(\w+) IS DISTINCT FROM OLD\./g)].map((m) => m[1])
   const SOURCE = /\.(js|jsx|ts|tsx|mjs|cjs)$/
 
-  /** Each `.from('files').update(…)` argument in a source text, read to its closing bracket. */
-  function fileUpdates(text) {
+  /**
+   * Each `.from('files').update(…)` or `.upsert(…)` argument in a source text, read
+   * to its closing bracket. A bracket inside a quoted string is not one, and a ' or
+   * " string ends with its line, so an apostrophe in a comment cannot swallow the rest.
+   */
+  function fileWrites(text) {
     const found = []
-    for (const m of text.matchAll(/\.from\(\s*['"`]files['"`]\s*\)\s*\.update\(/g)) {
+    for (const m of text.matchAll(/\.from\(\s*['"`]files['"`]\s*\)\s*\.(?:update|upsert)\(/g)) {
       const start = m.index + m[0].length
       let depth = 1
+      let quote = null
       let i = start
       while (i < text.length && depth > 0) {
-        if (text[i] === '(') depth += 1
-        else if (text[i] === ')') depth -= 1
+        const c = text[i]
+        if (quote) {
+          if (c === '\\') i += 1
+          else if (c === quote || (c === '\n' && quote !== '`')) quote = null
+        } else if (c === "'" || c === '"' || c === '`') quote = c
+        else if (c === '(') depth += 1
+        else if (c === ')') depth -= 1
         i += 1
       }
       found.push(text.slice(start, i - 1))
     }
     return found
+  }
+  /** How many `.from('files')` are not used at once, so the scan above cannot follow them. */
+  function heldBuilders(text) {
+    return [...text.matchAll(/\.from\(\s*['"`]files['"`]\s*\)(?!\s*\.)/g)].length
   }
   /** What one such argument names that it may not: guarded columns, or a key nobody can read. */
   function offences(argument) {
@@ -211,9 +227,9 @@ describe('no client source patches a file\'s guarded columns (0114, SB-8)', () =
     expect(GUARDED).toEqual(expect.arrayContaining(['project_id', 'workspace_id', 'folder_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial']))
   })
 
-  it('no .from(\'files\').update( under src/ or electron/ names one in its literal', () => {
+  it('no .from(\'files\').update( or .upsert( under src/ or electron/ names one in its literal', () => {
     const found = [join(APP, 'src'), join(APP, 'electron')].flatMap(sourcesUnder).flatMap((file) => (
-      fileUpdates(readFileSync(file, 'utf8')).flatMap((argument) => {
+      fileWrites(readFileSync(file, 'utf8')).flatMap((argument) => {
         const names = offences(argument)
         return names.length ? [`${file.slice(APP.length + 1).replace(/\\/g, '/')}: ${names.join(', ')}`] : []
       })
@@ -222,7 +238,7 @@ describe('no client source patches a file\'s guarded columns (0114, SB-8)', () =
   })
 
   it('CONTROL: the scan bites on a literal, on two lines, in any quotes and on a computed key, and passes what it should', () => {
-    const scan = (text) => fileUpdates(text).flatMap(offences)
+    const scan = (text) => fileWrites(text).flatMap(offences)
     expect(scan(".from('files').update({ is_financial: true, storage_path: to })")).toEqual(['storage_path', 'is_financial'])
     expect(scan('client\n  .from("files")\n  .update({\n    folder_id: x,\n  })\n  .eq("id", id)')).toEqual(['folder_id'])
     expect(scan('.from(`files`).update({ ...patch, thumbnail_url: (a || b) })')).toEqual(['thumbnail_url'])
@@ -234,5 +250,39 @@ describe('no client source patches a file\'s guarded columns (0114, SB-8)', () =
     expect(scan(".from('files').update({ description: 'see storage_path' })")).toEqual(['storage_path'])
     expect(scan(".from('folders').update({ project_id: x })")).toEqual([])
     expect(scan(".from('files').select('project_id, storage_path')")).toEqual([])
+  })
+
+  it('CONTROL (review): an upsert is a write too', () => {
+    const scan = (text) => fileWrites(text).flatMap(offences)
+    expect(scan(".from('files').upsert({ folder_id: x })")).toEqual(['folder_id'])
+    expect(scan('client\n  .from("files")\n  .upsert({ id, thumbnail_url: x }, { onConflict: "id" })')).toEqual(['thumbnail_url'])
+    expect(scan(".from('folders').upsert({ project_id: x })")).toEqual([])
+    expect(scan(".from('files').upsert(row)")).toEqual([])
+  })
+
+  it('CONTROL (review): a bracket inside a string does not end the argument, in any quotes, nor an apostrophe in a comment start a string', () => {
+    const scan = (text) => fileWrites(text).flatMap(offences)
+    expect(scan(".from('files').update({ description: 'done :)', storage_path: to })")).toEqual(['storage_path'])
+    expect(scan('.from(\'files\').update({ description: "a ) b", folder_id: x })')).toEqual(['folder_id'])
+    expect(scan('.from(\'files\').update({ description: `a ) b`, thumbnail_url: x })')).toEqual(['thumbnail_url'])
+    expect(scan(".from('files').update({ description: 'it\\'s :)', is_financial: true })")).toEqual(['is_financial'])
+    expect(scan(".from('files').update({ // don't\n  folder_id: x })")).toEqual(['folder_id'])
+    expect(scan(".from('files').update({ // don't\n  description: x }).eq('storage_path', key)")).toEqual([])
+    // A bracket opened inside a string does not hold the argument open either.
+    expect(scan(".from('files').update({ description: '(' }).eq('storage_path', key)")).toEqual([])
+  })
+
+  it('CONTROL (review): a builder kept for later is flagged, wherever it goes, and one used at once is not', () => {
+    expect(heldBuilders("const q = client.from('files')\nq.update({ storage_path: to })")).toEqual(1)
+    expect(heldBuilders("const q = client.from('files');")).toEqual(1)
+    expect(heldBuilders("wrap(client.from(\"files\"))")).toEqual(1)
+    expect(heldBuilders("client.from('files').update(row)")).toEqual(0)
+    expect(heldBuilders("const { data } = await client\n  .from('files')\n  .select('id')")).toEqual(0)
+    expect(heldBuilders("const q = client.from('folders')")).toEqual(0)
+  })
+
+  it('no .from(\'files\') under src/ or electron/ is kept in a variable or handed on, where this scan could not follow it', () => {
+    const found = [join(APP, 'src'), join(APP, 'electron')].flatMap(sourcesUnder).filter((file) => heldBuilders(readFileSync(file, 'utf8')) > 0)
+    expect(found.map((file) => file.slice(APP.length + 1).replace(/\\/g, '/'))).toEqual([])
   })
 })

@@ -195,7 +195,8 @@ const fake = vi.hoisted(() => {
     }
     if (table === 'files' && row.storage_provider != null && !['supabase', 'google_drive', 'local_server', 's3'].includes(row.storage_provider)) return no('22P02', `invalid input value for enum storage_provider: "${row.storage_provider}"`)
     // MO1 (0114): the guard's INSERT arm, which fires before the keys below.
-    if (table === 'files') {
+    // `pre0114`: a database from before it, which has neither guard nor function.
+    if (table === 'files' && !state.pre0114) {
       const money = row.is_financial === true || lockedSegment(String(row.storage_path ?? '').split('/')[2])
       if (!['supabase', 's3', 'local_server'].includes(row.storage_provider)
           || !(row.thumbnail_url == null || row.thumbnail_url === `${row.storage_path}.jpg`)
@@ -289,7 +290,7 @@ const fake = vi.hoisted(() => {
   // (any project's version: measured), the open one's this project's.
   function updateRefusal(table, patch, row) {
     // MO1 (0114): the guard's UPDATE arm. Resending the same value passes.
-    if (table === 'files' && GUARDED_FILE_COLUMNS.some(c => c in patch && patch[c] !== row[c])) return no('42501', "A file's project, folder and storage change only through Move to.")
+    if (table === 'files' && !state.pre0114 && GUARDED_FILE_COLUMNS.some(c => c in patch && patch[c] !== row[c])) return no('42501', "A file's project, folder and storage change only through Move to.")
     if (table !== 'projects') return null
     for (const col of ['budget_active_version_id', 'open_budget_version_id']) {
       if (!(col in patch) || patch[col] === row[col]) continue
@@ -463,6 +464,7 @@ const fake = vi.hoisted(() => {
     rpc: async (fn, args) => {
       state.rpcs.push([fn, args])
       if (fn === 'rabbit_money_segment') return { data: args?.seg === 'LEGAL', error: null }
+      if (fn === 'rekey_file_body' && state.pre0114) return { data: null, error: no('PGRST202', 'Could not find the function public.rekey_file_body(p_file, p_from_path, p_to_path, p_from_thumb, p_to_thumb, p_financial) in the schema cache') }
       if (state.rpcRefuse[fn]) return { data: null, error: state.rpcRefuse[fn] }
       // MO1 (0114): the one path a client has to a stored key. Every failure of
       // authority answers alike; a path or picture that is no longer what the
@@ -571,8 +573,9 @@ const {
   KEY_DATES_TRASHED, COMMENTS_ON_GONE_ROWS, FILES_PLACED, INVOICES_FILED, SHOT_LIST_NAME_TAKEN, LIVE_IN_CLOUD, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   KEY_DATES_PHASE_LET_GO, FILE_LINKS_LET_GO, EDITS_CHAIN_TAKEN, STATUS_NOT_IN_CLOUD, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT, TASK_LINKS_ON_GONE_TASKS, ROW_LINKS_LET_GO, removedWords,
-  PROJECT_NOT_OURS, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN, RECEIPTS_LEFT_OPEN, FILES_LEFT_AT_TOP, FILES_IN_CLOUD_BIN,
+  PROJECT_NOT_OURS, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN, RECEIPTS_LEFT_OPEN, RECEIPTS_STRANDED, FILES_LEFT_AT_TOP, FILES_IN_CLOUD_BIN,
 } = await import('./runMigration')
+const { rekeyFileBodyAvailable, REKEY_ABSENT, resetSupabaseAdapter } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
 const { pathKey } = await import('./binsMigration')
 const { projectRowForCloud, projectValuesLeftOut, cloudDay, RECORD_KEY, budgetLineRowForCloud } = await import('./migrationRows')
 const { clearWorkspaceStorageCache } = await import('../workspaceStorage')
@@ -774,7 +777,9 @@ function serve(bundles, extra = {}) {
     const m = /^\/api\/rabbit\/projects\/([^/]+)$/.exec(url)
     if (m) { const b = served.find(x => x.project.id === m[1]); return b ? { ok: true, json: async () => JSON.parse(JSON.stringify(b)) } : { ok: false, status: 404 } }
     // M1: a file's body, as the desktop serves it (/files/:id/download).
-    if (/^\/api\/rabbit\/projects\/[^/]+\/files\/[^/]+\/download$/.test(url)) return { ok: true, status: 200, blob: async () => ({ size: 3, type: 'application/octet-stream' }) }
+    const download = /^\/api\/rabbit\/projects\/[^/]+\/files\/([^/]+)\/download$/.exec(url)
+    if (download && servedGone.has(download[1])) return { ok: false, status: 410 }
+    if (download) return { ok: true, status: 200, blob: async () => ({ size: 3, type: 'application/octet-stream' }) }
     const t = /^\/api\/rabbit\/projects\/([^/]+)\/bin-files\/([^/]+)\/thumbnail$/.exec(url)
     if (t) {
       const status = posterStatus[t[2]] ?? 200
@@ -785,7 +790,7 @@ function serve(bundles, extra = {}) {
 }
 
 beforeEach(() => {
-  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, listErrorFor: {}, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [], callerId: 'u-mover', directory: [], directoryError: null, reservations: [], released: [], objects: [], moves: [], tus: [], rosterGate: true, entryGate: true, templateGate: true, failMove: null, rekeyMiss: false, rekeyLost: false, afterRekey: null, loseMove: null })
+  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, failUpdate: null, uploads: [], removed: [], lists: {}, listError: null, listErrorFor: {}, single: {}, singleError: null, ranges: [], dropOnUpdate: null, rpcs: [], rpcRefuse: {}, trash: {}, moneyGate: true, legalGate: true, pre0103: false, inReads: [], callerId: 'u-mover', directory: [], directoryError: null, reservations: [], released: [], objects: [], moves: [], tus: [], rosterGate: true, entryGate: true, templateGate: true, failMove: null, rekeyMiss: false, rekeyLost: false, afterRekey: null, loseMove: null, pre0114: false })
   fake.state.single.workspaces = { [WS]: { remote_viewing_enabled: false } }
   posterStatus = {}
   bundleWrites = []
@@ -1484,6 +1489,9 @@ const AT_THE_TOP = new Set([fileId(32), fileId(33)])
 const IN_INVOICES = new Set([fileId(30), fileId(31)])
 function fileId(n) { return FILES.find(f => f.id.endsWith(String(n).padStart(12, '0'))).id }
 const rpcsCalled = (name) => fake.state.rpcs.filter(([fn]) => fn === name).map(([, args]) => args)
+// MO1 (0114): the real calls; the availability probe asks with the nil uuid.
+const NIL_ID = '00000000-0000-0000-0000-000000000000'
+const rekeysMade = () => rpcsCalled('rekey_file_body').filter(a => a.p_file !== NIL_ID)
 
 describe('M1: the round trip on the fixtures — key dates, comments, shot lists, their items and edits, folders, and files filed in them', () => {
   it('every row of the five kinds comes out with the cloud\'s shape, its id and its parents; the run is clean', async () => {
@@ -2981,7 +2989,7 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(fake.state.moves).toEqual([{ bucket: 'rabbit-thumbnails', from: `${from}.jpg`, to: `${to}.jpg` }, { bucket: 'rabbit-files', from, to }])
     expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: `${to}.jpg` })
     // MO1 (0114): one call, never a patch (the guard refuses a patch).
-    expect(rpcsCalled('rekey_file_body')).toEqual([{ p_file: preC4, p_from_path: from, p_to_path: to, p_from_thumb: `${from}.jpg`, p_to_thumb: `${to}.jpg`, p_financial: true }])
+    expect(rekeysMade()).toEqual([{ p_file: preC4, p_from_path: from, p_to_path: to, p_from_thumb: `${from}.jpg`, p_to_thumb: `${to}.jpg`, p_financial: true }])
     expect(fake.state.updates.filter(u => u.table === 'files')).toEqual([])
     expect(report.receiptsMoved).toBe(1)
     expect(report.files.receiptsOpen).toBe(0)
@@ -2992,7 +3000,7 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     const again = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(again.receiptsMoved).toBe(0)
     expect(fake.state.moves).toEqual([])
-    expect(rpcsCalled('rekey_file_body')).toEqual([])
+    expect(rekeysMade()).toEqual([])
     expect(again.removed.rows).toEqual([])
     // CONTROL: a move the cloud refuses leaves the receipt open — said with its reason, the row untouched, never recorded as carried, said again next run; a body moved before the row changed (a run that stopped) is not moved again, only the row.
     newCloud({ inserts: {}, lists: {}, log: [], objects: [], moves: [], updates: [] })
@@ -3038,7 +3046,7 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: true, storage_path: to, thumbnail_url: `${to}.jpg` })
     expect(fake.state.objects.filter(o => o.name.includes(preC4)).map(o => o.name).sort()).toEqual([to, `${to}.jpg`].sort())
     // MO1 (0114): the path and the picture stay as they are, and only the flag grows.
-    expect(rpcsCalled('rekey_file_body')).toEqual([{ p_file: preC4, p_from_path: to, p_to_path: to, p_from_thumb: `${to}.jpg`, p_to_thumb: `${to}.jpg`, p_financial: true }])
+    expect(rekeysMade()).toEqual([{ p_file: preC4, p_from_path: to, p_to_path: to, p_from_thumb: `${to}.jpg`, p_to_thumb: `${to}.jpg`, p_financial: true }])
     expect(recordOf(b).files).toContain(preC4)
     // CONTROL (review round 2): the same row with no body anywhere in the bucket is left as it is — said open with the reason, never flagged money over a key the bucket does not hold.
     newCloud({ inserts: {}, lists: {}, log: [], objects: [], moves: [], updates: [] })
@@ -3052,7 +3060,7 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     expect(bodiless.files.receiptsOpen).toBe(1)
     expect(bodiless.errors).toEqual([expect.objectContaining({ scope: 'file', id: preC4, message: expect.stringMatching(/its body is not in the cloud at the place its row names, so the row was left as it is/) })])
     expect(fake.state.lists.files.find(f => f.id === preC4)).toMatchObject({ is_financial: false, storage_path: to })
-    expect(rpcsCalled('rekey_file_body')).toEqual([])
+    expect(rekeysMade()).toEqual([])
     expect(fake.state.updates.filter(u => u.table === 'files')).toEqual([])
   })
 
@@ -3090,7 +3098,7 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
     open()
     const moved = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(moved.receiptsMoved).toBe(1)
-    expect(rpcsCalled('rekey_file_body')).toEqual([{ p_file: preC4, p_from_path: from, p_to_path: to, p_from_thumb: null, p_to_thumb: null, p_financial: true }])
+    expect(rekeysMade()).toEqual([{ p_file: preC4, p_from_path: from, p_to_path: to, p_from_thumb: null, p_to_thumb: null, p_financial: true }])
     expect(fake.state.updates.filter(u => u.table === 'files')).toEqual([])
   })
 
@@ -3206,14 +3214,15 @@ describe('M2 review round 1: whose a row is, before the record names it', () => 
 
 // ── M2 review round 2 (Fable): round 1's corrections attacked ─────────────
 describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back where its row says', () => {
-  // Left at its INVOICES key, a body no row names is deleted by storage-gc's
-  // orphan scan after 24 hours (the twin rule covers shots only). So moveReceipt
-  // puts it back as rewriteFileRow does: having read the row again.
+  // Left at its INVOICES key, a body no row names is deleted by an admin's Cleanup
+  // run once it is 24 hours old (storage-gc's orphan scan, admin-invoked; the twin
+  // rule covers shots only). So moveReceipt puts it back as rewriteFileRow does:
+  // having read the row again.
   const REFUSED = { code: '42501', message: 'file not found or not writable' }
   const MISSED = 'its row was not changed (changed by someone else meanwhile)'
   const NOT_BEHIND = 'its row could not be put behind the gate: file not found or not writable'
   const OPEN = 'still open to every member of the project in the cloud'
-  const setUp = ({ picture = true, bodyAt = 'from', rowAt = 'from' } = {}) => {
+  const setUp = ({ picture = true, bodyAt = 'from', rowAt = 'from', unreadable = false } = {}) => {
     const id = FILES.filter(f => f.is_financial)[1].id
     const { name } = FILES.find(f => f.id === id)
     const from = `projects/${PROJECT.id}/files/${id}/receipt.pdf`
@@ -3221,14 +3230,15 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     const named = rowAt === 'from' ? from : to
     const b = desktopFixtures()
     b.files = b.files.map(f => (f.id === id ? { ...f, is_financial: false } : f))
-    serve([b])
+    serve([b], unreadable ? { gone: new Set([id]) } : {})
     fake.state.lists.files = [{ id, project_id: PROJECT.id, storage_path: named, is_financial: false, thumbnail_url: picture ? `${from}.jpg` : null }]
-    fake.state.objects.push({ bucket: 'rabbit-files', name: bodyAt === 'from' ? from : to, size: 3 })
+    if (bodyAt !== 'none') fake.state.objects.push({ bucket: 'rabbit-files', name: bodyAt === 'from' ? from : to, size: 3 })
     if (picture) fake.state.objects.push({ bucket: 'rabbit-thumbnails', name: `${from}.jpg`, size: 2 })
     const row = () => fake.state.lists.files.find(f => f.id === id)
     return { id, name, from, to, b, row }
   }
-  const run = () => runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+  const readableAgain = () => { servedGone = new Set() }
+  const run = (onProgress) => runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress })
   const objectsOf = (id) => fake.state.objects.filter(o => o.name.includes(id)).map(o => `${o.bucket}:${o.name}`).sort()
   const forward = (from, to) => [{ bucket: 'rabbit-thumbnails', from: `${from}.jpg`, to: `${to}.jpg` }, { bucket: 'rabbit-files', from, to }]
   const back = (from, to) => [{ bucket: 'rabbit-files', from: to, to: from }, { bucket: 'rabbit-thumbnails', from: `${to}.jpg`, to: `${from}.jpg` }]
@@ -3255,15 +3265,21 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id, message: `${name}: ${OPEN} — ${NOT_BEHIND}` })])
   })
 
-  it('a body that cannot go back says so and where it sits, is not called open, stays there with its picture, and the next run finishes the move', async () => {
+  it('a body that cannot go back says so and where it sits, is not called open, is counted apart with its own line, stays there with its picture, and the next run finishes the move', async () => {
+    expect(RECEIPTS_STRANDED(1)).toBe('1 receipt an earlier run carried as an ordinary file stopped partway on its way behind the money gate: the errors say where its copy is — run again, and do not remove its row (a copy no row names is deleted by an admin\'s Cleanup run once it is 24 hours old)')
+    expect(RECEIPTS_STRANDED(2)).toBe('2 receipts an earlier run carried as ordinary files stopped partway on their way behind the money gate: the errors say where their copies are — run again, and do not remove their rows (a copy no row names is deleted by an admin\'s Cleanup run once it is 24 hours old)')
     const { id, name, from, to, row, b } = setUp()
     fake.state.rekeyMiss = true
     fake.state.failMove = (bucket, _from, target) => (bucket === 'rabbit-files' && target === from ? { message: 'denied' } : null)
-    const report = await run()
+    const lines = []
+    const report = await run((m) => lines.push(m))
     expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id, message: `${name}: ${MISSED}, and its body could not be moved back: denied, so it now sits at ${to}; its row still says ${from} (run again)` })])
     expect(objectsOf(id)).toEqual([`rabbit-files:${to}`, `rabbit-thumbnails:${to}.jpg`])
     expect(row()).toMatchObject({ storage_path: from, is_financial: false })
-    expect(report.files.receiptsOpen).toBe(1)
+    expect(report.files).toMatchObject({ receiptsOpen: 0, receiptsStranded: 1 })
+    expect(lines).toContain(`  ${RECEIPTS_STRANDED(1)}`)
+    expect(lines).not.toContain(`  ${RECEIPTS_LEFT_OPEN(1)}`)
+    // The record keeps it, so the resume below still finds it.
     expect(recordOf(b).receipts_open).toEqual([id])
     // The next run finds the body and the picture landed, and changes only the row.
     fake.state.rekeyMiss = false
@@ -3272,6 +3288,7 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     const again = await run()
     expect(again.errors).toEqual([])
     expect(again.receiptsMoved).toBe(1)
+    expect(again.files.receiptsStranded).toBe(0)
     expect(fake.state.moves).toEqual([])
     expect(row()).toMatchObject({ storage_path: to, thumbnail_url: `${to}.jpg`, is_financial: true })
   })
@@ -3421,6 +3438,154 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     expect(second.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${OPEN} — ${MISSED}` })])
   })
 
+  it('a copy at neither key is gone, not open: this computer\'s goes up behind the gate and the row follows, so there is no dead end', async () => {
+    const { id, from, to, row, b } = setUp({ bodyAt: 'none' })
+    const report = await run()
+    expect(report.errors).toEqual([])
+    expect(report.receiptsMoved).toBe(1)
+    expect(report.files).toMatchObject({ receiptsOpen: 0, receiptsStranded: 0 })
+    expect(fake.state.uploads.filter(u => u.path.includes(id)).map(u => u.path)).toEqual([to])
+    expect(fake.state.moves).toEqual([{ bucket: 'rabbit-thumbnails', from: `${from}.jpg`, to: `${to}.jpg` }])
+    expect(row()).toMatchObject({ storage_path: to, thumbnail_url: `${to}.jpg`, is_financial: true })
+    expect(rekeysMade()).toEqual([{ p_file: id, p_from_path: from, p_to_path: to, p_from_thumb: `${from}.jpg`, p_to_thumb: `${to}.jpg`, p_financial: true }])
+    expect(objectsOf(id)).toEqual([`rabbit-files:${to}`, `rabbit-thumbnails:${to}.jpg`])
+    expect(recordOf(b).files).toContain(id)
+    // The body it sent is counted with the others': every file of the run, this one too.
+    expect(report.files.bytes).toBe(ALL_FILES.length * 3)
+  })
+
+  it('gone, and this computer cannot read its own: a true sentence with the way back, never "still open"; the next run closes it', async () => {
+    const { id, name, from, to, row, b } = setUp({ picture: false, bodyAt: 'none', unreadable: true })
+    const report = await run()
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id, message: `${name}: its copy in the cloud is gone, and this computer could not read the file just now (HTTP 410): make the file reachable here and run again, and the copy goes back up behind the gate` })])
+    expect(report.files).toMatchObject({ receiptsOpen: 0, receiptsStranded: 1 })
+    expect(fake.state.uploads.filter(u => u.path.includes(id))).toEqual([])
+    expect(row()).toMatchObject({ storage_path: from, is_financial: false })
+    expect(recordOf(b).receipts_open).toEqual([id])
+    readableAgain()
+    const again = await run()
+    expect(again.errors).toEqual([])
+    expect(again.receiptsMoved).toBe(1)
+    expect(row()).toMatchObject({ storage_path: to, is_financial: true })
+  })
+
+  it('gone, and this computer gives no answer at all: said as such, and not called open', async () => {
+    const { id, name } = setUp({ picture: false, bodyAt: 'none' })
+    const served = globalThis.fetch
+    globalThis.fetch = vi.fn((url, init) => (url.endsWith(`/files/${id}/download`) ? Promise.reject(new Error('connection refused')) : served(url, init)))
+    const report = await run()
+    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: its copy in the cloud is gone, and this computer could not read the file just now (connection refused): make the file reachable here and run again, and the copy goes back up behind the gate` })])
+    expect(report.files).toMatchObject({ receiptsOpen: 0, receiptsStranded: 1 })
+  })
+
+  it('gone from this person\'s sight only: the bucket already holds the new key, so the upload is no failure and the row follows', async () => {
+    const { id, to, row } = setUp({ picture: false, bodyAt: 'none' })
+    fake.state.objects.push({ bucket: 'rabbit-files', name: to, size: 3, unlisted: true })
+    const report = await run()
+    expect(report.errors).toEqual([])
+    expect(report.receiptsMoved).toBe(1)
+    expect(fake.state.uploads.filter(u => u.path.includes(id))).toEqual([])
+    expect(row()).toMatchObject({ storage_path: to, is_financial: true })
+    // Nothing was written over the one that is there, and nothing was sent.
+    expect(fake.state.objects.filter(o => o.name === to)).toHaveLength(1)
+    expect(report.files.bytes).toBe((ALL_FILES.length - 1) * 3)
+  })
+
+  it('gone, and the bucket refuses this computer\'s copy: said as such, the row untouched, and no re-key tried', async () => {
+    const { id, name, from, to, row } = setUp({ picture: false, bodyAt: 'none' })
+    fake.state.failWith = (table, r) => (table === 'storage' && r.path === to ? { message: 'new row violates row-level security policy', statusCode: '403' } : null)
+    const report = await run()
+    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: its copy in the cloud is gone, and the file on this computer could not be uploaded in its place (new row violates row-level security policy): this computer still holds the file, so run again` })])
+    expect(report.files).toMatchObject({ receiptsOpen: 0, receiptsStranded: 1 })
+    expect(row()).toMatchObject({ storage_path: from, is_financial: false })
+    expect(rekeysMade()).toEqual([])
+  })
+
+  it('gone, this computer\'s uploaded, and the re-key refused: the new copy goes to the key the row names, and then the row is true and open', async () => {
+    const { id, name, from, to, row } = setUp({ picture: false, bodyAt: 'none' })
+    fake.state.rpcRefuse.rekey_file_body = REFUSED
+    const report = await run()
+    expect(fake.state.moves).toEqual([{ bucket: 'rabbit-files', from: to, to: from }])
+    expect(objectsOf(id)).toEqual([`rabbit-files:${from}`])
+    expect(row()).toMatchObject({ storage_path: from, is_financial: false })
+    expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${OPEN} — ${NOT_BEHIND}` })])
+    expect(report.files).toMatchObject({ receiptsOpen: 1, receiptsStranded: 0 })
+  })
+
+  it('CONTROLS: a refused move with the body still at its key stays "still open"; so does one whose bucket cannot then be listed, because that proves nothing', async () => {
+    const first = setUp({ picture: false })
+    fake.state.failMove = () => ({ message: 'denied' })
+    const refused = await run()
+    expect(refused.errors).toEqual([expect.objectContaining({ id: first.id, message: `${first.name}: ${OPEN} — its body could not be moved behind the gate: denied` })])
+    expect(fake.state.uploads.filter(u => u.path === first.to)).toEqual([])
+    newCloud({ inserts: {}, lists: {}, log: [], objects: [], moves: [], updates: [], rpcs: [], uploads: [] })
+    const second = setUp({ picture: false })
+    const realFrom = fake.client.storage.from
+    let tried = false
+    fake.state.failMove = () => { tried = true; return { message: 'denied' } }
+    fake.client.storage.from = (bucket) => {
+      const real = realFrom(bucket)
+      return { ...real, list: async (...args) => (tried ? { data: null, error: { message: 'bucket unavailable' } } : real.list(...args)) }
+    }
+    try {
+      const unlisted = await run()
+      expect(unlisted.errors).toEqual([expect.objectContaining({ id: second.id, message: `${second.name}: ${OPEN} — its body could not be moved behind the gate: denied` })])
+    } finally {
+      fake.client.storage.from = realFrom
+    }
+  })
+
+  describe('on a database without rekey_file_body', () => {
+    beforeEach(() => { resetSupabaseAdapter() })
+    afterEach(() => { resetSupabaseAdapter() })
+
+    it('nothing moves, and the one sentence is said', async () => {
+      const { id, name, from, row } = setUp()
+      fake.state.pre0114 = true
+      const report = await run()
+      expect(REKEY_ABSENT).toBe('this company\'s database does not have this update yet, so nothing was moved')
+      expect(fake.state.moves).toEqual([])
+      expect(objectsOf(id)).toEqual([`rabbit-files:${from}`, `rabbit-thumbnails:${from}.jpg`])
+      expect(row()).toMatchObject({ storage_path: from, thumbnail_url: `${from}.jpg`, is_financial: false })
+      expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id, message: `${name}: ${OPEN} — ${REKEY_ABSENT}` })])
+      expect(report.files).toMatchObject({ receiptsOpen: 1, receiptsStranded: 0 })
+      expect(rpcsCalled('rekey_file_body')).toEqual([{ p_file: NIL_ID, p_from_path: null, p_to_path: null, p_from_thumb: null, p_to_thumb: null, p_financial: false }])
+    })
+
+    it('PGRST202 at the call itself (the probe said yes): the copy goes back, and the same sentence is said', async () => {
+      const { id, name, from, to } = setUp()
+      expect(await rekeyFileBodyAvailable(fake.client)).toBe(true)
+      fake.state.pre0114 = true
+      const report = await run()
+      expect(fake.state.moves).toEqual([...forward(from, to), ...back(from, to)])
+      expect(objectsOf(id)).toEqual([`rabbit-files:${from}`, `rabbit-thumbnails:${from}.jpg`])
+      expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${OPEN} — ${REKEY_ABSENT}` })])
+    })
+
+    it('PGRST202 at the call, and the copy cannot go back: it says so and where it sits, and never that nothing was moved', async () => {
+      const { id, name, from, to } = setUp({ picture: false })
+      expect(await rekeyFileBodyAvailable(fake.client)).toBe(true)
+      fake.state.pre0114 = true
+      fake.state.failMove = (bucket, _from, target) => (target === from ? { message: 'denied' } : null)
+      const report = await run()
+      expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: this company's database does not have this update yet, and its body could not be moved back: denied, so it now sits at ${to}; its row still says ${from} (run again)` })])
+      expect(report.files).toMatchObject({ receiptsOpen: 0, receiptsStranded: 1 })
+    })
+
+    it('a question that gets no answer is said in its own words: nothing moved, not called absent, and asked again next run', async () => {
+      const { id, name, from, to, row } = setUp({ picture: false })
+      fake.state.rpcRefuse.rekey_file_body = { message: 'TypeError: Failed to fetch' }
+      const report = await run()
+      expect(fake.state.moves).toEqual([])
+      expect(report.errors).toEqual([expect.objectContaining({ id, message: `${name}: ${OPEN} — could not ask this company's database whether it has this update (TypeError: Failed to fetch), so nothing was moved` })])
+      delete fake.state.rpcRefuse.rekey_file_body
+      const again = await run()
+      expect(again.errors).toEqual([])
+      expect(row()).toMatchObject({ storage_path: to, is_financial: true })
+      expect(from).not.toBe(to)
+    })
+  })
+
   it('CONTROL: when the call takes, nothing goes back', async () => {
     const { from, to } = setUp()
     const report = await run()
@@ -3546,8 +3711,11 @@ describe('MO1 (0114, SFB-09): an upload refused by row security still asks the r
   const refuseBody = (extra = () => null) => { fake.state.failWith = (table, row) => (table === 'storage' && row.path.includes(target()) ? RLS : extra(table, row)) }
 
   it('a duplicate key is the file already in the cloud, perhaps in its bin: skipped, said, no error, nothing recorded, no bytes counted', async () => {
-    expect(FILES_IN_CLOUD_BIN(1)).toBe('1 file already in the cloud, perhaps in its bin, so not uploaded again')
-    expect(FILES_IN_CLOUD_BIN(2)).toBe('2 files already in the cloud, perhaps in its bin, so not uploaded again')
+    expect(FILES_IN_CLOUD_BIN(1)).toBe('1 file already in the cloud, perhaps in its bin, so not uploaded again: if you still want it, look in Recently deleted or ask whoever removed it, before clearing this computer')
+    expect(FILES_IN_CLOUD_BIN(2, ['a.pdf', 'b.pdf'])).toBe('2 files already in the cloud, perhaps in its bin, so not uploaded again (a.pdf, b.pdf): if you still want them, look in Recently deleted or ask whoever removed them, before clearing this computer')
+    // As RemovedLines does: the first twenty by name, and how many more.
+    const many = Array.from({ length: 22 }, (_, i) => `f${i}.pdf`)
+    expect(FILES_IN_CLOUD_BIN(22, many)).toContain(`(${many.slice(0, 20).join(', ')} and 2 more):`)
     const b = desktopFixtures()
     serve([b])
     refuseBody((table, row) => (table === 'files' && row.id === target() ? { code: '23505', message: 'duplicate key value violates unique constraint "files_pkey"' } : null))
@@ -3555,19 +3723,64 @@ describe('MO1 (0114, SFB-09): an upload refused by row security still asks the r
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS, onProgress: (m) => lines.push(m) })
     expect(report.errors).toEqual([])
     expect(report.files).toMatchObject({ inCloudBin: 1, skipped: 1, failed: 0, inserted: ALL_FILES.length - 1 })
-    expect(lines).toContain(`  ${FILES_IN_CLOUD_BIN(1)}`)
+    expect(lines).toContain(`  ${FILES_IN_CLOUD_BIN(1, [FILES.find(f => f.id === target()).name])}`)
+    expect(report.files.inCloudBinNames).toEqual([FILES.find(f => f.id === target()).name])
     expect(ins('files').find(f => f.id === target())).toBeUndefined()
     expect(recordOf(b).files).not.toContain(target())
     expect(report.files.bytes).toBe((ALL_FILES.length - 1) * 3)
   })
 
-  it('any other refusal of the row fails the file, with both sentences: its body\'s and its row\'s', async () => {
+  it('a database without 0114 has no guard to say the object is there: the old answer stands, the file fails on its upload, and no row is written', async () => {
+    resetSupabaseAdapter()
+    try {
+      const b = desktopFixtures()
+      serve([b])
+      refuseBody()
+      fake.state.pre0114 = true
+      const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+      expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id: target(), message: 'storage upload: new row violates row-level security policy' })])
+      expect(report.files).toMatchObject({ inCloudBin: 0, failed: 1 })
+      expect(ins('files').find(f => f.id === target())).toBeUndefined()
+      expect(rpcsCalled('rekey_file_body')).toEqual([{ p_file: NIL_ID, p_from_path: null, p_to_path: null, p_from_thumb: null, p_to_thumb: null, p_financial: false }])
+      expect(recordOf(b).files).not.toContain(target())
+    } finally {
+      resetSupabaseAdapter()
+    }
+  })
+
+  it('a question about 0114 that gets no answer is the same: no row is written on a guess', async () => {
+    resetSupabaseAdapter()
+    try {
+      const b = desktopFixtures()
+      serve([b])
+      refuseBody()
+      fake.state.rpcRefuse.rekey_file_body = { message: 'TypeError: Failed to fetch' }
+      const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+      expect(report.errors).toEqual([expect.objectContaining({ id: target(), message: 'storage upload: new row violates row-level security policy' })])
+      expect(ins('files').find(f => f.id === target())).toBeUndefined()
+    } finally {
+      resetSupabaseAdapter()
+    }
+  })
+
+  it('a refusal of the row by row security says this person may not add the file, not the guard\'s words', async () => {
     const b = desktopFixtures()
     serve([b])
     refuseBody((table, row) => (table === 'files' && row.id === target() ? { code: '42501', message: "This file's stored copy is not one this project can claim." } : null))
     const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     const name = FILES.find(f => f.id === target()).name
-    expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id: target(), message: `${name}: the cloud refused its body (new row violates row-level security policy) and its record (files: This file's stored copy is not one this project can claim.)` })])
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id: target(), message: `${name}: you may not add this file to this project: the cloud refused both its body and its record` })])
+    expect(report.files).toMatchObject({ inCloudBin: 0, failed: 1 })
+    expect(recordOf(b).files).not.toContain(target())
+  })
+
+  it('any other refusal of the row fails the file, with both sentences: its body\'s and its row\'s', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    refuseBody((table, row) => (table === 'files' && row.id === target() ? { code: '23514', message: 'new row for relation "files" violates check constraint "files_x_chk"' } : null))
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const name = FILES.find(f => f.id === target()).name
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id: target(), message: `${name}: the cloud refused its body (new row violates row-level security policy) and its record (files: new row for relation "files" violates check constraint "files_x_chk")` })])
     expect(report.files).toMatchObject({ inCloudBin: 0, failed: 1 })
     expect(recordOf(b).files).not.toContain(target())
   })
@@ -3629,9 +3842,13 @@ describe('M2 review round 2: what round 1 promised, held', () => {
     b.files = b.files.map(f => (f.id === preC4 ? { ...f, is_financial: false } : f))
     serve([b])
     fake.state.lists.files = [{ id: preC4, project_id: PROJECT.id, storage_path: `projects/${PROJECT.id}/files/${preC4}/receipt.pdf`, is_financial: false }]
+    // Open, and its move refused: its body is where its row says (with no body, it is gone, and goes back up).
+    fake.state.objects.push({ bucket: 'rabbit-files', name: `projects/${PROJECT.id}/files/${preC4}/receipt.pdf`, size: 3 })
+    fake.state.failMove = () => ({ message: 'new row violates row-level security policy', statusCode: '403' })
     const first = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
     expect(first.files.receiptsOpen).toBe(1)
     expect(recordOf(b).receipts_open).toEqual([preC4])
+    fake.state.failMove = null
     // An admin removes it in the browser, as the report's sentence says they may.
     fake.state.lists.files = fake.state.lists.files.filter(f => f.id !== preC4)
     fake.state.uploads = []

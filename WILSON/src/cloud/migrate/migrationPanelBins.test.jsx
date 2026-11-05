@@ -37,7 +37,7 @@ const {
   COMMENTS_REMOVED, COMMENTS_ON_GONE_ROWS, ITEMS_ON_GONE_ROWS, FOLDERS_OF_GONE_ROWS, FOLDERS_TAKEN,
   STATUS_NOT_IN_CLOUD, KEY_DATES_PHASE_LET_GO, EDITS_CHAIN_TAKEN, FILE_LINKS_LET_GO, VALUES_NOT_IN_CLOUD,
   REMOVED_SINCE_LAST_RUN, MONEY_GATE_LEFT, ROW_LINKS_LET_GO, ACTUALS_ON_GONE_LINES, TASK_LINKS_ON_GONE_TASKS, RECEIPTS_GATED, SET_ASIDE_AGAIN, RECORD_NOT_KEPT,
-  RECEIPTS_LEFT_OPEN, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
+  RECEIPTS_LEFT_OPEN, RECEIPTS_STRANDED, LINE_PCTS_LEFT_OUT, ACTUALS_TAKEN, RATES_TAKEN,
   PEOPLE_MATCHED, PEOPLE_NOT_MATCHED, PEOPLE_SHARED, PEOPLE_NEED_ADMIN, MANAGERS_SEATED, ROSTER_LEFT, ROLES_LEFT, PEOPLE_SET,
   RATE_CARDS_NEED_RIGHT, ENTRIES_NEED_GRANT, EMPTY_CARDS, DEFAULTS_LEFT, TEMPLATES_LEFT, TEMPLATES_ORPHAN, ASSET_TEMPLATES_LINKED,
   MANAGED_FILES_WILL_UPLOAD, MANAGED_FILES_UPLOADED, SERVER_MEDIA_STAY, BODIES_GONE, MANAGED_OVER_CAP, RECEIPTS_MOVED, RECEIPTS_WILL_MOVE,
@@ -397,7 +397,7 @@ describe('the question, once per root', () => {
   it('M1: one line each under the report for what the five kinds and the project rows did beside the counts, only when it happened', async () => {
     await dryRun(report({
       dryRun: false, footageRoots: [],
-      files: { ...bucket(35), bytes: 0, placed: 31, invoicesFiled: 2, linksLetGo: 2, leftAtTop: 3, inCloudBin: 4 },
+      files: { ...bucket(35), bytes: 0, placed: 31, invoicesFiled: 2, linksLetGo: 2, leftAtTop: 3, inCloudBin: 2, inCloudBinNames: ['a.pdf', 'b.pdf'], receiptsStranded: 5 },
       milestones: { ...bucket(3), trashed: 1, phaseLetGo: 1 }, comments: { ...bucket(6), trashed: 2, orphans: 3, leftBehind: 0 },
       shotLists: { ...bucket(2), archived: 1 }, shotListItems: { ...bucket(29), orphans: 4 }, edits: { ...bucket(3), archived: 1, taken: 2 },
       folders: { ...bucket(40), orphans: 5, taken: 1 },
@@ -409,7 +409,10 @@ describe('the question, once per root', () => {
     expect(said('invoices-filed')).toBe(`${INVOICES_FILED(2)}.`)
     // MO1 (0114): SFB-07's and SFB-09's one sentence each.
     expect(said('files-left-at-top')).toBe(`${FILES_LEFT_AT_TOP(3)}.`)
-    expect(said('files-in-cloud-bin')).toBe(`${FILES_IN_CLOUD_BIN(4)}.`)
+    expect(said('files-in-cloud-bin')).toBe(`${FILES_IN_CLOUD_BIN(2, ['a.pdf', 'b.pdf'])}.`)
+    // Review of 0114: a stranded receipt has its own line, and is not said to be open.
+    expect(said('receipts-stranded')).toBe(`${RECEIPTS_STRANDED(5)}.`)
+    expect(screen.queryByTestId('receipts-left-open')).toBeNull()
     expect(said('archived-in-cloud')).toBe(`${ARCHIVED_IN_CLOUD(1, 1, false)}.`)
     expect(said('archived-in-cloud')).toBe('1 shot list and 1 edit archived in the cloud too, as on this computer.')
     expect(said('live-in-cloud')).toBe(`${LIVE_IN_CLOUD(1)}.`)
@@ -434,7 +437,7 @@ describe('the question, once per root', () => {
     // CONTROL: a run where none of it happened says none of it.
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], milestones: { ...bucket(3), trashed: 0, phaseLetGo: 0 }, edits: { ...bucket(3), archived: 0, taken: 0 }, files: { ...bucket(3), bytes: 0, placed: 0, linksLetGo: 0 }, folders: { ...bucket(4), orphans: 0, taken: 0 }, projectsLeftAtHome: { folders: 0, statuses: {}, withValues: 0, values: {} } }))
-    for (const id of ['files-placed', 'invoices-filed', 'files-left-at-top', 'files-in-cloud-bin', 'archived-in-cloud', 'live-in-cloud', 'project-folders', 'project-statuses', 'project-values', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
+    for (const id of ['files-placed', 'invoices-filed', 'files-left-at-top', 'files-in-cloud-bin', 'receipts-stranded', 'archived-in-cloud', 'live-in-cloud', 'project-folders', 'project-statuses', 'project-values', 'key-dates-trashed', 'key-dates-phase-let-go', 'edits-chain-taken', 'file-links-let-go', 'comments-removed', 'comments-on-gone-rows', 'items-on-gone-rows', 'folders-of-gone-rows', 'folders-taken']) expect(screen.queryByTestId(id), id).toBeNull()
     // A report from before round 1 (no statuses) says no status either.
     cleanup()
     await dryRun(report({ dryRun: false, footageRoots: [], projectsLeftAtHome: { folders: 0 } }))

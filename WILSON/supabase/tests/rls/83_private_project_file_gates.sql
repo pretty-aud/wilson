@@ -146,7 +146,6 @@ RESET ROLE;
 INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
   ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a83/1-public-brief.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
   ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/a83/1-public-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
-  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000083/ASSETS/a1/1-private-plate.png', 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
   ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a83/4-second-manager.png', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
 
 -- MO1 (0114): fn_files_body_guard is a BEFORE trigger, so it answers a client ahead of the
@@ -203,6 +202,21 @@ SELECT lives_ok($$
   VALUES ('aaaa1111-0000-0000-0000-000000000083',
           '11111111-1111-1111-1111-111111111111', 'Private P', true)
 $$, 'a manager can insert a private project (created_by stamped by fn_audit_touch)');
+
+-- MO1 (0114): its stored copy comes after the project: a copy under an id no project
+-- holds ties that id, and the project could not be made.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000083/ASSETS/a1/1-private-plate.png', 'dddddddd-dddd-dddd-dddd-dddddddddddd');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
 
 SELECT ok(
   (SELECT public.reserve_upload_bytes(

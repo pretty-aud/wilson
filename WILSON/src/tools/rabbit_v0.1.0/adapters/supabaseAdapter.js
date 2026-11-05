@@ -152,6 +152,7 @@ export function resetSupabaseAdapter() {
   // `privateColumnKnown = null;` — so 0085's probe (S4a) is forgotten first.
   legalFilesKnown = false;
   fileTagsKnown = null;
+  rekeyFileBodyKnown = null;
   topicEpochKnown = null;
   privateColumnKnown = null;
   fileMetaKnown = null;
@@ -1558,6 +1559,44 @@ async function moveObjectVerified(where, from, to, name) {
   return 'moved';
 }
 
+// MO1 (0114): rekey_file_body, the one path a client has to a stored key, on a
+// database that does not have it yet. There is no guard there either, and both
+// its callers move the object first, so neither may start: the re-file and the
+// migration's receipt move ask before anything moves, and the migration does not
+// trust a refused upload's row without the guard. Asked once with the nil uuid (a
+// file nobody has): 42501 where the function exists, PGRST202 or a 42883 naming it
+// where it does not. Remembered as fileTagsAvailable's answer is, and forgotten by
+// resetSupabaseAdapter, so an auth event picks up a database migrated meanwhile.
+// Any other failure says nothing about the function, so it is said in its own
+// words and asked again next time. A call that meets PGRST202 itself (the function
+// gone since, or a wrong argument name, which shotRefilingCloud.test.js pins) counts
+// as the answer. The second sentence is the first once nothing stays moved.
+export const REKEY_ABSENT_WHY = 'this company\'s database does not have this update yet';
+export const REKEY_ABSENT = `${REKEY_ABSENT_WHY}, so nothing was moved`;
+let rekeyFileBodyKnown = null;
+export function rekeyFileBodyMissing(error) {
+  if (!missingFunction('rekey_file_body')(error)) return false;
+  rekeyFileBodyKnown = false;
+  return true;
+}
+export async function rekeyFileBodyAvailable(client) {
+  if (rekeyFileBodyKnown !== null) return rekeyFileBodyKnown;
+  let answer;
+  try {
+    answer = await client.rpc('rekey_file_body', {
+      p_file: NIL_PROJECT_ID, p_from_path: null, p_to_path: null, p_from_thumb: null, p_to_thumb: null, p_financial: false,
+    });
+  } catch (err) {
+    answer = { error: err };
+  }
+  if (rekeyFileBodyMissing(answer?.error)) return false;
+  if (!answer?.error || answer.error.code === '42501') {
+    rekeyFileBodyKnown = true;
+    return true;
+  }
+  throw new Error(`could not ask this company's database whether it has this update (${answer.error.message || answer.error}), so nothing was moved`);
+}
+
 /**
  * The row read again: `{ ok: true, row }` with what it names NOW (`row`
  * null when this account cannot see it), or `{ ok: false, error }` when
@@ -1598,9 +1637,12 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
     p_to_thumb: body ? picture : to,
     p_financial: false,
   });
-  const failed = up.error
-    ? up.error.message
-    : (up.data !== true ? 'its record was changed by someone else meanwhile' : null);
+  const absent = rekeyFileBodyMissing(up.error);
+  const failed = absent
+    ? REKEY_ABSENT_WHY
+    : up.error
+      ? up.error.message
+      : (up.data !== true ? 'its record was changed by someone else meanwhile' : null);
   if (!failed) return;
   const again = await rereadFileRow(client, row.id);
   if (!again.ok) {
@@ -1608,14 +1650,17 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
   }
   const now = again.row;
   if (now && now[column] === to) return;
-  if (!now || now[column] === from) {
+  const movedBack = !now || now[column] === from;
+  if (movedBack) {
     try {
       await putBack();
     } catch (back) {
       throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and it could not be moved back (${back?.message || back}); its record still says ${from}`);
     }
   }
-  throw new Error(`“${row.name}” could not be re-filed: ${failed}`);
+  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile); run it again to move the rest`);
+  // Only of the body's own phase: by the picture's, the body has moved already.
+  throw new Error(`“${row.name}” could not be re-filed: ${absent && movedBack && body ? REKEY_ABSENT : failed}`);
 }
 
 /** Everything that would stop a shot, found BEFORE its first object moves. */
@@ -1627,6 +1672,7 @@ async function refileShotPreflight(client, projectId, p, rows, folders, toPath) 
     const to = nestedShotKey(row.storage_path, ctx);
     const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
     if (!to && !thumbTo) continue;
+    if (!(await rekeyFileBodyAvailable(client))) throw new Error(REKEY_ABSENT);
     if (row.storage_provider === FILE_PROVIDERS.S3) {
       throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
     }

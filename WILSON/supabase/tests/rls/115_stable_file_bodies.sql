@@ -48,7 +48,7 @@
 
 BEGIN;
 
-SELECT plan(439);
+SELECT plan(448);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1112,6 +1112,7 @@ SELECT 'rabbit-files', k, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' FROM unnest(ARR
   'projects/11500000-aaaa-0000-0000-000000000001/files/a114/two.pdf',
   'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a115/two.pdf',
   'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a116/two.pdf',
+  'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a141/two.pdf',
   'projects/11500000-aaaa-0000-0000-000000000002/files/a118/two.txt',
   'projects/11500000-aaaa-0000-0000-000000000001/files/a119/two.txt',
   'projects/11500000-aaaa-0000-0000-000000000006/files/a120/two.txt',
@@ -1158,7 +1159,8 @@ INSERT INTO public.files (id, project_id, workspace_id, name, storage_provider, 
   ('11500000-0000-0000-0000-00000000a137', '11500000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'one.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a137/one.txt', NULL, false, '{}', '11500000-0000-0000-0000-0000000000f1', NULL),
   ('11500000-0000-0000-0000-00000000a138', '11500000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'one.pdf', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a138/one.pdf', NULL, true, '{}', '11500000-0000-0000-0000-0000000000f1', NULL),
   ('11500000-0000-0000-0000-00000000a139', '11500000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'taken.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a139/taken.txt', NULL, false, '{}', NULL, NULL),
-  ('11500000-0000-0000-0000-00000000a140', '11500000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'one.bin', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a140/one.bin', NULL, false, '{}', NULL, NULL);
+  ('11500000-0000-0000-0000-00000000a140', '11500000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'one.bin', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a140/one.bin', NULL, false, '{}', NULL, NULL),
+  ('11500000-0000-0000-0000-00000000a141', '11500000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'one.pdf', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf.jpg', false, '{}', NULL, NULL);
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -1273,6 +1275,10 @@ SELECT is(pg_temp.t115_ask($$ SELECT public.rekey_file_body('11500000-0000-0000-
   'money goes false to true with p_financial on an invoices key');
 SELECT is((SELECT storage_path || '|' || is_financial::text FROM public.files WHERE id = '11500000-0000-0000-0000-00000000a130'),
   'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a130/two.pdf|true', 'and the row is an invoice');
+SELECT throws_ok($$ SELECT public.rekey_file_body('11500000-0000-0000-0000-00000000a141', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a141/two.pdf', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf.jpg', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf.jpg', true) $$,
+  '42501', 'file not found or not writable', 'money growing while its picture stays at the old, open key');
+SELECT is(pg_temp.t115_ask($$ SELECT public.rekey_file_body('11500000-0000-0000-0000-00000000a141', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a141/two.pdf', 'projects/11500000-aaaa-0000-0000-000000000001/files/a141/one.pdf.jpg', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a141/two.pdf.jpg', true) $$), 'true',
+  'CONTROL: money growing with its picture following');
 SELECT is(pg_temp.t115_ask($$ SELECT public.rekey_file_body('11500000-0000-0000-0000-00000000a134', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a134/one.pdf', 'projects/11500000-aaaa-0000-0000-000000000001/INVOICES/a134/one.pdf', NULL, NULL, true) $$), 'true',
   'and in place, on a row already under INVOICES');
 SELECT is((SELECT is_financial FROM public.files WHERE id = '11500000-0000-0000-0000-00000000a134'), true, 'where the flag grows');
@@ -1375,6 +1381,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   ('11500000-0000-0000-0000-00000000a206', '11500000-aaaa-0000-0000-000000000001', 'share.mov', 'network_share', 'projects/11500000-aaaa-0000-0000-000000000001/files/a206/share.mov', NULL, false, NULL),
   ('11500000-0000-0000-0000-00000000a207', '11500000-bbbb-0000-0000-000000000001', 'theirs.txt', 'supabase', 'projects/11500000-bbbb-0000-0000-000000000001/files/a207/theirs.txt', NULL, false, NULL),
   ('11500000-0000-0000-0000-00000000a208', '11500000-aaaa-0000-0000-000000000001', 'picture.jpg', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a208/picture.jpg', NULL, false, NULL),
+  ('11500000-0000-0000-0000-00000000a2f0', '11500000-aaaa-0000-0000-000000000001', 'k.bin', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a2f0/k.bin', 'projects/11500000-aaaa-0000-0000-000000000001/files/a2f0/k.bin.png', false, NULL),
   ('11500000-0000-0000-0000-00000000a209', '11500000-aaaa-0000-0000-000000000001', 's3-trashed.bin', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a209/s3.bin', NULL, false, now()),
   ('11500000-0000-0000-0000-00000000a210', '11500000-aaaa-0000-0000-000000000003', 'hidden.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000003/files/a210/hidden.txt', NULL, false, NULL),
   ('11500000-0000-0000-0000-00000000a211', '11500000-aaaa-0000-0000-000000000001', 'poster.jpg', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/bin_files/a211/poster.jpg', NULL, false, NULL),
@@ -1465,6 +1472,7 @@ SELECT is(rabbit_private.storage_object_current_project('rabbit-files', 'project
 SELECT is(rabbit_private.storage_object_current_project('byo-s3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a204/s3.bin'), '11500000-aaaa-0000-0000-000000000001'::uuid, 'an s3 body gives its project');
 SELECT is(rabbit_private.storage_object_current_project('byo-s3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a204/s3.bin.jpg'), '11500000-aaaa-0000-0000-000000000001'::uuid, 'and the picture the row names');
 SELECT is(rabbit_private.storage_object_current_project('byo-s3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a208/picture.jpg.jpg'), NULL::uuid, 'not a picture the row does not name');
+SELECT is(rabbit_private.storage_object_current_project('byo-s3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a2f0/k.bin.png'), NULL::uuid, 'nor a picture the row names under another suffix: only .jpg shares a body''s name');
 SELECT is(rabbit_private.storage_object_current_project('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a201/live.txt'), NULL::uuid, 'a name without .jpg gives no picture''s project');
 SELECT is(rabbit_private.storage_object_current_project('rabbit-thumbnails', 'projects/11500000-aaaa-0000-0000-000000000001/files/a201/live.txt.png'), NULL::uuid, 'nor does another four-letter ending');
 SELECT is(rabbit_private.storage_object_current_project('rabbit-files', 'projects/11500000-aaaa-0000-0000-000000000003/files/a203/local.mov'), '11500000-aaaa-0000-0000-000000000003'::uuid, 'a local_server row answers in Petal''s bucket');
@@ -1556,7 +1564,8 @@ SELECT 'rabbit-files', k, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' FROM unnest(ARR
   'projects/11500000-aaaa-0000-0000-000000000001/files/a312/wrong-project.txt',
   'projects/11500000-aaaa-0000-0000-000000000002/files/a313/copy.mov',
   'projects/11500000-aaaa-0000-0000-000000000002/files/a314/moved.txt',
-  'projects/11500000-aaaa-0000-0000-000000000003/files/a319/own.txt'
+  'projects/11500000-aaaa-0000-0000-000000000003/files/a319/own.txt',
+  'projects/11500000-aaaa-0000-0000-000000000001/files/a321/plain.txt'
 ]) AS k;
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url) VALUES
   ('11500000-0000-0000-0000-00000000a301', '11500000-aaaa-0000-0000-000000000001', 'drive.doc', 'google_drive', 'projects-drive/a301/drive.doc', NULL),
@@ -1577,7 +1586,8 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   ('11500000-0000-0000-0000-00000000a317', '11500000-aaaa-0000-0000-000000000001', 'moved.bin', 's3', 'projects/11500000-aaaa-0000-0000-000000000003/files/a317/moved.bin', 'projects/11500000-aaaa-0000-0000-000000000003/files/a317/moved.bin.jpg'),
   ('11500000-0000-0000-0000-00000000a318', '11500000-aaaa-0000-0000-000000000001', 'plain.bin', 's3', 'projects/11500000-aaaa-0000-0000-000000000001/files/a318/plain.bin', NULL),
   ('11500000-0000-0000-0000-00000000a319', '11500000-aaaa-0000-0000-000000000003', 'own.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000003/files/a319/own.txt', NULL),
-  ('11500000-0000-0000-0000-00000000a320', '11500000-aaaa-0000-0000-000000000001', 'local.mov', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a320/local.mov', NULL);
+  ('11500000-0000-0000-0000-00000000a320', '11500000-aaaa-0000-0000-000000000001', 'local.mov', 'local_server', 'projects/11500000-aaaa-0000-0000-000000000001/files/a320/local.mov', NULL),
+  ('11500000-0000-0000-0000-00000000a321', '11500000-aaaa-0000-0000-000000000001', 'plain.txt', 'supabase', 'projects/11500000-aaaa-0000-0000-000000000001/files/a321/plain.txt', '');
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -1626,6 +1636,8 @@ SELECT is(pg_temp.t115_ask($$ SELECT rabbit_private.files_body_follow('11500000-
 SELECT is(pg_temp.t115_ask($$ SELECT rabbit_private.files_body_follow('11500000-0000-0000-0000-00000000a310', '11500000-aaaa-0000-0000-000000000002') $$),
   '{"set":{"thumbnail_url":null},"retire":[{"bucket":"rabbit-thumbnails","path":"projects/11500000-aaaa-0000-0000-000000000001/files/a310/old-picture.jpg","provider":"supabase","kind":"thumbnail"}]}'::jsonb::text,
   'a legacy picture is detached and retired');
+SELECT is(pg_temp.t115_ask($$ SELECT rabbit_private.files_body_follow('11500000-0000-0000-0000-00000000a321', '11500000-aaaa-0000-0000-000000000002') $$),
+  '{"set":{"thumbnail_url":null},"retire":[]}'::jsonb::text, 'a blank picture is cleared, and nothing is retired for it');
 
 -- A re-home, and its refusals.
 SELECT is(pg_temp.t115_ask($$ SELECT rabbit_private.files_body_follow('11500000-0000-0000-0000-00000000a312', '11500000-aaaa-0000-0000-000000000002', '[{"file_id":"11500000-0000-0000-0000-00000000a312","to_provider":"s3","to_path":"projects/11500000-aaaa-0000-0000-000000000002/files/a312/copy.txt","to_thumb":null}]') $$),
@@ -1749,6 +1761,15 @@ SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-0000
 SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222'), false, 'but not for that company');
 SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111'), false, 'a key on a provider that holds no body here does not');
 SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111'), false, 'an id nobody names is tied to nobody');
+-- A dead project's copies that no row names: a rate card, a manifest, a bin's poster.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/11500000-dddd-0000-0000-00000000000a/FINANCE/RATES.json', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/11500000-dddd-0000-0000-00000000000b/PROJECT.json', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-thumbnails', 'projects/11500000-dddd-0000-0000-00000000000c/bin_files/a410/poster.jpg', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111'), true, 'the helper: a rate card no row names ties an id');
+SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111'), true, 'and a manifest');
+SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-00000000000c', '11111111-1111-1111-1111-111111111111'), true, 'and a picture');
+SELECT is(rabbit_private.project_id_tied_elsewhere('11500000-dddd-0000-0000-00000000000a', '22222222-2222-2222-2222-222222222222'), true, 'for every company: a copy does not say whose it is');
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -1761,6 +1782,8 @@ SELECT throws_ok($$ INSERT INTO public.projects (id, title) VALUES ('11500000-dd
   '42501', 'This project cannot be brought in under that id. Make a new project.', 'an admin creating a project whose id another company''s file events name');
 SELECT throws_ok($$ INSERT INTO public.projects (id, workspace_id, title) VALUES ('11500000-dddd-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Tied by a key') $$,
   '42501', 'This project cannot be brought in under that id. Make a new project.', 'an admin creating a project whose id another company''s key names');
+SELECT throws_ok($$ INSERT INTO public.projects (id, title) VALUES ('11500000-dddd-0000-0000-00000000000a', 'A dead project''s rate card') $$,
+  '42501', 'This project cannot be brought in under that id. Make a new project.', 'an admin cannot take a dead project''s id, and with it the rate card its key still authorises');
 SELECT lives_ok($$ INSERT INTO public.projects (id, title) VALUES ('11500000-dddd-0000-0000-000000000006', 'Tied to nobody') $$,
   'an id tied to nobody passes');
 SELECT is((SELECT count(*)::int FROM public.projects WHERE id = '11500000-dddd-0000-0000-000000000006'), 1, 'and the project is there');

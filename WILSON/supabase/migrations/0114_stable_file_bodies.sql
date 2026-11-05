@@ -31,9 +31,16 @@
 -- rewriteFileRow and runMigration.moveReceipt patched the row directly. On an old build
 -- a re-file puts its object back and says so. A receipt move has no put-back there: it
 -- says its sentence, and the copy stays at its invoices key with no row naming it, where
--- storage-gc's orphan scan can delete it after 24 hours. So the adapter changes ship in
--- the same release as this file, and no desktop-to-cloud migration runs on an old build
--- against it.
+-- an admin's Cleanup run (storage-gc's orphan scan) can delete it once it is 24 hours old.
+-- So the adapter changes ship in the same release as this file, and no desktop-to-cloud
+-- migration runs on an old build against it.
+--
+-- THE ORDER ON EACH ENVIRONMENT
+-- -----------------------------
+-- A build with the adapter changes may run before this file: on a database below it, it
+-- says so in words, moves nothing, and writes no row for a refused body. So it can go
+-- first, as 0110's client half must. What must not run against this file is an old
+-- build's desktop-to-cloud migration.
 --
 -- One transaction, no enum use: providers compare as text or by the labels 0051
 -- made, and the network_share label exists only as text here (0112). Re-runnable.
@@ -115,6 +122,20 @@ BEGIN
   IF v_n > 0 THEN
     RAISE EXCEPTION '0114 refused: % file row(s) already say network_share, which nothing has written yet', v_n;
   END IF;
+  -- An index cannot hold a very long value, and its own error counts nothing. The shape
+  -- rule stops new ones at 1024 characters (the review round of 0114).
+  SELECT count(*) INTO v_n FROM public.files
+   WHERE storage_provider::text IN ('supabase', 's3', 'local_server') AND octet_length(storage_path) > 2000;
+  IF v_n > 0 THEN
+    RAISE EXCEPTION '0114 refused: % file row(s) have a key too long to index', v_n;
+  END IF;
+  SELECT (SELECT count(*) FROM public.file_events WHERE event = 'purged' AND octet_length(old_path) > 2000)
+       + (SELECT count(*) FROM public.storage_gc_queue
+           WHERE file_id IS NOT NULL AND status IN ('pending', 'failed') AND octet_length(object_path) > 2000)
+    INTO v_n;
+  IF v_n > 0 THEN
+    RAISE EXCEPTION '0114 refused: % purge or queue record(s) have a path too long to index', v_n;
+  END IF;
 
   -- Counted, not refused (db query drops a NOTICE; the rehearsal measures them).
   SELECT count(*) INTO v_n FROM public.files
@@ -125,6 +146,17 @@ BEGIN
      AND NOT (lower(split_part(storage_path, '/', 3)) IN ('scenes', 'shots', 'levels', 'experiences', 'assets', 'tasks',
                                                           'phases', 'project', 'files', 'invoices', 'legal'));
   RAISE NOTICE '0114: % key(s) whose third segment is outside the allowlist or reserved', v_n;
+  SELECT count(*) INTO v_n FROM public.files f
+   WHERE f.folder_id IS NOT NULL
+     AND NOT public.file_row_is_money(f.is_financial, f.storage_path)
+     AND public.moth_folder_chain_locked(f.workspace_id, f.folder_id);
+  RAISE NOTICE '0114: % non-money row(s) filed in a locked folder, which after this no client can re-file', v_n;
+  SELECT count(*) INTO v_n FROM public.storage_gc_queue q
+   WHERE q.file_id IS NOT NULL AND q.status IN ('pending', 'failed')
+     AND (lower(split_part(q.object_path, '/', 3)) IN ('bin_files', 'connection-check')
+          OR q.object_path ~ '^projects/[^/]+/PROJECT\.json$'
+          OR q.object_path ~ '^projects/[^/]+/FINANCE/RATES\.json$');
+  RAISE NOTICE '0114: % open queue row(s) name a shape no row names', v_n;
 END $$;
 
 -- §1 The schema ---------------------------------------------------------------------
@@ -279,7 +311,8 @@ BEGIN
     SELECT count(*), (array_agg(f.project_id))[1] INTO v_n, v_project
       FROM public.files f
      WHERE f.storage_provider = 's3'
-       AND (f.storage_path = p_name OR (f.storage_path || '.jpg' = p_name AND f.thumbnail_url = p_name));
+       AND f.storage_path IN (p_name, CASE WHEN right(p_name, 4) = '.jpg' THEN left(p_name, -4) END)
+       AND (f.storage_path = p_name OR f.thumbnail_url = p_name);
   END IF;
   RETURN CASE WHEN v_n = 1 THEN v_project END;
 END;
@@ -401,6 +434,15 @@ SET search_path = public
 SET row_security = off
 AS $$
 BEGIN
+  -- Copies no row names outlive their project: a rate card, a manifest, a bin's poster.
+  -- The key alone authorises them, and they do not say whose they are, so the id stays
+  -- out of reach. The guard asks only for an id no project holds; a false refusal costs
+  -- a new project (the review round of 0114).
+  IF EXISTS (SELECT 1 FROM storage.objects o
+              WHERE o.bucket_id IN ('rabbit-files', 'rabbit-thumbnails')
+                AND o.name LIKE 'projects/' || p_id::text || '/%') THEN
+    RETURN true;
+  END IF;
   RETURN EXISTS (SELECT 1 FROM public.file_events e
                   WHERE e.project_id = p_id AND e.workspace_id IS DISTINCT FROM p_ws)
       OR EXISTS (SELECT 1 FROM public.files f
@@ -473,7 +515,11 @@ BEGIN
   END IF;
 
   IF v_item IS NULL THEN
-    -- By association: the key stays. A legacy picture elsewhere is detached.
+    -- By association: the key stays. A blank picture names nothing: it is cleared, and
+    -- nothing is retired. A legacy picture elsewhere is detached.
+    IF btrim(v_f.thumbnail_url) = '' THEN
+      RETURN jsonb_build_object('set', jsonb_build_object('thumbnail_url', NULL), 'retire', '[]'::jsonb);
+    END IF;
     IF v_f.thumbnail_url IS NOT NULL AND v_f.thumbnail_url <> v_f.storage_path || '.jpg' THEN
       RETURN jsonb_build_object(
         'set', jsonb_build_object('thumbnail_url', NULL),
@@ -623,9 +669,11 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Arm 2. A bound definer: only the named writers, each bound to this row, so an
-  -- unknown or future definer fails closed. folder_id to NULL is the foreign key's
-  -- own SET NULL, which runs as the table's owner.
+  -- Arm 2. A bound definer: a change only by the named writers, each bound to this row,
+  -- so an unknown or future definer's change fails closed. folder_id to NULL is the
+  -- foreign key's own SET NULL, which runs as the table's owner. A definer's INSERT is
+  -- not judged here (0117's network_share_record_added is one): any new definer that
+  -- inserts into files validates the row itself, by file_key_admissible's rules.
   IF TG_OP = 'INSERT' THEN
     RETURN NEW;
   END IF;
@@ -726,6 +774,11 @@ BEGIN
   -- Money only grows, into an invoices key, and only for someone with money access.
   IF COALESCE(p_financial, false) AND NOT COALESCE(v_f.is_financial, false)
      AND (lower(v_to) <> 'invoices' OR NOT COALESCE(public.can_access_project_money(v_f.project_id), false)) THEN
+    RAISE EXCEPTION 'file not found or not writable' USING ERRCODE = '42501';
+  END IF;
+  -- And its picture goes with it: a money row names no picture outside the gate.
+  IF COALESCE(p_financial, false) AND NOT COALESCE(v_f.is_financial, false)
+     AND NOT (p_to_thumb IS NULL OR p_to_thumb = p_to_path || '.jpg') THEN
     RAISE EXCEPTION 'file not found or not writable' USING ERRCODE = '42501';
   END IF;
   IF NOT (p_to_thumb IS NOT DISTINCT FROM v_f.thumbnail_url
@@ -993,7 +1046,7 @@ COMMENT ON FUNCTION rabbit_private.file_key_admissible(text, text, uuid, uuid, u
 COMMENT ON FUNCTION rabbit_private.s3_body_moves_on() IS
   'False until 0120 restates it, per environment, after the new storage-presign is verified deployed there.';
 COMMENT ON FUNCTION rabbit_private.project_id_tied_elsewhere(uuid, uuid) IS
-  'True when another company''s file events or keys name this project id. Called only by fn_projects_owner_guard.';
+  'True when another company''s file events or keys, or any stored copy, name this project id. Called only by fn_projects_owner_guard, for an id no project holds.';
 COMMENT ON FUNCTION rabbit_private.files_body_follow(uuid, uuid, jsonb) IS
   'What the checked move must do with a file''s stored copy: {set, retire}, or a refusal whose message is its code. Called only by fn_moth_apply_moves (0118). Closed to every client role.';
 COMMENT ON FUNCTION rabbit_private.files_body_retire(uuid, jsonb) IS
