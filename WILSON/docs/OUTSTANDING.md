@@ -4361,7 +4361,8 @@ adds this section, each after reading the code. What is left, none fixed:
   DG8's round 1: its check renders the bar and the header, not the Add references
   window's own footer words or the contract line, so the word planted in either (a
   footer `title`, a contract-line `title`) leaves `ReferencesCard.test.jsx` green. Neither
-  holds the word today (walked in Chromium, with all 8 rail panes and all 14 Help pages);
+  holds the word today (walked in Chromium, with all 8 rail panes and all 14 Help pages; that
+  walk's output was not saved, and a source search by the controller's second look agrees);
   a preview's body in the fixtures shows only an error, so its words are clean by a
   source search only. The Rate Card's hidden text *for estimating* is in the page's DOM on
   `/dog`, out of the accessibility tree and not D.O.G.'s. READ: older comments still

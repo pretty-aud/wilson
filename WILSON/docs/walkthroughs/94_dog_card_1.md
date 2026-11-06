@@ -187,7 +187,9 @@ bar no longer says it, anywhere it showed, and this page now quotes the new word
 - The hover: *About X of Y tokens*.
 
 Nothing else about the bar moved: the same limit, the same figure for a page, the same
-percent, and it warns when it did. There is no question for you here.
+percent, and it warns when it did. One small effect: past the limit on a 1280 window the
+sentence now fits on one line, so card 1 is about 17 px shorter there. There is no
+question for you here.
 
 *Tokens* below are the AI's unit for counting what it reads, roughly a word.
 
@@ -276,7 +278,7 @@ outline. Please try again.*, not the reason.
 
 ### Question
 
-**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which you meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words but for *(an estimate)*, which goes everywhere it shows (the session DG8). This page is now corrected (top of *The limit bar*).
+**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which you meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words, with *(an estimate)* taken out of its sentence, of card 1's header and of the hover (the session DG8). This page is now corrected (top of *The limit bar*).
 
 - **Q4, as it was asked on 2026-11-05. The bar's new words then.** (a) As built
   (recommended: that day's words, with *(an estimate)* added and the number past the limit). (b) The word first:

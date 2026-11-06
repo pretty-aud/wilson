@@ -84,7 +84,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 **D.O.G.**
 
 - **References:** the project's items, files and personal notes chosen as sources, the uploads among them, in one card, **1 Project and references**, with **Core files only**; **Place visual** and **Theme generator** the only two options; References and Uploads side by side, with one list of everything the deck reads under both. (DG1 `9c21bd05`; DG1b `e90d6b86`; DG2 `247c090d`; DG4 `9a4dfe77`; DG7 `0eb2e9c1`; walkthroughs 75, 80, 84, 94)
-- **The reading meter says what is true:** it measures against the AI model's own limit from the provider's documentation, counts a PDF page at a cautious figure checked against real decks, and what the chosen mode sends, and gives the number past the limit; a 110-page script reads about 34 percent, no longer past it. It warns and never blocks. The page warning cites the provider's 600 and shows on an upload's tile too. (DG7 `3dfe6831`, DG8; walkthrough 94)
+- **The reading meter says what is true:** it measures against the AI model's own limit from the provider's documentation, counts a PDF page at a cautious figure checked against real decks, and what the chosen mode sends, and gives the number past the limit; a 110-page script reads about 34 percent, no longer past it. It warns and never blocks. The page warning cites the provider's 600 and shows on an upload's tile too. (DG7 `3dfe6831`, DG8 `117b2b4e`; walkthrough 94)
 - **Cloud project attachments**, listed, downloaded and read like local ones. (Track C C3, 0075 `2a4924f2`)
 - **Keyboard:** Enter makes a full deck only with words in the context box; the cards fold from the keyboard. (FX13 `6db22a9b`; FX14 `566c6a8a`; FX15 `687667a3`; DG3 `10426db8`)
 
