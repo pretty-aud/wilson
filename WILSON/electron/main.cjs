@@ -3850,6 +3850,13 @@ function startLocalServer(distPath) {
       resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent,
     });
 
+    // MO1: moves on one computer, journalled, finished at start-up if a crash left one (her answer 2).
+    require('./fileMoves.cjs').mountFileMoves(expressApp, {
+      fs, path, readRabbitBundle, writeRabbitBundle, rabbitNotFound, rabbitRemoveFrom,
+      resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent, writeJsonAtomic,
+      movesDir: () => path.join(getRabbitDataDir(), 'moves'),
+    }).recoverMoves();
+
     // ── Files: lifecycle events + storage relink (Session 14) ──
     // The read side of bundle.fileEvents — the audit drawer's local twin of
     // the cloud file_events table (0027). Newest first.
